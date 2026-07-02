@@ -308,10 +308,26 @@ This is a pure SQL filter on `users.last_active_at` (already kept warm by `POST 
 
 ### Profile Components (PRD §15)
 
-- **Creator Card**: When `is_creator = true`, the profile shows the creator's primary room (highest-member-count), member count, and total earnings (own profile only, for privacy).
+- **Creator Card**: When `is_creator = true`, the profile shows the creator's top 3 rooms by member count with a "see all N rooms by this creator" link (`/rooms?creator_id=<id>`, a new optional filter on `GET /api/rooms`), member count, and total earnings (own profile only, for privacy).
 - **Public Achievements Wall**: Up to 12 lifetime `user_badges` displayed as amber chips with earned-date tooltips.
 - **Connection Badge**: If the viewer and profile user have a `dm_conversations.conversation_score ≥ 7`, a badge appears (Connected = 7 days, Gold Connection = 14 days, Platinum Bond = 30 days).
 - **Legacy Score**: Accumulated across all Prestige cycles; displayed with a ⚜️ icon.
+
+### User Profile Stats Page (PRD §15)
+
+A dedicated Stats page at `/profile/[userId]/stats`, backed by `GET /api/users/[userId]/stats`, aggregates everything about a user in one place: all badges (not capped at 12 like the public wall), all seven progression tracks, created rooms, guild, social counts (friends/followers/following/referrals), and leaderboard positions.
+
+**Visibility.** `withAuth` confirms the caller is either the profile owner or has `is_admin`/`is_moderator` set (re-checked fresh from the DB, never trusted from the JWT — same pattern as the leaderboard plan-visibility check in `GET /api/leaderboards`). Everyone else gets 403. The page is never linked for a regular viewer of someone else's profile; it's reachable from the owner's own `/profile` quick actions, and as a "📊 Stats" action button on `/profile/[userId]` only when `canViewStats` (computed server-side) is true. It is fetched only when the user actually opens the page — never prefetched alongside the profile.
+
+**Basic vs. Full tiers.** `lib/plans/eligibility.ts` (`getAllowedPlans` + `isPlanEligible`, extracted from the Profile Privacy gates below so the same plan/prestige-tier logic isn't duplicated a third time) checks the target user's plan against the `profile_stats_full_plans` x_manifest key (JSON array, default `["plus","pro","max"]`). Free users get **Basic**: badges, tracks, rooms, guild, social counts, and a single "main track, global scope" leaderboard rank. Plans on the list get **Full**: everything in Basic plus every track × every scope (global/city/guild/season) leaderboard rank and season history — computed with the same `getUserRank()` helper used by `GET /api/leaderboards/me`, just scoped to the target `userId` instead of the caller.
+
+**Admin control.** The master switch (`feature_profile_stats`) is a normal `feature_*` key, so it's picked up automatically by the existing Feature Flags panel (`/admin/feature-flags`) with no code change beyond a nicer label. Which plans get Full vs Basic is configured separately at `/admin/settings/profile-stats` (chip selector, same UI pattern as `/admin/settings/privacy`), writing to `profile_stats_full_plans` via the existing generic `PUT /api/admin/config/[key]` route.
+
+**Wallet integration.** The Wallet page shows a compact rank/badges/prestige summary (reading `GET /api/users/me`, which now also returns a cheap `badge_count` via one correlated subquery) linking to this Stats page, so users don't have to leave Wallet to see their standing.
+
+### Wallet Transaction Pagination
+
+The Wallet page previously fetched up to 30 transactions once with no way to see older ones, even though `GET /api/economy/coins/balance` already supported cursor pagination (`cursor`/`star_cursor` query params, `nextCursor`/`nextStarCursor` in the response) — the UI just never read those fields. Now the page requests **10 at a time** and exposes a "Load more" button per currency tab (Credits/Stars have independent cursors, mirroring the notifications page's `cursor`/`hasMore`/`loadingMore` pattern), appending results client-side. No backend changes were needed.
 
 ### Guild Treasury (PRD §13)
 
@@ -1090,7 +1106,7 @@ Key architectural decisions:
 - **Capacitor Network and App replace NetInfo and AppState.** `@capacitor/network` powers `useNetworkStatus` for the offline banner and query pause logic. `@capacitor/app` provides `appStateChange` events to pause Ably subscriptions and query polling when the app is backgrounded.
 - **i18next-browser-languagedetector replaces expo-localization.** Language detection reads the browser `Accept-Language` header (surfaced by Capacitor's WebView). The chosen language is persisted in `@capacitor/preferences`. All locale JSON files are sourced from `shared/i18n/locales/` — the same canonical files used by the web app.
 
-**Screen coverage.** `apps/android/src/routes/` currently ports: home, quests, games, rooms (list + detail), messages (list + conversation), moments (feed + create), Zobia Answers (list, ask, question detail — `answers/`), profile, settings, notifications, and auth. Friends (`/friends`) and the Gifts Hub (`/gifts`) — both covered in this doc for web/PWA — are not yet ported to the Capacitor app; there is no `apps/android/src/routes/friends.tsx` or `gifts.tsx` today. When they are built, they should mirror the web/PWA tab layout and API calls described above (same `/api/friends*` and `/api/economy/gifts*` endpoints, TanStack Query instead of raw `fetch` + `useState`, per the pattern in `src/routes/messages/index.tsx`).
+**Screen coverage.** `apps/android/src/routes/` currently ports: home, quests, games, rooms (list + detail), messages (list + conversation), moments (feed + create), Zobia Answers (list, ask, question detail — `answers/`), profile, wallet, stats, settings, notifications, and auth. `wallet.tsx` and `stats.tsx` (added alongside the web Stats page) cover the logged-in user's own wallet/rank/badges and Stats screens — reachable from Settings — using `useInfiniteQuery` + an explicit "Load more" button for transaction history against the same `GET /api/economy/coins/balance` and `GET /api/users/[userId]/stats` endpoints the web app uses. Friends (`/friends`) and the Gifts Hub (`/gifts`) — both covered in this doc for web/PWA — are not yet ported to the Capacitor app; there is no `apps/android/src/routes/friends.tsx` or `gifts.tsx` today. When they are built, they should mirror the web/PWA tab layout and API calls described above (same `/api/friends*` and `/api/economy/gifts*` endpoints, TanStack Query instead of raw `fetch` + `useState`, per the pattern in `src/routes/messages/index.tsx`).
 
 ### Routing and Navigation
 
