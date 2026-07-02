@@ -22,12 +22,13 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { GRACE_FEATURE_REGISTRY } from "@/lib/plans/graceFeatures";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-type ConfigValueType = "boolean" | "string" | "number" | "select";
+type ConfigValueType = "boolean" | "string" | "number" | "select" | "multiselect";
 
 interface SelectOption {
   value: string;
@@ -39,14 +40,14 @@ interface ConfigMeta {
   description: string;
   type: ConfigValueType;
   group: string;
-  options?: SelectOption[]; // for type === "select"
+  options?: SelectOption[]; // for type === "select" | "multiselect"
 }
 
 interface ConfigItem {
   key: string;
   label: string;
   description: string;
-  value: boolean | string | number;
+  value: boolean | string | number | string[];
   type: ConfigValueType;
   group: string;
   options?: SelectOption[];
@@ -498,6 +499,110 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Floating Notifications",
   },
 
+  // Grace Periods & Save Slots
+  save_slots_free: {
+    label: "Save Slots — Free",
+    description: "Number of save slots (paused in-progress games) available to Free plan users.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  save_slots_plus: {
+    label: "Save Slots — Plus",
+    description: "Number of save slots available to Plus plan users.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  save_slots_pro: {
+    label: "Save Slots — Pro",
+    description: "Number of save slots available to Pro plan users.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  save_slots_max: {
+    label: "Save Slots — Max",
+    description: "Number of save slots available to Max plan users.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_plus: {
+    label: "Grace Period (days) — Plus",
+    description: "Days after a Plus subscription lapses before grace-gated data (e.g. saved games) is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_pro: {
+    label: "Grace Period (days) — Pro",
+    description: "Days after a Pro subscription lapses before grace-gated data is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_max: {
+    label: "Grace Period (days) — Max",
+    description: "Days after a Max subscription lapses before grace-gated data is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_business_starter: {
+    label: "Grace Period (days) — Business Starter",
+    description: "Days after a Business Starter subscription lapses before grace-gated data is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_business_growth: {
+    label: "Grace Period (days) — Business Growth",
+    description: "Days after a Business Growth subscription lapses before grace-gated data is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_business_enterprise: {
+    label: "Grace Period (days) — Business Enterprise",
+    description: "Days after a Business Enterprise subscription lapses before grace-gated data is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_features_plus: {
+    label: "Preserved During Grace — Plus",
+    description: "Which grace-gated features are kept (not purged) during the Plus grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+  grace_period_features_pro: {
+    label: "Preserved During Grace — Pro",
+    description: "Which grace-gated features are kept (not purged) during the Pro grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+  grace_period_features_max: {
+    label: "Preserved During Grace — Max",
+    description: "Which grace-gated features are kept (not purged) during the Max grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+  grace_period_features_business_starter: {
+    label: "Preserved During Grace — Business Starter",
+    description: "Which grace-gated features are kept during the Business Starter grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+  grace_period_features_business_growth: {
+    label: "Preserved During Grace — Business Growth",
+    description: "Which grace-gated features are kept during the Business Growth grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+  grace_period_features_business_enterprise: {
+    label: "Preserved During Grace — Business Enterprise",
+    description: "Which grace-gated features are kept during the Business Enterprise grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+
   // Miscellaneous
   deep_link_base_url: {
     label: "Deep Link Base URL",
@@ -525,6 +630,7 @@ const GROUP_ORDER = [
   "Moments",
   "Zobia Answers",
   "Physical Goods",
+  "Grace Periods & Save Slots",
   "Miscellaneous",
 ];
 
@@ -561,12 +667,14 @@ function ToggleSwitch({ checked, onChange, disabled }: ToggleSwitchProps) {
 
 interface ConfigRowProps {
   item: ConfigItem;
-  onSave: (key: string, value: boolean | string | number) => Promise<void>;
+  onSave: (key: string, value: boolean | string | number | string[]) => Promise<void>;
 }
 
 function ConfigRow({ item, onSave }: ConfigRowProps) {
   const [editing, setEditing] = useState(false);
-  const [localValue, setLocalValue] = useState<string>(String(item.value));
+  const [localValue, setLocalValue] = useState<string>(
+    Array.isArray(item.value) ? "" : String(item.value)
+  );
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -592,6 +700,16 @@ function ConfigRow({ item, onSave }: ConfigRowProps) {
   async function handleSelectChange(val: string) {
     setSaving(true);
     await onSave(item.key, val);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleMultiselectToggle(optionValue: string, checked: boolean) {
+    const current = Array.isArray(item.value) ? item.value : [];
+    const next = checked ? [...current, optionValue] : current.filter((v) => v !== optionValue);
+    setSaving(true);
+    await onSave(item.key, next);
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -636,6 +754,24 @@ function ConfigRow({ item, onSave }: ConfigRowProps) {
               </option>
             ))}
           </select>
+        ) : item.type === "multiselect" ? (
+          <div className="flex flex-col gap-1.5">
+            {item.options?.map((opt) => {
+              const checked = Array.isArray(item.value) && item.value.includes(opt.value);
+              return (
+                <label key={opt.value} className="flex items-center gap-2 text-xs text-neutral-700 dark:text-neutral-300">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={saving}
+                    onChange={(e) => void handleMultiselectToggle(opt.value, e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-neutral-300 text-blue-600 focus:ring-blue-500 dark:border-neutral-600"
+                  />
+                  {opt.label}
+                </label>
+              );
+            })}
+          </div>
         ) : editing ? (
           <div className="flex items-center gap-2">
             <input
@@ -710,11 +846,18 @@ function toConfigItem(entry: RawManifestEntry): ConfigItem {
   }
 
   if (meta) {
-    let parsedValue: boolean | string | number;
+    let parsedValue: boolean | string | number | string[];
     if (meta.type === "boolean") {
       parsedValue = entry.value === "true";
     } else if (meta.type === "number") {
       parsedValue = parseInt(entry.value, 10) || 0;
+    } else if (meta.type === "multiselect") {
+      try {
+        const parsed = JSON.parse(entry.value) as unknown;
+        parsedValue = Array.isArray(parsed) ? (parsed as string[]) : [];
+      } catch {
+        parsedValue = [];
+      }
     } else {
       // string or select
       parsedValue = entry.value;
@@ -813,11 +956,14 @@ export default function AdminConfigPage() {
     })();
   }, []);
 
-  async function handleSave(key: string, value: boolean | string | number) {
+  async function handleSave(key: string, value: boolean | string | number | string[]) {
     try {
       // The API expects string values
-      const stringValue =
-        typeof value === "boolean" ? String(value) : String(value);
+      const stringValue = Array.isArray(value)
+        ? JSON.stringify(value)
+        : typeof value === "boolean"
+          ? String(value)
+          : String(value);
 
       const res = await fetch(`/api/admin/config/${key}`, {
         method: "PUT",

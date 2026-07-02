@@ -40,6 +40,8 @@ interface FinalizeResult {
 export interface GameRunnerProps {
   slug: string;
   engineKey: string;
+  /** The game's DB id — required for Save Slots (GameRunner skips the save UI without it). */
+  gameId?: string;
   /** Optional how-to-play text shown in the How to Play modal. */
   howToPlay?: string | null;
   /** When set, each play is a round in this challenge instead of a solo run. */
@@ -49,6 +51,23 @@ export interface GameRunnerProps {
   /** Post lifecycle events to window.ReactNativeWebView (embed mode). */
   embed?: boolean;
   onExit?: () => void;
+}
+
+/**
+ * Engines that implement `initialState`/`onStateChange` (see
+ * components/games/types.ts). To add a game here, wire those two props into
+ * its engine (see engines/g2048 for the reference implementation), then add
+ * its engineKey below — no other change is required, GameRunner handles the
+ * rest (Save & Quit button, resume prompt, slot-limit UI).
+ */
+const SAVE_SUPPORTED_ENGINES = new Set<string>(["g2048"]);
+
+interface GameSaveSummary {
+  id: string;
+  game_id: string;
+  label: string | null;
+  score: number;
+  updated_at: string;
 }
 
 const DIFFICULTY_LABELS: Record<GameDifficulty, string> = {
@@ -83,6 +102,7 @@ function setStoredSound(on: boolean) {
 export default function GameRunner({
   slug,
   engineKey,
+  gameId,
   howToPlay,
   challengeId,
   token,
@@ -103,6 +123,19 @@ export default function GameRunner({
   const [ratingHover, setRatingHover] = useState(0);
   const nonceRef = useRef<string | null>(null);
   const Engine = getEngine(engineKey);
+
+  // ── Save Slots ──
+  const canSave = !!gameId && !challengeId && SAVE_SUPPORTED_ENGINES.has(engineKey);
+  const [existingSave, setExistingSave] = useState<GameSaveSummary | null>(null);
+  const [resumeState, setResumeState] = useState<unknown>(null);
+  const [savingSlot, setSavingSlot] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [slotPicker, setSlotPicker] = useState<GameSaveSummary[] | null>(null);
+  const latestStateRef = useRef<unknown>(null);
+
+  const handleEngineStateChange = useCallback((state: unknown) => {
+    latestStateRef.current = state;
+  }, []);
 
   const bridge = useCallback(
     (type: string, payload: Record<string, unknown> = {}) => {
@@ -169,6 +202,13 @@ export default function GameRunner({
         setResult(data);
         setPhase("result");
         bridge("game_over", { score, reward: data.reward, isWin: data.isWin });
+        // A finished game is no longer "in progress" — free the slot if this
+        // play resumed from (or overwrote) a save.
+        if (existingSave) {
+          authFetch(`/api/games/saves/${existingSave.id}`, { method: "DELETE" }).catch(() => {});
+          setExistingSave(null);
+          setResumeState(null);
+        }
       } catch (e) {
         setError((e as Error).message);
         setPhase("error");
@@ -176,12 +216,83 @@ export default function GameRunner({
         nonceRef.current = null;
       }
     },
-    [authFetch, bridge, slug]
+    [authFetch, bridge, slug, existingSave]
   );
 
   const handleScore = useCallback((score: number) => {
     setLiveScore(score);
   }, []);
+
+  // Check for an existing save of this exact game on mount.
+  useEffect(() => {
+    if (!canSave) return;
+    authFetch("/api/games/saves")
+      .then((r) => r.json())
+      .then((json) => {
+        const saves = (json?.data?.saves ?? []) as GameSaveSummary[];
+        setExistingSave(saves.find((s) => s.game_id === gameId) ?? null);
+      })
+      .catch(() => {});
+  }, [canSave, gameId, authFetch]);
+
+  const startFresh = useCallback(() => {
+    setResumeState(null);
+    void start();
+  }, [start]);
+
+  const resumeSavedGame = useCallback(async () => {
+    if (!existingSave) return;
+    try {
+      const res = await authFetch(`/api/games/saves/${existingSave.id}`);
+      const json = await res.json();
+      if (res.ok && json?.data?.save) {
+        setResumeState(json.data.save.state);
+      }
+    } catch { /* fall through to a fresh start */ }
+    // start() resets liveScore to 0 — seed it with the resumed score right
+    // after so the HUD doesn't show 0 until the player's next move.
+    await start();
+    setLiveScore(existingSave.score);
+  }, [existingSave, authFetch, start]);
+
+  const doSave = useCallback(
+    async (overwriteSaveId?: string) => {
+      if (!gameId) return;
+      setSavingSlot(true);
+      setSaveError(null);
+      try {
+        const res = await authFetch("/api/games/saves", {
+          method: "POST",
+          body: JSON.stringify({
+            gameId,
+            saveId: overwriteSaveId ?? existingSave?.id ?? null,
+            state: latestStateRef.current,
+            score: liveScore,
+          }),
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          const code = json?.error?.code;
+          if (code === "SAVE_SLOTS_FULL") {
+            const listRes = await authFetch("/api/games/saves");
+            const listJson = await listRes.json();
+            setSlotPicker((listJson?.data?.saves ?? []) as GameSaveSummary[]);
+            return;
+          }
+          throw new Error(json?.error?.message ?? "Could not save your game.");
+        }
+        setSlotPicker(null);
+        if (onExit) onExit();
+        else if (embed) bridge("game_exit");
+        else router.push(`/g/${slug}`);
+      } catch (e) {
+        setSaveError((e as Error).message);
+      } finally {
+        setSavingSlot(false);
+      }
+    },
+    [gameId, existingSave, liveScore, onExit, embed, slug, authFetch, bridge, router]
+  );
 
   const toggleSound = () => {
     setSoundEnabled(prev => {
@@ -273,13 +384,24 @@ export default function GameRunner({
             </button>
           )}
 
+          {/* Resume a saved game */}
+          {existingSave && (
+            <button
+              type="button"
+              onClick={() => void resumeSavedGame()}
+              className="w-full py-3.5 rounded-2xl border-2 border-primary text-primary font-bold text-base hover:bg-primary/10 active:scale-95 transition-all"
+            >
+              ▶ {t("games.resumeSaved", "Resume Saved Game")} {existingSave.score > 0 ? `(${existingSave.score})` : ""}
+            </button>
+          )}
+
           {/* Start */}
           <button
             type="button"
-            onClick={() => void start()}
+            onClick={startFresh}
             className="w-full py-4 rounded-2xl bg-primary text-primary-foreground font-bold text-lg hover:opacity-90 active:scale-95 transition-all"
           >
-            Play →
+            {existingSave ? t("games.startNew", "Start New Game") : "Play →"}
           </button>
         </div>
       )}
@@ -339,6 +461,17 @@ export default function GameRunner({
                   ❓ How to Play
                 </button>
               )}
+              {canSave && (
+                <button
+                  type="button"
+                  onClick={() => void doSave()}
+                  disabled={savingSlot}
+                  className="py-2 rounded-xl border border-emerald-600 text-sm font-semibold text-emerald-500 hover:bg-emerald-950/30 disabled:opacity-60"
+                >
+                  {savingSlot ? t("games.saving", "Saving…") : `💾 ${t("games.saveAndQuit", "Save & Quit")}`}
+                </button>
+              )}
+              {saveError && <p className="text-xs text-red-400">{saveError}</p>}
             </div>
           )}
 
@@ -348,7 +481,40 @@ export default function GameRunner({
             difficulty={difficulty}
             paused={paused}
             soundEnabled={soundEnabled}
+            initialState={resumeState}
+            onStateChange={canSave ? handleEngineStateChange : undefined}
           />
+        </div>
+      )}
+
+      {/* ── Save slot picker (shown when all slots are full) ── */}
+      {slotPicker && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+          <div className="w-full max-w-sm rounded-2xl border border-border bg-card p-6 shadow-2xl flex flex-col gap-3">
+            <h2 className="text-base font-bold text-foreground">{t("games.slotsFullTitle", "All save slots are full")}</h2>
+            <p className="text-sm text-muted-foreground">{t("games.slotsFullDescription", "Pick a save to overwrite, or cancel and delete one from Saved Games first.")}</p>
+            <div className="flex flex-col gap-2 max-h-64 overflow-y-auto">
+              {slotPicker.map((s) => (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => void doSave(s.id)}
+                  disabled={savingSlot}
+                  className="flex items-center justify-between rounded-xl border border-border px-4 py-2.5 text-left text-sm hover:bg-accent disabled:opacity-60"
+                >
+                  <span className="font-medium text-foreground">{s.label ?? t("games.savedGame", "Saved game")}</span>
+                  <span className="text-xs text-muted-foreground">{t("games.score", "Score")}: {s.score}</span>
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setSlotPicker(null)}
+              className="rounded-xl border border-border py-2.5 text-sm font-semibold text-foreground hover:bg-accent"
+            >
+              {t("common.cancel", "Cancel")}
+            </button>
+          </div>
         </div>
       )}
 

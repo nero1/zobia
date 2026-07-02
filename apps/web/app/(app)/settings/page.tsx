@@ -28,11 +28,16 @@ interface UserSettings {
   dmOptOut: boolean;
   plan?: string | null;
   chatTheme?: string | null;
+  hasPassword: boolean;
+  hasOAuthLogin: boolean;
 }
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+
+const PIN_GATE_SESSION_KEY = "zobia_settings_pin_ok";
+const PIN_GATE_TTL_MS = 5 * 60 * 1000; // matches server-side pin_ok TTL
 
 const LANGUAGES = [
   { code: "en", label: "English" },
@@ -219,6 +224,13 @@ export default function SettingsPage() {
   const [savingField, setSavingField] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
+  // PIN gate: if the user has a PIN set, require it before showing settings.
+  const [hasPIN, setHasPIN] = useState(false);
+  const [pinVerified, setPinVerified] = useState(false);
+  const [pinGateInput, setPinGateInput] = useState("");
+  const [pinGateError, setPinGateError] = useState<string | null>(null);
+  const [verifyingPinGate, setVerifyingPinGate] = useState(false);
+
   interface PrivacyCapabilities {
     canLockProfile: boolean;
     canHideSections: boolean;
@@ -246,6 +258,39 @@ export default function SettingsPage() {
     setToast({ msg, type });
     setTimeout(() => setToast(null), 3500);
   }, []);
+
+  useEffect(() => {
+    try {
+      const ts = sessionStorage.getItem(PIN_GATE_SESSION_KEY);
+      if (ts && Date.now() - Number(ts) < PIN_GATE_TTL_MS) setPinVerified(true);
+    } catch { /* sessionStorage unavailable */ }
+  }, []);
+
+  async function handleVerifyPinGate() {
+    if (!pinGateInput.trim()) { setPinGateError(t("settings.pinRequired.error", "Incorrect PIN")); return; }
+    setVerifyingPinGate(true);
+    setPinGateError(null);
+    try {
+      const res = await fetch("/api/auth/pin/verify", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pin: pinGateInput.trim() }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        setPinGateError(data.error?.message ?? t("settings.pinRequired.error", "Incorrect PIN"));
+        return;
+      }
+      setPinVerified(true);
+      setPinGateInput("");
+      try { sessionStorage.setItem(PIN_GATE_SESSION_KEY, String(Date.now())); } catch { /* ignore */ }
+    } catch {
+      setPinGateError(t("error.network", "Network error. Try again."));
+    } finally {
+      setVerifyingPinGate(false);
+    }
+  }
 
   useEffect(() => {
     void fetch("/api/features", { credentials: "include" })
@@ -313,6 +358,8 @@ export default function SettingsPage() {
           dmOptOut: user.dm_privacy === "friends_only" || user.dm_privacy === "nobody",
           plan: user.plan ?? null,
           chatTheme: user.chat_theme ?? "default",
+          hasPassword: user.has_password ?? false,
+          hasOAuthLogin: user.has_oauth_login ?? false,
         };
         setSettings(mappedSettings);
         setDisplayName(mappedSettings.displayName);
@@ -322,6 +369,7 @@ export default function SettingsPage() {
         setTheme(mappedSettings.theme);
         setNotifications(mappedSettings.notifications);
         setDmOptOut(mappedSettings.dmOptOut);
+        setHasPIN(Boolean(user.hasPIN));
       } catch (e) {
         const err = e as Error & { code?: string | null };
         setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
@@ -443,15 +491,29 @@ export default function SettingsPage() {
   async function handlePasswordChange(e: React.FormEvent) {
     e.preventDefault();
     setPwError(null);
-    if (newPassword !== confirmPassword) { setPwError("Passwords do not match"); return; }
-    if (newPassword.length < 8) { setPwError("Password must be at least 8 characters"); return; }
+
+    // All three fields blank => disable password (only meaningful if a
+    // password is currently set; the server also verifies an alternative
+    // login method exists before allowing this).
+    const disabling = !currentPassword && !newPassword && !confirmPassword;
+
+    if (disabling) {
+      if (!settings?.hasPassword) { setPwError(t("settings.password.nothingToDisable", "You don't have a password set.")); return; }
+    } else {
+      if (newPassword !== confirmPassword) { setPwError(t("settings.password.mismatch", "Passwords do not match")); return; }
+      if (newPassword.length < 8) { setPwError(t("settings.password.tooShort", "Password must be at least 8 characters")); return; }
+    }
+
     setPwSaving(true);
     try {
       const res = await fetch("/api/users/me/password", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ currentPassword, newPassword }),
+        body: JSON.stringify({
+          currentPassword: currentPassword || null,
+          newPassword: disabling ? null : newPassword,
+        }),
       });
       if (!res.ok) {
         const d = (await res.json()) as { message?: string; code?: string };
@@ -459,10 +521,11 @@ export default function SettingsPage() {
         err.code = d.code ?? null;
         throw err;
       }
-      showToast("Password changed");
+      showToast(disabling ? t("settings.password.disabled", "Password disabled") : t("settings.password.changed", "Password changed"));
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      setSettings((prev) => prev ? { ...prev, hasPassword: !disabling } : prev);
     } catch (e) {
       const err = e as Error & { code?: string | null };
       setPwError(e instanceof Error ? translateApiError(t, err.code, err.message || "Error") : "Error");
@@ -550,6 +613,44 @@ export default function SettingsPage() {
     return (
       <div className="p-6">
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{error}</div>
+      </div>
+    );
+  }
+
+  if (featureFlags.pinEnabled && hasPIN && !pinVerified) {
+    return (
+      <div className="mx-auto flex max-w-sm flex-col gap-4 p-6 pt-16">
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">{t("settings.pinRequired.title", "Enter your PIN")}</h1>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("settings.pinRequired.description", "Your account has PIN protection enabled. Enter your PIN to access Settings.")}</p>
+        <input
+          type="password"
+          inputMode="numeric"
+          maxLength={6}
+          value={pinGateInput}
+          onChange={(e) => setPinGateInput(e.target.value.replace(/\D/g, ""))}
+          onKeyDown={(e) => { if (e.key === "Enter") void handleVerifyPinGate(); }}
+          placeholder="PIN"
+          autoFocus
+          className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-center text-xl tracking-widest outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-200 dark:border-neutral-700 dark:bg-neutral-800"
+        />
+        {pinGateError && <p className="text-sm text-red-500">{pinGateError}</p>}
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
+          >
+            {t("settings.pinRequired.cancel", "Go back")}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleVerifyPinGate()}
+            disabled={verifyingPinGate || pinGateInput.length < 4}
+            className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+          >
+            {verifyingPinGate ? t("settings.pinRequired.verifying", "Verifying…") : t("settings.pinRequired.confirm", "Confirm")}
+          </button>
+        </div>
       </div>
     );
   }
@@ -645,26 +746,40 @@ export default function SettingsPage() {
       </Section>
 
       {/* Password change */}
-      <Section title="Change Password">
+      <Section title={settings?.hasPassword ? t("settings.changePassword", "Change Password") : t("settings.password.setTitle", "Set Password")}>
         <form onSubmit={handlePasswordChange} className="space-y-3">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            {settings?.hasPassword
+              ? (settings.hasOAuthLogin
+                  ? t("settings.password.guideHasPassword", "Leave all fields blank and submit to disable password login (you'll still be able to sign in with Google/Telegram).")
+                  : t("settings.password.guideHasPasswordNoOAuth", "Enter your current password to change it."))
+              : t("settings.password.guideNoPassword", "You don't have a password set. Leave \"Current password\" blank and choose a new password below to set one.")}
+          </p>
           {[
-            { id: "cur", label: "Current password", value: currentPassword, onChange: setCurrentPassword },
-            { id: "new", label: "New password", value: newPassword, onChange: setNewPassword },
-            { id: "confirm", label: "Confirm new password", value: confirmPassword, onChange: setConfirmPassword },
-          ].map(({ id, label, value, onChange }) => (
+            {
+              id: "cur",
+              label: settings?.hasPassword ? t("settings.currentPassword", "Current password") : t("settings.password.currentPasswordNotSet", "Current password (leave blank — not set)"),
+              value: currentPassword,
+              onChange: setCurrentPassword,
+              placeholder: settings?.hasPassword ? "" : t("settings.password.currentPasswordPlaceholder", "Leave blank"),
+            },
+            { id: "new", label: t("settings.newPassword", "New password"), value: newPassword, onChange: setNewPassword, placeholder: "" },
+            { id: "confirm", label: t("settings.confirmNewPassword", "Confirm new password"), value: confirmPassword, onChange: setConfirmPassword, placeholder: "" },
+          ].map(({ id, label, value, onChange, placeholder }) => (
             <div key={id}>
               <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">{label}</label>
               <input
                 type="password"
                 value={value}
                 onChange={(e) => onChange(e.target.value)}
+                placeholder={placeholder}
                 className="w-full rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               />
             </div>
           ))}
           {pwError && <p className="text-xs text-red-600 dark:text-red-400">{pwError}</p>}
           <button type="submit" disabled={pwSaving} className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
-            {pwSaving ? "Changing…" : "Change Password"}
+            {pwSaving ? t("settings.password.saving", "Saving…") : (settings?.hasPassword ? t("settings.changePasswordButton", "Change Password") : t("settings.password.setPassword", "Set Password"))}
           </button>
         </form>
       </Section>

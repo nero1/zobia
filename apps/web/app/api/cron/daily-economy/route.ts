@@ -11,6 +11,7 @@ export const maxDuration = 10;
  *  3. Ad revenue share auto-enrolment (1st of month only)
  *  4. Weekly automated creator payouts (Fridays only)
  *  5. Referral 7-day streak qualifying bonuses
+ *  6. Subscription expiry -> grace period -> purge sweep (personal + business)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -315,6 +316,14 @@ export const GET = async (req: NextRequest) => {
     }
   } catch (err) {
     errors.push(`referralStreakQualifying: ${String(err)}`);
+  }
+
+  // 6. Subscription expiry -> grace period -> purge sweep
+  try {
+    const { sweepSubscriptions } = await import("@/lib/plans/subscriptionSweep");
+    results.subscriptionSweep = await sweepSubscriptions();
+  } catch (err) {
+    errors.push(`subscriptionSweep: ${String(err)}`);
   }
 
   return NextResponse.json({

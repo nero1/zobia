@@ -134,6 +134,7 @@ Each user is algorithmically assigned a Nemesis — another user within 10% of t
 | Group chat size cap | 300 | 400 | 500 | 1,000 |
 | Message history | 90 days | 180 days | Unlimited | Unlimited |
 | Room Pins | 3 | 4 | 5 | 10 |
+| Save Slots (games) | 0 | 1 | 3 | 5 |
 | Monthly coin bonus | 0 | 50 | 200 | 500 |
 | Season Pass discount | 0% | 10% | 20% | 30% |
 | Customer support priority | Standard | Standard | Priority | Dedicated |
@@ -170,6 +171,15 @@ Each user is algorithmically assigned a Nemesis — another user within 10% of t
 ### Plan Expiry Reminders
 
 When a user has an active Plus/Pro/Max subscription or a Business plan that is due to expire within 14 days, the Home page shows a dismissible alert immediately on login: *"Your plan ends in N days time. [Resubscribe]"*, linking to Settings → Subscription (or Settings → Business for a business plan). The alert can be dismissed with an × while more than 7 days remain; dismissal is remembered per expiry date (a renewal resets it). Once 7 days or fewer remain, the alert reappears **without** the × and cannot be dismissed until the user resubscribes or the plan lapses. If both a personal and a business plan are expiring, whichever is soonest is shown.
+
+### Subscription Grace Period
+
+When a Plus/Pro/Max (or Business Starter/Growth/Enterprise) subscription
+lapses, the account downgrades immediately but admin-selected data (e.g.
+Save Slots, §30.8) is preserved for a default grace period — 30 days
+(Max), 14 days (Pro), 7 days (Plus), mirrored per Business tier — before
+being purged. Fully admin-configurable at `/admin/config`. See the v1.99
+changelog (Appendix) for full detail.
 
 ### Pay-As-You-Go Booster Packs
 
@@ -2122,6 +2132,38 @@ play-session nonces (one score per session), a per-game `max_score` cap, a
 `min_play_seconds` floor, a dedicated `game:score` rate limit, and idempotent reward
 references. Documented as a known limitation, acceptable for friendly arcade play.
 
+### 30.8 Save Slots
+
+Users can pause an in-progress game and resume it later — a limited,
+plan-gated pool of "save slots" shared across all games (not per-game):
+**Free 0 / Plus 1 / Pro 3 / Max 5**, admin-configurable at `/admin/config`
+(`save_slots_<plan>`). Only one in-flight save per specific game is kept
+(saving again overwrites it); a finished (resumed-and-completed) game frees
+its slot automatically.
+
+- **Engine contract**: `GameEngineProps` gains optional `initialState` /
+  `onStateChange` (`apps/web/components/games/types.ts`). An engine that
+  wants to support Save Slots implements both — reads `initialState` to
+  restore, calls `onStateChange` with a JSON-serializable snapshot whenever
+  it's meaningful to resume from (at minimum, when `GameRunner` pauses it).
+  Engines that don't implement this are simply not save-able; `GameRunner`
+  only shows "💾 Save & Quit" for engines listed in `SAVE_SUPPORTED_ENGINES`
+  (`components/games/GameRunner.tsx`). Reference implementation: 2048
+  (`components/games/engines/g2048`).
+- **API**: `GET/POST /api/games/saves`, `GET/DELETE /api/games/saves/[saveId]`,
+  `POST /api/games/saves/reconcile` (trims to the current plan limit —
+  explicit `deleteIds` for the interactive "pick which to delete" flow, or
+  oldest-first automatically).
+- **Management UI**: `/games/saved` (web/PWA); `apps/android/src/routes/games/saved.tsx`
+  (Capacitor — Android has no in-app gameplay engine yet, so "Resume" opens
+  the web play page in the in-app browser).
+- **Downgrade/expiry overage**: see "Subscription Grace Period" (§3) —
+  Save Slots is a grace-gated feature (`saved_games` in
+  `lib/plans/graceFeatures.ts`), preserved by default during the grace
+  period and purged (oldest-first, down to the new plan's limit) once it
+  elapses, or immediately reconciled interactively when a user manually
+  drops save-slot capacity below their current save count.
+
 ---
 
 ## 31. Zobia Answers — Mini Forum (Q&A) (v1.96)
@@ -3472,6 +3514,95 @@ pagination logic required.
 
 ---
 
-*ZobiaSocial PRD v1.98*
+## Appendix: Version 1.99 Change Log
+
+### v1.99 — Changelog
+
+#### New Feature: Subscription Grace Period (personal + business)
+
+When a personal plan (Plus/Pro/Max) or Business tier (Starter/Growth/
+Enterprise) subscription does not renew, the account is downgraded
+immediately, but a **grace period** keeps admin-selected data from being
+deleted for a while: **30 days for Max, 14 days for Pro, 7 days for Plus**
+(mirrored for the equivalent Business tiers), all admin-configurable at
+`/admin/config` → "Grace Periods & Save Slots". Admin also picks, per
+plan/tier, *which* grace-gated features are preserved during the grace
+period via an extensible registry (`lib/plans/graceFeatures.ts` —
+currently `saved_games`, with `galleries` reserved for the future Image
+Galleries feature; adding a new grace-gated feature is a one-array-entry
+change, no migration needed). Swept daily by the existing `daily-economy`
+CRON (`lib/plans/subscriptionSweep.ts`): lapsed subscriptions move to a new
+`grace` status (`subscriptions.grace_period_ends_at` /
+`business_accounts.grace_period_ends_at`), then to `lapsed` (purging
+preserved data) once the grace period elapses. New `x_manifest` keys:
+`grace_period_days_<plan>`, `grace_period_features_<plan>` (personal and
+`business_<tier>` variants) — see migration `0042`.
+
+#### New Feature: Save Slots for Games
+
+Users can pause an in-progress game and resume it later, gated by plan:
+**Free 0 / Plus 1 / Pro 3 / Max 5** slots (admin-configurable, `x_manifest`
+`save_slots_<plan>`). New `game_saves` table (migration `0042`) holds an
+opaque, engine-serialized JSON state blob per save. Backed by
+`GET/POST /api/games/saves`, `GET/DELETE /api/games/saves/[saveId]`, and
+`POST /api/games/saves/reconcile`. The Save Slots feature is a
+`grace_period_features` entry (`saved_games`, on by default) — see above.
+
+- **In-game**: `GameRunner` shows a "💾 Save & Quit" action in the pause
+  overlay for engines that opt in (see `SAVE_SUPPORTED_ENGINES` in
+  `components/games/GameRunner.tsx` and the `initialState`/`onStateChange`
+  contract in `components/games/types.ts`). Reference implementation:
+  `components/games/engines/g2048`. Other engines can opt in by
+  implementing the same two props — no GameRunner change required. A
+  resumed-and-finished game's save slot is freed automatically once the
+  score is submitted.
+- **Management**: `/games/saved` (web/PWA) and
+  `apps/android/src/routes/games/saved.tsx` (Capacitor — "Resume" opens the
+  web play page in the in-app browser, since Android doesn't host gameplay
+  engines in-app).
+- **Downgrade reconciliation**: if a plan downgrade (or a lapsed
+  subscription past its grace period) drops the slot limit below the
+  current save count, `/games/saved` shows an overage banner. The user can
+  either select specific saves to delete or confirm "delete the oldest
+  automatically" — both paths require an explicit "Proceed?" confirmation
+  before anything is deleted (`POST /api/games/saves/reconcile`). The same
+  trim-to-limit logic runs non-interactively from the grace-period CRON
+  sweep when nobody is present to choose.
+
+#### Fix: Settings — Password section blank-current-password handling
+
+The password form on `/settings` always rendered a required-looking
+"Current password" field even for accounts with no password set yet
+(Google/Telegram-only signups), and always required a new password ≥ 8
+characters, making it impossible to leave the fields blank. Fixed:
+
+- Leaving "Current password" blank now works whenever the account has no
+  password set (the field is relabeled "Current password (leave blank —
+  not set)" in that state, with matching guide copy).
+- Leaving **all** password fields blank and submitting now **disables**
+  password login entirely — only allowed when the account has a Google or
+  Telegram login linked (`PUT /api/users/me/password` returns 400
+  otherwise, so a user can never lock themselves out).
+- `GET /api/users/me` now returns `has_password` / `has_oauth_login` so the
+  client can render the right copy and guide text without guessing.
+
+#### New: PIN gate on the Settings page
+
+If the user has a PIN set (`hasPIN`), `/settings` now requires PIN
+verification (`POST /api/auth/pin/verify`, the same 5-minute
+`pin_ok:<userId>:<sessionId>` Redis guard used by gifts/payouts/transfers —
+see `lib/auth/pinGuard.ts`) before rendering any settings content. The
+verified state is remembered client-side (sessionStorage, 5-minute TTL
+matching the server-side guard) so navigating within Settings doesn't
+re-prompt on every render.
+
+**Note:** the Android app's `/settings` screen has no password or PIN UI
+at all yet (it currently only covers language, wallet/stats links, and
+logout) — that's a pre-existing gap independent of this fix, not addressed
+here since it's a net-new screen rather than a bug fix.
+
+---
+
+*ZobiaSocial PRD v1.99*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

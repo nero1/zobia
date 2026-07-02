@@ -2952,6 +2952,36 @@ export const gameFavorites = pgTable(
 );
 
 // ---------------------------------------------------------------------------
+// Save Slots (v1.0): lets a user pause an in-progress game and resume it
+// later. Slot count is plan-gated (Free 0 / Plus 1 / Pro 3 / Max 5, admin
+// configurable via x_manifest `save_slots_<plan>` keys — see
+// lib/plans/saveSlots.ts) and enforced in application code at write time
+// (dynamic per-plan limits can't be a DB CHECK constraint). `state` holds
+// whatever JSON blob the game engine serialized (opaque to the server).
+// Grace-period preserved: see lib/plans/graceFeatures.ts ("saved_games").
+// ---------------------------------------------------------------------------
+export const gameSaves = pgTable(
+  "game_saves",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    gameId: uuid("game_id")
+      .notNull()
+      .references(() => games.id, { onDelete: "cascade" }),
+    label: text("label"),
+    state: jsonb("state").notNull(),
+    score: integer("score").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userIdx: index("game_saves_user_idx").on(t.userId, t.updatedAt),
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Challenges (async score-based). Optional credit wager escrowed on accept.
 // ---------------------------------------------------------------------------
 export const gameChallenges = pgTable("game_challenges", {
@@ -3391,6 +3421,9 @@ export const subscriptions = pgTable(
     .references(() => users.id, { onDelete: "cascade" }),
   plan: text("plan").notNull(),
   billingPeriod: text("billing_period").notNull().default("monthly"),
+  // 'active' | 'cancelled' | 'grace' (lapsed but within the plan's grace
+  // period — perks selected by admin are preserved) | 'lapsed' (grace
+  // period elapsed, grace-gated data has been purged).
   status: text("status").notNull().default("active"),
   startsAt: timestamp("starts_at", { withTimezone: true })
     .notNull()
@@ -3401,6 +3434,10 @@ export const subscriptions = pgTable(
   providerSubscriptionId: text("provider_subscription_id"),
   // Migration 002 (db): added cancelled_at
   cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+  // Migration 0042 (db): grace period — set by the daily-economy CRON sweep
+  // when a subscription lapses (status -> 'grace'); NULL once resolved
+  // (renewed back to 'active' or swept to 'lapsed').
+  gracePeriodEndsAt: timestamp("grace_period_ends_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
@@ -3487,6 +3524,9 @@ export const businessAccounts = pgTable("business_accounts", {
     withTimezone: true,
   }),
   verificationRejectReason: text("verification_reject_reason"),
+  // Migration 0042 (db): grace period — mirrors `subscriptions.gracePeriodEndsAt`.
+  // `status` gains 'grace' | 'lapsed' alongside the existing 'active' value.
+  gracePeriodEndsAt: timestamp("grace_period_ends_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });

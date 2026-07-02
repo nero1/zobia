@@ -13,6 +13,7 @@ import { useAuth } from "@/lib/auth/hooks";
 import GameRunner from "@/components/games/GameRunner";
 
 interface GameSummary {
+  id: string;
   slug: string;
   name: string;
   engineKey: string | null;
@@ -71,6 +72,7 @@ export default function PlayGamePage() {
         {game?.engineKey ? (
           <GameRunner
             slug={game.slug}
+            gameId={game.id}
             engineKey={game.engineKey}
             howToPlay={howToPlay}
           />

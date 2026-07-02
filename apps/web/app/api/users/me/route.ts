@@ -43,6 +43,10 @@ interface UserFullProfile {
   is_creator: boolean;
   is_verified: boolean;
   onboarding_completed: boolean;
+  /** Whether the account has a password set (vs. OAuth-only login). */
+  has_password: boolean;
+  /** Whether the account has a Google or Telegram login linked. */
+  has_oauth_login: boolean;
 
   // Economy
   coin_balance: number;
@@ -154,6 +158,8 @@ const SELECT_COLUMNS = `
   id, email, username, display_name, bio, avatar_url, avatar_emoji,
   city, country, locale, plan, is_admin, is_creator, is_verified,
   onboarding_completed, coin_balance, star_balance,
+  (password_hash IS NOT NULL) AS has_password,
+  (google_id IS NOT NULL OR telegram_id IS NOT NULL) AS has_oauth_login,
   (SELECT s.ends_at FROM subscriptions s
      WHERE s.user_id = users.id AND s.status = 'active'
      ORDER BY s.created_at DESC LIMIT 1) AS plan_ends_at,
