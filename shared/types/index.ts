@@ -485,7 +485,8 @@ export type CoinTransactionType =
   | 'forum_best_answer_reward'
   | 'forum_comment_bypass'
   | 'blog_paywall_unlock'
-  | 'blog_theme_purchase';
+  | 'blog_theme_purchase'
+  | 'kyc_verification_fee';
 
 export interface CoinLedgerEntry {
   id: string;

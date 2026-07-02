@@ -70,6 +70,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const eventRef = (event as PaystackChargeEvent).data?.reference
     ?? (event as PaystackTransferEvent).data?.reference
     ?? (event as PaystackSubscriptionEvent).data?.subscription_code
+    ?? (event as { data?: { customer_code?: string } }).data?.customer_code
     ?? null;
   const eventTs = (event as PaystackChargeEvent).data?.paid_at ?? (event as { data?: { created_at?: string } }).data?.created_at ?? Date.now().toString();
   const replayKey = `webhook:paystack:${event.event}:${eventRef ?? `ts-${eventTs}`}`;

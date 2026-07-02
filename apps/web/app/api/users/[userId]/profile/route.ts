@@ -127,6 +127,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       disable_friend_requests: boolean;
       plan: string | null;
       is_moderator: boolean;
+      is_verified: boolean;
     }>(
       `SELECT id, username, display_name, bio, avatar_emoji, city,
               xp_total, COALESCE(legacy_score, 0) AS legacy_score,
@@ -151,7 +152,8 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
               COALESCE(profile_hidden_sections, '[]'::jsonb) AS profile_hidden_sections,
               COALESCE(disable_friend_requests, false) AS disable_friend_requests,
               COALESCE(plan, 'free') AS plan,
-              COALESCE(is_moderator, false) AS is_moderator
+              COALESCE(is_moderator, false) AS is_moderator,
+              COALESCE(is_verified, false) AS is_verified
        FROM users
        WHERE id = $1
          AND deleted_at IS NULL
@@ -407,6 +409,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       userId: user.id,
       displayName: hidden.includes("display_name") ? null : (user.display_name ?? user.username ?? "Zobia User"),
       username: user.username ?? "",
+      isVerified: user.is_verified,
       avatarEmoji: hidden.includes("avatar") ? null : (user.avatar_emoji ?? "😊"),
       city: user.city,
       joinedAt: user.created_at,

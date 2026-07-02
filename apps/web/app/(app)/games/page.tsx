@@ -324,6 +324,21 @@ export default function GamesDiscoveryPage() {
 
       {!dedicated && (
         <>
+          {/* Category dropdown — quicker than scrolling the chip row once there are 13+ categories */}
+          <div className="mb-3">
+            <select
+              value={category ?? ""}
+              onChange={(e) => setCategory(e.target.value || null)}
+              aria-label={t("games.filter.categoryLabel", "Filter by category")}
+              className="w-full rounded-xl border border-border bg-card py-2.5 px-3 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary sm:w-56"
+            >
+              <option value="">{t("games.filter.allCategories", "All categories")}</option>
+              {GAME_CATEGORIES.map(cat => (
+                <option key={cat} value={cat}>{cat}</option>
+              ))}
+            </select>
+          </div>
+
           {/* Filters row */}
           <div className="flex items-center gap-2 mb-4 overflow-x-auto pb-1">
             {/* Free/Paid */}

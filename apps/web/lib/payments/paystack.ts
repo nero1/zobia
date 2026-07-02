@@ -288,3 +288,78 @@ export async function initiateTransfer(
     }
   );
 }
+
+// ---------------------------------------------------------------------------
+// Identity verification (KYC Tier 1 — Nigeria BVN)
+// https://docs-v2.paystack.com/docs/identity-verification/validate-customer/
+// ---------------------------------------------------------------------------
+
+export interface PaystackCustomerResponse {
+  customer_code: string;
+  email: string;
+  id: number;
+}
+
+export interface PaystackValidateCustomerRequest {
+  country: "NG";
+  /** Paystack validates BVN against a bank account for Nigeria. */
+  type: "bank_account";
+  accountNumber: string;
+  bankCode: string;
+  bvn: string;
+  firstName: string;
+  lastName: string;
+}
+
+/**
+ * Create (or reuse) a Paystack customer record — required before requesting
+ * identity validation.
+ *
+ * @param email     - Customer's email address
+ * @param firstName - Customer's first name (used for the BVN name-match)
+ * @param lastName  - Customer's last name (used for the BVN name-match)
+ * @param phone     - Optional phone number
+ */
+export async function createCustomer(
+  email: string,
+  firstName: string,
+  lastName: string,
+  phone?: string
+): Promise<PaystackCustomerResponse> {
+  return paystackRequest<PaystackCustomerResponse>(
+    "POST",
+    "/customer",
+    { email, first_name: firstName, last_name: lastName, ...(phone ? { phone } : {}) }
+  );
+}
+
+/**
+ * Kick off Paystack's asynchronous BVN identity validation for a customer.
+ *
+ * This call only acknowledges that validation has started — the actual
+ * match result (whether the BVN's registered name matches the supplied
+ * name) arrives later via the `customeridentification.success` /
+ * `customeridentification.failed` webhook events, handled in
+ * lib/payments/paystackWebhookHandler.ts.
+ *
+ * @param customerCode - customer_code from createCustomer
+ * @param params       - BVN + bank account + name to validate against
+ */
+export async function validateCustomerIdentity(
+  customerCode: string,
+  params: PaystackValidateCustomerRequest
+): Promise<{ message: string }> {
+  return paystackRequest<{ message: string }>(
+    "POST",
+    `/customer/${encodeURIComponent(customerCode)}/identification`,
+    {
+      country: params.country,
+      type: params.type,
+      account_number: params.accountNumber,
+      bank_code: params.bankCode,
+      bvn: params.bvn,
+      first_name: params.firstName,
+      last_name: params.lastName,
+    }
+  );
+}
