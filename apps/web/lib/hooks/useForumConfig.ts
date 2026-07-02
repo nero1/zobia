@@ -38,7 +38,7 @@ async function fetchForumConfig(): Promise<ForumConfig> {
 }
 
 /**
- * Returns the admin-configured Zobia Answers level-gate rules.
+ * Returns the admin-configured Answers level-gate rules.
  * Rides the same cached /api/manifest fetch used by useCurrency/useMomentsConfig
  * (5 min staleTime) so this never adds an extra Redis round trip of its own.
  */

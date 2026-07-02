@@ -777,7 +777,7 @@
   "moments.create.levelTooLow": "You must reach Level {{minLevel}} to share Moments. Your current level is {{currentLevel}}.",
   "moments.create.buyCredits": "Buy {{currency}}",
   "moments.create.gotIt": "Got it",
-  "answers.title": "Zobia Answers",
+  "answers.title": "Answers",
   "answers.tabs.popular": "Popular",
   "answers.tabs.trending": "Trending",
   "answers.tabs.new": "New",

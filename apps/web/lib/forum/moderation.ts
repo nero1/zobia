@@ -1,7 +1,7 @@
 /**
  * lib/forum/moderation.ts
  *
- * Auto-moderation for Zobia Answers (mini forum / Q&A) submissions.
+ * Auto-moderation for Answers (mini forum / Q&A) submissions.
  *
  * Reuses the existing rules-based filters from lib/moderation/contentFilter
  * (profanity, duplicate-post detection) rather than duplicating them.

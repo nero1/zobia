@@ -1,7 +1,7 @@
 /**
  * apps/android/src/routes/answers/ask.tsx
  *
- * Ask a question on Zobia Answers — mirrors apps/web/app/(app)/answers/ask/page.tsx.
+ * Ask a question on Answers — mirrors apps/web/app/(app)/answers/ask/page.tsx.
  * POST /api/answers/questions.
  */
 

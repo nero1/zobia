@@ -54,7 +54,7 @@ const bottomTabItems = [
 const primaryNavItems = [
   { href: "/home",         label: "Home",         icon: "🏠" },
   { href: "/moments",      label: "Moments",      icon: "⚡" },
-  { href: "/answers",      label: "Zobia Answers",icon: "❓" },
+  { href: "/answers",      label: "Answers",      icon: "❓" },
   { href: "/quests",       label: "Quests",       icon: "🎯" },
   { href: "/games",        label: "Games",        icon: "🎮" },
   { href: "/rooms",        label: "Rooms",        icon: "🚪" },

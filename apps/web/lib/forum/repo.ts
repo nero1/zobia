@@ -1,7 +1,7 @@
 /**
  * lib/forum/repo.ts
  *
- * Zobia Answers (mini forum / Q&A) — read-side queries.
+ * Answers (mini forum / Q&A) — read-side queries.
  *
  * Cursor pagination follows the LIMIT-n+1 "peek" pattern used elsewhere in
  * the codebase (see lib/games/repo.ts listFavoriteGames). Vote/favorite

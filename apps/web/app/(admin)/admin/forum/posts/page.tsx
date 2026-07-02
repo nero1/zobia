@@ -3,7 +3,7 @@
 /**
  * app/(admin)/admin/forum/posts/page.tsx
  *
- * Zobia Answers question/answer management table. Mirrors the table
+ * Answers question/answer management table. Mirrors the table
  * pattern from admin/users/page.tsx (row-based badges + inline actions
  * instead of a detail drawer, since forum content actions are simple
  * single-click toggles).

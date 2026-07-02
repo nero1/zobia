@@ -3,7 +3,7 @@
 /**
  * app/(app)/answers/page.tsx
  *
- * Zobia Answers — mini forum (Q&A) main page.
+ * Answers — mini forum (Q&A) main page.
  * Tabs: Popular / Trending / New / Favorites. Cursor pagination via
  * "Load More" (mirrors app/(app)/rooms/page.tsx's state machine).
  */
@@ -207,7 +207,7 @@ export default function AnswersPage() {
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("answers.title", "Zobia Answers")}</h1>
+        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("answers.title", "Answers")}</h1>
         {canPost ? (
           <Link href="/answers/ask" className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">
             {t("answers.ask.cta", "Ask a Question")}

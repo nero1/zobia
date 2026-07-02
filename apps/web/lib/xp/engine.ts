@@ -110,7 +110,7 @@ export const XP_VALUES = {
   complete_classroom_module: 50,
   host_classroom_session: 75,
 
-  // Zobia Answers (mini forum / Q&A) — actual awarded amounts are
+  // Answers (mini forum / Q&A) — actual awarded amounts are
   // manifest-driven (lib/manifest ZobiaManifest.forum), same as `moments`;
   // these entries document the defaults for consistency with the rest of
   // this file.

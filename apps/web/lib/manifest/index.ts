@@ -109,7 +109,7 @@ export interface ZobiaManifest {
     /** Minimum account level (main rank number, 1 = Beginner) required to post a Moment. */
     minLevel: number;
   };
-  // Zobia Answers — mini forum / Q&A (admin-editable at /admin/config and /admin/forum/settings)
+  // Answers — mini forum / Q&A (admin-editable at /admin/config and /admin/forum/settings)
   forum: {
     /** Minimum account level required to post a question. */
     minLevelToPost: number;

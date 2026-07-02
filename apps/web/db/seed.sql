@@ -89,6 +89,7 @@ INSERT INTO rooms (
   description,
   type,
   category,
+  slug,
   is_public,
   is_featured,
   max_members
@@ -99,6 +100,7 @@ INSERT INTO rooms (
   'Your first stop. Say hello, ask questions, and meet the community. This room is always open.',
   'free_open',
   'community',
+  'welcome-to-zobia',
   true,
   true,
   10000
@@ -112,6 +114,7 @@ INSERT INTO rooms (
   description,
   type,
   category,
+  slug,
   city,
   is_public,
   is_featured
@@ -122,6 +125,7 @@ INSERT INTO rooms (
   'The unofficial home of Lagos on Zobia. Gist, argue, vibe — all in one place.',
   'free_open',
   'city',
+  'lagos-vibes',
   'Lagos',
   true,
   true
@@ -135,6 +139,7 @@ INSERT INTO rooms (
   description,
   type,
   category,
+  slug,
   is_public
 ) VALUES (
   '00000000-0000-0000-0002-000000000003',
@@ -143,6 +148,7 @@ INSERT INTO rooms (
   'Focused conversations about tech, business, and self-improvement. Big brain energy only.',
   'free_open',
   'knowledge',
+  'study-hall',
   true
 ) ON CONFLICT (id) DO NOTHING;
 
@@ -154,6 +160,7 @@ INSERT INTO rooms (
   description,
   type,
   category,
+  slug,
   is_public
 ) VALUES (
   '00000000-0000-0000-0002-000000000004',
@@ -162,6 +169,7 @@ INSERT INTO rooms (
   'Afrobeats, Amapiano, highlife — all the sounds shaping Africa right now.',
   'free_open',
   'entertainment',
+  'music-culture',
   true
 ) ON CONFLICT (id) DO NOTHING;
 
@@ -173,6 +181,7 @@ INSERT INTO rooms (
   description,
   type,
   category,
+  slug,
   is_public
 ) VALUES (
   '00000000-0000-0000-0002-000000000005',
@@ -181,6 +190,7 @@ INSERT INTO rooms (
   'For founders, side-hustlers, and anyone building something. Share wins, get feedback.',
   'free_open',
   'business',
+  'business-corner',
   true
 ) ON CONFLICT (id) DO NOTHING;
 
@@ -192,6 +202,7 @@ INSERT INTO rooms (
   description,
   type,
   category,
+  slug,
   is_public
 ) VALUES (
   '00000000-0000-0000-0002-000000000006',
@@ -200,6 +211,7 @@ INSERT INTO rooms (
   'Football, basketball, athletics — live reactions, predictions, and post-match roasts.',
   'free_open',
   'sports',
+  'sports-arena',
   true
 ) ON CONFLICT (id) DO NOTHING;
 
@@ -211,6 +223,7 @@ INSERT INTO rooms (
   description,
   type,
   category,
+  slug,
   is_public
 ) VALUES (
   '00000000-0000-0000-0002-000000000007',
@@ -219,6 +232,7 @@ INSERT INTO rooms (
   'Developers, designers, data people. What are you building? What broke today?',
   'free_open',
   'technology',
+  'tech-talk',
   true
 ) ON CONFLICT (id) DO NOTHING;
 
@@ -230,6 +244,7 @@ INSERT INTO rooms (
   description,
   type,
   category,
+  slug,
   is_public
 ) VALUES (
   '00000000-0000-0000-0002-000000000008',
@@ -238,6 +253,7 @@ INSERT INTO rooms (
   'Markets, crypto, investment strategies. DYOR. This is not financial advice.',
   'free_open',
   'finance',
+  'crypto-finance',
   true
 ) ON CONFLICT (id) DO NOTHING;
 
@@ -565,10 +581,10 @@ INSERT INTO platform_events (
 ON CONFLICT (id) DO NOTHING;
 
 -- ============================================================
--- 10. Zobia Answers — sample Q&A
+-- 10. Answers — sample Q&A
 --
 --    One starter question per category (categories themselves are seeded
---    by the 0040_forum_seo.sql migration, not here, since they're reference
+--    by the consolidated schema migration, not here, since they're reference
 --    taxonomy rather than sample content). Slugs are hand-written to match
 --    exactly what generateUniqueSlug() would derive from the title, so
 --    fresh deployments get readable /a/<slug> URLs immediately instead of

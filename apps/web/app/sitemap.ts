@@ -149,7 +149,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Games table absent or unavailable — skip silently
   }
 
-  // Public forum questions (Zobia Answers). Served at /a/<slug>. Falls back
+  // Public forum questions (Answers). Served at /a/<slug>. Falls back
   // to the UUID for any question not yet backfilled with a slug (still
   // resolves + 301s). The table may not exist on older DBs (pre-0040
   // migration) — the catch keeps the sitemap working regardless.

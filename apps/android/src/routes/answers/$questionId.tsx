@@ -1,7 +1,7 @@
 /**
  * apps/android/src/routes/answers/$questionId.tsx
  *
- * Zobia Answers question detail — mirrors apps/web/app/(app)/answers/[id]/page.tsx:
+ * Answers question detail — mirrors apps/web/app/(app)/answers/[id]/page.tsx:
  * threaded (nested, indented) answers, upvote/downvote, "Mark as best answer",
  * inline reply composer with the level-gate/credit-bypass prompt, and
  * "Continue this thread" lazy-loading for deep reply chains.

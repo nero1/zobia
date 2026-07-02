@@ -1,7 +1,7 @@
 /**
  * lib/forum/service.ts
  *
- * Zobia Answers (mini forum / Q&A) — eligibility, creation, voting,
+ * Answers (mini forum / Q&A) — eligibility, creation, voting,
  * favoriting and best-answer pipeline.
  *
  * Mirrors lib/moments/service.ts: feature flag → eligibility → level gate →
@@ -240,7 +240,7 @@ export async function createQuestion(input: CreateQuestionInput): Promise<Create
     "forum_question_posted",
     "forum_question_reward",
     `forum_question_reward:${questionId}`,
-    "Posted a question on Zobia Answers",
+    "Posted a question on Answers",
     eligibility.config.dailyRewardCapCredits
   );
 
@@ -307,7 +307,7 @@ export async function createAnswer(input: CreateAnswerInput): Promise<CreateAnsw
         eligibility.config.commentBypassCostCredits,
         "forum_comment_bypass",
         referenceId,
-        "Spent Credits to comment on Zobia Answers",
+        "Spent Credits to comment on Answers",
         undefined,
         tx
       );
@@ -337,7 +337,7 @@ export async function createAnswer(input: CreateAnswerInput): Promise<CreateAnsw
     "forum_answer_posted",
     "forum_answer_reward",
     `forum_answer_reward:${answerId}`,
-    "Posted an answer on Zobia Answers",
+    "Posted an answer on Answers",
     eligibility.config.dailyRewardCapCredits
   );
 
@@ -435,7 +435,7 @@ export async function castVote(
       "forum_upvote_received",
       "forum_upvote_reward",
       `forum_upvote_reward:${targetType}:${targetId}:${userId}`,
-      "Received an upvote on Zobia Answers",
+      "Received an upvote on Answers",
       manifest.forum.dailyRewardCapCredits
     );
   }
@@ -522,7 +522,7 @@ export async function markBestAnswer(
     "forum_best_answer_awarded",
     "forum_best_answer_reward",
     `forum_best_answer_reward:${answerId}`,
-    "Your answer was marked best on Zobia Answers",
+    "Your answer was marked best on Answers",
     manifest.forum.dailyRewardCapCredits
   );
 }
