@@ -29,19 +29,33 @@
   }
 
   html {
+    height: 100%;
     -webkit-text-size-adjust: 100%;
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior: none;
   }
 
+  /* html/body/#root must form an explicit height:100% chain — without it the
+     app-shell's `h-full` wrapper collapses to content height and the
+     *document* becomes the scrolling context instead of the inner
+     `overflow-y-auto` <main>. Android's WebView doesn't keep `position: fixed`
+     elements (TopBar/BottomNav) pinned to the viewport when the document
+     itself scrolls, so the bottom nav visually drifts instead of staying
+     fixed at the bottom. */
   body {
     @apply bg-white text-neutral-900 antialiased;
+    height: 100%;
+    overflow: hidden;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
     padding-left: env(safe-area-inset-left);
     padding-right: env(safe-area-inset-right);
     overscroll-behavior: none;
     -webkit-overflow-scrolling: touch;
+  }
+
+  #root {
+    height: 100%;
   }
 
   * {
