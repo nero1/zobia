@@ -50,50 +50,66 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
 
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 h-14 bg-white border-b border-neutral-200 z-50 flex items-center justify-between px-4">
-        <div className="flex items-center gap-2 min-w-0">
-          <button
-            type="button"
-            aria-label="Open navigation menu"
-            aria-expanded={drawerOpen}
-            onClick={() => setDrawerOpen(true)}
-            className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
-          >
-            <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-              <rect x="2" y="4" width="16" height="2" rx="1" />
-              <rect x="2" y="9" width="16" height="2" rx="1" />
-              <rect x="2" y="14" width="16" height="2" rx="1" />
-            </svg>
-          </button>
-
-          {showBack && (
+      {/*
+        Not `fixed` — a normal flex child of the __root AppShell column, so the
+        WebView lays out header/content/nav in-flow and nothing needs a
+        hardcoded height to offset against (see BottomNav for the same
+        pattern). The `env(safe-area-inset-top)` padding keeps the row below
+        the status bar on edge-to-edge Android (API 35+, forced for apps
+        targeting SDK 35+) without shrinking the 56px content row itself —
+        a `fixed top-0` header ignores body's own safe-area padding (fixed
+        elements aren't affected by an ancestor's padding), which is what
+        made the top of the app look cut off under the status bar.
+      */}
+      <header
+        className="relative z-50 flex-none bg-white border-b border-neutral-200"
+        style={{ paddingTop: 'env(safe-area-inset-top)' }}
+      >
+        <div className="h-14 flex items-center justify-between px-4">
+          <div className="flex items-center gap-2 min-w-0">
             <button
-              onClick={() => router.history.back()}
+              type="button"
+              aria-label="Open navigation menu"
+              aria-expanded={drawerOpen}
+              onClick={() => setDrawerOpen(true)}
               className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
-              aria-label={t('action.back')}
             >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="15 18 9 12 15 6" />
+              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
+                <rect x="2" y="4" width="16" height="2" rx="1" />
+                <rect x="2" y="9" width="16" height="2" rx="1" />
+                <rect x="2" y="14" width="16" height="2" rx="1" />
               </svg>
             </button>
-          )}
 
-          <Link to="/home" className="text-lg font-bold text-primary-600">
-            Zobia
-          </Link>
-        </div>
+            {showBack && (
+              <button
+                onClick={() => router.history.back()}
+                className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
+                aria-label={t('action.back')}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="15 18 9 12 15 6" />
+                </svg>
+              </button>
+            )}
 
-        <h1 className="sr-only">{title}</h1>
+            <Link to="/home" className="text-lg font-bold text-primary-600">
+              Zobia
+            </Link>
+          </div>
 
-        <div className="flex items-center gap-2">
-          <Link
-            to="/notifications"
-            aria-label="Notifications"
-            className="relative rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
-          >
-            <span aria-hidden="true" className="text-lg leading-none">🔔</span>
-          </Link>
-          {rightActions}
+          <h1 className="sr-only">{title}</h1>
+
+          <div className="flex items-center gap-2">
+            <Link
+              to="/notifications"
+              aria-label="Notifications"
+              className="relative rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+            >
+              <span aria-hidden="true" className="text-lg leading-none">🔔</span>
+            </Link>
+            {rightActions}
+          </div>
         </div>
       </header>
 
@@ -104,13 +120,15 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
       <div
         role="dialog"
         aria-label="Navigation menu"
-        className={`fixed inset-y-0 left-0 z-50 w-72 flex-col bg-white pt-14 shadow-xl transition-transform duration-300 ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed inset-y-0 left-0 z-50 w-72 flex-col bg-white shadow-xl transition-transform duration-300 ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top))' }}
       >
         <button
           type="button"
           onClick={closeDrawer}
           aria-label="Close menu"
-          className="absolute right-4 top-4 rounded-full p-2 text-neutral-500 hover:bg-neutral-100"
+          className="absolute right-4 rounded-full p-2 text-neutral-500 hover:bg-neutral-100"
+          style={{ top: 'calc(1rem + env(safe-area-inset-top))' }}
         >
           <span aria-hidden="true" className="text-xl leading-none">✕</span>
         </button>

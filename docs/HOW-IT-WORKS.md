@@ -1105,7 +1105,7 @@ Run: `cd apps/web && npx jest --testPathPattern="security" --runInBand`
 
 ### Server-Side Delivery
 
-The server sends push notifications via `apps/web/lib/notifications/push.ts` using the Expo Push API. Delivery follows a **two-stage protocol** required by Expo:
+The server sends push notifications via `apps/web/lib/notifications/push.ts`, which routes each stored token to the right provider by format (v2.05): Expo push tokens (historically used by the discontinued Expo app) via the Expo Push API below, and Firebase Cloud Messaging tokens (the Capacitor Android app — see "Push Notifications (v2.05)" under Android App) via `apps/web/lib/notifications/fcm.ts` (FCM HTTP v1, single-request-per-message, no receipt-polling stage). No call site of `sendPushNotification()`/`sendPushNotificationBatch()` needs to know which provider a given user's device uses. The Expo half of the pipeline follows a **two-stage protocol** required by Expo:
 
 #### Stage 1 — Send (immediate)
 
@@ -1182,7 +1182,7 @@ Key architectural decisions:
 - **Capacitor Network and App replace NetInfo and AppState.** `@capacitor/network` powers `useNetworkStatus` for the offline banner and query pause logic. `@capacitor/app` provides `appStateChange` events to pause Ably subscriptions and query polling when the app is backgrounded.
 - **i18next-browser-languagedetector replaces expo-localization.** Language detection reads the browser `Accept-Language` header (surfaced by Capacitor's WebView). The chosen language is persisted in `@capacitor/preferences`. All locale JSON files are sourced from `shared/i18n/locales/` — the same canonical files used by the web app.
 
-**Screen coverage.** `apps/android/src/routes/` currently ports: home, quests, games, rooms (list + detail), messages (list + conversation), moments (feed + create), Answers (list, ask, question detail — `answers/`), profile, wallet, stats, settings, notifications, and auth.
+**Screen coverage.** `apps/android/src/routes/` currently ports: home, games (list, detail, saved), rooms (list + detail), messages (list + conversation), moments (feed + create), Answers (list, ask, question detail — `answers/`), blogs (list, post, new), business (hub, pages, ads), ads, profile, wallet, stats, settings, notifications, and auth. Not yet ported (v2.05): Friends, Guilds, Quests, Seasons, Prestige, Nemesis, Council, Elder, Classroom, Creator tools, Events, Gifts, Inbox, KYC, Leaderboards, Merch, Message Groups, Referrals, Room creation, Business/Subscription settings, Community Notes — see the PRD's v2.05 changelog for the full list. When porting one, follow the pattern in the existing route files: TanStack Router file route, `apiClient` + TanStack Query (never raw `fetch`), Tailwind classes matching the equivalent web/PWA screen, i18n keys added to `shared/i18n/locales/en.json`.
 
 **Presence Layer parity (v2.03).** The Android app now ports the web/PWA Presence Layer (PRD §2.2): `components/ui/OnlineRing.tsx` and `components/ui/RoomPulseBar.tsx` / `LiveRoomPulseBar.tsx` mirror the web components 1:1 (same colors, same thresholds), `routes/home.tsx` renders an Online Friends row (`GET /api/friends/online`), each room card in `routes/rooms/index.tsx` shows a pulse bar, `routes/rooms/$roomId.tsx` shows a live pulse bar and now sends the room-presence heartbeat (`POST /api/rooms/:roomId/presence` every 45s) so Android users count toward a room's soft capacity the same way web users do, and `lib/hooks/usePresenceHeartbeat.ts` keeps `last_active_at` warm app-wide (see "Online Friends & Presence Filtering" above). `wallet.tsx` and `stats.tsx` (added alongside the web Stats page) cover the logged-in user's own wallet/rank/badges and Stats screens — reachable from Settings — using `useInfiniteQuery` + an explicit "Load more" button for transaction history against the same `GET /api/economy/coins/balance` and `GET /api/users/[userId]/stats` endpoints the web app uses. Friends (`/friends`) and the Gifts Hub (`/gifts`) — both covered in this doc for web/PWA — are not yet ported to the Capacitor app; there is no `apps/android/src/routes/friends.tsx` or `gifts.tsx` today. When they are built, they should mirror the web/PWA tab layout and API calls described above (same `/api/friends*` and `/api/economy/gifts*` endpoints, TanStack Query instead of raw `fetch` + `useState`, per the pattern in `src/routes/messages/index.tsx`).
 
@@ -1191,10 +1191,12 @@ Key architectural decisions:
 The root route (`src/routes/__root.tsx`) renders `AppShell`:
 
 1. `AuthGuard` — redirects unauthenticated users to `/auth/login`.
-2. `TopBar` — 56px fixed header with page title and optional back button.
-3. `OfflineBanner` — fixed red strip below the TopBar, visible only when offline.
+2. `TopBar` — 56px header with page title and optional back button.
+3. `OfflineBanner` — red strip below the TopBar, visible only when offline.
 4. `<Outlet>` — the active route's content, wrapped with `page-slide-in` CSS animation.
-5. `BottomNav` — 5-tab navigation (Home, Games, Messages, Rooms, Profile).
+5. `BottomNav` — 6-tab navigation (Home, Games, Rooms, Messages, Notifications, Profile).
+
+None of these three are `position: fixed` (v2.05) — they're normal flex children of the AppShell column, so the WebView lays them out in-flow and each one's own `env(safe-area-inset-*)` padding is all that's needed to clear the status bar / gesture nav bar on edge-to-edge Android (API 35+, forced for this app's `targetSdk 36`). `position: fixed` is relative to the viewport and ignores an ancestor's padding, which is why the old fixed-header version rendered partly under the status bar.
 
 Route-to-title mapping is derived from `location.pathname` inside `AppShell` — no per-route metadata object required.
 
@@ -1248,6 +1250,27 @@ When offline:
 - All other logic is identical: Ably `authCallback` pattern, `RECOVERABLE_STATES`, `onEventRef` stable-ref pattern, and strict single-subscribe-per-channel discipline.
 
 Adaptive polling (`src/lib/hooks/useAdaptiveChatPoll.ts`) is a verbatim copy of `apps/web/lib/hooks/useAdaptiveChatPoll.ts`. When the Ably socket is connected, the baseline poll runs every 30 seconds. When disconnected, it starts at 3 seconds and backs off geometrically to 15 seconds. When the app is backgrounded, polling pauses entirely.
+
+### In-App Purchases (v2.05)
+
+`src/lib/payments/googlePlay.ts` wraps `capacitor-plugin-cdv-purchase` — a native Capacitor plugin (not a WebView, not the Cordova-bridge `cordova-plugin-purchase`) that drives Google Play Billing directly. This is the *only* in-app purchase mechanism on Android (PRD §18); Paystack/DodoPayments checkout links are web/PWA-only. It covers four product families, all registered with `store.register()` and purchased via `store.order()`:
+
+- **Coin packs** (`coins_starter` … `coins_legend`) and **star packs** (`stars_starter` … `stars_boss`) — consumables, purchased from the "Buy Credits & Stars" panel on `routes/wallet.tsx`.
+- **Plus/Pro/Max subscriptions** (`sub_*_monthly`/`sub_*_annual`) — same product IDs as the (discontinued) Expo app used.
+- **Business Account tiers** (`biz_starter_monthly`, `biz_growth_monthly`, `biz_enterprise_monthly`) — grouped so purchasing one replaces any currently-owned tier, purchased from `routes/business/index.tsx`.
+
+The purchase flow is identical for all four: `store.when().approved()` fires with a `Transaction`, the app extracts the raw Google Play purchase token (`transaction.parentReceipt.purchaseToken`, only present on the `GooglePlay.Receipt` subtype) and POSTs it to the matching server endpoint — `POST /api/economy/iap/verify` for coins/stars/subscriptions, `POST /api/business/iap/verify` for Business tiers — which verifies it against the Google Play Developer API before crediting anything. `transaction.finish()` is only called after a confirmed server credit; if verification fails, the transaction is left unfinished so Google Play replays it to the same listener later (including across app restarts) instead of the purchase being silently lost. Both server endpoints share their Google Play Developer API calls (JWT signing, OAuth token exchange, purchase/subscription verify, consume, acknowledge) via `apps/web/lib/payments/googlePlayVerify.ts`.
+
+### Push Notifications (v2.05)
+
+`src/lib/push/index.ts` wraps `@capacitor/push-notifications`, which registers a **Firebase Cloud Messaging (FCM)** token on Android — a different token format from the Expo push tokens the discontinued Expo app used. On first launch after login it requests permission, creates a default notification channel (required for a background/killed-app notification to display on Android O+), registers for a token, and POSTs it to the same `POST /api/users/push-token` endpoint (`{ token, platform: "android", deviceId }`) the Expo app used. `apps/web/lib/notifications/push.ts` — the single choke point every notification-triggering code path in the backend already calls through — routes each stored token to the right delivery provider by format (Expo vs. FCM, via `apps/web/lib/notifications/fcm.ts`), so no call site needed to change. Tapping a notification navigates to its `data.action` route if it's in `VALID_PUSH_ROUTES` (an allowlist scoped to routes that exist in this app — extend it when porting a new page that should be a push deep-link target).
+
+### Advertising (v2.05)
+
+Two ad systems, both additive (PRD §17 Pillar 3 — "Admob ads show in the capacitor/android app in addition to other ads"):
+
+- **In-house native ads** — `components/ads/AdSlot.tsx` (`GET /api/ads/serve?placement=...`, impression/click reporting via `POST /api/ads/events`) is wired into free Rooms' message stream (`components/ads/InStreamAd.tsx`, mounted from `routes/rooms/$roomId.tsx`, gated on `room.type === "free_open"`, every `ad_room_instream_interval` messages — same placement/cadence/config source, `GET /api/manifest` via `lib/hooks/useAdsConfig.ts`, as apps/web's room screen). Ad clicks open via `Browser.open()` rather than an `<a target="_blank">`, since a Capacitor WebView has no "new tab" to open one into.
+- **AdMob** — `lib/ads/admob.ts` wraps `@capacitor-community/admob`, shown as a banner on the Games list (`routes/games/index.tsx`). Reads unit IDs/test-mode from `GET /api/manifest` (`ads.admob`), falling back to Google's official test unit IDs whenever `testMode` is on or a real unit ID isn't configured. Requires a native `AndroidManifest.xml` App ID `<meta-data>` before Play Store release (already present, using Google's public test App ID by default) — see `docs/SETUP.md`.
 
 ### APK Build Process
 
@@ -1535,7 +1558,7 @@ Independent of tier, a business account can request the "Verified" badge (PRD §
 
 ### Entry points (v2.02)
 
-`/business` (sidebar link, always visible — same "nav item unconditional, feature enforced server-side" convention as Blogs) is the hub: no account → an explainer of the feature/tiers/pricing with a Create CTA (routing to `/settings/business`, which owns the actual paid signup form); has an account → cards linking to Account & Billing (`/settings/business`, unchanged), Business Pages (`/business/pages`), the Advertising Panel (`/business/ads`), and Stats (`/business/stats`). The Capacitor Android app mirrors this at `/business`, `/business/pages(+/$pageId)`, `/business/ads` — tier/verification management itself stays web/PWA-only (same convention as Blogs settings), and any paid action (signup, upgrade) opens the Paystack/DodoPayments checkout URL in the external in-app browser (`@capacitor/browser`, the same pattern already used for OAuth) rather than embedding it — Google Play Billing is the only allowed in-app purchase mechanism on Android (PRD §18), so a web checkout page must never be presented as in-app purchase UI.
+`/business` (sidebar link, always visible — same "nav item unconditional, feature enforced server-side" convention as Blogs) is the hub: no account → an explainer of the feature/tiers/pricing with a Create CTA (routing to `/settings/business`, which owns the actual paid signup form); has an account → cards linking to Account & Billing (`/settings/business`, unchanged), Business Pages (`/business/pages`), the Advertising Panel (`/business/ads`), and Stats (`/business/stats`). The Capacitor Android app mirrors this at `/business`, `/business/pages(+/$pageId)`, `/business/ads` — tier/verification management itself stays web/PWA-only (same convention as Blogs settings). Paid actions (signup, upgrade) on Android go through Google Play Billing (`apps/android/src/lib/payments/googlePlay.ts`, `purchaseBusinessTier()`), never a Paystack/DodoPayments checkout link — Google Play Billing is the only allowed in-app purchase mechanism on Android (PRD §18). The purchase is verified server-side against the Google Play Developer API by `POST /api/business/iap/verify` (v2.05), which creates the Business Account on the first purchase or upgrades/downgrades the tier on subsequent ones — a separate code path from web/PWA's `POST /api/business` + `PATCH /api/business/tier` (Paystack/DodoPayments checkout links + webhook activation), since the "pay now, activate later via webhook" model those use doesn't apply to an IAP purchase that's already completed by the time the client can call the server.
 
 ### Business Pages
 

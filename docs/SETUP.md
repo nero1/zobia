@@ -143,6 +143,24 @@ The Capacitor app ships with `@capacitor-community/admob` (`apps/android/src/lib
    ```
    (this one step is native-side and can't be driven from `x_manifest` — the Play Store requires it embedded in the manifest before the ad SDK will initialize with a real App ID).
 
+### Google Play Billing (Capacitor Android)
+
+Google Play Billing is the **only** in-app purchase mechanism on Android (PRD §18 — a Google Play Store policy requirement); Paystack/DodoPayments checkout links are web/PWA-only. The Capacitor app ships with `capacitor-plugin-cdv-purchase` (`apps/android/src/lib/payments/googlePlay.ts`), covering coin packs, star packs, Plus/Pro/Max subscriptions, and Business Account tier signup/upgrade. Purchases are verified server-side against the Google Play Developer API (`lib/payments/googlePlayVerify.ts`) before any reward is granted.
+
+1. Create the products in **Google Play Console → Monetize → Products**: 6 one-time "in-app products" (`coins_starter`, `coins_regular`, `coins_big`, `coins_baller`, `coins_boss`, `coins_legend`), 4 one-time in-app products (`stars_starter`, `stars_regular`, `stars_big`, `stars_boss`), and 9 subscriptions (`sub_plus_monthly`, `sub_pro_monthly`, `sub_max_monthly`, `sub_plus_annual`, `sub_pro_annual`, `sub_max_annual`, `biz_starter_monthly`, `biz_growth_monthly`, `biz_enterprise_monthly` — group the three `biz_*` products together so purchasing one replaces any currently-owned tier). Prices/amounts must match `apps/android/src/lib/payments/googlePlay.ts` and `apps/web/app/api/economy/iap/verify/route.ts` / `apps/web/app/api/business/iap/verify/route.ts`.
+2. Create a service account with the **Service Account User** role in Play Console → Setup → API access, download its JSON key, and set `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` (see Environment Variables Reference below). Without it, purchases are trusted without verification in development (`NODE_ENV !== "production"`) and rejected outright in production.
+3. Set `GOOGLE_PLAY_PACKAGE_NAME=com.zobiasocial.app` (the Capacitor app's `applicationId`) if it differs from the default.
+4. Build a signed release APK/AAB and upload it to an internal testing track — purchases (even test ones) only work against a package built from the Play Console listing, not a locally-signed debug build.
+
+### Push Notifications (Capacitor Android / FCM)
+
+The Capacitor app ships with `@capacitor/push-notifications` (`apps/android/src/lib/push/index.ts`), which registers a Firebase Cloud Messaging (FCM) token — a different token format from the Expo push tokens the now-discontinued Expo app used. `lib/notifications/push.ts` (the single push-sending choke point used by every notification-triggering code path) routes each registered token to the right provider automatically by format, so no call site needs to know which app a recipient is on.
+
+1. Create a [Firebase](https://console.firebase.google.com) project (or reuse an existing Google Cloud project) and add an Android app with package name `com.zobiasocial.app`.
+2. Download `google-services.json` from Firebase Console → Project settings → General → Your apps, and place it at `apps/android/android/app/google-services.json`. Add the Google Services Gradle plugin (`com.google.gms:google-services`) to `apps/android/android/build.gradle` and `apps/android/android/app/build.gradle` per the [Capacitor push notifications guide](https://capacitorjs.com/docs/apis/push-notifications#android) — this one step is native-side and can't be driven from environment variables, same as the AdMob App ID above.
+3. Firebase Console → Project settings → Service accounts → **Generate new private key**, then set `FCM_PROJECT_ID` (the Firebase project ID) and `FCM_SERVICE_ACCOUNT_JSON` (see Environment Variables Reference below). Without these, Android push sends are skipped (logged, not thrown) — the in-app notification center (`GET /api/notifications`) still works.
+4. Notification tap-to-navigate uses an allowlist of routes in `apps/android/src/lib/push/index.ts` (`VALID_PUSH_ROUTES`) — extend it alongside any new Android page that should be a valid push deep-link target.
+
 ### Running on free tiers (Vercel Hobby + free Redis)
 
 The app is tuned to stay within a free Redis plan and Vercel Hobby's serverless quotas. Two mechanisms do the heavy lifting (see *HOW-IT-WORKS.md → Redis Cost Controls* for detail):
@@ -201,8 +219,10 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `PAYSTACK_SECRET_KEY` | No | Paystack secret key — must have Transfers permission enabled | Paystack dashboard → Settings → API Keys |
 | `PAYSTACK_PUBLIC_KEY` | No | Paystack public key | Paystack dashboard → Settings → API Keys |
 | `DODOPAYMENTS_API_KEY` | No | DodoPayments API key | DodoPayments dashboard → API |
-| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | No | Google Play service account JSON (base64-encoded or raw) for Android IAP verification | Google Play Console → Setup → API access |
-| `GOOGLE_PLAY_PACKAGE_NAME` | No | Your Android app's package name for IAP purchase validation (default: `com.zobia.app`). Must match the package name in your Google Play Console app. | Google Play Console → App details |
+| `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | No | Google Play service account JSON (base64-encoded or raw) for Android IAP verification (coins/stars/subscriptions, `/api/economy/iap/verify`, and Business Account signup/upgrade, `/api/business/iap/verify`) | Google Play Console → Setup → API access |
+| `GOOGLE_PLAY_PACKAGE_NAME` | No | Your Android app's package name for IAP purchase validation (default: `com.zobiasocial.app`, the Capacitor app — the Expo app is discontinued). Must match the package name in your Google Play Console app. | Google Play Console → App details |
+| `FCM_PROJECT_ID` | No | Firebase project ID — enables push notification delivery to the Capacitor Android app (`@capacitor/push-notifications`). Without it, push sends to Android devices are skipped (Expo push, used historically by the discontinued Expo app, is unaffected). See [Push Notifications (Capacitor Android / FCM)](#push-notifications-capacitor-android--fcm) below. | Firebase Console → Project settings → General → Project ID |
+| `FCM_SERVICE_ACCOUNT_JSON` | No | Firebase service account JSON (base64-encoded or raw) with the Firebase Cloud Messaging API enabled | Firebase Console → Project settings → Service accounts → Generate new private key |
 | `ADMOB_APP_ID` | No | Google AdMob app ID (for rewarded ads + game banner ads in the Expo app) | AdMob → Apps |
 | `NEXT_PUBLIC_ADSENSE_CLIENT` | No | Google AdSense client id (`ca-pub-…`) for web/PWA ad slots (incl. game pages). Without it, `<AdSlot>` renders a labelled placeholder when ads are enabled. | AdSense → Account |
 | `NEXT_PUBLIC_ADSENSE_SLOT` | No | Default AdSense ad-unit slot id used by `<AdSlot>` | AdSense → Ads → By ad unit |

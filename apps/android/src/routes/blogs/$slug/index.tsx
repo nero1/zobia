@@ -32,13 +32,18 @@ interface PostSummary {
 }
 
 async function fetchBlog(slug: string) {
-  const { data } = await apiClient.get<{ data: { blog: BlogDetail; isSubscribed: boolean } }>(`/blogs/${slug}`);
-  return data.data;
+  // apiClient's response interceptor already unwraps the { success, data, error }
+  // envelope down to `data`, so `data` here IS { blog, isSubscribed, ... } already —
+  // reading `data.data` was always undefined, so the blog page showed "not found" forever.
+  const { data } = await apiClient.get<{ blog: BlogDetail; isSubscribed: boolean }>(`/blogs/${slug}`);
+  return data;
 }
 
 async function fetchPosts(slug: string, type: 'article' | 'page') {
-  const { data } = await apiClient.get<{ data: { posts: PostSummary[] } }>(`/blogs/${slug}/posts?type=${type}&status=published&limit=20`);
-  return data.data.posts;
+  // Same double-unwrap bug as fetchBlog above — `data` is already { posts, ... },
+  // so `data.data.posts` threw (reading `.posts` of undefined).
+  const { data } = await apiClient.get<{ posts: PostSummary[] }>(`/blogs/${slug}/posts?type=${type}&status=published&limit=20`);
+  return data?.posts ?? [];
 }
 
 function BlogHomePage() {

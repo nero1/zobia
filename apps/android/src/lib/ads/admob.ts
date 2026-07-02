@@ -12,7 +12,7 @@
  * must be configured before shipping to Play Store — see docs/SETUP.md.
  */
 
-import { AdMob, BannerAdPosition, BannerAdSize, type AdMobBannerSize } from '@capacitor-community/admob';
+import { AdMob, BannerAdPosition, BannerAdSize } from '@capacitor-community/admob';
 import { apiClient } from '@/lib/api/client';
 
 interface AdMobManifestConfig {
@@ -63,7 +63,7 @@ async function ensureInitialized(): Promise<boolean> {
   return true;
 }
 
-export async function showBanner(size: AdMobBannerSize = BannerAdSize.BANNER): Promise<void> {
+export async function showBanner(size: BannerAdSize = BannerAdSize.BANNER): Promise<void> {
   const config = await getConfig();
   if (!(await ensureInitialized()) || !config) return;
   await AdMob.showBanner({

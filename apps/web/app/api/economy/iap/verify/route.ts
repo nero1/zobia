@@ -8,23 +8,34 @@ export const dynamic = 'force-dynamic';
  * POST /api/economy/iap/verify
  *   - Validates JWT auth (withAuth middleware)
  *   - Verifies the purchase token with the Google Play Developer API
- *   - Checks idempotency via coin_ledger reference field
- *   - Credits coins atomically via creditCoins
+ *   - Checks idempotency via coin_ledger/star_ledger reference field
+ *   - Credits coins/stars atomically, or activates a subscription plan
  *   - Acknowledges (consumes) the purchase on Google Play
- *   - Returns { success: true, coinsGranted: number }
+ *   - Returns { success: true, coinsGranted, starsGranted?, plan? }
  *
  * Security: SELECT FOR UPDATE prevents race conditions.
  * Returns 409 if purchaseToken was already processed.
+ *
+ * Google Play Developer API calls (JWT signing, OAuth, verify/consume/
+ * acknowledge) live in lib/payments/googlePlayVerify.ts, shared with
+ * app/api/business/iap/verify/route.ts (Business Account signup/upgrade).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { handleApiError, badRequest, conflict, internalError } from "@/lib/api/errors";
+import { handleApiError, badRequest, conflict } from "@/lib/api/errors";
 import { creditCoins } from "@/lib/economy/coins";
+import { creditStars } from "@/lib/economy/stars";
 import { db } from "@/lib/db";
-import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { logger } from "@/lib/logger";
+import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import {
+  EXPECTED_PACKAGE_NAME,
+  verifyGooglePlayProductPurchase,
+  consumeGooglePlayPurchase,
+  verifyGooglePlaySubscriptionPurchase,
+  acknowledgeGooglePlaySubscription,
+} from "@/lib/payments/googlePlayVerify";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -32,7 +43,7 @@ import { logger } from "@/lib/logger";
 
 /**
  * Maps Google Play one-time product IDs to coin amounts.
- * Must stay in sync with apps/expo/lib/payments/googlePlay.ts COIN_PRODUCTS.
+ * Must stay in sync with apps/android/src/lib/payments/googlePlay.ts COIN_PRODUCTS.
  */
 const COIN_PRODUCTS: Record<string, number> = {
   coins_starter: 100,
@@ -44,8 +55,19 @@ const COIN_PRODUCTS: Record<string, number> = {
 };
 
 /**
+ * Maps Google Play one-time product IDs to star amounts.
+ * Must stay in sync with apps/android/src/lib/payments/googlePlay.ts STAR_PRODUCTS.
+ */
+const STAR_PRODUCTS: Record<string, number> = {
+  stars_starter: 10,
+  stars_regular: 30,
+  stars_big: 80,
+  stars_boss: 200,
+};
+
+/**
  * Maps Google Play subscription product IDs to plan tiers and monthly coin bonuses.
- * Must stay in sync with apps/expo/lib/payments/googlePlay.ts SUBSCRIPTION_PRODUCTS.
+ * Must stay in sync with apps/android/src/lib/payments/googlePlay.ts SUBSCRIPTION_PRODUCTS.
  */
 const SUBSCRIPTION_PRODUCTS: Record<string, { plan: string; monthlyCoins: number }> = {
   sub_plus_monthly:  { plan: "plus", monthlyCoins: 50 },
@@ -55,12 +77,6 @@ const SUBSCRIPTION_PRODUCTS: Record<string, { plan: string; monthlyCoins: number
   sub_pro_annual:    { plan: "pro",  monthlyCoins: 200 },
   sub_max_annual:    { plan: "max",  monthlyCoins: 500 },
 };
-
-const GOOGLE_PLAY_API_BASE =
-  "https://androidpublisher.googleapis.com/androidpublisher/v3/applications";
-
-/** Expected Android package name — rejects tokens from other Google Play apps. */
-const EXPECTED_PACKAGE_NAME = process.env.GOOGLE_PLAY_PACKAGE_NAME ?? "com.zobia.app";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -77,6 +93,11 @@ const verifyIapSchema = z.object({
       "coins_baller",
       "coins_boss",
       "coins_legend",
+      // One-time star purchases
+      "stars_starter",
+      "stars_regular",
+      "stars_big",
+      "stars_boss",
       // Monthly subscription plans
       "sub_plus_monthly",
       "sub_pro_monthly",
@@ -94,222 +115,7 @@ const verifyIapSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Google Play authentication helpers
-// ---------------------------------------------------------------------------
-
-interface ServiceAccountJson {
-  client_email: string;
-  private_key: string;
-  token_uri?: string;
-}
-
-/**
- * Create a signed JWT for the Google service account.
- * Uses the RS256 algorithm as required by Google APIs.
- */
-async function createServiceAccountJwt(sa: ServiceAccountJson): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const header = { alg: "RS256", typ: "JWT" };
-  const payload = {
-    iss: sa.client_email,
-    scope: "https://www.googleapis.com/auth/androidpublisher",
-    aud: sa.token_uri ?? "https://oauth2.googleapis.com/token",
-    iat: now,
-    exp: now + 3600,
-  };
-
-  const encode = (obj: unknown) =>
-    Buffer.from(JSON.stringify(obj)).toString("base64url");
-
-  const signingInput = `${encode(header)}.${encode(payload)}`;
-
-  // Import private key for signing
-  const privateKeyPem = sa.private_key.replace(/\\n/g, "\n");
-  const keyData = privateKeyPem
-    .replace(/-----BEGIN PRIVATE KEY-----/, "")
-    .replace(/-----END PRIVATE KEY-----/, "")
-    .replace(/\s+/g, "");
-
-  const binaryKey = Buffer.from(keyData, "base64");
-
-  const cryptoKey = await crypto.subtle.importKey(
-    "pkcs8",
-    binaryKey,
-    { name: "RSASSA-PKCS1-v1_5", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-
-  const signature = await crypto.subtle.sign(
-    "RSASSA-PKCS1-v1_5",
-    cryptoKey,
-    Buffer.from(signingInput)
-  );
-
-  const signatureB64 = Buffer.from(signature).toString("base64url");
-  return `${signingInput}.${signatureB64}`;
-}
-
-// Module-level cache keyed by service account client_email so rotating
-// GOOGLE_PLAY_SERVICE_ACCOUNT_JSON immediately invalidates the stale token
-// instead of serving it for up to ~59 minutes.
-const _oauthCache: Record<string, { token: string; expiresAt: number }> = {};
-
-/**
- * Exchange a service account JWT for an OAuth2 access token.
- * Results are cached at module scope per service-account identity.
- */
-async function getGoogleAccessToken(sa: ServiceAccountJson): Promise<string> {
-  const now = Math.floor(Date.now() / 1000);
-  const cached = _oauthCache[sa.client_email];
-  if (cached && cached.expiresAt > now + 60) {
-    return cached.token;
-  }
-
-  const jwt = await createServiceAccountJwt(sa);
-  const tokenUri = sa.token_uri ?? "https://oauth2.googleapis.com/token";
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
-  let resp: Response;
-  try {
-    resp = await fetch(tokenUri, {
-      signal: controller.signal,
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        assertion: jwt,
-      }),
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw internalError(`Failed to get Google access token: ${text}`);
-  }
-
-  const data = (await resp.json()) as { access_token: string; expires_in?: number };
-  const expiresIn = data.expires_in ?? 3600;
-  _oauthCache[sa.client_email] = { token: data.access_token, expiresAt: now + expiresIn - 60 };
-  return data.access_token;
-}
-
-// ---------------------------------------------------------------------------
-// Google Play Developer API calls
-// ---------------------------------------------------------------------------
-
-interface GooglePlayPurchase {
-  purchaseState: number;   // 0 = purchased, 1 = cancelled, 2 = pending
-  consumptionState: number; // 0 = not consumed, 1 = consumed
-  acknowledgementState: number; // 0 = not acknowledged, 1 = acknowledged
-  orderId: string;
-}
-
-/**
- * Verify a product purchase with the Google Play Developer API.
- * Falls back to "trusted" mode in development if env var not set.
- */
-async function verifyGooglePlayPurchase(
-  packageName: string,
-  productId: string,
-  purchaseToken: string
-): Promise<GooglePlayPurchase> {
-  const saJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
-
-  if (!saJson) {
-    if (process.env.NODE_ENV === "production") {
-      throw internalError(
-        "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured. IAP verification is disabled."
-      );
-    }
-    // Dev/test mode only — trust the purchase without verifying with Google
-    logger.warn("[iap/verify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — running in trusted dev mode. DO NOT use this in production.");
-    return {
-      purchaseState: 0,
-      consumptionState: 0,
-      acknowledgementState: 0,
-      orderId: `dev_order_${Date.now()}`,
-    };
-  }
-
-  const sa: ServiceAccountJson = JSON.parse(saJson);
-  const accessToken = await getGoogleAccessToken(sa);
-
-  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/products/${productId}/tokens/${purchaseToken}`;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
-  let resp: Response;
-  try {
-    resp = await fetch(url, {
-      signal: controller.signal,
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw badRequest(`Google Play verification failed: ${text}`, "PLAY_VERIFY_FAILED");
-  }
-
-  return (await resp.json()) as GooglePlayPurchase;
-}
-
-/**
- * Consume a one-time product purchase on Google Play.
- *
- * Consumable products (coin packs) must use the :consume endpoint — not
- * :acknowledge. Using :acknowledge on a consumable leaves the purchase in a
- * non-consumed state and prevents the user from buying the same product again
- * until Google auto-cancels it.
- */
-async function consumeGooglePlayPurchase(
-  packageName: string,
-  productId: string,
-  purchaseToken: string
-): Promise<void> {
-  const saJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
-  if (!saJson) {
-    logger.warn("[iap/verify] Skipping Google Play consume in dev mode");
-    return;
-  }
-
-  const sa: ServiceAccountJson = JSON.parse(saJson);
-  const accessToken = await getGoogleAccessToken(sa);
-
-  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/products/${productId}/tokens/${purchaseToken}:consume`;
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 5000);
-  let resp: Response;
-  try {
-    resp = await fetch(url, {
-      signal: controller.signal,
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: "{}",
-    });
-  } finally {
-    clearTimeout(timer);
-  }
-
-  if (!resp.ok && resp.status !== 204) {
-    // Non-fatal: log but don't fail the credit — coins were already granted
-    const text = await resp.text();
-    logger.error(`[iap/verify] Failed to consume purchase: ${text}`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// POST /api/economy/iap/verify
+// Subscription activation
 // ---------------------------------------------------------------------------
 
 /**
@@ -344,53 +150,13 @@ async function verifyAndActivateSubscription(
   }
 
   // Verify with Google Play subscriptions API (different endpoint from products)
-  const saJson = process.env.GOOGLE_PLAY_SERVICE_ACCOUNT_JSON;
-  if (saJson) {
-    const sa: ServiceAccountJson = JSON.parse(saJson);
-    const accessToken = await getGoogleAccessToken(sa);
-    const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}`;
-    const verifyCtrl = new AbortController();
-    const verifyTimer = setTimeout(() => verifyCtrl.abort(), 5000);
-    let resp: Response;
-    try {
-      resp = await fetch(url, { signal: verifyCtrl.signal, headers: { Authorization: `Bearer ${accessToken}` } });
-    } finally {
-      clearTimeout(verifyTimer);
-    }
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw badRequest(`Google Play subscription verification failed: ${text}`, "PLAY_VERIFY_FAILED");
-    }
-    const data = (await resp.json()) as { paymentState?: number; cancelReason?: number };
-    // paymentState: 1 = payment received, 2 = free trial. cancelReason defined means cancelled.
-    if (data.paymentState !== 1 && data.paymentState !== 2) {
-      throw badRequest("Subscription payment not confirmed", "SUBSCRIPTION_NOT_PAID");
-    }
-    // Acknowledge to prevent auto-cancellation after 3 days
-    const ackUrl = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}:acknowledge`;
-    const ackCtrl = new AbortController();
-    const ackTimer = setTimeout(() => ackCtrl.abort(), 5000);
-    try {
-      const ackResp = await fetch(ackUrl, {
-        signal: ackCtrl.signal,
-        method: "POST",
-        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
-        body: "{}",
-      });
-      if (!ackResp.ok) logger.error({ status: ackResp.status }, "[iap/verify] Subscription ack failed");
-    } catch (e) {
-      logger.error({ err: e }, "[iap/verify] Subscription ack error:");
-    } finally {
-      clearTimeout(ackTimer);
-    }
-  } else {
-    if (process.env.NODE_ENV === "production") {
-      throw internalError(
-        "GOOGLE_PLAY_SERVICE_ACCOUNT_JSON is not configured. Subscription verification is disabled."
-      );
-    }
-    logger.warn("[iap/verify] GOOGLE_PLAY_SERVICE_ACCOUNT_JSON not set — trusting subscription in dev mode");
+  const sub = await verifyGooglePlaySubscriptionPurchase(packageName, productId, purchaseToken);
+  // paymentState: 1 = payment received, 2 = free trial. cancelReason defined means cancelled.
+  if (sub.paymentState !== 1 && sub.paymentState !== 2) {
+    throw badRequest("Subscription payment not confirmed", "SUBSCRIPTION_NOT_PAID");
   }
+  // Acknowledge to prevent auto-cancellation after 3 days.
+  await acknowledgeGooglePlaySubscription(packageName, productId, purchaseToken);
 
   // Activate plan and credit monthly coin bonus atomically (BUG-FIN-17: single transaction)
   await db.transaction(async (tx) => {
@@ -422,13 +188,13 @@ async function verifyAndActivateSubscription(
 // ---------------------------------------------------------------------------
 
 /**
- * Verify a Google Play purchase and credit coins, or activate a subscription plan.
+ * Verify a Google Play purchase and credit coins/stars, or activate a subscription plan.
  *
- * Handles both one-time coin purchases and recurring subscription products.
+ * Handles one-time coin/star purchases and recurring subscription products.
  * Idempotent: returns 409 if the purchaseToken has already been processed.
  * Uses SELECT FOR UPDATE to prevent race conditions on the user row.
  */
-export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
+export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const body = await validateBody(req, verifyIapSchema);
 
@@ -460,9 +226,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    // --- One-time coin purchase flow ---
+    // --- One-time coin/star purchase flow ---
+    const isStarProduct = STAR_PRODUCTS[body.productId] !== undefined;
     const coinsToGrant = COIN_PRODUCTS[body.productId];
-    if (coinsToGrant === undefined) {
+    const starsToGrant = STAR_PRODUCTS[body.productId];
+    if (coinsToGrant === undefined && starsToGrant === undefined) {
       throw badRequest(`Unknown productId: ${body.productId}`, "UNKNOWN_PRODUCT");
     }
 
@@ -470,7 +238,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const referenceId = `iap:${body.purchaseToken}`;
 
     // 1. Verify the purchase with Google Play Developer API
-    const purchase = await verifyGooglePlayPurchase(
+    const purchase = await verifyGooglePlayProductPurchase(
       body.packageName,
       body.productId,
       body.purchaseToken
@@ -490,33 +258,44 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw conflict("This purchase has already been consumed", "PURCHASE_ALREADY_PROCESSED");
     }
 
-    // 2. Credit coins atomically — coin_ledger has a unique index on reference_id
-    //    which prevents double-credit even under concurrent requests.
-    //    Catch 23505 (unique_violation) and surface it as a 409 conflict.
-    try {
-      await creditCoins(
+    // 2. Credit coins/stars atomically. coin_ledger has a unique index on
+    //    reference_id which prevents double-credit even under concurrent
+    //    requests — catch 23505 (unique_violation) and surface it as 409.
+    //    creditStars() is idempotent by design (returns the existing entry).
+    if (isStarProduct) {
+      await creditStars(
         userId,
-        coinsToGrant,
-        "iap_purchase",
+        starsToGrant,
+        "purchase",
         referenceId,
-        `Google Play IAP: ${body.productId}`,
-        {
-          productId: body.productId,
-          packageName: body.packageName,
-          purchaseToken: body.purchaseToken,
-          orderId: purchase.orderId,
-        }
+        `Google Play IAP: ${body.productId}`
       );
-    } catch (creditErr) {
-      const pgCode = (creditErr as { code?: string })?.code;
-      if (pgCode === "23505") {
-        throw conflict("This purchase has already been processed", "PURCHASE_ALREADY_PROCESSED");
+    } else {
+      try {
+        await creditCoins(
+          userId,
+          coinsToGrant,
+          "iap_purchase",
+          referenceId,
+          `Google Play IAP: ${body.productId}`,
+          {
+            productId: body.productId,
+            packageName: body.packageName,
+            purchaseToken: body.purchaseToken,
+            orderId: purchase.orderId,
+          }
+        );
+      } catch (creditErr) {
+        const pgCode = (creditErr as { code?: string })?.code;
+        if (pgCode === "23505") {
+          throw conflict("This purchase has already been processed", "PURCHASE_ALREADY_PROCESSED");
+        }
+        throw creditErr;
       }
-      throw creditErr;
     }
 
-    // 4. Consume the purchase on Google Play so the user can buy the pack again.
-    //    Done after crediting so coins are never lost if the consume call fails.
+    // 3. Consume the purchase on Google Play so the user can buy the pack again.
+    //    Done after crediting so coins/stars are never lost if consume fails.
     await consumeGooglePlayPurchase(
       body.packageName,
       body.productId,
@@ -524,7 +303,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     );
 
     return NextResponse.json(
-      { success: true, coinsGranted: coinsToGrant },
+      isStarProduct
+        ? { success: true, coinsGranted: 0, starsGranted: starsToGrant }
+        : { success: true, coinsGranted: coinsToGrant },
       { status: 200 }
     );
   } catch (err) {

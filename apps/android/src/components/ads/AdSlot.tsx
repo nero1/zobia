@@ -11,6 +11,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
 
 interface ServedAd {
@@ -78,12 +79,19 @@ export default function AdSlot({ placement, className }: { placement: string; cl
   return (
     <div ref={ref} className={`relative overflow-hidden rounded-lg border border-neutral-200 bg-white ${SIZE_CLASS[ad.size] ?? SIZE_CLASS.native} ${className ?? ''}`}>
       <span className="absolute right-1.5 top-1.5 z-10 rounded bg-black/50 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white">Sponsored</span>
-      <a
-        href={ad.clickUrl ?? '#'}
-        target="_blank"
-        rel="noopener noreferrer"
-        onClick={() => void reportEvent(ad.creativeId, ad.placementKey, 'click')}
-        className="flex h-full w-full items-center gap-3 p-3"
+      {/*
+        Not a plain <a target="_blank"> — a Capacitor WebView has no concept
+        of "new tab", so that would navigate the app itself away to the ad's
+        destination. Browser.open() matches the in-app-browser pattern used
+        everywhere else in this app (OAuth, Play Store purchase fallbacks).
+      */}
+      <button
+        type="button"
+        onClick={() => {
+          void reportEvent(ad.creativeId, ad.placementKey, 'click');
+          if (ad.clickUrl) void Browser.open({ url: ad.clickUrl });
+        }}
+        className="flex h-full w-full items-center gap-3 p-3 text-left"
       >
         {ad.imageUrl && <img src={ad.imageUrl} alt="" className="h-full max-h-[64px] w-auto shrink-0 rounded object-cover" />}
         <div className="min-w-0 flex-1">
@@ -92,7 +100,7 @@ export default function AdSlot({ placement, className }: { placement: string; cl
           <p className="mt-0.5 truncate text-[11px] text-neutral-400">{ad.advertiserName}</p>
         </div>
         {ad.ctaLabel && <span className="shrink-0 rounded-full bg-primary-600 px-3 py-1 text-xs font-semibold text-white">{ad.ctaLabel}</span>}
-      </a>
+      </button>
     </div>
   );
 }

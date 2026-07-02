@@ -9,9 +9,10 @@
 
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQuery, useInfiniteQuery } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { COIN_PRODUCTS, STAR_PRODUCTS, purchaseCoins, purchaseStars } from '@/lib/payments/googlePlay';
 
 const TX_PAGE_SIZE = 10;
 
@@ -85,8 +86,81 @@ function TxRow({ tx }: { tx: Transaction }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Buy Coins / Buy Stars — Google Play Billing only (PRD §18; web/PWA use
+// Paystack/DodoPayments via POST /api/economy/coins/purchase instead).
+// ---------------------------------------------------------------------------
+
+function BuyCurrencyPanel({ onPurchased }: { onPurchased: () => void }) {
+  const { t } = useTranslation();
+  const [tab, setTab] = useState<'coins' | 'stars'>('coins');
+  const [purchasingId, setPurchasingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleBuy(productId: string) {
+    setError(null);
+    setPurchasingId(productId);
+    try {
+      const result = tab === 'coins' ? await purchaseCoins(productId) : await purchaseStars(productId);
+      if (result.success) {
+        onPurchased();
+      } else if (result.error) {
+        setError(result.error);
+      }
+    } finally {
+      setPurchasingId(null);
+    }
+  }
+
+  const products = tab === 'coins' ? COIN_PRODUCTS : STAR_PRODUCTS;
+
+  return (
+    <div className="bg-white mb-3">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-neutral-100">
+        <h2 className="text-sm font-semibold text-neutral-700">{t('wallet.buyCurrency', 'Buy Credits & Stars')}</h2>
+        <div className="flex gap-1 rounded-lg bg-neutral-100 p-0.5">
+          <button
+            onClick={() => setTab('coins')}
+            className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'coins' ? 'bg-white text-neutral-900' : 'text-neutral-500'}`}
+          >
+            {t('wallet.coinsBalance')}
+          </button>
+          <button
+            onClick={() => setTab('stars')}
+            className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'stars' ? 'bg-white text-neutral-900' : 'text-neutral-500'}`}
+          >
+            {t('wallet.starsBalance')}
+          </button>
+        </div>
+      </div>
+
+      {error && <p className="px-6 pt-3 text-xs text-red-600">{error}</p>}
+
+      <div className="grid grid-cols-2 gap-2 p-4">
+        {products.map((p) => (
+          <button
+            key={p.id}
+            onClick={() => handleBuy(p.id)}
+            disabled={purchasingId !== null}
+            className="rounded-xl border border-neutral-200 p-3 text-left disabled:opacity-60"
+          >
+            <p className="text-sm font-bold text-neutral-900">
+              {tab === 'coins' ? `🪙 ${(p as (typeof COIN_PRODUCTS)[number]).coins.toLocaleString()}` : `⭐ ${(p as (typeof STAR_PRODUCTS)[number]).stars.toLocaleString()}`}
+            </p>
+            <p className="mt-1 text-xs text-neutral-500">
+              {purchasingId === p.id ? t('common.loading', 'Loading…') : p.price}
+            </p>
+          </button>
+        ))}
+      </div>
+      <p className="px-6 pb-4 text-xs text-neutral-400">{t('business.intro.playBilling', 'Payment is handled securely by Google Play.')}</p>
+    </div>
+  );
+}
+
 function WalletPage() {
   const { t } = useTranslation();
+  const qc = useQueryClient();
   const [tab, setTab] = useState<'coins' | 'stars'>('coins');
 
   const { data: me, status: meStatus } = useQuery({ queryKey: ['users', 'me'], queryFn: fetchMe });
@@ -126,6 +200,8 @@ function WalletPage() {
       </div>
 
       {meStatus === 'success' && <RankBadgesSummary me={me} />}
+
+      <BuyCurrencyPanel onPurchased={() => qc.invalidateQueries({ queryKey: ['users', 'me'] })} />
 
       {/* Transaction history */}
       <div className="bg-white mb-3">

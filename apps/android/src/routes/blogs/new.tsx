@@ -19,10 +19,13 @@ function NewBlogPage() {
   const [error, setError] = useState<string | null>(null);
 
   const createBlog = useMutation({
-    mutationFn: () => apiClient.post<{ data: { slug: string } }>('/blogs', { title, tagline: tagline || undefined }),
+    // apiClient's response interceptor already unwraps { success, data, error }
+    // down to `data`, so `res.data` IS { id, slug } already — `res.data.data.slug`
+    // was always undefined and crashed the success handler after creating the blog.
+    mutationFn: () => apiClient.post<{ slug: string }>('/blogs', { title, tagline: tagline || undefined }),
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['blogs', 'me'] });
-      navigate({ to: '/blogs/$slug', params: { slug: res.data.data.slug } });
+      navigate({ to: '/blogs/$slug', params: { slug: res.data.slug } });
     },
     onError: () => setError(t('error.generic')),
   });

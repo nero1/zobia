@@ -1,11 +1,16 @@
 /**
  * lib/notifications/push.ts
  *
- * Expo Push Notification sender — two-stage delivery with receipt polling.
+ * Push notification sender — routes to two providers by token format:
+ *   - Expo Push API (two-stage delivery with receipt polling) — historically
+ *     used by the now-discontinued Expo app.
+ *   - Firebase Cloud Messaging (lib/notifications/fcm.ts) — the Capacitor
+ *     Android app's @capacitor/push-notifications plugin registers FCM
+ *     tokens, not Expo tokens.
  *
- * Stage 1: POST to /v2/push/send → receive push ticket IDs.
+ * Expo stage 1: POST to /v2/push/send → receive push ticket IDs.
  *          Tickets are persisted in push_tickets for deferred receipt polling.
- * Stage 2: (PUSH-RECEIPT-01) poll /v2/push/getReceipts with ticket IDs
+ * Expo stage 2: (PUSH-RECEIPT-01) poll /v2/push/getReceipts with ticket IDs
  *          (at least 15 minutes after stage 1) to confirm delivery or detect
  *          permanent failures (DeviceNotRegistered, MessageTooBig, etc.).
  */
@@ -14,6 +19,7 @@ import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { atomicIncrWithTtl } from "@/lib/redis/helpers";
 import { logger } from "@/lib/logger";
+import { sendFcmBatch, type FcmMessage } from "@/lib/notifications/fcm";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -505,25 +511,43 @@ export async function sendPushNotification(
       messageData.action = options.action;
     }
 
-    const messages = dedupedRows
-      .filter((r) => isValidExpoToken(r.token))
-      .map((r) => ({
+    const expoRows = dedupedRows.filter((r) => isValidExpoToken(r.token));
+    const fcmRows = dedupedRows.filter((r) => !isValidExpoToken(r.token));
+
+    const messages = expoRows.map((r) => ({
+      token: r.token,
+      userId,
+      msg: {
+        to: r.token,
+        title,
+        body,
+        sound,
+        priority,
+        ...(Object.keys(messageData).length > 0 ? { data: messageData } : {}),
+        ...(options?.badge !== undefined ? { badge: options.badge } : {}),
+      } as ExpoMessage,
+    }));
+
+    const stale = new Set<string>();
+    if (messages.length > 0) {
+      (await sendExpoBatch(messages)).forEach((t) => stale.add(t));
+    }
+    // Android (Capacitor app) tokens are FCM registration tokens, not Expo
+    // tokens — routed to Firebase Cloud Messaging instead (see lib/notifications/fcm.ts).
+    if (fcmRows.length > 0) {
+      const fcmSound: FcmMessage["sound"] = sound === "default" ? "default" : undefined;
+      const fcmMessages = fcmRows.map((r) => ({
         token: r.token,
-        userId,
-        msg: {
-          to: r.token,
-          title,
-          body,
-          sound,
-          priority,
-          ...(Object.keys(messageData).length > 0 ? { data: messageData } : {}),
-          ...(options?.badge !== undefined ? { badge: options.badge } : {}),
-        } as ExpoMessage,
+        title,
+        body,
+        data: Object.keys(messageData).length > 0 ? messageData : undefined,
+        sound: fcmSound,
+        priority,
+        badge: options?.badge,
       }));
+      (await sendFcmBatch(fcmMessages)).forEach((t) => stale.add(t));
+    }
 
-    if (messages.length === 0) return;
-
-    const stale = await sendExpoBatch(messages);
     await purgeStaleTokens(stale);
   } catch (err) {
     logger.error({ err, userId }, "[push] sendPushNotification failed");
@@ -601,7 +625,6 @@ export async function sendPushNotificationBatch(
     const seenDevicesByUser = new Map<string, Set<string>>();
     const seenTokensByUser = new Map<string, Set<string>>();
     for (const row of rows) {
-      if (!isValidExpoToken(row.token)) continue;
       if (row.device_id) {
         const seenDevices = seenDevicesByUser.get(row.user_id) ?? new Set<string>();
         if (seenDevices.has(row.device_id)) continue;
@@ -618,34 +641,51 @@ export async function sendPushNotificationBatch(
       tokenMap.set(row.user_id, existing);
     }
 
-    // Build one Expo message per (notification × device token) pair
-    const messages: Array<{ msg: ExpoMessage; token: string; userId: string }> = [];
+    // Build one message per (notification × device token) pair, routed to
+    // Expo or FCM (Capacitor Android) by token format.
+    const expoMessages: Array<{ msg: ExpoMessage; token: string; userId: string }> = [];
+    const fcmMessages: FcmMessage[] = [];
     for (const notification of dedupedNotifications) {
       const tokens = tokenMap.get(notification.userId) ?? [];
+      const { sound, priority } = resolveExpoPriority(notification.priority);
       for (const token of tokens) {
-        const { sound, priority } = resolveExpoPriority(notification.priority);
-        messages.push({
-          token,
-          userId: notification.userId,
-          msg: {
-            to: token,
+        if (isValidExpoToken(token)) {
+          expoMessages.push({
+            token,
+            userId: notification.userId,
+            msg: {
+              to: token,
+              title: notification.title,
+              body: notification.body,
+              sound,
+              priority,
+              ...(notification.data ? { data: notification.data } : {}),
+              ...(notification.badge !== undefined ? { badge: notification.badge } : {}),
+            },
+          });
+        } else {
+          fcmMessages.push({
+            token,
             title: notification.title,
             body: notification.body,
-            sound,
+            data: notification.data,
+            sound: sound === "default" ? "default" : undefined,
             priority,
-            ...(notification.data ? { data: notification.data } : {}),
-            ...(notification.badge !== undefined ? { badge: notification.badge } : {}),
-          },
-        });
+            badge: notification.badge,
+          });
+        }
       }
     }
 
     // Send in batches of EXPO_BATCH_SIZE (100), collect and purge stale tokens
     const allStale = new Set<string>();
-    for (let i = 0; i < messages.length; i += EXPO_BATCH_SIZE) {
-      const batch = messages.slice(i, i + EXPO_BATCH_SIZE);
+    for (let i = 0; i < expoMessages.length; i += EXPO_BATCH_SIZE) {
+      const batch = expoMessages.slice(i, i + EXPO_BATCH_SIZE);
       const stale = await sendExpoBatch(batch);
       stale.forEach((t) => allStale.add(t));
+    }
+    if (fcmMessages.length > 0) {
+      (await sendFcmBatch(fcmMessages)).forEach((t) => allStale.add(t));
     }
     await purgeStaleTokens(allStale);
   } catch (err) {

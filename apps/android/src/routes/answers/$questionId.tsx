@@ -109,20 +109,23 @@ function QuestionDetailPage() {
   const [bypassPrompt, setBypassPrompt] = useState<{ minLevel: number; bypassCostCredits: number; parentAnswerId: string | null; body: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
+  // apiClient's response interceptor already unwraps { success, data, error }
+  // down to `data`, so the axios `.data` below IS the payload already — the
+  // extra `.data` access was always undefined (question/answers never loaded).
   const questionQuery = useQuery({
     queryKey: ['answers', 'question', questionId],
-    queryFn: async () => (await apiClient.get<{ data: QuestionDetail }>(`/answers/questions/${questionId}`)).data.data,
+    queryFn: async () => (await apiClient.get<QuestionDetail>(`/answers/questions/${questionId}`)).data,
   });
 
   const answersQuery = useQuery({
     queryKey: ['answers', 'answers', questionId, sort],
-    queryFn: async () => (await apiClient.get<{ data: { answers: AnswerNode[] } }>(`/answers/questions/${questionId}/answers?sort=${sort}&limit=25`)).data.data,
+    queryFn: async () => (await apiClient.get<{ answers: AnswerNode[] }>(`/answers/questions/${questionId}/answers?sort=${sort}&limit=25`)).data,
   });
 
   const voteQuestion = useMutation({
-    mutationFn: (value: 1 | -1) => apiClient.post<{ data: { voteScore: number; myVote: -1 | 0 | 1 } }>(`/answers/questions/${questionId}/vote`, { value }),
+    mutationFn: (value: 1 | -1) => apiClient.post<{ voteScore: number; myVote: -1 | 0 | 1 }>(`/answers/questions/${questionId}/vote`, { value }),
     onSuccess: (res) => {
-      qc.setQueryData<QuestionDetail>(['answers', 'question', questionId], (prev) => (prev ? { ...prev, voteScore: res.data.data.voteScore, myVote: res.data.data.myVote } : prev));
+      qc.setQueryData<QuestionDetail>(['answers', 'question', questionId], (prev) => (prev ? { ...prev, voteScore: res.data.voteScore, myVote: res.data.myVote } : prev));
     },
   });
 
@@ -134,11 +137,11 @@ function QuestionDetailPage() {
   });
 
   const voteAnswer = useMutation({
-    mutationFn: ({ id, value }: { id: string; value: 1 | -1 }) => apiClient.post<{ data: { voteScore: number; myVote: -1 | 0 | 1 } }>(`/answers/questions/${questionId}/answers/${id}/vote`, { value }),
+    mutationFn: ({ id, value }: { id: string; value: 1 | -1 }) => apiClient.post<{ voteScore: number; myVote: -1 | 0 | 1 }>(`/answers/questions/${questionId}/answers/${id}/vote`, { value }),
     onSuccess: (res, { id }) => {
       qc.setQueryData<{ answers: AnswerNode[] }>(['answers', 'answers', questionId, sort], (prev) => {
         if (!prev) return prev;
-        return { answers: updateNodeInTree(prev.answers, id, (n) => ({ ...n, voteScore: res.data.data.voteScore, myVote: res.data.data.myVote })) };
+        return { answers: updateNodeInTree(prev.answers, id, (n) => ({ ...n, voteScore: res.data.voteScore, myVote: res.data.myVote })) };
       });
     },
   });
@@ -180,8 +183,8 @@ function QuestionDetailPage() {
   const handleExpandThread = useCallback(async (answerId: string) => {
     setExpandingId(answerId);
     try {
-      const { data } = await apiClient.get<{ data: { thread: AnswerNode[] } }>(`/answers/questions/${questionId}/answers/${answerId}/thread`);
-      const tree = buildTreeFromFlat(data.data.thread, answerId);
+      const { data } = await apiClient.get<{ thread: AnswerNode[] }>(`/answers/questions/${questionId}/answers/${answerId}/thread`);
+      const tree = buildTreeFromFlat(data.thread, answerId);
       qc.setQueryData<{ answers: AnswerNode[] }>(['answers', 'answers', questionId, sort], (prev) => {
         if (!prev) return prev;
         return { answers: updateNodeInTree(prev.answers, answerId, (n) => ({ ...n, replies: tree })) };

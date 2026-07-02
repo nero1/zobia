@@ -9,11 +9,12 @@
  * web/PWA-only, same convention as the rooms list on this app.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { showBanner, hideBanner } from '@/lib/ads/admob';
 import type { GameSummary } from '@zobia/shared/types';
 
 async function fetchGames(q: string) {
@@ -41,6 +42,15 @@ function GamesPage() {
     queryFn: () => fetchGames(search),
     staleTime: 5 * 60_000,
   });
+
+  // AdMob banner (additive to the in-house AdSlot ads elsewhere in the app —
+  // PRD §17 Pillar 3, "Admob ads show in the capacitor/android app in
+  // addition to other ads"). No-ops server-side when the admin hasn't
+  // enabled admobAds, so this is always safe to call.
+  useEffect(() => {
+    void showBanner();
+    return () => { void hideBanner(); };
+  }, []);
 
   // Favorite (heart) toggle — reuses /api/games/favorites (same endpoint the
   // web Faves tab uses).

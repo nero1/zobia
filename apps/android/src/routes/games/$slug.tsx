@@ -11,8 +11,11 @@ import { apiClient } from '@/lib/api/client';
 import type { GameSummary, GameLeaderboardRow } from '@zobia/shared/types';
 
 async function fetchGame(slug: string) {
-  const { data } = await apiClient.get<GameSummary>(`/games/${slug}`);
-  return data;
+  // The API wraps the game as { game: GameSummary }, not a bare GameSummary —
+  // treating `data` itself as the game left every field (avgRating, playCount,
+  // coverEmoji, ...) reading from undefined and crashing the page on render.
+  const { data } = await apiClient.get<{ game: GameSummary }>(`/games/${slug}`);
+  return data?.game ?? null;
 }
 
 async function fetchLeaderboard(slug: string) {
