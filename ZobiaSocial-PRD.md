@@ -1085,10 +1085,83 @@ Plus, Pro, and Max plans as detailed in Section 3. Monthly and annual billing.
 Credit packs (Section 11), Star packs (where admin enables direct Star purchase), Prestige Cosmetic Pack (cosmetic-only prestige aura, does not grant actual Prestige), Guild Boost Pack, Season Starter Pack (available at Season launch only), pay-as-you-go booster packs.
 
 **Pillar 3: Platform Advertising**
-- **AdMob (Android/mobile):** Banner ads, interstitial ads, and rewarded video ads. AdMob configuration (App ID, ad unit IDs, banner/interstitial settings) is specified in the x_manifest file. Ads are served only to Free-tier users. Paid users see no ads.
-- **Rewarded Ads:** Free-tier users can watch a 30-second ad to earn 10–20 Credits. Daily cap: 5 rewarded ads per user.
-- **Branded Rooms:** Companies sponsor a dedicated Room. Appears in discovery with a "Sponsored" tag. Members who join earn a small coin bonus funded by the brand.
-- **Sponsored Leaderboard Banners:** Weekly leaderboards carry a single sponsor banner visible to all users viewing that leaderboard.
+
+Zobia runs a full self-service ad control panel (`/business/ads`, linked from
+the sidebar's own **Ads** entry and from the Business Account dashboard) on
+top of admin-authored ads and AdMob, all sharing one moderation, billing,
+and stats pipeline.
+
+- **Who can advertise.** A user must own a **verified Business Account**
+  (`business_accounts.verified = true`) whose owner holds identity
+  verification of at least `ad_min_kyc_tier_to_advertise` (x_manifest,
+  default KYC Tier 1 — §19.x). This is intentionally stricter than the
+  Growth+ tier gate on Sponsored Quests, because ads carry real spend and
+  platform-wide impressions. Admins are exempt and can author ads directly
+  (`owner_type = 'admin'`) without a Business Account.
+- **Ad formats & sizes:** square 300×250, mobile banner 320×50, full-screen
+  interstitial, rewarded video, and native (in-stream/in-line). Ads may be
+  in-house HTML/text creatives, native user/business ads, or (admin-only)
+  raw third-party ad-network tags — rendered in a sandboxed iframe, never
+  inlined, since a self-service advertiser must never be able to inject
+  arbitrary script into the page. Every ad carries a small **"Sponsored"**
+  label.
+- **Placements** (admin-managed catalogue, `ad_placements`, each with its
+  own base CPM): feed banner, messages banner, games banner, blog inline
+  native, Business Page native, Room in-stream native, global interstitial,
+  global rewarded video. **In free Rooms, one native ad is interleaved into
+  the message stream after every `ad_room_instream_interval` messages**
+  (default 10, x_manifest-configurable) — paid-tier Rooms never show
+  in-stream ads. Paid plans get reduced or no ads platform-wide
+  (`ad_plan_<plan>_ads_level` = full/reduced/none, default: Free = full,
+  Plus = reduced, Pro/Max = none), plus the option to opt back in to
+  Rewarded Ads for bonus Credits regardless of plan.
+- **CPM billing.** Campaigns are billed **Credits per 1,000 impressions**
+  (CPM). An advertiser funds a campaign's budget by moving Credits from
+  their wallet into the campaign (reusing the existing coin_ledger,
+  atomic/idempotent per §18) — Credits are acquired via the existing Credit
+  Pack purchase flow (Paystack/DodoPayments on web/PWA, Google Play Billing
+  on Android) or bought/topped-up directly with cash, Zobia Credits, or
+  Stars. Each impression/click is recorded to an append-only `ad_events`
+  log and rolled up into `ad_campaign_daily_stats`; a campaign auto-pauses
+  (`status = 'completed'`) once `spent_credits` reaches its budget.
+- **Moderation.** Admin sets `ad_moderation_mode` to **manual** (admin
+  approval queue at `/admin/ads`, same approve/reject pattern as Sponsored
+  Quests and Business verification) or **AI** (the platform's existing
+  DeepSeek/Gemini moderation pipeline reviews the creative and
+  auto-approves above `ad_ai_auto_approve_threshold`, otherwise falling
+  back to the manual queue).
+- **Boosted content.** A campaign with `objective = boost_post` or
+  `boost_room` promotes an existing Blog post or Room — same CPM billing,
+  moderation, and stats as a standalone campaign, just carrying a reference
+  to the boosted content.
+- **Coupons.** Admin can issue promo codes (`ad_coupons`) for free or
+  discounted ad budget (percent-off, flat Credits, or free Credits),
+  redeemable once per campaign from the Advertising Panel.
+- **AdMob (Capacitor Android only):** Banner, interstitial, and rewarded
+  video ads via `@capacitor-community/admob`, additive to the in-house ad
+  system above (Android shows both). AdMob configuration (App ID, ad unit
+  IDs, test mode) lives in x_manifest and is fetched at runtime from
+  `GET /api/manifest` — no fixed ad units hardcoded client-side. Ads are
+  served only to Free-tier users; paid plans see no AdMob ads.
+- **Rewarded Ads:** Free (and, if enabled, Plus) plan users can watch an ad
+  to earn `ad_rewarded_credits_min`–`ad_rewarded_credits_max` Credits
+  (default 10–20). Daily cap: `ad_rewarded_daily_cap` (default 5) per user,
+  enforced with a single Redis `INCR` per claim (`POST
+  /api/economy/rewards/ad-reward`, pre-existing endpoint, now
+  manifest-configurable instead of hardcoded).
+- **Stats & billing management.** Advertisers see campaign impressions,
+  clicks, CTR, and spend at `/business/ads` (depth gated by Business tier,
+  same convention as Business Page stats — totals only / + per-campaign
+  breakdown / + 90-day daily drill-down for Enterprise). Admin sees a
+  platform-wide revenue/performance overview, the moderation queue, the
+  placement catalogue, and the coupon list at `/admin/ads`.
+- **Branded Rooms:** Companies sponsor a dedicated Room. Appears in
+  discovery with a "Sponsored" tag. Members who join earn a small coin
+  bonus funded by the brand. Remains admin-arranged (contact-sales), not
+  self-service.
+- **Sponsored Leaderboard Banners:** Weekly leaderboards carry a single
+  sponsor banner visible to all users viewing that leaderboard.
+  Admin-arranged, not self-service.
 
 **Pillar 4: Creator Platform Fees**
 20% platform fee on all creator earnings — subscriptions, gifts, quest payments, ClassRoom enrolments, Merch Store sales. As the creator economy grows, this becomes an increasingly significant self-sustaining revenue stream.
@@ -1323,7 +1396,7 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 
 **Feature Flags**
 - Admin can toggle most non-core features on or off without a deployment. Feature flags are stored in the database and read at runtime.
-- Examples of flaggable features: Community Notes, Star direct purchase, Nemesis system, Guild Wars, ClassRooms, Business Accounts, AdMob ads, Rewarded ads, Creator Merch Store, Platform Council, Alliance System.
+- Examples of flaggable features: Community Notes, Star direct purchase, Nemesis system, Guild Wars, ClassRooms, Business Accounts, AdMob ads, Rewarded ads, Ad Campaigns (self-service), In-stream Room ads, Boosted Posts, Ad Coupons, Creator Merch Store, Platform Council, Alliance System.
 
 **Configuration (x_manifest / Admin Settings)**
 - Minimum age requirement.
@@ -1908,8 +1981,11 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - AI moderation escalation pipeline (DeepSeek primary, Gemini fallback). Escalation used sparingly.
 - Trust Score system (private, silently gates high-sensitivity features).
 - Suspension and ban enforcement (DMs, Room posting, coin receipt, payout hold).
-- AdMob integration (banner, interstitial, rewarded video ads) — configuration from x_manifest.
+- AdMob integration (banner, interstitial, rewarded video ads, Capacitor Android only) — configuration from x_manifest.
 - Rewarded ad flow: free-tier users watch ad, earn Credits, daily cap enforced.
+- Self-service ad control panel (`/business/ads`, `/ads`): verified Business Account + KYC Tier 1+ advertisers create CPM-billed campaigns (banner/native/interstitial/rewarded/in-stream), fund them with Credits, and submit for AI or manual moderation.
+- In-stream native ads in free Rooms (one ad every N messages) and Blog/Room boosting via the same campaign system.
+- Admin ad control panel (`/admin/ads`): moderation queue, placement/CPM catalogue, coupon system, and platform-wide ad revenue overview.
 - Branded Room sponsorship management (admin creates and manages sponsored Rooms).
 - Sponsored Leaderboard Banners (admin-managed).
 - Business Account management UI (admin and business user facing).

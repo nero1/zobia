@@ -25,6 +25,8 @@ import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
 import { authFetch } from "@/lib/api/authFetch";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useMomentsConfig } from "@/lib/hooks/useMomentsConfig";
+import { useAdsConfig } from "@/lib/hooks/useAdsConfig";
+import InStreamAd from "@/components/ads/InStreamAd";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
 
@@ -1208,6 +1210,7 @@ export default function RoomPage() {
   useEffect(() => { tRef.current = t; }, [t]);
   const roomId = params.roomId as string;
   const currency = useCurrency();
+  const adsConfig = useAdsConfig();
 
   const [showSidebar, setShowSidebar] = useState(false);
   const [room, setRoom] = useState<RoomInfo | null>(null);
@@ -1670,6 +1673,10 @@ export default function RoomPage() {
     );
   }
 
+  // In-stream native ads (PRD §17 Pillar 3): free_open Rooms only, every N messages.
+  const showInstreamAds = adsConfig.instreamAdsEnabled && room.type === "free_open";
+  const instreamInterval = Math.max(1, adsConfig.roomInstreamInterval || 10);
+
   return (
     <div className="relative flex h-full flex-col overflow-hidden lg:flex-row">
       {/* Main content. `min-h-0` is essential: without it this flex column
@@ -1762,8 +1769,13 @@ export default function RoomPage() {
                   <p className="mt-2 text-sm">No messages yet. Be the first!</p>
                 </div>
               ) : (
-                messages.map((msg) => (
-                  <MessageBubble key={msg.id} msg={msg} isOwn={msg.userId === currentUserId} />
+                messages.map((msg, idx) => (
+                  <div key={msg.id}>
+                    <MessageBubble msg={msg} isOwn={msg.userId === currentUserId} />
+                    {showInstreamAds &&
+                      idx > 0 &&
+                      (idx + 1) % instreamInterval === 0 && <InStreamAd />}
+                  </div>
                 ))
               )}
             </div>

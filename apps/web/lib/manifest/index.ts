@@ -62,6 +62,11 @@ export interface ZobiaManifest {
     forum: boolean;
     blogs: boolean;
     kyc: boolean;
+    adsSystem: boolean;
+    nativeAds: boolean;
+    instreamAds: boolean;
+    boostedPosts: boolean;
+    adCoupons: boolean;
     vipRoomPricing?: { minNgn: number; maxNgn: number };
   };
   warEventCooldownHours: number;
@@ -139,6 +144,37 @@ export interface ZobiaManifest {
     dailyRewardCapCredits: number;
     /** Run profanity/duplicate auto-moderation on new questions and answers. */
     autoModerationEnabled: boolean;
+  };
+  // Platform Advertising (PRD §17, Pillar 3) — admin-editable at /admin/ads
+  ads: {
+    /** How self-service business-submitted ad campaigns are reviewed. */
+    moderationMode: "manual" | "ai";
+    /** Minimum AI approvalConfidence (0-1) to auto-approve when moderationMode === "ai". */
+    aiAutoApproveThreshold: number;
+    /** Minimum users.kyc_tier the business account owner must hold to submit ad campaigns. */
+    minKycTierToAdvertise: number;
+    /** Default Credits charged per 1000 impressions when a placement has no custom CPM. */
+    defaultCpmCredits: number;
+    /** Show one native in-stream ad after this many messages in free Rooms. */
+    roomInstreamInterval: number;
+    /** Rewarded-ad daily cap and payout range (Credits). */
+    rewardedDailyCap: number;
+    rewardedCreditsMin: number;
+    rewardedCreditsMax: number;
+    /** Ad exposure level per plan: "full" | "reduced" | "none". */
+    planAdsLevel: {
+      free: "full" | "reduced" | "none";
+      plus: "full" | "reduced" | "none";
+      pro: "full" | "reduced" | "none";
+      max: "full" | "reduced" | "none";
+    };
+    admob: {
+      appId: string;
+      bannerUnitId: string;
+      interstitialUnitId: string;
+      rewardedUnitId: string;
+      testMode: boolean;
+    };
   };
   // Platform config
   minimumAge: number;
@@ -266,6 +302,11 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     forum: true,
     blogs: true,
     kyc: true,
+    adsSystem: true,
+    nativeAds: true,
+    instreamAds: true,
+    boostedPosts: true,
+    adCoupons: true,
   },
   currency: {
     softNameSingular: "Credit",
@@ -292,6 +333,18 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     rewardCreditsBestAnswer: 10,
     dailyRewardCapCredits: 50,
     autoModerationEnabled: true,
+  },
+  ads: {
+    moderationMode: "manual",
+    aiAutoApproveThreshold: 0.85,
+    minKycTierToAdvertise: 1,
+    defaultCpmCredits: 500,
+    roomInstreamInterval: 10,
+    rewardedDailyCap: 5,
+    rewardedCreditsMin: 10,
+    rewardedCreditsMax: 20,
+    planAdsLevel: { free: "full", plus: "reduced", pro: "none", max: "none" },
+    admob: { appId: "", bannerUnitId: "", interstitialUnitId: "", rewardedUnitId: "", testMode: true },
   },
   warEventCooldownHours: 72,
   auth: {
@@ -510,6 +563,11 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       forum:                      parseBool(kv["feature_forum"]                     ?? "true",  DEFAULT_MANIFEST.features.forum),
       blogs:                      parseBool(kv["feature_blogs"]                     ?? "true",  DEFAULT_MANIFEST.features.blogs),
       kyc:                        parseBool(kv["feature_kyc"]                       ?? "true",  DEFAULT_MANIFEST.features.kyc),
+      adsSystem:                  parseBool(kv["feature_ads_system"]                ?? "true",  DEFAULT_MANIFEST.features.adsSystem),
+      nativeAds:                  parseBool(kv["feature_native_ads"]                ?? "true",  DEFAULT_MANIFEST.features.nativeAds),
+      instreamAds:                parseBool(kv["feature_instream_ads"]              ?? "true",  DEFAULT_MANIFEST.features.instreamAds),
+      boostedPosts:               parseBool(kv["feature_boosted_posts"]             ?? "true",  DEFAULT_MANIFEST.features.boostedPosts),
+      adCoupons:                  parseBool(kv["feature_ad_coupons"]                ?? "true",  DEFAULT_MANIFEST.features.adCoupons),
       // BUG-MANIFEST-01: populate vipRoomPricing from x_manifest keys
       vipRoomPricing: kv["vip_room_pricing_min_ngn"] && kv["vip_room_pricing_max_ngn"]
         ? {
@@ -543,6 +601,29 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       rewardCreditsBestAnswer:        parseInt10(kv["forum_reward_credits_best_answer"],      DEFAULT_MANIFEST.forum.rewardCreditsBestAnswer),
       dailyRewardCapCredits:          parseInt10(kv["forum_daily_reward_cap_credits"],        DEFAULT_MANIFEST.forum.dailyRewardCapCredits),
       autoModerationEnabled:          parseBool(kv["forum_auto_moderation_enabled"] ?? "true", DEFAULT_MANIFEST.forum.autoModerationEnabled),
+    },
+    ads: {
+      moderationMode: kv["ad_moderation_mode"] === "ai" ? "ai" : "manual",
+      aiAutoApproveThreshold: parseFloat10(kv["ad_ai_auto_approve_threshold"], DEFAULT_MANIFEST.ads.aiAutoApproveThreshold),
+      minKycTierToAdvertise:  parseInt10(kv["ad_min_kyc_tier_to_advertise"],   DEFAULT_MANIFEST.ads.minKycTierToAdvertise),
+      defaultCpmCredits:      parseInt10(kv["ad_default_cpm_credits"],        DEFAULT_MANIFEST.ads.defaultCpmCredits),
+      roomInstreamInterval:   parseInt10(kv["ad_room_instream_interval"],     DEFAULT_MANIFEST.ads.roomInstreamInterval),
+      rewardedDailyCap:       parseInt10(kv["ad_rewarded_daily_cap"],         DEFAULT_MANIFEST.ads.rewardedDailyCap),
+      rewardedCreditsMin:     parseInt10(kv["ad_rewarded_credits_min"],       DEFAULT_MANIFEST.ads.rewardedCreditsMin),
+      rewardedCreditsMax:     parseInt10(kv["ad_rewarded_credits_max"],       DEFAULT_MANIFEST.ads.rewardedCreditsMax),
+      planAdsLevel: {
+        free: (kv["ad_plan_free_ads_level"] as "full" | "reduced" | "none") ?? DEFAULT_MANIFEST.ads.planAdsLevel.free,
+        plus: (kv["ad_plan_plus_ads_level"] as "full" | "reduced" | "none") ?? DEFAULT_MANIFEST.ads.planAdsLevel.plus,
+        pro:  (kv["ad_plan_pro_ads_level"]  as "full" | "reduced" | "none") ?? DEFAULT_MANIFEST.ads.planAdsLevel.pro,
+        max:  (kv["ad_plan_max_ads_level"]  as "full" | "reduced" | "none") ?? DEFAULT_MANIFEST.ads.planAdsLevel.max,
+      },
+      admob: {
+        appId:               unquote(kv["ad_admob_app_id"])               ?? DEFAULT_MANIFEST.ads.admob.appId,
+        bannerUnitId:        unquote(kv["ad_admob_banner_unit_id"])       ?? DEFAULT_MANIFEST.ads.admob.bannerUnitId,
+        interstitialUnitId:  unquote(kv["ad_admob_interstitial_unit_id"]) ?? DEFAULT_MANIFEST.ads.admob.interstitialUnitId,
+        rewardedUnitId:      unquote(kv["ad_admob_rewarded_unit_id"])     ?? DEFAULT_MANIFEST.ads.admob.rewardedUnitId,
+        testMode:            parseBool(kv["ad_admob_test_mode"] ?? "true", DEFAULT_MANIFEST.ads.admob.testMode),
+      },
     },
     warEventCooldownHours: parseInt10(kv["war_event_cooldown_hours"], DEFAULT_MANIFEST.warEventCooldownHours),
     auth: {

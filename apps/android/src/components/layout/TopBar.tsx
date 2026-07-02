@@ -25,6 +25,7 @@ const primaryNavItems = [
   { href: '/answers', label: 'Answers', icon: '❓' },
   { href: '/blogs', label: 'Blogs', icon: '📝' },
   { href: '/business', label: 'Business', icon: '🏢' },
+  { href: '/ads', label: 'Ads', icon: '📢' },
   { href: '/notifications', label: 'Notifications', icon: '🔔' },
 ] as const;
 

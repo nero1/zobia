@@ -14,8 +14,9 @@ Before you begin, you will need accounts and tools for the following:
 - **Google AI Studio** — Gemini fallback AI (aistudio.google.com)
 - **Google Cloud Console** — OAuth 2.0 credentials (console.cloud.google.com)
 - **Telegram BotFather** — Telegram login bot (@BotFather on Telegram)
-- **Expo** — React Native build platform (expo.dev)
+- **Expo** — React Native build platform (expo.dev) — legacy app, being discontinued; kept for reference only, do not develop new features on it
 - **EAS CLI** — Expo Application Services for Android builds
+- **Google AdMob** — banner/interstitial/rewarded ads in the Capacitor Android app (admob.google.com) — optional; the in-house ad system works without it
 - **Redis / Upstash** — session store, presence, rate limiting, cron idempotency
 
 ### Optional (for non-Supabase storage)
@@ -128,6 +129,19 @@ npm run dev:android
 # Build the web bundle only (no APK)
 npm run build:android
 ```
+
+### AdMob (Capacitor Android)
+
+The Capacitor app ships with `@capacitor-community/admob` (`apps/android/src/lib/ads/admob.ts`), additive to the in-house ad system (PRD §17 Pillar 3) — Android shows both. It works out of the box in test mode (Google's official test ad unit IDs) with zero configuration. To go live:
+
+1. Create an app in [AdMob](https://admob.google.com) and note the **App ID** (`ca-app-pub-...~...`).
+2. Create Banner, Interstitial, and Rewarded ad units and note their **Ad unit IDs**.
+3. Set them via `/admin/config` (or directly in `x_manifest`): `ad_admob_app_id`, `ad_admob_banner_unit_id`, `ad_admob_interstitial_unit_id`, `ad_admob_rewarded_unit_id`, and flip `ad_admob_test_mode` to `false`. These are read at runtime from `GET /api/manifest` — no rebuild needed.
+4. Add the AdMob **App ID** to `apps/android/android/app/src/main/AndroidManifest.xml` inside `<application>`:
+   ```xml
+   <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy"/>
+   ```
+   (this one step is native-side and can't be driven from `x_manifest` — the Play Store requires it embedded in the manifest before the ad SDK will initialize with a real App ID).
 
 ### Running on free tiers (Vercel Hobby + free Redis)
 
@@ -297,6 +311,14 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    > pre-existing admin Sponsored Quest delete endpoint already expected but
    > that was missing from `0001_consolidated_schema.sql`.
 
+   > **Platform Advertising (PRD §17 Pillar 3, v2.03):** the self-service ad
+   > control panel's tables (`ad_placements`, `ad_campaigns`, `ad_creatives`,
+   > `ad_events`, `ad_campaign_daily_stats`, `ad_coupons`,
+   > `ad_coupon_redemptions`) and `x_manifest` defaults (CPM, moderation
+   > mode, AdMob unit IDs, per-plan ad exposure) ship in
+   > `db/migrations/0006_ads.sql` (picked up automatically by `npm run
+   > migrate`, or `psql "$DIRECT_URL" < db/migrations/0006_ads.sql`).
+
 ### Option B: Railway PostgreSQL
 
 1. Go to [railway.app](https://railway.app) and create a new project.
@@ -331,6 +353,8 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 ---
 
 **Business Accounts (v2.02) manifest keys** (admin-editable at `/admin/config` under "Business Accounts"): `business_starter_price_kobo` (500000), `business_growth_price_kobo` (1500000), `business_enterprise_price_kobo` (5000000), `business_page_limit_starter` (2), `business_page_limit_growth` (10), `business_page_limit_enterprise` (50), `sponsored_quest_moderation_mode` (`manual`|`ai`), `sponsored_quest_ai_auto_approve_threshold` (0.85), `business_downgrade_grace_days` (30, uniform across tiers).
+
+**Platform Advertising (v2.03) manifest keys** (admin-editable at `/admin/ads` and `/admin/config`): `feature_ads_system`/`feature_native_ads`/`feature_instream_ads`/`feature_boosted_posts`/`feature_ad_coupons` (all `true`), `ad_moderation_mode` (`manual`|`ai`), `ad_ai_auto_approve_threshold` (0.85), `ad_min_kyc_tier_to_advertise` (1), `ad_default_cpm_credits` (500), `ad_room_instream_interval` (10), `ad_rewarded_daily_cap` (5), `ad_rewarded_credits_min`/`ad_rewarded_credits_max` (10/20), `ad_plan_free_ads_level`/`ad_plan_plus_ads_level`/`ad_plan_pro_ads_level`/`ad_plan_max_ads_level` (`full`/`reduced`/`none`, default full/reduced/none/none), `ad_admob_app_id`/`ad_admob_banner_unit_id`/`ad_admob_interstitial_unit_id`/`ad_admob_rewarded_unit_id`/`ad_admob_test_mode` — see [AdMob (Capacitor Android)](#admob-capacitor-android) above.
 
 ## Realtime Setup
 

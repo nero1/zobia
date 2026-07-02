@@ -48,6 +48,7 @@ const adminNavItems = [
   { href: "/admin/gift-drop",          label: "Gift Drop",          icon: "🎁" },
   { href: "/admin/seasons",            label: "Seasons",            icon: "🏅" },
   { href: "/admin/sponsored-quests",   label: "Sponsored Quests",   icon: "🎯" },
+  { href: "/admin/ads",                label: "Ads",                icon: "🖼️" },
   { href: "/admin/games",              label: "Games",              icon: "🎮" },
   { href: "/admin/blogs",              label: "Blogs",              icon: "📝" },
 ] as const;

@@ -486,7 +486,11 @@ export type CoinTransactionType =
   | 'forum_comment_bypass'
   | 'blog_paywall_unlock'
   | 'blog_theme_purchase'
-  | 'kyc_verification_fee';
+  | 'kyc_verification_fee'
+  | 'ad_campaign_funding'
+  | 'ad_spend'
+  | 'ad_campaign_refund'
+  | 'ad_coupon_credit';
 
 export interface CoinLedgerEntry {
   id: string;

@@ -56,6 +56,11 @@ type PublicManifest = {
     minLevelToComment: number;
     commentBypassCostCredits: number;
   };
+  ads: {
+    roomInstreamInterval: number;
+    planAdsLevel: Awaited<ReturnType<typeof loadManifest>>["ads"]["planAdsLevel"];
+    admob: Awaited<ReturnType<typeof loadManifest>>["ads"]["admob"];
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -115,6 +120,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         minLevelToPost: manifest.forum.minLevelToPost,
         minLevelToComment: manifest.forum.minLevelToComment,
         commentBypassCostCredits: manifest.forum.commentBypassCostCredits,
+      },
+      ads: {
+        roomInstreamInterval: manifest.ads.roomInstreamInterval,
+        planAdsLevel: manifest.ads.planAdsLevel,
+        admob: manifest.ads.admob,
       },
     };
 
