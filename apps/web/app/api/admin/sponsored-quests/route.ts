@@ -71,6 +71,10 @@ interface SponsoredQuestAdminRow {
   created_at: string;
   application_count: number;
   approved_count: number;
+  moderation_status: string;
+  moderation_reason: string | null;
+  business_account_id: string | null;
+  submitted_by_username: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -87,6 +91,13 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
 
     const url = new URL(req.url);
     const activeOnly = url.searchParams.get("active") !== "false";
+    const moderationStatus = url.searchParams.get("moderationStatus");
+
+    const conditions: string[] = ["sq.deleted_at IS NULL"];
+    if (activeOnly) conditions.push("sq.is_active = TRUE");
+    if (moderationStatus && ["pending", "approved", "rejected"].includes(moderationStatus)) {
+      conditions.push(`sq.moderation_status = '${moderationStatus}'`);
+    }
 
     const { rows } = await db.query<SponsoredQuestAdminRow>(
       `SELECT
@@ -104,13 +115,18 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
          sq.min_creator_tier,
          sq.is_active,
          sq.created_at,
+         sq.moderation_status,
+         sq.moderation_reason,
+         sq.business_account_id,
+         u.username AS submitted_by_username,
          COUNT(sqa.id)::int                                     AS application_count,
          COUNT(sqa.id) FILTER (WHERE sqa.status = 'approved')::int AS approved_count
        FROM sponsored_quests sq
        LEFT JOIN sponsored_quest_applications sqa ON sqa.quest_id = sq.id
-       ${activeOnly ? "WHERE sq.is_active = TRUE" : ""}
-       GROUP BY sq.id
-       ORDER BY sq.created_at DESC`,
+       LEFT JOIN users u ON u.id = sq.submitted_by
+       WHERE ${conditions.join(" AND ")}
+       GROUP BY sq.id, u.username
+       ORDER BY (sq.moderation_status = 'pending') DESC, sq.created_at DESC`,
     );
 
     return NextResponse.json({

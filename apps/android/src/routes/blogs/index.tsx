@@ -3,7 +3,9 @@
  *
  * Blogs discovery — mirrors apps/web/app/(app)/blogs/page.tsx's search +
  * card grid. The fuller tab UI (Popular/Trending/New/Random) stays
- * web/PWA-only, same convention as the Games list on this app.
+ * web/PWA-only, same convention as the Games list on this app. The
+ * "Subscribed" view is the one exception — surfaced as a simple toggle
+ * rather than a full tab bar, since it's a common return-visit action.
  */
 
 import { useState } from 'react';
@@ -23,16 +25,18 @@ interface BlogSummary {
   owner_username: string | null;
 }
 
-async function fetchBlogs(q: string) {
-  const params = new URLSearchParams({ tab: 'popular' });
+async function fetchBlogs(q: string, subscribedOnly: boolean) {
+  // apiClient's response interceptor already unwraps the { success, data, error }
+  // envelope down to `data`, so the resolved payload here is { blogs, nextCursor, hasMore }.
+  const params = new URLSearchParams({ tab: subscribedOnly ? 'subscribed' : 'popular' });
   if (q.trim()) params.set('q', q.trim());
-  const { data } = await apiClient.get<{ data: { blogs: BlogSummary[] } }>(`/blogs?${params.toString()}`);
-  return data?.data?.blogs ?? [];
+  const { data } = await apiClient.get<{ blogs: BlogSummary[] }>(`/blogs?${params.toString()}`);
+  return data?.blogs ?? [];
 }
 
 async function fetchMyBlog() {
-  const { data } = await apiClient.get<{ data: { blog: { slug: string } | null } }>('/blogs/me');
-  return data?.data?.blog ?? null;
+  const { data } = await apiClient.get<{ blog: { slug: string } | null }>('/blogs/me');
+  return data?.blog ?? null;
 }
 
 function SkeletonCard() {
@@ -48,10 +52,11 @@ function SkeletonCard() {
 function BlogsPage() {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
+  const [subscribedOnly, setSubscribedOnly] = useState(false);
 
   const { data: blogs, status } = useQuery({
-    queryKey: ['blogs', search],
-    queryFn: () => fetchBlogs(search),
+    queryKey: ['blogs', search, subscribedOnly],
+    queryFn: () => fetchBlogs(search, subscribedOnly),
     staleTime: 5 * 60_000,
   });
 
@@ -75,8 +80,19 @@ function BlogsPage() {
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder={t('blogs.search.placeholder', 'Search blogs…')}
-        className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 mb-4 focus:border-primary-500 focus:outline-none"
+        className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 mb-3 focus:border-primary-500 focus:outline-none"
       />
+
+      <button
+        type="button"
+        onClick={() => setSubscribedOnly((s) => !s)}
+        className={`mb-4 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
+          subscribedOnly ? 'bg-primary-600 text-white' : 'bg-white text-neutral-700 border border-neutral-200'
+        }`}
+      >
+        <span aria-hidden="true">🔔</span>
+        {t('blogs.tab.subscribed', 'Subscribed')}
+      </button>
 
       {status === 'pending' && (
         <div className="grid grid-cols-2 gap-3">
@@ -86,7 +102,11 @@ function BlogsPage() {
 
       {status === 'success' && blogs.length === 0 && (
         <div className="flex items-center justify-center py-20">
-          <p className="text-neutral-500 text-sm">{t('blogs.empty', 'No blogs yet — be the first to start one.')}</p>
+          <p className="text-neutral-500 text-sm">
+            {subscribedOnly
+              ? t('blogs.subscribed.empty', "You haven't subscribed to any blogs yet.")
+              : t('blogs.empty', 'No blogs yet — be the first to start one.')}
+          </p>
         </div>
       )}
 

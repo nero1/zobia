@@ -603,6 +603,66 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
   },
 
+  // Business Accounts
+  business_starter_price_kobo: {
+    label: "Business Starter Price (kobo)",
+    description: "Monthly price of the Business Starter tier, in kobo (default 500000 = ₦5,000).",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_growth_price_kobo: {
+    label: "Business Growth Price (kobo)",
+    description: "Monthly price of the Business Growth tier, in kobo (default 1500000 = ₦15,000).",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_enterprise_price_kobo: {
+    label: "Business Enterprise Price (kobo)",
+    description: "Monthly price of the Business Enterprise tier, in kobo (default 5000000 = ₦50,000).",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_page_limit_starter: {
+    label: "Business Page Limit — Starter",
+    description: "Max Business Pages a Business Starter account may create.",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_page_limit_growth: {
+    label: "Business Page Limit — Growth",
+    description: "Max Business Pages a Business Growth account may create.",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_page_limit_enterprise: {
+    label: "Business Page Limit — Enterprise",
+    description: "Max Business Pages a Business Enterprise account may create.",
+    type: "number",
+    group: "Business Accounts",
+  },
+  sponsored_quest_moderation_mode: {
+    label: "Sponsored Quest Moderation Mode",
+    description: "How business-submitted Sponsored Quests are moderated before going live.",
+    type: "select",
+    group: "Business Accounts",
+    options: [
+      { value: "manual", label: "Manual (admin approval queue)" },
+      { value: "ai", label: "AI moderation (with manual fallback)" },
+    ],
+  },
+  sponsored_quest_ai_auto_approve_threshold: {
+    label: "Sponsored Quest AI Auto-Approve Threshold",
+    description: "AI moderation confidence (0-1) at or above which a business-submitted Sponsored Quest is auto-approved when moderation mode is \"ai\".",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_downgrade_grace_days: {
+    label: "Business Downgrade Grace Period (days)",
+    description: "Days after a business account tier downgrade before extra pages are deactivated and running sponsored quests are stopped.",
+    type: "number",
+    group: "Business Accounts",
+  },
+
   // Miscellaneous
   deep_link_base_url: {
     label: "Deep Link Base URL",
@@ -631,6 +691,7 @@ const GROUP_ORDER = [
   "Answers",
   "Physical Goods",
   "Grace Periods & Save Slots",
+  "Business Accounts",
   "Miscellaneous",
 ];
 

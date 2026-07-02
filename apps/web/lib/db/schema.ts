@@ -2584,6 +2584,21 @@ export const sponsoredQuests = pgTable("sponsored_quests", {
   maxCreators: integer("max_creators").default(10),
   maxApplications: integer("max_applications"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  // Migration 0003 (db): business self-service submission + moderation.
+  // business_account_id IS NULL for the pre-existing admin-published flow
+  // (moderation_status defaults to 'approved' for those); business-submitted
+  // quests set business_account_id/business_page_id/submitted_by and start
+  // at moderation_status='pending'.
+  businessAccountId: uuid("business_account_id").references(() => businessAccounts.id, {
+    onDelete: "set null",
+  }),
+  businessPageId: uuid("business_page_id").references(() => businessPages.id, {
+    onDelete: "set null",
+  }),
+  submittedBy: uuid("submitted_by").references(() => users.id, { onDelete: "set null" }),
+  moderationStatus: text("moderation_status").notNull().default("approved"),
+  moderationReason: text("moderation_reason"),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
 
 // sponsored_quest_applications uses the 001 canonical schema:
@@ -3526,9 +3541,70 @@ export const businessAccounts = pgTable("business_accounts", {
   // Migration 0042 (db): grace period — mirrors `subscriptions.gracePeriodEndsAt`.
   // `status` gains 'grace' | 'lapsed' alongside the existing 'active' value.
   gracePeriodEndsAt: timestamp("grace_period_ends_at", { withTimezone: true }),
+  // Migration 0003 (db): self-service downgrade — set when the owner
+  // downgrades to a lower tier; `tier` itself does not change until
+  // `downgradeEffectiveAt` elapses (30-day grace by default, see
+  // lib/business/downgradeSweep.ts).
+  downgradeToTier: text("downgrade_to_tier"),
+  downgradeEffectiveAt: timestamp("downgrade_effective_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+// Migration 0003 (db): Business Pages — a business account can run several
+// pages (tier-gated slot count); adverts/sponsored quests are attributed to
+// a page. Mirrors the blogs table shape (slug, status, soft delete).
+export const businessPages = pgTable("business_pages", {
+  id: uuidPk(),
+  businessAccountId: uuid("business_account_id")
+    .notNull()
+    .references(() => businessAccounts.id, { onDelete: "cascade" }),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  bio: text("bio"),
+  avatarUrl: text("avatar_url"),
+  coverImageUrl: text("cover_image_url"),
+  status: text("status").notNull().default("active"),
+  statusReason: text("status_reason"),
+  viewCount: integer("view_count").notNull().default(0),
+  postCount: integer("post_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+export const businessPagePosts = pgTable("business_page_posts", {
+  id: uuidPk(),
+  pageId: uuid("page_id")
+    .notNull()
+    .references(() => businessPages.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  imageUrl: text("image_url"),
+  status: text("status").notNull().default("published"),
+  viewCount: integer("view_count").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+export const businessPageDailyStats = pgTable(
+  "business_page_daily_stats",
+  {
+    id: uuidPk(),
+    pageId: uuid("page_id")
+      .notNull()
+      .references(() => businessPages.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    views: integer("views").notNull().default(0),
+    postViews: integer("post_views").notNull().default(0),
+    adImpressions: integer("ad_impressions").notNull().default(0),
+    adClicks: integer("ad_clicks").notNull().default(0),
+  },
+  (t) => ({
+    unique: uniqueIndex("business_page_daily_stats_page_date_idx").on(t.pageId, t.date),
+  })
+);
 
 // ---------------------------------------------------------------------------
 // SECTION 11: Moderation & Reports
@@ -4491,6 +4567,12 @@ export type UserSubscription = typeof userSubscriptions.$inferSelect;
 export type NewUserSubscription = typeof userSubscriptions.$inferInsert;
 export type BusinessAccount = typeof businessAccounts.$inferSelect;
 export type NewBusinessAccount = typeof businessAccounts.$inferInsert;
+export type BusinessPage = typeof businessPages.$inferSelect;
+export type NewBusinessPage = typeof businessPages.$inferInsert;
+export type BusinessPagePost = typeof businessPagePosts.$inferSelect;
+export type NewBusinessPagePost = typeof businessPagePosts.$inferInsert;
+export type BusinessPageDailyStats = typeof businessPageDailyStats.$inferSelect;
+export type NewBusinessPageDailyStats = typeof businessPageDailyStats.$inferInsert;
 
 // Moderation & Reports
 export type Report = typeof reports.$inferSelect;
@@ -4721,6 +4803,9 @@ export const schema = {
   subscriptionPlans,
   userSubscriptions,
   businessAccounts,
+  businessPages,
+  businessPagePosts,
+  businessPageDailyStats,
 
   // Moderation & Reports
   reports,

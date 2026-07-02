@@ -198,5 +198,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Blogs table absent or unavailable — skip silently
   }
 
+  // Public Business Pages. Served at /p/<slug>. The table may not exist on
+  // older DBs (pre-0003-business-expansion migration) — skip silently.
+  try {
+    const { rows: pageRows } = await db.query<{ slug: string; updated_at: string }>(
+      `SELECT bp.slug, bp.updated_at
+       FROM business_pages bp
+       JOIN business_accounts ba ON ba.id = bp.business_account_id
+       WHERE bp.deleted_at IS NULL AND bp.status = 'active' AND ba.status = 'active'
+       ORDER BY bp.updated_at DESC NULLS LAST
+       LIMIT 2000`
+    );
+
+    for (const p of pageRows) {
+      entries.push({
+        url: `${BASE_URL}/p/${encodeURIComponent(p.slug)}`,
+        lastModified: new Date(p.updated_at),
+        changeFrequency: "weekly",
+        priority: 0.4,
+      });
+    }
+  } catch {
+    // Business pages table absent or unavailable — skip silently
+  }
+
   return entries;
 }

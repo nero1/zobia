@@ -15,6 +15,8 @@ Public, crawlable, shareable surfaces use short human-readable paths. Internal a
 | Course / classroom | `/c/<slug>` | `app/c/[slug]/page.tsx` | `lib/public/resolveRoom.ts` (classroom types) |
 | Game (upcoming) | `/g/<slug>` | `app/g/[slug]/page.tsx` | `lib/public/resolveGame.ts` |
 | Forum question (Answers) | `/a/<slug>` | `app/a/[slug]/page.tsx` | `lib/public/resolveForumQuestion.ts` |
+| Blog | `/b/<slug>` | `app/b/[slug]/page.tsx` | `lib/public/resolveBlog.ts` |
+| Business Page | `/p/<slug>` | `app/p/[slug]/page.tsx` | `lib/public/resolveBusinessPage.ts` |
 
 - **Duplicate names** get a numeric suffix with no separator (`/r/dorcas-cuisine`, `/r/dorcas-cuisine2`).
 - **Legacy `/r/<uuid>` links and retired slugs 301-redirect** to the canonical slug (UUID fallback + `slug_redirects` table), so no shared link ever breaks or splits link-equity.

@@ -288,6 +288,16 @@ business logic lives in `lib/blogs/repo.ts` + `lib/blogs/service.ts` +
 - **Views:** recorded at most once per browser per post — deduped
   client-side via `localStorage` (`zobia_blog_viewed`), not a per-view DB
   row, matching the platform's offline-first, low-Redis-call discipline.
+- **Subscribed tab:** `/blogs?tab=subscribed` lists blogs the caller
+  subscribes to, sorted by most recently *published article* first
+  (falling back to the blog's creation date), not `blogs.updated_at` —
+  that column isn't bumped when a draft is published later, only on new
+  posts/metadata edits, so `lib/blogs/repo.ts` `listSubscribedBlogs()`
+  computes `MAX(published_at)` per blog instead. Cursor-paginated on the
+  `(sortKey, id)` tuple since the sort key isn't the id. Web/PWA renders
+  this as a fifth tab; Android surfaces it as a simple toggle instead of a
+  full tab bar (same "no Popular/Trending/New/Random tabs on mobile"
+  convention as the rest of this page).
 
 ### Social Graph
 
@@ -1503,6 +1513,43 @@ Independent of tier, a business account can request the "Verified" badge (PRD §
 2. Server sets `verification_status = 'pending'`, `verification_requested_at = NOW()`, and raises a low-severity `system_alerts` entry so admins see it in the moderation queue.
 3. Admin reviews the request at Admin → Business Accounts and calls `PATCH /api/admin/business` with `{ id, action: "verify" | "reject", reason? }`, which sets `verification_status` to `verified` or `rejected` and notifies the user.
 4. `GET /api/business` returns `verification_status` (and the related `verification_requested_at` / `verification_reviewed_at` / `verification_reject_reason` columns) so the settings page reflects the live status on every page load — a prior version of this endpoint omitted these columns from its `SELECT`, which made the UI fall back to `unverified` on every refresh even after an admin had approved the request, and then throw `409 CONFLICT` if the user clicked "Request Verification" again.
+
+### Entry points (v2.02)
+
+`/business` (sidebar link, always visible — same "nav item unconditional, feature enforced server-side" convention as Blogs) is the hub: no account → an explainer of the feature/tiers/pricing with a Create CTA (routing to `/settings/business`, which owns the actual paid signup form); has an account → cards linking to Account & Billing (`/settings/business`, unchanged), Business Pages (`/business/pages`), the Advertising Panel (`/business/ads`), and Stats (`/business/stats`). The Capacitor Android app mirrors this at `/business`, `/business/pages(+/$pageId)`, `/business/ads` — tier/verification management itself stays web/PWA-only (same convention as Blogs settings), and any paid action (signup, upgrade) opens the Paystack/DodoPayments checkout URL in the external in-app browser (`@capacitor/browser`, the same pattern already used for OAuth) rather than embedding it — Google Play Billing is the only allowed in-app purchase mechanism on Android (PRD §18), so a web checkout page must never be presented as in-app purchase UI.
+
+### Business Pages
+
+A business account can run one or more **Business Pages** — its brand identity/profile, each with a name, bio, avatar/cover image, a lightweight post feed, and stats. Data model (`db/migrations/0003_business_expansion.sql`): `business_pages` (one row per page, `slug` unique, `status` active/deactivated/suspended/banned), `business_page_posts` (title/body/image, draft/published), `business_page_daily_stats` (per-page/per-day views/post_views/ad_impressions/ad_clicks rollup — same idiom as `blog_post_daily_stats`).
+
+- **Slot limits per tier** — Starter 2, Growth 10, Enterprise 50, admin-configurable via `x_manifest` (`business_page_limit_<tier>`, `lib/business/limits.ts`). `POST /api/business/pages` rejects creation with `403 BUSINESS_PAGE_LIMIT_REACHED` once the active-page count reaches the limit; `DELETE /api/business/pages/<id>` frees the slot.
+- **Public page** — `GET zobia.org/p/<slug>` (`app/p/[slug]/page.tsx`), SSR/crawlable, same convention as `/b/<slug>` for Blogs: `lib/public/resolveBusinessPage.ts` resolves by slug → legacy UUID → `slug_redirects` (entity `business_page`), listed in `app/sitemap.ts` (capped 2000), `/p/` is public in `middleware.ts`. Views are deduped client-side via `localStorage` (`zobia_biz_page_viewed`, `components/business/PageViewTracker.tsx`) exactly like blog post views, not a per-view DB row.
+- **Stats depth by tier** — mirrors the Blogs stats-tier convention exactly (`lib/business/limits.ts` `getBusinessStatsTier`, same `basic`/`more`/`detailed`/`detailed_export` shape as `lib/blogs/limits.ts`): Starter = account-wide totals only; Growth = totals + per-page breakdown; Enterprise = + a 90-day daily drill-down and CSV export (`GET /api/business/pages/stats(+/export)`).
+- **Admin moderation** — `/admin/business/pages` (API: `GET/PATCH /api/admin/business/pages`) mirrors `/admin/business`'s filter-pills + table + action pattern: suspend/ban/deactivate/restore/delete a single page, each action logged to `admin_audit_log` (`resource = 'business_page'`) and notified to the owner.
+
+### Sponsored Quests — business self-service submission
+
+Growth+ tier business accounts can submit **Sponsored Quests** — reusing the pre-existing Creator Economy Sponsored Quest Marketplace (PRD §14, `sponsored_quests` table) rather than a parallel ads system. Previously only admin could publish a quest (`POST /api/admin/sponsored-quests`, immediately live); business submission adds a moderation gate in front of that same table.
+
+- `sponsored_quests` gains (migration `0003_business_expansion.sql`): `business_account_id`, `business_page_id`, `submitted_by`, `moderation_status` (`pending`/`approved`/`rejected`, defaults to `'approved'` so the pre-existing admin-only flow is unaffected), `moderation_reason`, and a `deleted_at` column — the latter fixes a pre-existing bug where the admin `DELETE /api/admin/sponsored-quests/[questId]` handler referenced `deleted_at` on a column that was never actually added to the schema.
+- `POST /api/business/sponsored-quests` (`lib/business/limits.ts` `canSubmitSponsoredQuests` gates on tier ≥ Growth) requires an active Business Page (`businessPageId`) — the quest's `brand_name`/`brand_logo_url` are copied from that page, so "adverts run by this page are shown to come from the selected business page." The quest is inserted `is_active = false` and `moderation_status` per the admin's moderation-mode toggle.
+- **Moderation mode** (`x_manifest` key `sponsored_quest_moderation_mode`, admin-editable at `/admin/config` under "Business Accounts"): `manual` (default) queues the submission for the admin approval panel; `ai` runs it through `lib/moderation/aiClassifier.ts` `classifySponsoredQuest()` — a new, dedicated system prompt (never interpolates the untrusted brief into the prompt itself, same prompt-injection defense as `classifyReport()`) that scores `approvalConfidence` 0–1; scores at or above `sponsored_quest_ai_auto_approve_threshold` (default 0.85, admin-configurable) auto-approve, everything else falls back to the manual queue.
+- **Admin approval queue** — `/admin/sponsored-quests` (pre-existing admin publish/edit page) gains a moderation badge per quest and Approve/Reject buttons for business submissions, calling the new `POST /api/admin/sponsored-quests/[questId]/moderate` endpoint (`{ action: "approve"|"reject", reason? }`) — distinct from `creator/sponsored-quests/[questId]/approve` (which approves a *creator's completed application*, not the quest listing itself). Approval flips `is_active = true`; rejection notifies the submitting business owner with the reason.
+- Branded Room sponsorships and Sponsored Leaderboard Banners (Pillar 3) remain admin-arranged rather than self-service — the Advertising Panel (`/business/ads`) surfaces a "Contact sales" callout for those instead of a submission form.
+
+### Self-service tier downgrade & grace period
+
+`PATCH /api/business/tier` also accepts a **lower** tier than the account's current one — unlike an upgrade, this needs no payment:
+
+1. The account's `downgrade_to_tier` and `downgrade_effective_at` (`= NOW() + business_downgrade_grace_days` days, default 30, uniform across all three tiers — a deliberately simpler policy than the pre-existing per-plan `grace_period_days_business_<tier>` keys used by the *subscription-lapse* grace sweep, §"Subscription Sweep" below, which stay untouched) are set immediately; `tier` itself does **not** change yet.
+2. The account keeps its current tier — including its page-slot limit and any live Sponsored Quests — until the grace period elapses. Requesting the *current* tier again (`PATCH /api/business/tier { tier: currentTier }`) cancels the pending downgrade. Requesting an *upgrade* while a downgrade is pending supersedes and clears it.
+3. `lib/business/downgradeSweep.ts` `sweepBusinessDowngrades()`, called once a day from the daily-economy CRON (step 7, alongside the pre-existing `sweepSubscriptions()`), finds accounts whose `downgrade_effective_at` has passed and:
+   - Deactivates the newest Business Pages beyond the new tier's slot limit (oldest-created pages are kept active first).
+   - Stops (`is_active = false`) every currently-running Sponsored Quest owned by the account.
+   - Applies the new `tier` and clears the downgrade fields.
+   - Notifies the owner.
+
+This is a separate, simpler mechanism from the pre-existing `lib/plans/subscriptionSweep.ts` business half (non-renewal lapse → `grace` → `lapsed` status, keyed off `business_accounts.subscription_id`) — that linkage is still never populated today (business tiers are one-off `payments` rows, not a recurring `subscriptions` row), a pre-existing gap unrelated to this self-service downgrade flow, which uses its own dedicated `downgrade_to_tier`/`downgrade_effective_at` columns instead of touching `subscriptions` at all.
 
 ---
 

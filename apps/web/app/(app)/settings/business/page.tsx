@@ -42,10 +42,16 @@ const FEATURES: { label: string; tiers: Record<TierKey, boolean> }[] = [
 
 function BusinessTierCard({
   currentTier,
+  downgradeToTier,
+  downgradeEffectiveAt,
   onUpgraded,
+  onDowngradeChanged,
 }: {
   currentTier: string;
+  downgradeToTier: string | null;
+  downgradeEffectiveAt: string | null;
   onUpgraded: (tier: TierKey) => void;
+  onDowngradeChanged: (tier: TierKey | null, effectiveAt: string | null) => void;
 }) {
   const { t } = useTranslation();
   const [upgrading, setUpgrading] = useState<TierKey | null>(null);
@@ -55,8 +61,7 @@ function BusinessTierCard({
     ? (currentTier.toLowerCase() as TierKey)
     : "starter";
 
-  async function handleUpgrade(tier: TierKey) {
-    if (tier === "enterprise") return;
+  async function changeTier(tier: TierKey) {
     setUpgrading(tier);
     setUpgradeError(null);
     try {
@@ -66,20 +71,28 @@ function BusinessTierCard({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ tier }),
       });
-      const body = await res.json() as { success?: boolean; data?: { paymentUrl?: string }; error?: { message?: string; code?: string } };
+      const body = await res.json() as {
+        success?: boolean;
+        data?: { paymentUrl?: string; downgradeToTier?: string; downgradeEffectiveAt?: string; downgradeCancelled?: boolean };
+        error?: { message?: string; code?: string };
+      };
       if (!res.ok) {
-        const err = new Error(body.error?.message ?? "Upgrade failed") as Error & { code?: string | null };
+        const err = new Error(body.error?.message ?? "Update failed") as Error & { code?: string | null };
         err.code = body.error?.code ?? null;
         throw err;
       }
       if (body.data?.paymentUrl) {
         window.location.href = body.data.paymentUrl;
+      } else if (body.data?.downgradeCancelled) {
+        onDowngradeChanged(null, null);
+      } else if (body.data?.downgradeToTier) {
+        onDowngradeChanged(body.data.downgradeToTier as TierKey, body.data.downgradeEffectiveAt ?? null);
       } else {
         onUpgraded(tier);
       }
     } catch (e) {
       const err = e as Error & { code?: string | null };
-      setUpgradeError(e instanceof Error ? translateApiError(t, err.code, err.message || "Upgrade failed") : "Upgrade failed");
+      setUpgradeError(e instanceof Error ? translateApiError(t, err.code, err.message || "Update failed") : "Update failed");
     } finally {
       setUpgrading(null);
     }
@@ -90,6 +103,22 @@ function BusinessTierCard({
       <h2 className="mb-4 text-base font-semibold text-neutral-900 dark:text-neutral-100">
         Business Tiers
       </h2>
+
+      {downgradeToTier && downgradeEffectiveAt && (
+        <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+          <span>
+            Downgrading to <span className="font-semibold capitalize">{downgradeToTier}</span> on{" "}
+            {new Date(downgradeEffectiveAt).toLocaleDateString()}. Pages/quests beyond that tier&apos;s limits deactivate then.
+          </span>
+          <button
+            onClick={() => changeTier(current)}
+            disabled={upgrading !== null}
+            className="flex-shrink-0 rounded-lg border border-amber-400 px-2.5 py-1 text-xs font-semibold text-amber-800 hover:bg-amber-100 disabled:opacity-50 dark:text-amber-300 dark:hover:bg-amber-900/40"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
 
       {upgradeError && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
@@ -156,7 +185,7 @@ function BusinessTierCard({
                   </a>
                 ) : (
                   <button
-                    onClick={() => handleUpgrade(key)}
+                    onClick={() => changeTier(key)}
                     disabled={upgrading === key}
                     className="rounded-xl bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
                   >
@@ -164,9 +193,13 @@ function BusinessTierCard({
                   </button>
                 )
               ) : (
-                <div className="rounded-xl border border-neutral-200 py-2 text-center text-xs font-semibold text-neutral-400 dark:border-neutral-700">
-                  Unavailable
-                </div>
+                <button
+                  onClick={() => changeTier(key)}
+                  disabled={upgrading === key || downgradeToTier === key}
+                  className="rounded-xl border border-neutral-300 py-2 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+                >
+                  {upgrading === key ? "…" : downgradeToTier === key ? "Downgrade scheduled" : "Downgrade"}
+                </button>
               )}
             </div>
           );
@@ -192,6 +225,8 @@ interface BusinessAccount {
   verified: boolean;
   status: string;
   verification_status: VerificationStatus;
+  downgrade_to_tier: string | null;
+  downgrade_effective_at: string | null;
   created_at: string;
 }
 
@@ -510,7 +545,10 @@ export default function BusinessSettingsPage() {
       {business && !editing && (
         <BusinessTierCard
           currentTier={business.tier}
-          onUpgraded={(tier) => setBusiness((prev) => prev ? { ...prev, tier } : prev)}
+          downgradeToTier={business.downgrade_to_tier}
+          downgradeEffectiveAt={business.downgrade_effective_at}
+          onUpgraded={(tier) => setBusiness((prev) => prev ? { ...prev, tier, downgrade_to_tier: null, downgrade_effective_at: null } : prev)}
+          onDowngradeChanged={(tier, effectiveAt) => setBusiness((prev) => prev ? { ...prev, downgrade_to_tier: tier, downgrade_effective_at: effectiveAt } : prev)}
         />
       )}
 

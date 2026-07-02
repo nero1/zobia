@@ -12,6 +12,7 @@ export const maxDuration = 10;
  *  4. Weekly automated creator payouts (Fridays only)
  *  5. Referral 7-day streak qualifying bonuses
  *  6. Subscription expiry -> grace period -> purge sweep (personal + business)
+ *  7. Business account self-service tier downgrades due (grace period elapsed)
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -324,6 +325,14 @@ export const GET = async (req: NextRequest) => {
     results.subscriptionSweep = await sweepSubscriptions();
   } catch (err) {
     errors.push(`subscriptionSweep: ${String(err)}`);
+  }
+
+  // 7. Business account self-service tier downgrades due (grace period elapsed)
+  try {
+    const { sweepBusinessDowngrades } = await import("@/lib/business/downgradeSweep");
+    results.businessDowngradeSweep = await sweepBusinessDowngrades();
+  } catch (err) {
+    errors.push(`businessDowngradeSweep: ${String(err)}`);
   }
 
   return NextResponse.json({

@@ -146,6 +146,7 @@ const PUBLIC_PREFIXES = [
   "/g/",
   "/a/",
   "/b/",
+  "/p/",
   "/_next",
   "/favicon.ico",
   // App-link association files for Android (assetlinks.json) and iOS
