@@ -3,7 +3,7 @@
 /**
  * app/(app)/answers/ask/page.tsx
  *
- * Ask a question on Zobia Answers. Mirrors app/(app)/moments/create/page.tsx's
+ * Ask a question on Answers. Mirrors app/(app)/moments/create/page.tsx's
  * form/error-handling conventions.
  */
 
@@ -83,7 +83,7 @@ export default function AskQuestionPage() {
   return (
     <div className="mx-auto max-w-xl p-4 sm:p-6">
       <div className="mb-6 flex items-center gap-3">
-        <Link href="/answers" className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Back to Zobia Answers">
+        <Link href="/answers" className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Back to Answers">
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>

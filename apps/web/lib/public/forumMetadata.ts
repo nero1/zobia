@@ -13,14 +13,14 @@ export { NOT_FOUND_METADATA } from "@/lib/public/roomMetadata";
 export function buildForumQuestionMetadata(question: PublicForumQuestion): Metadata {
   const canonicalSlug = question.slug ?? question.id;
 
-  const title = `${question.title} — Zobia Answers`;
+  const title = `${question.title} — Answers`;
   const description = question.body.slice(0, 155);
 
   return {
     title,
     description,
     keywords: [
-      "Zobia Answers",
+      "Answers",
       "Q&A",
       ...(question.category_name ? [question.category_name] : []),
     ],

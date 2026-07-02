@@ -22,7 +22,7 @@ const primaryNavItems = [
   { href: '/rooms', label: 'Rooms', icon: '🚪' },
   { href: '/messages', label: 'Messages', icon: '💬' },
   { href: '/moments', label: 'Moments', icon: '🎬' },
-  { href: '/answers', label: 'Zobia Answers', icon: '❓' },
+  { href: '/answers', label: 'Answers', icon: '❓' },
   { href: '/notifications', label: 'Notifications', icon: '🔔' },
 ] as const;
 

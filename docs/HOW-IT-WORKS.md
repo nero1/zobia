@@ -103,11 +103,11 @@ Moments are short-lived posts (text, optionally one image) that expire 24 hours 
 
 **Faves + Recently Visited discovery tabs.** The Rooms discovery page (list view by default — the scalable choice for a feed that can grow to tens of thousands of rooms — with a grid toggle matching the Games page pattern) adds two tabs alongside Trending/Near Me/Friends In:
 - **Faves** (❤️ heart icon on every room card) reuses the existing Room Pins mechanism (`room_pins` table, `/api/rooms/pinned`, PRD §3 — tiered by plan) rather than introducing a second favorites table. Toggling the heart calls `POST`/`DELETE /api/rooms/pinned`.
-- **Recently Visited** (🕐 clock icon) is backed by a new `room_visits` table (migration `0035_room_visits.sql`), upserted fire-and-forget on every `GET /api/rooms/[roomId]`, and served via the new cursor-paginated `GET /api/rooms/recent`.
+- **Recently Visited** (🕐 clock icon) is backed by a new `room_visits` table (part of the consolidated schema, `db/migrations/0001_consolidated_schema.sql`), upserted fire-and-forget on every `GET /api/rooms/[roomId]`, and served via the new cursor-paginated `GET /api/rooms/recent`.
 
 The Android Capacitor rooms list also gets the heart-icon favorite toggle (same `/api/rooms/pinned` endpoint via a `useMutation` + optimistic `setQueryData`, matching the pattern already used by its notifications screen) — its rooms screen is intentionally minimal (no tabs, no create flow anywhere in the app) so the fuller tab/view-toggle UI stays web/PWA-only.
 
-**`xp_ledger` schema drift (fixed).** Migration `0020_schema_cleanup.sql` dropped `xp_ledger.action`/`xp_amount`/`xp_net`/`multiplier`/`metadata` as "never populated by any code path" — but `GET /api/nemesis`, the Season Pass gift route, the ClassRoom quiz-attempt route, and the automated-action reversal route all later started reading/writing those columns (and, in three cases, omitted the still-NOT-NULL `amount`/`base_amount`/`source` columns entirely), so every one of those code paths threw. The three write paths now call the canonical `safeAwardXP()` (`lib/xp/safeAwardXP.ts`) instead of hand-rolled `INSERT`s — it already writes the required columns, dedupes on `reference_id`, and updates leaderboard snapshots — and `GET /api/nemesis` reads `amount` directly instead of the dropped `xp_net` column.
+**`xp_ledger` schema drift (fixed).** An early schema cleanup pass dropped `xp_ledger.action`/`xp_amount`/`xp_net`/`multiplier`/`metadata` as "never populated by any code path" — but `GET /api/nemesis`, the Season Pass gift route, the ClassRoom quiz-attempt route, and the automated-action reversal route all later started reading/writing those columns (and, in three cases, omitted the still-NOT-NULL `amount`/`base_amount`/`source` columns entirely), so every one of those code paths threw. The three write paths now call the canonical `safeAwardXP()` (`lib/xp/safeAwardXP.ts`) instead of hand-rolled `INSERT`s — it already writes the required columns, dedupes on `reference_id`, and updates leaderboard snapshots — and `GET /api/nemesis` reads `amount` directly instead of the dropped `xp_net` column.
 
 Zobia has six room types, each with different XP earn mechanics:
 
@@ -163,7 +163,7 @@ A dedicated **Gifts Hub** is accessible from the main navigation (below Friends)
 
 **Gift-to-user deep link:** `/gift/:userId` (used by profile "🎁 Gift" buttons, share cards, and `zobia://gift/:userId` deep links) resolves the target user's username via `GET /api/users/:userId` and redirects to `/gifts?recipientId=<id>&username=<name>` — it hands off to the same Gifts Hub send flow above rather than re-implementing gift selection, wallet balance, and PIN verification a second time. (Previously this page called two API routes that were never implemented, `/api/users/:userId/public` and `/api/economy/gift-items`, so it always showed "User not found" regardless of whether the target user existed — fixed.)
 
-**Gift history API:** `GET /api/economy/gifts` (fixed 500 error). The query joined `gift_types gt ON gt.id = gi.gift_type_id`, but `gift_type_id` lives on `gifts` (added by migration `0010_gift_type_fk.sql`), not on `gift_items` (aliased `gi`) — every call threw `column gi.gift_type_id does not exist`, so both the `/gifts` page and the Gifts Hub history tabs always showed "An unexpected error occurred." Fixed to join on `g.gift_type_id` (the `gifts` row alias).
+**Gift history API:** `GET /api/economy/gifts` (fixed 500 error). The query joined `gift_types gt ON gt.id = gi.gift_type_id`, but `gift_type_id` lives on `gifts` (added to `gifts`), not on `gift_items` (aliased `gi`) — every call threw `column gi.gift_type_id does not exist`, so both the `/gifts` page and the Gifts Hub history tabs always showed "An unexpected error occurred." Fixed to join on `g.gift_type_id` (the `gifts` row alias).
 
 | Query param | Default | Description |
 |---|---|---|
@@ -275,7 +275,7 @@ Settings are stored as five columns on the `users` table:
 - `profile_hidden_sections` — JSONB array of section keys
 - `disable_friend_requests` — BOOLEAN
 - `sitemap_opt_out` — BOOLEAN (default `false`; toggled via `PATCH /api/users/me/privacy`)
-- `show_online_status` — BOOLEAN (default `false`; migration `0038_online_status_privacy.sql`)
+- `show_online_status` — BOOLEAN (default `false`)
 
 **Enforcement** happens in `GET /api/users/[userId]/profile`:
 1. If the profile owner is banned → 403 `ACCOUNT_RESTRICTED`.
@@ -697,7 +697,7 @@ Deletion is batched by joining the `messages` table against the sender's **curre
 
 1. **Login** → backend issues two tokens:
    - **Access token** (JWT, 15-minute TTL) signed with `JWT_SECRET`. Stored in HttpOnly cookie (web) or Expo SecureStore (Android).
-   - **Refresh token** (JWT, 30-day TTL) signed with `JWT_REFRESH_SECRET`. Stored in Redis under key `session:<refreshToken>` with a 30-day expiry. (The `sessions` DB table was dropped in migration 0020; all session state lives in Redis.)
+   - **Refresh token** (JWT, 30-day TTL) signed with `JWT_REFRESH_SECRET`. Stored in Redis under key `session:<refreshToken>` with a 30-day expiry. (The `sessions` DB table was dropped during schema cleanup; all session state lives in Redis.)
 
 **Key rotation for refresh tokens:** Both access tokens and refresh tokens embed a `kid` (key ID) in their JWT header. During a key rotation, verification looks up the matching secret from a registry keyed by `kid` (built from `JWT_REFRESH_SECRET` and any `JWT_REFRESH_SECRET_v{N}` env vars). This allows old refresh tokens to remain valid through the rotation grace period without requiring forced logouts. See `SETUP.md` → Environment Variables Reference for rotation procedure.
 2. **API call with valid access token** → validates JWT → proceeds.
@@ -904,7 +904,7 @@ At season end: competitive rankings reset. Track XP, credits, friends, and histo
 | `user_season_passes` | One row per (user, season). Tracks `is_paid`, `season_xp`, `season_rank`, `purchased_at`. All pass ownership and XP mutations go here. |
 | `user_season_milestone_claims` | One row per (user, season, milestone). Unique on `(user_id, season_id, milestone_id)` so the same milestone can be reclaimed in a future season. Inserted atomically alongside the reward grant. |
 
-The legacy `season_passes` (never used) and `user_season_pass_claims` (broken unique key — omitted `season_id`) tables were dropped in migration 0005.
+The legacy `season_passes` (never used) and `user_season_pass_claims` (broken unique key — omitted `season_id`) tables were dropped during an early schema cleanup.
 
 ### Nemesis System
 
@@ -1106,7 +1106,7 @@ Key architectural decisions:
 - **Capacitor Network and App replace NetInfo and AppState.** `@capacitor/network` powers `useNetworkStatus` for the offline banner and query pause logic. `@capacitor/app` provides `appStateChange` events to pause Ably subscriptions and query polling when the app is backgrounded.
 - **i18next-browser-languagedetector replaces expo-localization.** Language detection reads the browser `Accept-Language` header (surfaced by Capacitor's WebView). The chosen language is persisted in `@capacitor/preferences`. All locale JSON files are sourced from `shared/i18n/locales/` — the same canonical files used by the web app.
 
-**Screen coverage.** `apps/android/src/routes/` currently ports: home, quests, games, rooms (list + detail), messages (list + conversation), moments (feed + create), Zobia Answers (list, ask, question detail — `answers/`), profile, wallet, stats, settings, notifications, and auth. `wallet.tsx` and `stats.tsx` (added alongside the web Stats page) cover the logged-in user's own wallet/rank/badges and Stats screens — reachable from Settings — using `useInfiniteQuery` + an explicit "Load more" button for transaction history against the same `GET /api/economy/coins/balance` and `GET /api/users/[userId]/stats` endpoints the web app uses. Friends (`/friends`) and the Gifts Hub (`/gifts`) — both covered in this doc for web/PWA — are not yet ported to the Capacitor app; there is no `apps/android/src/routes/friends.tsx` or `gifts.tsx` today. When they are built, they should mirror the web/PWA tab layout and API calls described above (same `/api/friends*` and `/api/economy/gifts*` endpoints, TanStack Query instead of raw `fetch` + `useState`, per the pattern in `src/routes/messages/index.tsx`).
+**Screen coverage.** `apps/android/src/routes/` currently ports: home, quests, games, rooms (list + detail), messages (list + conversation), moments (feed + create), Answers (list, ask, question detail — `answers/`), profile, wallet, stats, settings, notifications, and auth. `wallet.tsx` and `stats.tsx` (added alongside the web Stats page) cover the logged-in user's own wallet/rank/badges and Stats screens — reachable from Settings — using `useInfiniteQuery` + an explicit "Load more" button for transaction history against the same `GET /api/economy/coins/balance` and `GET /api/users/[userId]/stats` endpoints the web app uses. Friends (`/friends`) and the Gifts Hub (`/gifts`) — both covered in this doc for web/PWA — are not yet ported to the Capacitor app; there is no `apps/android/src/routes/friends.tsx` or `gifts.tsx` today. When they are built, they should mirror the web/PWA tab layout and API calls described above (same `/api/friends*` and `/api/economy/gifts*` endpoints, TanStack Query instead of raw `fetch` + `useState`, per the pattern in `src/routes/messages/index.tsx`).
 
 ### Routing and Navigation
 
@@ -1213,7 +1213,7 @@ When disabled, the web page at `/community-notes` shows a "Feature Unavailable" 
 
 ---
 
-## Zobia Answers (Mini Forum / Q&A)
+## Answers (Mini Forum / Q&A)
 
 Reddit-style community Q&A (PRD §31). Questions require a minimum account
 level to post (`forum_min_level_to_post`, default Level 2); answering has a
@@ -1570,7 +1570,7 @@ Everything except the game engines themselves is generic infrastructure.
 
 The platform ships **57 games across 13 categories**: Puzzle, Action, Arcade, Tap, Word,
 Casual, Board, Card, Idle, Trivia, Strategy, Sports, and Music. 26 games were in the
-initial launch; migration `0029_games_catalog_expansion.sql` adds 30 more.
+initial launch; the games catalog seed (in the consolidated schema) adds 30 more.
 
 ### Surfaces
 
@@ -1746,7 +1746,7 @@ Only one in-flight save per specific game is kept — saving again for the same 
 overwrites the existing save rather than consuming a second slot.
 
 - **Schema:** `game_saves (id, user_id, game_id, label, state jsonb, score, created_at,
-  updated_at)` — migration `0042`. `state` is an opaque JSON blob the engine serialized;
+  updated_at)`. `state` is an opaque JSON blob the engine serialized;
   the server never inspects its shape.
 - **Engine contract:** `GameEngineProps` gains optional `initialState` / `onStateChange`
   (`apps/web/components/games/types.ts`). An engine opts in by reading `initialState` on
@@ -1806,7 +1806,7 @@ admin-selected data isn't deleted right away — it survives a **grace period** 
   (see `lib/games/saves.ts` for the reference implementation), no new admin UI or
   migration needed.
 - **Schema:** `subscriptions.grace_period_ends_at` and
-  `business_accounts.grace_period_ends_at` (migration `0042`). `subscriptions.status`
+  `business_accounts.grace_period_ends_at`. `subscriptions.status`
   gains two values alongside the existing `active`/`cancelled`: `grace` (lapsed, within
   the grace window) and `lapsed` (grace window elapsed, purge already ran).
 - **Sweep:** `lib/plans/subscriptionSweep.ts`, called as the last step of the

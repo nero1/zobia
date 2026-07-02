@@ -2,10 +2,9 @@
  * lib/db/schema.ts
  *
  * Drizzle ORM schema — complete single source of truth for all table
- * definitions, derived from db/migrations/001_complete_schema.sql and all
- * subsequent incremental migrations (002–015) plus lib/db/migrations.
+ * definitions, derived from db/migrations/0001_consolidated_schema.sql.
  *
- * Column names exactly match the SQL migrations. Use $inferSelect / $inferInsert
+ * Column names exactly match the SQL migration. Use $inferSelect / $inferInsert
  * types exported at the bottom to avoid manual interface duplication.
  *
  * Usage:
@@ -3765,7 +3764,7 @@ export const communityNoteVotes = pgTable(
 );
 
 // ---------------------------------------------------------------------------
-// Zobia Answers — Mini Forum (Q&A)
+// Answers — Mini Forum (Q&A)
 // ---------------------------------------------------------------------------
 
 export const forumCategories = pgTable("forum_categories", {

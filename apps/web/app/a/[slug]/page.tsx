@@ -1,7 +1,7 @@
 /**
  * app/a/[slug]/page.tsx
  *
- * Public, SSR, crawlable Zobia Answers question page at /a/<slug>.
+ * Public, SSR, crawlable Answers question page at /a/<slug>.
  *
  * Only visible (non-removed, non-deleted) questions are servable here;
  * anything else resolves to 404 so gated/removed content is never exposed.

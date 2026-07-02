@@ -18,7 +18,7 @@ const adminNavItems = [
   { href: "/admin",                    label: "Dashboard",          icon: "◼" },
   { href: "/admin/users",              label: "Users",              icon: "👥" },
   { href: "/admin/moderation",         label: "Moderation",         icon: "🚩" },
-  { href: "/admin/forum",              label: "Zobia Answers",      icon: "❓" },
+  { href: "/admin/forum",              label: "Answers",            icon: "❓" },
   { href: "/admin/community-notes",    label: "Community Notes",    icon: "📝" },
   { href: "/admin/financial",          label: "Financial",          icon: "💳" },
   { href: "/admin/payouts",            label: "Payouts",            icon: "💸" },

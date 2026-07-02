@@ -3,8 +3,8 @@
 /**
  * app/(admin)/admin/forum/settings/page.tsx
  *
- * Zobia Answers config — a focused view of the same x_manifest rows also
- * editable at /admin/config under the "Zobia Answers" group. Both surfaces
+ * Answers config — a focused view of the same x_manifest rows also
+ * editable at /admin/config under the "Answers" group. Both surfaces
  * write the same rows via PUT /api/admin/config/[key] and call
  * invalidateManifestCache() server-side, so edits here and at /admin/config
  * are immediately consistent.
@@ -24,7 +24,7 @@ interface FieldMeta {
 }
 
 const FIELDS: FieldMeta[] = [
-  { key: "feature_forum", label: "Enable Zobia Answers", description: "Master toggle. When off, all /answers endpoints return 503.", type: "boolean" },
+  { key: "feature_forum", label: "Enable Answers", description: "Master toggle. When off, all /answers endpoints return 503.", type: "boolean" },
   { key: "forum_min_level_to_post", label: "Minimum Level to Post", description: "Minimum account level required to post a question.", type: "number" },
   { key: "forum_min_level_to_comment", label: "Minimum Level to Comment (Free)", description: "Below this level, users can still comment by spending credits.", type: "number" },
   { key: "forum_comment_bypass_cost_credits", label: "Comment Bypass Cost (Credits)", description: "Credits charged to comment when below the comment level gate.", type: "number" },
@@ -111,15 +111,15 @@ export default function AdminForumSettingsPage() {
     return (
       <div className="rounded-xl border border-neutral-200 bg-white p-8 text-center dark:border-neutral-800 dark:bg-neutral-900">
         <p className="text-lg font-semibold text-neutral-700 dark:text-neutral-300">Admin access required</p>
-        <p className="mt-1 text-sm text-neutral-500">Only administrators can change Zobia Answers settings. Moderators can still use the Moderation Queue and Manage Posts pages.</p>
+        <p className="mt-1 text-sm text-neutral-500">Only administrators can change Answers settings. Moderators can still use the Moderation Queue and Manage Posts pages.</p>
       </div>
     );
   }
 
   return (
     <div className="relative">
-      <h1 className="mb-2 text-2xl font-bold text-neutral-900 dark:text-neutral-50">Zobia Answers Settings</h1>
-      <p className="mb-6 text-sm text-neutral-500">Also editable at /admin/config under &quot;Zobia Answers&quot; — both write the same values.</p>
+      <h1 className="mb-2 text-2xl font-bold text-neutral-900 dark:text-neutral-50">Answers Settings</h1>
+      <p className="mb-6 text-sm text-neutral-500">Also editable at /admin/config under &quot;Answers&quot; — both write the same values.</p>
 
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-modal ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}>

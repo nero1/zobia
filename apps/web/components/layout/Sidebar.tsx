@@ -41,7 +41,7 @@ function useSidebarUser() {
 const primaryNavItems = [
   { href: "/home", label: "Home" },
   { href: "/moments", label: "Moments" },
-  { href: "/answers", label: "Zobia Answers" },
+  { href: "/answers", label: "Answers" },
   { href: "/quests", label: "Quests" },
   { href: "/games", label: "Games" },
   { href: "/rooms", label: "Rooms" },
@@ -116,7 +116,7 @@ function navIcon(label: string): string {
     Leaderboards: "🏆",
     Rankings: "🏆",
     Moments: "⚡",
-    "Zobia Answers": "❓",
+    Answers: "❓",
     Search: "🔍",
     Profile: "👤",
     Settings: "⚙️",

@@ -14,7 +14,7 @@ Public, crawlable, shareable surfaces use short human-readable paths. Internal a
 | Room | `/r/<slug>` | `app/r/[slug]/page.tsx` | `lib/public/resolveRoom.ts` |
 | Course / classroom | `/c/<slug>` | `app/c/[slug]/page.tsx` | `lib/public/resolveRoom.ts` (classroom types) |
 | Game (upcoming) | `/g/<slug>` | `app/g/[slug]/page.tsx` | `lib/public/resolveGame.ts` |
-| Forum question (Zobia Answers) | `/a/<slug>` | `app/a/[slug]/page.tsx` | `lib/public/resolveForumQuestion.ts` |
+| Forum question (Answers) | `/a/<slug>` | `app/a/[slug]/page.tsx` | `lib/public/resolveForumQuestion.ts` |
 
 - **Duplicate names** get a numeric suffix with no separator (`/r/dorcas-cuisine`, `/r/dorcas-cuisine2`).
 - **Legacy `/r/<uuid>` links and retired slugs 301-redirect** to the canonical slug (UUID fallback + `slug_redirects` table), so no shared link ever breaks or splits link-equity.
@@ -115,7 +115,7 @@ Enable rich sharing on Twitter:
   - Public rooms → `/r/<slug>` (free_open type, limit 2000; falls back to UUID for any room not yet backfilled)
   - Public courses → `/c/<slug>` (classroom-type rooms, limit 2000)
   - Public games → `/g/<slug>` (limit 2000)
-  - Public forum questions (Zobia Answers) → `/a/<slug>` (visible, non-deleted only; limit 2000)
+  - Public forum questions (Answers) → `/a/<slug>` (visible, non-deleted only; limit 2000)
 - **Revalidation:** Hourly (3600s)
 - **Base URL:** `NEXT_PUBLIC_APP_URL` (falls back to `https://zobia.vercel.app`)
 

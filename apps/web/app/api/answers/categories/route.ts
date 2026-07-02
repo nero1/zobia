@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 /**
  * app/api/answers/categories/route.ts
  *
- * GET /api/answers/categories — list Zobia Answers categories, ordered for
+ * GET /api/answers/categories — list Answers categories, ordered for
  * display. Read-only reference data (no per-user state), used by the
  * "Ask a Question" category picker.
  */

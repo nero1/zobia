@@ -2,7 +2,7 @@
  * apps/android/src/lib/hooks/useForumConfig.ts
  *
  * Mirrors apps/web/lib/hooks/useForumConfig.ts — reads the admin-configured
- * Zobia Answers level-gate rules off the same cached /api/manifest fetch
+ * Answers level-gate rules off the same cached /api/manifest fetch
  * used by useCurrency/useMomentsConfig (no extra Redis round trip).
  */
 

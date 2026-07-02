@@ -3,7 +3,7 @@
 /**
  * app/(admin)/admin/forum/page.tsx
  *
- * Zobia Answers (mini forum / Q&A) admin dashboard.
+ * Answers (mini forum / Q&A) admin dashboard.
  * Accessible to admins and moderators (moderators are scoped to /admin/forum/*
  * only — see middleware.ts FORUM_MOD_PREFIXES).
  */
@@ -46,7 +46,7 @@ export default function AdminForumDashboardPage() {
 
   return (
     <div>
-      <h1 className="mb-6 text-2xl font-bold text-neutral-900 dark:text-neutral-50">Zobia Answers</h1>
+      <h1 className="mb-6 text-2xl font-bold text-neutral-900 dark:text-neutral-50">Answers</h1>
 
       <div className="mb-6 flex flex-wrap gap-2">
         <Link href="/admin/forum/queue" className="rounded-lg bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900">

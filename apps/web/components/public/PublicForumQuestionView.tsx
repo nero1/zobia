@@ -1,7 +1,7 @@
 /**
  * components/public/PublicForumQuestionView.tsx
  *
- * Presentational, server-rendered view for a public Zobia Answers question,
+ * Presentational, server-rendered view for a public Answers question,
  * shown at the crawlable /a/<slug> page. Mirrors components/public/PublicRoomView.tsx's
  * markup/CTA pattern so all public SEO surfaces feel consistent.
  */

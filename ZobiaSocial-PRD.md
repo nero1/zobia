@@ -985,7 +985,7 @@ Public, shareable, crawlable surfaces use short, human-readable, SEO-friendly pa
 | Room (duplicate name) | `zobia.org/r/dorcas-cuisine2` | Numeric suffix, no separator |
 | Course / classroom | `zobia.org/c/youtube-monetization-for-beginners` | Classroom-type Rooms |
 | Game (upcoming) | `zobia.org/g/tapontap` | Backed by the `games` table |
-| Forum question (Zobia Answers) | `zobia.org/a/what-made-you-join-zobia` | Public preview; interactive experience is at `/answers/<uuid>` (§31.0) |
+| Forum question (Answers) | `zobia.org/a/what-made-you-join-zobia` | Public preview; interactive experience is at `/answers/<uuid>` (§31.0) |
 
 **Identifier model — UUID is internal, slug is public.** Every Room/game keeps its immutable `uuid` primary key as the internal reference (foreign keys, realtime channels, API calls, internal app navigation `/rooms/<uuid>` all continue to use it). The **slug** is a mutable, human-facing **alias** that resolves to the UUID. Slugs are unique among live records via a partial index; duplicates of the same name get a numeric suffix (`dorcas-cuisine`, `dorcas-cuisine2`, `dorcas-cuisine3`), oldest record keeping the bare slug. Slugs are generated server-side from the display name (`slugify` in `@zobia/shared/utils` + DB dedupe in `apps/web/lib/slug.ts`).
 
@@ -2166,7 +2166,7 @@ its slot automatically.
 
 ---
 
-## 31. Zobia Answers — Mini Forum (Q&A) (v1.96)
+## 31. Answers — Mini Forum (Q&A) (v1.96)
 
 A Reddit-style community Q&A: users ask questions, others answer with
 Reddit-style nested (indented) replies, everyone can upvote/downvote, and
@@ -2239,7 +2239,7 @@ parallel system.
 ### 31.2 Who can post, who can comment
 
 - **Posting a question** requires a minimum account level, admin-configurable
-  at `/admin/config` → "Zobia Answers" (and mirrored at `/admin/forum/settings`)
+  at `/admin/config` → "Answers" (and mirrored at `/admin/forum/settings`)
   — `forum_min_level_to_post` (default: Level 2).
 - **Commenting (answering)** has a separate, lower minimum level —
   `forum_min_level_to_comment` (default: Level 1, i.e. effectively open).
@@ -2287,7 +2287,7 @@ separate report queue or AI integration was built.
 - **`/admin/forum/posts`**: paginated question/answer management table —
   remove, restore, lock/unlock a question's answers.
 - **`/admin/forum/settings`**: the same level-gate/reward/moderation config
-  as `/admin/config` → "Zobia Answers", exposed in a focused, dedicated view.
+  as `/admin/config` → "Answers", exposed in a focused, dedicated view.
 - **Moderator access is scoped**: `is_moderator` users (not just `is_admin`)
   can reach `/admin/forum/*` — the queue and posts pages — but not the rest
   of the admin panel. `ban_user` and reversing a removal (`restore`),
@@ -2301,7 +2301,7 @@ separate report queue or AI integration was built.
 
 - **Web/PWA**: `apps/web/app/(app)/answers/**`. Reads flow through
   TanStack Query, which is already persisted to `localStorage`
-  (`lib/offline/queryPersist.ts`) — Zobia Answers gets offline read caching
+  (`lib/offline/queryPersist.ts`) — Answers gets offline read caching
   for free, no new offline mechanism was built. Posting requires a live
   server-side level/credit check, so writes are not queued for offline
   replay.
@@ -3450,7 +3450,7 @@ On `/gifts`, "Browse gift catalog" was a bare underlined text link next to the p
 
 ### v1.96 — Changelog
 
-#### New Feature: Zobia Answers — Mini Forum (Q&A)
+#### New Feature: Answers — Mini Forum (Q&A)
 
 Added a Reddit-style community Q&A feature (§31): users ask questions
 (gated by an admin-configurable minimum level, default Level 2), others
@@ -3603,6 +3603,60 @@ here since it's a net-new screen rather than a bug fix.
 
 ---
 
-*ZobiaSocial PRD v1.99*
+## Appendix: Version 2.00 Change Log
+
+### v2.00 — Changelog
+
+#### Rename: "Zobia Answers" → "Answers"
+
+The mini forum / Q&A feature (§31) is now labelled just **"Answers"** in
+the main nav (web/PWA sidebar and navbar, and the Capacitor Android app's
+top bar), the admin nav, the `/answers` page and its sub-pages, the
+`/admin/forum` dashboard and settings pages, the `/admin/config` grouping,
+public SEO metadata for `/a/<slug>`, and XP-ledger activity descriptions
+(e.g. "Posted a question on Answers"). The underlying feature name in code
+(`lib/forum/*`, `forum_*` tables, `feature_forum` flag, `/admin/forum`
+routes) is unchanged — this is a display-string rename only, applied via
+the `answers.title` i18n key (`shared/i18n/locales/en.json` and
+`apps/web/lib/i18n/locales/en.json`) plus the handful of pages/components
+that hardcoded the old name instead of reading the key. Also fixed while
+touching the web locale file: a ~40-key duplicate block of `answers.*`
+entries that had been accidentally pasted twice into
+`apps/web/lib/i18n/locales/en.json` (harmless — JSON, last write wins —
+but wasteful and confusing to maintain).
+
+#### Migration Consolidation: 42 files → 1
+
+`apps/web/db/migrations/0001_consolidated_schema.sql` through `0042_*.sql`
+have been squashed into a single `0001_consolidated_schema.sql` that
+produces an identical database (verified schema-diff-clean against the
+42-file sequence, plus matching table/constraint/index/policy counts and
+seed-data row-for-row). All later bug-fix/backfill migrations are baked
+into the final column definitions and seed values directly — e.g.
+`gift_items` no longer round-trips through a `coin_price` column that gets
+added then dropped, `x_manifest.deep_link_base_url` and
+`captcha_provider` are seeded with their final (already-fixed) values, and
+the games catalog seed reflects the final `engine_key`/`category`
+assignments. The file remains fully idempotent (`CREATE TABLE IF NOT
+EXISTS`, `DROP CONSTRAINT IF EXISTS` + re-`CREATE`, `DROP POLICY IF EXISTS`
++ re-`CREATE`, `ON CONFLICT DO NOTHING`) so `db/migrate.ts` and a direct
+`psql < 0001_consolidated_schema.sql` both stay safe to re-run. New schema
+changes going forward should land as new `0002_*.sql`, `0003_*.sql`, ...
+files rather than editing `0001` in place. See `docs/SETUP.md` → "Database
+setup" for the updated run instructions.
+
+While validating this against `db/seed.sql` (demo data), found and fixed a
+latent bug unrelated to the consolidation itself: all 8 sample rooms are
+`is_public = true` but never set a `slug`, violating the
+`rooms_public_requires_slug` CHECK constraint added in what was migration
+`0015` — `db/seed.sql` had never been updated to match and so failed on
+any fresh database. Added slugs (`welcome-to-zobia`, `lagos-vibes`,
+`study-hall`, `music-culture`, `business-corner`, `sports-arena`,
+`tech-talk`, `crypto-finance`) matching the convention used elsewhere
+(`lib/slug.ts`).
+
+---
+
+*ZobiaSocial PRD v2.00*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

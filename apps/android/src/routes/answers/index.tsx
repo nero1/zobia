@@ -1,7 +1,7 @@
 /**
  * apps/android/src/routes/answers/index.tsx
  *
- * Zobia Answers (mini forum / Q&A) — mirrors apps/web/app/(app)/answers/page.tsx
+ * Answers (mini forum / Q&A) — mirrors apps/web/app/(app)/answers/page.tsx
  * as closely as possible for UI parity (unlike Rooms, this feature should
  * match mobile web/PWA closely per product requirements). Uses this app's
  * infinite-scroll convention instead of a manual "Load more" button.

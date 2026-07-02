@@ -3,7 +3,7 @@
 /**
  * app/(app)/answers/[id]/page.tsx
  *
- * Zobia Answers — question detail with Reddit-style threaded (nested,
+ * Answers — question detail with Reddit-style threaded (nested,
  * indented) answers, upvote/downvote, "Mark as best answer", inline reply
  * composer with the level-gate/credit-bypass prompt, and "Continue this
  * thread" lazy-loading for deep reply chains.
@@ -378,7 +378,7 @@ export default function QuestionDetailPage() {
     return (
       <div className="mx-auto max-w-2xl p-6 text-center">
         <p className="text-sm text-neutral-500">{error}</p>
-        <Link href="/answers" className="mt-3 inline-block text-sm font-semibold text-primary-600 hover:underline">← {t("answers.title", "Zobia Answers")}</Link>
+        <Link href="/answers" className="mt-3 inline-block text-sm font-semibold text-primary-600 hover:underline">← {t("answers.title", "Answers")}</Link>
       </div>
     );
   }
@@ -386,7 +386,7 @@ export default function QuestionDetailPage() {
   return (
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
       <Link href="/answers" className="mb-4 inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
-        ← {t("answers.title", "Zobia Answers")}
+        ← {t("answers.title", "Answers")}
       </Link>
 
       {loading && !question ? (

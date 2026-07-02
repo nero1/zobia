@@ -46,12 +46,9 @@ cp apps/web/.env.example apps/web/.env.local
 # 4. Fill in all required env vars (see Environment Variables Reference below)
 #    At minimum: DATABASE_URL, DIRECT_URL, JWT_SECRET, JWT_REFRESH_SECRET, REDIS_URL
 
-# 5. Run database migrations (canonical directory — numbered 001 onwards, always in order)
+# 5. Run the database schema (one consolidated migration file)
 cd apps/web
-for f in db/migrations/*.sql; do
-  echo "Applying $f..."
-  psql "$DATABASE_URL" < "$f"
-done
+psql "$DATABASE_URL" < db/migrations/0001_consolidated_schema.sql
 
 # 6. Start the development server (web)
 npm run dev:web
@@ -264,106 +261,25 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    > 3. Set it as `DB_CA_CERT`. On Vercel: **Project → Settings → Environment
    >    Variables → Add** `DB_CA_CERT`, paste the multi-line PEM as the value,
    >    apply it to **Production** (and Preview), then **redeploy**.
-6. Run all migrations in order (use the canonical `db/migrations/` directory, **not** `lib/db/migrations/`):
+6. Run the schema (the entire database, one file — every table, constraint,
+   index, RLS policy, and the reference/config seed data the app needs to
+   function, e.g. feature flags, game catalog, gift/store catalog):
    ```bash
    cd apps/web
-   for f in db/migrations/*.sql; do
-     echo "Applying $f..."
-     psql "$DIRECT_URL" < "$f"
-   done
+   psql "$DIRECT_URL" < db/migrations/0001_consolidated_schema.sql
    ```
-   Migrations are numbered 001 onwards. Always apply them in order. Each migration is idempotent (`IF NOT EXISTS`, `ON CONFLICT DO NOTHING`).
+   Or use the migration runner, which tracks what's applied in a
+   `migrations_log` table so it's safe to re-run on every deploy:
+   ```bash
+   DATABASE_URL="$DIRECT_URL" npm run migrate
+   ```
+   The file is idempotent (`IF NOT EXISTS`, `DROP ... IF EXISTS` + re-`CREATE`,
+   `ON CONFLICT DO NOTHING`) — safe to run more than once against the same
+   database. New schema changes going forward should be added as new
+   `0002_*.sql`, `0003_*.sql`, ... files in `db/migrations/` rather than
+   editing `0001` in place.
 
-   Migration `0002_bug_fixes.sql` adds:
-   - UNIQUE index on `subscriptions (user_id)` — required for `ON CONFLICT (user_id)` upserts in the Paystack webhook to work correctly
-   - Widens `users.star_balance` from `integer` to `bigint` — prevents overflow at ~2.1 billion stars
-   - Backfills `user_badges.awarded_at` from `granted_at` and drops the legacy `granted_at` column
-   - Consolidates `learning_certificates` legacy columns (`classroom_room_id`, `student_id`, `issuer_id`) into canonical columns; recreates unique index on `(room_id, recipient_user_id)`
-   - Consolidates `moderation_actions` duplicate columns: drops `actioned_by`, `action`, `note`; keeps `moderator_id`, `action_type`, `reason`
-   - Removes `sponsored_quests.reward_amount_coins` (duplicate of `reward_coins`)
-   - Removes `gift_items.coin_price` (duplicate of `coin_cost`)
-
-   Migration `0003_bug_fixes.sql` adds:
-   - `left_at TIMESTAMPTZ` column to `guild_members` + partial index for active-member lookups
-   - UNIQUE constraint on `payout_dead_letter_queue.payout_id` — prevents duplicate DLQ entries for the same payout
-   - `reference_id TEXT` column to `notifications` + partial unique index `uidx_notifications_user_type_ref (user_id, type, reference_id) WHERE reference_id IS NOT NULL` — required for idempotent `ON CONFLICT ... DO NOTHING` notification inserts (batch events, CRON awards)
-   - UNIQUE partial index on `xp_ledger (user_id, source, reference_id) WHERE reference_id IS NOT NULL` — required for `safeAwardXP` deduplication
-   - Fixes `season_pass_milestones` unique index to include `tier` so free and paid milestones can share `sort_order` values
-   - Adds `war_id UUID` to `guild_tier_history` + unique index so each guild war produces at most one tier-history entry per guild
-
-   Migration `012_session_bug_fixes.sql` adds:
-   - `updated_at` column to `seasons` table
-   - UNIQUE index on `room_subscriptions (room_id, user_id)` — required for Paystack VIP room subscription webhook
-   - UNIQUE index on `season_pass_milestones (season_id, sort_order)` — required for season pass seeding
-   - `tier` column to `referral_commissions`
-   - Partial unique index on `failed_xp_awards` for XP DLQ idempotency
-   - Broadened `audit_discrepancies.asset_type` CHECK constraint to include `'xp'`
-
-   Migration `010_feature_flags_table.sql` adds:
-   - `feature_flags` table (key, available_from, early_access_plans) for admin-controlled feature gating beyond the boolean toggle in `x_manifest`
-   - `next_renewal_at TIMESTAMPTZ` column to `user_subscriptions` — written by the Paystack subscription webhook
-   - `pre_auth_session TEXT` column to `users` — stores the active pre-auth JWT during 2FA verification; cleared after successful 2FA to prevent token reuse
-   - Seeds standard feature flags (`feature_guild_wars`, `feature_mystery_xp_drops`, `feature_alliance_wars`, etc.) into `x_manifest`
-
-   Migration `011_performance_indexes.sql` adds:
-   - Covering indexes on `xp_ledger (user_id, source, reference_id)`, `(user_id, source, created_at::date)`, and `(user_id, track, created_at)` for dedup and leaderboard queries
-   - Unique index on `coin_ledger (reference_id)` for idempotent coin credits
-   - Indexes on `leaderboard_snapshots`, `leaderboard_rank_snapshots`, `nemesis_assignments`, `referrals`, `user_inactivity_events`, `failed_xp_awards`, `guild_members`, `creator_payouts`, and `payments`
-   - All indexes use `IF NOT EXISTS` and are safe to apply on a live database
-
-   Migration `0004_custom_bug_fixes.sql` adds:
-   - `x_manifest.value` column widened from JSONB to TEXT (prevents silent JSON coercions for plain string config values)
-   - `star_ledger.amount` widened from INTEGER to BIGINT (safe up to ~9.2 × 10¹⁸ stars)
-   - `creator_bank_accounts` — drops the 1:1 unique constraint on `creator_id`; adds `is_primary BOOLEAN` and `deleted_at TIMESTAMPTZ` to support multiple bank accounts per creator; adds a partial unique index `(creator_id) WHERE is_primary = TRUE AND deleted_at IS NULL`
-   - `dm_conversations` — CHECK constraint `user_id_1 < user_id_2` to enforce canonical ordering; deduplicates any existing rows that violated the ordering
-   - `users.last_login_date DATE` — date-only column for efficient streak calculations (backfilled from `last_login_at`); indexed
-   - `users.longest_streak INTEGER` — tracks the user's all-time best login streak (backfilled from current `login_streak_days`)
-   - `nemesis_assignments.last_notified_at TIMESTAMPTZ` — prevents repeated notifications for the same nemesis state change
-   - Partial unique index on `alliance_wars (alliance_1_id, alliance_2_id) WHERE status = 'active'` — prevents duplicate active wars between the same alliance pair
-   - Partial unique index on `coin_ledger (transaction_type, reference_id) WHERE reference_id IS NOT NULL` — deduplicates monthly Creator Fund distributions
-   - Partial index on `creator_payouts (next_retry_at) WHERE status IN ('pending', 'processing')` — speeds up the payout retry queue
-   - `push_tickets` table — two-stage Expo push receipt tracking (see Push Notification System in HOW-IT-WORKS.md)
-   - `failed_webhooks` — adds `resolved`, `resolved_at`, `retry_count`, `last_error`, `next_retry_at`, `updated_at` columns for structured webhook retry tracking
-
-   Migration `0006_custom_bug_fixes_round2.sql` adds:
-   - Recreates `coin_ledger`'s dedup index as `(user_id, transaction_type, reference_id)` — the original `0004` index (scoped only to `transaction_type, reference_id`) let two different users sharing the same reference (e.g. a guild quest reward keyed only on `questId`) collide, silently dropping every credit/debit after the first user's
-   - Partial unique index on `star_ledger (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL` — gives Star credits/debits the same idempotent-retry support as coins and XP
-   - `room_messages.idempotency_key TEXT` — lets offline-queued sends (Expo sync queue / PWA) be safely retried without creating duplicate messages on reconnect
-
-   Migration `0012_slugs_and_referrals.sql` adds (SEO-friendly URLs + referral attribution):
-   - `rooms.slug` + partial unique index `rooms_slug_unique_idx`, and **backfills** slugs for all existing rooms (deduped with a numeric suffix). New rooms get a slug at creation time via `lib/slug.ts`.
-   - `games` table (upcoming feature) backing the public `/g/<slug>` route + referral links.
-   - `slug_redirects` table — records retired slugs so renamed Rooms/games 301-redirect instead of 404.
-   - Points `x_manifest.deep_link_base_url` at the active domain (away from the retired `zobia.social`).
-
-   Migration `0014_bug_fixes_round3.sql` adds:
-   - `guilds.wars_drawn INTEGER NOT NULL DEFAULT 0` — tracks draw outcomes for guilds; required for the alliance war tie resolution path
-   - `guild_alliances.wars_drawn INTEGER NOT NULL DEFAULT 0` — tracks draws at alliance level alongside `wars_won` / `wars_lost`
-   - `store_items.slug TEXT UNIQUE` — URL-safe slug for each store item; **required** by the DodoPayments webhook to look up grant amounts server-side via `metadata.itemSlug` (see DodoPayments Setup)
-   - Partial unique index on `failed_xp_awards (user_id, source, reference_id) WHERE reference_id IS NOT NULL` — prevents duplicate XP dead-letter rows for the same event
-   - Unique index on `audit_discrepancies (user_id, asset_type)` — prevents duplicate discrepancy records per user per asset type
-   - Unique index on `guild_quest_contributions (quest_id, user_id)` — prevents a user from being credited twice for the same guild quest
-
-   Migration `0016_custom_bugs_gaps_fixes.sql` adds:
-   - `guilds.wars_drawn INTEGER NOT NULL DEFAULT 0` — backfills the draw-outcome counter used by the Alliance Wars resolution path
-
-   Migration `0017_partial_index_fixes.sql` adds:
-   - **BUG-NEM-01**: Drops the non-partial `UNIQUE(user_id, track, is_active)` constraint on `nemesis_assignments` and replaces it with a partial unique index on `(user_id, track) WHERE is_active = TRUE`. The old constraint meant only one inactive row per (user, track) could exist, causing conflicts after a single reassignment cycle.
-   - **BUG-CREA-01**: Adds partial unique index on `creator_earnings(reference_id) WHERE reference_id IS NOT NULL` to prevent double-crediting if the creator fund CRON runs twice in the same period. (Superseded by migration `0019` which widens this to `(creator_id, reference_id)`.)
-   - **BUG-RACE-01**: Adds functional unique index on `rooms ((metadata->>'season_ceremony_id')) WHERE metadata->>'season_ceremony_id' IS NOT NULL` — required for the `ON CONFLICT ((metadata->>'season_ceremony_id')) DO NOTHING` guard in `createSeasonCeremonyRoom` to work without throwing a constraint-not-found error.
-
-   Migration `0018_self_referral_constraint.sql` adds:
-   - **BUG-REFERRAL-01**: `CHECK (referred_by IS NULL OR referred_by <> id)` constraint on `users` to prevent self-referrals at the database level. The application layer already guards this; the constraint provides defence-in-depth.
-
-   Migration `0019_bug_fix_schema_changes.sql` adds:
-   - **NULLABLE-01**: Backfills `NULL` values in `users.is_banned` to `false` and adds `NOT NULL DEFAULT false` constraint.
-   - **SCHEMA-01**: Adds `login_streak_days INTEGER DEFAULT 0` column to `users` if not present.
-   - **SCHEMA-04**: Adds `CHECK (user1_id < user2_id)` constraint on `dm_conversations` to enforce canonical conversation ordering (prevents duplicate rows for the same pair).
-   - **SCHEMA-05**: Fixes `referral_commissions.tier` column default from `"standard"` to `"1"` to match the two-tier referral system.
-   - **SCHEMA-07**: Drops the old single-column `creator_earnings_reference_id_idx` unique index and recreates it as a composite unique index on `(creator_id, reference_id)` — prevents double-crediting across creators sharing the same reference.
-   - **GUILD-01**: Drops the legacy `guilds.below_minimum_days` integer column (replaced by the timestamp-based `below_min_since`).
-
-7. Optional seed data: `psql "$DIRECT_URL" < apps/web/lib/db/seed.sql`
+7. Optional demo data (sample users/rooms/moments for local dev): `npm run migrate -- --seed`, or directly: `psql "$DIRECT_URL" < apps/web/db/seed.sql`
 
 ### Option B: Railway PostgreSQL
 
@@ -404,7 +320,7 @@ Zobia uses a **provider-native** realtime architecture. The server makes a fast,
 
 **Mobile (Expo):** set `EXPO_PUBLIC_REALTIME_PROVIDER=ably` to enable WebSocket push in the app (only Ably is wired client-side today; unset = adaptive poll only). The app authorizes Ably via `GET /api/realtime/ably-token` using its Bearer JWT (an `authCallback`, not a cookie), so that endpoint accepts both cookie and `Authorization: Bearer` auth and grants subscribe-only capability on `dm:*`, `room:*`, and `group:*` channels.
 
-**Room capacity & push (v1.7) manifest keys** (admin-editable at `/admin/config`, all integers): `room_free_open_cap` (30), `room_tipping_cap` (30), `room_vip_cap` (200), `room_drop_cap` (100), `room_classroom_cap` (150), `room_guild_cap` (100), `room_capacity_upgrade_step` (25), `room_capacity_upgrade_cost` (500 Credits), `room_capacity_hard_max` (1000). Per-category push toggles live on `users` (`dm_notifications`, `group_notifications`, `room_mention_notifications`); migrations `0008_room_capacity_caps.sql` and `0009_push_preferences.sql` seed/add these. Room presence and the online check reuse Redis — no extra service.
+**Room capacity & push (v1.7) manifest keys** (admin-editable at `/admin/config`, all integers): `room_free_open_cap` (30), `room_tipping_cap` (30), `room_vip_cap` (200), `room_drop_cap` (100), `room_classroom_cap` (150), `room_guild_cap` (100), `room_capacity_upgrade_step` (25), `room_capacity_upgrade_cost` (500 Credits), `room_capacity_hard_max` (1000). Per-category push toggles live on `users` (`dm_notifications`, `group_notifications`, `room_mention_notifications`); both are part of the consolidated schema (`db/migrations/0001_consolidated_schema.sql`). Room presence and the online check reuse Redis — no extra service.
 
 ### Architecture
 
@@ -661,17 +577,13 @@ curl -sI https://<host>/.well-known/apple-app-site-association | grep -i content
 
 ### Games feature
 
-The games feature works out of the box once migrations are applied — no extra services
+The games feature works out of the box once the schema is applied — no extra services
 are required.
 
-- **Migration:** `apps/web/db/migrations/0013_games_feature.sql` adds the games columns,
-  the gaming track (`xp_gaming` / `level_gaming`), play/challenge/leaderboard/milestone
-  tables, seeds the 26 launch games, and seeds the manifest keys.
-  `apps/web/db/migrations/0029_games_catalog_expansion.sql` adds 30 more games across 4
-  new categories (Trivia, Strategy, Sports, Music), bringing the total to **57 games across
-  13 categories**. `apps/web/db/migrations/0036_games_gaming_track.sql` adds the
-  `game_favorites` table (❤️ Faves), `games.favorite_count`, and `game_challenges.archived_at`
-  (Archive on a completed challenge). All three migrations are idempotent
+- **Schema:** `apps/web/db/migrations/0001_consolidated_schema.sql` includes the games
+  columns, the gaming track (`xp_gaming` / `level_gaming`), play/challenge/leaderboard/
+  milestone tables, the `game_favorites` table (❤️ Faves), and seeds the full games
+  catalog plus the manifest keys. All statements are idempotent
   (`ON CONFLICT DO NOTHING` / `IF NOT EXISTS`).
 - **Master toggle:** `feature_games` (Admin → Feature Flags), default on. Per-game
   activation, cover-page editing, rewards, free/paid play cost and stats live at
@@ -848,7 +760,7 @@ Without this, `POST /api/cron/payouts` will fail on every bank transfer attempt.
 3. In the Paystack dashboard, go to **Settings → API Keys & Webhooks** and send a test webhook event.
 4. Check your app's logs to confirm the webhook was received and processed.
 
-**Payout-related `x_manifest` keys** (seeded automatically by migration 030 with defaults):
+**Payout-related `x_manifest` keys** (seeded automatically by the consolidated schema with defaults):
 
 | Key | Default | Description |
 |---|---|---|
@@ -1308,17 +1220,17 @@ When enabled, users can add contextual notes to flagged content and vote notes a
 
 ---
 
-## Zobia Answers Feature (Mini Forum / Q&A)
+## Answers Feature (Mini Forum / Q&A)
 
-Zobia Answers is an admin-toggleable Reddit-style Q&A feature (PRD §31). No new CRON job is required — all rewards and moderation run synchronously on the write path.
+Answers is an admin-toggleable Reddit-style Q&A feature (PRD §31). No new CRON job is required — all rewards and moderation run synchronously on the write path.
 
-- **Toggle:** In the admin panel under Feature Flags (or `/admin/config` → "Zobia Answers"), set `feature_forum` to on/off. Default: enabled.
+- **Toggle:** In the admin panel under Feature Flags (or `/admin/config` → "Answers"), set `feature_forum` to on/off. Default: enabled.
 - **User UI:** Available at `/answers` in the web app and PWA, and `apps/android/src/routes/answers/**` in the Capacitor Android app (reached via the drawer menu).
 - **Admin/moderator panel:** `/admin/forum` (dashboard), `/admin/forum/queue` (moderation queue — accessible to `is_moderator` users, not just `is_admin`), `/admin/forum/posts` (post management), `/admin/forum/settings` (level gates, reward amounts, daily reward cap).
-- **Config keys** (editable at `/admin/config` → "Zobia Answers" group, or `/admin/forum/settings`): `feature_forum`, `forum_min_level_to_post`, `forum_min_level_to_comment`, `forum_comment_bypass_cost_credits`, `forum_reward_xp_per_question`, `forum_reward_credits_per_question`, `forum_reward_xp_per_answer`, `forum_reward_credits_per_answer`, `forum_reward_xp_per_upvote`, `forum_reward_credits_per_upvote`, `forum_reward_xp_best_answer`, `forum_reward_credits_best_answer`, `forum_daily_reward_cap_credits`, `forum_auto_moderation_enabled`.
-- **API:** see `docs/HOW-IT-WORKS.md` → "Zobia Answers (Mini Forum / Q&A)" for the full route table.
+- **Config keys** (editable at `/admin/config` → "Answers" group, or `/admin/forum/settings`): `feature_forum`, `forum_min_level_to_post`, `forum_min_level_to_comment`, `forum_comment_bypass_cost_credits`, `forum_reward_xp_per_question`, `forum_reward_credits_per_question`, `forum_reward_xp_per_answer`, `forum_reward_credits_per_answer`, `forum_reward_xp_per_upvote`, `forum_reward_credits_per_upvote`, `forum_reward_xp_best_answer`, `forum_reward_credits_best_answer`, `forum_daily_reward_cap_credits`, `forum_auto_moderation_enabled`.
+- **API:** see `docs/HOW-IT-WORKS.md` → "Answers (Mini Forum / Q&A)" for the full route table.
 - **Expo:** not ported — the Expo app is being discontinued in favor of the Capacitor Android app.
-- **SEO (v1.97):** questions get a `slug` (generated from the title, same dedupe convention as rooms/games) and are servable at the public, crawlable, SSR `/a/<slug>` page — see PRD §31.0 and `SEO.md`. Migration `db/migrations/0040_forum_seo.sql` adds `forum_categories` + `forum_questions.slug`/`category_id` and seeds the category taxonomy; `db/seed.sql` (optional, run once after migrations) adds sample questions/answers per category.
+- **SEO (v1.97):** questions get a `slug` (generated from the title, same dedupe convention as rooms/games) and are servable at the public, crawlable, SSR `/a/<slug>` page — see PRD §31.0 and `SEO.md`. The consolidated schema (`db/migrations/0001_consolidated_schema.sql`) includes `forum_categories` + `forum_questions.slug`/`category_id` and seeds the category taxonomy; `db/seed.sql` (optional, run once after the schema) adds sample questions/answers per category.
 
 When enabled, users above the configured level can post questions; anyone above the (lower) comment-level threshold can answer for free, and users below it can pay Credits to comment immediately instead of leveling up. Trending is computed live from a recency-windowed vote/answer-activity query — no cached "trending" cron refresh is needed.
 
