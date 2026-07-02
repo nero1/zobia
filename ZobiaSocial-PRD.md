@@ -852,8 +852,67 @@ A Zobia profile is a living record of everything the user has done, earned, and 
 - Season History shelf (visual timeline of past Seasons).
 - Guild membership display with war record.
 - Legacy Score.
-- Creator card (if creator: Room link, subscriber count, total earnings optionally displayed).
+- Creator card (if creator: top 3 rooms by member count with a "see all N rooms by this creator" link, subscriber count, total earnings optionally displayed).
 - Public Achievements wall (top lifetime milestones).
+
+### User Profile Stats Page (v1.98)
+
+Every user's profile has a dedicated Stats page — a central hub for badges,
+levels, achievements, created rooms, leaderboard positions, guild, and
+social counts (friends, followers, following, referrals) in one place.
+
+**Visibility.** Only the profile owner or a moderator/admin may open a
+user's Stats page — it is never shown to other regular users. A "📊 Stats"
+entry point appears on the owner's own profile (`/profile` quick actions)
+and, for moderators/admins viewing someone else's profile, as an action
+button on that user's public profile card. It is **loaded on demand only**
+— clicking "Stats" is what triggers the fetch; it is never eagerly loaded
+as part of the profile page itself, keeping the profile page light.
+
+**Basic vs. Full.** The page has two depths, gated by plan/prestige tier:
+- **Basic Stats** (default for Free users): profile summary (rank, XP,
+  legacy score, prestige), all seven progression tracks, the full badges/
+  achievements wall, created rooms (creators only), guild card, social
+  counts, and a single "Main track, global scope" leaderboard position.
+- **Full Stats** (default for Plus/Pro/Max, admin-configurable): everything
+  in Basic, plus detailed leaderboard positions across every track and
+  every scope the user belongs to (global, city, guild, active season),
+  and full season history.
+
+A dismissible "Unlock Full Stats" banner is shown to Basic-tier viewers on
+their own Stats page, linking to Settings → Subscription.
+
+**Admin control** (Admin ▸ Profile Stats, `/admin/settings/profile-stats`):
+- Master on/off toggle lives on the existing Feature Flags panel
+  (`feature_profile_stats` — it is picked up automatically since it matches
+  the `feature_*` convention).
+- A separate settings page controls which plans/prestige tiers get the
+  Full view via the `profile_stats_full_plans` manifest key (JSON array of
+  plan slugs and/or `prestige_N` entries), default `["plus","pro","max"]`.
+  Everyone not on the list gets Basic.
+
+**Cross-platform.** Ships on web/PWA (`/profile/[userId]/stats`) and the
+Capacitor Android app (`apps/android/src/routes/profile/$userId/stats.tsx`),
+both backed by the same `GET /api/users/[userId]/stats` endpoint — reusing
+the existing leaderboard engine (`lib/leaderboards/engine.ts`), rank engine
+(`lib/xp/engine.ts`), and the plan/prestige eligibility helper
+(`lib/plans/eligibility.ts`, shared with the profile-privacy gates) rather
+than introducing parallel logic.
+
+### Wallet Page — Rank, Badges &amp; Transaction History (v1.98)
+
+The Wallet page (§11) surfaces a compact rank/badges summary — current
+rank badge, prestige stars, and total badge count — with a "View full
+Stats →" link to the user's Stats page above, so wallet visitors don't
+need to leave to see their standing.
+
+Transaction history on the Wallet page shows the **10 most recent**
+transactions per currency tab (Credits / Stars) with a "Load more" control
+that pages through older transactions via the existing cursor-based
+pagination already exposed by `GET /api/economy/coins/balance` (`cursor` /
+`star_cursor` query params) — no new backend pagination logic was needed,
+only wiring the client up to read `nextCursor`/`nextStarCursor` from the
+response.
 
 ### Relationship Types
 
@@ -3371,6 +3430,48 @@ per-action XP/Credit rewards with a daily reward cap to bound farming.
 
 ---
 
-*ZobiaSocial PRD v1.96*
+## Appendix: Version 1.98 Change Log
+
+### v1.98 — Changelog
+
+#### New Feature: User Profile Stats Page
+
+Added a dedicated Stats page (§15) — a single hub for a user's badges,
+levels, achievements, created rooms, leaderboard positions, guild, and
+social counts (friends/followers/following/referrals). Visible only to
+the profile owner and to moderators/admins; loaded only when "Stats" is
+clicked (never eagerly fetched with the profile page). Two depths — Basic
+(Free, default) and Full (Plus/Pro/Max, default) — gated by a new
+admin-configurable `profile_stats_full_plans` manifest key, editable at
+`/admin/settings/profile-stats`; the master on/off switch
+(`feature_profile_stats`) is picked up automatically by the existing
+Feature Flags panel. New endpoint `GET /api/users/[userId]/stats`. Ships
+on web/PWA (`/profile/[userId]/stats`) and the Capacitor Android app
+(`apps/android/src/routes/profile/$userId/stats.tsx`), reusing the
+existing leaderboard engine, rank engine, and a new shared plan/prestige
+eligibility helper (`lib/plans/eligibility.ts`) extracted from the
+profile-privacy gates rather than duplicating that logic a third time.
+
+#### Enhancement: Creator rooms on public profile
+
+The Creator card on a user's public profile (§15) now lists that
+creator's top 3 rooms by member count (previously only the single largest
+room), with a "see all N rooms by this creator" link that filters the
+existing Rooms discovery page (`/rooms?creator_id=<id>`) — reusing
+`GET /api/rooms` with a new optional `creator_id` filter rather than
+building a separate rooms-by-creator endpoint.
+
+#### Enhancement: Wallet page — rank/badges summary + paginated history
+
+The Wallet page (§11) now shows a compact rank/badges/prestige summary
+linking to the full Stats page, and paginates transaction history to the
+10 most recent per currency tab with a "Load more" control, reusing the
+cursor-based pagination `GET /api/economy/coins/balance` already exposed
+(`cursor`/`star_cursor`) but the Wallet UI never wired up — no new backend
+pagination logic required.
+
+---
+
+*ZobiaSocial PRD v1.98*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

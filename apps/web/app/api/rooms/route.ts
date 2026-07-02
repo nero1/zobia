@@ -63,6 +63,8 @@ const listRoomsQuerySchema = z.object({
     .transform((v) => v === "1"),
   /** Filter by live availability: only available (not full) or only full rooms. */
   availability: z.enum(["all", "available", "full"]).optional(),
+  /** Show only rooms created by this user (used by the "see all rooms by this creator" link on profiles). */
+  creator_id: z.string().uuid().optional(),
   cursor: z.string().optional(),
   limit: z
     .string()
@@ -252,6 +254,11 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     if (params.type) {
       conditions.push(`r.type = $${paramIndex++}`);
       queryParams.push(params.type);
+    }
+
+    if (params.creator_id) {
+      conditions.push(`r.creator_id = $${paramIndex++}`);
+      queryParams.push(params.creator_id);
     }
 
     if (params.friends_in_room) {

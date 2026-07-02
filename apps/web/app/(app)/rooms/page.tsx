@@ -10,8 +10,8 @@
  * cursor-based pagination, Create Room button.
  */
 
-import { useState, useEffect, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, useEffect, useCallback, useRef } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { RoomCard, RoomListRow, type RoomCardData } from "@/components/rooms/RoomCard";
@@ -191,8 +191,13 @@ function RoomsGridSkeleton() {
 /**
  * Rooms discovery page with tab filters, type chips, search, and pagination.
  */
-export default function RoomsPage() {
+function RoomsContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // "See all rooms by this creator" links from a profile land here with
+  // ?creator_id=<uuid> — filters the discovery feed down to that creator's
+  // rooms while reusing all the existing tab/search/pagination plumbing.
+  const creatorId = searchParams.get("creator_id");
   const { t } = useTranslation();
   const tRef = useRef(t);
   useEffect(() => {
@@ -246,6 +251,7 @@ export default function RoomsPage() {
           else if (type !== "all") params.set("type", type);
           if (avail && avail !== "all") params.set("availability", avail);
           if (q.trim()) params.set("q", q.trim());
+          if (creatorId) params.set("creator_id", creatorId);
         }
         if (cur) params.set("cursor", cur);
 
@@ -276,10 +282,10 @@ export default function RoomsPage() {
         setLoadingMore(false);
       }
     },
-    []
+    [creatorId]
   );
 
-  // Initial + tab/type/search/availability change
+  // Initial + tab/type/search/availability/creator change
   useEffect(() => {
     setError(null);
     void fetchRooms({ tab: activeTab, type: typeFilter, q: searchQuery, avail: availability });
@@ -340,6 +346,16 @@ export default function RoomsPage() {
           {t("rooms.createRoom")}
         </button>
       </div>
+
+      {/* Creator filter banner */}
+      {creatorId && (
+        <div className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm dark:border-blue-800 dark:bg-blue-950/30">
+          <span className="text-blue-800 dark:text-blue-300">Showing rooms by this creator</span>
+          <Link href="/rooms" className="font-semibold text-blue-600 hover:underline dark:text-blue-400">
+            Clear ✕
+          </Link>
+        </div>
+      )}
 
       {/* Pinned rooms */}
       <PinnedRoomsStrip rooms={pinnedRooms} onJoin={(id) => router.push(`/rooms/${id}`)} />
@@ -522,5 +538,13 @@ export default function RoomsPage() {
         </>
       )}
     </div>
+  );
+}
+
+export default function RoomsPage() {
+  return (
+    <Suspense>
+      <RoomsContent />
+    </Suspense>
   );
 }

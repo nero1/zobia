@@ -263,19 +263,36 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       isFollowing = followRes.rows.length > 0;
     }
 
-    // 5. Creator card — main room + subscriber count (PRD §15)
+    // Stats page visibility (PRD §15): only the profile owner or a
+    // moderator/admin viewer may open this user's Stats page.
+    let canViewStats = isOwnProfile;
+    if (!isOwnProfile) {
+      const { rows: callerRoleRows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
+        `SELECT is_admin, is_moderator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [callerId]
+      ).catch(() => ({ rows: [] as Array<{ is_admin: boolean; is_moderator: boolean }> }));
+      canViewStats = Boolean(callerRoleRows[0]?.is_admin || callerRoleRows[0]?.is_moderator);
+    }
+
+    // 5. Creator card — top rooms + subscriber count (PRD §15)
     let creatorRoom: { id: string; name: string; coverEmoji: string } | null = null;
+    let creatorRooms: { id: string; name: string; coverEmoji: string; memberCount: number }[] = [];
+    let creatorRoomCount = 0;
     let subscriberCount: number | null = null;
     let totalEarningsKobo: number | null = null;
 
     if (user.is_creator) {
-      const [roomRes, earningsRes] = await Promise.all([
-        db.query<{ id: string; name: string; cover_emoji: string }>(
-          `SELECT id, name, cover_emoji FROM rooms
+      const [roomRes, roomCountRes, earningsRes] = await Promise.all([
+        db.query<{ id: string; name: string; cover_emoji: string; member_count: number }>(
+          `SELECT id, name, cover_emoji, member_count FROM rooms
            WHERE creator_id = $1 AND is_active = TRUE
-           ORDER BY member_count DESC LIMIT 1`,
+           ORDER BY member_count DESC LIMIT 3`,
           [userId]
-        ).catch(() => ({ rows: [] as Array<{ id: string; name: string; cover_emoji: string }> })),
+        ).catch(() => ({ rows: [] as Array<{ id: string; name: string; cover_emoji: string; member_count: number }> })),
+        db.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM rooms WHERE creator_id = $1 AND is_active = TRUE`,
+          [userId]
+        ).catch(() => ({ rows: [{ count: "0" }] })),
         db.query<{ subscriber_count: string; total_earnings_kobo: string }>(
           `SELECT
              COUNT(DISTINCT rm.user_id)::TEXT AS subscriber_count,
@@ -291,6 +308,8 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       creatorRoom = roomRes.rows[0]
         ? { id: roomRes.rows[0].id, name: roomRes.rows[0].name, coverEmoji: roomRes.rows[0].cover_emoji }
         : null;
+      creatorRooms = roomRes.rows.map((r) => ({ id: r.id, name: r.name, coverEmoji: r.cover_emoji, memberCount: r.member_count }));
+      creatorRoomCount = parseInt(roomCountRes.rows[0]?.count ?? "0", 10);
       subscriberCount = earningsRes.rows[0] ? parseInt(earningsRes.rows[0].subscriber_count, 10) : 0;
       // Only expose total earnings to the profile owner (privacy gate)
       totalEarningsKobo = isOwnProfile && earningsRes.rows[0]
@@ -428,8 +447,14 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       creatorCategory,
       // Creator card (PRD §15): room link, subscriber count, optional earnings
       creatorRoom,
+      // Top 3 rooms by member count + total active room count, with a
+      // "see all rooms by this creator" link driven by creatorRoomCount.
+      creatorRooms,
+      creatorRoomCount,
       subscriberCount,
       totalEarningsKobo,
+      // Stats page visibility (PRD §15) — only the owner or a moderator/admin viewer.
+      canViewStats,
       // Connection badge visible on profile (PRD §5/§15)
       connectionBadge,
       // Public Achievements Wall (PRD §15)

@@ -425,6 +425,7 @@ export default function MyProfilePage() {
       {/* ── Quick actions ────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
+          { href: `/profile/${me.id}/stats`, label: "Stats", emoji: "📊" },
           { href: "/quests", label: "Daily Quests", emoji: "📋" },
           { href: "/seasons", label: "Season Pass", emoji: "🏆" },
           { href: "/prestige", label: "Prestige", emoji: "🔥" },

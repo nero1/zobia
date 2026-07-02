@@ -28,6 +28,7 @@ const adminNavItems = [
   { href: "/admin/alerts",             label: "Alerts",             icon: "🔔" },
   { href: "/admin/config",             label: "Config",             icon: "⚙️" },
   { href: "/admin/settings/privacy",   label: "Privacy Settings",   icon: "🔒" },
+  { href: "/admin/settings/profile-stats", label: "Profile Stats",  icon: "📊" },
   { href: "/admin/ai-settings",        label: "AI Settings",        icon: "🤖" },
   { href: "/admin/feature-flags",      label: "Feature Flags",      icon: "🚀" },
   { href: "/admin/business",            label: "Business Accounts",  icon: "🏢" },

@@ -13,6 +13,7 @@
 
 import { Suspense, useState, useEffect, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
+import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useCurrency, type CurrencyNames } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
@@ -68,6 +69,30 @@ interface StoreData {
   activePlan: string | null;
   earnings: EarningsData | null;
 }
+
+interface RankSummary {
+  userId: string;
+  rankName: string;
+  rankSublevel: number;
+  prestigeCount: number;
+  badgeCount: number;
+}
+
+/** Number of transactions fetched per page (initial load + each "Load more"). */
+const TX_PAGE_SIZE = 10;
+
+const RANK_COLORS: Record<string, string> = {
+  Beginner: "#6b7280",
+  Rookie: "#10b981",
+  Hustler: "#3b82f6",
+  Baller: "#8b5cf6",
+  Boss: "#f59e0b",
+  Legend: "#ef4444",
+  Titan: "#ec4899",
+  Goat: "#06b6d4",
+  Icon: "#f97316",
+  "Zobia Icon": "#eab308",
+};
 
 // ---------------------------------------------------------------------------
 // Skeleton
@@ -143,6 +168,38 @@ function BalanceCard({ balance, activePlan, currency }: { balance: Balance; acti
         </a>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Rank, Badges & Achievements summary (links to the full Stats page)
+// ---------------------------------------------------------------------------
+
+function RankBadgesSummary({ rank }: { rank: RankSummary }) {
+  const { t } = useTranslation();
+  const ringColor = RANK_COLORS[rank.rankName] ?? "#6b7280";
+  const subLabel = `${rank.rankName} ${["I", "II", "III"][rank.rankSublevel - 1] ?? "I"}`;
+  return (
+    <Link
+      href={`/profile/${rank.userId}/stats`}
+      className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-card transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:bg-neutral-800"
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className="rounded-full px-2.5 py-1 text-xs font-bold text-white"
+          style={{ backgroundColor: ringColor }}
+        >
+          {subLabel}
+        </span>
+        {rank.prestigeCount > 0 && (
+          <span className="text-amber-500" title={`Prestige ${rank.prestigeCount}`}>
+            {"★".repeat(Math.min(rank.prestigeCount, 5))}
+          </span>
+        )}
+        <span className="text-sm text-neutral-500">🏆 {t("profile.stats.badgeCount", { count: rank.badgeCount })}</span>
+      </div>
+      <span className="shrink-0 text-xs font-semibold text-blue-600 dark:text-blue-400">{t("wallet.viewFullStats")}</span>
+    </Link>
   );
 }
 
@@ -279,10 +336,36 @@ function txLabel(type: string): string {
   return map[type] ?? type.replace(/_/g, " ");
 }
 
-function TransactionHistory({ transactions, starTransactions, currency }: { transactions: Transaction[]; starTransactions: Transaction[]; currency: CurrencyNames }) {
+interface TransactionHistoryProps {
+  transactions: Transaction[];
+  starTransactions: Transaction[];
+  currency: CurrencyNames;
+  hasMoreCoins: boolean;
+  hasMoreStars: boolean;
+  loadingMoreCoins: boolean;
+  loadingMoreStars: boolean;
+  onLoadMoreCoins: () => void;
+  onLoadMoreStars: () => void;
+}
+
+function TransactionHistory({
+  transactions,
+  starTransactions,
+  currency,
+  hasMoreCoins,
+  hasMoreStars,
+  loadingMoreCoins,
+  loadingMoreStars,
+  onLoadMoreCoins,
+  onLoadMoreStars,
+}: TransactionHistoryProps) {
+  const { t } = useTranslation();
   const [tab, setTab] = useState<"coins" | "stars">("coins");
   const list = tab === "coins" ? transactions : starTransactions;
   const icon = tab === "coins" ? "🪙" : "⭐";
+  const hasMore = tab === "coins" ? hasMoreCoins : hasMoreStars;
+  const loadingMore = tab === "coins" ? loadingMoreCoins : loadingMoreStars;
+  const onLoadMore = tab === "coins" ? onLoadMoreCoins : onLoadMoreStars;
 
   return (
     <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
@@ -328,6 +411,17 @@ function TransactionHistory({ transactions, starTransactions, currency }: { tran
               </span>
             </div>
           ))}
+        </div>
+      )}
+      {hasMore && (
+        <div className="flex justify-center border-t border-neutral-100 py-3 dark:border-neutral-800">
+          <button
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            className="rounded-xl border border-neutral-300 px-5 py-2 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            {loadingMore ? t("wallet.loadingMore") : t("wallet.loadMore")}
+          </button>
         </div>
       )}
     </div>
@@ -572,6 +666,15 @@ function WalletContent() {
   const [error, setError] = useState<string | null>(null);
   const [purchasing, setPurchasing] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [rank, setRank] = useState<RankSummary | null>(null);
+
+  // Cursor-based "Load more" pagination — coins and stars tabs page independently.
+  const [coinCursor, setCoinCursor] = useState<string | null>(null);
+  const [starCursor, setStarCursor] = useState<string | null>(null);
+  const [hasMoreCoins, setHasMoreCoins] = useState(false);
+  const [hasMoreStars, setHasMoreStars] = useState(false);
+  const [loadingMoreCoins, setLoadingMoreCoins] = useState(false);
+  const [loadingMoreStars, setLoadingMoreStars] = useState(false);
 
   const dismissTransfer = useCallback(() => {
     const url = new URL(window.location.href);
@@ -587,12 +690,13 @@ function WalletContent() {
   useEffect(() => {
     (async () => {
       try {
-        const [balRes, storeRes, planRes, earningsRes, payoutsRes] = await Promise.all([
-          fetch("/api/economy/coins/balance?limit=30", { credentials: "include" }),
+        const [balRes, storeRes, planRes, earningsRes, payoutsRes, meRes] = await Promise.all([
+          fetch(`/api/economy/coins/balance?limit=${TX_PAGE_SIZE}`, { credentials: "include" }),
           fetch("/api/economy/store", { credentials: "include" }),
           fetch("/api/economy/subscriptions", { credentials: "include" }),
           fetch("/api/creator/earnings", { credentials: "include" }).catch(() => null),
           fetch("/api/creator/payouts", { credentials: "include" }).catch(() => null),
+          fetch("/api/users/me", { credentials: "include" }).catch(() => null),
         ]);
 
         if (balRes.status === 401) { window.location.href = "/auth/login"; return; }
@@ -605,6 +709,8 @@ function WalletContent() {
               plan?: string;
               transactions?: Transaction[];
               starTransactions?: Transaction[];
+              nextCursor?: string | null;
+              nextStarCursor?: string | null;
             })
           : null;
 
@@ -653,6 +759,21 @@ function WalletContent() {
           }
         } catch { /* creator data is non-fatal */ }
 
+        // Rank/badges summary — non-fatal, only shown once loaded.
+        try {
+          const meJson = meRes?.ok ? await meRes.json() as { user?: Record<string, unknown> } : null;
+          const meUser = meJson?.user;
+          if (meUser) {
+            setRank({
+              userId: String(meUser.id ?? ""),
+              rankName: String(meUser.rank_name ?? "Beginner"),
+              rankSublevel: Number(meUser.rank_sublevel ?? 1),
+              prestigeCount: Number(meUser.prestige_count ?? 0),
+              badgeCount: Number(meUser.badge_count ?? 0),
+            });
+          }
+        } catch { /* rank summary is non-fatal */ }
+
         setData({
           balance: {
             coins: balData?.coins ?? 0,
@@ -660,13 +781,17 @@ function WalletContent() {
             xp: balData?.xp ?? 0,
             plan: balData?.plan ?? activePlan ?? undefined,
           },
-          transactions: (balData?.transactions ?? []).slice(0, 30),
-          starTransactions: (balData?.starTransactions ?? []).slice(0, 30),
+          transactions: balData?.transactions ?? [],
+          starTransactions: balData?.starTransactions ?? [],
           coinPacks,
           boosters: [],
           activePlan,
           earnings,
         });
+        setCoinCursor(balData?.nextCursor ?? null);
+        setStarCursor(balData?.nextStarCursor ?? null);
+        setHasMoreCoins(Boolean(balData?.nextCursor));
+        setHasMoreStars(Boolean(balData?.nextStarCursor));
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to load wallet");
       } finally {
@@ -674,6 +799,36 @@ function WalletContent() {
       }
     })();
   }, []);
+
+  async function loadMoreCoins() {
+    if (!coinCursor || loadingMoreCoins) return;
+    setLoadingMoreCoins(true);
+    try {
+      const res = await fetch(`/api/economy/coins/balance?limit=${TX_PAGE_SIZE}&cursor=${encodeURIComponent(coinCursor)}`, { credentials: "include" });
+      if (!res.ok) return;
+      const d = (await res.json()) as { transactions?: Transaction[]; nextCursor?: string | null };
+      setData((prev) => ({ ...prev, transactions: [...prev.transactions, ...(d.transactions ?? [])] }));
+      setCoinCursor(d.nextCursor ?? null);
+      setHasMoreCoins(Boolean(d.nextCursor));
+    } finally {
+      setLoadingMoreCoins(false);
+    }
+  }
+
+  async function loadMoreStars() {
+    if (!starCursor || loadingMoreStars) return;
+    setLoadingMoreStars(true);
+    try {
+      const res = await fetch(`/api/economy/coins/balance?limit=${TX_PAGE_SIZE}&star_cursor=${encodeURIComponent(starCursor)}`, { credentials: "include" });
+      if (!res.ok) return;
+      const d = (await res.json()) as { starTransactions?: Transaction[]; nextStarCursor?: string | null };
+      setData((prev) => ({ ...prev, starTransactions: [...prev.starTransactions, ...(d.starTransactions ?? [])] }));
+      setStarCursor(d.nextStarCursor ?? null);
+      setHasMoreStars(Boolean(d.nextStarCursor));
+    } finally {
+      setLoadingMoreStars(false);
+    }
+  }
 
   async function handlePurchase(packId: string) {
     setPurchasing(packId);
@@ -737,6 +892,8 @@ function WalletContent() {
 
       <BalanceCard balance={data.balance} activePlan={data.activePlan} currency={currency} />
 
+      {rank && <RankBadgesSummary rank={rank} />}
+
       {data.earnings && <EarningsSection earnings={data.earnings} />}
 
       {transferRecipientId && (
@@ -752,7 +909,17 @@ function WalletContent() {
 
       <BoosterPacks boosters={data.boosters} />
 
-      <TransactionHistory transactions={data.transactions} starTransactions={data.starTransactions} currency={currency} />
+      <TransactionHistory
+        transactions={data.transactions}
+        starTransactions={data.starTransactions}
+        currency={currency}
+        hasMoreCoins={hasMoreCoins}
+        hasMoreStars={hasMoreStars}
+        loadingMoreCoins={loadingMoreCoins}
+        loadingMoreStars={loadingMoreStars}
+        onLoadMoreCoins={() => void loadMoreCoins()}
+        onLoadMoreStars={() => void loadMoreStars()}
+      />
     </div>
   );
 }

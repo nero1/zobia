@@ -9,6 +9,8 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as WalletRouteImport } from './routes/wallet'
+import { Route as StatsRouteImport } from './routes/stats'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as HomeRouteImport } from './routes/home'
@@ -29,6 +31,16 @@ import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AnswersAskRouteImport } from './routes/answers/ask'
 import { Route as AnswersQuestionIdRouteImport } from './routes/answers/$questionId'
 
+const WalletRoute = WalletRouteImport.update({
+  id: '/wallet',
+  path: '/wallet',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StatsRoute = StatsRouteImport.update({
+  id: '/stats',
+  path: '/stats',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -130,6 +142,8 @@ export interface FileRoutesByFullPath {
   '/home': typeof HomeRoute
   '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
+  '/stats': typeof StatsRoute
+  '/wallet': typeof WalletRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
@@ -151,6 +165,8 @@ export interface FileRoutesByTo {
   '/home': typeof HomeRoute
   '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
+  '/stats': typeof StatsRoute
+  '/wallet': typeof WalletRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
@@ -173,6 +189,8 @@ export interface FileRoutesById {
   '/home': typeof HomeRoute
   '/notifications': typeof NotificationsRoute
   '/settings': typeof SettingsRoute
+  '/stats': typeof StatsRoute
+  '/wallet': typeof WalletRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
@@ -196,6 +214,8 @@ export interface FileRouteTypes {
     | '/home'
     | '/notifications'
     | '/settings'
+    | '/stats'
+    | '/wallet'
     | '/answers/$questionId'
     | '/answers/ask'
     | '/auth/login'
@@ -217,6 +237,8 @@ export interface FileRouteTypes {
     | '/home'
     | '/notifications'
     | '/settings'
+    | '/stats'
+    | '/wallet'
     | '/answers/$questionId'
     | '/answers/ask'
     | '/auth/login'
@@ -238,6 +260,8 @@ export interface FileRouteTypes {
     | '/home'
     | '/notifications'
     | '/settings'
+    | '/stats'
+    | '/wallet'
     | '/answers/$questionId'
     | '/answers/ask'
     | '/auth/login'
@@ -260,6 +284,8 @@ export interface RootRouteChildren {
   HomeRoute: typeof HomeRoute
   NotificationsRoute: typeof NotificationsRoute
   SettingsRoute: typeof SettingsRoute
+  StatsRoute: typeof StatsRoute
+  WalletRoute: typeof WalletRoute
   AnswersQuestionIdRoute: typeof AnswersQuestionIdRoute
   AnswersAskRoute: typeof AnswersAskRoute
   AuthLoginRoute: typeof AuthLoginRoute
@@ -279,6 +305,20 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/wallet': {
+      id: '/wallet'
+      path: '/wallet'
+      fullPath: '/wallet'
+      preLoaderRoute: typeof WalletRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/stats': {
+      id: '/stats'
+      path: '/stats'
+      fullPath: '/stats'
+      preLoaderRoute: typeof StatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/settings': {
       id: '/settings'
       path: '/settings'
@@ -420,6 +460,8 @@ const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRoute,
   NotificationsRoute: NotificationsRoute,
   SettingsRoute: SettingsRoute,
+  StatsRoute: StatsRoute,
+  WalletRoute: WalletRoute,
   AnswersQuestionIdRoute: AnswersQuestionIdRoute,
   AnswersAskRoute: AnswersAskRoute,
   AuthLoginRoute: AuthLoginRoute,

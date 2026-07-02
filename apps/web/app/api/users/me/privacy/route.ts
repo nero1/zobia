@@ -17,30 +17,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { badRequest, forbidden, handleApiError } from '@/lib/api/errors';
 import { db, type SqlParam } from '@/lib/db';
-import { getManifestValue } from '@/lib/manifest';
+import { getAllowedPlans, isPlanEligible as userEligible } from '@/lib/plans/eligibility';
 
 const VALID_SECTIONS = ['avatar', 'bio', 'rank', 'xp', 'guild', 'seasons', 'badges'];
-
-async function getAllowedPlans(key: string, fallback: string[]): Promise<string[]> {
-  try {
-    const raw = await getManifestValue(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as string[];
-  } catch {
-    return fallback;
-  }
-}
-
-function userEligible(userPlan: string, prestigeCount: number, allowedList: string[]): boolean {
-  const plan = userPlan.toLowerCase();
-  if (allowedList.includes(plan)) return true;
-  // Check prestige tiers: prestige_1 means prestige_count >= 1, prestige_2 >= 2 etc.
-  for (const entry of allowedList) {
-    const m = /^prestige_(\d+)$/.exec(entry);
-    if (m && prestigeCount >= parseInt(m[1], 10)) return true;
-  }
-  return false;
-}
 
 export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
   try {
