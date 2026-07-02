@@ -61,6 +61,7 @@ export interface ZobiaManifest {
     moments: boolean;
     forum: boolean;
     blogs: boolean;
+    kyc: boolean;
     vipRoomPricing?: { minNgn: number; maxNgn: number };
   };
   warEventCooldownHours: number;
@@ -211,6 +212,24 @@ export interface ZobiaManifest {
     moderator: { accessTtl: number; refreshTtl: number };
     admin:     { accessTtl: number; refreshTtl: number };
   };
+  // Identity KYC (Tier 1-3) — admin-editable at /admin/kyc (settings tab)
+  kyc: {
+    /** Credits charged per verification attempt (Tier 1 submission). */
+    costCredits: number;
+    /** Tier 1 review mode: "ai" pre-screens and escalates low-confidence cases, "manual" always human-reviews. */
+    tier1ReviewMode: "ai" | "manual";
+    /** Combined AI confidence (0-1) at/above which an AI-mode Tier 1 submission is auto-approved. */
+    aiAutoApproveThreshold: number;
+    /** Combined AI confidence (0-1) below which an AI-mode Tier 1 submission is escalated to manual review. */
+    aiEscalateBelowThreshold: number;
+    /** Minimum approved tier required to show the blue verified checkmark badge. */
+    badgeMinTier: number;
+    /** Product-price / revenue thresholds (kobo + USD cents) that trigger a required KYC tier. */
+    thresholds: {
+      individual: { tier2Kobo: number; tier2UsdCents: number; tier3Kobo: number; tier3UsdCents: number };
+      business:   { tier2Kobo: number; tier2UsdCents: number; tier3Kobo: number; tier3UsdCents: number };
+    };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -246,6 +265,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     moments: true,
     forum: true,
     blogs: true,
+    kyc: true,
   },
   currency: {
     softNameSingular: "Credit",
@@ -350,19 +370,32 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     moderator: { accessTtl: 900,     refreshTtl: 2592000 }, // 15m access / 30d refresh
     admin:     { accessTtl: 3600,    refreshTtl: 3600 },    // 1h access / 1h refresh
   },
+  kyc: {
+    costCredits: 100,
+    tier1ReviewMode: "ai",
+    aiAutoApproveThreshold: 0.85,
+    aiEscalateBelowThreshold: 0.55,
+    badgeMinTier: 1,
+    thresholds: {
+      // NGN 100,000 / $1,000 (Tier 2), NGN 1,000,000 / $5,000 (Tier 3)
+      individual: { tier2Kobo: 10_000_000, tier2UsdCents: 100_000, tier3Kobo: 100_000_000, tier3UsdCents: 500_000 },
+      // NGN 500,000 / $5,000 (Tier 2), NGN 10,000,000 / $5,000 (Tier 3)
+      business: { tier2Kobo: 50_000_000, tier2UsdCents: 500_000, tier3Kobo: 1_000_000_000, tier3UsdCents: 500_000 },
+    },
+  },
 };
 
 // ---------------------------------------------------------------------------
 // Cache
 // ---------------------------------------------------------------------------
 
-const CACHE_KEY = "app:manifest:v2";
+const CACHE_KEY = "app:manifest:v3";
 /** Raw key→value map cache — used by getManifestValue to avoid DB reads. */
-const CACHE_KV_KEY = "app:manifest:kv:v2";
+const CACHE_KV_KEY = "app:manifest:kv:v3";
 const CACHE_TTL_SECONDS = 60; // 1 minute
 
 /** In-process manifest cache — avoids Redis on every API request within the same instance. */
-const MEM_CACHE_KEY = "manifest:v2";
+const MEM_CACHE_KEY = "manifest:v3";
 const MEM_CACHE_TTL_MS = 15_000; // 15 seconds
 
 // ---------------------------------------------------------------------------
@@ -391,6 +424,13 @@ function parseBool(value: string | undefined, fallback: boolean): boolean {
 function parseInt10(value: string | undefined, fallback: number): number {
   if (value === undefined) return fallback;
   const n = parseInt(value, 10);
+  return isNaN(n) ? fallback : n;
+}
+
+/** Parse a string value as a float. Returns fallback when not a valid number. */
+function parseFloat10(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const n = parseFloat(value);
   return isNaN(n) ? fallback : n;
 }
 
@@ -469,6 +509,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       moments:                    parseBool(kv["feature_moments"]                   ?? "true",  DEFAULT_MANIFEST.features.moments),
       forum:                      parseBool(kv["feature_forum"]                     ?? "true",  DEFAULT_MANIFEST.features.forum),
       blogs:                      parseBool(kv["feature_blogs"]                     ?? "true",  DEFAULT_MANIFEST.features.blogs),
+      kyc:                        parseBool(kv["feature_kyc"]                       ?? "true",  DEFAULT_MANIFEST.features.kyc),
       // BUG-MANIFEST-01: populate vipRoomPricing from x_manifest keys
       vipRoomPricing: kv["vip_room_pricing_min_ngn"] && kv["vip_room_pricing_max_ngn"]
         ? {
@@ -596,6 +637,27 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       admin:     {
         accessTtl:  parseInt10(kv["session_ttl_access_admin"],     DEFAULT_MANIFEST.sessionTtls.admin.accessTtl),
         refreshTtl: parseInt10(kv["session_ttl_refresh_admin"],    DEFAULT_MANIFEST.sessionTtls.admin.refreshTtl),
+      },
+    },
+    kyc: {
+      costCredits: parseInt10(kv["kyc_cost_credits"], DEFAULT_MANIFEST.kyc.costCredits),
+      tier1ReviewMode: (unquote(kv["kyc_tier1_review_mode"]) === "manual" ? "manual" : "ai"),
+      aiAutoApproveThreshold: parseFloat10(kv["kyc_ai_auto_approve_threshold"], DEFAULT_MANIFEST.kyc.aiAutoApproveThreshold),
+      aiEscalateBelowThreshold: parseFloat10(kv["kyc_ai_escalate_below_threshold"], DEFAULT_MANIFEST.kyc.aiEscalateBelowThreshold),
+      badgeMinTier: parseInt10(kv["kyc_badge_min_tier"], DEFAULT_MANIFEST.kyc.badgeMinTier),
+      thresholds: {
+        individual: {
+          tier2Kobo:    parseInt10(kv["kyc_individual_tier2_threshold_kobo"],      DEFAULT_MANIFEST.kyc.thresholds.individual.tier2Kobo),
+          tier2UsdCents: parseInt10(kv["kyc_individual_tier2_threshold_usd_cents"], DEFAULT_MANIFEST.kyc.thresholds.individual.tier2UsdCents),
+          tier3Kobo:    parseInt10(kv["kyc_individual_tier3_threshold_kobo"],      DEFAULT_MANIFEST.kyc.thresholds.individual.tier3Kobo),
+          tier3UsdCents: parseInt10(kv["kyc_individual_tier3_threshold_usd_cents"], DEFAULT_MANIFEST.kyc.thresholds.individual.tier3UsdCents),
+        },
+        business: {
+          tier2Kobo:    parseInt10(kv["kyc_business_tier2_threshold_kobo"],      DEFAULT_MANIFEST.kyc.thresholds.business.tier2Kobo),
+          tier2UsdCents: parseInt10(kv["kyc_business_tier2_threshold_usd_cents"], DEFAULT_MANIFEST.kyc.thresholds.business.tier2UsdCents),
+          tier3Kobo:    parseInt10(kv["kyc_business_tier3_threshold_kobo"],      DEFAULT_MANIFEST.kyc.thresholds.business.tier3Kobo),
+          tier3UsdCents: parseInt10(kv["kyc_business_tier3_threshold_usd_cents"], DEFAULT_MANIFEST.kyc.thresholds.business.tier3UsdCents),
+        },
       },
     },
   };

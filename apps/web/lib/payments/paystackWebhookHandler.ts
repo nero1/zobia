@@ -68,7 +68,28 @@ export interface PaystackSubscriptionEvent {
   };
 }
 
-export type PaystackEvent = PaystackChargeEvent | PaystackTransferEvent | PaystackSubscriptionEvent;
+export interface PaystackCustomerIdentificationEvent {
+  event: "customeridentification.success" | "customeridentification.failed";
+  data: {
+    customer_id?: number;
+    customer_code: string;
+    email?: string;
+    identification?: {
+      country?: string;
+      type?: string;
+      bvn?: string;
+      account_number?: string;
+      bank_code?: string;
+    };
+    reason?: string;
+  };
+}
+
+export type PaystackEvent =
+  | PaystackChargeEvent
+  | PaystackTransferEvent
+  | PaystackSubscriptionEvent
+  | PaystackCustomerIdentificationEvent;
 
 // ---------------------------------------------------------------------------
 // Helper: process a successful charge
@@ -836,6 +857,27 @@ export async function processSubscriptionEvent(
 }
 
 // ---------------------------------------------------------------------------
+// Helper: process a KYC Tier 1 BVN identity validation result
+// ---------------------------------------------------------------------------
+
+export async function processCustomerIdentificationEvent(
+  event: PaystackCustomerIdentificationEvent
+): Promise<void> {
+  // Lazy import to avoid a circular dependency (lib/kyc/service.ts also
+  // imports Paystack helpers from this module's sibling paystack.ts).
+  const { handleBvnIdentificationResult } = await import("@/lib/kyc/service");
+  const { customer_code, identification, reason } = event.data;
+  const success = event.event === "customeridentification.success";
+
+  await handleBvnIdentificationResult({
+    paystackCustomerCode: customer_code,
+    success,
+    bvnLast4: identification?.bvn ? identification.bvn.slice(-4) : null,
+    failureReason: reason ?? null,
+  });
+}
+
+// ---------------------------------------------------------------------------
 // Dispatch function used by the failed-webhook retry cron
 // ---------------------------------------------------------------------------
 
@@ -858,6 +900,11 @@ export async function handlePaystackWebhookPayload(
     case "subscription.not_renew":
     case "subscription.disable":
       await processSubscriptionEvent(payload as PaystackSubscriptionEvent);
+      break;
+
+    case "customeridentification.success":
+    case "customeridentification.failed":
+      await processCustomerIdentificationEvent(payload as PaystackCustomerIdentificationEvent);
       break;
 
     default:

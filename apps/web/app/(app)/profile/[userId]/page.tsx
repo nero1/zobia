@@ -14,6 +14,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { OnlineRing } from "@/components/ui/OnlineRing";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -66,6 +67,7 @@ interface UserProfile {
   prestige: number; // number of prestige stars, 0 if none
   plan: string;
   isModerator: boolean;
+  isVerified?: boolean;
   isCreator: boolean;
   creatorBio: string | null;
   creatorCategory: string | null;
@@ -278,7 +280,10 @@ export default function ProfilePage() {
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">{profile.displayName}</h1>
+              <h1 className="flex items-center gap-1.5 text-xl font-bold text-neutral-900 dark:text-neutral-50">
+                {profile.displayName}
+                <VerifiedBadge show={profile.isVerified} size="md" />
+              </h1>
               {profile.prestige > 0 && (
                 <span className="text-base" title={`Prestige ${profile.prestige}`}>
                   {"⭐".repeat(Math.min(profile.prestige, 5))}

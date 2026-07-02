@@ -18,6 +18,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
+import { getRequiredKycTier, meetsRequiredKycTier } from "@/lib/kyc/thresholds";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -130,6 +131,25 @@ export const POST = withAuth(
       if (!storeRows[0]) throw notFound("Merch store not found. Create a store first.");
 
       const body = await validateBody(req, createProductSchema);
+
+      // KYC gate — high-value products require the seller to hold the
+      // matching KYC tier (admin-configurable thresholds, see lib/kyc/thresholds.ts).
+      // Individual creators only, for now — business-account merch stores are
+      // out of scope for this route (business_accounts has its own verification_status).
+      {
+        const { rows: kycRows } = await db.query<{ kyc_tier: number }>(
+          `SELECT kyc_tier FROM users WHERE id = $1`,
+          [userId]
+        );
+        const requiredTier = await getRequiredKycTier("individual", { kobo: body.price_kobo });
+        if (requiredTier > 0 && !meetsRequiredKycTier(kycRows[0]?.kyc_tier ?? 0, requiredTier)) {
+          throw forbidden(
+            `Selling a product priced this high requires Tier ${requiredTier} identity verification. Complete it from your KYC settings first.`,
+            "KYC_TIER_REQUIRED",
+            { requiredTier }
+          );
+        }
+      }
 
       // Gate physical products on admin + creator toggles
       if (body.product_type === "physical") {

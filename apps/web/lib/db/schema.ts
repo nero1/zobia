@@ -106,6 +106,10 @@ export const users = pgTable("users", {
   creatorTier: text("creator_tier").notNull().default("rookie"),
   creatorRole: boolean("creator_role").notNull().default(false),
   isVerified: boolean("is_verified").default(false),
+  // Highest APPROVED identity-KYC tier (0 = none, 1-3). Drives the blue
+  // checkmark (isVerified) and gates high-value selling/payout thresholds.
+  // See lib/kyc/thresholds.ts and the kyc_submissions table.
+  kycTier: integer("kyc_tier").notNull().default(0),
   isSeed: boolean("is_seed").notNull().default(false),
   isCouncilMember: boolean("is_council_member").notNull().default(false),
 
@@ -2509,6 +2513,87 @@ export const creatorKyc = pgTable("creator_kyc", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
 
+// ---------------------------------------------------------------------------
+// Identity KYC (Tiers 1-3) — distinct from creatorKyc above, which is scoped
+// to bank-payout BVN checks only. This is the general identity/business
+// verification flow: blue-checkmark eligibility + high-value selling gates.
+// See lib/kyc/service.ts, lib/kyc/thresholds.ts.
+// ---------------------------------------------------------------------------
+
+export const kycSubmissions = pgTable("kyc_submissions", {
+  id: uuidPk(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  tier: integer("tier").notNull(), // 1 | 2 | 3
+  status: text("status").notNull().default("pending"),
+  // pending | ai_review | manual_review | approved | rejected | cancelled
+  accountType: text("account_type").notNull().default("individual"), // individual | business
+  citizenshipCountry: text("citizenship_country"), // ISO-3166-1 alpha-2, Tier 1 only
+  reviewMode: text("review_mode").notNull().default("manual"), // ai | manual — snapshot at submission
+
+  // Tier 1 — Nigeria (BVN via Paystack identity verification)
+  bvnLast4: text("bvn_last4"),
+  paystackCustomerCode: text("paystack_customer_code"),
+  paystackVerificationStatus: text("paystack_verification_status"), // pending | success | failed
+  bvnMatchedNameEncrypted: text("bvn_matched_name_encrypted"),
+
+  // Tier 1 — non-Nigeria (govt ID + proof of address) / general submitted identity
+  idType: text("id_type"), // nin | bvn_slip | passport | drivers_license | voters_card | national_id
+  idNumberEncrypted: text("id_number_encrypted"),
+  submittedFullName: text("submitted_full_name"),
+
+  // AI review (Tier 1 name-match + document analysis)
+  aiNameMatchScore: numeric("ai_name_match_score", { precision: 4, scale: 3 }),
+  aiDocumentConfidence: numeric("ai_document_confidence", { precision: 4, scale: 3 }),
+  aiProvider: text("ai_provider"),
+  aiNotes: text("ai_notes"),
+  aiEscalated: boolean("ai_escalated").notNull().default(false),
+
+  // Tier 2 — video statement + liveness
+  videoUrl: text("video_url"), // YouTube URL
+  livenessStatus: text("liveness_status"), // pending | passed | failed | manual_review
+  livenessScore: numeric("liveness_score", { precision: 4, scale: 3 }),
+  livenessNotes: text("liveness_notes"),
+
+  // Tier 3 — manual bank-grade physical KYC
+  reusePreviousAddress: boolean("reuse_previous_address"),
+  updatedAddress: jsonb("updated_address"),
+  physicalVerificationScheduledAt: timestamp("physical_verification_scheduled_at", { withTimezone: true }),
+  physicalVerificationNotes: text("physical_verification_notes"),
+
+  // Credits charge
+  creditsCharged: integer("credits_charged").notNull().default(0),
+  creditLedgerReferenceId: text("credit_ledger_reference_id"),
+
+  // Review
+  reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  rejectionReason: text("rejection_reason"),
+
+  submittedAt: timestamp("submitted_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const kycDocuments = pgTable("kyc_documents", {
+  id: uuidPk(),
+  // Nullable: a document is uploaded (and AV/type-checked) before the
+  // submission row exists, then attached in the same transaction that
+  // creates the submission — see lib/kyc/service.ts attachDocuments().
+  submissionId: uuid("submission_id")
+    .references(() => kycSubmissions.id, { onDelete: "cascade" }),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  // govt_id_front | govt_id_back | proof_of_address | selfie | nin_slip | liveness_selfie
+  docType: text("doc_type").notNull(),
+  storageKey: text("storage_key").notNull(), // private object-storage key, never a public URL
+  contentType: text("content_type"),
+  sizeBytes: integer("size_bytes"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const referrals = pgTable(
   "referrals",
   {
@@ -4477,6 +4562,11 @@ export type PayoutDeadLetterQueueEntry = typeof payoutDeadLetterQueue.$inferSele
 export type NewPayoutDeadLetterQueueEntry = typeof payoutDeadLetterQueue.$inferInsert;
 export type CreatorKyc = typeof creatorKyc.$inferSelect;
 export type NewCreatorKyc = typeof creatorKyc.$inferInsert;
+
+export type KycSubmission = typeof kycSubmissions.$inferSelect;
+export type NewKycSubmission = typeof kycSubmissions.$inferInsert;
+export type KycDocument = typeof kycDocuments.$inferSelect;
+export type NewKycDocument = typeof kycDocuments.$inferInsert;
 export type Referral = typeof referrals.$inferSelect;
 export type NewReferral = typeof referrals.$inferInsert;
 export type ReferralCommission = typeof referralCommissions.$inferSelect;
@@ -4765,6 +4855,8 @@ export const schema = {
   creatorWalletAddresses,
   payoutDeadLetterQueue,
   creatorKyc,
+  kycSubmissions,
+  kycDocuments,
   referrals,
   referralCommissions,
   sponsoredQuests,
