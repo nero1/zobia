@@ -8,7 +8,7 @@
  * and a "New Message" dialog.
  */
 
-import { useRef, useState, useEffect, useMemo } from "react";
+import { useRef, useState, useEffect, useMemo, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
@@ -187,20 +187,56 @@ export default function MessagesPage() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [showNewMessage, setShowNewMessage] = useState(false);
+  const [cursor, setCursor] = useState<string | undefined>(undefined);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  const fetchConversations = useCallback(async (after?: string) => {
+    const url = `/api/messages/dm${after ? `?cursor=${encodeURIComponent(after)}` : ""}`;
+    const res = await fetch(url, { credentials: "include" });
+    if (res.status === 401) { window.location.href = "/auth/login"; return null; }
+    if (!res.ok) throw new Error("Failed to load messages");
+    const data = (await res.json()) as {
+      conversations?: DMConversation[];
+      nextCursor?: string | null;
+      hasMore?: boolean;
+    };
+    return {
+      list: data.conversations ?? [],
+      next: data.nextCursor ?? undefined,
+      more: data.hasMore ?? false,
+    };
+  }, []);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/messages/dm", { credentials: "include" });
-        if (res.status === 401) { window.location.href = "/auth/login"; return; }
-        if (!res.ok) throw new Error("Failed to load messages");
-        const data = (await res.json()) as { conversations?: DMConversation[] };
-        setConversations(data.conversations ?? []);
+        const result = await fetchConversations();
+        if (!result) return;
+        setConversations(result.list);
+        setCursor(result.next);
+        setHasMore(result.more);
       } catch (e) {
         setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       }
     })();
-  }, []);
+  }, [fetchConversations]);
+
+  async function handleLoadMore() {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      const result = await fetchConversations(cursor);
+      if (!result) return;
+      setConversations((prev) => [...(prev ?? []), ...result.list]);
+      setCursor(result.next);
+      setHasMore(result.more);
+    } catch {
+      // Ignore load-more errors; the existing list stays visible
+    } finally {
+      setLoadingMore(false);
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!conversations) return [];
@@ -316,6 +352,18 @@ export default function MessagesPage() {
             </div>
           )}
         </div>
+
+        {!searchQuery.trim() && hasMore && (
+          <div className="mt-4 flex justify-center">
+            <button
+              onClick={handleLoadMore}
+              disabled={loadingMore}
+              className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              {loadingMore ? "Loading…" : "Load more"}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* New Message dialog */}

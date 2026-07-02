@@ -692,12 +692,23 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         ? rows[rows.length - 1]?.last_message_at ?? null
         : null;
 
+    const conversations = rows.map((row) => ({
+      conversationId: row.conversation_id,
+      participantUserId: row.other_user_id,
+      participantUsername: row.other_username,
+      participantDisplayName: row.other_display_name,
+      participantAvatarEmoji: row.other_avatar_emoji,
+      lastMessage: row.last_message_content ?? "",
+      lastMessageAt: row.last_message_at,
+      unreadCount: row.unread_count,
+    }));
+
     return NextResponse.json(
       {
-        items: rows,
+        conversations,
         nextCursor,
         hasMore: nextCursor !== null,
-        total: rows.length,
+        total: conversations.length,
       },
       { status: 200 }
     );
