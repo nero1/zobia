@@ -18,6 +18,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { invalidateAllSessions } from "@/lib/auth/session";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { storage } from "@/lib/storage";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -343,6 +344,8 @@ export const DELETE = withAuth(async (_req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
     const shortId = userId.replace(/-/g, "").slice(0, 8);
 
+    let kycStorageKeys: string[] = [];
+
     await db.transaction(async (tx) => {
       // Soft delete: anonymise public-facing fields but KEEP identifiers (email, google_id, etc.)
       // so the user can reactivate within the 30-day grace period by logging in again.
@@ -375,7 +378,27 @@ export const DELETE = withAuth(async (_req: NextRequest, { auth }) => {
         `DELETE FROM creator_kyc WHERE creator_id = $1`,
         [userId]
       ).catch(() => {});
+
+      // Hard-delete identity KYC PII (Tiers 1-3) — BVN digits, encrypted ID
+      // numbers, full legal names, uploaded document storage keys. Collect
+      // storage keys before deleting so we can purge the underlying objects
+      // after the transaction commits.
+      const { rows: docRows } = await tx.query<{ storage_key: string }>(
+        `SELECT storage_key FROM kyc_documents WHERE user_id = $1`,
+        [userId]
+      );
+      kycStorageKeys = docRows.map((r) => r.storage_key);
+
+      // Cascades to kyc_documents rows attached to a submission via
+      // ON DELETE CASCADE; the second delete below catches any documents
+      // uploaded but never attached to a submission.
+      await tx.query(`DELETE FROM kyc_submissions WHERE user_id = $1`, [userId]);
+      await tx.query(`DELETE FROM kyc_documents WHERE user_id = $1`, [userId]);
     });
+
+    if (kycStorageKeys.length > 0) {
+      await storage.deleteMany(kycStorageKeys).catch(() => {});
+    }
 
     // ZB-16: Invalidate all active sessions so deleted user can't keep refreshing tokens
     await invalidateAllSessions(userId).catch(() => {});

@@ -33,7 +33,7 @@ interface QueueRow {
 
 export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) => {
   try {
-    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
     const sp = req.nextUrl.searchParams;
     const status = sp.get("status") ?? undefined;

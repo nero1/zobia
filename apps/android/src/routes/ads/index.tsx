@@ -9,7 +9,9 @@
 import { useEffect } from 'react';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
+import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
+import { universalLink } from '@/lib/deeplinks/routes';
 
 interface Eligibility {
   eligible: boolean;
@@ -53,8 +55,13 @@ function AdsHubPage() {
         <p className="text-sm text-neutral-600">{data?.reason ?? 'You need a verified Business Account with identity verification to place ads.'}</p>
         <div className="mt-3 flex gap-2">
           <Link to="/business" className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white">Create Business Account</Link>
+          <button
+            onClick={() => void Browser.open({ url: universalLink('/kyc'), presentationStyle: 'popover' })}
+            className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700"
+          >
+            Verify identity (KYC)
+          </button>
         </div>
-        <p className="mt-2 text-[11px] text-neutral-400">Identity verification (KYC) is completed on web or PWA.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-2">

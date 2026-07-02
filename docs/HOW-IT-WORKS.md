@@ -2078,4 +2078,93 @@ API:
 - `PATCH /api/admin/gifts/:id`  — update any field
 - `DELETE /api/admin/gifts/:id` — retire (sets `is_active = FALSE`)
 
+---
+
+## Identity KYC (Tiers 1-3) (PRD §19.x)
+
+Distinct from the pre-existing `creator_kyc` table (bank-payout BVN checks
+only, scoped to creators), `kyc_submissions`/`kyc_documents`
+(`db/migrations/0005_kyc_verification.sql`) is the general identity
+verification system: it unlocks the blue verified checkmark
+(`users.is_verified`, gated on `users.kyc_tier >= kyc_badge_min_tier`) and
+higher selling/advertising limits. User-facing page: `/kyc`
+(`app/(app)/kyc/page.tsx`). Business logic: `lib/kyc/service.ts`.
+
+### Tiers
+
+- **Tier 1 — Identity.** Branches on citizenship:
+  - **Nigeria:** Paystack BVN identity validation (async, resolved via the
+    Paystack webhook) plus an uploaded ID/NIN slip. Once Paystack confirms
+    the BVN/bank-account name match, an AI pass (`lib/kyc/geminiVision.ts`)
+    cross-checks the extracted ID name against the submitted name.
+  - **Everywhere else:** submitted government ID + proof of address + a
+    selfie, reviewed by AI or a human depending on the admin's
+    `kyc_tier1_review_mode` (`x_manifest`) setting.
+  - Charges `kyc_cost_credits` (default 100) on submission — refunded on
+    rejection or cancellation.
+- **Tier 2 — Video + Liveness.** Requires Tier 1 approved first. A public
+  YouTube statement video + government ID + a selfie. Always manually
+  reviewed (no certified biometric liveness vendor is wired up — see the
+  module docblock in `lib/kyc/service.ts` for the "can this be done free"
+  rationale); the AI selfie pass is an informational heuristic only, never
+  auto-decides this tier. No separate fee — Tier 1's fee already covers the
+  account's identity.
+- **Tier 3 — Bank-Grade Physical KYC.** Requires Tier 2 approved first. The
+  applicant chooses to reuse their Tier 1 address or supply an updated one.
+  This tier is inherently a human, in-person process: an admin/mod
+  schedules the physical check (`physical_verification_scheduled_at` /
+  `physical_verification_notes`, set via `PATCH /api/admin/kyc/[id]/schedule`
+  and a scheduling form in the `/admin/kyc` detail drawer) and completes it
+  out-of-band before approving or rejecting the submission.
+
+### AI review (Tier 1)
+
+When `kyc_tier1_review_mode = "ai"`, `runTier1AiReview()` OCRs the ID
+document, compares the extracted name against the submitted name, and
+combines that with the Paystack BVN match (Nigeria) into a single
+confidence score. Per the `x_manifest` thresholds:
+`kyc_ai_auto_approve_threshold` (default 0.85) auto-approves,
+`kyc_ai_escalate_below_threshold` (default 0.55) escalates to manual review
+and flags `ai_escalated = true`; the middle band still goes to manual
+review but isn't flagged as an escalation. `kyc_tier1_review_mode = "manual"`
+always routes straight to manual review, skipping AI entirely.
+
+### Admin review
+
+`/admin/kyc` — queue tab (filters by status/tier/account type, AI
+confidence columns) and a settings tab for the `x_manifest` thresholds
+above. The detail drawer shows decrypted PII (`decryptKycField()`),
+short-lived signed document URLs, and Approve/Reject actions
+(`POST /api/admin/kyc/[id]/approve` / `/reject`) — approving bumps
+`users.kyc_tier` and grants `is_verified` once `kyc_badge_min_tier` is met;
+rejecting refunds any charged credits. Every admin action writes to
+`admin_audit_log`.
+
+### PII handling
+
+`kyc_submissions`/`kyc_documents` carry the same sensitivity as
+`creator_kyc` (BVN digits, encrypted ID numbers, full legal names, document
+storage keys) and are protected the same way: row-level security
+(`db/migrations/0007_kyc_rls.sql`, mirrors `creator_kyc_self_or_admin`
+exactly) as defense-in-depth for any access path other than the app's own
+pooled (BYPASSRLS) queries, and a hard delete — both tables, plus the
+underlying storage objects — on account deletion (`DELETE /api/users/me`),
+immediate and unconditional, same treatment as `creator_bank_accounts`/
+`creator_wallet_addresses`/`creator_kyc`.
+
+### Android (Capacitor)
+
+The Capacitor app does not reimplement the KYC forms — `/ads`
+(`apps/android/src/routes/ads/index.tsx`) has a "Verify identity (KYC)"
+button that opens the web `/kyc` flow in the external in-app browser
+(`Browser.open`, `@capacitor/browser`), the same pattern used for
+Business Account checkout (`apps/android/src/routes/business/index.tsx`)
+and OAuth — KYC document upload/review stays web/PWA-only.
+
+### i18n
+
+User-facing strings live under the `kyc.*` keys in
+`shared/i18n/locales/en.json` (English only — other locales fall back to
+the English default string via the existing `t(key, "default")` pattern).
+
 User-facing `/gifts` page has a "Browse gift catalog" link that opens the send-gift modal so users can explore available gifts before choosing a recipient.

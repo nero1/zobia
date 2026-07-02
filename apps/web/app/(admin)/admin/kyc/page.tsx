@@ -53,6 +53,8 @@ interface SubmissionDetail extends QueueItem {
   liveness_notes: string | null;
   reuse_previous_address: boolean | null;
   updated_address: Record<string, string> | null;
+  physical_verification_scheduled_at: string | null;
+  physical_verification_notes: string | null;
   rejection_reason: string | null;
   documents: DocumentItem[];
 }
@@ -291,7 +293,15 @@ function DetailDrawer({ id, onClose, onResolved }: { id: string; onClose: () => 
               <div className="space-y-1 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
                 <p className="font-medium text-neutral-800 dark:text-neutral-200">Tier 1 — Identity</p>
                 <p className="text-xs text-neutral-500">Citizenship: {detail.citizenship_country ?? "—"}</p>
-                {detail.bvn_last4 && <p className="text-xs text-neutral-500">BVN: •••{detail.bvn_last4} ({detail.paystack_verification_status ?? "pending"})</p>}
+                {detail.bvn_last4 && (
+                  <p className="text-xs text-neutral-500">
+                    BVN: •••{detail.bvn_last4} (
+                    {detail.paystack_verification_status === "failed"
+                      ? "Paystack contact failed — review manually"
+                      : detail.paystack_verification_status ?? "not yet contacted"}
+                    )
+                  </p>
+                )}
                 {detail.id_type && <p className="text-xs text-neutral-500">ID type: {detail.id_type} — {detail.id_number ?? "—"}</p>}
                 <p className="text-xs text-neutral-500">Submitted name: {detail.submitted_full_name ?? "—"}</p>
                 {detail.ai_name_match_score !== null && (
@@ -323,6 +333,15 @@ function DetailDrawer({ id, onClose, onResolved }: { id: string; onClose: () => 
                   {detail.reuse_previous_address ? "Reusing previous address on file." : `Updated address: ${JSON.stringify(detail.updated_address)}`}
                 </p>
                 <p className="text-xs text-amber-500">Schedule and complete the physical check out-of-band, then approve/reject here.</p>
+                <PhysicalCheckScheduler
+                  submissionId={detail.id}
+                  scheduledAt={detail.physical_verification_scheduled_at}
+                  notes={detail.physical_verification_notes}
+                  canEdit={!!canReview}
+                  onSaved={(scheduledAt, notes) =>
+                    setDetail((d) => (d ? { ...d, physical_verification_scheduled_at: scheduledAt, physical_verification_notes: notes } : d))
+                  }
+                />
               </div>
             )}
 
@@ -394,6 +413,102 @@ function DetailDrawer({ id, onClose, onResolved }: { id: string; onClose: () => 
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Tier 3 physical-check scheduler
+// ---------------------------------------------------------------------------
+
+function toLocalDatetimeInputValue(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function PhysicalCheckScheduler({
+  submissionId,
+  scheduledAt,
+  notes,
+  canEdit,
+  onSaved,
+}: {
+  submissionId: string;
+  scheduledAt: string | null;
+  notes: string | null;
+  canEdit: boolean;
+  onSaved: (scheduledAt: string | null, notes: string | null) => void;
+}) {
+  const [localDatetime, setLocalDatetime] = useState(toLocalDatetimeInputValue(scheduledAt));
+  const [localNotes, setLocalNotes] = useState(notes ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      const isoScheduledAt = localDatetime ? new Date(localDatetime).toISOString() : null;
+      const res = await fetch(`/api/admin/kyc/${submissionId}/schedule`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scheduledAt: isoScheduledAt, notes: localNotes.trim() || null }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body?.error?.message ?? "Save failed");
+      onSaved(isoScheduledAt, localNotes.trim() || null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!canEdit && !scheduledAt && !notes) return null;
+
+  return (
+    <div className="mt-2 space-y-2 rounded-lg bg-neutral-50 p-2 dark:bg-neutral-800/50">
+      {scheduledAt && (
+        <p className="text-xs text-neutral-600 dark:text-neutral-300">
+          Scheduled: {new Date(scheduledAt).toLocaleString()}
+        </p>
+      )}
+      {notes && !canEdit && <p className="text-xs italic text-neutral-500">&quot;{notes}&quot;</p>}
+      {canEdit && (
+        <>
+          <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            Physical check date/time
+            <input
+              type="datetime-local"
+              value={localDatetime}
+              onChange={(e) => setLocalDatetime(e.target.value)}
+              className="mt-1 w-full rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+            />
+          </label>
+          <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400">
+            Notes
+            <textarea
+              value={localNotes}
+              onChange={(e) => setLocalNotes(e.target.value)}
+              placeholder="e.g. location, contact person…"
+              rows={2}
+              className="mt-1 w-full rounded-md border border-neutral-300 bg-white px-2 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-950"
+            />
+          </label>
+          {error && <p className="text-xs text-red-500">{error}</p>}
+          <button
+            disabled={saving}
+            onClick={() => void save()}
+            className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save schedule"}
+          </button>
+        </>
+      )}
     </div>
   );
 }
