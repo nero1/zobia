@@ -132,8 +132,10 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       params.push(status);
     }
     if (cursor) {
+      const cursorMs = parseInt(cursor, 10);
+      if (!Number.isFinite(cursorMs) || cursorMs <= 0) throw badRequest("Invalid cursor");
       conditions.push(`cn.created_at < $${i++}`);
-      params.push(new Date(parseInt(cursor, 10) || 0).toISOString());
+      params.push(new Date(cursorMs).toISOString());
     }
     const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
     params.push(userId);

@@ -4333,6 +4333,87 @@ Notes, Nemesis, Economy, Prestige, Seasons, Creator, Merch, single
 Gift, Stickers, KYC) and the Admin panel are still not ported — see
 follow-up batches.
 
+#### v2.07 — Android user-page parity, Batch 2 (Guilds & community)
+
+Ported: My Guild hub (`routes/guild.tsx`), Guild directory
+(`routes/guilds/index.tsx`), public Guild profile
+(`routes/guilds/$guildId.tsx`, sharing a `GuildDetailView` component
+with the hub), Council (`routes/council.tsx`), Community Notes
+(`routes/community-notes.tsx`), and Nemesis (`routes/nemesis.tsx`).
+Added `lib/guilds/tiers.ts` (Guild Tier XP thresholds, matching §13's
+table) shared by the rewritten `GET /api/guilds/[guildId]` endpoint.
+
+This batch surfaced and fixed several pre-existing bugs that had left
+these features non-functional on **every** platform, not just Android
+(the pattern from v2.06's Elder/Classroom fixes repeated here):
+
+- `GET /api/guilds/[guildId]` returned a raw snake_case DB row; both
+  the web guild pages and the new Android pages need a flat camelCase
+  shape with `isMember`/`isCaptain`/`tierXpRequired`/`activeWar`/
+  `warHistory`/`allianceHistory`/`activeQuests`. Rewrote the endpoint.
+- `guild/page.tsx` called `GET /api/guild/mine` and
+  `GET /api/guilds/nearby`, neither of which exists — the dashboard
+  never loaded for anyone. Rewired to `GET /api/users/me` (for
+  `guild_id`) + `GET /api/guilds/:id`, the same pattern
+  `profile/page.tsx` already uses successfully. A follow-up fix during
+  review: the rewrite initially read `me.guild_id` directly off
+  `/api/users/me`'s response, but that endpoint returns `{user: {...}}`
+  — fixed to read `me.user.guild_id`.
+- `guilds/page.tsx` unconditionally redirected to `/guild-discovery`,
+  whose own "Browse All Guilds" link pointed back to `/guilds` — an
+  infinite redirect loop. `/guilds` is now a real searchable directory.
+- `DELETE /api/guilds/[guildId]/members` only ever allowed the guild
+  captain to remove a member and explicitly rejected removing oneself
+  — there was no way for a regular member to leave a guild through any
+  UI, on any platform. Now allows a member to remove themselves (leave)
+  in addition to a captain removing someone else (kick); a captain
+  still cannot remove themselves (must transfer ownership first).
+  Wired an actual "Leave Guild" button into both `guild.tsx` (own
+  guild) and `guilds/$guildId.tsx` (someone else's), disabled when the
+  caller is the captain.
+- `GET /api/guilds/[guildId]` returned the full member roster
+  (usernames, contribution scores) to any authenticated caller even
+  for invite-only guilds — non-members now only see the aggregate
+  `memberCount` for those; the roster itself is member/captain-only.
+- `GET /api/council` selected a nonexistent `avatar_url` column
+  (schema has `avatar_emoji`) and neither Council endpoint joined the
+  idea author's username; `POST /api/council/ideas/[id]/vote` expected
+  `{helpful: boolean}` but the web page sent `{direction}` — member
+  list, idea list, and voting never worked. Fixed the query, added the
+  author join + `hasVoted`, and matched the vote contract.
+- `web/api/auth/me`'s `isCouncilMember` field never existed —
+  "Submit Idea" was permanently disabled even for real council
+  members. Now derived from the actual membership list.
+- `GET /api/community-notes` required `targetType`+`targetId` on every
+  call, so the platform-wide feed (as opposed to a single message's
+  notes) always 400'd. Added an optional global/cursor-paginated mode
+  (with cursor validation — a malformed cursor now 400s instead of
+  silently resolving to the Unix epoch). The vote endpoint expects
+  `{helpful: boolean}`, not `{vote: ...}`, and its status vocabulary is
+  `needs_review`/`shown`/`hidden`, not `pending`/`visible`/`removed` —
+  fixed the web page's request/response handling to match.
+- `GET /api/nemesis` omitted `username` for both `me` and `nemesis`,
+  so profile links on that page had nothing but a raw id to work with.
+
+Two Android-only bugs found in this batch's own new code during
+review, both fixed before merge: `council.tsx` and
+`community-notes.tsx` double-unwrapped the `apiClient` response
+envelope (`data.data.x` instead of `data.x` — the client's response
+interceptor already unwraps `{success,data,error}` to `data`), which
+crashed the Council screen on load and silently dropped vote-count
+updates on Community Notes.
+
+**Known gap left unfixed (documented in code, not a rename/reshape):**
+`POST /api/community-notes` requires attaching every note to a
+specific message/room/user/guild UUID, but no client has a
+target-picker UI to supply one — submission always 400s. Android's
+Community Notes screen is read+vote only as a result; building a
+target picker is a real missing feature for a later batch, not a
+contract bug.
+
+Remaining pages (Economy, Prestige, Seasons, Creator, Merch, single
+Gift, Stickers, KYC) and the Admin panel are still not ported.
+
 ---
 
 *ZobiaSocial PRD v2.05*

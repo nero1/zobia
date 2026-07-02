@@ -379,7 +379,8 @@ export default function GuildPage() {
         const meRes = await fetch("/api/users/me", { credentials: "include" });
         if (meRes.status === 401) { window.location.href = "/auth/login"; return; }
         if (!meRes.ok) throw new Error("Failed to load profile");
-        const me = (await meRes.json()) as { guild_id: string | null };
+        const meJson = (await meRes.json()) as { user: { guild_id: string | null } };
+        const me = meJson.user;
 
         if (!me.guild_id) {
           setMyGuild(null);

@@ -144,17 +144,23 @@ export const GET = withAuth(
       const isMember = membershipResult.rows.length > 0;
       const isCaptain = guild.captain_id === userId;
 
-      // Fetch members with public profile info
-      const membersResult = await db.query<MemberRow>(
-        `SELECT gm.id, gm.user_id, gm.role, gm.contribution_score,
-                gm.war_points_total, gm.joined_at,
-                u.username, u.display_name, u.avatar_emoji, u.rank_name, u.xp_total
-         FROM guild_members gm
-         JOIN users u ON u.id = gm.user_id
-         WHERE gm.guild_id = $1 AND gm.left_at IS NULL
-         ORDER BY gm.contribution_score DESC`,
-        [guildId]
-      );
+      // Fetch members with public profile info. The roster (usernames,
+      // contribution scores) is member/captain-only for invite-only guilds —
+      // non-members only see the aggregate memberCount for those.
+      const isInviteOnly = guild.recruitment_type === "invite_only";
+      const canSeeRoster = isMember || isCaptain || !isInviteOnly;
+      const membersResult = canSeeRoster
+        ? await db.query<MemberRow>(
+            `SELECT gm.id, gm.user_id, gm.role, gm.contribution_score,
+                    gm.war_points_total, gm.joined_at,
+                    u.username, u.display_name, u.avatar_emoji, u.rank_name, u.xp_total
+             FROM guild_members gm
+             JOIN users u ON u.id = gm.user_id
+             WHERE gm.guild_id = $1 AND gm.left_at IS NULL
+             ORDER BY gm.contribution_score DESC`,
+            [guildId]
+          )
+        : { rows: [] as MemberRow[] };
 
       // Fetch recent war history (last 10) with opponent info resolved
       const warsResult = await db.query<WarWithOpponentRow>(

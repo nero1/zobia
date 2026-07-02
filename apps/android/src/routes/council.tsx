@@ -97,13 +97,13 @@ function timeAgo(iso: string): string {
 }
 
 async function fetchMembers(): Promise<CouncilMember[]> {
-  const { data } = await apiClient.get<{ data: { members: CouncilMemberRow[] } }>('/council');
-  return data.data.members.map(mapMember);
+  const { data } = await apiClient.get<{ members: CouncilMemberRow[] }>('/council');
+  return data.members.map(mapMember);
 }
 
 async function fetchIdeas(): Promise<CouncilIdea[]> {
-  const { data } = await apiClient.get<{ data: { ideas: CouncilIdeaRow[] } }>('/council/ideas');
-  return data.data.ideas.map(mapIdea);
+  const { data } = await apiClient.get<{ ideas: CouncilIdeaRow[] }>('/council/ideas');
+  return data.ideas.map(mapIdea);
 }
 
 async function voteIdea(ideaId: string) {
@@ -111,8 +111,8 @@ async function voteIdea(ideaId: string) {
 }
 
 async function submitIdea(input: { title: string; description: string }) {
-  const { data } = await apiClient.post<{ data: { idea: CouncilIdeaRow } }>('/council/ideas', input);
-  return mapIdea(data.data.idea);
+  const { data } = await apiClient.post<{ idea: CouncilIdeaRow }>('/council/ideas', input);
+  return mapIdea(data.idea);
 }
 
 function IdeaCard({ idea, canVote, onVote, voting }: { idea: CouncilIdea; canVote: boolean; onVote: (id: string) => void; voting: boolean }) {

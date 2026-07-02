@@ -73,11 +73,11 @@ async function fetchNotes({ pageParam, status }: { pageParam?: string; status: F
 }
 
 async function voteNote(input: { noteId: string; helpful: boolean }) {
-  const { data } = await apiClient.post<{ data: { helpfulVotes: number; unhelpfulVotes: number; helpful: boolean; status: NoteStatus } }>(
+  const { data } = await apiClient.post<{ helpfulVotes: number; unhelpfulVotes: number; helpful: boolean; status: NoteStatus }>(
     `/community-notes/${input.noteId}/vote`,
     { helpful: input.helpful }
   );
-  return data.data;
+  return data;
 }
 
 function CommunityNotesPage() {

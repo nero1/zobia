@@ -21,6 +21,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/store';
 import type { GuildDetail, GuildSummary } from '@/lib/guilds/types';
 import { GuildDetailView, TIER_BADGE, tierBase } from '@/lib/guilds/GuildDetailView';
 
@@ -125,6 +126,10 @@ function GuildDiscoveryPanel({ guilds, loading }: { guilds: GuildSummary[]; load
 
 function MyGuildPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const [leaving, setLeaving] = useState(false);
+  const [leaveError, setLeaveError] = useState<string | null>(null);
 
   const { data: guildId, status: idStatus } = useQuery({
     queryKey: ['guild', 'mine'],
@@ -142,6 +147,21 @@ function MyGuildPage() {
     queryFn: () => fetchGuild(guildId as string),
     enabled: idStatus === 'success' && !!guildId,
   });
+
+  async function handleLeave() {
+    if (!user?.id || !guildId) return;
+    setLeaving(true);
+    setLeaveError(null);
+    try {
+      await apiClient.delete(`/guilds/${guildId}/members`, { data: { userId: user.id } });
+      await qc.invalidateQueries({ queryKey: ['guild', 'mine'] });
+      await refetch();
+    } catch {
+      setLeaveError(t('error.generic'));
+    } finally {
+      setLeaving(false);
+    }
+  }
 
   if (idStatus === 'pending' || (guildId && guildStatus === 'pending')) {
     return (
@@ -167,7 +187,22 @@ function MyGuildPage() {
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 p-4">
       {guildId && guild ? (
-        <GuildDetailView guild={guild} backTo="/guild" />
+        <GuildDetailView
+          guild={guild}
+          backTo="/guild"
+          actions={
+            <>
+              {leaveError && <p className="mb-2 text-xs font-medium text-danger-600">{leaveError}</p>}
+              <button
+                onClick={handleLeave}
+                disabled={leaving || guild.isCaptain}
+                className="w-full rounded-xl border border-neutral-300 px-5 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60"
+              >
+                {leaving ? '…' : guild.isCaptain ? t('guild.captainLabel') : t('guild.leave')}
+              </button>
+            </>
+          }
+        />
       ) : (
         <GuildDiscoveryPanel guilds={discovery ?? []} loading={discoveryStatus === 'pending'} />
       )}
