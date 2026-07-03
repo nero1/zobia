@@ -153,7 +153,6 @@ function AppealRow({ appeal, onApprove, onDismiss, busy }: AppealRowProps) {
 export default function PayoutAppealsPage() {
   const { t } = useTranslation();
   const [appeals, setAppeals] = useState<Appeal[]>([]);
-  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -168,7 +167,11 @@ export default function PayoutAppealsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/admin/payouts?appealPending=true&limit=50&offset=0", {
+      // BUG FIX: GET /api/admin/payouts uses keyset (cursor) pagination and
+      // never returns a `total` field (see api/admin/payouts/route.ts
+      // BUG-20 fix) — this used to read `data.total`, which was always
+      // `undefined`, printing "undefined pending appeals" below.
+      const res = await fetch("/api/admin/payouts?appealPending=true&limit=50", {
         credentials: "include",
       });
       if (res.status === 401 || res.status === 403) {
@@ -176,9 +179,8 @@ export default function PayoutAppealsPage() {
         return;
       }
       if (!res.ok) throw new Error("Failed to load appeals");
-      const data = await res.json() as { payouts: Appeal[]; total: number };
+      const data = await res.json() as { payouts: Appeal[] };
       setAppeals(data.payouts);
-      setTotal(data.total);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
     } finally {
@@ -250,7 +252,7 @@ export default function PayoutAppealsPage() {
       {/* Count */}
       {!loading && (
         <p className="mb-4 text-sm text-neutral-500">
-          {total} pending appeal{total !== 1 ? "s" : ""}
+          {appeals.length} pending appeal{appeals.length !== 1 ? "s" : ""}
         </p>
       )}
 
