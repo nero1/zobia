@@ -4579,6 +4579,145 @@ in `main.tsx` (a stale comment there referencing
 
 ---
 
-*ZobiaSocial PRD v2.05*
+## Appendix: Version 2.06 Change Log
+
+### v2.06 — Changelog
+
+#### Capacitor Android app gains full admin-panel parity (36/36 pages)
+
+The Android app (`apps/android`) had zero admin pages — `is_admin` users
+had no way to reach `/admin/*` functionality at all from the app, unlike
+web/mobile-web/PWA (all served by the same Next.js `(admin)` route group)
+which already had the complete §20 admin panel. Built all 36 pages
+natively in `apps/android/src/routes/admin/**` (TanStack Router,
+card-list UI, not a WebView wrapper of the web admin panel — the KYC
+review queue is the closest thing to an exception, and even that renders
+submitted document images with a plain `<img>` rather than embedding a
+browser), matching the web `AdminLayoutShell` nav 1:1 (see
+`apps/web/components/admin/AdminLayoutShell.tsx`'s `adminNavItems`
+vs. the new `apps/android/src/components/admin/adminNav.ts`):
+
+Users, Moderation, Answers (forum), Community Notes, Financial, Payouts,
+Payout Appeals, Refunds, Announcements, Messages, Alerts, Config,
+Privacy Settings, Profile Stats, AI Settings, Feature Flags, Business
+Accounts, Identity KYC, Rooms, Branded Rooms, Leaderboards, Leaderboard
+Banners, Footer Scripts, Events, Flash XP, Actions Log, Auto Actions,
+Creator Spotlight, Gifts Catalog, Gift Drop, Seasons, Sponsored Quests,
+Ads, Games, Blogs, and the Dashboard overview.
+
+**New shared foundation** (`apps/android/src/components/admin/`):
+`AdminShell.tsx` (drawer nav + header, replaces `TopBar`/`BottomNav` for
+the `/admin/*` subtree — mirrors `AdminLayoutShell`'s mobile drawer, no
+desktop sidebar variant needed since this app has no desktop breakpoint),
+`AdminGuard.tsx` (client-side nav gate on `user.is_admin` — a UX
+convenience only; the real authorization boundary remains server-side
+`withAdminAuth`, re-checking `is_admin` against the database on every
+`/api/admin/*` call, so a stale/spoofed client claim can never grant real
+access), and `AdminUI.tsx` (the shared stat-card/badge/toast/confirm-
+dialog/tabs/toggle kit every page below is built from, so the 36 pages
+share one visual language instead of 36 bespoke implementations).
+
+**"🛡️ Admin" nav link** added to `TopBar.tsx`'s drawer (first item,
+`is_admin`-gated), matching web `Navbar.tsx`'s `MobileDrawer` exactly —
+same position, same icon, same conditional. No separate "admin login"
+screen was added for Android (unlike web's `/admin/login`, which exists
+specifically to force mandatory TOTP entry when there's no existing
+browser session): the Android app already authenticates via Bearer JWT
+through its regular login+2FA flow, and any resulting session with
+`is_admin = true` is independently sufficient for every `/api/admin/*`
+call (`extractToken` in `lib/api/middleware.ts` accepts a Bearer header
+before falling back to the cookie) — confirmed by reading
+`withAdminAuth`'s implementation rather than assumed.
+
+Backend: **zero API changes were required** — all 36 pages consume
+`/api/admin/*` endpoints that already existed and were already used by
+the web admin panel, so this was purely a new frontend surface. No new
+Redis calls, no new CRON jobs.
+
+#### Nine real bugs found and fixed while porting (web + Android)
+
+Building each Android page against its web counterpart's actual API
+contract (reading the Zod schema in `app/api/admin/**/route.ts` directly,
+not just copying the web page's `fetch` calls) surfaced bugs that had
+been silently broken on web itself — the Android pages were built
+against the *correct* contract from the start, and the same fix was
+applied back to web:
+
+1. **Moderation Suspend/Ban buttons always 400'd** — `admin/moderation/
+   page.tsx` sent `action: "suspend_24h"` / `"suspend_7d"` / `"ban"`, none
+   of which are valid values in the backend's Zod enum (`suspend_user`
+   with `duration_hours`, or `ban_user`). Only Dismiss/Warn/Remove Content
+   ever actually worked. Fixed both the web page and the Android port to
+   send `suspend_user` + `duration_hours` (24 or 168) and `ban_user`.
+2. **`/admin/payouts` and `/admin/payouts/appeals` showed "X of undefined"**
+   — `GET /api/admin/payouts` moved to keyset (cursor) pagination and
+   stopped returning `total`, but both web pages still read `data.total`.
+   Fixed to use `hasMore` / list length instead.
+3. **Payout Bank Account column always showed "—"** — `bank_account_last4`
+   is a real `creator_payouts` column but `api/admin/payouts/route.ts`'s
+   `SELECT` never fetched it. Added it to the query and response.
+4. **Flash XP "Create" form failed on its own defaults** — the backend
+   requires `fires_at` ≥ 6 hours after `announced_at` (§2.4), but the web
+   page's client-side validation only enforced 1 hour, and its own
+   prefilled defaults only had a 5-hour gap — so submitting the form
+   exactly as first opened always 400'd. Fixed validation, error copy, and
+   defaults to match the real 6-hour minimum.
+5. **Gift Drop's "Gift Item" dropdown was always empty** — `GET /api/
+   economy/gifts/catalogue` returns `{ tiers: [{ gifts }] }`, but the web
+   page read a nonexistent top-level `items`/`gifts` key. Fixed to
+   flatten `tiers`, making the Schedule Drop form usable for the first
+   time.
+6. **Admin Events "Create" always 400'd** — the web page posted
+   `{ type: "xp_boost" | "seasonal" | "challenge" | "community" | "other" }`,
+   none of which match the backend's actual `event_type` enum (`cultural`
+   / `season_launch` / `flash_xp` / `guild_war_event` / `mystery_drop` /
+   `platform`). It also read the POST response as a bare event object
+   instead of unwrapping `{success, data: {event}}`, corrupting the event
+   list on the rare case a create somehow succeeded. Fixed both.
+7. **Announcements silently dropped all targeting/scheduling on save** —
+   the web page's save payload used `{status, audience: {plans, roles},
+   startAt, endAt}`, but the Zod schema expects `{targetPlans,
+   targetRoles, startsAt, endsAt}` — every field it sent was simply
+   ignored by validation, and required `title` was only filled in for
+   modals, so banner creation additionally 400'd outright.
+8. **Admin broadcast messages always failed to send** — the web compose
+   form posted `{recipientMode, plans, roles, userIds}` with
+   `recipientMode: "specific"`, but `SendMessageSchema` expects
+   `{broadcastType, targetPlans, targetRoles, targetUserIds}` and
+   `"specific"` isn't a valid `broadcastType` value (`"direct"` is) — no
+   admin broadcast could ever be sent from the web UI.
+9. **AI Settings "Test Connection" always looked like it failed** — the
+   test endpoint returns HTTP 200 with no `success` field on its body, but
+   the reference UI code checked `.success` (always falsy, regardless of
+   whether the test actually passed). The Android page infers success from
+   the absence of an error / presence of a `model` field instead.
+
+Bugs 1, 2, 3, 4, 5, 6, and 9 were fixed in both `apps/web` and the new
+Android pages (same commit). 7 and 8 (Announcements and Messages) were
+caught and built correctly in the Android pages, but the two web pages
+themselves were deliberately left as-is: both need more than a field
+rename — the GET response is raw snake_case DB rows (`is_active`,
+`target_plans`, `starts_at`, …) that don't remotely match the page's own
+`AnnouncementItem`/`recipientMode` state shape, and a confident fix means
+re-deriving the whole form/list against the real schema, not a one-line
+patch — flagged here rather than risking a blind rewrite of ~500-line
+pages with no live database available to verify against. Recommended
+follow-up: rebuild both to the same contract the Android pages already
+use correctly (`apps/android/src/routes/admin/announcements.tsx`,
+`apps/android/src/routes/admin/messages.tsx`).
+
+#### Pre-existing bug: `axios` was never a declared Android dependency
+
+`apps/android/src/lib/api/client.ts` and `apiFetch.ts` import `axios`
+directly and every route in the app depends on it transitively through
+`apiClient` — but `apps/android/package.json` never listed it as a
+dependency. Any fresh `npm install` + `vite build` failed outright
+("Rollup failed to resolve import axios"), independent of anything in
+this change. Added as a direct dependency (`^1.7.7`, matching the version
+already pinned in `apps/web` and `apps/expo`).
+
+---
+
+*ZobiaSocial PRD v2.06*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

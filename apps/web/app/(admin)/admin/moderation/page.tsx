@@ -123,20 +123,26 @@ function ConfidenceBar({ value }: { value: number }) {
 
 interface ReportCardProps {
   report: Report;
-  onAction: (reportId: string, action: string) => Promise<void>;
+  onAction: (reportId: string, action: string, durationHours?: number) => Promise<void>;
   busy: string | null;
 }
 
 function ReportCard({ report, onAction, busy }: ReportCardProps) {
   const isBusy = busy === report.id;
 
-  const actions: { label: string; action: string; classes: string }[] = [
+  // BUG FIX: these `action` values must match the backend's Zod enum
+  // (dismiss | warn | remove_content | suspend_user | ban_user | escalate_ai —
+  // see app/api/admin/moderation/[reportId]/action/route.ts). This previously
+  // sent "suspend_24h" / "suspend_7d" / "ban" verbatim, none of which are
+  // valid enum members, so every Suspend/Ban click 400'd and silently did
+  // nothing (dismiss/warn/remove_content were the only working buttons).
+  const actions: { label: string; action: string; durationHours?: number; classes: string }[] = [
     { label: "Dismiss", action: "dismiss", classes: "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300" },
     { label: "Warn User", action: "warn", classes: "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-300" },
     { label: "Remove Content", action: "remove_content", classes: "bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900 dark:text-orange-300" },
-    { label: "Suspend 24h", action: "suspend_24h", classes: "bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900 dark:text-red-300" },
-    { label: "Suspend 7d", action: "suspend_7d", classes: "bg-red-200 text-red-800 hover:bg-red-300 dark:bg-red-950 dark:text-red-200" },
-    { label: "Ban", action: "ban", classes: "bg-red-600 text-white hover:bg-red-700" },
+    { label: "Suspend 24h", action: "suspend_user", durationHours: 24, classes: "bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900 dark:text-red-300" },
+    { label: "Suspend 7d", action: "suspend_user", durationHours: 168, classes: "bg-red-200 text-red-800 hover:bg-red-300 dark:bg-red-950 dark:text-red-200" },
+    { label: "Ban", action: "ban_user", classes: "bg-red-600 text-white hover:bg-red-700" },
   ];
 
   return (
@@ -174,11 +180,11 @@ function ReportCard({ report, onAction, busy }: ReportCardProps) {
       {/* Actions */}
       {report.status === "pending" && (
         <div className="flex flex-wrap gap-1.5">
-          {actions.map(({ label, action, classes }) => (
+          {actions.map(({ label, action, durationHours, classes }) => (
             <button
-              key={action}
+              key={label}
               disabled={isBusy}
-              onClick={() => onAction(report.id, action)}
+              onClick={() => onAction(report.id, action, durationHours)}
               className={`flex items-center justify-center rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${classes}`}
             >
               {isBusy ? (
@@ -288,14 +294,14 @@ export default function AdminModerationPage() {
     }
   }
 
-  async function handleAction(reportId: string, action: string) {
+  async function handleAction(reportId: string, action: string, durationHours?: number) {
     setBusy(reportId);
     try {
       const res = await fetch(`/api/admin/moderation/${reportId}/action`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action }),
+        body: JSON.stringify({ action, ...(durationHours ? { duration_hours: durationHours } : {}) }),
       });
       if (!res.ok) throw new Error("Action failed");
       showToast("Action applied");

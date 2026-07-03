@@ -34,6 +34,7 @@ interface AdminPayoutRow {
   payout_method: string;
   region: string;
   bank_account_snapshot: Record<string, string> | null;
+  bank_account_last4: string | null;
   wallet_address_snapshot: string | null;
   idempotency_key: string;
   retry_count: number;
@@ -99,7 +100,7 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
               u.username AS creator_username, u.email AS creator_email,
               cp.gross_kobo, cp.net_kobo, cp.platform_fee_kobo,
               cp.status, cp.payout_method, cp.region,
-              cp.bank_account_snapshot, cp.wallet_address_snapshot,
+              cp.bank_account_snapshot, cp.bank_account_last4, cp.wallet_address_snapshot,
               cp.idempotency_key, cp.retry_count,
               cp.rejection_reason, cp.appeal_status, cp.appeal_reason,
               cp.created_at, cp.approved_at
@@ -135,6 +136,7 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
         method: p.payout_method,
         region: p.region,
         bankAccountSnapshot: p.bank_account_snapshot,
+        bankAccountLast4: p.bank_account_last4,
         hasWalletSnapshot: !!p.wallet_address_snapshot,
         retryCount: p.retry_count,
         rejectionReason: p.rejection_reason,

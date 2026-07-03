@@ -103,13 +103,21 @@ export default function AdminGiftDropPage() {
     }
   }, []);
 
-  // Fetch available (non-retired) gift items for the dropdown
+  // Fetch available (non-retired) gift items for the dropdown.
+  // BUG FIX: /api/economy/gifts/catalogue returns `{ tiers: [{ tier, label,
+  // gifts }] }` (grouped by tier), not a flat `items`/`gifts` array at the
+  // top level. The old code read `data.items ?? data.gifts ?? []`, which
+  // matched neither key, so `giftItems` was always empty and the "Gift
+  // Item" dropdown in the Schedule Drop form could never be populated —
+  // the create form was silently unusable. The catalogue already excludes
+  // retired items (`WHERE is_active = TRUE`), so no client-side filter
+  // is needed once flattened.
   const fetchGiftItems = useCallback(async () => {
     try {
-      const res = await fetch("/api/economy/gifts/catalogue?limit=100", { credentials: "include" });
+      const res = await fetch("/api/economy/gifts/catalogue", { credentials: "include" });
       if (!res.ok) return;
-      const data = (await res.json()) as { items?: GiftItem[]; gifts?: GiftItem[] };
-      const all = data.items ?? data.gifts ?? [];
+      const data = (await res.json()) as { tiers?: { gifts: GiftItem[] }[] };
+      const all = (data.tiers ?? []).flatMap((t) => t.gifts);
       setGiftItems(all.filter((g) => !g.is_retired));
     } catch {
       // non-fatal

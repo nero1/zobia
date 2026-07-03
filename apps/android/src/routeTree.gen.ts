@@ -44,6 +44,7 @@ import { Route as BusinessIndexRouteImport } from './routes/business/index'
 import { Route as BlogsIndexRouteImport } from './routes/blogs/index'
 import { Route as AnswersIndexRouteImport } from './routes/answers/index'
 import { Route as AdsIndexRouteImport } from './routes/ads/index'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
@@ -62,11 +63,46 @@ import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AnswersAskRouteImport } from './routes/answers/ask'
 import { Route as AnswersQuestionIdRouteImport } from './routes/answers/$questionId'
+import { Route as AdminUsersRouteImport } from './routes/admin/users'
+import { Route as AdminSponsoredQuestsRouteImport } from './routes/admin/sponsored-quests'
+import { Route as AdminSeasonsRouteImport } from './routes/admin/seasons'
+import { Route as AdminRoomsRouteImport } from './routes/admin/rooms'
+import { Route as AdminRefundsRouteImport } from './routes/admin/refunds'
+import { Route as AdminModerationRouteImport } from './routes/admin/moderation'
+import { Route as AdminMessagesRouteImport } from './routes/admin/messages'
+import { Route as AdminLeaderboardsRouteImport } from './routes/admin/leaderboards'
+import { Route as AdminLeaderboardBannersRouteImport } from './routes/admin/leaderboard-banners'
+import { Route as AdminKycRouteImport } from './routes/admin/kyc'
+import { Route as AdminGiftsRouteImport } from './routes/admin/gifts'
+import { Route as AdminGiftDropRouteImport } from './routes/admin/gift-drop'
+import { Route as AdminGamesRouteImport } from './routes/admin/games'
+import { Route as AdminForumRouteImport } from './routes/admin/forum'
+import { Route as AdminFooterScriptsRouteImport } from './routes/admin/footer-scripts'
+import { Route as AdminFlashXpRouteImport } from './routes/admin/flash-xp'
+import { Route as AdminFinancialRouteImport } from './routes/admin/financial'
+import { Route as AdminFeatureFlagsRouteImport } from './routes/admin/feature-flags'
+import { Route as AdminEventsRouteImport } from './routes/admin/events'
+import { Route as AdminCreatorSpotlightRouteImport } from './routes/admin/creator-spotlight'
+import { Route as AdminConfigRouteImport } from './routes/admin/config'
+import { Route as AdminCommunityNotesRouteImport } from './routes/admin/community-notes'
+import { Route as AdminBusinessRouteImport } from './routes/admin/business'
+import { Route as AdminBrandedRoomsRouteImport } from './routes/admin/branded-rooms'
+import { Route as AdminBlogsRouteImport } from './routes/admin/blogs'
+import { Route as AdminAutomatedActionsRouteImport } from './routes/admin/automated-actions'
+import { Route as AdminAnnouncementsRouteImport } from './routes/admin/announcements'
+import { Route as AdminAlertsRouteImport } from './routes/admin/alerts'
+import { Route as AdminAiSettingsRouteImport } from './routes/admin/ai-settings'
+import { Route as AdminAdsRouteImport } from './routes/admin/ads'
+import { Route as AdminActionsLogRouteImport } from './routes/admin/actions-log'
 import { Route as BusinessPagesIndexRouteImport } from './routes/business/pages/index'
 import { Route as BusinessAdsIndexRouteImport } from './routes/business/ads/index'
 import { Route as BlogsSlugIndexRouteImport } from './routes/blogs/$slug/index'
+import { Route as AdminPayoutsIndexRouteImport } from './routes/admin/payouts/index'
 import { Route as BusinessPagesPageIdRouteImport } from './routes/business/pages/$pageId'
 import { Route as BlogsSlugPostSlugRouteImport } from './routes/blogs/$slug/$postSlug'
+import { Route as AdminSettingsProfileStatsRouteImport } from './routes/admin/settings/profile-stats'
+import { Route as AdminSettingsPrivacyRouteImport } from './routes/admin/settings/privacy'
+import { Route as AdminPayoutsAppealsRouteImport } from './routes/admin/payouts/appeals'
 
 const WalletRoute = WalletRouteImport.update({
   id: '/wallet',
@@ -243,6 +279,11 @@ const AdsIndexRoute = AdsIndexRouteImport.update({
   path: '/ads/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/admin/',
+  path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RoomsRoomIdRoute = RoomsRoomIdRouteImport.update({
   id: '/rooms/$roomId',
   path: '/rooms/$roomId',
@@ -333,6 +374,161 @@ const AnswersQuestionIdRoute = AnswersQuestionIdRouteImport.update({
   path: '/answers/$questionId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminUsersRoute = AdminUsersRouteImport.update({
+  id: '/admin/users',
+  path: '/admin/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminSponsoredQuestsRoute = AdminSponsoredQuestsRouteImport.update({
+  id: '/admin/sponsored-quests',
+  path: '/admin/sponsored-quests',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminSeasonsRoute = AdminSeasonsRouteImport.update({
+  id: '/admin/seasons',
+  path: '/admin/seasons',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRoomsRoute = AdminRoomsRouteImport.update({
+  id: '/admin/rooms',
+  path: '/admin/rooms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminRefundsRoute = AdminRefundsRouteImport.update({
+  id: '/admin/refunds',
+  path: '/admin/refunds',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminModerationRoute = AdminModerationRouteImport.update({
+  id: '/admin/moderation',
+  path: '/admin/moderation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminMessagesRoute = AdminMessagesRouteImport.update({
+  id: '/admin/messages',
+  path: '/admin/messages',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminLeaderboardsRoute = AdminLeaderboardsRouteImport.update({
+  id: '/admin/leaderboards',
+  path: '/admin/leaderboards',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminLeaderboardBannersRoute = AdminLeaderboardBannersRouteImport.update({
+  id: '/admin/leaderboard-banners',
+  path: '/admin/leaderboard-banners',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminKycRoute = AdminKycRouteImport.update({
+  id: '/admin/kyc',
+  path: '/admin/kyc',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminGiftsRoute = AdminGiftsRouteImport.update({
+  id: '/admin/gifts',
+  path: '/admin/gifts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminGiftDropRoute = AdminGiftDropRouteImport.update({
+  id: '/admin/gift-drop',
+  path: '/admin/gift-drop',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminGamesRoute = AdminGamesRouteImport.update({
+  id: '/admin/games',
+  path: '/admin/games',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminForumRoute = AdminForumRouteImport.update({
+  id: '/admin/forum',
+  path: '/admin/forum',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminFooterScriptsRoute = AdminFooterScriptsRouteImport.update({
+  id: '/admin/footer-scripts',
+  path: '/admin/footer-scripts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminFlashXpRoute = AdminFlashXpRouteImport.update({
+  id: '/admin/flash-xp',
+  path: '/admin/flash-xp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminFinancialRoute = AdminFinancialRouteImport.update({
+  id: '/admin/financial',
+  path: '/admin/financial',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminFeatureFlagsRoute = AdminFeatureFlagsRouteImport.update({
+  id: '/admin/feature-flags',
+  path: '/admin/feature-flags',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminEventsRoute = AdminEventsRouteImport.update({
+  id: '/admin/events',
+  path: '/admin/events',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminCreatorSpotlightRoute = AdminCreatorSpotlightRouteImport.update({
+  id: '/admin/creator-spotlight',
+  path: '/admin/creator-spotlight',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminConfigRoute = AdminConfigRouteImport.update({
+  id: '/admin/config',
+  path: '/admin/config',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminCommunityNotesRoute = AdminCommunityNotesRouteImport.update({
+  id: '/admin/community-notes',
+  path: '/admin/community-notes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminBusinessRoute = AdminBusinessRouteImport.update({
+  id: '/admin/business',
+  path: '/admin/business',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminBrandedRoomsRoute = AdminBrandedRoomsRouteImport.update({
+  id: '/admin/branded-rooms',
+  path: '/admin/branded-rooms',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminBlogsRoute = AdminBlogsRouteImport.update({
+  id: '/admin/blogs',
+  path: '/admin/blogs',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAutomatedActionsRoute = AdminAutomatedActionsRouteImport.update({
+  id: '/admin/automated-actions',
+  path: '/admin/automated-actions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAnnouncementsRoute = AdminAnnouncementsRouteImport.update({
+  id: '/admin/announcements',
+  path: '/admin/announcements',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAlertsRoute = AdminAlertsRouteImport.update({
+  id: '/admin/alerts',
+  path: '/admin/alerts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAiSettingsRoute = AdminAiSettingsRouteImport.update({
+  id: '/admin/ai-settings',
+  path: '/admin/ai-settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAdsRoute = AdminAdsRouteImport.update({
+  id: '/admin/ads',
+  path: '/admin/ads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminActionsLogRoute = AdminActionsLogRouteImport.update({
+  id: '/admin/actions-log',
+  path: '/admin/actions-log',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BusinessPagesIndexRoute = BusinessPagesIndexRouteImport.update({
   id: '/business/pages/',
   path: '/business/pages/',
@@ -348,6 +544,11 @@ const BlogsSlugIndexRoute = BlogsSlugIndexRouteImport.update({
   path: '/blogs/$slug/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminPayoutsIndexRoute = AdminPayoutsIndexRouteImport.update({
+  id: '/admin/payouts/',
+  path: '/admin/payouts/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BusinessPagesPageIdRoute = BusinessPagesPageIdRouteImport.update({
   id: '/business/pages/$pageId',
   path: '/business/pages/$pageId',
@@ -356,6 +557,22 @@ const BusinessPagesPageIdRoute = BusinessPagesPageIdRouteImport.update({
 const BlogsSlugPostSlugRoute = BlogsSlugPostSlugRouteImport.update({
   id: '/blogs/$slug/$postSlug',
   path: '/blogs/$slug/$postSlug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminSettingsProfileStatsRoute =
+  AdminSettingsProfileStatsRouteImport.update({
+    id: '/admin/settings/profile-stats',
+    path: '/admin/settings/profile-stats',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const AdminSettingsPrivacyRoute = AdminSettingsPrivacyRouteImport.update({
+  id: '/admin/settings/privacy',
+  path: '/admin/settings/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminPayoutsAppealsRoute = AdminPayoutsAppealsRouteImport.update({
+  id: '/admin/payouts/appeals',
+  path: '/admin/payouts/appeals',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -383,6 +600,37 @@ export interface FileRoutesByFullPath {
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
+  '/admin/actions-log': typeof AdminActionsLogRoute
+  '/admin/ads': typeof AdminAdsRoute
+  '/admin/ai-settings': typeof AdminAiSettingsRoute
+  '/admin/alerts': typeof AdminAlertsRoute
+  '/admin/announcements': typeof AdminAnnouncementsRoute
+  '/admin/automated-actions': typeof AdminAutomatedActionsRoute
+  '/admin/blogs': typeof AdminBlogsRoute
+  '/admin/branded-rooms': typeof AdminBrandedRoomsRoute
+  '/admin/business': typeof AdminBusinessRoute
+  '/admin/community-notes': typeof AdminCommunityNotesRoute
+  '/admin/config': typeof AdminConfigRoute
+  '/admin/creator-spotlight': typeof AdminCreatorSpotlightRoute
+  '/admin/events': typeof AdminEventsRoute
+  '/admin/feature-flags': typeof AdminFeatureFlagsRoute
+  '/admin/financial': typeof AdminFinancialRoute
+  '/admin/flash-xp': typeof AdminFlashXpRoute
+  '/admin/footer-scripts': typeof AdminFooterScriptsRoute
+  '/admin/forum': typeof AdminForumRoute
+  '/admin/games': typeof AdminGamesRoute
+  '/admin/gift-drop': typeof AdminGiftDropRoute
+  '/admin/gifts': typeof AdminGiftsRoute
+  '/admin/kyc': typeof AdminKycRoute
+  '/admin/leaderboard-banners': typeof AdminLeaderboardBannersRoute
+  '/admin/leaderboards': typeof AdminLeaderboardsRoute
+  '/admin/messages': typeof AdminMessagesRoute
+  '/admin/moderation': typeof AdminModerationRoute
+  '/admin/refunds': typeof AdminRefundsRoute
+  '/admin/rooms': typeof AdminRoomsRoute
+  '/admin/seasons': typeof AdminSeasonsRoute
+  '/admin/sponsored-quests': typeof AdminSponsoredQuestsRoute
+  '/admin/users': typeof AdminUsersRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
@@ -401,6 +649,7 @@ export interface FileRoutesByFullPath {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
@@ -413,8 +662,12 @@ export interface FileRoutesByFullPath {
   '/moments/': typeof MomentsIndexRoute
   '/profile/': typeof ProfileIndexRoute
   '/rooms/': typeof RoomsIndexRoute
+  '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
+  '/admin/settings/privacy': typeof AdminSettingsPrivacyRoute
+  '/admin/settings/profile-stats': typeof AdminSettingsProfileStatsRoute
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/admin/payouts/': typeof AdminPayoutsIndexRoute
   '/blogs/$slug/': typeof BlogsSlugIndexRoute
   '/business/ads/': typeof BusinessAdsIndexRoute
   '/business/pages/': typeof BusinessPagesIndexRoute
@@ -443,6 +696,37 @@ export interface FileRoutesByTo {
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
+  '/admin/actions-log': typeof AdminActionsLogRoute
+  '/admin/ads': typeof AdminAdsRoute
+  '/admin/ai-settings': typeof AdminAiSettingsRoute
+  '/admin/alerts': typeof AdminAlertsRoute
+  '/admin/announcements': typeof AdminAnnouncementsRoute
+  '/admin/automated-actions': typeof AdminAutomatedActionsRoute
+  '/admin/blogs': typeof AdminBlogsRoute
+  '/admin/branded-rooms': typeof AdminBrandedRoomsRoute
+  '/admin/business': typeof AdminBusinessRoute
+  '/admin/community-notes': typeof AdminCommunityNotesRoute
+  '/admin/config': typeof AdminConfigRoute
+  '/admin/creator-spotlight': typeof AdminCreatorSpotlightRoute
+  '/admin/events': typeof AdminEventsRoute
+  '/admin/feature-flags': typeof AdminFeatureFlagsRoute
+  '/admin/financial': typeof AdminFinancialRoute
+  '/admin/flash-xp': typeof AdminFlashXpRoute
+  '/admin/footer-scripts': typeof AdminFooterScriptsRoute
+  '/admin/forum': typeof AdminForumRoute
+  '/admin/games': typeof AdminGamesRoute
+  '/admin/gift-drop': typeof AdminGiftDropRoute
+  '/admin/gifts': typeof AdminGiftsRoute
+  '/admin/kyc': typeof AdminKycRoute
+  '/admin/leaderboard-banners': typeof AdminLeaderboardBannersRoute
+  '/admin/leaderboards': typeof AdminLeaderboardsRoute
+  '/admin/messages': typeof AdminMessagesRoute
+  '/admin/moderation': typeof AdminModerationRoute
+  '/admin/refunds': typeof AdminRefundsRoute
+  '/admin/rooms': typeof AdminRoomsRoute
+  '/admin/seasons': typeof AdminSeasonsRoute
+  '/admin/sponsored-quests': typeof AdminSponsoredQuestsRoute
+  '/admin/users': typeof AdminUsersRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
@@ -461,6 +745,7 @@ export interface FileRoutesByTo {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/admin': typeof AdminIndexRoute
   '/ads': typeof AdsIndexRoute
   '/answers': typeof AnswersIndexRoute
   '/blogs': typeof BlogsIndexRoute
@@ -473,8 +758,12 @@ export interface FileRoutesByTo {
   '/moments': typeof MomentsIndexRoute
   '/profile': typeof ProfileIndexRoute
   '/rooms': typeof RoomsIndexRoute
+  '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
+  '/admin/settings/privacy': typeof AdminSettingsPrivacyRoute
+  '/admin/settings/profile-stats': typeof AdminSettingsProfileStatsRoute
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/admin/payouts': typeof AdminPayoutsIndexRoute
   '/blogs/$slug': typeof BlogsSlugIndexRoute
   '/business/ads': typeof BusinessAdsIndexRoute
   '/business/pages': typeof BusinessPagesIndexRoute
@@ -504,6 +793,37 @@ export interface FileRoutesById {
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
+  '/admin/actions-log': typeof AdminActionsLogRoute
+  '/admin/ads': typeof AdminAdsRoute
+  '/admin/ai-settings': typeof AdminAiSettingsRoute
+  '/admin/alerts': typeof AdminAlertsRoute
+  '/admin/announcements': typeof AdminAnnouncementsRoute
+  '/admin/automated-actions': typeof AdminAutomatedActionsRoute
+  '/admin/blogs': typeof AdminBlogsRoute
+  '/admin/branded-rooms': typeof AdminBrandedRoomsRoute
+  '/admin/business': typeof AdminBusinessRoute
+  '/admin/community-notes': typeof AdminCommunityNotesRoute
+  '/admin/config': typeof AdminConfigRoute
+  '/admin/creator-spotlight': typeof AdminCreatorSpotlightRoute
+  '/admin/events': typeof AdminEventsRoute
+  '/admin/feature-flags': typeof AdminFeatureFlagsRoute
+  '/admin/financial': typeof AdminFinancialRoute
+  '/admin/flash-xp': typeof AdminFlashXpRoute
+  '/admin/footer-scripts': typeof AdminFooterScriptsRoute
+  '/admin/forum': typeof AdminForumRoute
+  '/admin/games': typeof AdminGamesRoute
+  '/admin/gift-drop': typeof AdminGiftDropRoute
+  '/admin/gifts': typeof AdminGiftsRoute
+  '/admin/kyc': typeof AdminKycRoute
+  '/admin/leaderboard-banners': typeof AdminLeaderboardBannersRoute
+  '/admin/leaderboards': typeof AdminLeaderboardsRoute
+  '/admin/messages': typeof AdminMessagesRoute
+  '/admin/moderation': typeof AdminModerationRoute
+  '/admin/refunds': typeof AdminRefundsRoute
+  '/admin/rooms': typeof AdminRoomsRoute
+  '/admin/seasons': typeof AdminSeasonsRoute
+  '/admin/sponsored-quests': typeof AdminSponsoredQuestsRoute
+  '/admin/users': typeof AdminUsersRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
@@ -522,6 +842,7 @@ export interface FileRoutesById {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
@@ -534,8 +855,12 @@ export interface FileRoutesById {
   '/moments/': typeof MomentsIndexRoute
   '/profile/': typeof ProfileIndexRoute
   '/rooms/': typeof RoomsIndexRoute
+  '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
+  '/admin/settings/privacy': typeof AdminSettingsPrivacyRoute
+  '/admin/settings/profile-stats': typeof AdminSettingsProfileStatsRoute
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/admin/payouts/': typeof AdminPayoutsIndexRoute
   '/blogs/$slug/': typeof BlogsSlugIndexRoute
   '/business/ads/': typeof BusinessAdsIndexRoute
   '/business/pages/': typeof BusinessPagesIndexRoute
@@ -566,6 +891,37 @@ export interface FileRouteTypes {
     | '/stats'
     | '/stickers'
     | '/wallet'
+    | '/admin/actions-log'
+    | '/admin/ads'
+    | '/admin/ai-settings'
+    | '/admin/alerts'
+    | '/admin/announcements'
+    | '/admin/automated-actions'
+    | '/admin/blogs'
+    | '/admin/branded-rooms'
+    | '/admin/business'
+    | '/admin/community-notes'
+    | '/admin/config'
+    | '/admin/creator-spotlight'
+    | '/admin/events'
+    | '/admin/feature-flags'
+    | '/admin/financial'
+    | '/admin/flash-xp'
+    | '/admin/footer-scripts'
+    | '/admin/forum'
+    | '/admin/games'
+    | '/admin/gift-drop'
+    | '/admin/gifts'
+    | '/admin/kyc'
+    | '/admin/leaderboard-banners'
+    | '/admin/leaderboards'
+    | '/admin/messages'
+    | '/admin/moderation'
+    | '/admin/refunds'
+    | '/admin/rooms'
+    | '/admin/seasons'
+    | '/admin/sponsored-quests'
+    | '/admin/users'
     | '/answers/$questionId'
     | '/answers/ask'
     | '/auth/login'
@@ -584,6 +940,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/admin/'
     | '/ads/'
     | '/answers/'
     | '/blogs/'
@@ -596,8 +953,12 @@ export interface FileRouteTypes {
     | '/moments/'
     | '/profile/'
     | '/rooms/'
+    | '/admin/payouts/appeals'
+    | '/admin/settings/privacy'
+    | '/admin/settings/profile-stats'
     | '/blogs/$slug/$postSlug'
     | '/business/pages/$pageId'
+    | '/admin/payouts/'
     | '/blogs/$slug/'
     | '/business/ads/'
     | '/business/pages/'
@@ -626,6 +987,37 @@ export interface FileRouteTypes {
     | '/stats'
     | '/stickers'
     | '/wallet'
+    | '/admin/actions-log'
+    | '/admin/ads'
+    | '/admin/ai-settings'
+    | '/admin/alerts'
+    | '/admin/announcements'
+    | '/admin/automated-actions'
+    | '/admin/blogs'
+    | '/admin/branded-rooms'
+    | '/admin/business'
+    | '/admin/community-notes'
+    | '/admin/config'
+    | '/admin/creator-spotlight'
+    | '/admin/events'
+    | '/admin/feature-flags'
+    | '/admin/financial'
+    | '/admin/flash-xp'
+    | '/admin/footer-scripts'
+    | '/admin/forum'
+    | '/admin/games'
+    | '/admin/gift-drop'
+    | '/admin/gifts'
+    | '/admin/kyc'
+    | '/admin/leaderboard-banners'
+    | '/admin/leaderboards'
+    | '/admin/messages'
+    | '/admin/moderation'
+    | '/admin/refunds'
+    | '/admin/rooms'
+    | '/admin/seasons'
+    | '/admin/sponsored-quests'
+    | '/admin/users'
     | '/answers/$questionId'
     | '/answers/ask'
     | '/auth/login'
@@ -644,6 +1036,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/admin'
     | '/ads'
     | '/answers'
     | '/blogs'
@@ -656,8 +1049,12 @@ export interface FileRouteTypes {
     | '/moments'
     | '/profile'
     | '/rooms'
+    | '/admin/payouts/appeals'
+    | '/admin/settings/privacy'
+    | '/admin/settings/profile-stats'
     | '/blogs/$slug/$postSlug'
     | '/business/pages/$pageId'
+    | '/admin/payouts'
     | '/blogs/$slug'
     | '/business/ads'
     | '/business/pages'
@@ -686,6 +1083,37 @@ export interface FileRouteTypes {
     | '/stats'
     | '/stickers'
     | '/wallet'
+    | '/admin/actions-log'
+    | '/admin/ads'
+    | '/admin/ai-settings'
+    | '/admin/alerts'
+    | '/admin/announcements'
+    | '/admin/automated-actions'
+    | '/admin/blogs'
+    | '/admin/branded-rooms'
+    | '/admin/business'
+    | '/admin/community-notes'
+    | '/admin/config'
+    | '/admin/creator-spotlight'
+    | '/admin/events'
+    | '/admin/feature-flags'
+    | '/admin/financial'
+    | '/admin/flash-xp'
+    | '/admin/footer-scripts'
+    | '/admin/forum'
+    | '/admin/games'
+    | '/admin/gift-drop'
+    | '/admin/gifts'
+    | '/admin/kyc'
+    | '/admin/leaderboard-banners'
+    | '/admin/leaderboards'
+    | '/admin/messages'
+    | '/admin/moderation'
+    | '/admin/refunds'
+    | '/admin/rooms'
+    | '/admin/seasons'
+    | '/admin/sponsored-quests'
+    | '/admin/users'
     | '/answers/$questionId'
     | '/answers/ask'
     | '/auth/login'
@@ -704,6 +1132,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/admin/'
     | '/ads/'
     | '/answers/'
     | '/blogs/'
@@ -716,8 +1145,12 @@ export interface FileRouteTypes {
     | '/moments/'
     | '/profile/'
     | '/rooms/'
+    | '/admin/payouts/appeals'
+    | '/admin/settings/privacy'
+    | '/admin/settings/profile-stats'
     | '/blogs/$slug/$postSlug'
     | '/business/pages/$pageId'
+    | '/admin/payouts/'
     | '/blogs/$slug/'
     | '/business/ads/'
     | '/business/pages/'
@@ -747,6 +1180,37 @@ export interface RootRouteChildren {
   StatsRoute: typeof StatsRoute
   StickersRoute: typeof StickersRoute
   WalletRoute: typeof WalletRoute
+  AdminActionsLogRoute: typeof AdminActionsLogRoute
+  AdminAdsRoute: typeof AdminAdsRoute
+  AdminAiSettingsRoute: typeof AdminAiSettingsRoute
+  AdminAlertsRoute: typeof AdminAlertsRoute
+  AdminAnnouncementsRoute: typeof AdminAnnouncementsRoute
+  AdminAutomatedActionsRoute: typeof AdminAutomatedActionsRoute
+  AdminBlogsRoute: typeof AdminBlogsRoute
+  AdminBrandedRoomsRoute: typeof AdminBrandedRoomsRoute
+  AdminBusinessRoute: typeof AdminBusinessRoute
+  AdminCommunityNotesRoute: typeof AdminCommunityNotesRoute
+  AdminConfigRoute: typeof AdminConfigRoute
+  AdminCreatorSpotlightRoute: typeof AdminCreatorSpotlightRoute
+  AdminEventsRoute: typeof AdminEventsRoute
+  AdminFeatureFlagsRoute: typeof AdminFeatureFlagsRoute
+  AdminFinancialRoute: typeof AdminFinancialRoute
+  AdminFlashXpRoute: typeof AdminFlashXpRoute
+  AdminFooterScriptsRoute: typeof AdminFooterScriptsRoute
+  AdminForumRoute: typeof AdminForumRoute
+  AdminGamesRoute: typeof AdminGamesRoute
+  AdminGiftDropRoute: typeof AdminGiftDropRoute
+  AdminGiftsRoute: typeof AdminGiftsRoute
+  AdminKycRoute: typeof AdminKycRoute
+  AdminLeaderboardBannersRoute: typeof AdminLeaderboardBannersRoute
+  AdminLeaderboardsRoute: typeof AdminLeaderboardsRoute
+  AdminMessagesRoute: typeof AdminMessagesRoute
+  AdminModerationRoute: typeof AdminModerationRoute
+  AdminRefundsRoute: typeof AdminRefundsRoute
+  AdminRoomsRoute: typeof AdminRoomsRoute
+  AdminSeasonsRoute: typeof AdminSeasonsRoute
+  AdminSponsoredQuestsRoute: typeof AdminSponsoredQuestsRoute
+  AdminUsersRoute: typeof AdminUsersRoute
   AnswersQuestionIdRoute: typeof AnswersQuestionIdRoute
   AnswersAskRoute: typeof AnswersAskRoute
   AuthLoginRoute: typeof AuthLoginRoute
@@ -765,6 +1229,7 @@ export interface RootRouteChildren {
   MomentsCreateRoute: typeof MomentsCreateRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
+  AdminIndexRoute: typeof AdminIndexRoute
   AdsIndexRoute: typeof AdsIndexRoute
   AnswersIndexRoute: typeof AnswersIndexRoute
   BlogsIndexRoute: typeof BlogsIndexRoute
@@ -777,8 +1242,12 @@ export interface RootRouteChildren {
   MomentsIndexRoute: typeof MomentsIndexRoute
   ProfileIndexRoute: typeof ProfileIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
+  AdminPayoutsAppealsRoute: typeof AdminPayoutsAppealsRoute
+  AdminSettingsPrivacyRoute: typeof AdminSettingsPrivacyRoute
+  AdminSettingsProfileStatsRoute: typeof AdminSettingsProfileStatsRoute
   BlogsSlugPostSlugRoute: typeof BlogsSlugPostSlugRoute
   BusinessPagesPageIdRoute: typeof BusinessPagesPageIdRoute
+  AdminPayoutsIndexRoute: typeof AdminPayoutsIndexRoute
   BlogsSlugIndexRoute: typeof BlogsSlugIndexRoute
   BusinessAdsIndexRoute: typeof BusinessAdsIndexRoute
   BusinessPagesIndexRoute: typeof BusinessPagesIndexRoute
@@ -1031,6 +1500,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/': {
+      id: '/admin/'
+      path: '/admin'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/rooms/$roomId': {
       id: '/rooms/$roomId'
       path: '/rooms/$roomId'
@@ -1157,6 +1633,223 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnswersQuestionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/users': {
+      id: '/admin/users'
+      path: '/admin/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/sponsored-quests': {
+      id: '/admin/sponsored-quests'
+      path: '/admin/sponsored-quests'
+      fullPath: '/admin/sponsored-quests'
+      preLoaderRoute: typeof AdminSponsoredQuestsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/seasons': {
+      id: '/admin/seasons'
+      path: '/admin/seasons'
+      fullPath: '/admin/seasons'
+      preLoaderRoute: typeof AdminSeasonsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/rooms': {
+      id: '/admin/rooms'
+      path: '/admin/rooms'
+      fullPath: '/admin/rooms'
+      preLoaderRoute: typeof AdminRoomsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/refunds': {
+      id: '/admin/refunds'
+      path: '/admin/refunds'
+      fullPath: '/admin/refunds'
+      preLoaderRoute: typeof AdminRefundsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/moderation': {
+      id: '/admin/moderation'
+      path: '/admin/moderation'
+      fullPath: '/admin/moderation'
+      preLoaderRoute: typeof AdminModerationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/messages': {
+      id: '/admin/messages'
+      path: '/admin/messages'
+      fullPath: '/admin/messages'
+      preLoaderRoute: typeof AdminMessagesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/leaderboards': {
+      id: '/admin/leaderboards'
+      path: '/admin/leaderboards'
+      fullPath: '/admin/leaderboards'
+      preLoaderRoute: typeof AdminLeaderboardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/leaderboard-banners': {
+      id: '/admin/leaderboard-banners'
+      path: '/admin/leaderboard-banners'
+      fullPath: '/admin/leaderboard-banners'
+      preLoaderRoute: typeof AdminLeaderboardBannersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/kyc': {
+      id: '/admin/kyc'
+      path: '/admin/kyc'
+      fullPath: '/admin/kyc'
+      preLoaderRoute: typeof AdminKycRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/gifts': {
+      id: '/admin/gifts'
+      path: '/admin/gifts'
+      fullPath: '/admin/gifts'
+      preLoaderRoute: typeof AdminGiftsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/gift-drop': {
+      id: '/admin/gift-drop'
+      path: '/admin/gift-drop'
+      fullPath: '/admin/gift-drop'
+      preLoaderRoute: typeof AdminGiftDropRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/games': {
+      id: '/admin/games'
+      path: '/admin/games'
+      fullPath: '/admin/games'
+      preLoaderRoute: typeof AdminGamesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/forum': {
+      id: '/admin/forum'
+      path: '/admin/forum'
+      fullPath: '/admin/forum'
+      preLoaderRoute: typeof AdminForumRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/footer-scripts': {
+      id: '/admin/footer-scripts'
+      path: '/admin/footer-scripts'
+      fullPath: '/admin/footer-scripts'
+      preLoaderRoute: typeof AdminFooterScriptsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/flash-xp': {
+      id: '/admin/flash-xp'
+      path: '/admin/flash-xp'
+      fullPath: '/admin/flash-xp'
+      preLoaderRoute: typeof AdminFlashXpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/financial': {
+      id: '/admin/financial'
+      path: '/admin/financial'
+      fullPath: '/admin/financial'
+      preLoaderRoute: typeof AdminFinancialRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/feature-flags': {
+      id: '/admin/feature-flags'
+      path: '/admin/feature-flags'
+      fullPath: '/admin/feature-flags'
+      preLoaderRoute: typeof AdminFeatureFlagsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/events': {
+      id: '/admin/events'
+      path: '/admin/events'
+      fullPath: '/admin/events'
+      preLoaderRoute: typeof AdminEventsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/creator-spotlight': {
+      id: '/admin/creator-spotlight'
+      path: '/admin/creator-spotlight'
+      fullPath: '/admin/creator-spotlight'
+      preLoaderRoute: typeof AdminCreatorSpotlightRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/config': {
+      id: '/admin/config'
+      path: '/admin/config'
+      fullPath: '/admin/config'
+      preLoaderRoute: typeof AdminConfigRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/community-notes': {
+      id: '/admin/community-notes'
+      path: '/admin/community-notes'
+      fullPath: '/admin/community-notes'
+      preLoaderRoute: typeof AdminCommunityNotesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/business': {
+      id: '/admin/business'
+      path: '/admin/business'
+      fullPath: '/admin/business'
+      preLoaderRoute: typeof AdminBusinessRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/branded-rooms': {
+      id: '/admin/branded-rooms'
+      path: '/admin/branded-rooms'
+      fullPath: '/admin/branded-rooms'
+      preLoaderRoute: typeof AdminBrandedRoomsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/blogs': {
+      id: '/admin/blogs'
+      path: '/admin/blogs'
+      fullPath: '/admin/blogs'
+      preLoaderRoute: typeof AdminBlogsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/automated-actions': {
+      id: '/admin/automated-actions'
+      path: '/admin/automated-actions'
+      fullPath: '/admin/automated-actions'
+      preLoaderRoute: typeof AdminAutomatedActionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/announcements': {
+      id: '/admin/announcements'
+      path: '/admin/announcements'
+      fullPath: '/admin/announcements'
+      preLoaderRoute: typeof AdminAnnouncementsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/alerts': {
+      id: '/admin/alerts'
+      path: '/admin/alerts'
+      fullPath: '/admin/alerts'
+      preLoaderRoute: typeof AdminAlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/ai-settings': {
+      id: '/admin/ai-settings'
+      path: '/admin/ai-settings'
+      fullPath: '/admin/ai-settings'
+      preLoaderRoute: typeof AdminAiSettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/ads': {
+      id: '/admin/ads'
+      path: '/admin/ads'
+      fullPath: '/admin/ads'
+      preLoaderRoute: typeof AdminAdsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/actions-log': {
+      id: '/admin/actions-log'
+      path: '/admin/actions-log'
+      fullPath: '/admin/actions-log'
+      preLoaderRoute: typeof AdminActionsLogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/business/pages/': {
       id: '/business/pages/'
       path: '/business/pages'
@@ -1178,6 +1871,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BlogsSlugIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/payouts/': {
+      id: '/admin/payouts/'
+      path: '/admin/payouts'
+      fullPath: '/admin/payouts/'
+      preLoaderRoute: typeof AdminPayoutsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/business/pages/$pageId': {
       id: '/business/pages/$pageId'
       path: '/business/pages/$pageId'
@@ -1190,6 +1890,27 @@ declare module '@tanstack/react-router' {
       path: '/blogs/$slug/$postSlug'
       fullPath: '/blogs/$slug/$postSlug'
       preLoaderRoute: typeof BlogsSlugPostSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/settings/profile-stats': {
+      id: '/admin/settings/profile-stats'
+      path: '/admin/settings/profile-stats'
+      fullPath: '/admin/settings/profile-stats'
+      preLoaderRoute: typeof AdminSettingsProfileStatsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/settings/privacy': {
+      id: '/admin/settings/privacy'
+      path: '/admin/settings/privacy'
+      fullPath: '/admin/settings/privacy'
+      preLoaderRoute: typeof AdminSettingsPrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/payouts/appeals': {
+      id: '/admin/payouts/appeals'
+      path: '/admin/payouts/appeals'
+      fullPath: '/admin/payouts/appeals'
+      preLoaderRoute: typeof AdminPayoutsAppealsRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -1219,6 +1940,37 @@ const rootRouteChildren: RootRouteChildren = {
   StatsRoute: StatsRoute,
   StickersRoute: StickersRoute,
   WalletRoute: WalletRoute,
+  AdminActionsLogRoute: AdminActionsLogRoute,
+  AdminAdsRoute: AdminAdsRoute,
+  AdminAiSettingsRoute: AdminAiSettingsRoute,
+  AdminAlertsRoute: AdminAlertsRoute,
+  AdminAnnouncementsRoute: AdminAnnouncementsRoute,
+  AdminAutomatedActionsRoute: AdminAutomatedActionsRoute,
+  AdminBlogsRoute: AdminBlogsRoute,
+  AdminBrandedRoomsRoute: AdminBrandedRoomsRoute,
+  AdminBusinessRoute: AdminBusinessRoute,
+  AdminCommunityNotesRoute: AdminCommunityNotesRoute,
+  AdminConfigRoute: AdminConfigRoute,
+  AdminCreatorSpotlightRoute: AdminCreatorSpotlightRoute,
+  AdminEventsRoute: AdminEventsRoute,
+  AdminFeatureFlagsRoute: AdminFeatureFlagsRoute,
+  AdminFinancialRoute: AdminFinancialRoute,
+  AdminFlashXpRoute: AdminFlashXpRoute,
+  AdminFooterScriptsRoute: AdminFooterScriptsRoute,
+  AdminForumRoute: AdminForumRoute,
+  AdminGamesRoute: AdminGamesRoute,
+  AdminGiftDropRoute: AdminGiftDropRoute,
+  AdminGiftsRoute: AdminGiftsRoute,
+  AdminKycRoute: AdminKycRoute,
+  AdminLeaderboardBannersRoute: AdminLeaderboardBannersRoute,
+  AdminLeaderboardsRoute: AdminLeaderboardsRoute,
+  AdminMessagesRoute: AdminMessagesRoute,
+  AdminModerationRoute: AdminModerationRoute,
+  AdminRefundsRoute: AdminRefundsRoute,
+  AdminRoomsRoute: AdminRoomsRoute,
+  AdminSeasonsRoute: AdminSeasonsRoute,
+  AdminSponsoredQuestsRoute: AdminSponsoredQuestsRoute,
+  AdminUsersRoute: AdminUsersRoute,
   AnswersQuestionIdRoute: AnswersQuestionIdRoute,
   AnswersAskRoute: AnswersAskRoute,
   AuthLoginRoute: AuthLoginRoute,
@@ -1237,6 +1989,7 @@ const rootRouteChildren: RootRouteChildren = {
   MomentsCreateRoute: MomentsCreateRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
+  AdminIndexRoute: AdminIndexRoute,
   AdsIndexRoute: AdsIndexRoute,
   AnswersIndexRoute: AnswersIndexRoute,
   BlogsIndexRoute: BlogsIndexRoute,
@@ -1249,8 +2002,12 @@ const rootRouteChildren: RootRouteChildren = {
   MomentsIndexRoute: MomentsIndexRoute,
   ProfileIndexRoute: ProfileIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
+  AdminPayoutsAppealsRoute: AdminPayoutsAppealsRoute,
+  AdminSettingsPrivacyRoute: AdminSettingsPrivacyRoute,
+  AdminSettingsProfileStatsRoute: AdminSettingsProfileStatsRoute,
   BlogsSlugPostSlugRoute: BlogsSlugPostSlugRoute,
   BusinessPagesPageIdRoute: BusinessPagesPageIdRoute,
+  AdminPayoutsIndexRoute: AdminPayoutsIndexRoute,
   BlogsSlugIndexRoute: BlogsSlugIndexRoute,
   BusinessAdsIndexRoute: BusinessAdsIndexRoute,
   BusinessPagesIndexRoute: BusinessPagesIndexRoute,

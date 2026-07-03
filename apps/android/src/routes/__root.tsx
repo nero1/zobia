@@ -13,6 +13,7 @@ import { TopBar } from '@/components/layout/TopBar';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { OfflineBanner } from '@/components/ui/OfflineBanner';
 import { AuthGuard } from '@/components/auth/AuthGuard';
+import { AdminShell } from '@/components/admin/AdminShell';
 import { useAuth } from '@/lib/auth/store';
 import { AuthUserSchema } from '@zobia/shared/schemas/auth';
 import { setPreAuthToken } from '@/lib/auth/preAuth';
@@ -190,6 +191,19 @@ function AppShell() {
           <Outlet />
         </div>
       </div>
+    );
+  }
+
+  // The admin section (/admin/*) is a distinct area with its own drawer nav and
+  // no bottom tab bar — mirrors web's separate (admin) route group / AdminLayoutShell.
+  const isAdminRoute = pathname === '/admin' || pathname.startsWith('/admin/');
+  if (isAdminRoute) {
+    return (
+      <AuthGuard>
+        <AdminShell>
+          <Outlet />
+        </AdminShell>
+      </AuthGuard>
     );
   }
 

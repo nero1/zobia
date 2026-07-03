@@ -273,7 +273,12 @@ export default function AiSettingsPage() {
           }),
         });
         const json = await res.json();
-        setState((prev) => ({ ...prev, testResult: json.data as TestResult }));
+        // BUG FIX: the envelope's `success` lives on the outer `{success, data,
+        // error}` response, not inside `data` (data only has provider/latencyMs/
+        // model on success, or provider/error on failure) — reading `json.data`
+        // alone always left `testResult.success` undefined/falsy, so a passing
+        // test still rendered as a failure.
+        setState((prev) => ({ ...prev, testResult: { ...json.data, success: json.success } as TestResult }));
       } catch {
         setState((prev) => ({
           ...prev,
