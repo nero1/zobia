@@ -26,6 +26,7 @@ interface Product {
   priceCoin: number;
   stock: number | null;
   isSoldOut: boolean;
+  productType: string;
 }
 
 interface MerchStore {
@@ -38,7 +39,7 @@ interface MerchStore {
 async function fetchStore(creatorId: string): Promise<MerchStore> {
   const { data } = await apiClient.get<{
     store: { id: string; creator_id: string; name: string; description: string | null };
-    products: Array<{ id: string; name: string; description: string | null; image_url: string | null; priceKobo: number; stock: number | null }>;
+    products: Array<{ id: string; name: string; description: string | null; image_url: string | null; priceKobo: number; stock: number | null; product_type: string }>;
   }>(`/merch/${creatorId}`);
   return {
     creatorId: data.store.creator_id,
@@ -52,6 +53,7 @@ async function fetchStore(creatorId: string): Promise<MerchStore> {
       priceCoin: Math.ceil(p.priceKobo / 100),
       stock: p.stock,
       isSoldOut: p.stock !== null && p.stock <= 0,
+      productType: p.product_type,
     })),
   };
 }
@@ -62,6 +64,13 @@ function CreatorMerchStorePage() {
   const qc = useQueryClient();
   const [confirmProduct, setConfirmProduct] = useState<Product | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+  const [shippingName, setShippingName] = useState('');
+  const [shippingAddress, setShippingAddress] = useState('');
+  const [shippingCity, setShippingCity] = useState('');
+  const [shippingCountry, setShippingCountry] = useState('');
+
+  const isPhysical = confirmProduct?.productType === 'physical';
+  const shippingComplete = !isPhysical || (shippingName.trim() && shippingAddress.trim() && shippingCity.trim() && shippingCountry.trim());
 
   const { data: store, status } = useQuery({ queryKey: ['merch', 'store', creatorId], queryFn: () => fetchStore(creatorId) });
 
@@ -72,11 +81,18 @@ function CreatorMerchStorePage() {
 
   const buyMutation = useMutation({
     mutationFn: async (product: Product) => {
-      await apiClient.post(`/merch/${creatorId}/products/${product.id}/purchase`, {});
+      const body = product.productType === 'physical'
+        ? { shippingName, shippingAddress, shippingCity, shippingCountry }
+        : {};
+      await apiClient.post(`/merch/${creatorId}/products/${product.id}/purchase`, body);
     },
     onSuccess: (_data, product) => {
       showToast(t('merch.purchaseSuccess', 'You bought {{name}}!', { name: product.name }));
       setConfirmProduct(null);
+      setShippingName('');
+      setShippingAddress('');
+      setShippingCity('');
+      setShippingCountry('');
       qc.invalidateQueries({ queryKey: ['merch', 'store', creatorId] });
     },
     onError: (err: unknown) => {
@@ -158,11 +174,48 @@ function CreatorMerchStorePage() {
             <p className="mt-2 text-sm text-neutral-600">
               {t('merch.confirmMessage', 'You are about to buy {{name}} for 🪙 {{price}} coins.', { name: confirmProduct.name, price: confirmProduct.priceCoin.toLocaleString() })}
             </p>
+
+            {isPhysical && (
+              <div className="mt-4 space-y-2">
+                <p className="text-xs font-semibold text-neutral-500">{t('merch.shippingDetails', 'Shipping Details')}</p>
+                <input
+                  value={shippingName}
+                  onChange={(e) => setShippingName(e.target.value)}
+                  placeholder={t('merch.shippingName', 'Full name')}
+                  className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                />
+                <input
+                  value={shippingAddress}
+                  onChange={(e) => setShippingAddress(e.target.value)}
+                  placeholder={t('merch.shippingAddress', 'Street address')}
+                  className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                />
+                <div className="flex gap-2">
+                  <input
+                    value={shippingCity}
+                    onChange={(e) => setShippingCity(e.target.value)}
+                    placeholder={t('merch.shippingCity', 'City')}
+                    className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                  />
+                  <input
+                    value={shippingCountry}
+                    onChange={(e) => setShippingCountry(e.target.value)}
+                    placeholder={t('merch.shippingCountry', 'Country')}
+                    className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                  />
+                </div>
+              </div>
+            )}
+
             <div className="mt-5 flex gap-3">
               <button onClick={() => setConfirmProduct(null)} disabled={buyMutation.isPending} className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60">
                 {t('common.cancel')}
               </button>
-              <button onClick={() => buyMutation.mutate(confirmProduct)} disabled={buyMutation.isPending} className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
+              <button
+                onClick={() => shippingComplete && buyMutation.mutate(confirmProduct)}
+                disabled={buyMutation.isPending || !shippingComplete}
+                className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+              >
                 {buyMutation.isPending ? t('merch.buying', 'Buying…') : t('merch.confirmBuy', 'Confirm Buy')}
               </button>
             </div>

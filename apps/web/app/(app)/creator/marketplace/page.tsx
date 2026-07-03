@@ -23,7 +23,7 @@ interface SponsoredQuest {
   description: string;
   targetAction: string;
   rewardCoins: number;
-  creatorPayout: number; // NGN
+  creatorPayout: number; // coins — creator's share of the coin reward pool, not NGN
   status: "open" | "closed" | "full";
   applicantsCount: number;
   maxApplicants: number | null;
@@ -33,18 +33,6 @@ interface SponsoredQuest {
 interface CurrentUser {
   id: string;
   isCreator: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function formatNgn(amount: number): string {
-  return new Intl.NumberFormat("en-NG", {
-    style: "currency",
-    currency: "NGN",
-    maximumFractionDigits: 0,
-  }).format(amount);
 }
 
 // ---------------------------------------------------------------------------
@@ -72,11 +60,17 @@ function QuestSkeleton() {
 // Quest card
 // ---------------------------------------------------------------------------
 
+interface MyRoom {
+  id: string;
+  name: string;
+}
+
 interface QuestCardProps {
   quest: SponsoredQuest;
   onApply: (questId: string) => void;
   applying: string | null;
   applied: Set<string>;
+  canApplyBase: boolean;
 }
 
 const STATUS_BADGE: Record<string, string> = {
@@ -85,10 +79,10 @@ const STATUS_BADGE: Record<string, string> = {
   full: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300",
 };
 
-function QuestCard({ quest, onApply, applying, applied }: QuestCardProps) {
+function QuestCard({ quest, onApply, applying, applied, canApplyBase }: QuestCardProps) {
   const isApplying = applying === quest.id;
   const hasApplied = applied.has(quest.id);
-  const canApply = quest.status === "open" && !hasApplied;
+  const canApply = quest.status === "open" && !hasApplied && canApplyBase;
 
   return (
     <div className="flex flex-col rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900">
@@ -123,7 +117,7 @@ function QuestCard({ quest, onApply, applying, applied }: QuestCardProps) {
         </div>
         <div className="rounded-lg border border-teal-200 bg-teal-50 p-2 text-center dark:border-teal-800 dark:bg-teal-950/30">
           <p className="text-xs text-teal-600 dark:text-teal-400">Creator Payout</p>
-          <p className="font-bold text-teal-700 dark:text-teal-300">{formatNgn(quest.creatorPayout)}</p>
+          <p className="font-bold text-teal-700 dark:text-teal-300">🪙 {quest.creatorPayout.toLocaleString()}</p>
         </div>
       </div>
 
@@ -152,7 +146,15 @@ function QuestCard({ quest, onApply, applying, applied }: QuestCardProps) {
               : "cursor-not-allowed bg-neutral-100 text-neutral-400 dark:bg-neutral-800"
           }`}
         >
-          {isApplying ? "Applying…" : quest.status === "full" ? "Full" : quest.status === "closed" ? "Closed" : "Apply"}
+          {isApplying
+            ? "Applying…"
+            : quest.status === "full"
+              ? "Full"
+              : quest.status === "closed"
+                ? "Closed"
+                : !canApplyBase
+                  ? "Select a Room first"
+                  : "Apply"}
         </button>
       )}
     </div>
@@ -179,6 +181,8 @@ export default function CreatorMarketplacePage() {
   const [applying, setApplying] = useState<string | null>(null);
   const [applied, setApplied] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [myRooms, setMyRooms] = useState<MyRoom[]>([]);
+  const [selectedRoomId, setSelectedRoomId] = useState("");
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type });
@@ -227,6 +231,12 @@ export default function CreatorMarketplacePage() {
           expiresAt: r.deadline,
         })));
         setApplied(new Set(rows.filter((r) => r.user_has_applied).map((r) => r.id)));
+
+        const roomsRes = await fetch(`/api/rooms?creator_id=${me.id}&limit=50`, { credentials: "include" });
+        if (roomsRes.ok) {
+          const roomsBody = (await roomsRes.json()) as { items?: MyRoom[] };
+          setMyRooms(roomsBody.items ?? []);
+        }
       } catch (e) {
         setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       } finally {
@@ -236,11 +246,14 @@ export default function CreatorMarketplacePage() {
   }, []);
 
   async function handleApply(questId: string) {
+    if (!selectedRoomId) return;
     setApplying(questId);
     try {
       const res = await fetch(`/api/creator/sponsored-quests/${questId}/apply`, {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roomId: selectedRoomId }),
       });
       if (!res.ok) {
         const body = (await res.json()) as { error?: { message?: string } };
@@ -313,6 +326,29 @@ export default function CreatorMarketplacePage() {
         </div>
       )}
 
+      {/* Room picker — sponsored quests are applied for on behalf of a specific Room */}
+      {myRooms.length > 0 ? (
+        <div className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+          <label className="mb-1.5 block text-xs font-semibold text-neutral-500">Apply with Room</label>
+          <select
+            value={selectedRoomId}
+            onChange={(e) => setSelectedRoomId(e.target.value)}
+            className="w-full max-w-xs rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-900 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+          >
+            <option value="">Select a Room…</option>
+            {myRooms.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+      ) : (
+        user?.isCreator && (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+            Create a Room first to apply for sponsored quests.
+          </p>
+        )
+      )}
+
       {/* Quests grid */}
       {quests.length === 0 && !error ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-white py-20 dark:border-neutral-800 dark:bg-neutral-900">
@@ -329,6 +365,7 @@ export default function CreatorMarketplacePage() {
               onApply={handleApply}
               applying={applying}
               applied={applied}
+              canApplyBase={!!selectedRoomId}
             />
           ))}
         </div>

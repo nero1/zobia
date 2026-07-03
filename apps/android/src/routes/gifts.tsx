@@ -514,7 +514,12 @@ function GiftsPage() {
                 <span className="text-lg leading-none">✕</span>
               </button>
             </div>
-            <SendGiftPanel onClose={() => setShowModal(false)} onSent={closeModal} preselectedRecipient={preselectedRecipient} />
+            <SendGiftPanel
+              key={preselectedRecipient?.id ?? 'none'}
+              onClose={() => setShowModal(false)}
+              onSent={closeModal}
+              preselectedRecipient={preselectedRecipient}
+            />
           </div>
         </>
       )}

@@ -16,6 +16,12 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/store';
+
+interface MyRoom {
+  id: string;
+  name: string;
+}
 
 interface SponsoredQuestRow {
   id: string;
@@ -32,10 +38,6 @@ interface SponsoredQuestRow {
   user_has_applied: boolean;
 }
 
-function formatNgn(amount: number): string {
-  return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(amount);
-}
-
 function questStatus(q: SponsoredQuestRow): 'open' | 'closed' | 'full' {
   if (!q.is_active || new Date(q.deadline) <= new Date()) return 'closed';
   if (q.application_count >= q.max_applications) return 'full';
@@ -47,16 +49,28 @@ async function fetchQuests(): Promise<SponsoredQuestRow[]> {
   return data?.quests ?? [];
 }
 
+async function fetchMyRooms(userId: string): Promise<MyRoom[]> {
+  const { data } = await apiClient.get<{ items: MyRoom[] }>(`/rooms?creator_id=${userId}&limit=50`);
+  return data?.items ?? [];
+}
+
 function CreatorMarketplacePage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const qc = useQueryClient();
   const [applyingId, setApplyingId] = useState<string | null>(null);
+  const [selectedRoomId, setSelectedRoomId] = useState<string>('');
   const { data: quests, status } = useQuery({ queryKey: ['creator', 'sponsored-quests'], queryFn: fetchQuests });
+  const { data: myRooms } = useQuery({
+    queryKey: ['creator', 'my-rooms', user?.id],
+    queryFn: () => fetchMyRooms(user!.id),
+    enabled: !!user?.id,
+  });
 
   const applyMutation = useMutation({
-    mutationFn: async (questId: string) => {
+    mutationFn: async ({ questId, roomId }: { questId: string; roomId: string }) => {
       setApplyingId(questId);
-      await apiClient.post(`/creator/sponsored-quests/${questId}/apply`);
+      await apiClient.post(`/creator/sponsored-quests/${questId}/apply`, { roomId });
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ['creator', 'sponsored-quests'] }),
     onSettled: () => setApplyingId(null),
@@ -83,6 +97,30 @@ function CreatorMarketplacePage() {
         <p className="mt-0.5 text-sm text-neutral-500">{t('creator.marketplace.subtitle', 'Apply for sponsored quests and earn from brand campaigns.')}</p>
       </div>
 
+      {myRooms && myRooms.length > 0 && (
+        <div className="rounded-xl border border-neutral-200 bg-white p-3">
+          <label className="mb-1 block text-xs font-semibold text-neutral-500">
+            {t('creator.marketplace.roomLabel', 'Apply with Room')}
+          </label>
+          <select
+            value={selectedRoomId}
+            onChange={(e) => setSelectedRoomId(e.target.value)}
+            className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-900"
+          >
+            <option value="">{t('creator.marketplace.roomSelectPrompt', 'Select a Room…')}</option>
+            {myRooms.map((r) => (
+              <option key={r.id} value={r.id}>{r.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {myRooms && myRooms.length === 0 && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          {t('creator.marketplace.noRooms', 'Create a Room first to apply for sponsored quests.')}
+        </p>
+      )}
+
       {!quests || quests.length === 0 ? (
         <div className="flex flex-col items-center rounded-2xl border border-neutral-200 bg-white py-16">
           <span className="text-5xl">📋</span>
@@ -94,7 +132,7 @@ function CreatorMarketplacePage() {
           {quests.map((q) => {
             const status = questStatus(q);
             const applied = q.user_has_applied;
-            const canApply = status === 'open' && !applied;
+            const canApply = status === 'open' && !applied && !!selectedRoomId;
             const creatorPayout = Math.round((q.reward_coins * q.creator_share_percent) / 100);
             return (
               <div key={q.id} className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
@@ -120,7 +158,7 @@ function CreatorMarketplacePage() {
                   </div>
                   <div className="rounded-lg border border-teal-200 bg-teal-50 p-2 text-center">
                     <p className="text-xs text-teal-600">{t('creator.marketplace.creatorPayout', 'Creator Payout')}</p>
-                    <p className="font-bold text-teal-700">{formatNgn(creatorPayout)}</p>
+                    <p className="font-bold text-teal-700">🪙 {creatorPayout.toLocaleString()}</p>
                   </div>
                 </div>
                 <p className="mb-3 text-xs text-neutral-500">{q.application_count} / {q.max_applications} {t('creator.marketplace.applicants', 'applicants')}</p>
@@ -128,11 +166,19 @@ function CreatorMarketplacePage() {
                   <div className="rounded-xl bg-teal-50 py-2 text-center text-sm font-semibold text-teal-700">✓ {t('creator.marketplace.applied', 'Applied')}</div>
                 ) : (
                   <button
-                    onClick={() => canApply && applyMutation.mutate(q.id)}
+                    onClick={() => canApply && applyMutation.mutate({ questId: q.id, roomId: selectedRoomId })}
                     disabled={!canApply || applyingId === q.id}
                     className={`w-full rounded-xl py-2.5 text-sm font-semibold ${canApply ? 'bg-primary-600 text-white disabled:opacity-60' : 'cursor-not-allowed bg-neutral-100 text-neutral-400'}`}
                   >
-                    {applyingId === q.id ? t('creator.marketplace.applying', 'Applying…') : status === 'full' ? t('creator.marketplace.full', 'Full') : status === 'closed' ? t('creator.marketplace.closed', 'Closed') : t('creator.marketplace.apply', 'Apply')}
+                    {applyingId === q.id
+                      ? t('creator.marketplace.applying', 'Applying…')
+                      : status === 'full'
+                        ? t('creator.marketplace.full', 'Full')
+                        : status === 'closed'
+                          ? t('creator.marketplace.closed', 'Closed')
+                          : !selectedRoomId
+                            ? t('creator.marketplace.selectRoomFirst', 'Select a Room first')
+                            : t('creator.marketplace.apply', 'Apply')}
                   </button>
                 )}
               </div>

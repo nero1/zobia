@@ -30,6 +30,7 @@ interface Product {
   priceCoin: number;
   stock: number | null; // null = unlimited
   isSoldOut: boolean;
+  productType: string;
 }
 
 interface MerchStore {
@@ -58,15 +59,28 @@ function ProductSkeleton() {
 // Confirm purchase modal
 // ---------------------------------------------------------------------------
 
+interface ShippingDetails {
+  shippingName: string;
+  shippingAddress: string;
+  shippingCity: string;
+  shippingCountry: string;
+}
+
 interface ConfirmModalProps {
   product: Product;
+  shipping: ShippingDetails;
+  onShippingChange: (shipping: ShippingDetails) => void;
   onConfirm: () => void;
   onCancel: () => void;
   buying: boolean;
 }
 
-function ConfirmModal({ product, onConfirm, onCancel, buying }: ConfirmModalProps) {
+function ConfirmModal({ product, shipping, onShippingChange, onConfirm, onCancel, buying }: ConfirmModalProps) {
   const currency = useCurrency();
+  const isPhysical = product.productType === "physical";
+  const shippingComplete =
+    !isPhysical ||
+    (shipping.shippingName.trim() && shipping.shippingAddress.trim() && shipping.shippingCity.trim() && shipping.shippingCountry.trim());
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-6 shadow-xl dark:border-neutral-800 dark:bg-neutral-900">
@@ -75,6 +89,39 @@ function ConfirmModal({ product, onConfirm, onCancel, buying }: ConfirmModalProp
           You are about to buy <span className="font-semibold text-neutral-900 dark:text-neutral-100">{product.name}</span> for{" "}
           <span className="font-bold text-amber-600">🪙 {product.priceCoin.toLocaleString()} {currency.softPlural.toLowerCase()}</span>.
         </p>
+
+        {isPhysical && (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-semibold text-neutral-500">Shipping Details</p>
+            <input
+              value={shipping.shippingName}
+              onChange={(e) => onShippingChange({ ...shipping, shippingName: e.target.value })}
+              placeholder="Full name"
+              className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            />
+            <input
+              value={shipping.shippingAddress}
+              onChange={(e) => onShippingChange({ ...shipping, shippingAddress: e.target.value })}
+              placeholder="Street address"
+              className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            />
+            <div className="flex gap-2">
+              <input
+                value={shipping.shippingCity}
+                onChange={(e) => onShippingChange({ ...shipping, shippingCity: e.target.value })}
+                placeholder="City"
+                className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              />
+              <input
+                value={shipping.shippingCountry}
+                onChange={(e) => onShippingChange({ ...shipping, shippingCountry: e.target.value })}
+                placeholder="Country"
+                className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              />
+            </div>
+          </div>
+        )}
+
         <div className="mt-5 flex gap-3">
           <button
             onClick={onCancel}
@@ -85,7 +132,7 @@ function ConfirmModal({ product, onConfirm, onCancel, buying }: ConfirmModalProp
           </button>
           <button
             onClick={onConfirm}
-            disabled={buying}
+            disabled={buying || !shippingComplete}
             className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
           >
             {buying ? "Buying…" : "Confirm Buy"}
@@ -170,6 +217,7 @@ export default function CreatorMerchStorePage() {
   const [confirmProduct, setConfirmProduct] = useState<Product | null>(null);
   const [buying, setBuying] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [shipping, setShipping] = useState<ShippingDetails>({ shippingName: "", shippingAddress: "", shippingCity: "", shippingCountry: "" });
 
   function showToast(msg: string, type: "success" | "error" = "success") {
     setToast({ msg, type });
@@ -189,7 +237,7 @@ export default function CreatorMerchStorePage() {
         const json = (await res.json()) as {
           data?: {
             store?: { id: string; creator_id: string; name: string; description: string | null };
-            products?: Array<{ id: string; name: string; description: string | null; image_url: string | null; priceKobo: number; stock: number | null }>;
+            products?: Array<{ id: string; name: string; description: string | null; image_url: string | null; priceKobo: number; stock: number | null; product_type: string }>;
           };
         };
         if (!json.data?.store) { setError("Store not found"); return; }
@@ -206,6 +254,7 @@ export default function CreatorMerchStorePage() {
             priceCoin: Math.ceil(p.priceKobo / 100),
             stock: p.stock,
             isSoldOut: p.stock !== null && p.stock <= 0,
+            productType: p.product_type,
           })),
         });
       } catch (e) {
@@ -220,20 +269,22 @@ export default function CreatorMerchStorePage() {
     if (!confirmProduct) return;
     setBuying(true);
     try {
+      const body = confirmProduct.productType === "physical" ? shipping : {};
       const res = await fetch(`/api/merch/${creatorId}/products/${confirmProduct.id}/purchase`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const body = (await res.json()) as { error?: { code?: string; message?: string } };
-        const err = new Error(body.error?.message ?? "Purchase failed") as Error & { code?: string | null };
-        err.code = body.error?.code ?? null;
+        const errBody = (await res.json()) as { error?: { code?: string; message?: string } };
+        const err = new Error(errBody.error?.message ?? "Purchase failed") as Error & { code?: string | null };
+        err.code = errBody.error?.code ?? null;
         throw err;
       }
       showToast(`You bought ${confirmProduct.name}!`);
       setConfirmProduct(null);
+      setShipping({ shippingName: "", shippingAddress: "", shippingCity: "", shippingCountry: "" });
     } catch (e) {
       const err = e as Error & { code?: string | null };
       showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Purchase failed") : "Purchase failed", "error");
@@ -279,6 +330,8 @@ export default function CreatorMerchStorePage() {
       {confirmProduct && (
         <ConfirmModal
           product={confirmProduct}
+          shipping={shipping}
+          onShippingChange={setShipping}
           onConfirm={handleBuy}
           onCancel={() => setConfirmProduct(null)}
           buying={buying}

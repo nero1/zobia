@@ -4414,6 +4414,83 @@ contract bug.
 Remaining pages (Economy, Prestige, Seasons, Creator, Merch, single
 Gift, Stickers, KYC) and the Admin panel are still not ported.
 
+#### v2.08 — Android user-page parity, Batch 3 (Economy & progression)
+
+Ported: Prestige (`routes/prestige.tsx`), Seasons (`routes/seasons.tsx`),
+Stickers (`routes/stickers.tsx`), the Creator hub (`routes/creator/
+{index,bank-account,broadcasts,marketplace,wallet}.tsx`), Merch
+(`routes/merch/{index,$creatorId}.tsx`), and a KYC screen
+(`routes/kyc.tsx`) that opens the existing web KYC flow in a Custom Tab
+rather than recreating the identity-capture/liveness/AI-review flow
+natively — consistent with this document's existing guidance that KYC
+stays web/PWA territory (§22.0.1). `creator/bank-account.tsx` and
+`creator/wallet.tsx` are read-mostly with a "manage on web" handoff,
+since both are two-phase, PIN/2FA-gated, irreversible-if-wrong payout
+flows not worth a fragile from-scratch native rebuild. There is no
+dedicated `/gift/$userId` Android screen — `zobia://gift/:userId`
+deep links now resolve the target user and preselect them on the
+existing `/gifts` screen (via a new `recipientId`/`username` search
+param), mirroring the web `/gift/[userId]` page's own
+resolve-and-redirect behavior rather than duplicating a screen.
+
+As with the prior two batches, building this surface out surfaced
+several pre-existing contract bugs, all fixed:
+
+- `creator/dashboard` (`GET /api/creator/dashboard`) never returned an
+  `isCreator` flag, so the web Creator dashboard silently redirected
+  real creators away from their own dashboard. Added the flag.
+- The Creator Marketplace page called `/api/quests/sponsored` and
+  `/api/quests/sponsored/:id/apply`, neither of which exists — fixed
+  to the real `/api/creator/sponsored-quests` endpoints. A follow-up
+  fix during review: the apply endpoint requires a `roomId` (a creator
+  applies to run a sponsored quest in one of *their* Rooms) that
+  neither the "fixed" web page nor the new Android page ever
+  collected — every apply attempt 400'd. Added a Room picker to both.
+  Review also caught a unit bug in the same fix: `creatorPayout` was
+  computed in coins (`reward_coins × creator_share_percent ÷ 100`) but
+  displayed via `Intl.NumberFormat(..., {currency:"NGN"})` as if it
+  were Naira — understating the true payout by ~100x. Now displayed as
+  coins, matching the "User Reward" figure beside it.
+- Merch (`/merch`, `/merch/[creatorId]`) called `/api/merch/stores*`,
+  which doesn't exist — fixed to the real `/api/merch` /
+  `/api/merch/:creatorId/products/:id/purchase`. A follow-up fix
+  during review: the purchase endpoint requires shipping fields
+  (`shippingName/Address/City/Country`) for physical products, but
+  neither page ever collected or sent them — buying any physical item
+  always 400'd with digital items unaffected. Added a shipping form to
+  the purchase-confirmation modal on both platforms, gated on the
+  product's `product_type`.
+- `stickers.tsx` posted to `/api/stickers/:packId/unlock`, which
+  doesn't exist — fixed to `POST /api/stickers` with `{packId}`.
+
+Two Android-only issues found in this batch's own new code during
+review, both fixed: `gifts.tsx`'s `SendGiftPanel` seeded its
+`recipient` state from a `preselectedRecipient` prop only on first
+render, so opening a second `zobia://gift/:userId` deep link while the
+Send Gift modal was already open kept sending to the first recipient —
+now keyed by recipient id so a new deep link remounts the panel with
+fresh state.
+
+**Known gap left unfixed (documented in code, not a rename/reshape):**
+`seasons.tsx` omits the milestone reward track and Gift Pass modal
+present on web — the real `GET /pass` endpoint returns `{pass,
+season}`, not the `{milestones, currentXp, hasPaidPass}` shape the web
+page assumes, and there's no bulk milestones-list endpoint to build a
+correct Android version against. This is the same class of "web page
+itself has a contract bug" found elsewhere in this effort, but fixing
+it requires either a new backend endpoint or a larger reshape of the
+existing one — bigger than a targeted fix, left for a follow-up. The
+legacy, unlinked `apps/web/app/(authenticated)/creator/merch/page.tsx`
+(calls a nonexistent API, superseded by `/merch`) was left unported.
+
+`/economy/purchase/callback` (the web-only Paystack/DodoPayments
+redirect landing page) was intentionally not ported — Android
+purchases always go through Google Play Billing (`lib/payments/
+googlePlay.ts`, already built), which has no equivalent redirect step.
+
+Remaining: Message Groups, Room creation, Business/Subscription
+settings, and the Admin panel are still not ported.
+
 ---
 
 *ZobiaSocial PRD v2.05*
