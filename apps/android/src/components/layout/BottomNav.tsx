@@ -5,6 +5,7 @@
  */
 
 import { useNavigate, useRouterState } from '@tanstack/react-router';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
 
 const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
@@ -26,17 +27,18 @@ function TabIcon({ label, isActive }: { label: string; isActive: boolean }) {
 }
 
 export function BottomNav() {
+  const { t } = useTranslation();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const navigate = useNavigate();
   const { user } = useAuth();
 
   const bottomTabItems = [
-    { href: '/home', label: 'Home', shortLabel: 'Home' },
-    { href: '/quests', label: 'Quests', shortLabel: 'Quests' },
-    { href: '/games', label: 'Games', shortLabel: 'Games' },
-    { href: '/friends', label: 'Friends', shortLabel: 'Friends' },
-    { href: '/wallet', label: 'Wallet', shortLabel: 'Wallet' },
-    { href: user?.username ? `/profile/${user.username}` : '/settings', label: 'Profile', shortLabel: 'Profile' },
+    { href: '/home', label: 'Home', shortLabel: t('nav.home') },
+    { href: '/quests', label: 'Quests', shortLabel: t('nav.quests') },
+    { href: '/games', label: 'Games', shortLabel: t('nav.games') },
+    { href: '/friends', label: 'Friends', shortLabel: t('nav.friends') },
+    { href: '/wallet', label: 'Wallet', shortLabel: t('nav.wallet') },
+    { href: user?.username ? `/profile/${user.username}` : '/settings', label: 'Profile', shortLabel: t('nav.profile') },
   ] as const;
 
   return (

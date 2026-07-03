@@ -21,6 +21,7 @@ import { env } from '@/lib/env';
 import { usePresenceHeartbeat } from '@/lib/hooks/usePresenceHeartbeat';
 import { initPushNotifications } from '@/lib/push';
 import { apiClient } from '@/lib/api/client';
+import { useReferralCaptureFromLink } from '@/lib/deeplinks/referral';
 
 // Tab roots that don't show a back button
 const TAB_ROOTS = ['/home', '/games', '/rooms', '/messages', '/notifications', '/settings', '/quests', '/friends', '/wallet'];
@@ -36,6 +37,12 @@ function AppShell() {
 
   // Keeps last_active_at / online status warm app-wide — see usePresenceHeartbeat.ts.
   usePresenceHeartbeat();
+
+  // Captures `?r=CODE` from a shared referral deep link (zobia://... or a
+  // verified https://zobia.org/... App Link) into Preferences so the
+  // onboarding screen can redeem it — was previously defined but never
+  // mounted anywhere (ZB-AND-02 fix).
+  useReferralCaptureFromLink();
 
   // Register for push notifications once the user's identity is established
   // (matches apps/expo/app/_layout.tsx's convention — the token registration
@@ -117,6 +124,7 @@ function AppShell() {
           refreshToken?: string;
           preAuthToken?: string;
           user?: unknown;
+          onboardingCompleted?: boolean;
         };
 
         if (preAuthCode && data.preAuthToken) {
@@ -138,7 +146,12 @@ function AppShell() {
           const userParsed = AuthUserSchema.safeParse(normalizedUser);
           if (userParsed.success) {
             await setAuth(data.accessToken, userParsed.data, data.refreshToken);
-            navigate({ to: '/home', replace: true });
+            // BUG ZB-AND-03 fix: mobile-token's own top-level `onboardingCompleted`
+            // (not a field on the Zod-parsed AuthUser — the shared schema
+            // intentionally excludes it, same contract web/Expo share) decides
+            // whether a brand-new OAuth signup lands on /onboarding first,
+            // mirroring apps/expo/app/auth/login.tsx's identical branch.
+            navigate({ to: data.onboardingCompleted === false ? '/onboarding' : '/home', replace: true });
           } else {
             console.error('[auth] user schema parse failed:', userParsed.error);
           }
@@ -204,6 +217,21 @@ function AppShell() {
           <Outlet />
         </div>
       </div>
+    );
+  }
+
+  // Onboarding is a full-screen, auth-required flow with no TopBar/BottomNav
+  // chrome — same treatment as the public auth screens above, but wrapped in
+  // AuthGuard since it needs a valid token to call POST /api/onboarding/complete.
+  if (pathname === '/onboarding') {
+    return (
+      <AuthGuard>
+        <div className="h-full flex flex-col">
+          <div className="flex-1 overflow-y-auto">
+            <Outlet />
+          </div>
+        </div>
+      </AuthGuard>
     );
   }
 

@@ -11,10 +11,18 @@ on:
       - claude/capacitor-admin-pages-agnq0j
       - claude/android-startup-errors-hvcnx7
   workflow_dispatch:
+    inputs:
+      release:
+        description: 'Build a signed release AAB instead of the debug APK (ZB-AND-13)'
+        type: boolean
+        default: false
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Skip the debug build when this run was manually dispatched to produce a
+    # release artifact instead (see the `release` job below).
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.release) }}
 
     steps:
       - uses: actions/checkout@v4
@@ -57,7 +65,7 @@ jobs:
 
       - name: Build debug APK
         working-directory: apps/android/android
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+        run: ./gradlew assembleDebug --no-daemon --stacktrace -PversionCode=${{ github.run_number }} -PversionName=1.0.${{ github.run_number }}
         env:
           JAVA_HOME: ${{ env.JAVA_HOME }}
 
@@ -67,3 +75,75 @@ jobs:
           name: zobia-debug-${{ github.run_number }}-${{ github.sha }}
           path: apps/android/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
+
+  # ZB-AND-13 fix: the `build` job above force-enables the on-device debug log
+  # overlay (VITE_DEBUG_OVERLAY=1) and has no release-signed path at all, so a
+  # real Play Store upload had no safe build to use. This job is manual-only
+  # (workflow_dispatch with release=true) and produces a signed release AAB
+  # with the overlay off and VITE_APP_ENV=production explicitly set.
+  release:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.release }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js 20.19.4
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20.19.4'
+          cache: 'npm'
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Install dependencies (root workspace)
+        run: npm ci
+
+      - name: Build Vite app + sync Capacitor assets
+        working-directory: apps/android
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          VITE_WEB_BASE_URL: ${{ secrets.VITE_WEB_BASE_URL }}
+          VITE_APP_ENV: production
+          # Explicitly off (not just unset) — see DebugOverlay.tsx's
+          # FORCED_OFF/FORCED_ON logic — so a real store build never ships
+          # with the error/log-export overlay.
+          VITE_DEBUG_OVERLAY: '0'
+
+      - name: Set Gradle permissions
+        working-directory: apps/android/android
+        run: chmod +x gradlew
+
+      - name: Decode release keystore
+        working-directory: apps/android/android
+        run: echo "${{ secrets.ANDROID_KEYSTORE_BASE64 }}" | base64 -d > app/release.keystore
+
+      - name: Build signed release AAB
+        working-directory: apps/android/android
+        run: |
+          ./gradlew bundleRelease --no-daemon --stacktrace \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=1.0.${{ github.run_number }} \
+            -PRELEASE_STORE_FILE=release.keystore \
+            -PRELEASE_STORE_PASSWORD=${{ secrets.ANDROID_KEYSTORE_PASSWORD }} \
+            -PRELEASE_KEY_ALIAS=${{ secrets.ANDROID_KEY_ALIAS }} \
+            -PRELEASE_KEY_PASSWORD=${{ secrets.ANDROID_KEY_PASSWORD }}
+        env:
+          JAVA_HOME: ${{ env.JAVA_HOME }}
+
+      - name: Remove decoded keystore
+        if: always()
+        working-directory: apps/android/android
+        run: rm -f app/release.keystore
+
+      - name: Upload release AAB
+        uses: actions/upload-artifact@v4
+        with:
+          name: zobia-release-${{ github.run_number }}-${{ github.sha }}
+          path: apps/android/android/app/build/outputs/bundle/release/app-release.aab
+          retention-days: 90

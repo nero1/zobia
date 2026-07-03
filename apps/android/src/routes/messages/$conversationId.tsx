@@ -74,7 +74,10 @@ function DmChatPage() {
     poll: async () => {
       const fresh = await fetchMessages(conversationId);
       const prev = qc.getQueryData<Message[]>(queryKey) ?? [];
-      if (fresh.length !== prev.length) {
+      // ZB-AND-14 fix: see routes/rooms/$roomId.tsx — length-only compare
+      // misses a same-length add+remove; also compare the newest id.
+      const changed = fresh.length !== prev.length || fresh[fresh.length - 1]?.id !== prev[prev.length - 1]?.id;
+      if (changed) {
         qc.setQueryData(queryKey, fresh);
         return true;
       }

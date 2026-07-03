@@ -20,14 +20,15 @@
     "build:expo:prod": "cd apps/expo && eas build --platform android --profile production",
     "migrate": "cd apps/web && npx tsx db/migrate.ts",
     "seed": "cd apps/web && npx tsx db/seed.ts",
-    "lint": "npm run lint --workspaces",
-    "typecheck": "npm run typecheck --workspaces",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
     "test": "cd apps/web && npm run test",
     "test:unit": "cd apps/web && npm run test:unit",
+    "test:android": "npm run test --workspace=apps/android",
     "test:e2e": "cd apps/web && npm run test:e2e",
     "test:security": "cd apps/web && npm run test:security",
     "test:load": "cd load-tests && k6 run room-feed.js",
-    "test:all": "cd apps/web && npm run test:all"
+    "test:all": "npm run test:all --workspace=apps/web && npm run test:android"
   },
   "engines": {
     "node": ">=20.0.0"

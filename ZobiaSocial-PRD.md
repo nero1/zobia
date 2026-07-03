@@ -4720,6 +4720,140 @@ already pinned in `apps/web` and `apps/expo`).
 
 ---
 
-*ZobiaSocial PRD v2.06*
+## Appendix: Version 2.07 Change Log
+
+### v2.07 — Changelog
+
+#### Android forensic bug audit — 15 findings fixed (ZB-AND-01 through ZB-AND-15)
+
+A dedicated audit of `apps/android` against web/PWA (the parity source of
+truth) found 15 real, verified gaps — none required architectural change;
+every fix reused a pattern already present elsewhere in the codebase.
+
+1. **Nav chrome was hardcoded English, bypassing i18n entirely** — the
+   6-item bottom tab bar (`BottomNav.tsx`) and 25-item drawer
+   (`TopBar.tsx`) built their labels from plain string literals instead of
+   `t()` calls, so a Hausa/Swahili/etc.-preferring user still saw English
+   everywhere except the rest of the app. Wired both through
+   `useTranslation()` against existing keys where one already matched the
+   concept (`home.title`, `wallet.title`, …) and 17 new `nav.*` keys
+   (added to all 9 locale files) where none did. **The identical gap was
+   found on web's own `components/layout/Navbar.tsx`** — its bottom tab
+   bar, drawer, and profile dropdown were equally hardcoded despite being
+   the audit's own "already correct" baseline — and fixed the same way,
+   including wiring up the `profile.dropdown.*` i18n keys that already
+   existed in every locale file but were never called from anywhere.
+2. **Referral deep-link capture was complete, dead code** — `lib/deeplinks/
+   referral.ts`'s `useReferralCaptureFromLink()` hook was fully
+   implemented but never mounted anywhere in the app (`grep` across
+   `apps/android/src` found it referenced only inside the file that
+   defines it), so every `?r=CODE` referral link opened via the Android
+   app silently failed to attribute. Mounted at the app root
+   (`routes/__root.tsx`'s `AppShell`), mirroring the (discontinued) Expo
+   app's identical call site.
+3. **No onboarding flow existed on Android at all (critical)** — a
+   brand-new Google/Telegram signup was dropped straight onto `/home`
+   with an auto-generated username, no avatar/city, no welcome XP/coins,
+   and any referral code never redeemed. Added `routes/onboarding.tsx` (a
+   single-page condensed version of web's 5-step wizard — username,
+   avatar, display name, city, birth year, and the referral code captured
+   in #2 — same `POST /api/onboarding/complete` contract, no server
+   changes needed) and fixed the OAuth callback in `__root.tsx` to branch
+   on `onboardingCompleted` (already returned top-level by
+   `POST /api/auth/mobile-token`, per `apps/expo/app/auth/login.tsx`'s
+   identical pattern) instead of always navigating to `/home`.
+4. **Auth tokens stored unencrypted with app backup enabled (security)** —
+   `android:allowBackup="true"` with no `dataExtractionRules`/
+   `fullBackupContent` meant `adb backup` (or Android Auto Backup to
+   Google Drive) could extract the JWT/refresh token wholesale from
+   plaintext `SharedPreferences`. Added `res/xml/data_extraction_rules.xml`
+   + `full_backup_content.xml` excluding the Capacitor Preferences
+   storage file from both cloud backup and device transfer.
+5. **Hardcoded `versionCode 1`/`versionName "1.0.0"` would block every
+   future Play Store release** after the first (Google Play rejects any
+   upload whose `versionCode` doesn't strictly increase). Now derived
+   from CI (`-PversionCode=${{ github.run_number }}`), with a safe
+   `hasProperty` fallback for local `./gradlew` runs.
+6. **Games could not actually be played (critical)** — the Play button on
+   the game detail screen had no `onClick` at all, and no
+   `/games/$slug/play` route existed. Wired it to
+   `Browser.open(universalLink('/g/<slug>/play'))`, the same in-app-browser
+   hand-off already used for KYC and Business/Ads, rather than
+   reimplementing every game engine natively.
+7. **Games search fired one API call per keystroke** — no debounce,
+   unlike web's explicit 250ms one. Added the same debounce.
+8. **Adaptive chat poll didn't reliably pause when backgrounded** — relied
+   solely on `visibilitychange`, which a sibling hook in the same
+   directory (`usePresenceHeartbeat.ts`) already documents as unreliable
+   inside a Capacitor WebView. Added a `@capacitor/app` `appStateChange`
+   listener alongside it.
+9. **"Restore Purchases" had no UI entry point** — `restorePurchases()`
+   was fully implemented in `lib/payments/googlePlay.ts` but never
+   imported anywhere. Added a Settings → Account action.
+10. **Zero automated test coverage for the Android app** — added a
+    baseline Vitest suite (13 tests: token-refresh single-flight lock,
+    push-notification route allowlist, referral-capture round-trip) plus
+    an ESLint flat config (the app had none at all, so `npm run lint`
+    from the repo root was silently skipping it).
+11. **Ad impression/click events were unbatched** — one POST per event,
+    unlike web's queue-and-flush pattern. Ported the same approach
+    (`lib/ads/adEventQueue.ts`, using `idb-keyval` + a `@capacitor/app`
+    background-flush trigger instead of `sendBeacon`).
+12. **No pull-to-refresh anywhere in the app (web, PWA, or Android)** —
+    added a dependency-free `components/ui/PullToRefresh.tsx` wrapper
+    (touch-delta gesture, no new native dependency) around Rooms,
+    Moments, Notifications, and Messages.
+13. **The on-device debug log overlay was force-enabled with no
+    release-safe build path** — `.github/workflows/android-build.yml` had
+    only a debug job with `VITE_DEBUG_OVERLAY=1`. Added a manual-only
+    `release` job (`workflow_dispatch` input) producing a signed release
+    AAB with `VITE_APP_ENV=production` and the overlay explicitly off,
+    plus `signingConfigs.release` in `build.gradle` reading from
+    CI-injected Gradle properties (no keystore ever committed).
+14. **Chat poll "did anything change?" used a length-only compare** — a
+    same-length add+remove (e.g. a new message arrives the same moment a
+    moderator removes another) was silently missed. Now also compares the
+    newest message id.
+15. **AdMob config cached forever with no expiry** — unlike every other
+    manifest-driven setting in the app (`useManifest()`'s 5-minute
+    react-query `staleTime`). Replaced the bespoke module-level cache with
+    a `queryClient.fetchQuery()` call against the same cache key.
+
+#### Pre-existing bugs found and fixed during the audit (beyond the 15)
+
+- **Web onboarding's error-response parsing never matched anything.**
+  `app/onboarding/page.tsx`'s submit handler compared `data.error` against
+  string literals (`"age_requirement"`, `"captcha_failed"`,
+  `"username_taken"`), but every API error response is actually shaped
+  `{ error: { code, message, params? } }` per `lib/api/errors.ts` — so
+  none of those branches could ever match, and every onboarding failure
+  (age gate, CAPTCHA, taken username) fell through to
+  `setError(data.error ?? …)`, assigning a raw error *object* into a
+  `string | null` state. Fixed to read `data.error?.code` /
+  `data.error?.message`, and added a `params: { minAge }` payload to the
+  age-gate error so the client can render the server's actual configured
+  minimum age instead of a hardcoded `18` fallback.
+- **The root `npm run lint` script hard-failed instead of completing.**
+  `npm run lint --workspaces` (no `--if-present`) aborts the whole command
+  the moment it hits a workspace without a `lint` script — `shared` never
+  had one (and `apps/android` didn't either, until this change added
+  one), so the command always exited non-zero after linting `apps/web`
+  and `apps/android`/`apps/expo`, never reporting a clean pass. Added
+  `--if-present` so a workspace with no matching script is skipped
+  instead of failing the run.
+- **The root `npm run typecheck` script silently never checked
+  `apps/web` at all.** It runs `npm run typecheck --workspaces`, but
+  `apps/web/package.json`'s equivalent script was named `type-check`
+  (hyphenated) — a different string — so npm workspaces simply had
+  nothing matching `typecheck` to run there, and the command reported
+  success while only ever having typechecked `apps/android`/`apps/expo`.
+  Added a `typecheck` alias script to `apps/web/package.json` (kept
+  `type-check` as-is, since `.github/workflows/integration-tests.yml`
+  calls it by that name directly) so the root command now covers all
+  three workspaces.
+
+---
+
+*ZobiaSocial PRD v2.07*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

@@ -20,7 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { handleApiError, badRequest, conflict } from "@/lib/api/errors";
+import { handleApiError, badRequest, conflict, ApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
 import { verifyCaptcha } from "@/lib/security/captcha";
@@ -149,9 +149,15 @@ export const POST = withAuth(async (req, { params, auth }) => {
 
     const age = calculateAge(body.birth_year, body.birth_month, body.birth_day);
     if (age < minimumAge) {
-      throw badRequest(
+      // params.minAge lets clients render "You must be at least {{age}}..." with
+      // the server's actual configured minimum instead of a hardcoded guess.
+      throw new ApiError(
+        400,
+        "AGE_REQUIREMENT_NOT_MET",
         `You must be at least ${minimumAge} years old to use Zobia Social`,
-        "AGE_REQUIREMENT_NOT_MET"
+        undefined,
+        undefined,
+        { minAge: minimumAge }
       );
     }
 

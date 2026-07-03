@@ -356,18 +356,24 @@ export default function OnboardingPage() {
         }),
       });
 
-      const data = await res.json() as { error?: string; minAge?: number };
+      // API errors are shaped { error: { code, message, params? } } (see
+      // lib/api/errors.ts), not a bare `error` string — comparing `data.error`
+      // directly against string literals here never matched, so every
+      // onboarding failure (age gate, CAPTCHA, taken username) silently fell
+      // through to the generic message. Read the nested `.code` instead.
+      const data = await res.json() as { error?: { code?: string; message?: string; params?: { minAge?: number } } };
 
       if (!res.ok) {
-        if (data.error === "age_requirement") {
-          setError(t("onboarding.error.ageTooYoung", { age: data.minAge ?? 18 }));
-        } else if (data.error === "captcha_failed") {
+        const code = data.error?.code;
+        if (code === "AGE_REQUIREMENT_NOT_MET") {
+          setError(t("onboarding.error.ageTooYoung", { age: data.error?.params?.minAge ?? 18 }));
+        } else if (code === "CAPTCHA_FAILED" || code === "CAPTCHA_REQUIRED") {
           setError(t("onboarding.error.captchaFailed"));
-        } else if (data.error === "username_taken") {
+        } else if (code === "USERNAME_TAKEN") {
           setError(t("onboarding.error.usernameTaken"));
           setStep(1);
         } else {
-          setError(data.error ?? t("onboarding.error.generic"));
+          setError(data.error?.message ?? t("onboarding.error.generic"));
         }
         return;
       }

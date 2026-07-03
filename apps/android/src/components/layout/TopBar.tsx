@@ -21,38 +21,41 @@ interface TopBarProps {
 // href here must correspond to an actual route file under
 // apps/android/src/routes. (guild/guilds/council/community-notes/nemesis
 // below are additions from prior Android batches beyond web's drawer list.)
+// Labels are i18n keys (not literal strings) — resolved via t() at render
+// time so a non-English device language sees a translated drawer, not the
+// key names below (ZB-AND-01 fix).
 const primaryNavItems = [
-  { href: '/home', label: 'Home', icon: '🏠' },
-  { href: '/moments', label: 'Moments', icon: '🎬' },
-  { href: '/answers', label: 'Answers', icon: '❓' },
-  { href: '/quests', label: 'Quests', icon: '🎯' },
-  { href: '/games', label: 'Games', icon: '🎮' },
-  { href: '/blogs', label: 'Blogs', icon: '📝' },
-  { href: '/business', label: 'Business', icon: '🏢' },
-  { href: '/ads', label: 'Ads', icon: '📢' },
-  { href: '/rooms', label: 'Rooms', icon: '🚪' },
-  { href: '/messages', label: 'Messages', icon: '💬' },
-  { href: '/friends', label: 'Friends', icon: '👥' },
-  { href: '/gifts', label: 'Gifts', icon: '🎁' },
-  { href: '/wallet', label: 'Wallet', icon: '🪙' },
-  { href: '/notifications', label: 'Notifications', icon: '🔔' },
-  { href: '/events', label: 'Events', icon: '📅' },
-  { href: '/inbox', label: 'Inbox', icon: '📬' },
-  { href: '/elder', label: 'Elder', icon: '🎓' },
-  { href: '/referrals', label: 'Referrals', icon: '🔗' },
-  { href: '/classroom', label: 'Classroom', icon: '🏫' },
-  { href: '/leaderboards', label: 'Leaderboards', icon: '🏆' },
-  { href: '/seasons', label: 'Seasons', icon: '🗓️' },
-  { href: '/guild', label: 'Guild', icon: '🛡️' },
-  { href: '/guilds', label: 'Browse Guilds', icon: '🏰' },
-  { href: '/council', label: 'Council', icon: '⚖️' },
-  { href: '/community-notes', label: 'Community Notes', icon: '📝' },
-  { href: '/nemesis', label: 'Nemesis', icon: '👻' },
+  { href: '/home', labelKey: 'nav.home', icon: '🏠' },
+  { href: '/moments', labelKey: 'nav.moments', icon: '🎬' },
+  { href: '/answers', labelKey: 'nav.answers', icon: '❓' },
+  { href: '/quests', labelKey: 'nav.quests', icon: '🎯' },
+  { href: '/games', labelKey: 'nav.games', icon: '🎮' },
+  { href: '/blogs', labelKey: 'nav.blogs', icon: '📝' },
+  { href: '/business', labelKey: 'nav.business', icon: '🏢' },
+  { href: '/ads', labelKey: 'nav.ads', icon: '📢' },
+  { href: '/rooms', labelKey: 'nav.rooms', icon: '🚪' },
+  { href: '/messages', labelKey: 'nav.messages', icon: '💬' },
+  { href: '/friends', labelKey: 'nav.friends', icon: '👥' },
+  { href: '/gifts', labelKey: 'nav.gifts', icon: '🎁' },
+  { href: '/wallet', labelKey: 'nav.wallet', icon: '🪙' },
+  { href: '/notifications', labelKey: 'nav.notifications', icon: '🔔' },
+  { href: '/events', labelKey: 'nav.events', icon: '📅' },
+  { href: '/inbox', labelKey: 'nav.inbox', icon: '📬' },
+  { href: '/elder', labelKey: 'nav.elder', icon: '🎓' },
+  { href: '/referrals', labelKey: 'nav.referrals', icon: '🔗' },
+  { href: '/classroom', labelKey: 'nav.classroom', icon: '🏫' },
+  { href: '/leaderboards', labelKey: 'nav.leaderboards', icon: '🏆' },
+  { href: '/seasons', labelKey: 'nav.seasons', icon: '🗓️' },
+  { href: '/guild', labelKey: 'nav.guild', icon: '🛡️' },
+  { href: '/guilds', labelKey: 'nav.guilds', icon: '🏰' },
+  { href: '/council', labelKey: 'nav.council', icon: '⚖️' },
+  { href: '/community-notes', labelKey: 'nav.communityNotes', icon: '📝' },
+  { href: '/nemesis', labelKey: 'nav.nemesis', icon: '👻' },
 ] as const;
 
 const secondaryNavItems = [
-  { href: '/profile', label: 'Profile', icon: '👤' },
-  { href: '/settings', label: 'Settings', icon: '⚙️' },
+  { href: '/profile', labelKey: 'nav.profile', icon: '👤' },
+  { href: '/settings', labelKey: 'nav.settings', icon: '⚙️' },
 ] as const;
 
 export function TopBar({ title, rightActions, showBack }: TopBarProps) {
@@ -92,7 +95,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
           <div className="flex items-center gap-2 min-w-0">
             <button
               type="button"
-              aria-label="Open navigation menu"
+              aria-label={t('nav.openMenu')}
               aria-expanded={drawerOpen}
               onClick={() => setDrawerOpen(true)}
               className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
@@ -126,7 +129,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
           <div className="flex items-center gap-2">
             <Link
               to="/notifications"
-              aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
+              aria-label={unreadCount > 0 ? `${t('notifications.title')}, ${t('notifications.unread', { count: unreadCount })}` : t('notifications.title')}
               className="relative rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
             >
               <span aria-hidden="true" className="text-lg leading-none">🔔</span>
@@ -148,14 +151,14 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
 
       <div
         role="dialog"
-        aria-label="Navigation menu"
+        aria-label={t('nav.userArea')}
         className={`fixed inset-y-0 left-0 z-50 w-72 flex-col bg-white shadow-xl transition-transform duration-300 ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`}
         style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top))' }}
       >
         <button
           type="button"
           onClick={closeDrawer}
-          aria-label="Close menu"
+          aria-label={t('nav.closeMenu')}
           className="absolute right-4 rounded-full p-2 text-neutral-500 hover:bg-neutral-100"
           style={{ top: 'calc(1rem + env(safe-area-inset-top))' }}
         >
@@ -185,7 +188,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                 className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
               >
                 <span className="w-5 text-center text-base leading-none" aria-hidden="true">{item.icon}</span>
-                {item.label}
+                {t(item.labelKey)}
               </Link>
             ))}
           </nav>
@@ -201,7 +204,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                 className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
               >
                 <span className="w-5 text-center text-base leading-none" aria-hidden="true">{item.icon}</span>
-                {item.label}
+                {t(item.labelKey)}
               </Link>
             ))}
           </nav>
@@ -213,7 +216,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
             onClick={handleLogout}
             className="mt-4 w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50"
           >
-            🚪 Log out
+            🚪 {t('nav.logout')}
           </button>
         </div>
       </div>

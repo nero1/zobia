@@ -7,7 +7,9 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
+import { universalLink } from '@/lib/deeplinks/routes';
 import type { GameSummary, GameLeaderboardRow } from '@zobia/shared/types';
 
 async function fetchGame(slug: string) {
@@ -79,7 +81,19 @@ function GameDetailPage() {
           <p className="text-neutral-700 text-sm leading-relaxed mb-4">{game.description}</p>
         )}
 
-        <button className="w-full py-3 bg-primary-600 text-white font-semibold rounded-lg">
+        {/*
+          ZB-AND-06 fix: previously had no onClick at all — tapping Play was a
+          complete no-op since there is no native game engine in this app.
+          Per this project's convention (no webview wrappers except for
+          genuinely complex flows — see routes/kyc.tsx, routes/ads/index.tsx),
+          hand off to the already-built, authenticated web player via a
+          Custom Tab instead of reimplementing every game engine natively.
+        */}
+        <button
+          type="button"
+          onClick={() => void Browser.open({ url: universalLink(`/g/${game.slug}/play`), presentationStyle: 'popover' })}
+          className="w-full py-3 bg-primary-600 text-white font-semibold rounded-lg"
+        >
           {t('android.games.play')}
         </button>
       </div>

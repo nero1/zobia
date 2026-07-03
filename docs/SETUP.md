@@ -150,7 +150,18 @@ Google Play Billing is the **only** in-app purchase mechanism on Android (PRD §
 1. Create the products in **Google Play Console → Monetize → Products**: 6 one-time "in-app products" (`coins_starter`, `coins_regular`, `coins_big`, `coins_baller`, `coins_boss`, `coins_legend`), 4 one-time in-app products (`stars_starter`, `stars_regular`, `stars_big`, `stars_boss`), and 9 subscriptions (`sub_plus_monthly`, `sub_pro_monthly`, `sub_max_monthly`, `sub_plus_annual`, `sub_pro_annual`, `sub_max_annual`, `biz_starter_monthly`, `biz_growth_monthly`, `biz_enterprise_monthly` — group the three `biz_*` products together so purchasing one replaces any currently-owned tier). Prices/amounts must match `apps/android/src/lib/payments/googlePlay.ts` and `apps/web/app/api/economy/iap/verify/route.ts` / `apps/web/app/api/business/iap/verify/route.ts`.
 2. Create a service account with the **Service Account User** role in Play Console → Setup → API access, download its JSON key, and set `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` (see Environment Variables Reference below). Without it, purchases are trusted without verification in development (`NODE_ENV !== "production"`) and rejected outright in production.
 3. Set `GOOGLE_PLAY_PACKAGE_NAME=com.zobiasocial.app` (the Capacitor app's `applicationId`) if it differs from the default.
-4. Build a signed release APK/AAB and upload it to an internal testing track — purchases (even test ones) only work against a package built from the Play Console listing, not a locally-signed debug build.
+4. Build a signed release APK/AAB (see "Capacitor Android CI build" below — **Actions → Android APK Build → Run workflow**, tick `release`) and upload it to an internal testing track — purchases (even test ones) only work against a package built from the Play Console listing, not a locally-signed debug build.
+
+### Capacitor Android CI build (debug + signed release)
+
+`.github/workflows/android-build.yml` builds the Capacitor Android app (not to be confused with the legacy `build-android.yml` Expo/EAS workflow, which only builds the discontinued `apps/expo/`). It has two jobs:
+
+- **`build`** (runs automatically on every push to the branches listed in the workflow, and manually via `workflow_dispatch`) — an unsigned debug APK with `VITE_DEBUG_OVERLAY=1` force-enabled, so on-device errors are visible without a connected debugger. Not suitable for a real Play Store upload.
+- **`release`** (ZB-AND-13 — manual only: **Actions → Android APK Build → Run workflow**, tick the `release` checkbox) — a signed release AAB with `VITE_APP_ENV=production` and `VITE_DEBUG_OVERLAY=0` explicitly set, so the debug overlay never ships in a store build. Requires these repository secrets (Settings → Secrets and variables → Actions), following the same "base64-encoded" convention already used for `google-services.json` elsewhere in this doc:
+  - `ANDROID_KEYSTORE_BASE64` — your upload keystore file, base64-encoded (`base64 -w0 release.keystore`).
+  - `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD` — the keystore's store password, key alias, and key password.
+
+  Without these secrets set, running the `release` job still produces an AAB, but falls back to the debug signing key (see `signingConfigs` in `apps/android/android/app/build.gradle`) — fine for internal testing, not acceptable for a real Play Store upload.
 
 ### Push Notifications (Capacitor Android / FCM)
 

@@ -11,6 +11,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { notificationsQueryKey, useNotificationsQuery, type NotificationsPayload } from '@/lib/notifications/queries';
+import { PullToRefresh } from '@/components/ui/PullToRefresh';
 
 function NotificationsPage() {
   const { t } = useTranslation();
@@ -49,7 +50,7 @@ function NotificationsPage() {
   const unreadCount = data?.unreadCount ?? 0;
 
   return (
-    <div className="h-full overflow-y-auto bg-white">
+    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-white">
       {/* Header action */}
       {unreadCount > 0 && (
         <div className="px-4 py-3 border-b border-neutral-100 flex items-center justify-between">
@@ -115,7 +116,7 @@ function NotificationsPage() {
           </div>
         ))}
       </div>
-    </div>
+    </PullToRefresh>
   );
 }
 

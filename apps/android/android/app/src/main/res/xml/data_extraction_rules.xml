@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 12+ (API 31+) backup/transfer scoping — ZB-AND-04 fix.
+
+  Excludes the SharedPreferences file Capacitor's @capacitor/preferences plugin
+  writes to (default file name "CapacitorStorage") from both cloud backup and
+  device-to-device transfer, since it holds the JWT access token and long-lived
+  refresh token (JWT_KEY/REFRESH_TOKEN_KEY in src/lib/api/client.ts). Without
+  this, `allowBackup="true"` (still needed for normal app-data restore) would
+  let those tokens be extracted via `adb backup`, Android Auto Backup to
+  Google Drive, or device-to-device transfer.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="CapacitorStorage.xml" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="CapacitorStorage.xml" />
+    </device-transfer>
+</data-extraction-rules>

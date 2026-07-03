@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
+import { enqueueAdEvent } from '@/lib/ads/adEventQueue';
 
 interface ServedAd {
   creativeId: string;
@@ -33,14 +34,10 @@ async function fetchAd(placement: string): Promise<ServedAd | null> {
   return data.ad;
 }
 
-async function reportEvent(creativeId: string, placementKey: string, type: 'impression' | 'click') {
-  try {
-    await apiClient.post('/ads/events', {
-      events: [{ creativeId, placementKey, type, clientEventId: `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}` }],
-    });
-  } catch {
-    /* best-effort — a missed impression report is not worth retry complexity on mobile */
-  }
+// ZB-AND-11 fix: was one immediate POST per impression/click; now queued and
+// flushed in batches (see lib/ads/adEventQueue.ts), matching web's pattern.
+function reportEvent(creativeId: string, placementKey: string, type: 'impression' | 'click') {
+  enqueueAdEvent({ creativeId, placementKey, type });
 }
 
 const SIZE_CLASS: Record<string, string> = {

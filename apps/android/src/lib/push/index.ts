@@ -61,7 +61,9 @@ const ACTION_ALIASES: Record<string, string> = {
   '/economy/coins': '/wallet',
 };
 
-function isAllowedRoute(path: string): boolean {
+// Exported for unit testing (see lib/push/__tests__/index.test.ts) — the
+// allowlist itself is the security-relevant surface here.
+export function isAllowedRoute(path: string): boolean {
   return VALID_PUSH_ROUTES.some((re) => re.test(path));
 }
 
