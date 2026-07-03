@@ -284,6 +284,12 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const roomHealthScore = healthRows[0]?.avg_health ?? 100;
 
     const dashboard = {
+      // The web/(app)/creator/page.tsx client (and the Android dashboard) both
+      // gate on this flag. Anyone reaching this point already passed the
+      // is_creator check above, so it's always true here — added because the
+      // client-side check was previously reading an always-undefined field
+      // and silently redirecting real creators away from their own dashboard.
+      isCreator: true,
       revenue: {
         today: sumRevenue(todayRevenue),
         week: sumRevenue(weekRevenue),

@@ -30,16 +30,14 @@ interface Product {
   priceCoin: number;
   stock: number | null; // null = unlimited
   isSoldOut: boolean;
+  productType: string;
 }
 
 interface MerchStore {
   creatorId: string;
   storeName: string;
   description: string | null;
-  creatorUsername: string;
-  creatorAvatarEmoji: string;
   products: Product[];
-  isOwnStore: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -61,15 +59,28 @@ function ProductSkeleton() {
 // Confirm purchase modal
 // ---------------------------------------------------------------------------
 
+interface ShippingDetails {
+  shippingName: string;
+  shippingAddress: string;
+  shippingCity: string;
+  shippingCountry: string;
+}
+
 interface ConfirmModalProps {
   product: Product;
+  shipping: ShippingDetails;
+  onShippingChange: (shipping: ShippingDetails) => void;
   onConfirm: () => void;
   onCancel: () => void;
   buying: boolean;
 }
 
-function ConfirmModal({ product, onConfirm, onCancel, buying }: ConfirmModalProps) {
+function ConfirmModal({ product, shipping, onShippingChange, onConfirm, onCancel, buying }: ConfirmModalProps) {
   const currency = useCurrency();
+  const isPhysical = product.productType === "physical";
+  const shippingComplete =
+    !isPhysical ||
+    (shipping.shippingName.trim() && shipping.shippingAddress.trim() && shipping.shippingCity.trim() && shipping.shippingCountry.trim());
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
       <div className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-6 shadow-xl dark:border-neutral-800 dark:bg-neutral-900">
@@ -78,6 +89,39 @@ function ConfirmModal({ product, onConfirm, onCancel, buying }: ConfirmModalProp
           You are about to buy <span className="font-semibold text-neutral-900 dark:text-neutral-100">{product.name}</span> for{" "}
           <span className="font-bold text-amber-600">🪙 {product.priceCoin.toLocaleString()} {currency.softPlural.toLowerCase()}</span>.
         </p>
+
+        {isPhysical && (
+          <div className="mt-4 space-y-2">
+            <p className="text-xs font-semibold text-neutral-500">Shipping Details</p>
+            <input
+              value={shipping.shippingName}
+              onChange={(e) => onShippingChange({ ...shipping, shippingName: e.target.value })}
+              placeholder="Full name"
+              className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            />
+            <input
+              value={shipping.shippingAddress}
+              onChange={(e) => onShippingChange({ ...shipping, shippingAddress: e.target.value })}
+              placeholder="Street address"
+              className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            />
+            <div className="flex gap-2">
+              <input
+                value={shipping.shippingCity}
+                onChange={(e) => onShippingChange({ ...shipping, shippingCity: e.target.value })}
+                placeholder="City"
+                className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              />
+              <input
+                value={shipping.shippingCountry}
+                onChange={(e) => onShippingChange({ ...shipping, shippingCountry: e.target.value })}
+                placeholder="Country"
+                className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              />
+            </div>
+          </div>
+        )}
+
         <div className="mt-5 flex gap-3">
           <button
             onClick={onCancel}
@@ -88,7 +132,7 @@ function ConfirmModal({ product, onConfirm, onCancel, buying }: ConfirmModalProp
           </button>
           <button
             onClick={onConfirm}
-            disabled={buying}
+            disabled={buying || !shippingComplete}
             className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
           >
             {buying ? "Buying…" : "Confirm Buy"}
@@ -173,6 +217,7 @@ export default function CreatorMerchStorePage() {
   const [confirmProduct, setConfirmProduct] = useState<Product | null>(null);
   const [buying, setBuying] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [shipping, setShipping] = useState<ShippingDetails>({ shippingName: "", shippingAddress: "", shippingCity: "", shippingCountry: "" });
 
   function showToast(msg: string, type: "success" | "error" = "success") {
     setToast({ msg, type });
@@ -182,11 +227,36 @@ export default function CreatorMerchStorePage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`/api/merch/stores/${creatorId}`, { credentials: "include" });
+        // NB: this used to fetch /api/merch/stores/:creatorId, which doesn't
+        // exist — the real per-store endpoint is GET /api/merch/:creatorId
+        // (envelope-wrapped, kobo pricing).
+        const res = await fetch(`/api/merch/${creatorId}`, { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (res.status === 404) { setError("Store not found"); return; }
         if (!res.ok) throw new Error("Failed to load store");
-        setStore((await res.json()) as MerchStore);
+        const json = (await res.json()) as {
+          data?: {
+            store?: { id: string; creator_id: string; name: string; description: string | null };
+            products?: Array<{ id: string; name: string; description: string | null; image_url: string | null; priceKobo: number; stock: number | null; product_type: string }>;
+          };
+        };
+        if (!json.data?.store) { setError("Store not found"); return; }
+        setStore({
+          creatorId: json.data.store.creator_id,
+          storeName: json.data.store.name,
+          description: json.data.store.description,
+          products: (json.data.products ?? []).map((p) => ({
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            imageUrl: p.image_url,
+            imageEmoji: null,
+            priceCoin: Math.ceil(p.priceKobo / 100),
+            stock: p.stock,
+            isSoldOut: p.stock !== null && p.stock <= 0,
+            productType: p.product_type,
+          })),
+        });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       } finally {
@@ -199,18 +269,22 @@ export default function CreatorMerchStorePage() {
     if (!confirmProduct) return;
     setBuying(true);
     try {
-      const res = await fetch(`/api/merch/stores/${creatorId}/products/${confirmProduct.id}/buy`, {
+      const body = confirmProduct.productType === "physical" ? shipping : {};
+      const res = await fetch(`/api/merch/${creatorId}/products/${confirmProduct.id}/purchase`, {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
       });
       if (!res.ok) {
-        const body = (await res.json()) as { error?: { code?: string; message?: string } };
-        const err = new Error(body.error?.message ?? "Purchase failed") as Error & { code?: string | null };
-        err.code = body.error?.code ?? null;
+        const errBody = (await res.json()) as { error?: { code?: string; message?: string } };
+        const err = new Error(errBody.error?.message ?? "Purchase failed") as Error & { code?: string | null };
+        err.code = errBody.error?.code ?? null;
         throw err;
       }
       showToast(`You bought ${confirmProduct.name}!`);
       setConfirmProduct(null);
+      setShipping({ shippingName: "", shippingAddress: "", shippingCity: "", shippingCountry: "" });
     } catch (e) {
       const err = e as Error & { code?: string | null };
       showToast(e instanceof Error ? translateApiError(t, err.code, err.message || "Purchase failed") : "Purchase failed", "error");
@@ -256,6 +330,8 @@ export default function CreatorMerchStorePage() {
       {confirmProduct && (
         <ConfirmModal
           product={confirmProduct}
+          shipping={shipping}
+          onShippingChange={setShipping}
           onConfirm={handleBuy}
           onCancel={() => setConfirmProduct(null)}
           buying={buying}
@@ -266,13 +342,10 @@ export default function CreatorMerchStorePage() {
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">
           <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-neutral-100 text-4xl dark:bg-neutral-800">
-            {store.creatorAvatarEmoji}
+            🛍️
           </span>
           <div>
             <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{store.storeName}</h1>
-            <Link href={`/profile/${store.creatorId}`} className="text-sm text-blue-600 hover:underline dark:text-blue-400">
-              @{store.creatorUsername}
-            </Link>
           </div>
         </div>
         <Link href="/merch" className="shrink-0 text-sm text-neutral-500 hover:underline">← Stores</Link>
@@ -281,27 +354,6 @@ export default function CreatorMerchStorePage() {
       {/* Description */}
       {store.description && (
         <p className="text-sm text-neutral-600 dark:text-neutral-400">{store.description}</p>
-      )}
-
-      {/* Owner settings panel */}
-      {store.isOwnStore && (
-        <div className="rounded-2xl border border-dashed border-blue-300 bg-blue-50 p-4 dark:border-blue-700 dark:bg-blue-950/30">
-          <p className="mb-2 text-sm font-semibold text-blue-700 dark:text-blue-300">Your Store</p>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href={`/merch/${creatorId}/manage`}
-              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              Manage Products
-            </Link>
-            <Link
-              href={`/merch/${creatorId}/settings`}
-              className="rounded-xl border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300"
-            >
-              Store Settings
-            </Link>
-          </div>
-        </div>
       )}
 
       {/* Products */}

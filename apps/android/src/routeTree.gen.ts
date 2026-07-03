@@ -10,13 +10,17 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as WalletRouteImport } from './routes/wallet'
+import { Route as StickersRouteImport } from './routes/stickers'
 import { Route as StatsRouteImport } from './routes/stats'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SeasonsRouteImport } from './routes/seasons'
 import { Route as ReferralsRouteImport } from './routes/referrals'
 import { Route as QuestsRouteImport } from './routes/quests'
+import { Route as PrestigeRouteImport } from './routes/prestige'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as NemesisRouteImport } from './routes/nemesis'
 import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
+import { Route as KycRouteImport } from './routes/kyc'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as GuildRouteImport } from './routes/guild'
@@ -32,8 +36,10 @@ import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as ProfileIndexRouteImport } from './routes/profile/index'
 import { Route as MomentsIndexRouteImport } from './routes/moments/index'
 import { Route as MessagesIndexRouteImport } from './routes/messages/index'
+import { Route as MerchIndexRouteImport } from './routes/merch/index'
 import { Route as GuildsIndexRouteImport } from './routes/guilds/index'
 import { Route as GamesIndexRouteImport } from './routes/games/index'
+import { Route as CreatorIndexRouteImport } from './routes/creator/index'
 import { Route as BusinessIndexRouteImport } from './routes/business/index'
 import { Route as BlogsIndexRouteImport } from './routes/blogs/index'
 import { Route as AnswersIndexRouteImport } from './routes/answers/index'
@@ -42,9 +48,14 @@ import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
 import { Route as MessagesConversationIdRouteImport } from './routes/messages/$conversationId'
+import { Route as MerchCreatorIdRouteImport } from './routes/merch/$creatorId'
 import { Route as GuildsGuildIdRouteImport } from './routes/guilds/$guildId'
 import { Route as GamesSavedRouteImport } from './routes/games/saved'
 import { Route as GamesSlugRouteImport } from './routes/games/$slug'
+import { Route as CreatorWalletRouteImport } from './routes/creator/wallet'
+import { Route as CreatorMarketplaceRouteImport } from './routes/creator/marketplace'
+import { Route as CreatorBroadcastsRouteImport } from './routes/creator/broadcasts'
+import { Route as CreatorBankAccountRouteImport } from './routes/creator/bank-account'
 import { Route as BlogsNewRouteImport } from './routes/blogs/new'
 import { Route as AuthTwoFactorRouteImport } from './routes/auth/two-factor'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
@@ -62,6 +73,11 @@ const WalletRoute = WalletRouteImport.update({
   path: '/wallet',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StickersRoute = StickersRouteImport.update({
+  id: '/stickers',
+  path: '/stickers',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const StatsRoute = StatsRouteImport.update({
   id: '/stats',
   path: '/stats',
@@ -72,6 +88,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SeasonsRoute = SeasonsRouteImport.update({
+  id: '/seasons',
+  path: '/seasons',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ReferralsRoute = ReferralsRouteImport.update({
   id: '/referrals',
   path: '/referrals',
@@ -80,6 +101,11 @@ const ReferralsRoute = ReferralsRouteImport.update({
 const QuestsRoute = QuestsRouteImport.update({
   id: '/quests',
   path: '/quests',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrestigeRoute = PrestigeRouteImport.update({
+  id: '/prestige',
+  path: '/prestige',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NotificationsRoute = NotificationsRouteImport.update({
@@ -95,6 +121,11 @@ const NemesisRoute = NemesisRouteImport.update({
 const LeaderboardsRoute = LeaderboardsRouteImport.update({
   id: '/leaderboards',
   path: '/leaderboards',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const KycRoute = KycRouteImport.update({
+  id: '/kyc',
+  path: '/kyc',
   getParentRoute: () => rootRouteImport,
 } as any)
 const InboxRoute = InboxRouteImport.update({
@@ -172,6 +203,11 @@ const MessagesIndexRoute = MessagesIndexRouteImport.update({
   path: '/messages/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MerchIndexRoute = MerchIndexRouteImport.update({
+  id: '/merch/',
+  path: '/merch/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GuildsIndexRoute = GuildsIndexRouteImport.update({
   id: '/guilds/',
   path: '/guilds/',
@@ -180,6 +216,11 @@ const GuildsIndexRoute = GuildsIndexRouteImport.update({
 const GamesIndexRoute = GamesIndexRouteImport.update({
   id: '/games/',
   path: '/games/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CreatorIndexRoute = CreatorIndexRouteImport.update({
+  id: '/creator/',
+  path: '/creator/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BusinessIndexRoute = BusinessIndexRouteImport.update({
@@ -222,6 +263,11 @@ const MessagesConversationIdRoute = MessagesConversationIdRouteImport.update({
   path: '/messages/$conversationId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MerchCreatorIdRoute = MerchCreatorIdRouteImport.update({
+  id: '/merch/$creatorId',
+  path: '/merch/$creatorId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GuildsGuildIdRoute = GuildsGuildIdRouteImport.update({
   id: '/guilds/$guildId',
   path: '/guilds/$guildId',
@@ -235,6 +281,26 @@ const GamesSavedRoute = GamesSavedRouteImport.update({
 const GamesSlugRoute = GamesSlugRouteImport.update({
   id: '/games/$slug',
   path: '/games/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CreatorWalletRoute = CreatorWalletRouteImport.update({
+  id: '/creator/wallet',
+  path: '/creator/wallet',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CreatorMarketplaceRoute = CreatorMarketplaceRouteImport.update({
+  id: '/creator/marketplace',
+  path: '/creator/marketplace',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CreatorBroadcastsRoute = CreatorBroadcastsRouteImport.update({
+  id: '/creator/broadcasts',
+  path: '/creator/broadcasts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CreatorBankAccountRoute = CreatorBankAccountRouteImport.update({
+  id: '/creator/bank-account',
+  path: '/creator/bank-account',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BlogsNewRoute = BlogsNewRouteImport.update({
@@ -305,13 +371,17 @@ export interface FileRoutesByFullPath {
   '/guild': typeof GuildRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
+  '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
+  '/prestige': typeof PrestigeRoute
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
+  '/seasons': typeof SeasonsRoute
   '/settings': typeof SettingsRoute
   '/stats': typeof StatsRoute
+  '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
@@ -319,9 +389,14 @@ export interface FileRoutesByFullPath {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
   '/blogs/new': typeof BlogsNewRoute
+  '/creator/bank-account': typeof CreatorBankAccountRoute
+  '/creator/broadcasts': typeof CreatorBroadcastsRoute
+  '/creator/marketplace': typeof CreatorMarketplaceRoute
+  '/creator/wallet': typeof CreatorWalletRoute
   '/games/$slug': typeof GamesSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
+  '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -330,8 +405,10 @@ export interface FileRoutesByFullPath {
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
   '/business/': typeof BusinessIndexRoute
+  '/creator/': typeof CreatorIndexRoute
   '/games/': typeof GamesIndexRoute
   '/guilds/': typeof GuildsIndexRoute
+  '/merch/': typeof MerchIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
   '/profile/': typeof ProfileIndexRoute
@@ -354,13 +431,17 @@ export interface FileRoutesByTo {
   '/guild': typeof GuildRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
+  '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
+  '/prestige': typeof PrestigeRoute
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
+  '/seasons': typeof SeasonsRoute
   '/settings': typeof SettingsRoute
   '/stats': typeof StatsRoute
+  '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
@@ -368,9 +449,14 @@ export interface FileRoutesByTo {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
   '/blogs/new': typeof BlogsNewRoute
+  '/creator/bank-account': typeof CreatorBankAccountRoute
+  '/creator/broadcasts': typeof CreatorBroadcastsRoute
+  '/creator/marketplace': typeof CreatorMarketplaceRoute
+  '/creator/wallet': typeof CreatorWalletRoute
   '/games/$slug': typeof GamesSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
+  '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -379,8 +465,10 @@ export interface FileRoutesByTo {
   '/answers': typeof AnswersIndexRoute
   '/blogs': typeof BlogsIndexRoute
   '/business': typeof BusinessIndexRoute
+  '/creator': typeof CreatorIndexRoute
   '/games': typeof GamesIndexRoute
   '/guilds': typeof GuildsIndexRoute
+  '/merch': typeof MerchIndexRoute
   '/messages': typeof MessagesIndexRoute
   '/moments': typeof MomentsIndexRoute
   '/profile': typeof ProfileIndexRoute
@@ -404,13 +492,17 @@ export interface FileRoutesById {
   '/guild': typeof GuildRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
+  '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
+  '/prestige': typeof PrestigeRoute
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
+  '/seasons': typeof SeasonsRoute
   '/settings': typeof SettingsRoute
   '/stats': typeof StatsRoute
+  '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
@@ -418,9 +510,14 @@ export interface FileRoutesById {
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
   '/blogs/new': typeof BlogsNewRoute
+  '/creator/bank-account': typeof CreatorBankAccountRoute
+  '/creator/broadcasts': typeof CreatorBroadcastsRoute
+  '/creator/marketplace': typeof CreatorMarketplaceRoute
+  '/creator/wallet': typeof CreatorWalletRoute
   '/games/$slug': typeof GamesSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
+  '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
@@ -429,8 +526,10 @@ export interface FileRoutesById {
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
   '/business/': typeof BusinessIndexRoute
+  '/creator/': typeof CreatorIndexRoute
   '/games/': typeof GamesIndexRoute
   '/guilds/': typeof GuildsIndexRoute
+  '/merch/': typeof MerchIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
   '/profile/': typeof ProfileIndexRoute
@@ -455,13 +554,17 @@ export interface FileRouteTypes {
     | '/guild'
     | '/home'
     | '/inbox'
+    | '/kyc'
     | '/leaderboards'
     | '/nemesis'
     | '/notifications'
+    | '/prestige'
     | '/quests'
     | '/referrals'
+    | '/seasons'
     | '/settings'
     | '/stats'
+    | '/stickers'
     | '/wallet'
     | '/answers/$questionId'
     | '/answers/ask'
@@ -469,9 +572,14 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/two-factor'
     | '/blogs/new'
+    | '/creator/bank-account'
+    | '/creator/broadcasts'
+    | '/creator/marketplace'
+    | '/creator/wallet'
     | '/games/$slug'
     | '/games/saved'
     | '/guilds/$guildId'
+    | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
     | '/profile/$username'
@@ -480,8 +588,10 @@ export interface FileRouteTypes {
     | '/answers/'
     | '/blogs/'
     | '/business/'
+    | '/creator/'
     | '/games/'
     | '/guilds/'
+    | '/merch/'
     | '/messages/'
     | '/moments/'
     | '/profile/'
@@ -504,13 +614,17 @@ export interface FileRouteTypes {
     | '/guild'
     | '/home'
     | '/inbox'
+    | '/kyc'
     | '/leaderboards'
     | '/nemesis'
     | '/notifications'
+    | '/prestige'
     | '/quests'
     | '/referrals'
+    | '/seasons'
     | '/settings'
     | '/stats'
+    | '/stickers'
     | '/wallet'
     | '/answers/$questionId'
     | '/answers/ask'
@@ -518,9 +632,14 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/two-factor'
     | '/blogs/new'
+    | '/creator/bank-account'
+    | '/creator/broadcasts'
+    | '/creator/marketplace'
+    | '/creator/wallet'
     | '/games/$slug'
     | '/games/saved'
     | '/guilds/$guildId'
+    | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
     | '/profile/$username'
@@ -529,8 +648,10 @@ export interface FileRouteTypes {
     | '/answers'
     | '/blogs'
     | '/business'
+    | '/creator'
     | '/games'
     | '/guilds'
+    | '/merch'
     | '/messages'
     | '/moments'
     | '/profile'
@@ -553,13 +674,17 @@ export interface FileRouteTypes {
     | '/guild'
     | '/home'
     | '/inbox'
+    | '/kyc'
     | '/leaderboards'
     | '/nemesis'
     | '/notifications'
+    | '/prestige'
     | '/quests'
     | '/referrals'
+    | '/seasons'
     | '/settings'
     | '/stats'
+    | '/stickers'
     | '/wallet'
     | '/answers/$questionId'
     | '/answers/ask'
@@ -567,9 +692,14 @@ export interface FileRouteTypes {
     | '/auth/register'
     | '/auth/two-factor'
     | '/blogs/new'
+    | '/creator/bank-account'
+    | '/creator/broadcasts'
+    | '/creator/marketplace'
+    | '/creator/wallet'
     | '/games/$slug'
     | '/games/saved'
     | '/guilds/$guildId'
+    | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
     | '/profile/$username'
@@ -578,8 +708,10 @@ export interface FileRouteTypes {
     | '/answers/'
     | '/blogs/'
     | '/business/'
+    | '/creator/'
     | '/games/'
     | '/guilds/'
+    | '/merch/'
     | '/messages/'
     | '/moments/'
     | '/profile/'
@@ -603,13 +735,17 @@ export interface RootRouteChildren {
   GuildRoute: typeof GuildRoute
   HomeRoute: typeof HomeRoute
   InboxRoute: typeof InboxRoute
+  KycRoute: typeof KycRoute
   LeaderboardsRoute: typeof LeaderboardsRoute
   NemesisRoute: typeof NemesisRoute
   NotificationsRoute: typeof NotificationsRoute
+  PrestigeRoute: typeof PrestigeRoute
   QuestsRoute: typeof QuestsRoute
   ReferralsRoute: typeof ReferralsRoute
+  SeasonsRoute: typeof SeasonsRoute
   SettingsRoute: typeof SettingsRoute
   StatsRoute: typeof StatsRoute
+  StickersRoute: typeof StickersRoute
   WalletRoute: typeof WalletRoute
   AnswersQuestionIdRoute: typeof AnswersQuestionIdRoute
   AnswersAskRoute: typeof AnswersAskRoute
@@ -617,9 +753,14 @@ export interface RootRouteChildren {
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthTwoFactorRoute: typeof AuthTwoFactorRoute
   BlogsNewRoute: typeof BlogsNewRoute
+  CreatorBankAccountRoute: typeof CreatorBankAccountRoute
+  CreatorBroadcastsRoute: typeof CreatorBroadcastsRoute
+  CreatorMarketplaceRoute: typeof CreatorMarketplaceRoute
+  CreatorWalletRoute: typeof CreatorWalletRoute
   GamesSlugRoute: typeof GamesSlugRoute
   GamesSavedRoute: typeof GamesSavedRoute
   GuildsGuildIdRoute: typeof GuildsGuildIdRoute
+  MerchCreatorIdRoute: typeof MerchCreatorIdRoute
   MessagesConversationIdRoute: typeof MessagesConversationIdRoute
   MomentsCreateRoute: typeof MomentsCreateRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
@@ -628,8 +769,10 @@ export interface RootRouteChildren {
   AnswersIndexRoute: typeof AnswersIndexRoute
   BlogsIndexRoute: typeof BlogsIndexRoute
   BusinessIndexRoute: typeof BusinessIndexRoute
+  CreatorIndexRoute: typeof CreatorIndexRoute
   GamesIndexRoute: typeof GamesIndexRoute
   GuildsIndexRoute: typeof GuildsIndexRoute
+  MerchIndexRoute: typeof MerchIndexRoute
   MessagesIndexRoute: typeof MessagesIndexRoute
   MomentsIndexRoute: typeof MomentsIndexRoute
   ProfileIndexRoute: typeof ProfileIndexRoute
@@ -650,6 +793,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WalletRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/stickers': {
+      id: '/stickers'
+      path: '/stickers'
+      fullPath: '/stickers'
+      preLoaderRoute: typeof StickersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/stats': {
       id: '/stats'
       path: '/stats'
@@ -664,6 +814,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/seasons': {
+      id: '/seasons'
+      path: '/seasons'
+      fullPath: '/seasons'
+      preLoaderRoute: typeof SeasonsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/referrals': {
       id: '/referrals'
       path: '/referrals'
@@ -676,6 +833,13 @@ declare module '@tanstack/react-router' {
       path: '/quests'
       fullPath: '/quests'
       preLoaderRoute: typeof QuestsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/prestige': {
+      id: '/prestige'
+      path: '/prestige'
+      fullPath: '/prestige'
+      preLoaderRoute: typeof PrestigeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notifications': {
@@ -697,6 +861,13 @@ declare module '@tanstack/react-router' {
       path: '/leaderboards'
       fullPath: '/leaderboards'
       preLoaderRoute: typeof LeaderboardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/kyc': {
+      id: '/kyc'
+      path: '/kyc'
+      fullPath: '/kyc'
+      preLoaderRoute: typeof KycRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/inbox': {
@@ -804,6 +975,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MessagesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/merch/': {
+      id: '/merch/'
+      path: '/merch'
+      fullPath: '/merch/'
+      preLoaderRoute: typeof MerchIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/guilds/': {
       id: '/guilds/'
       path: '/guilds'
@@ -816,6 +994,13 @@ declare module '@tanstack/react-router' {
       path: '/games'
       fullPath: '/games/'
       preLoaderRoute: typeof GamesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/creator/': {
+      id: '/creator/'
+      path: '/creator'
+      fullPath: '/creator/'
+      preLoaderRoute: typeof CreatorIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/business/': {
@@ -874,6 +1059,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MessagesConversationIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/merch/$creatorId': {
+      id: '/merch/$creatorId'
+      path: '/merch/$creatorId'
+      fullPath: '/merch/$creatorId'
+      preLoaderRoute: typeof MerchCreatorIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/guilds/$guildId': {
       id: '/guilds/$guildId'
       path: '/guilds/$guildId'
@@ -893,6 +1085,34 @@ declare module '@tanstack/react-router' {
       path: '/games/$slug'
       fullPath: '/games/$slug'
       preLoaderRoute: typeof GamesSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/creator/wallet': {
+      id: '/creator/wallet'
+      path: '/creator/wallet'
+      fullPath: '/creator/wallet'
+      preLoaderRoute: typeof CreatorWalletRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/creator/marketplace': {
+      id: '/creator/marketplace'
+      path: '/creator/marketplace'
+      fullPath: '/creator/marketplace'
+      preLoaderRoute: typeof CreatorMarketplaceRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/creator/broadcasts': {
+      id: '/creator/broadcasts'
+      path: '/creator/broadcasts'
+      fullPath: '/creator/broadcasts'
+      preLoaderRoute: typeof CreatorBroadcastsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/creator/bank-account': {
+      id: '/creator/bank-account'
+      path: '/creator/bank-account'
+      fullPath: '/creator/bank-account'
+      preLoaderRoute: typeof CreatorBankAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/blogs/new': {
@@ -987,13 +1207,17 @@ const rootRouteChildren: RootRouteChildren = {
   GuildRoute: GuildRoute,
   HomeRoute: HomeRoute,
   InboxRoute: InboxRoute,
+  KycRoute: KycRoute,
   LeaderboardsRoute: LeaderboardsRoute,
   NemesisRoute: NemesisRoute,
   NotificationsRoute: NotificationsRoute,
+  PrestigeRoute: PrestigeRoute,
   QuestsRoute: QuestsRoute,
   ReferralsRoute: ReferralsRoute,
+  SeasonsRoute: SeasonsRoute,
   SettingsRoute: SettingsRoute,
   StatsRoute: StatsRoute,
+  StickersRoute: StickersRoute,
   WalletRoute: WalletRoute,
   AnswersQuestionIdRoute: AnswersQuestionIdRoute,
   AnswersAskRoute: AnswersAskRoute,
@@ -1001,9 +1225,14 @@ const rootRouteChildren: RootRouteChildren = {
   AuthRegisterRoute: AuthRegisterRoute,
   AuthTwoFactorRoute: AuthTwoFactorRoute,
   BlogsNewRoute: BlogsNewRoute,
+  CreatorBankAccountRoute: CreatorBankAccountRoute,
+  CreatorBroadcastsRoute: CreatorBroadcastsRoute,
+  CreatorMarketplaceRoute: CreatorMarketplaceRoute,
+  CreatorWalletRoute: CreatorWalletRoute,
   GamesSlugRoute: GamesSlugRoute,
   GamesSavedRoute: GamesSavedRoute,
   GuildsGuildIdRoute: GuildsGuildIdRoute,
+  MerchCreatorIdRoute: MerchCreatorIdRoute,
   MessagesConversationIdRoute: MessagesConversationIdRoute,
   MomentsCreateRoute: MomentsCreateRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
@@ -1012,8 +1241,10 @@ const rootRouteChildren: RootRouteChildren = {
   AnswersIndexRoute: AnswersIndexRoute,
   BlogsIndexRoute: BlogsIndexRoute,
   BusinessIndexRoute: BusinessIndexRoute,
+  CreatorIndexRoute: CreatorIndexRoute,
   GamesIndexRoute: GamesIndexRoute,
   GuildsIndexRoute: GuildsIndexRoute,
+  MerchIndexRoute: MerchIndexRoute,
   MessagesIndexRoute: MessagesIndexRoute,
   MomentsIndexRoute: MomentsIndexRoute,
   ProfileIndexRoute: ProfileIndexRoute,

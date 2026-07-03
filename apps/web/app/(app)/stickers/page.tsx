@@ -185,14 +185,19 @@ export default function StickersPage() {
   async function handleUnlock(packId: string) {
     setUnlockingId(packId);
     try {
-      const res = await fetch(`/api/stickers/${packId}/unlock`, {
+      // NB: this used to fetch /api/stickers/:packId/unlock, which doesn't
+      // exist — the real unlock endpoint is POST /api/stickers with the
+      // pack id in the body (apps/web/app/api/stickers/route.ts).
+      const res = await fetch(`/api/stickers`, {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ packId }),
       });
       if (!res.ok) {
-        const d = (await res.json()) as { message?: string; code?: string };
-        const err = new Error(d.message ?? "Failed to unlock") as Error & { code?: string | null };
-        err.code = d.code ?? null;
+        const d = (await res.json()) as { error?: { code?: string; message?: string } };
+        const err = new Error(d.error?.message ?? "Failed to unlock") as Error & { code?: string | null };
+        err.code = d.error?.code ?? null;
         throw err;
       }
       setPacks((prev) => prev.map((p) => (p.id === packId ? { ...p, owned: true } : p)));
