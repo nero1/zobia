@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { useCurrency, type CurrencyNames } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { RANK_COLORS } from "@/lib/xp/rankColors";
+import RewardedAdButton from "@/components/ads/RewardedAdButton";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -883,6 +884,15 @@ function WalletContent() {
       {rank && <RankBadgesSummary rank={rank} />}
 
       {data.earnings && <EarningsSection earnings={data.earnings} />}
+
+      {(data.balance.plan ?? data.activePlan ?? "free") === "free" || (data.balance.plan ?? data.activePlan) === "plus" ? (
+        <RewardedAdButton
+          onRewarded={(coinsAwarded) => {
+            setData((prev) => ({ ...prev, balance: { ...prev.balance, coins: prev.balance.coins + coinsAwarded } }));
+            showToast(`+${coinsAwarded} ${currency.softPlural.toLowerCase()} earned!`);
+          }}
+        />
+      ) : null}
 
       {transferRecipientId && (
         <CoinTransferPanel

@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { Link, useRouter } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
+import { useUnreadNotificationsCount } from '@/lib/notifications/queries';
 
 interface TopBarProps {
   title: string;
@@ -58,6 +59,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
   const { t } = useTranslation();
   const router = useRouter();
   const { clearAuth } = useAuth();
+  const unreadCount = useUnreadNotificationsCount();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const closeDrawer = () => setDrawerOpen(false);
@@ -123,10 +125,16 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
           <div className="flex items-center gap-2">
             <Link
               to="/notifications"
-              aria-label="Notifications"
+              aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : 'Notifications'}
               className="relative rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
             >
               <span aria-hidden="true" className="text-lg leading-none">🔔</span>
+              {unreadCount > 0 && (
+                <span
+                  aria-hidden="true"
+                  className="absolute top-1 right-1 flex h-2.5 w-2.5 items-center justify-center rounded-full bg-red-500 ring-2 ring-white"
+                />
+              )}
             </Link>
             {rightActions}
           </div>

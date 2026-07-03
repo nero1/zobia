@@ -17,6 +17,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
+import { useUnreadNotificationsCount } from "@/lib/notifications/useUnreadCount";
 
 interface NavUser {
   display_name: string | null;
@@ -465,6 +466,7 @@ export function Navbar() {
   const router = useRouter();
   const navUser = useNavUser();
   const displayName = navUser?.display_name ?? navUser?.username ?? "User";
+  const unreadCount = useUnreadNotificationsCount();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Ref so touch handlers always see the latest open state without re-registering
@@ -604,10 +606,16 @@ export function Navbar() {
             )}
             <Link
               href="/notifications"
-              aria-label="Notifications"
+              aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
               className="relative rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
             >
               <span aria-hidden="true" className="text-lg leading-none">🔔</span>
+              {unreadCount > 0 && (
+                <span
+                  aria-hidden="true"
+                  className="absolute top-1 right-1 flex h-2.5 w-2.5 items-center justify-center rounded-full bg-red-500 ring-2 ring-white dark:ring-neutral-900"
+                />
+              )}
             </Link>
             <ProfileDropdown user={navUser} onLogout={handleLogout} />
           </div>

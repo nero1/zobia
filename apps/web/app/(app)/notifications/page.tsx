@@ -13,7 +13,9 @@
 
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { notificationsQueryKey } from "@/lib/notifications/useUnreadCount";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -281,6 +283,7 @@ const PAGE_SIZE = 20;
 
 export default function NotificationsPage() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;
@@ -353,6 +356,7 @@ export default function NotificationsPage() {
       setNotifications((prev) =>
         prev.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() }))
       );
+      queryClient.setQueryData(notificationsQueryKey, 0);
     } catch {
       // Ignore
     } finally {

@@ -4,7 +4,8 @@
  * App bootstrap:
  * 1. i18n init
  * 2. Auth store
- * 3. PersistQueryClientProvider
+ * 3. QueryClientProvider (per-query IndexedDB persister — see lib/query/client.ts,
+ *    no PersistQueryClientProvider wrapper needed for that pattern)
  * 4. TanStack Router
  * 5. Capacitor SplashScreen.hide() after mount
  */
