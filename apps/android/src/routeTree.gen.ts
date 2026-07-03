@@ -63,6 +63,13 @@ import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
 import { Route as AnswersAskRouteImport } from './routes/answers/ask'
 import { Route as AnswersQuestionIdRouteImport } from './routes/answers/$questionId'
+import { Route as AdminUsersRouteImport } from './routes/admin/users'
+import { Route as AdminModerationRouteImport } from './routes/admin/moderation'
+import { Route as AdminForumRouteImport } from './routes/admin/forum'
+import { Route as AdminCommunityNotesRouteImport } from './routes/admin/community-notes'
+import { Route as AdminAutomatedActionsRouteImport } from './routes/admin/automated-actions'
+import { Route as AdminAlertsRouteImport } from './routes/admin/alerts'
+import { Route as AdminActionsLogRouteImport } from './routes/admin/actions-log'
 import { Route as BusinessPagesIndexRouteImport } from './routes/business/pages/index'
 import { Route as BusinessAdsIndexRouteImport } from './routes/business/ads/index'
 import { Route as BlogsSlugIndexRouteImport } from './routes/blogs/$slug/index'
@@ -339,6 +346,41 @@ const AnswersQuestionIdRoute = AnswersQuestionIdRouteImport.update({
   path: '/answers/$questionId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminUsersRoute = AdminUsersRouteImport.update({
+  id: '/admin/users',
+  path: '/admin/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminModerationRoute = AdminModerationRouteImport.update({
+  id: '/admin/moderation',
+  path: '/admin/moderation',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminForumRoute = AdminForumRouteImport.update({
+  id: '/admin/forum',
+  path: '/admin/forum',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminCommunityNotesRoute = AdminCommunityNotesRouteImport.update({
+  id: '/admin/community-notes',
+  path: '/admin/community-notes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAutomatedActionsRoute = AdminAutomatedActionsRouteImport.update({
+  id: '/admin/automated-actions',
+  path: '/admin/automated-actions',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAlertsRoute = AdminAlertsRouteImport.update({
+  id: '/admin/alerts',
+  path: '/admin/alerts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminActionsLogRoute = AdminActionsLogRouteImport.update({
+  id: '/admin/actions-log',
+  path: '/admin/actions-log',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BusinessPagesIndexRoute = BusinessPagesIndexRouteImport.update({
   id: '/business/pages/',
   path: '/business/pages/',
@@ -389,6 +431,13 @@ export interface FileRoutesByFullPath {
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
+  '/admin/actions-log': typeof AdminActionsLogRoute
+  '/admin/alerts': typeof AdminAlertsRoute
+  '/admin/automated-actions': typeof AdminAutomatedActionsRoute
+  '/admin/community-notes': typeof AdminCommunityNotesRoute
+  '/admin/forum': typeof AdminForumRoute
+  '/admin/moderation': typeof AdminModerationRoute
+  '/admin/users': typeof AdminUsersRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
@@ -450,6 +499,13 @@ export interface FileRoutesByTo {
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
+  '/admin/actions-log': typeof AdminActionsLogRoute
+  '/admin/alerts': typeof AdminAlertsRoute
+  '/admin/automated-actions': typeof AdminAutomatedActionsRoute
+  '/admin/community-notes': typeof AdminCommunityNotesRoute
+  '/admin/forum': typeof AdminForumRoute
+  '/admin/moderation': typeof AdminModerationRoute
+  '/admin/users': typeof AdminUsersRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
@@ -512,6 +568,13 @@ export interface FileRoutesById {
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
+  '/admin/actions-log': typeof AdminActionsLogRoute
+  '/admin/alerts': typeof AdminAlertsRoute
+  '/admin/automated-actions': typeof AdminAutomatedActionsRoute
+  '/admin/community-notes': typeof AdminCommunityNotesRoute
+  '/admin/forum': typeof AdminForumRoute
+  '/admin/moderation': typeof AdminModerationRoute
+  '/admin/users': typeof AdminUsersRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
   '/answers/ask': typeof AnswersAskRoute
   '/auth/login': typeof AuthLoginRoute
@@ -575,6 +638,13 @@ export interface FileRouteTypes {
     | '/stats'
     | '/stickers'
     | '/wallet'
+    | '/admin/actions-log'
+    | '/admin/alerts'
+    | '/admin/automated-actions'
+    | '/admin/community-notes'
+    | '/admin/forum'
+    | '/admin/moderation'
+    | '/admin/users'
     | '/answers/$questionId'
     | '/answers/ask'
     | '/auth/login'
@@ -636,6 +706,13 @@ export interface FileRouteTypes {
     | '/stats'
     | '/stickers'
     | '/wallet'
+    | '/admin/actions-log'
+    | '/admin/alerts'
+    | '/admin/automated-actions'
+    | '/admin/community-notes'
+    | '/admin/forum'
+    | '/admin/moderation'
+    | '/admin/users'
     | '/answers/$questionId'
     | '/answers/ask'
     | '/auth/login'
@@ -697,6 +774,13 @@ export interface FileRouteTypes {
     | '/stats'
     | '/stickers'
     | '/wallet'
+    | '/admin/actions-log'
+    | '/admin/alerts'
+    | '/admin/automated-actions'
+    | '/admin/community-notes'
+    | '/admin/forum'
+    | '/admin/moderation'
+    | '/admin/users'
     | '/answers/$questionId'
     | '/answers/ask'
     | '/auth/login'
@@ -759,6 +843,13 @@ export interface RootRouteChildren {
   StatsRoute: typeof StatsRoute
   StickersRoute: typeof StickersRoute
   WalletRoute: typeof WalletRoute
+  AdminActionsLogRoute: typeof AdminActionsLogRoute
+  AdminAlertsRoute: typeof AdminAlertsRoute
+  AdminAutomatedActionsRoute: typeof AdminAutomatedActionsRoute
+  AdminCommunityNotesRoute: typeof AdminCommunityNotesRoute
+  AdminForumRoute: typeof AdminForumRoute
+  AdminModerationRoute: typeof AdminModerationRoute
+  AdminUsersRoute: typeof AdminUsersRoute
   AnswersQuestionIdRoute: typeof AnswersQuestionIdRoute
   AnswersAskRoute: typeof AnswersAskRoute
   AuthLoginRoute: typeof AuthLoginRoute
@@ -1177,6 +1268,55 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AnswersQuestionIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/users': {
+      id: '/admin/users'
+      path: '/admin/users'
+      fullPath: '/admin/users'
+      preLoaderRoute: typeof AdminUsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/moderation': {
+      id: '/admin/moderation'
+      path: '/admin/moderation'
+      fullPath: '/admin/moderation'
+      preLoaderRoute: typeof AdminModerationRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/forum': {
+      id: '/admin/forum'
+      path: '/admin/forum'
+      fullPath: '/admin/forum'
+      preLoaderRoute: typeof AdminForumRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/community-notes': {
+      id: '/admin/community-notes'
+      path: '/admin/community-notes'
+      fullPath: '/admin/community-notes'
+      preLoaderRoute: typeof AdminCommunityNotesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/automated-actions': {
+      id: '/admin/automated-actions'
+      path: '/admin/automated-actions'
+      fullPath: '/admin/automated-actions'
+      preLoaderRoute: typeof AdminAutomatedActionsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/alerts': {
+      id: '/admin/alerts'
+      path: '/admin/alerts'
+      fullPath: '/admin/alerts'
+      preLoaderRoute: typeof AdminAlertsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/actions-log': {
+      id: '/admin/actions-log'
+      path: '/admin/actions-log'
+      fullPath: '/admin/actions-log'
+      preLoaderRoute: typeof AdminActionsLogRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/business/pages/': {
       id: '/business/pages/'
       path: '/business/pages'
@@ -1239,6 +1379,13 @@ const rootRouteChildren: RootRouteChildren = {
   StatsRoute: StatsRoute,
   StickersRoute: StickersRoute,
   WalletRoute: WalletRoute,
+  AdminActionsLogRoute: AdminActionsLogRoute,
+  AdminAlertsRoute: AdminAlertsRoute,
+  AdminAutomatedActionsRoute: AdminAutomatedActionsRoute,
+  AdminCommunityNotesRoute: AdminCommunityNotesRoute,
+  AdminForumRoute: AdminForumRoute,
+  AdminModerationRoute: AdminModerationRoute,
+  AdminUsersRoute: AdminUsersRoute,
   AnswersQuestionIdRoute: AnswersQuestionIdRoute,
   AnswersAskRoute: AnswersAskRoute,
   AuthLoginRoute: AuthLoginRoute,

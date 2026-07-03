@@ -256,6 +256,22 @@ export const adminInputClass =
   'w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm text-neutral-900 placeholder:text-neutral-400 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500';
 
 // ---------------------------------------------------------------------------
+// Toast — mirrors routes/classroom.tsx's fixed bottom-right toast pattern
+// ---------------------------------------------------------------------------
+
+export function AdminToast({ message, type = 'success' }: { message: string; type?: 'success' | 'error' }) {
+  return (
+    <div
+      className={`fixed bottom-6 right-6 z-[60] rounded-xl px-4 py-3 text-sm font-medium text-white shadow-modal ${
+        type === 'success' ? 'bg-success-600' : 'bg-danger-600'
+      }`}
+    >
+      {message}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Formatting helpers
 // ---------------------------------------------------------------------------
 
