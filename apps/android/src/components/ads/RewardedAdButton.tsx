@@ -47,6 +47,19 @@ export default function RewardedAdButton({ onRewarded }: { onRewarded?: (coinsAw
     });
   }, []);
 
+  // Re-validate the cap-hint date periodically so a UTC-midnight rollover
+  // while the Wallet screen stays mounted un-caps the button without
+  // requiring a navigate-away/back or reload.
+  useEffect(() => {
+    if (phase !== 'capped') return;
+    const interval = setInterval(() => {
+      Preferences.get({ key: CAP_HINT_KEY }).then(({ value }) => {
+        if (value !== todayUTC()) setPhase('idle');
+      });
+    }, 5 * 60_000);
+    return () => clearInterval(interval);
+  }, [phase]);
+
   async function handleWatch() {
     setPhase('loading');
     setError(null);

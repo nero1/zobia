@@ -25,9 +25,14 @@ function NotificationsPage() {
       qc.setQueryData<NotificationsPayload>(notificationsQueryKey, (prev) => {
         if (!prev) return prev;
         const idSet = new Set(ids);
-        const updated = prev.notifications.map((n) => (idSet.has(n.id) ? { ...n, isRead: true } : n));
-        const unreadCount = updated.filter((n) => !n.isRead).length;
-        return { notifications: updated, unreadCount };
+        let newlyRead = 0;
+        const updated = prev.notifications.map((n) => {
+          if (idSet.has(n.id) && !n.isRead) newlyRead++;
+          return idSet.has(n.id) ? { ...n, isRead: true } : n;
+        });
+        // Decrement server-truth unreadCount rather than recomputing from the
+        // loaded page — the full unread set can extend beyond what's fetched.
+        return { notifications: updated, unreadCount: Math.max(0, prev.unreadCount - newlyRead) };
       });
     },
   });

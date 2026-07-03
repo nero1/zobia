@@ -4491,6 +4491,92 @@ googlePlay.ts`, already built), which has no equivalent redirect step.
 Remaining: Message Groups, Room creation, Business/Subscription
 settings, and the Admin panel are still not ported.
 
+#### v2.09 — Notifications, Rewarded Ads, and a full Android bug audit (final batch of the user-page parity effort)
+
+This batch closes out the user-facing phase: rather than a new page,
+it wires up in-app notifications and advert slots properly across
+both platforms, and audits the entire pre-existing `apps/android`
+codebase (not just the pages added in v2.06–v2.08) for the same class
+of contract bugs found repeatedly in prior batches.
+
+**Notifications:**
+- `POST /api/notifications/read` (mark specific ids read) never
+  existed server-side, even though it was already assumed to by the
+  Android notifications page's file header — every per-item mark-read
+  tap 404'd. Added the route (`user_id`-scoped `UPDATE`, matching the
+  existing `read-all` route's authorization pattern).
+- Neither platform showed an unread-count badge on the notification
+  bell — a genuine gap, not an Android-catch-up item. Added a small
+  red-dot badge to both `apps/web/components/layout/Navbar.tsx` and
+  `apps/android/src/components/layout/TopBar.tsx`, backed by a shared
+  TanStack Query cache entry (`apps/android/src/lib/notifications/
+  queries.ts`, `apps/web/lib/notifications/useUnreadCount.ts`) so the
+  badge and the notifications list page read from the same fetch
+  rather than polling independently — consistent with this project's
+  "minimize Redis/backend calls" constraint.
+- Web's notifications page had no per-item mark-read handler at all
+  (only "mark all") — added one, wired to the new `/read` endpoint,
+  with optimistic UI and a revert-on-failure path.
+- Web's "mark all read" applied its optimistic UI unconditionally
+  without checking the response was actually successful — a failed
+  request (expired session, 5xx) left the user believing everything
+  was cleared when nothing happened server-side. Fixed to bail out on
+  a non-2xx response.
+- Android's per-item mark-read handler recomputed the badge count by
+  filtering only the currently-loaded page of notifications, silently
+  undercounting whenever more unread notifications existed outside the
+  fetched window. Fixed to decrement the server-supplied `unreadCount`
+  instead.
+- `apps/android/src/lib/push/index.ts`'s `VALID_PUSH_ROUTES` allowlist
+  was missing `/home`, `/nemesis`, `/friends`, `/guilds`, `/inbox`,
+  `/seasons`, and `/council` — all routes the backend's re-engagement
+  and daily-notify jobs actually send as push `action` payloads, and
+  all of which now have real Android screens (post v2.06–v2.08). Taps
+  on those notification types previously silently no-opped; added them
+  plus an alias map for two non-path action tokens the backend sends
+  (`open_council`, `/economy/coins`).
+
+**Rewarded Ads:** `components/ads/RewardedAdButton.tsx` (web) and the
+`POST /api/economy/rewards/ad-reward` endpoint it targets were fully
+built but never rendered anywhere on either platform — a real,
+PRD-specified feature (§17, §3 Plans table: free/Plus users can watch
+a rewarded ad and earn Credits, capped per day) sitting completely
+unused. Wired a "Watch an ad, earn Credits" button into the Wallet
+page on both platforms. Android drives the native AdMob rewarded unit
+(`lib/ads/admob.ts`'s existing `showRewarded()`) rather than web's
+in-house "watch for N seconds" placement, then claims through the same
+endpoint; on a 429 (daily cap reached) it caches the cap-reached state
+locally for the rest of the UTC day, mirroring the Expo app's MMKV cap
+hint (a pattern already described in an earlier bug-fix entry in this
+document) — including re-validating that cached date periodically so
+the button un-caps itself if the Wallet screen stays open across a UTC
+midnight rollover, rather than requiring a navigate-away/back.
+
+Fixed while wiring the gating logic (free/Plus plans only see the
+button): the web Wallet page parsed `GET /api/economy/subscriptions`'s
+response as `{data: {plan, subscription}}`, but the route actually
+returns `{currentSubscription: {plan, ...} | null, availablePlans}`
+with no `data` wrapper — `activePlan` was always `undefined` from this
+call and silently fell back to the balance endpoint's plan field. Also
+simplified a confusing double-fallback condition
+(`(A??B??"free")==="free" || (A??B)==="plus"`, which was always true
+whenever both `A` and `B` were `undefined`) into a single unified
+plan-derivation check.
+
+**Bug audit of pre-existing Android code:** `__root.tsx`, `TopBar.tsx`,
+and `BottomNav.tsx` were read end-to-end — every nav href resolves to
+a real route file, no dead links found. Nine older route files
+(`home.tsx`, `rooms/index.tsx`, `messages/index.tsx`,
+`business/index.tsx`, `settings.tsx`, `moments/index.tsx`,
+`quests.tsx`, `friends.tsx`, `games/index.tsx`) had every `apiClient`
+call cross-checked against the real backend route tree — all clean.
+Confirmed the offline-persistence story is real, not dead
+infrastructure: `apps/android/src/lib/query/client.ts` wires a
+per-query IndexedDB persister (`idb-keyval`) as the default TanStack
+Query `queries.persister`, consumed via a plain `QueryClientProvider`
+in `main.tsx` (a stale comment there referencing
+`PersistQueryClientProvider`, which isn't actually used, was fixed).
+
 ---
 
 *ZobiaSocial PRD v2.05*
