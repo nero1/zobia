@@ -65,13 +65,18 @@ function toLocalDatetimeValue(isoOrOffset: string | number): string {
 function defaultFormData(): FlashXpFormData {
   const ONE_HOUR = 60 * 60 * 1000;
   const SIX_HOURS = 6 * ONE_HOUR;
-  const EIGHT_HOURS = 8 * ONE_HOUR;
+  const SEVEN_HOURS = 7 * ONE_HOUR;
+  const NINE_HOURS = 9 * ONE_HOUR;
+  // BUG FIX: fires_at must be >= 6h after announced_at (PRD §2.4, enforced
+  // server-side in api/admin/flash-xp/route.ts). The old defaults were
+  // announced_at=+1h / fires_at=+6h — only a 5h gap — so the prefilled form
+  // 400'd on submit unless the admin manually widened the gap.
   return {
     name: "",
     description: "",
     announced_at: toLocalDatetimeValue(ONE_HOUR),
-    fires_at: toLocalDatetimeValue(SIX_HOURS),
-    ends_at: toLocalDatetimeValue(EIGHT_HOURS),
+    fires_at: toLocalDatetimeValue(SEVEN_HOURS),
+    ends_at: toLocalDatetimeValue(NINE_HOURS),
     multiplier: 2.0,
   };
 }
@@ -162,7 +167,11 @@ export default function AdminFlashXpPage() {
     const announcedAt = new Date(form.announced_at);
     const firesAt = new Date(form.fires_at);
     const endsAt = new Date(form.ends_at);
-    const ONE_HOUR_MS = 60 * 60 * 1000;
+    // BUG FIX: this client-side check used to allow a 1-hour gap, but the
+    // backend (api/admin/flash-xp/route.ts, PRD §2.4) requires fires_at to
+    // be at least 6 hours after announced_at and 400s otherwise — so any
+    // 1-5h gap passed client validation and failed silently on submit.
+    const SIX_HOURS_MS = 6 * 60 * 60 * 1000;
 
     if (announcedAt >= firesAt) {
       setFormError("Announced At must be before Fires At.");
@@ -172,8 +181,8 @@ export default function AdminFlashXpPage() {
       setFormError("Fires At must be before Ends At.");
       return;
     }
-    if (firesAt.getTime() - announcedAt.getTime() < ONE_HOUR_MS) {
-      setFormError("Fires At must be at least 1 hour after Announced At.");
+    if (firesAt.getTime() - announcedAt.getTime() < SIX_HOURS_MS) {
+      setFormError("Fires At must be at least 6 hours after Announced At.");
       return;
     }
 
@@ -239,7 +248,7 @@ export default function AdminFlashXpPage() {
 
       {/* Phase timing info */}
       <div className="mb-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-200">
-        <span className="font-semibold">Phase timing:</span> Announced X hours before firing (min 1h). <span className="font-semibold">Fires At is kept secret from users</span> — they only see the announcement window.
+        <span className="font-semibold">Phase timing:</span> Announced X hours before firing (min 6h). <span className="font-semibold">Fires At is kept secret from users</span> — they only see the announcement window.
       </div>
 
       {/* Create form */}

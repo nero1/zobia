@@ -263,7 +263,13 @@ export default function AdminPayoutsPage() {
   const [tab, setTab] = useState<TabKey>("awaiting_approval");
   const [payouts, setPayouts] = useState<Payout[]>([]);
   const [dlqItems, setDlqItems] = useState<DlqItem[]>([]);
-  const [total, setTotal] = useState(0);
+  // BUG FIX: GET /api/admin/payouts uses keyset (cursor) pagination and never
+  // returns a `total` field (see route.ts BUG-20 fix) — the old code read
+  // `data.total` here, which was always `undefined`, making the "X of Y
+  // payouts" footer print "X of undefined". Same for the DLQ tab, whose
+  // route *does* return `total` (offset pagination) so that one is left as-is.
+  const [dlqTotal, setDlqTotal] = useState(0);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -284,15 +290,15 @@ export default function AdminPayoutsPage() {
         if (!res.ok) throw new Error("Failed to load dead-letter queue");
         const data = (await res.json()) as { items: DlqItem[]; total: number };
         setDlqItems(data.items);
-        setTotal(data.total);
+        setDlqTotal(data.total);
       } else {
-        const params = new URLSearchParams({ status, limit: "50", offset: "0" });
+        const params = new URLSearchParams({ status, limit: "50" });
         const res = await fetch(`/api/admin/payouts?${params}`, { credentials: "include" });
         if (res.status === 401 || res.status === 403) { window.location.href = "/admin/login"; return; }
         if (!res.ok) throw new Error("Failed to load payouts");
-        const data = (await res.json()) as { payouts: Payout[]; total: number };
+        const data = (await res.json()) as { payouts: Payout[]; hasMore: boolean };
         setPayouts(data.payouts);
-        setTotal(data.total);
+        setHasMore(data.hasMore);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unknown error");
@@ -452,9 +458,9 @@ export default function AdminPayoutsPage() {
                 </tbody>
               </table>
             </div>
-            {!loading && total > 0 && (
+            {!loading && dlqTotal > 0 && (
               <div className="border-t border-neutral-100 px-4 py-3 text-xs text-neutral-400 dark:border-neutral-800">
-                {dlqItems.length} of {total} DLQ items
+                {dlqItems.length} of {dlqTotal} DLQ items
               </div>
             )}
           </div>
@@ -502,9 +508,9 @@ export default function AdminPayoutsPage() {
             </table>
           </div>
 
-          {!loading && total > 0 && (
+          {!loading && payouts.length > 0 && (
             <div className="border-t border-neutral-100 px-4 py-3 text-xs text-neutral-400 dark:border-neutral-800">
-              {payouts.length} of {total} payouts
+              {payouts.length} payout{payouts.length === 1 ? "" : "s"} loaded{hasMore ? " · more available" : ""}
             </div>
           )}
         </div>
