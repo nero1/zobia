@@ -36,10 +36,7 @@ interface MerchStore {
   creatorId: string;
   storeName: string;
   description: string | null;
-  creatorUsername: string;
-  creatorAvatarEmoji: string;
   products: Product[];
-  isOwnStore: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -182,11 +179,35 @@ export default function CreatorMerchStorePage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(`/api/merch/stores/${creatorId}`, { credentials: "include" });
+        // NB: this used to fetch /api/merch/stores/:creatorId, which doesn't
+        // exist — the real per-store endpoint is GET /api/merch/:creatorId
+        // (envelope-wrapped, kobo pricing).
+        const res = await fetch(`/api/merch/${creatorId}`, { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (res.status === 404) { setError("Store not found"); return; }
         if (!res.ok) throw new Error("Failed to load store");
-        setStore((await res.json()) as MerchStore);
+        const json = (await res.json()) as {
+          data?: {
+            store?: { id: string; creator_id: string; name: string; description: string | null };
+            products?: Array<{ id: string; name: string; description: string | null; image_url: string | null; priceKobo: number; stock: number | null }>;
+          };
+        };
+        if (!json.data?.store) { setError("Store not found"); return; }
+        setStore({
+          creatorId: json.data.store.creator_id,
+          storeName: json.data.store.name,
+          description: json.data.store.description,
+          products: (json.data.products ?? []).map((p) => ({
+            id: p.id,
+            name: p.name,
+            description: p.description,
+            imageUrl: p.image_url,
+            imageEmoji: null,
+            priceCoin: Math.ceil(p.priceKobo / 100),
+            stock: p.stock,
+            isSoldOut: p.stock !== null && p.stock <= 0,
+          })),
+        });
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       } finally {
@@ -199,9 +220,11 @@ export default function CreatorMerchStorePage() {
     if (!confirmProduct) return;
     setBuying(true);
     try {
-      const res = await fetch(`/api/merch/stores/${creatorId}/products/${confirmProduct.id}/buy`, {
+      const res = await fetch(`/api/merch/${creatorId}/products/${confirmProduct.id}/purchase`, {
         method: "POST",
         credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
       });
       if (!res.ok) {
         const body = (await res.json()) as { error?: { code?: string; message?: string } };
@@ -266,13 +289,10 @@ export default function CreatorMerchStorePage() {
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">
           <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-neutral-100 text-4xl dark:bg-neutral-800">
-            {store.creatorAvatarEmoji}
+            🛍️
           </span>
           <div>
             <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{store.storeName}</h1>
-            <Link href={`/profile/${store.creatorId}`} className="text-sm text-blue-600 hover:underline dark:text-blue-400">
-              @{store.creatorUsername}
-            </Link>
           </div>
         </div>
         <Link href="/merch" className="shrink-0 text-sm text-neutral-500 hover:underline">← Stores</Link>
@@ -281,27 +301,6 @@ export default function CreatorMerchStorePage() {
       {/* Description */}
       {store.description && (
         <p className="text-sm text-neutral-600 dark:text-neutral-400">{store.description}</p>
-      )}
-
-      {/* Owner settings panel */}
-      {store.isOwnStore && (
-        <div className="rounded-2xl border border-dashed border-blue-300 bg-blue-50 p-4 dark:border-blue-700 dark:bg-blue-950/30">
-          <p className="mb-2 text-sm font-semibold text-blue-700 dark:text-blue-300">Your Store</p>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href={`/merch/${creatorId}/manage`}
-              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-            >
-              Manage Products
-            </Link>
-            <Link
-              href={`/merch/${creatorId}/settings`}
-              className="rounded-xl border border-blue-300 px-4 py-2 text-sm font-semibold text-blue-700 hover:bg-blue-100 dark:border-blue-700 dark:text-blue-300"
-            >
-              Store Settings
-            </Link>
-          </div>
-        </div>
       )}
 
       {/* Products */}

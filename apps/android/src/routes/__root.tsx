@@ -19,6 +19,7 @@ import { setPreAuthToken } from '@/lib/auth/preAuth';
 import { env } from '@/lib/env';
 import { usePresenceHeartbeat } from '@/lib/hooks/usePresenceHeartbeat';
 import { initPushNotifications } from '@/lib/push';
+import { apiClient } from '@/lib/api/client';
 
 // Tab roots that don't show a back button
 const TAB_ROOTS = ['/home', '/games', '/rooms', '/messages', '/notifications', '/settings', '/quests', '/friends', '/wallet'];
@@ -47,6 +48,25 @@ function AppShell() {
     const listenerPromise = CapApp.addListener('appUrlOpen', async ({ url }) => {
       try {
         const parsed = new URL(url);
+
+        // Handle zobia://gift/:userId — mirrors web's app/(app)/gift/[userId]/page.tsx:
+        // resolve the recipient's username, then hand off to the Gifts Hub send flow
+        // instead of a dedicated screen (gifts.tsx already preselects via search params).
+        if (parsed.hostname === 'gift') {
+          const userId = parsed.pathname.replace(/^\//, '');
+          if (userId) {
+            try {
+              const { data } = await apiClient.get<{ user?: { username?: string | null } }>(`/users/${userId}`);
+              const username = data.user?.username ?? undefined;
+              navigate({ to: '/gifts', search: username ? { recipientId: userId, username } : { recipientId: userId } });
+            } catch (err) {
+              console.error('[deeplink] gift resolve failed:', err);
+              navigate({ to: '/gifts', search: { recipientId: userId } });
+            }
+          }
+          return;
+        }
+
         // Handle OAuth callback deep links: zobia://auth/callback?code=... or zobia://auth/callback?pre_auth_code=...
         const isOAuthCallback =
           parsed.hostname === 'auth' &&
@@ -151,6 +171,12 @@ function AppShell() {
     if (pathname.startsWith('/council')) return t('council.title');
     if (pathname.startsWith('/community-notes')) return t('communityNotes.title');
     if (pathname.startsWith('/nemesis')) return t('nemesis.title');
+    if (pathname.startsWith('/prestige')) return t('prestige.title', 'Prestige');
+    if (pathname.startsWith('/seasons')) return t('seasons.title', 'Seasons');
+    if (pathname.startsWith('/creator')) return t('creator.title', 'Creator Dashboard');
+    if (pathname.startsWith('/merch')) return t('merch.title', 'Merch Stores');
+    if (pathname.startsWith('/stickers')) return t('stickers.title', 'Sticker Store');
+    if (pathname.startsWith('/kyc')) return t('kyc.title');
     if (pathname === '/auth/login') return t('auth.login');
     if (pathname === '/auth/register') return t('auth.register');
     if (pathname === '/auth/two-factor') return t('auth.2fa.title');

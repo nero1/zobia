@@ -24,6 +24,12 @@ export const ROUTES = {
   MESSAGE_THREAD: (threadId: string) => `/messages/${encodeURIComponent(threadId)}`,
   PROFILE: (username: string) => `/profile/${encodeURIComponent(username)}`,
   GAME: (slug: string) => `/games/${encodeURIComponent(slug)}`,
+  // No standalone /gift/:userId screen — mirrors web's app/(app)/gift/[userId]/page.tsx,
+  // which just resolves the recipient's username and redirects into the Gifts Hub send
+  // flow. The inbound zobia://gift/:userId link is handled in routes/__root.tsx's
+  // appUrlOpen listener, which does the same resolve-then-navigate-to-/gifts?recipientId=
+  // &username= that the web redirect does.
+  GIFT: (userId: string) => `/gift/${encodeURIComponent(userId)}`,
 } as const;
 
 export const PUBLIC_PATHS = {

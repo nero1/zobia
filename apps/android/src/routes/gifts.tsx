@@ -139,12 +139,12 @@ async function searchUsers(q: string): Promise<UserSuggestion[]> {
 // Send Gift panel
 // ---------------------------------------------------------------------------
 
-function SendGiftPanel({ onClose, onSent }: { onClose: () => void; onSent: () => void }) {
+function SendGiftPanel({ onClose, onSent, preselectedRecipient }: { onClose: () => void; onSent: () => void; preselectedRecipient?: UserSuggestion | null }) {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const [suggestions, setSuggestions] = useState<UserSuggestion[]>([]);
   const [searching, setSearching] = useState(false);
-  const [recipient, setRecipient] = useState<UserSuggestion | null>(null);
+  const [recipient, setRecipient] = useState<UserSuggestion | null>(preselectedRecipient ?? null);
   const [activeTier, setActiveTier] = useState<number | null>(null);
   const [selectedGift, setSelectedGift] = useState<GiftItem | null>(null);
   const [sent, setSent] = useState(false);
@@ -419,10 +419,15 @@ function GiftRow({ gift, tab }: { gift: GiftRecord; tab: Tab }) {
 function GiftsPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const { recipientId, username } = Route.useSearch();
   const [tab, setTab] = useState<Tab>('received');
-  const [showModal, setShowModal] = useState(false);
+  const [showModal, setShowModal] = useState(!!recipientId);
 
   const { data: gifts, status, refetch } = useQuery({ queryKey: ['gifts', 'history', tab], queryFn: () => fetchGifts(tab) });
+
+  const preselectedRecipient: UserSuggestion | null = recipientId
+    ? { id: recipientId, username: username ?? recipientId, displayName: username ?? null, avatarEmoji: null }
+    : null;
 
   const closeModal = () => {
     setShowModal(false);
@@ -509,7 +514,7 @@ function GiftsPage() {
                 <span className="text-lg leading-none">✕</span>
               </button>
             </div>
-            <SendGiftPanel onClose={() => setShowModal(false)} onSent={closeModal} />
+            <SendGiftPanel onClose={() => setShowModal(false)} onSent={closeModal} preselectedRecipient={preselectedRecipient} />
           </div>
         </>
       )}
@@ -518,5 +523,9 @@ function GiftsPage() {
 }
 
 export const Route = createFileRoute('/gifts')({
+  validateSearch: (search: Record<string, unknown>): { recipientId?: string; username?: string } => ({
+    recipientId: typeof search.recipientId === 'string' ? search.recipientId : undefined,
+    username: typeof search.username === 'string' ? search.username : undefined,
+  }),
   component: GiftsPage,
 });

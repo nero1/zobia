@@ -16,9 +16,10 @@ interface TopBarProps {
   showBack?: boolean;
 }
 
-// Mirrors apps/web/components/layout/Navbar.tsx's primaryNavItems, minus
-// /seasons (no Android route yet — a later batch adds it). Every href here
-// must correspond to an actual route file under apps/android/src/routes.
+// Mirrors apps/web/components/layout/Navbar.tsx's primaryNavItems. Every
+// href here must correspond to an actual route file under
+// apps/android/src/routes. (guild/guilds/council/community-notes/nemesis
+// below are additions from prior Android batches beyond web's drawer list.)
 const primaryNavItems = [
   { href: '/home', label: 'Home', icon: '🏠' },
   { href: '/moments', label: 'Moments', icon: '🎬' },
@@ -40,6 +41,7 @@ const primaryNavItems = [
   { href: '/referrals', label: 'Referrals', icon: '🔗' },
   { href: '/classroom', label: 'Classroom', icon: '🏫' },
   { href: '/leaderboards', label: 'Leaderboards', icon: '🏆' },
+  { href: '/seasons', label: 'Seasons', icon: '🗓️' },
   { href: '/guild', label: 'Guild', icon: '🛡️' },
   { href: '/guilds', label: 'Browse Guilds', icon: '🏰' },
   { href: '/council', label: 'Council', icon: '⚖️' },

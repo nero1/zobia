@@ -195,11 +195,38 @@ export default function CreatorMarketplacePage() {
         setUser(me);
         if (!me.isCreator) { setLoading(false); return; }
 
-        // Fetch sponsored quests
-        const res = await fetch("/api/quests/sponsored", { credentials: "include" });
+        // Fetch sponsored quests. NB: this used to hit /api/quests/sponsored,
+        // which was never implemented — the real endpoint lives under
+        // /api/creator/sponsored-quests and returns snake_case DB rows, so we
+        // map them into the SponsoredQuest shape the rest of this page uses.
+        const res = await fetch("/api/creator/sponsored-quests", { credentials: "include" });
         if (!res.ok) throw new Error("Failed to load quests");
-        const data = (await res.json()) as { quests: SponsoredQuest[] };
-        setQuests(data.quests);
+        const body = (await res.json()) as {
+          data?: {
+            quests?: Array<{
+              id: string; brand_name: string; title: string; description: string; requirements: string;
+              reward_coins: number; creator_share_percent: number; max_applications: number;
+              deadline: string; is_active: boolean; application_count: number; user_has_applied: boolean;
+            }>;
+          };
+        };
+        const rows = body.data?.quests ?? [];
+        setQuests(rows.map((r) => ({
+          id: r.id,
+          brandName: r.brand_name,
+          title: r.title,
+          description: r.description,
+          targetAction: r.requirements,
+          rewardCoins: r.reward_coins,
+          creatorPayout: Math.round((r.reward_coins * r.creator_share_percent) / 100),
+          status: !r.is_active || new Date(r.deadline) <= new Date()
+            ? "closed"
+            : r.application_count >= r.max_applications ? "full" : "open",
+          applicantsCount: r.application_count,
+          maxApplicants: r.max_applications,
+          expiresAt: r.deadline,
+        })));
+        setApplied(new Set(rows.filter((r) => r.user_has_applied).map((r) => r.id)));
       } catch (e) {
         setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       } finally {
@@ -211,7 +238,7 @@ export default function CreatorMarketplacePage() {
   async function handleApply(questId: string) {
     setApplying(questId);
     try {
-      const res = await fetch(`/api/quests/sponsored/${questId}/apply`, {
+      const res = await fetch(`/api/creator/sponsored-quests/${questId}/apply`, {
         method: "POST",
         credentials: "include",
       });

@@ -20,10 +20,7 @@ interface MerchStore {
   creatorId: string;
   storeName: string;
   description: string | null;
-  creatorUsername: string;
-  creatorAvatarEmoji: string;
   productCount: number;
-  isActive: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,11 +55,10 @@ function StoreCard({ store }: { store: MerchStore }) {
       {/* Creator info */}
       <div className="mb-3 flex items-center gap-3">
         <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-2xl dark:bg-neutral-800">
-          {store.creatorAvatarEmoji}
+          🛍️
         </span>
         <div className="min-w-0">
           <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">{store.storeName}</p>
-          <p className="truncate text-xs text-neutral-500">@{store.creatorUsername}</p>
         </div>
       </div>
 
@@ -107,7 +103,9 @@ export default function MerchDirectoryPage() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/merch/stores", { credentials: "include" });
+        // NB: this used to fetch /api/merch/stores, which doesn't exist —
+        // the real listing endpoint is GET /api/merch (envelope-wrapped).
+        const res = await fetch("/api/merch", { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
         if (!res.ok) {
           const body = await res.json().catch(() => ({} as { message?: string; error?: { message?: string; code?: string } | string }));
@@ -117,8 +115,16 @@ export default function MerchDirectoryPage() {
           err.code = errCode;
           throw err;
         }
-        const data = (await res.json()) as { stores: MerchStore[] };
-        setStores(data.stores);
+        const json = (await res.json()) as {
+          data?: { stores?: Array<{ storeId: string; creatorId: string; name: string; description: string | null; products: unknown[] }> };
+        };
+        const rows = json.data?.stores ?? [];
+        setStores(rows.map((r) => ({
+          creatorId: r.creatorId,
+          storeName: r.name,
+          description: r.description,
+          productCount: r.products.length,
+        })));
       } catch (e) {
         const err = e as Error & { code?: string | null };
         setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
@@ -128,11 +134,7 @@ export default function MerchDirectoryPage() {
     })();
   }, []);
 
-  const filteredStores = stores.filter(
-    (s) =>
-      s.storeName.toLowerCase().includes(search.toLowerCase()) ||
-      s.creatorUsername.toLowerCase().includes(search.toLowerCase())
-  );
+  const filteredStores = stores.filter((s) => s.storeName.toLowerCase().includes(search.toLowerCase()));
 
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-4 sm:p-6">
