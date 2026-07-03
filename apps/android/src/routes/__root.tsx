@@ -183,14 +183,18 @@ function AppShell() {
   // switches apps and comes back, etc.), `appUrlOpen` above never fires, so
   // nothing would otherwise clear `_oauthInProgress`. On every foreground
   // resume, if an attempt is still marked in-progress, give the callback a
-  // short grace window (it may be about to fire) before treating it as
-  // abandoned and re-enabling the login/register buttons.
+  // grace window (it may be about to fire) before treating it as abandoned
+  // and re-enabling the login/register buttons. 6s (not a shorter window)
+  // because the real completion path this races against does Browser.close()
+  // then a full network round-trip (POST /api/auth/mobile-token) before it
+  // calls endOAuthAttempt() itself — a short window could fire first on a
+  // slow connection and prematurely re-enable the button mid-exchange.
   useEffect(() => {
     const listenerPromise = CapApp.addListener('appStateChange', ({ isActive }) => {
       if (!isActive || !isOAuthInProgress()) return;
       setTimeout(() => {
         if (isOAuthInProgress()) endOAuthAttempt();
-      }, 1500);
+      }, 6000);
     });
     return () => {
       listenerPromise.then((h) => h.remove());

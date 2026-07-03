@@ -120,6 +120,18 @@ export async function initPushNotifications(router: AnyRouter): Promise<void> {
   }
 }
 
+// ZSB-05 follow-up fix: `initialized` is intentionally reset by
+// `unregisterPushOnLogout()` so the *next* login re-runs `register()` for
+// whichever account is now signed in. But `PushNotifications.addListener()`
+// stacks handlers rather than replacing them — re-running the four
+// `addListener()` calls below on every login/logout cycle within the same
+// app process would accumulate duplicate listeners (each subsequent push
+// event firing `registerToken()`/navigation once per accumulated listener).
+// `listenersAttached` is a separate, never-reset latch so the listeners are
+// wired exactly once per process, while `initialized`/`register()` can still
+// re-run per login.
+let listenersAttached = false;
+
 async function attemptInit(router: AnyRouter): Promise<void> {
   if (initialized) return;
 
@@ -143,34 +155,40 @@ async function attemptInit(router: AnyRouter): Promise<void> {
     // call (or the foreground-retry listener above) doesn't double-register.
     initialized = true;
 
-    await PushNotifications.addListener('registration', (token: Token) => {
-      void registerToken(token.value);
-    });
+    if (!listenersAttached) {
+      listenersAttached = true;
 
-    await PushNotifications.addListener('registrationError', (err) => {
-      console.error('[push] Registration error:', err.error);
-    });
+      await PushNotifications.addListener('registration', (token: Token) => {
+        void registerToken(token.value);
+      });
 
-    // Foreground notifications don't show a system banner on Android (unlike
-    // iOS) — the notification center list (GET /api/notifications, polled by
-    // apps/android/src/routes/notifications.tsx) is the in-app source of
-    // truth, so no extra handling is needed here beyond logging.
-    await PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
-      console.debug('[push] Foreground notification:', notification.title);
-    });
+      await PushNotifications.addListener('registrationError', (err) => {
+        console.error('[push] Registration error:', err.error);
+      });
 
-    // Tapping a notification (app backgrounded or killed) — navigate to the
-    // deep-linked screen if the payload carries an allowlisted action.
-    await PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-      const rawAction = extractAction(action.notification);
-      if (!rawAction) return;
-      const route = ACTION_ALIASES[rawAction] ?? rawAction;
-      if (!isAllowedRoute(route)) {
-        console.warn('[push] Blocked notification action not in allowlist:', route);
-        return;
-      }
-      router.navigate({ to: route as never });
-    });
+      // Foreground notifications don't show a system banner on Android (unlike
+      // iOS) — the notification center list (GET /api/notifications, polled by
+      // apps/android/src/routes/notifications.tsx) is the in-app source of
+      // truth, so no extra handling is needed here beyond logging.
+      await PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
+        console.debug('[push] Foreground notification:', notification.title);
+      });
+
+      // Tapping a notification (app backgrounded or killed) — navigate to the
+      // deep-linked screen if the payload carries an allowlisted action. The
+      // `router` singleton is created once at module scope in main.tsx, so
+      // capturing it here forever (rather than per attemptInit() call) is safe.
+      await PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+        const rawAction = extractAction(action.notification);
+        if (!rawAction) return;
+        const route = ACTION_ALIASES[rawAction] ?? rawAction;
+        if (!isAllowedRoute(route)) {
+          console.warn('[push] Blocked notification action not in allowlist:', route);
+          return;
+        }
+        router.navigate({ to: route as never });
+      });
+    }
 
     await PushNotifications.register();
   } catch (err) {
