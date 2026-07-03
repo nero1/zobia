@@ -79,7 +79,6 @@ function CircuitBadge({ circuit }: { circuit: CircuitInfo }) {
 function ProviderCard({
   titleKey,
   titleDefault,
-  provider,
   info,
   onSaveKey,
   onClearOverride,

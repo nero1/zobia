@@ -22,7 +22,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
-import { AdminToast, AdminErrorState, adminInputClass } from '@/components/admin/AdminUI';
+import { AdminToast, AdminErrorState, AdminToggle, adminInputClass } from '@/components/admin/AdminUI';
 
 // ---------------------------------------------------------------------------
 // Types
