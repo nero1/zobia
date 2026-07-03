@@ -19,53 +19,17 @@ import { Preferences } from '@capacitor/preferences';
 import { App } from '@capacitor/app';
 import type { AnyRouter } from '@tanstack/react-router';
 import { apiClient } from '@/lib/api/client';
+import { isAllowedRoute, ACTION_ALIASES } from '@/lib/notifications/routing';
 
 const DEVICE_ID_KEY = 'zobia_device_id';
 const DEFAULT_CHANNEL_ID = 'default';
 
-/**
- * Allowlist of in-app routes a push notification's `data.action` may
- * navigate to — mirrors apps/expo/app/_layout.tsx's VALID_PUSH_ROUTES,
- * scoped to routes that actually exist in this app's routeTree.gen.ts
- * (narrower than Expo's list since not every web/PWA page has an Android
- * screen yet). Prevents a compromised/crafted push payload from routing
- * into an arbitrary path.
- */
-const VALID_PUSH_ROUTES: RegExp[] = [
-  /^\/rooms\/[a-f0-9-]+$/i,
-  /^\/messages\/[a-f0-9-]+$/i,
-  /^\/profile\/[^/]+$/i,
-  /^\/games\/[a-z0-9-]+$/i,
-  /^\/answers\/[a-f0-9-]+$/i,
-  /^\/blogs\/[^/]+\/[^/]+$/i,
-  /^\/business$/i,
-  /^\/business\/ads$/i,
-  /^\/notifications$/i,
-  /^\/wallet$/i,
-  /^\/home$/i,
-  /^\/nemesis$/i,
-  /^\/friends$/i,
-  /^\/guilds$/i,
-  /^\/inbox$/i,
-  /^\/seasons$/i,
-  /^\/council$/i,
-];
-
-/**
- * Non-path action tokens the backend sends alongside/instead of a route
- * (e.g. lib/notifications/reengagement.ts, cron/daily-notify's Platform
- * Council invite) — mapped to the in-app route they should open.
- */
-const ACTION_ALIASES: Record<string, string> = {
-  open_council: '/council',
-  '/economy/coins': '/wallet',
-};
-
-// Exported for unit testing (see lib/push/__tests__/index.test.ts) — the
-// allowlist itself is the security-relevant surface here.
-export function isAllowedRoute(path: string): boolean {
-  return VALID_PUSH_ROUTES.some((re) => re.test(path));
-}
+// ZSB-16 fix: the allowlist (VALID_PUSH_ROUTES) and ACTION_ALIASES used to
+// live only here — moved to lib/notifications/routing.ts so the in-app
+// notifications list (routes/notifications.tsx) can reuse the exact same
+// allowlist for tap-to-navigate instead of a second, divergent one.
+// Re-exported for backwards compatibility with lib/push/__tests__/index.test.ts.
+export { isAllowedRoute };
 
 /** Returns a stable per-installation UUID, generating one on first call. */
 async function getOrCreateDeviceId(): Promise<string> {
@@ -80,10 +44,16 @@ async function getOrCreateDeviceId(): Promise<string> {
   }
 }
 
+// Last token this device registered with the server — cached so logout can
+// unregister it (ZSB-05) without needing another native `PushNotifications`
+// round-trip just to find out what it was.
+let lastRegisteredToken: string | null = null;
+
 async function registerToken(token: string): Promise<void> {
   try {
     const deviceId = await getOrCreateDeviceId();
     await apiClient.post('/users/push-token', { token, platform: 'android', deviceId });
+    lastRegisteredToken = token;
   } catch (err) {
     console.error('[push] Failed to register push token:', err);
   }
@@ -104,6 +74,27 @@ function extractAction(notification: PushNotificationSchema): string | undefined
 // since every subsequent call was a silent no-op against the stale flag.
 let initialized = false;
 let foregroundRetryAttached = false;
+
+/**
+ * Best-effort server-side unregister of the last token this device
+ * registered, then reset the module's init latch so the *next* login (which
+ * may be a different account on the same device) re-runs
+ * `PushNotifications.register()` instead of silently no-op'ing against the
+ * stale `initialized` flag (ZSB-05). Call from `clearAuth()` on logout.
+ *
+ * Swallows all errors — push cleanup must never block sign-out.
+ */
+export async function unregisterPushOnLogout(): Promise<void> {
+  const token = lastRegisteredToken;
+  lastRegisteredToken = null;
+  initialized = false;
+  if (!token) return;
+  try {
+    await apiClient.delete('/users/push-token', { data: { token } });
+  } catch (err) {
+    console.error('[push] Failed to unregister push token on logout:', err);
+  }
+}
 
 /**
  * Register for push notifications and wire up listeners. Safe to call
@@ -129,6 +120,18 @@ export async function initPushNotifications(router: AnyRouter): Promise<void> {
   }
 }
 
+// ZSB-05 follow-up fix: `initialized` is intentionally reset by
+// `unregisterPushOnLogout()` so the *next* login re-runs `register()` for
+// whichever account is now signed in. But `PushNotifications.addListener()`
+// stacks handlers rather than replacing them — re-running the four
+// `addListener()` calls below on every login/logout cycle within the same
+// app process would accumulate duplicate listeners (each subsequent push
+// event firing `registerToken()`/navigation once per accumulated listener).
+// `listenersAttached` is a separate, never-reset latch so the listeners are
+// wired exactly once per process, while `initialized`/`register()` can still
+// re-run per login.
+let listenersAttached = false;
+
 async function attemptInit(router: AnyRouter): Promise<void> {
   if (initialized) return;
 
@@ -152,34 +155,40 @@ async function attemptInit(router: AnyRouter): Promise<void> {
     // call (or the foreground-retry listener above) doesn't double-register.
     initialized = true;
 
-    await PushNotifications.addListener('registration', (token: Token) => {
-      void registerToken(token.value);
-    });
+    if (!listenersAttached) {
+      listenersAttached = true;
 
-    await PushNotifications.addListener('registrationError', (err) => {
-      console.error('[push] Registration error:', err.error);
-    });
+      await PushNotifications.addListener('registration', (token: Token) => {
+        void registerToken(token.value);
+      });
 
-    // Foreground notifications don't show a system banner on Android (unlike
-    // iOS) — the notification center list (GET /api/notifications, polled by
-    // apps/android/src/routes/notifications.tsx) is the in-app source of
-    // truth, so no extra handling is needed here beyond logging.
-    await PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
-      console.debug('[push] Foreground notification:', notification.title);
-    });
+      await PushNotifications.addListener('registrationError', (err) => {
+        console.error('[push] Registration error:', err.error);
+      });
 
-    // Tapping a notification (app backgrounded or killed) — navigate to the
-    // deep-linked screen if the payload carries an allowlisted action.
-    await PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-      const rawAction = extractAction(action.notification);
-      if (!rawAction) return;
-      const route = ACTION_ALIASES[rawAction] ?? rawAction;
-      if (!isAllowedRoute(route)) {
-        console.warn('[push] Blocked notification action not in allowlist:', route);
-        return;
-      }
-      router.navigate({ to: route as never });
-    });
+      // Foreground notifications don't show a system banner on Android (unlike
+      // iOS) — the notification center list (GET /api/notifications, polled by
+      // apps/android/src/routes/notifications.tsx) is the in-app source of
+      // truth, so no extra handling is needed here beyond logging.
+      await PushNotifications.addListener('pushNotificationReceived', (notification: PushNotificationSchema) => {
+        console.debug('[push] Foreground notification:', notification.title);
+      });
+
+      // Tapping a notification (app backgrounded or killed) — navigate to the
+      // deep-linked screen if the payload carries an allowlisted action. The
+      // `router` singleton is created once at module scope in main.tsx, so
+      // capturing it here forever (rather than per attemptInit() call) is safe.
+      await PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
+        const rawAction = extractAction(action.notification);
+        if (!rawAction) return;
+        const route = ACTION_ALIASES[rawAction] ?? rawAction;
+        if (!isAllowedRoute(route)) {
+          console.warn('[push] Blocked notification action not in allowlist:', route);
+          return;
+        }
+        router.navigate({ to: route as never });
+      });
+    }
 
     await PushNotifications.register();
   } catch (err) {

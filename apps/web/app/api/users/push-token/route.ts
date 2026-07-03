@@ -6,8 +6,18 @@ export const dynamic = 'force-dynamic';
  * Register or update a push notification token for the authenticated user.
  *
  * POST /api/users/push-token
- *   - Body: { token: string, platform: "android" | "ios" }
- *   - Upserts the token into user_push_tokens
+ *   - Body: { token: string, platform: "android" | "ios" | "web" }
+ *   - Upserts the token into user_push_tokens. For `platform: "web"` (ZSB-17,
+ *     PWA Web Push), `token` is a JSON-stringified PushSubscription object
+ *     (endpoint + p256dh/auth keys), not a bearer token string — see
+ *     lib/push/webPush.ts (client) and lib/notifications/webPush.ts (server).
+ *   - Returns: { success: true }
+ *
+ * DELETE /api/users/push-token
+ *   - Body: { token: string }
+ *   - Removes the (user_id, token) row — called on logout (ZSB-05) so a
+ *     second account signing into the same device doesn't keep receiving
+ *     pushes meant for the previous, now-logged-out account.
  *   - Returns: { success: true }
  */
 
@@ -23,8 +33,11 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 // ---------------------------------------------------------------------------
 
 const pushTokenSchema = z.object({
-  token: z.string().min(1).max(512),
-  platform: z.enum(["android", "ios"]),
+  // 2048 (not 512): a JSON-stringified Web Push PushSubscription — endpoint
+  // URL + base64 p256dh/auth keys — can run a few hundred bytes longer than
+  // an Expo/FCM token string.
+  token: z.string().min(1).max(2048),
+  platform: z.enum(["android", "ios", "web"]),
   deviceId: z.string().min(1).max(255).optional(),
 });
 
@@ -57,6 +70,40 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     );
 
     return NextResponse.json({ success: true, data: { registered: true }, error: null });
+  } catch (err) {
+    return handleApiError(err);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// DELETE /api/users/push-token
+// ---------------------------------------------------------------------------
+
+const pushTokenUnregisterSchema = z.object({
+  token: z.string().min(1).max(2048),
+});
+
+/**
+ * Unregister a push notification token (called on logout).
+ */
+export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
+  try {
+    const userId = auth.user.sub;
+
+    await enforceRateLimit(userId, "user", {
+      limit: 10,
+      windowMs: 60 * 1000,
+      name: "push-token:unregister",
+    });
+
+    const body = await validateBody(req, pushTokenUnregisterSchema);
+
+    await db.query(
+      `DELETE FROM user_push_tokens WHERE user_id = $1 AND token = $2`,
+      [userId, body.token]
+    );
+
+    return NextResponse.json({ success: true, data: { unregistered: true }, error: null });
   } catch (err) {
     return handleApiError(err);
   }

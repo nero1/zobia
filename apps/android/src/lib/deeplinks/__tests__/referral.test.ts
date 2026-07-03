@@ -66,4 +66,31 @@ describe("referral deep-link capture", () => {
     await clearPendingReferralCode();
     await expect(getPendingReferralCode()).resolves.toBeNull();
   });
+
+  // ZSB-13 regression coverage: a captured code must expire after 30 days,
+  // matching apps/web/lib/referral/clientStore.ts's TTL_DAYS.
+  describe("30-day expiry (ZSB-13)", () => {
+    const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+    it("returns a code younger than 30 days", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      captureReferralFromUrl("zobia://home?r=ABC123XYZ");
+      vi.setSystemTime(THIRTY_DAYS_MS - 1000);
+      await expect(getPendingReferralCode()).resolves.toBe("ABC123XYZ");
+      vi.useRealTimers();
+    });
+
+    it("returns null and clears storage for a code older than 30 days", async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(0);
+      captureReferralFromUrl("zobia://home?r=ABC123XYZ");
+      vi.setSystemTime(THIRTY_DAYS_MS + 1000);
+      await expect(getPendingReferralCode()).resolves.toBeNull();
+      // Confirm it was actually cleared, not just filtered on read.
+      vi.setSystemTime(THIRTY_DAYS_MS + 2000);
+      await expect(getPendingReferralCode()).resolves.toBeNull();
+      vi.useRealTimers();
+    });
+  });
 });

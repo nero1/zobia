@@ -12,7 +12,12 @@ const EnvSchema = z.object({
   VITE_API_BASE_URL: z.string().url().default('https://zobia.vercel.app'),
   VITE_WEB_BASE_URL: z.string().url().default('https://zobia.vercel.app'),
   VITE_APP_ENV: z.enum(['development', 'staging', 'production']).default('development'),
-  VITE_ABLY_API_KEY: z.string().optional(),
+  // ZSB-15 fix: VITE_ABLY_API_KEY used to be parsed here but never read
+  // anywhere — realtime auth correctly goes through the server-side
+  // /realtime/ably-token endpoint instead. Removed rather than left unused,
+  // since Vite bundles every VITE_-prefixed var into the client JS: if this
+  // had ever been wired up directly against the Ably SDK, it would have
+  // shipped a real API key inside the public APK.
   VITE_REALTIME_PROVIDER: z.enum(['ably', 'none']).default('none'),
 });
 
@@ -22,7 +27,6 @@ const raw = {
   VITE_API_BASE_URL: import.meta.env.VITE_API_BASE_URL as string | undefined,
   VITE_WEB_BASE_URL: import.meta.env.VITE_WEB_BASE_URL as string | undefined,
   VITE_APP_ENV: import.meta.env.VITE_APP_ENV as string | undefined,
-  VITE_ABLY_API_KEY: import.meta.env.VITE_ABLY_API_KEY as string | undefined,
   VITE_REALTIME_PROVIDER: import.meta.env.VITE_REALTIME_PROVIDER as string | undefined,
 };
 

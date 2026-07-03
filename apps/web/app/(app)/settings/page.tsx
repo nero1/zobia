@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { QRCodeSVG } from "qrcode.react";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { subscribeToWebPush, unsubscribeFromWebPush, getWebPushPermission, isWebPushSupported } from "@/lib/push/webPush";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -204,6 +205,20 @@ export default function SettingsPage() {
   const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
   const [notifications, setNotifications] = useState<Record<string, boolean>>({});
   const [dmOptOut, setDmOptOut] = useState(false);
+
+  // ZSB-17: Web Push (browser notifications) opt-in state. Both start at a
+  // fixed SSR-safe default and are only set to their real values inside
+  // useEffect (client-only) — a lazy useState(() => isWebPushSupported())
+  // initializer would run during SSR too (where `window` is undefined, so it
+  // returns false) and then diverge from the client's real value on
+  // hydration in any browser that does support the Push API, causing a
+  // hydration mismatch.
+  const [webPushSupported, setWebPushSupported] = useState(false);
+  const [webPushPermission, setWebPushPermission] = useState<NotificationPermission | "unsupported">("unsupported");
+  useEffect(() => {
+    setWebPushSupported(isWebPushSupported());
+    setWebPushPermission(getWebPushPermission());
+  }, []);
 
   // Date of birth (loaded from /api/users/me)
   const [dateOfBirth, setDateOfBirth] = useState("");
@@ -535,6 +550,9 @@ export default function SettingsPage() {
   }
 
   async function handleLogout() {
+    // Best-effort — never let a Web Push unsubscribe failure block logout,
+    // same non-fatal pattern as the Android app's clearAuth() (ZSB-05).
+    await unsubscribeFromWebPush().catch(() => {});
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     router.push("/auth/login");
   }
@@ -818,6 +836,37 @@ export default function SettingsPage() {
       {/* Notifications */}
       <Section title="Notifications">
         <div className="space-y-3">
+          {/* ZSB-17: browser (Web Push) notification opt-in for the installed
+              PWA — mirrors the Android app's OS-level permission prompt.
+              Only shown when the browser actually supports the Push API. */}
+          {webPushSupported && (
+            <div className="flex items-center justify-between gap-3 pb-3 border-b border-neutral-100 dark:border-neutral-800">
+              <div>
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  {t("settings.push.browser", "Browser notifications")}
+                </p>
+                <p className="text-xs text-neutral-500">
+                  {webPushPermission === "granted"
+                    ? t("settings.push.browserEnabled", "Enabled for this browser.")
+                    : webPushPermission === "denied"
+                      ? t("settings.push.browserBlocked", "Blocked — enable notifications for this site in your browser settings.")
+                      : t("settings.push.browserDesc", "Get background notifications even when Zobia isn't open.")}
+                </p>
+              </div>
+              {webPushPermission !== "granted" && webPushPermission !== "denied" && (
+                <button
+                  onClick={async () => {
+                    const ok = await subscribeToWebPush();
+                    setWebPushPermission(getWebPushPermission());
+                    if (ok) setToast({ msg: t("settings.push.browserEnabled", "Enabled for this browser."), type: "success" });
+                  }}
+                  className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white"
+                >
+                  {t("action.enable", "Enable")}
+                </button>
+              )}
+            </div>
+          )}
           {/* Chat push toggles — independently mutable per category */}
           {([
             { key: "push_dms",           label: t("settings.push.dms"),          description: t("settings.push.dmsDesc") },

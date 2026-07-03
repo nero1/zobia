@@ -62,7 +62,13 @@ function StickersPage() {
 
   const unlockMutation = useMutation({
     mutationFn: async (packId: string) => { await apiClient.post('/stickers', { packId }); },
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['stickers'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['stickers'] });
+      // ZSB-11 fix: unlocking a paid sticker pack spends coins server-side
+      // but never invalidated the shared balance query — see gifts.tsx's
+      // closeModal for the same fix and full explanation.
+      qc.invalidateQueries({ queryKey: ['users', 'me'] });
+    },
   });
 
   if (status === 'pending') {

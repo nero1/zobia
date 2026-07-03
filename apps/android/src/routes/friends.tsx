@@ -2,10 +2,14 @@
  * apps/android/src/routes/friends.tsx
  *
  * Friends management screen — mirrors apps/web/app/(app)/friends/page.tsx
- * with three tabs: My Friends, Requests (Received/Sent sub-tabs), and
- * Discover. The web page also has a "Recent chats" tab, but there is no
- * friends.tabs.recent (or friends.recent.*) i18n key yet, so it is omitted
- * here — see the report for the missing keys if that tab should be added.
+ * with four tabs: My Friends, Requests (Received/Sent sub-tabs), Recent
+ * chats, and Discover.
+ *
+ * ZSB-23 fix: the "Recent chats" tab was previously omitted because the
+ * friends.tabs.recent/friends.recent.* i18n keys didn't exist yet. They've
+ * been added (shared/i18n/locales/*.json) and the tab is ported here,
+ * reusing this file's own ProfileLink and the same GET /messages/dm?limit=
+ * endpoint web's RecentChatsTab uses.
  */
 
 import { useState } from 'react';
@@ -38,7 +42,16 @@ interface Suggestion {
   mutualFriendCount: number;
 }
 
-type Tab = 'friends' | 'requests' | 'discover';
+interface RecentChat {
+  conversationId: string;
+  participantUserId: string;
+  participantUsername: string;
+  participantDisplayName: string | null;
+  participantAvatarEmoji: string | null;
+  lastMessageAt: string;
+}
+
+type Tab = 'friends' | 'requests' | 'recent' | 'discover';
 type RequestsSubTab = 'received' | 'sent';
 
 // ---------------------------------------------------------------------------
@@ -95,6 +108,23 @@ async function fetchSentRequests(): Promise<FriendRequest[]> {
 async function fetchSuggestions(): Promise<Suggestion[]> {
   const { data } = await apiClient.get<{ suggestions: Suggestion[] }>('/friends/suggestions');
   return data?.suggestions ?? [];
+}
+
+async function fetchRecentChats(): Promise<RecentChat[]> {
+  const { data } = await apiClient.get<{ conversations: RecentChat[] }>('/messages/dm?limit=20');
+  return data?.conversations ?? [];
+}
+
+function relativeTime(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString();
 }
 
 // ---------------------------------------------------------------------------
@@ -180,9 +210,14 @@ function ReceivedRequestsList() {
   const respondMutation = useMutation({
     mutationFn: ({ requestId, action }: { requestId: string; action: 'accept' | 'reject' }) =>
       apiClient.put(`/friends/${requestId}`, { action }),
-    onSuccess: (_res, { requestId }) => {
+    // ZSB-10 fix: reading the shared mutation hook's `.variables` reflects
+    // whichever call was started most recently, not necessarily the one that
+    // just resolved — accepting one request and declining another in quick
+    // succession could read each other's `.variables.action`. Destructure
+    // `action` from this callback's own second argument instead.
+    onSuccess: (_res, { requestId, action }) => {
       qc.setQueryData<FriendRequest[]>(['friends', 'requests', 'received'], (prev = []) => prev.filter((r) => r.id !== requestId));
-      if (respondMutation.variables?.action === 'accept') qc.invalidateQueries({ queryKey: ['friends', 'list'] });
+      if (action === 'accept') qc.invalidateQueries({ queryKey: ['friends', 'list'] });
     },
   });
 
@@ -283,6 +318,48 @@ function RequestsTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Recent chats tab (ZSB-23)
+// ---------------------------------------------------------------------------
+
+function RecentChatsTab() {
+  const { t } = useTranslation();
+  const { data: chats, status } = useQuery({ queryKey: ['friends', 'recent-chats'], queryFn: fetchRecentChats });
+
+  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>;
+  if (!chats || chats.length === 0) {
+    return (
+      <div className="py-12 text-center px-4">
+        <p className="text-neutral-500">{t('friends.recent.empty', 'No recent chats yet.')}</p>
+        <p className="mt-1 text-sm text-neutral-400">{t('friends.recent.emptyHint', 'People you message will show up here.')}</p>
+      </div>
+    );
+  }
+
+  return (
+    <ul className="divide-y divide-neutral-100">
+      {chats.map((c) => (
+        <li key={c.conversationId} className="flex items-center gap-3 py-3 px-4">
+          <ProfileLink
+            username={c.participantUsername}
+            name={c.participantDisplayName ?? c.participantUsername}
+            emoji={c.participantAvatarEmoji}
+          >
+            <span className="ml-2 shrink-0 text-[10px] text-neutral-400">{relativeTime(c.lastMessageAt)}</span>
+          </ProfileLink>
+          <Link
+            to="/messages/$conversationId"
+            params={{ conversationId: c.conversationId }}
+            className="shrink-0 rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600"
+          >
+            💬 {t('friends.recent.message', 'Message')}
+          </Link>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Discover tab
 // ---------------------------------------------------------------------------
 
@@ -336,6 +413,7 @@ function FriendsPage() {
   const tabs: { id: Tab; label: string }[] = [
     { id: 'friends', label: t('friends.tabs.myFriends') },
     { id: 'requests', label: t('friends.tabs.requests') },
+    { id: 'recent', label: `🕐 ${t('friends.tabs.recent', 'Recent')}` },
     { id: 'discover', label: t('friends.tabs.discover') },
   ];
 
@@ -362,6 +440,7 @@ function FriendsPage() {
       <div className="mt-3 bg-white">
         {tab === 'friends' && <FriendsTab />}
         {tab === 'requests' && <RequestsTab />}
+        {tab === 'recent' && <RecentChatsTab />}
         {tab === 'discover' && <DiscoverTab />}
       </div>
     </div>

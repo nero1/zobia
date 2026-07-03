@@ -52,3 +52,14 @@ export function universalLink(path: string): string {
 export function referralLink(path: string, referralCode: string | null | undefined): string {
   return appendReferralCode(universalLink(path), referralCode);
 }
+
+/**
+ * The OAuth callback target used by both Login and Register.
+ *
+ * This must be the verified HTTPS Android App Link (`universalLink('/auth/callback')`),
+ * never the `zobia://` custom scheme — a custom scheme can be registered by any other
+ * installed app, which opens an OAuth-code-interception window. Exporting this as a
+ * single shared constant (rather than each screen hardcoding its own) prevents the two
+ * screens from drifting apart, as previously happened when only Login was patched.
+ */
+export const OAUTH_CALLBACK_LINK = universalLink('/auth/callback');

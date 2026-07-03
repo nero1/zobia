@@ -12,9 +12,8 @@
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
-import { universalLink } from '@/lib/deeplinks/routes';
+import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
 
 interface WalletData {
   hasWallet: boolean;
@@ -58,7 +57,7 @@ function CreatorWalletPage() {
           <p className="text-sm text-neutral-500">{t('creator.wallet.noWallet', 'No wallet address on file yet.')}</p>
         )}
         <button
-          onClick={() => void Browser.open({ url: universalLink('/creator/wallet'), presentationStyle: 'popover' })}
+          onClick={() => void openAuthenticatedWebLink('/creator/wallet')}
           className="mt-3 rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white"
         >
           {wallet?.hasWallet ? t('creator.bankAccount.manageBtn', 'Manage on web') : t('creator.bankAccount.addBtn', 'Add on web')}

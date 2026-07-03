@@ -18,13 +18,15 @@
  * devices/browsers where App Links verification hasn't succeeded.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { Browser } from '@capacitor/browser';
 import { env } from '@/lib/env';
+import { OAUTH_CALLBACK_LINK } from '@/lib/deeplinks/routes';
+import { beginOAuthAttempt, endOAuthAttempt, onOAuthEnd } from '@/lib/auth/preAuth';
 
-const CALLBACK_DEEP_LINK = `${env.VITE_WEB_BASE_URL.replace(/\/$/, '')}/auth/callback`;
+const CALLBACK_DEEP_LINK = OAUTH_CALLBACK_LINK;
 
 function LoginPage() {
   const { t } = useTranslation();
@@ -33,9 +35,23 @@ function LoginPage() {
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ZSB-22 fix: the loading spinner used to clear as soon as `Browser.open`
+  // resolved — the instant the Custom Tab opened, not when the OAuth flow
+  // actually finished — giving almost no protection against double-tapping
+  // the button mid-flow. It now stays set until __root.tsx's `appUrlOpen`
+  // handler (success/failure) or the foreground-resume abandon fallback
+  // clears the shared `_oauthInProgress` flag (see lib/auth/preAuth.ts).
+  useEffect(() => {
+    return onOAuthEnd(() => {
+      setGoogleLoading(false);
+      setTelegramLoading(false);
+    });
+  }, []);
+
   const handleGoogleLogin = async () => {
     setGoogleLoading(true);
     setError(null);
+    beginOAuthAttempt();
     try {
       // Open the Google OAuth init endpoint directly in the Custom Tab.
       // The browser stores the Set-Cookie headers (CSRF + mobile-redirect) so
@@ -48,7 +64,8 @@ function LoginPage() {
     } catch (err) {
       console.error('[auth] Browser.open (Google) failed:', err);
       setError(t('auth.error.oauthFailed'));
-    } finally {
+      // The tab never opened, so no appUrlOpen callback will ever fire to end this attempt.
+      endOAuthAttempt();
       setGoogleLoading(false);
     }
   };
@@ -56,6 +73,7 @@ function LoginPage() {
   const handleTelegramLogin = async () => {
     setTelegramLoading(true);
     setError(null);
+    beginOAuthAttempt();
     try {
       // Open the hosted Telegram widget page.  After the user signs in via the
       // Telegram Login Widget the server exchanges the data, creates an exchange
@@ -68,7 +86,7 @@ function LoginPage() {
     } catch (err) {
       console.error('[auth] Browser.open (Telegram) failed:', err);
       setError(t('auth.error.oauthFailed'));
-    } finally {
+      endOAuthAttempt();
       setTelegramLoading(false);
     }
   };

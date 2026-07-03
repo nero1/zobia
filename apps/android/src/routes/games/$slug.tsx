@@ -7,9 +7,8 @@
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
-import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
-import { universalLink } from '@/lib/deeplinks/routes';
+import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
 import type { GameSummary, GameLeaderboardRow } from '@zobia/shared/types';
 
 async function fetchGame(slug: string) {
@@ -91,7 +90,7 @@ function GameDetailPage() {
         */}
         <button
           type="button"
-          onClick={() => void Browser.open({ url: universalLink(`/g/${game.slug}/play`), presentationStyle: 'popover' })}
+          onClick={() => void openAuthenticatedWebLink(`/g/${game.slug}/play`)}
           className="w-full py-3 bg-primary-600 text-white font-semibold rounded-lg"
         >
           {t('android.games.play')}

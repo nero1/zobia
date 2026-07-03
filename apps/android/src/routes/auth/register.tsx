@@ -6,13 +6,18 @@
  * account automatically on first OAuth login.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { Browser } from '@capacitor/browser';
 import { env } from '@/lib/env';
+import { OAUTH_CALLBACK_LINK } from '@/lib/deeplinks/routes';
+import { beginOAuthAttempt, endOAuthAttempt, onOAuthEnd } from '@/lib/auth/preAuth';
 
-const CALLBACK_DEEP_LINK = 'zobia://auth/callback';
+// BUG-CAP-04 fix (parity with login.tsx / ZSB-01): use the verified HTTPS
+// Android App Link instead of the `zobia://` custom scheme, which any other
+// installed app can also register and use to intercept the OAuth exchange code.
+const CALLBACK_DEEP_LINK = OAUTH_CALLBACK_LINK;
 
 function RegisterPage() {
   const { t } = useTranslation();
@@ -21,9 +26,21 @@ function RegisterPage() {
   const [telegramLoading, setTelegramLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // ZSB-22 fix: see login.tsx's identical wiring — the spinner now stays set
+  // until __root.tsx's `appUrlOpen` handler or the foreground-resume abandon
+  // fallback clears the shared OAuth-in-progress flag, not the instant the
+  // Custom Tab opens.
+  useEffect(() => {
+    return onOAuthEnd(() => {
+      setGoogleLoading(false);
+      setTelegramLoading(false);
+    });
+  }, []);
+
   const handleGoogleSignUp = async () => {
     setGoogleLoading(true);
     setError(null);
+    beginOAuthAttempt();
     try {
       await Browser.open({
         url: `${env.VITE_API_BASE_URL}/api/auth/google?redirect=${encodeURIComponent(CALLBACK_DEEP_LINK)}`,
@@ -32,7 +49,7 @@ function RegisterPage() {
     } catch (err) {
       console.error('[auth] Browser.open (Google) failed:', err);
       setError(t('auth.error.oauthFailed'));
-    } finally {
+      endOAuthAttempt();
       setGoogleLoading(false);
     }
   };
@@ -40,6 +57,7 @@ function RegisterPage() {
   const handleTelegramSignUp = async () => {
     setTelegramLoading(true);
     setError(null);
+    beginOAuthAttempt();
     try {
       await Browser.open({
         url: `${env.VITE_API_BASE_URL}/auth/telegram-mobile?redirect=${encodeURIComponent(CALLBACK_DEEP_LINK)}`,
@@ -48,7 +66,7 @@ function RegisterPage() {
     } catch (err) {
       console.error('[auth] Browser.open (Telegram) failed:', err);
       setError(t('auth.error.oauthFailed'));
-    } finally {
+      endOAuthAttempt();
       setTelegramLoading(false);
     }
   };

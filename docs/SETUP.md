@@ -172,7 +172,16 @@ A placeholder `google-services.json` and the Google Services Gradle plugin (`com
 1. Create a [Firebase](https://console.firebase.google.com) project (or reuse an existing Google Cloud project) and add an Android app with package name `com.zobiasocial.app`.
 2. Download the real `google-services.json` from Firebase Console → Project settings → General → Your apps, and replace `apps/android/android/app/google-services.json` (the placeholder) with it — this one step is native-side and can't be driven from environment variables, same as the AdMob App ID above.
 3. Firebase Console → Project settings → Service accounts → **Generate new private key**, then set `FCM_PROJECT_ID` (the Firebase project ID) and `FCM_SERVICE_ACCOUNT_JSON` (see Environment Variables Reference below). Without these, Android push sends are skipped (logged, not thrown) — the in-app notification center (`GET /api/notifications`) still works.
-4. Notification tap-to-navigate uses an allowlist of routes in `apps/android/src/lib/push/index.ts` (`VALID_PUSH_ROUTES`) — extend it alongside any new Android page that should be a valid push deep-link target.
+4. Notification tap-to-navigate uses an allowlist of routes in `apps/android/src/lib/notifications/routing.ts` (`VALID_PUSH_ROUTES`) — shared by both the push tap handler and the in-app notifications list — extend it alongside any new Android page that should be a valid push/notification deep-link target.
+
+### Push Notifications (Web/PWA)
+
+Installed-PWA users get background push via the Web Push API (VAPID), handled by `app/sw.ts`'s `push`/`notificationclick` listeners and sent server-side through `lib/notifications/webPush.ts` — the same `lib/notifications/push.ts` choke point used for Android/FCM routes to it automatically for any push token registered with `platform: "web"`.
+
+1. Generate a VAPID key pair: `npx web-push generate-vapid-keys` (from `apps/web`, or anywhere with the `web-push` npm package available).
+2. Set `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (server-side secrets) and `NEXT_PUBLIC_VAPID_PUBLIC_KEY` (same value as `VAPID_PUBLIC_KEY` — exposed to the browser client so it can call `pushManager.subscribe()`). Optionally set `VAPID_SUBJECT` (a `mailto:` address; defaults to `mailto:support@zobia.org`).
+3. Without these set, subscribe/send are a "trusted no-op" in development (logged, not thrown) and are skipped with a warning in production — same convention as `FCM_SERVICE_ACCOUNT_JSON` above.
+4. Users opt in from Settings → Notifications → "Browser notifications" (`lib/push/webPush.ts`'s `subscribeToWebPush()`), which requests the browser's native Notification permission and registers the subscription via `POST /api/users/push-token`.
 
 ### Admin Panel (Capacitor Android)
 
@@ -240,6 +249,10 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `GOOGLE_PLAY_PACKAGE_NAME` | No | Your Android app's package name for IAP purchase validation (default: `com.zobiasocial.app`, the Capacitor app — the Expo app is discontinued). Must match the package name in your Google Play Console app. | Google Play Console → App details |
 | `FCM_PROJECT_ID` | No | Firebase project ID — enables push notification delivery to the Capacitor Android app (`@capacitor/push-notifications`). Without it, push sends to Android devices are skipped (Expo push, used historically by the discontinued Expo app, is unaffected). See [Push Notifications (Capacitor Android / FCM)](#push-notifications-capacitor-android--fcm) below. | Firebase Console → Project settings → General → Project ID |
 | `FCM_SERVICE_ACCOUNT_JSON` | No | Firebase service account JSON (base64-encoded or raw) with the Firebase Cloud Messaging API enabled | Firebase Console → Project settings → Service accounts → Generate new private key |
+| `VAPID_PUBLIC_KEY` | No | VAPID public key — enables Web Push background notifications for installed-PWA users. Without it, subscribe/send are skipped. See [Push Notifications (Web/PWA)](#push-notifications-webpwa) below. | `npx web-push generate-vapid-keys` |
+| `VAPID_PRIVATE_KEY` | No | VAPID private key (keep secret — server-side only) | `npx web-push generate-vapid-keys` |
+| `VAPID_SUBJECT` | No | Contact URI sent with every Web Push request (default: `mailto:support@zobia.org`) | A `mailto:` address or your site URL |
+| `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | No | Same value as `VAPID_PUBLIC_KEY`, exposed to the browser client for `pushManager.subscribe()` | Same as `VAPID_PUBLIC_KEY` |
 | `ADMOB_APP_ID` | No | Google AdMob app ID for the now-discontinued Expo app's rewarded ads + game banner ads. The current Capacitor Android app configures its AdMob App ID natively instead — see [AdMob (Capacitor Android)](#admob-capacitor-android). | AdMob → Apps |
 | `NEXT_PUBLIC_ADSENSE_CLIENT` | No | Google AdSense client id (`ca-pub-…`) for web/PWA ad slots (incl. game pages). Without it, `<AdSlot>` renders a labelled placeholder when ads are enabled. | AdSense → Account |
 | `NEXT_PUBLIC_ADSENSE_SLOT` | No | Default AdSense ad-unit slot id used by `<AdSlot>` | AdSense → Ads → By ad unit |

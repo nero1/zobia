@@ -398,6 +398,9 @@ function ClassroomPage() {
       qc.setQueryData<ClassRoom[]>(['classroom', 'browse'], (prev = []) =>
         prev.map((r) => (r.id === roomId ? { ...r, isEnrolled: true } : r))
       );
+      // ZSB-11 fix: paid classroom enrolment spends coins server-side — see
+      // gifts.tsx's closeModal for the same fix and full explanation.
+      qc.invalidateQueries({ queryKey: ['users', 'me'] });
       showToast(t('classroom.toast.enrolled'));
     },
     onError: () => showToast(t('classroom.error.enrollFailed')),

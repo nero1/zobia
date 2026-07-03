@@ -6,17 +6,17 @@
  *
  * The Android app doesn't host gameplay in-app yet (the game detail page's
  * Play button isn't wired to an engine — games run on web/PWA), so "Resume"
- * opens the web play page in the in-app browser (same Browser.open pattern
- * used for OAuth) rather than trying to resume an engine that isn't here.
+ * opens the web play page in the in-app browser via `openAuthenticatedWebLink`
+ * (ZSB-04 — bridges the mobile session into a real web session first) rather
+ * than trying to resume an engine that isn't here.
  */
 
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
-import { universalLink } from '@/lib/deeplinks/routes';
+import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
 
 interface GameSave {
   id: string;
@@ -194,7 +194,7 @@ function SavedGamesPage() {
               </div>
               <button
                 type="button"
-                onClick={() => Browser.open({ url: universalLink(`/g/${s.game_slug}/play`) })}
+                onClick={() => void openAuthenticatedWebLink(`/g/${s.game_slug}/play`)}
                 className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white"
               >
                 {t('games.savedGames.resume', 'Resume')}

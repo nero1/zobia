@@ -37,7 +37,7 @@ function TwoFactorPage() {
       });
       if (data.accessToken && data.user) {
         setPreAuthToken(null);
-        await setAuth(data.accessToken, data.user);
+        await setAuth(data.accessToken, data.user, data.refreshToken);
         navigate({ to: '/home', replace: true });
       } else {
         setError(t('auth.2fa.invalid_code'));

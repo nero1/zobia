@@ -25,9 +25,19 @@ import { installGlobalErrorHandlers } from '@/lib/debug/logStore';
 import { DebugOverlay } from '@/components/debug/DebugOverlay';
 import { initGooglePlayBilling } from '@/lib/payments/googlePlay';
 import { initAdEventQueueFlush } from '@/lib/ads/adEventQueue';
+import { applyStoredLanguagePref } from '@/lib/i18n';
 
 // Install before anything else so startup errors are captured.
 installGlobalErrorHandlers();
+
+// ZSB-14 fix: this was fully implemented but never called anywhere, so it
+// could never actually run. It overlays the durable Capacitor-Preferences-
+// backed language choice on top of i18next-browser-languagedetector's
+// localStorage-based restore (`./lib/i18n`'s side-effect init above, which
+// has already run synchronously by this point since `initImmediate: false`),
+// so a chosen language survives even a WebView "Clear cache" that wipes
+// localStorage but leaves native SharedPreferences intact.
+void applyStoredLanguagePref();
 
 // ZB-AND-11 fix: wires the periodic + backgrounding flush triggers for the
 // batched ad event queue (see lib/ads/adEventQueue.ts).

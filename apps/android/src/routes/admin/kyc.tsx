@@ -112,8 +112,19 @@ async function fetchDetail(id: string): Promise<SubmissionDetail> {
 // Detail overlay
 // ---------------------------------------------------------------------------
 
-function DetailOverlay({ id, onClose, onResolved }: { id: string; onClose: () => void; onResolved: () => void }) {
+function DetailOverlay({
+  id,
+  onClose,
+  onResolved,
+  onNotify,
+}: {
+  id: string;
+  onClose: () => void;
+  onResolved: () => void;
+  onNotify: (msg: string) => void;
+}) {
   const { t } = useTranslation();
+  const qc = useQueryClient();
   const [showReject, setShowReject] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [scheduleDate, setScheduleDate] = useState('');
@@ -129,12 +140,23 @@ function DetailOverlay({ id, onClose, onResolved }: { id: string; onClose: () =>
     mutationFn: (reason: string) => apiClient.post(`/admin/kyc/${id}/reject`, { reason }),
     onSuccess: onResolved,
   });
+  // ZSB-21 fix: this mutation had no onSuccess/onError at all — unlike
+  // approve/reject right next to it — so after scheduling (or rescheduling)
+  // a Tier-3 physical verification appointment, nothing on screen changed:
+  // the detail view's own physical_verification_scheduled_at field wasn't
+  // refetched, and there was no success/error toast, so the admin had no way
+  // to tell whether the save actually worked.
   const schedule = useMutation({
     mutationFn: () =>
       apiClient.patch(`/admin/kyc/${id}/schedule`, {
         scheduledAt: scheduleDate ? new Date(scheduleDate).toISOString() : null,
         notes: scheduleNotes.trim() || null,
       }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'kyc', 'detail', id] });
+      onNotify(t('admin.kyc.scheduleSaved', 'Schedule saved'));
+    },
+    onError: () => onNotify(t('admin.kyc.scheduleFailed', 'Failed to save schedule')),
   });
 
   const canReview = detail && ['pending', 'ai_review', 'manual_review'].includes(detail.status);
@@ -436,7 +458,14 @@ function AdminKycPage() {
         </div>
       )}
 
-      {selectedId && <DetailOverlay id={selectedId} onClose={() => setSelectedId(null)} onResolved={() => { handleResolved(); notify(t('admin.moderation.actionApplied', 'Action applied')); }} />}
+      {selectedId && (
+        <DetailOverlay
+          id={selectedId}
+          onClose={() => setSelectedId(null)}
+          onResolved={() => { handleResolved(); notify(t('admin.moderation.actionApplied', 'Action applied')); }}
+          onNotify={notify}
+        />
+      )}
     </div>
   );
 }

@@ -116,6 +116,18 @@ const envSchema = z.object({
   // ---- Cron jobs ----------------------------------------------------------
   CRON_SECRET: z.string().min(1, "CRON_SECRET is required to secure CRON endpoints"),
 
+  // ---- Web Push (VAPID) — ZSB-17: PWA background push notifications -------
+  // Generate a pair with `npx web-push generate-vapid-keys`. The public key
+  // is also exposed via NEXT_PUBLIC_VAPID_PUBLIC_KEY so the browser client
+  // can pass it to `pushManager.subscribe()` — see lib/push/webPush.ts (client)
+  // and lib/notifications/webPush.ts (server sender). Falls back to a
+  // "trusted no-op" (subscribe/send silently skipped) in development when
+  // unset, matching the FCM_SERVICE_ACCOUNT_JSON convention above.
+  VAPID_PUBLIC_KEY: z.string().optional(),
+  VAPID_PRIVATE_KEY: z.string().optional(),
+  VAPID_SUBJECT: z.string().optional(),
+  NEXT_PUBLIC_VAPID_PUBLIC_KEY: z.string().optional(),
+
   // ---- Public client-side vars --------------------------------------------
   NEXT_PUBLIC_APP_URL: z.string().url().default("http://localhost:3000"),
   NEXT_PUBLIC_API_URL: z

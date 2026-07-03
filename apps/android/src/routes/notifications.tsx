@@ -7,15 +7,17 @@
  */
 
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { notificationsQueryKey, useNotificationsQuery, type NotificationsPayload } from '@/lib/notifications/queries';
+import { resolveNotificationRoute } from '@/lib/notifications/routing';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
 
 function NotificationsPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const navigate = useNavigate();
 
   const { data, status, refetch } = useNotificationsQuery();
   const notifications = data?.notifications ?? [];
@@ -96,9 +98,16 @@ function NotificationsPage() {
             key={notification.id}
             className={`px-4 py-4 ${!notification.isRead ? 'bg-primary-50' : 'bg-white'}`}
             onClick={() => {
+              // ZSB-16 fix: tapping a notification used to only mark it read
+              // and never navigate anywhere, unlike the web list which links
+              // via notification.actionUrl. Re-validate the server-provided
+              // actionUrl against the same allowlist the push tap handler
+              // uses (lib/notifications/routing.ts) before navigating.
               if (!notification.isRead) {
                 markReadMutation.mutate([notification.id]);
               }
+              const route = resolveNotificationRoute(notification.actionUrl);
+              if (route) navigate({ to: route as never });
             }}
           >
             <div className="flex items-start gap-3">
