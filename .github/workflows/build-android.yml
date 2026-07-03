@@ -1,13 +1,11 @@
-name: Build Android APK (Expo EAS)
+# Builds the Expo app (apps/expo/), which is DISCONTINUED in favor of the
+# Capacitor app (apps/android/) — see docs/SETUP.md "Android App". Kept as a
+# manual-only workflow for reference/historical builds; no longer runs on
+# push so it doesn't burn CI minutes on a frozen app. For the current
+# Android app's build, see .github/workflows/android-build.yml.
+name: Build Android APK (Expo EAS — legacy, discontinued)
 
 on:
-  push:
-    branches:
-      - main
-      - 'claude/eas-apk-build-action-0rrvlf'
-    paths:
-      - 'apps/expo/**'
-      - '.github/workflows/build-android.yml'
   workflow_dispatch:
     inputs:
       profile:

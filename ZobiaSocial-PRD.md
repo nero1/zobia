@@ -1855,6 +1855,8 @@ All cultural events are data-driven and admin-manageable without deployments. Ad
 
 ## 26. MVP Build Sequence
 
+> **Historical note:** this section documents the original Phase 1 plan, written when the Expo (React Native) app was the intended primary mobile product. The mobile strategy later pivoted to the Capacitor app (`apps/android/`) and the Expo app (`apps/expo/`) was discontinued — see §22 "Technical Architecture & Infrastructure" for the current stack, and §31.6 for the discontinuation note. Left unedited below as a record of what was originally planned/built, not as current guidance.
+
 The MVP Build Sequence follows a phased approach. Each phase ends with a stable, testable state that can be deployed independently.
 
 ### Phase 1 — Foundation (Core Infrastructure)
