@@ -305,7 +305,7 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${badgeClass(q.moderation_status)}`}>{q.moderation_status}</span>
               </div>
               <p className="text-xs text-neutral-500 line-clamp-2">{q.description}</p>
-              <p className="text-xs text-neutral-400 mt-1">🪙 {t('ads.quests.rewardLabel', '{{count}} coins', { count: q.reward_coins.toLocaleString() })}</p>
+              <p className="text-xs text-neutral-400 mt-1">🪙 {t('ads.quests.rewardLabel', '{{count}} coins', { count: q.reward_coins })}</p>
             </div>
           ))}
         </div>
