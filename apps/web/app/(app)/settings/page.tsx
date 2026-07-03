@@ -206,10 +206,17 @@ export default function SettingsPage() {
   const [notifications, setNotifications] = useState<Record<string, boolean>>({});
   const [dmOptOut, setDmOptOut] = useState(false);
 
-  // ZSB-17: Web Push (browser notifications) opt-in state.
-  const [webPushSupported] = useState(() => isWebPushSupported());
+  // ZSB-17: Web Push (browser notifications) opt-in state. Both start at a
+  // fixed SSR-safe default and are only set to their real values inside
+  // useEffect (client-only) — a lazy useState(() => isWebPushSupported())
+  // initializer would run during SSR too (where `window` is undefined, so it
+  // returns false) and then diverge from the client's real value on
+  // hydration in any browser that does support the Push API, causing a
+  // hydration mismatch.
+  const [webPushSupported, setWebPushSupported] = useState(false);
   const [webPushPermission, setWebPushPermission] = useState<NotificationPermission | "unsupported">("unsupported");
   useEffect(() => {
+    setWebPushSupported(isWebPushSupported());
     setWebPushPermission(getWebPushPermission());
   }, []);
 

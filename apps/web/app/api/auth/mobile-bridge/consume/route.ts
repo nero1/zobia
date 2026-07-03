@@ -22,9 +22,18 @@ import { createSession, buildCookieHeaders } from "@/lib/auth/session";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { handleApiError } from "@/lib/api/errors";
 
-// Path-only, no query strings or fragments — same allowlist shape as the
-// OAuth web-redirect SAFE_REDIRECT_RE in app/api/auth/google/callback/route.ts.
-const SAFE_REDIRECT_RE = /^\/[a-zA-Z0-9/_-]*$/;
+// Path plus an optional bounded query string (alphanumeric keys/values,
+// `=`/`&` separators only — no fragments). Deliberately looser than the
+// OAuth web-redirect SAFE_REDIRECT_RE in app/api/auth/google/callback/
+// route.ts, which disallows query strings entirely because that redirect
+// target is public-facing (BUG-030). This endpoint's redirect targets are
+// restricted server-side to `ALLOWED_BRIDGE_PATHS` in ../route.ts — the only
+// one that currently carries a query string is `/admin/kyc?userId=<uuid>`,
+// so allowing a bounded alphanumeric query string here is required for that
+// flow to actually land on the right admin page instead of silently falling
+// back to /home, while still rejecting anything that could carry `<`, `"`,
+// `javascript:`, `//`, or other injection-relevant characters.
+const SAFE_REDIRECT_RE = /^\/[a-zA-Z0-9/_-]*(?:\?[a-zA-Z0-9=&_-]*)?$/;
 
 interface UserRow {
   id: string;

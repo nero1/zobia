@@ -131,6 +131,21 @@ interface WebPushPayload {
   badge?: number;
 }
 
+// Non-path action tokens the backend sends alongside/instead of a route
+// (e.g. lib/notifications/reengagement.ts's 14/90-day win-back nudges send
+// `/economy/coins` — not a real page, web's coin purchase UI lives at
+// /wallet — and cron/daily-notify's Platform Council invite sends the bare
+// token `open_council`) — mapped to the in-app route they should open.
+// Mirrors apps/android/src/lib/notifications/routing.ts's ACTION_ALIASES so
+// the same server-sent action resolves to the same destination on both
+// platforms instead of a 404 (`/economy/coins`) or a silent /home fallback
+// (`open_council`, which doesn't start with "/" so it failed the path check
+// entirely) on web/PWA only.
+const ACTION_ALIASES: Record<string, string> = {
+  open_council: "/council",
+  "/economy/coins": "/wallet",
+};
+
 self.addEventListener("push", (event) => {
   if (!event.data) return;
 
@@ -143,12 +158,22 @@ self.addEventListener("push", (event) => {
 
   const title = payload.title || "Zobia";
   event.waitUntil(
-    self.registration.showNotification(title, {
-      body: payload.body || "",
-      icon: "/icons/icon-192x192.png",
-      badge: "/icons/icon-72x72.png",
-      data: payload.data ?? {},
-    })
+    (async () => {
+      // Best-effort — the Badging API isn't universally supported, and a
+      // missing/failed app-icon badge should never block showing the
+      // notification itself.
+      if (typeof payload.badge === "number" && "setAppBadge" in navigator) {
+        await (navigator as Navigator & { setAppBadge: (n: number) => Promise<void> })
+          .setAppBadge(payload.badge)
+          .catch(() => {});
+      }
+      await self.registration.showNotification(title, {
+        body: payload.body || "",
+        icon: "/icons/icon-192x192.png",
+        badge: "/icons/icon-72x72.png",
+        data: payload.data ?? {},
+      });
+    })()
   );
 });
 
@@ -157,10 +182,12 @@ self.addEventListener("notificationclick", (event) => {
 
   // Only ever navigate to a same-origin relative path — the action comes
   // from our own server (lib/notifications/actionRoute.ts's bounded switch
-  // statement), but this guard is defense-in-depth against a malformed or
-  // unexpected payload ever carrying an absolute/external URL.
+  // statement plus the ACTION_ALIASES above), but this guard is
+  // defense-in-depth against a malformed or unexpected payload ever
+  // carrying an absolute/external URL.
   const rawAction = (event.notification.data as { action?: unknown } | undefined)?.action;
-  const path = typeof rawAction === "string" && rawAction.startsWith("/") ? rawAction : "/home";
+  const resolvedAction = typeof rawAction === "string" ? (ACTION_ALIASES[rawAction] ?? rawAction) : null;
+  const path = resolvedAction && resolvedAction.startsWith("/") ? resolvedAction : "/home";
 
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
