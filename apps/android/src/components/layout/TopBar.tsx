@@ -6,7 +6,7 @@
  */
 
 import { useState } from 'react';
-import { Link, useRouter } from '@tanstack/react-router';
+import { Link, useRouter, useRouterState } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
 import { useUnreadNotificationsCount } from '@/lib/notifications/queries';
@@ -58,8 +58,9 @@ const secondaryNavItems = [
 export function TopBar({ title, rightActions, showBack }: TopBarProps) {
   const { t } = useTranslation();
   const router = useRouter();
-  const { clearAuth } = useAuth();
+  const { clearAuth, user } = useAuth();
   const unreadCount = useUnreadNotificationsCount();
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   const closeDrawer = () => setDrawerOpen(false);
@@ -163,6 +164,19 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
 
         <div className="flex h-full flex-col overflow-y-auto px-3 py-4">
           <nav className="space-y-0.5" aria-label="Primary">
+            {user?.is_admin && (
+              <Link
+                to="/admin"
+                onClick={closeDrawer}
+                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                  pathname.startsWith('/admin') ? 'bg-primary-50 text-primary-700' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
+                }`}
+                aria-current={pathname.startsWith('/admin') ? 'page' : undefined}
+              >
+                <span className="w-5 text-center text-base leading-none" aria-hidden="true">🛡️</span>
+                {t('admin.link', 'Admin')}
+              </Link>
+            )}
             {primaryNavItems.map((item) => (
               <Link
                 key={item.href}

@@ -44,6 +44,7 @@ import { Route as BusinessIndexRouteImport } from './routes/business/index'
 import { Route as BlogsIndexRouteImport } from './routes/blogs/index'
 import { Route as AnswersIndexRouteImport } from './routes/answers/index'
 import { Route as AdsIndexRouteImport } from './routes/ads/index'
+import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
@@ -243,6 +244,11 @@ const AdsIndexRoute = AdsIndexRouteImport.update({
   path: '/ads/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminIndexRoute = AdminIndexRouteImport.update({
+  id: '/admin/',
+  path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RoomsRoomIdRoute = RoomsRoomIdRouteImport.update({
   id: '/rooms/$roomId',
   path: '/rooms/$roomId',
@@ -401,6 +407,7 @@ export interface FileRoutesByFullPath {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
@@ -461,6 +468,7 @@ export interface FileRoutesByTo {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/admin': typeof AdminIndexRoute
   '/ads': typeof AdsIndexRoute
   '/answers': typeof AnswersIndexRoute
   '/blogs': typeof BlogsIndexRoute
@@ -522,6 +530,7 @@ export interface FileRoutesById {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
@@ -584,6 +593,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/admin/'
     | '/ads/'
     | '/answers/'
     | '/blogs/'
@@ -644,6 +654,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/admin'
     | '/ads'
     | '/answers'
     | '/blogs'
@@ -704,6 +715,7 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/admin/'
     | '/ads/'
     | '/answers/'
     | '/blogs/'
@@ -765,6 +777,7 @@ export interface RootRouteChildren {
   MomentsCreateRoute: typeof MomentsCreateRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
+  AdminIndexRoute: typeof AdminIndexRoute
   AdsIndexRoute: typeof AdsIndexRoute
   AnswersIndexRoute: typeof AnswersIndexRoute
   BlogsIndexRoute: typeof BlogsIndexRoute
@@ -1031,6 +1044,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/': {
+      id: '/admin/'
+      path: '/admin'
+      fullPath: '/admin/'
+      preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/rooms/$roomId': {
       id: '/rooms/$roomId'
       path: '/rooms/$roomId'
@@ -1237,6 +1257,7 @@ const rootRouteChildren: RootRouteChildren = {
   MomentsCreateRoute: MomentsCreateRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
+  AdminIndexRoute: AdminIndexRoute,
   AdsIndexRoute: AdsIndexRoute,
   AnswersIndexRoute: AnswersIndexRoute,
   BlogsIndexRoute: BlogsIndexRoute,
