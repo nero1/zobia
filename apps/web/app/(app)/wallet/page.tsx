@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { useCurrency, type CurrencyNames } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { RANK_COLORS } from "@/lib/xp/rankColors";
+import RewardedAdButton from "@/components/ads/RewardedAdButton";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -711,13 +712,14 @@ function WalletContent() {
           [];
         const coinPacks = allItems.filter((i) => !i.item_type || i.item_type === "coin_pack");
 
-        // Extract active plan from subscriptions endpoint or balance response
+        // Extract active plan from subscriptions endpoint or balance response.
+        // GET /api/economy/subscriptions returns { currentSubscription: { plan, ... } | null, availablePlans }
+        // — no {data} envelope, and currentSubscription is null when the user is on the free plan.
         const planData = planRes.ok
-          ? ((await planRes.json()) as { data?: { plan?: string; subscription?: { plan?: string } } | null })
+          ? ((await planRes.json()) as { currentSubscription?: { plan?: string } | null })
           : null;
         const activePlan =
-          planData?.data?.plan ??
-          planData?.data?.subscription?.plan ??
+          planData?.currentSubscription?.plan ??
           balData?.plan ??
           null;
 
@@ -883,6 +885,15 @@ function WalletContent() {
       {rank && <RankBadgesSummary rank={rank} />}
 
       {data.earnings && <EarningsSection earnings={data.earnings} />}
+
+      {["free", "plus"].includes((data.activePlan ?? data.balance.plan ?? "free").toLowerCase()) ? (
+        <RewardedAdButton
+          onRewarded={(coinsAwarded) => {
+            setData((prev) => ({ ...prev, balance: { ...prev.balance, coins: prev.balance.coins + coinsAwarded } }));
+            showToast(`+${coinsAwarded} ${currency.softPlural.toLowerCase()} earned!`);
+          }}
+        />
+      ) : null}
 
       {transferRecipientId && (
         <CoinTransferPanel

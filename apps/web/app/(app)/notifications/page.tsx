@@ -13,7 +13,9 @@
 
 import { useRef, useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
+import { useQueryClient } from "@tanstack/react-query";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { notificationsQueryKey } from "@/lib/notifications/useUnreadCount";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -231,14 +233,15 @@ function NotificationSkeleton() {
 // Notification item
 // ---------------------------------------------------------------------------
 
-function NotificationItem({ notification }: { notification: Notification }) {
+function NotificationItem({ notification, onRead }: { notification: Notification; onRead: (id: string) => void }) {
   const unread = !notification.readAt;
 
   return (
     <div
+      onClick={() => unread && onRead(notification.id)}
       className={`flex gap-3 rounded-xl border bg-white p-4 transition-colors dark:bg-neutral-900 ${
         unread
-          ? "border-blue-300 dark:border-blue-700"
+          ? "cursor-pointer border-blue-300 dark:border-blue-700"
           : "border-neutral-200 dark:border-neutral-800"
       }`}
     >
@@ -281,6 +284,7 @@ const PAGE_SIZE = 20;
 
 export default function NotificationsPage() {
   const { t } = useTranslation();
+  const queryClient = useQueryClient();
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;
@@ -300,7 +304,7 @@ export default function NotificationsPage() {
     if (!res.ok) throw new Error("Failed to load notifications");
     const data = (await res.json()) as
       | RawNotification[]
-      | { notifications?: RawNotification[]; nextCursor?: string; hasMore?: boolean };
+      | { notifications?: RawNotification[]; nextCursor?: string; hasMore?: boolean; unreadCount?: number };
 
     const rawList: RawNotification[] = Array.isArray(data)
       ? data
@@ -310,8 +314,9 @@ export default function NotificationsPage() {
     const more: boolean =
       (data as { hasMore?: boolean }).hasMore ??
       list.length >= PAGE_SIZE;
+    const unreadCount: number | undefined = (data as { unreadCount?: number }).unreadCount;
 
-    return { list, next, more };
+    return { list, next, more, unreadCount };
   }, []);
 
   useEffect(() => {
@@ -322,6 +327,9 @@ export default function NotificationsPage() {
         setNotifications(result.list);
         setCursor(result.next);
         setHasMore(result.more);
+        if (result.unreadCount !== undefined) {
+          queryClient.setQueryData(notificationsQueryKey, result.unreadCount);
+        }
       } catch (e) {
         setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       } finally {
@@ -349,14 +357,36 @@ export default function NotificationsPage() {
   async function handleMarkAllRead() {
     setMarkingAll(true);
     try {
-      await fetch("/api/notifications/read-all", { method: "POST", credentials: "include" });
+      const res = await fetch("/api/notifications/read-all", { method: "POST", credentials: "include" });
+      if (!res.ok) return;
       setNotifications((prev) =>
         prev.map((n) => ({ ...n, readAt: n.readAt ?? new Date().toISOString() }))
       );
+      queryClient.setQueryData(notificationsQueryKey, 0);
     } catch {
       // Ignore
     } finally {
       setMarkingAll(false);
+    }
+  }
+
+  async function handleMarkRead(id: string) {
+    setNotifications((prev) =>
+      prev.map((n) => (n.id === id ? { ...n, readAt: n.readAt ?? new Date().toISOString() } : n))
+    );
+    queryClient.setQueryData<number>(notificationsQueryKey, (prev) => Math.max(0, (prev ?? 0) - 1));
+    try {
+      const res = await fetch("/api/notifications/read", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: [id] }),
+      });
+      if (!res.ok) throw new Error("Failed to mark read");
+    } catch {
+      // Revert on failure — the notification was not actually marked read server-side.
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, readAt: null } : n)));
+      queryClient.setQueryData<number>(notificationsQueryKey, (prev) => (prev ?? 0) + 1);
     }
   }
 
@@ -413,7 +443,7 @@ export default function NotificationsPage() {
         <>
           <div className="space-y-2">
             {notifications.map((n) => (
-              <NotificationItem key={n.id} notification={n} />
+              <NotificationItem key={n.id} notification={n} onRead={handleMarkRead} />
             ))}
           </div>
 

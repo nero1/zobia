@@ -13,6 +13,7 @@ import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-quer
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { COIN_PRODUCTS, STAR_PRODUCTS, purchaseCoins, purchaseStars } from '@/lib/payments/googlePlay';
+import RewardedAdButton from '@/components/ads/RewardedAdButton';
 
 const TX_PAGE_SIZE = 10;
 
@@ -200,6 +201,14 @@ function WalletPage() {
       </div>
 
       {meStatus === 'success' && <RankBadgesSummary me={me} />}
+
+      {meStatus === 'success' && (me.plan === 'free' || me.plan === 'plus') && (
+        <div className="px-6 mb-3">
+          <RewardedAdButton
+            onRewarded={() => qc.invalidateQueries({ queryKey: ['users', 'me'] })}
+          />
+        </div>
+      )}
 
       <BuyCurrencyPanel onPurchased={() => qc.invalidateQueries({ queryKey: ['users', 'me'] })} />
 

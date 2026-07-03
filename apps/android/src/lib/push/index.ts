@@ -41,7 +41,24 @@ const VALID_PUSH_ROUTES: RegExp[] = [
   /^\/business\/ads$/i,
   /^\/notifications$/i,
   /^\/wallet$/i,
+  /^\/home$/i,
+  /^\/nemesis$/i,
+  /^\/friends$/i,
+  /^\/guilds$/i,
+  /^\/inbox$/i,
+  /^\/seasons$/i,
+  /^\/council$/i,
 ];
+
+/**
+ * Non-path action tokens the backend sends alongside/instead of a route
+ * (e.g. lib/notifications/reengagement.ts, cron/daily-notify's Platform
+ * Council invite) — mapped to the in-app route they should open.
+ */
+const ACTION_ALIASES: Record<string, string> = {
+  open_council: '/council',
+  '/economy/coins': '/wallet',
+};
 
 function isAllowedRoute(path: string): boolean {
   return VALID_PUSH_ROUTES.some((re) => re.test(path));
@@ -124,8 +141,9 @@ export async function initPushNotifications(router: AnyRouter): Promise<void> {
     // Tapping a notification (app backgrounded or killed) — navigate to the
     // deep-linked screen if the payload carries an allowlisted action.
     await PushNotifications.addListener('pushNotificationActionPerformed', (action: ActionPerformed) => {
-      const route = extractAction(action.notification);
-      if (!route) return;
+      const rawAction = extractAction(action.notification);
+      if (!rawAction) return;
+      const route = ACTION_ALIASES[rawAction] ?? rawAction;
       if (!isAllowedRoute(route)) {
         console.warn('[push] Blocked notification action not in allowlist:', route);
         return;

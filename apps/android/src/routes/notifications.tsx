@@ -1,50 +1,52 @@
 /**
  * apps/android/src/routes/notifications.tsx
  *
- * Notifications list. GET /api/notifications. Mark read: POST /api/notifications/read.
+ * Notifications list. GET /api/notifications. Mark one/some read:
+ * POST /api/notifications/read { ids }. Mark all read:
+ * POST /api/notifications/read-all.
  */
 
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
-
-interface Notification {
-  id: string;
-  type: string;
-  title: string;
-  body: string;
-  isRead: boolean;
-  createdAt: string;
-  metadata?: Record<string, unknown>;
-}
-
-async function fetchNotifications() {
-  // The API responds with { notifications, unreadCount }, not { items }.
-  const { data } = await apiClient.get<{ notifications: Notification[]; unreadCount: number }>('/notifications');
-  return data?.notifications ?? [];
-}
+import { notificationsQueryKey, useNotificationsQuery, type NotificationsPayload } from '@/lib/notifications/queries';
 
 function NotificationsPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
 
-  const { data: notifications, status, refetch } = useQuery({
-    queryKey: ['notifications'],
-    queryFn: fetchNotifications,
-    staleTime: 30_000,
-  });
+  const { data, status, refetch } = useNotificationsQuery();
+  const notifications = data?.notifications ?? [];
 
   const markReadMutation = useMutation({
     mutationFn: (ids: string[]) => apiClient.post('/notifications/read', { ids }),
+    onSuccess: (_res, ids) => {
+      qc.setQueryData<NotificationsPayload>(notificationsQueryKey, (prev) => {
+        if (!prev) return prev;
+        const idSet = new Set(ids);
+        let newlyRead = 0;
+        const updated = prev.notifications.map((n) => {
+          if (idSet.has(n.id) && !n.isRead) newlyRead++;
+          return idSet.has(n.id) ? { ...n, isRead: true } : n;
+        });
+        // Decrement server-truth unreadCount rather than recomputing from the
+        // loaded page — the full unread set can extend beyond what's fetched.
+        return { notifications: updated, unreadCount: Math.max(0, prev.unreadCount - newlyRead) };
+      });
+    },
+  });
+
+  const markAllReadMutation = useMutation({
+    mutationFn: () => apiClient.post('/notifications/read-all', {}),
     onSuccess: () => {
-      qc.setQueryData<Notification[]>(['notifications'], (prev = []) =>
-        prev.map((n) => ({ ...n, isRead: true }))
+      qc.setQueryData<NotificationsPayload>(notificationsQueryKey, (prev) =>
+        prev ? { notifications: prev.notifications.map((n) => ({ ...n, isRead: true })), unreadCount: 0 } : prev
       );
     },
   });
 
-  const unreadCount = notifications?.filter((n) => !n.isRead).length ?? 0;
+  const unreadCount = data?.unreadCount ?? 0;
 
   return (
     <div className="h-full overflow-y-auto bg-white">
@@ -53,13 +55,10 @@ function NotificationsPage() {
         <div className="px-4 py-3 border-b border-neutral-100 flex items-center justify-between">
           <span className="text-sm text-neutral-500">{t('notifications.unread', { count: unreadCount })}</span>
           <button
-            onClick={() => {
-              const unreadIds = notifications?.filter((n) => !n.isRead).map((n) => n.id) ?? [];
-              if (unreadIds.length) markReadMutation.mutate(unreadIds);
-            }}
+            onClick={() => markAllReadMutation.mutate()}
             className="text-sm text-primary-600 font-medium"
           >
-            {markReadMutation.isPending ? t('notifications.markingAll') : t('notifications.markAllRead')}
+            {markAllReadMutation.isPending ? t('notifications.markingAll') : t('notifications.markAllRead')}
           </button>
         </div>
       )}
@@ -84,14 +83,14 @@ function NotificationsPage() {
         </div>
       )}
 
-      {status === 'success' && notifications?.length === 0 && (
+      {status === 'success' && notifications.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20">
           <p className="text-neutral-500 text-sm">{t('notifications.empty')}</p>
         </div>
       )}
 
       <div className="divide-y divide-neutral-100">
-        {notifications?.map((notification) => (
+        {notifications.map((notification) => (
           <div
             key={notification.id}
             className={`px-4 py-4 ${!notification.isRead ? 'bg-primary-50' : 'bg-white'}`}
