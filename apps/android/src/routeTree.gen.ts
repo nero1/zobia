@@ -17,6 +17,7 @@ import { Route as SeasonsRouteImport } from './routes/seasons'
 import { Route as ReferralsRouteImport } from './routes/referrals'
 import { Route as QuestsRouteImport } from './routes/quests'
 import { Route as PrestigeRouteImport } from './routes/prestige'
+import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as NemesisRouteImport } from './routes/nemesis'
 import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
@@ -145,6 +146,11 @@ const QuestsRoute = QuestsRouteImport.update({
 const PrestigeRoute = PrestigeRouteImport.update({
   id: '/prestige',
   path: '/prestige',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OnboardingRoute = OnboardingRouteImport.update({
+  id: '/onboarding',
+  path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
 const NotificationsRoute = NotificationsRouteImport.update({
@@ -611,6 +617,7 @@ export interface FileRoutesByFullPath {
   '/leaderboards': typeof LeaderboardsRoute
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
+  '/onboarding': typeof OnboardingRoute
   '/prestige': typeof PrestigeRoute
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
@@ -710,6 +717,7 @@ export interface FileRoutesByTo {
   '/leaderboards': typeof LeaderboardsRoute
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
+  '/onboarding': typeof OnboardingRoute
   '/prestige': typeof PrestigeRoute
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
@@ -810,6 +818,7 @@ export interface FileRoutesById {
   '/leaderboards': typeof LeaderboardsRoute
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
+  '/onboarding': typeof OnboardingRoute
   '/prestige': typeof PrestigeRoute
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
@@ -911,6 +920,7 @@ export interface FileRouteTypes {
     | '/leaderboards'
     | '/nemesis'
     | '/notifications'
+    | '/onboarding'
     | '/prestige'
     | '/quests'
     | '/referrals'
@@ -1010,6 +1020,7 @@ export interface FileRouteTypes {
     | '/leaderboards'
     | '/nemesis'
     | '/notifications'
+    | '/onboarding'
     | '/prestige'
     | '/quests'
     | '/referrals'
@@ -1109,6 +1120,7 @@ export interface FileRouteTypes {
     | '/leaderboards'
     | '/nemesis'
     | '/notifications'
+    | '/onboarding'
     | '/prestige'
     | '/quests'
     | '/referrals'
@@ -1209,6 +1221,7 @@ export interface RootRouteChildren {
   LeaderboardsRoute: typeof LeaderboardsRoute
   NemesisRoute: typeof NemesisRoute
   NotificationsRoute: typeof NotificationsRoute
+  OnboardingRoute: typeof OnboardingRoute
   PrestigeRoute: typeof PrestigeRoute
   QuestsRoute: typeof QuestsRoute
   ReferralsRoute: typeof ReferralsRoute
@@ -1346,6 +1359,13 @@ declare module '@tanstack/react-router' {
       path: '/prestige'
       fullPath: '/prestige'
       preLoaderRoute: typeof PrestigeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/onboarding': {
+      id: '/onboarding'
+      path: '/onboarding'
+      fullPath: '/onboarding'
+      preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/notifications': {
@@ -2005,6 +2025,7 @@ const rootRouteChildren: RootRouteChildren = {
   LeaderboardsRoute: LeaderboardsRoute,
   NemesisRoute: NemesisRoute,
   NotificationsRoute: NotificationsRoute,
+  OnboardingRoute: OnboardingRoute,
   PrestigeRoute: PrestigeRoute,
   QuestsRoute: QuestsRoute,
   ReferralsRoute: ReferralsRoute,

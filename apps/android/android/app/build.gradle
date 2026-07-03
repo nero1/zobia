@@ -9,8 +9,29 @@ android {
         applicationId "com.zobiasocial.app"
         minSdk rootProject.ext.minSdkVersion
         targetSdk rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0.0"
+        // versionCode/versionName are supplied by CI via -PversionCode=/-PversionName=
+        // (see .github/workflows/android-build.yml) so each new Play Store upload
+        // strictly increases versionCode as required. The literal fallbacks below
+        // only apply to local `./gradlew` runs where those properties aren't passed.
+        versionCode (project.hasProperty('versionCode') ? project.property('versionCode').toInteger() : 1)
+        versionName (project.hasProperty('versionName') ? project.property('versionName') : "1.0.0")
+    }
+
+    // ZB-AND-13 fix: release signing config, read from Gradle properties so no
+    // real keystore/credentials are ever committed. android-build.yml's
+    // "release" job decodes the base64 keystore secret to a temp file and
+    // passes these four properties at build time; `hasProperty` guards mean a
+    // plain local `./gradlew assembleRelease` (no properties passed) falls
+    // back to unsigned, rather than failing the unrelated debug build.
+    signingConfigs {
+        release {
+            if (project.hasProperty('RELEASE_STORE_FILE')) {
+                storeFile file(project.property('RELEASE_STORE_FILE'))
+                storePassword project.property('RELEASE_STORE_PASSWORD')
+                keyAlias project.property('RELEASE_KEY_ALIAS')
+                keyPassword project.property('RELEASE_KEY_PASSWORD')
+            }
+        }
     }
 
     buildTypes {
@@ -19,6 +40,7 @@ android {
             minifyEnabled false
         }
         release {
+            signingConfig project.hasProperty('RELEASE_STORE_FILE') ? signingConfigs.release : signingConfigs.debug
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }

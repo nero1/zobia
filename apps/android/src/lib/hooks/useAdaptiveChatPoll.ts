@@ -1,11 +1,20 @@
 /**
  * apps/android/src/lib/hooks/useAdaptiveChatPoll.ts
  *
- * Copied verbatim from apps/web/lib/hooks/useAdaptiveChatPoll.ts.
- * No changes needed — it is already framework-agnostic React.
+ * Adapted from apps/web/lib/hooks/useAdaptiveChatPoll.ts.
+ * ZB-AND-08 fix: the original comment said "copied verbatim... no changes
+ * needed" on the assumption `visibilitychange` alone was enough, but a
+ * sibling hook in this same directory (usePresenceHeartbeat.ts) explicitly
+ * documents that `visibilitychange` is unreliable inside a Capacitor
+ * WebView. Added a `@capacitor/app` `appStateChange` listener alongside the
+ * existing `visibilitychange` one — same pattern already used in
+ * lib/api/client.ts's focusManager wiring — so backgrounding the Android
+ * app reliably pauses the poll instead of continuing to fire every
+ * 3-30 seconds while off-screen.
  */
 
 import { useEffect, useRef } from "react";
+import { App as CapApp } from "@capacitor/app";
 
 interface AdaptiveChatPollOptions {
   poll: () => boolean | void | Promise<boolean | void>;
@@ -39,7 +48,12 @@ export function useAdaptiveChatPoll({
     if (!enabled) return;
 
     let timeoutId: ReturnType<typeof setTimeout> | undefined;
-    let stopped = false;
+    // Two independent signals can each demand a pause; only resume once BOTH
+    // agree the app is visible/foregrounded, so one listener firing "resume"
+    // can't override the other still saying "hidden/backgrounded".
+    let documentHidden = typeof document !== "undefined" && document.hidden;
+    let appBackgrounded = false;
+    let stopped = documentHidden || appBackgrounded;
     let currentMs = fastMs;
 
     const baseMs = () => (connected ? slowMs : fastMs);
@@ -79,24 +93,32 @@ export function useAdaptiveChatPoll({
     };
     pokeRef.current = pokeNow;
 
-    const onVisibilityChange = () => {
-      if (typeof document !== "undefined" && document.hidden) {
+    const applyState = () => {
+      if (documentHidden || appBackgrounded) {
         stopped = true;
         clear();
-      } else {
+      } else if (stopped) {
         stopped = false;
         pokeNow();
       }
     };
 
-    if (typeof document === "undefined" || !document.hidden) {
+    const onVisibilityChange = () => {
+      documentHidden = typeof document !== "undefined" && document.hidden;
+      applyState();
+    };
+
+    if (!stopped) {
       void tick();
-    } else {
-      stopped = true;
     }
     if (typeof document !== "undefined") {
       document.addEventListener("visibilitychange", onVisibilityChange);
     }
+
+    const appStateHandle = CapApp.addListener("appStateChange", ({ isActive }) => {
+      appBackgrounded = !isActive;
+      applyState();
+    });
 
     return () => {
       stopped = true;
@@ -105,6 +127,7 @@ export function useAdaptiveChatPoll({
       if (typeof document !== "undefined") {
         document.removeEventListener("visibilitychange", onVisibilityChange);
       }
+      appStateHandle.then((h) => h.remove());
     };
   }, [connected, enabled, fastMs, maxMs, slowMs]);
 

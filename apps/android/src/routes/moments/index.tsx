@@ -13,6 +13,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useRef, useCallback, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
+import { PullToRefresh } from '@/components/ui/PullToRefresh';
 
 interface ReactionSummary {
   emoji: string;
@@ -248,7 +249,7 @@ function MomentsPage() {
   const moments = data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
+    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-neutral-50">
       <div className="flex items-center justify-between bg-white px-4 py-3 border-b border-neutral-100">
         <div>
           <h1 className="text-lg font-bold text-neutral-900">{t('moments.title')}</h1>
@@ -294,7 +295,7 @@ function MomentsPage() {
           </div>
         )}
       </div>
-    </div>
+    </PullToRefresh>
   );
 }
 

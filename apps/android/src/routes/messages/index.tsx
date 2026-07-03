@@ -8,6 +8,7 @@ import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { PullToRefresh } from '@/components/ui/PullToRefresh';
 
 interface Conversation {
   id: string;
@@ -69,7 +70,7 @@ function MessagesPage() {
   });
 
   return (
-    <div className="h-full overflow-y-auto bg-white">
+    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-white">
       {status === 'pending' && (
         <div className="divide-y divide-neutral-100">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -129,7 +130,7 @@ function MessagesPage() {
           </div>
         </Link>
       ))}
-    </div>
+    </PullToRefresh>
   );
 }
 

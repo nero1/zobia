@@ -29,16 +29,20 @@ export interface Manifest {
   [key: string]: unknown;
 }
 
-const MANIFEST_STALE_TIME = 5 * 60_000;
+export const MANIFEST_QUERY_KEY = ['manifest'] as const;
+export const MANIFEST_STALE_TIME = 5 * 60_000;
 
-async function fetchManifest(): Promise<Manifest> {
+// Exported so non-component callers (e.g. lib/ads/admob.ts) can read/refresh
+// the same react-query-cached manifest via queryClient.fetchQuery/getQueryData
+// instead of maintaining their own bespoke, never-expiring cache (ZB-AND-15 fix).
+export async function fetchManifest(): Promise<Manifest> {
   const { data } = await apiClient.get<Manifest>('/manifest');
   return data ?? {};
 }
 
 export function useManifest(): Manifest | undefined {
   const { data } = useQuery<Manifest>({
-    queryKey: ['manifest'],
+    queryKey: MANIFEST_QUERY_KEY,
     queryFn: fetchManifest,
     staleTime: MANIFEST_STALE_TIME,
   });

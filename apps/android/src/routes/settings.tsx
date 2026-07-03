@@ -11,8 +11,40 @@ import { useQueryClient } from '@tanstack/react-query';
 import { App } from '@capacitor/app';
 import { useAuth } from '@/lib/auth/store';
 import { apiClient } from '@/lib/api/client';
+import { restorePurchases } from '@/lib/payments/googlePlay';
 import { LOCALE_LABELS, SUPPORTED_LOCALES, type SupportedLocale } from '@zobia/shared/i18n';
 import i18n from '@/lib/i18n';
+
+// ZB-AND-09 fix: restorePurchases() was fully implemented in
+// lib/payments/googlePlay.ts but had no UI entry point anywhere in the app —
+// a user who reinstalled or switched devices had no way to recover
+// entitlements without contacting support.
+function RestorePurchasesSection() {
+  const { t } = useTranslation();
+  const [state, setState] = useState<'idle' | 'restoring' | 'success' | 'error'>('idle');
+
+  async function handleRestore() {
+    setState('restoring');
+    const result = await restorePurchases();
+    setState(result.error ? 'error' : 'success');
+  }
+
+  return (
+    <div className="bg-white px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 mb-1">{t('settings.restorePurchases.title')}</h3>
+      <p className="text-xs text-neutral-500 mb-3">{t('settings.restorePurchases.desc')}</p>
+      <button
+        onClick={() => void handleRestore()}
+        disabled={state === 'restoring'}
+        className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+      >
+        {state === 'restoring' ? t('settings.restorePurchases.restoring') : t('settings.restorePurchases.button')}
+      </button>
+      {state === 'success' && <p className="mt-2 text-xs text-green-600">{t('settings.restorePurchases.success')}</p>}
+      {state === 'error' && <p className="mt-2 text-xs text-danger-600">{t('settings.restorePurchases.error')}</p>}
+    </div>
+  );
+}
 
 // BUG-CAP-07: Data & Account sub-section — request-my-data + delete account.
 // Rendered inline (not a separate route) to mirror web's settings page,
@@ -234,6 +266,9 @@ function SettingsPage() {
           ))}
         </div>
       </div>
+
+      {/* Restore Purchases (ZB-AND-09) */}
+      <RestorePurchasesSection />
 
       {/* Data & Account (BUG-CAP-07) */}
       <DataAndAccountSection />

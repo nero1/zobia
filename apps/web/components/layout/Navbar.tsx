@@ -16,6 +16,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { clsx } from "clsx";
+import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/Avatar";
 import { useUnreadNotificationsCount } from "@/lib/notifications/useUnreadCount";
 
@@ -42,43 +43,46 @@ function useNavUser() {
 // Nav item definitions
 // ---------------------------------------------------------------------------
 
+// `labelKey`/`shortLabelKey` are i18n keys (not literal strings), resolved via
+// t() at render time so a non-English viewer sees a translated nav, not the
+// key names below (matches the equivalent fix in apps/android's TopBar/BottomNav).
 const bottomTabItems = [
-  { href: "/home",    label: "Home",    shortLabel: "Home"   },
-  { href: "/quests",  label: "Quests",  shortLabel: "Quests" },
-  { href: "/games",   label: "Games",   shortLabel: "Games"  },
-  { href: "/friends", label: "Friends", shortLabel: "Friends"},
-  { href: "/wallet",  label: "Wallet",  shortLabel: "Wallet" },
-  { href: "/profile", label: "Profile", shortLabel: "Profile"},
+  { href: "/home",    label: "Home",    shortLabelKey: "nav.home"    },
+  { href: "/quests",  label: "Quests",  shortLabelKey: "nav.quests"  },
+  { href: "/games",   label: "Games",   shortLabelKey: "nav.games"   },
+  { href: "/friends", label: "Friends", shortLabelKey: "nav.friends" },
+  { href: "/wallet",  label: "Wallet",  shortLabelKey: "nav.wallet"  },
+  { href: "/profile", label: "Profile", shortLabelKey: "nav.profile" },
 ] as const;
 
 // Full nav for desktop + drawer
 const primaryNavItems = [
-  { href: "/home",         label: "Home",         icon: "🏠" },
-  { href: "/moments",      label: "Moments",      icon: "⚡" },
-  { href: "/answers",      label: "Answers",      icon: "❓" },
-  { href: "/quests",       label: "Quests",       icon: "🎯" },
-  { href: "/games",        label: "Games",        icon: "🎮" },
-  { href: "/blogs",        label: "Blogs",        icon: "📝" },
-  { href: "/business",     label: "Business",     icon: "🏢" },
-  { href: "/ads",          label: "Ads",           icon: "📢" },
-  { href: "/rooms",        label: "Rooms",        icon: "🚪" },
-  { href: "/messages",     label: "Messages",     icon: "💬" },
-  { href: "/friends",      label: "Friends",      icon: "👥" },
-  { href: "/gifts",        label: "Gifts",        icon: "🎁" },
-  { href: "/wallet",       label: "Wallet",       icon: "🪙" },
-  { href: "/notifications",label: "Notifications",icon: "🔔" },
-  { href: "/events",       label: "Events",       icon: "📅" },
-  { href: "/inbox",        label: "Inbox",        icon: "📬" },
-  { href: "/elder",        label: "Elder",        icon: "🎓" },
-  { href: "/referrals",    label: "Referrals",    icon: "🔗" },
-  { href: "/classroom",    label: "Classroom",    icon: "🏫" },
-  { href: "/leaderboards", label: "Leaderboards", icon: "🏆" },
-  { href: "/seasons",      label: "Seasons",      icon: "🗓️" },
+  { href: "/home",         labelKey: "nav.home",         icon: "🏠" },
+  { href: "/moments",      labelKey: "nav.moments",      icon: "⚡" },
+  { href: "/answers",      labelKey: "nav.answers",      icon: "❓" },
+  { href: "/quests",       labelKey: "nav.quests",       icon: "🎯" },
+  { href: "/games",        labelKey: "nav.games",        icon: "🎮" },
+  { href: "/blogs",        labelKey: "nav.blogs",        icon: "📝" },
+  { href: "/business",     labelKey: "nav.business",     icon: "🏢" },
+  { href: "/ads",          labelKey: "nav.ads",          icon: "📢" },
+  { href: "/rooms",        labelKey: "nav.rooms",        icon: "🚪" },
+  { href: "/messages",     labelKey: "nav.messages",     icon: "💬" },
+  { href: "/friends",      labelKey: "nav.friends",      icon: "👥" },
+  { href: "/gifts",        labelKey: "nav.gifts",        icon: "🎁" },
+  { href: "/wallet",       labelKey: "nav.wallet",       icon: "🪙" },
+  { href: "/notifications",labelKey: "nav.notifications",icon: "🔔" },
+  { href: "/events",       labelKey: "nav.events",       icon: "📅" },
+  { href: "/inbox",        labelKey: "nav.inbox",        icon: "📬" },
+  { href: "/elder",        labelKey: "nav.elder",        icon: "🎓" },
+  { href: "/referrals",    labelKey: "nav.referrals",    icon: "🔗" },
+  { href: "/classroom",    labelKey: "nav.classroom",    icon: "🏫" },
+  { href: "/leaderboards", labelKey: "nav.leaderboards", icon: "🏆" },
+  { href: "/seasons",      labelKey: "nav.seasons",      icon: "🗓️" },
 ] as const;
 
 const secondaryNavItems = [
-  { href: "/profile",  label: "Profile",  icon: "👤" },
-  { href: "/settings", label: "Settings", icon: "⚙️" },
+  { href: "/profile",  labelKey: "nav.profile",  icon: "👤" },
+  { href: "/settings", labelKey: "nav.settings", icon: "⚙️" },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -127,6 +131,7 @@ function isMaxPlan(plan: string | null | undefined) {
 // ---------------------------------------------------------------------------
 
 function MobileTabBar() {
+  const { t } = useTranslation();
   const pathname = usePathname();
 
   return (
@@ -150,7 +155,7 @@ function MobileTabBar() {
               aria-current={isActive ? "page" : undefined}
             >
               <TabIcon label={item.label} isActive={isActive} />
-              <span className="text-[9px] leading-none">{item.shortLabel}</span>
+              <span className="text-[9px] leading-none">{t(item.shortLabelKey)}</span>
             </Link>
           );
         })}
@@ -178,6 +183,8 @@ function MobileDrawer({
   onLogout: () => void;
   isAdmin?: boolean;
 }) {
+  const { t } = useTranslation();
+
   // Close on Escape
   useEffect(() => {
     if (!open) return;
@@ -210,7 +217,7 @@ function MobileDrawer({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close menu"
+          aria-label={t("nav.closeMenu")}
           className="absolute right-4 top-4 rounded-full p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
         >
           <span aria-hidden="true" className="text-xl leading-none">✕</span>
@@ -232,7 +239,7 @@ function MobileDrawer({
                 aria-current={pathname.startsWith("/admin") ? "page" : undefined}
               >
                 <span className="w-5 text-center text-base leading-none" aria-hidden="true">🛡️</span>
-                Admin
+                {t("admin.link")}
               </Link>
             )}
             {primaryNavItems.map((item) => {
@@ -251,7 +258,7 @@ function MobileDrawer({
                   aria-current={isActive ? "page" : undefined}
                 >
                   <span className="w-5 text-center text-base leading-none" aria-hidden="true">{item.icon}</span>
-                  {item.label}
+                  {t(item.labelKey)}
                 </Link>
               );
             })}
@@ -278,7 +285,7 @@ function MobileDrawer({
                   aria-current={isActive ? "page" : undefined}
                 >
                   <span className="w-5 text-center text-base leading-none" aria-hidden="true">{item.icon}</span>
-                  {item.label}
+                  {t(item.labelKey)}
                 </Link>
               );
             })}
@@ -293,7 +300,7 @@ function MobileDrawer({
             onClick={() => { onClose(); onLogout(); }}
             className="mt-4 w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
           >
-            🚪 Log out
+            🚪 {t("nav.logout")}
           </button>
         </div>
       </div>
@@ -312,6 +319,7 @@ function ProfileDropdown({
   user: NavUser | null;
   onLogout: () => void;
 }) {
+  const { t } = useTranslation();
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const router = useRouter();
@@ -356,7 +364,7 @@ function ProfileDropdown({
     <div ref={ref} className="relative">
       <button
         type="button"
-        aria-label="Your profile"
+        aria-label={t("nav.userArea")}
         aria-expanded={open}
         aria-haspopup="true"
         onClick={() => setOpen((v) => !v)}
@@ -369,7 +377,7 @@ function ProfileDropdown({
         <div
           className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-800 dark:bg-neutral-900"
           role="menu"
-          aria-label="Profile menu"
+          aria-label={t("nav.userArea")}
         >
           {/* User info header */}
           <div className="px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
@@ -390,7 +398,7 @@ function ProfileDropdown({
                 onClick={() => setOpen(false)}
                 className="text-xs text-primary-600 hover:underline dark:text-primary-400"
               >
-                Manage Plan
+                {t("profile.dropdown.managePlan")}
               </Link>
             </div>
           </div>
@@ -404,7 +412,7 @@ function ProfileDropdown({
               className="flex items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
               <span aria-hidden="true">👤</span>
-              View Profile
+              {t("profile.dropdown.viewProfile")}
             </Link>
             <Link
               href="/settings"
@@ -413,7 +421,7 @@ function ProfileDropdown({
               className="flex items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
               <span aria-hidden="true">⚙️</span>
-              Profile Settings
+              {t("profile.dropdown.profileSettings")}
             </Link>
 
             <button
@@ -423,7 +431,7 @@ function ProfileDropdown({
               className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
               <span aria-hidden="true">{isDark ? "☀️" : "🌙"}</span>
-              {isDark ? "Switch to Light Mode" : "Switch to Dark Mode"}
+              {isDark ? t("profile.dropdown.themeLight") : t("profile.dropdown.themeDark")}
             </button>
 
             <Link
@@ -433,7 +441,7 @@ function ProfileDropdown({
               className="flex items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
               <span aria-hidden="true">⭐</span>
-              {isMaxPlan(plan) ? `Manage ${plan.charAt(0).toUpperCase() + plan.slice(1)} Plan` : "Upgrade Plan"}
+              {isMaxPlan(plan) ? t("profile.dropdown.managePlanNamed", { plan: plan.charAt(0).toUpperCase() + plan.slice(1) }) : t("profile.dropdown.upgradePlan")}
             </Link>
           </div>
 
@@ -445,7 +453,7 @@ function ProfileDropdown({
               className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
             >
               <span aria-hidden="true">🚪</span>
-              Log out
+              {t("nav.logout")}
             </button>
           </div>
         </div>
@@ -462,6 +470,7 @@ function ProfileDropdown({
  * Top navigation bar + mobile bottom tab bar + mobile drawer.
  */
 export function Navbar() {
+  const { t } = useTranslation();
   const pathname = usePathname();
   const router = useRouter();
   const navUser = useNavUser();
@@ -486,11 +495,11 @@ export function Navbar() {
     let touchStartY: number | null = null;
 
     const onTouchStart = (e: TouchEvent) => {
-      const t = e.touches[0];
+      const touch = e.touches[0];
       // Activate if coming from left edge (to open) OR drawer is already open (to close)
-      if (t.clientX <= EDGE_PX || drawerOpenRef.current) {
-        touchStartX = t.clientX;
-        touchStartY = t.clientY;
+      if (touch.clientX <= EDGE_PX || drawerOpenRef.current) {
+        touchStartX = touch.clientX;
+        touchStartY = touch.clientY;
       } else {
         touchStartX = null;
         touchStartY = null;
@@ -499,9 +508,9 @@ export function Navbar() {
 
     const onTouchMove = (e: TouchEvent) => {
       if (touchStartX === null || touchStartY === null) return;
-      const t = e.touches[0];
-      const dx = t.clientX - touchStartX;
-      const dy = Math.abs(t.clientY - touchStartY);
+      const touch = e.touches[0];
+      const dx = touch.clientX - touchStartX;
+      const dy = Math.abs(touch.clientY - touchStartY);
 
       if (drawerOpenRef.current) {
         // Close on predominantly horizontal LEFT swipe
@@ -546,7 +555,7 @@ export function Navbar() {
             {/* Hamburger — mobile only */}
             <button
               type="button"
-              aria-label="Open navigation menu"
+              aria-label={t("nav.openMenu")}
               aria-expanded={drawerOpen}
               onClick={() => setDrawerOpen(true)}
               className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 lg:hidden"
@@ -582,7 +591,7 @@ export function Navbar() {
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
-                  {item.label}
+                  {t(item.shortLabelKey)}
                 </Link>
               );
             })}
@@ -593,7 +602,7 @@ export function Navbar() {
             {navUser?.is_admin && (
               <Link
                 href="/admin"
-                aria-label="Admin panel"
+                aria-label={t("admin.link")}
                 className={clsx(
                   "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
                   pathname.startsWith("/admin")
@@ -601,12 +610,12 @@ export function Navbar() {
                     : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
                 )}
               >
-                🛡️ Admin
+                🛡️ {t("admin.link")}
               </Link>
             )}
             <Link
               href="/notifications"
-              aria-label={unreadCount > 0 ? `Notifications, ${unreadCount} unread` : "Notifications"}
+              aria-label={unreadCount > 0 ? `${t("notifications.title")}, ${t("notifications.unread", { count: unreadCount })}` : t("notifications.title")}
               className="relative rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
             >
               <span aria-hidden="true" className="text-lg leading-none">🔔</span>

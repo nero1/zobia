@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import type { Room } from '@zobia/shared/types';
 import { RoomPulseBar } from '@/components/ui/RoomPulseBar';
+import { PullToRefresh } from '@/components/ui/PullToRefresh';
 
 /**
  * Rooms carry `isFavorited` and `recentMessageCount` from GET /api/rooms
@@ -61,7 +62,7 @@ function RoomsPage() {
   });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4 space-y-3">
+    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-neutral-50 px-4 py-4 space-y-3">
       {status === 'pending' && (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
@@ -132,7 +133,7 @@ function RoomsPage() {
           </button>
         </div>
       ))}
-    </div>
+    </PullToRefresh>
   );
 }
 

@@ -8,12 +8,22 @@
  * from GET /api/manifest and cached like every other manifest-driven config
  * in this app (react-query, 5 min staleTime — no extra network/Redis cost).
  *
+ * ZB-AND-15 fix: this used to keep its own bare module-level `cachedConfig`
+ * with no expiry at all, unlike every other manifest-driven setting in this
+ * app (which reads through useManifest()'s react-query cache, 5 min
+ * staleTime) — an admin rotating a compromised ad unit ID or disabling
+ * `admobAds` would never take effect for an already-open session. These
+ * functions are plain async functions called from event handlers (not React
+ * hooks), so they read/refresh the same cache non-reactively via the shared
+ * `queryClient` singleton instead.
+ *
  * Free-tier gating and the AdMob App ID (native-side, AndroidManifest.xml)
  * must be configured before shipping to Play Store — see docs/SETUP.md.
  */
 
 import { AdMob, BannerAdPosition, BannerAdSize } from '@capacitor-community/admob';
-import { apiClient } from '@/lib/api/client';
+import { queryClient } from '@/lib/query/client';
+import { MANIFEST_QUERY_KEY, MANIFEST_STALE_TIME, fetchManifest, type Manifest } from '@/lib/hooks/useManifest';
 
 interface AdMobManifestConfig {
   appId: string;
@@ -23,13 +33,12 @@ interface AdMobManifestConfig {
   testMode: boolean;
 }
 
-interface ManifestResponse {
+interface ManifestResponse extends Manifest {
   features?: { admobAds?: boolean };
   ads?: { admob?: AdMobManifestConfig };
 }
 
 let initialized = false;
-let cachedConfig: AdMobManifestConfig | null = null;
 
 // Google's official test ad unit IDs — used whenever testMode is on or a
 // real unit ID hasn't been configured yet, so the integration is always
@@ -42,12 +51,14 @@ const TEST_UNIT_IDS = {
 };
 
 async function getConfig(): Promise<AdMobManifestConfig | null> {
-  if (cachedConfig) return cachedConfig;
   try {
-    const { data } = await apiClient.get<ManifestResponse>('/manifest');
+    const data = await queryClient.fetchQuery<Manifest>({
+      queryKey: MANIFEST_QUERY_KEY,
+      queryFn: fetchManifest,
+      staleTime: MANIFEST_STALE_TIME,
+    }) as ManifestResponse;
     if (!data.features?.admobAds) return null;
-    cachedConfig = data.ads?.admob ?? { appId: '', bannerUnitId: '', interstitialUnitId: '', rewardedUnitId: '', testMode: true };
-    return cachedConfig;
+    return data.ads?.admob ?? { appId: '', bannerUnitId: '', interstitialUnitId: '', rewardedUnitId: '', testMode: true };
   } catch {
     return null;
   }

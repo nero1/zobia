@@ -36,7 +36,17 @@ function SkeletonCard() {
 function GamesPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
+
+  // ZB-AND-07 fix: debounce the query key by 250ms, mirroring
+  // apps/web/app/(app)/games/page.tsx:175-192 — without this, every
+  // keystroke fired a fresh GET /api/games?q=... request.
+  useEffect(() => {
+    const timeout = setTimeout(() => setSearch(searchInput), 250);
+    return () => clearTimeout(timeout);
+  }, [searchInput]);
+
   const { data: games, status, refetch } = useQuery({
     queryKey: ['games', search],
     queryFn: () => fetchGames(search),
@@ -84,8 +94,8 @@ function GamesPage() {
       </div>
       <input
         type="search"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
+        value={searchInput}
+        onChange={(e) => setSearchInput(e.target.value)}
         placeholder={t('games.search.placeholder', 'Search games…')}
         className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 mb-4 focus:border-primary-500 focus:outline-none"
       />

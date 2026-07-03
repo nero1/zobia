@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "next lint",
     "type-check": "tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "jest --passWithNoTests",
     "test:unit": "jest --testPathPattern='lib/'",
     "test:integration": "jest --testPathPattern='__tests__/integration/' --runInBand",
