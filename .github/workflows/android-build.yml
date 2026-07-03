@@ -9,6 +9,7 @@ on:
       - claude/zobia-android-monorepo-k04rcv
       - claude/android-build-classnotfound-ag1r3x
       - claude/capacitor-admin-pages-agnq0j
+      - claude/android-startup-errors-hvcnx7
   workflow_dispatch:
 
 jobs:

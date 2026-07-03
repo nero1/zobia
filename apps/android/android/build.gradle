@@ -6,6 +6,12 @@ buildscript {
     }
     dependencies {
         classpath 'com.android.tools.build:gradle:8.3.2'
+        // Reads app/google-services.json and generates the resources FirebaseApp
+        // needs to auto-initialize at process start — without this, any call into
+        // Firebase (e.g. @capacitor/push-notifications' FCM registration) throws
+        // "Default FirebaseApp is not initialized" and crashes the app. See
+        // docs/SETUP.md "Push Notifications (Capacitor Android / FCM)".
+        classpath 'com.google.gms:google-services:4.4.2'
     }
 }
 

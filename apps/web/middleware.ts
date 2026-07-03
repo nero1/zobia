@@ -337,6 +337,26 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   // pass credential checks in some browsers.
   const corsOrigin = allowedOrigins.includes(requestOrigin) ? requestOrigin : null;
 
+  // Helper: apply the standard security headers to an API error response
+  // (401/403 JSON bodies returned directly by this middleware, not via
+  // withCsp/NextResponse.next()). Must also carry CORS headers — without
+  // Access-Control-Allow-Origin, the browser hides the real status/body from
+  // the caller and reports it as a CORS failure instead, which is what made
+  // the Capacitor Android app's unauthenticated /api/friends/online and
+  // /api/moments calls on the login screen show up as CORS errors rather
+  // than the 401s they actually are.
+  function withApiErrorHeaders(res: NextResponse): NextResponse {
+    res.headers.set("Content-Security-Policy", csp);
+    res.headers.set("X-Content-Type-Options", "nosniff");
+    res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
+    if (corsOrigin) {
+      res.headers.set("Access-Control-Allow-Origin", corsOrigin);
+      res.headers.set("Vary", "Origin");
+      res.headers.set("Access-Control-Allow-Credentials", "true");
+    }
+    return res;
+  }
+
   // Helper: wrap any NextResponse.next() with the CSP header and nonce.
   function withCsp(requestHeaders: Headers): NextResponse {
     requestHeaders.set("x-nonce", nonce);
@@ -402,14 +422,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     !CSRF_SAFE_METHODS.has(request.method.toUpperCase());
 
   if (((pathname.startsWith("/api/") && !isPublicRoute(pathname)) || isAuthMutation) && !isCsrfSafe(request)) {
-    const res = NextResponse.json(
+    return withApiErrorHeaders(NextResponse.json(
       { error: "Forbidden", code: "CSRF_ORIGIN_MISMATCH" },
       { status: 403 }
-    );
-    res.headers.set("Content-Security-Policy", csp);
-    res.headers.set("X-Content-Type-Options", "nosniff");
-    res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-    return res;
+    ));
   }
 
   // Allow admin login page without auth
@@ -474,14 +490,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
   if (isAppRoute(pathname)) {
     if (!token) {
       if (pathname.startsWith("/api/")) {
-        const res = NextResponse.json(
+        return withApiErrorHeaders(NextResponse.json(
           { error: "Unauthorised", code: "MISSING_TOKEN" },
           { status: 401 }
-        );
-        res.headers.set("Content-Security-Policy", csp);
-        res.headers.set("X-Content-Type-Options", "nosniff");
-        res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-        return res;
+        ));
       }
       // Page route: attempt silent refresh if a refresh token cookie is present
       const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
@@ -500,14 +512,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
     if (!payload?.sub) {
       if (pathname.startsWith("/api/")) {
-        const res = NextResponse.json(
+        return withApiErrorHeaders(NextResponse.json(
           { error: "Unauthorised", code: "INVALID_TOKEN" },
           { status: 401 }
-        );
-        res.headers.set("Content-Security-Policy", csp);
-        res.headers.set("X-Content-Type-Options", "nosniff");
-        res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-        return res;
+        ));
       }
       // Page route: attempt silent refresh if a refresh token cookie is present
       const refreshToken = request.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
@@ -530,14 +538,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     // API callers get 401; page routes are redirected to the 2FA verify page.
     if (payload.type === 'pre_auth') {
       if (pathname.startsWith("/api/")) {
-        const res = NextResponse.json(
+        return withApiErrorHeaders(NextResponse.json(
           { error: "Unauthorised", code: "PRE_AUTH_TOKEN" },
           { status: 401 }
-        );
-        res.headers.set("Content-Security-Policy", csp);
-        res.headers.set("X-Content-Type-Options", "nosniff");
-        res.headers.set("Referrer-Policy", "strict-origin-when-cross-origin");
-        return res;
+        ));
       }
       return NextResponse.redirect(new URL("/auth/2fa", request.url));
     }
