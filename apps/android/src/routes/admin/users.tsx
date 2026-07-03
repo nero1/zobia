@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
 import { env } from '@/lib/env';
+import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
 import {
   AdminCard,
   AdminCardSkeleton,
@@ -222,7 +223,7 @@ function UserDetailOverlay({
           </button>
           <button
             type="button"
-            onClick={() => Browser.open({ url: `${env.VITE_WEB_BASE_URL}/admin/kyc?userId=${user.id}` })}
+            onClick={() => void openAuthenticatedWebLink(`/admin/kyc?userId=${user.id}`)}
             className="flex items-center justify-center rounded-lg bg-teal-100 px-3 py-2 text-xs font-semibold text-teal-700"
           >
             {t('admin.users.detail.viewKyc', 'View KYC Submissions →')}

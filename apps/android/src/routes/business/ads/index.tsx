@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 
 interface BusinessAccount {
@@ -81,14 +82,15 @@ function badgeClass(status: string) {
 // ---------------------------------------------------------------------------
 
 const PLACEMENTS = [
-  { key: 'feed_banner', label: 'Feed banner (300×250)', size: '300x250' },
-  { key: 'messages_banner', label: 'Messages banner (320×50)', size: '320x50' },
-  { key: 'room_instream', label: 'Room in-stream native', size: 'native' },
-  { key: 'interstitial_global', label: 'Interstitial', size: 'interstitial' },
-  { key: 'rewarded_global', label: 'Rewarded video', size: 'rewarded' },
+  { key: 'feed_banner', labelKey: 'ads.campaigns.placement.feedBanner', size: '300x250' },
+  { key: 'messages_banner', labelKey: 'ads.campaigns.placement.messagesBanner', size: '320x50' },
+  { key: 'room_instream', labelKey: 'ads.campaigns.placement.roomInstream', size: 'native' },
+  { key: 'interstitial_global', labelKey: 'ads.campaigns.placement.interstitial', size: 'interstitial' },
+  { key: 'rewarded_global', labelKey: 'ads.campaigns.placement.rewardedVideo', size: 'rewarded' },
 ] as const;
 
 function AdCampaignsTab() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: eligibility } = useQuery({ queryKey: ['ads', 'eligibility'], queryFn: fetchEligibility });
   const { data: campaigns, status } = useQuery({ queryKey: ['ads', 'campaigns'], queryFn: fetchCampaigns, enabled: !!eligibility?.eligible });
@@ -126,7 +128,7 @@ function AdCampaignsTab() {
       setName(''); setCreativeTitle(''); setClickUrl(''); setBudgetCredits(5000);
       qc.invalidateQueries({ queryKey: ['ads', 'campaigns'] });
     },
-    onError: (err: unknown) => setError(err instanceof Error ? err.message : 'Failed to create campaign'),
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : t('ads.campaigns.createFailed', 'Failed to create campaign')),
   });
 
   const runStateMutation = useMutation({
@@ -135,13 +137,13 @@ function AdCampaignsTab() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ads', 'campaigns'] }),
   });
 
-  if (!eligibility) return <p className="text-center text-sm text-neutral-400 py-8">Loading…</p>;
+  if (!eligibility) return <p className="text-center text-sm text-neutral-400 py-8">{t('action.loading', 'Loading…')}</p>;
 
   if (!eligibility.eligible) {
     return (
       <div className="bg-white rounded-xl p-4 shadow-card text-center">
-        <p className="text-sm text-neutral-600">{eligibility.reason ?? 'You are not eligible to place ads yet.'}</p>
-        <Link to="/business" className="mt-2 inline-block text-sm font-semibold text-primary-600">Manage Business Account →</Link>
+        <p className="text-sm text-neutral-600">{eligibility.reason ?? t('ads.campaigns.ineligible', 'You are not eligible to place ads yet.')}</p>
+        <Link to="/business" className="mt-2 inline-block text-sm font-semibold text-primary-600">{t('ads.manageBusinessAccount', 'Manage Business Account →')}</Link>
       </div>
     );
   }
@@ -152,31 +154,31 @@ function AdCampaignsTab() {
 
       {!showForm ? (
         <button onClick={() => setShowForm(true)} className="w-full rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white mb-4">
-          + New Ad Campaign
+          {t('ads.campaigns.new', '+ New Ad Campaign')}
         </button>
       ) : (
         <div className="bg-white rounded-xl p-4 shadow-card mb-4 space-y-2">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Campaign name" className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('ads.campaigns.name', 'Campaign Name')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
           <select value={placementKey} onChange={(e) => setPlacementKey(e.target.value as typeof placementKey)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm">
-            {PLACEMENTS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+            {PLACEMENTS.map((p) => <option key={p.key} value={p.key}>{t(p.labelKey)}</option>)}
           </select>
-          <input value={creativeTitle} onChange={(e) => setCreativeTitle(e.target.value)} placeholder="Ad title" className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <input value={clickUrl} onChange={(e) => setClickUrl(e.target.value)} placeholder="Destination URL" className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <input type="number" min={0} value={budgetCredits} onChange={(e) => setBudgetCredits(Number(e.target.value))} placeholder="Budget (Credits)" className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <input value={creativeTitle} onChange={(e) => setCreativeTitle(e.target.value)} placeholder={t('ads.campaigns.title', 'Ad Title')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <input value={clickUrl} onChange={(e) => setClickUrl(e.target.value)} placeholder={t('ads.campaigns.destinationUrl', 'Destination URL')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <input type="number" min={0} value={budgetCredits} onChange={(e) => setBudgetCredits(Number(e.target.value))} placeholder={t('ads.campaigns.budget', 'Budget (Credits)')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
           <button
             onClick={() => name && clickUrl && createMutation.mutate()}
             disabled={createMutation.isPending}
             className="w-full rounded-lg bg-primary-600 py-2 text-sm font-semibold text-white disabled:opacity-60"
           >
-            {createMutation.isPending ? 'Creating…' : 'Create & Submit for Review'}
+            {createMutation.isPending ? t('ads.campaigns.submitting', 'Submitting…') : t('ads.campaigns.submit', 'Create & Submit for Review')}
           </button>
         </div>
       )}
 
       {status === 'pending' ? (
-        <p className="text-center text-sm text-neutral-400 py-8">Loading…</p>
+        <p className="text-center text-sm text-neutral-400 py-8">{t('action.loading', 'Loading…')}</p>
       ) : !campaigns || campaigns.length === 0 ? (
-        <p className="text-center text-sm text-neutral-400 py-8">No ad campaigns yet.</p>
+        <p className="text-center text-sm text-neutral-400 py-8">{t('ads.campaigns.empty', 'No ad campaigns yet.')}</p>
       ) : (
         <div className="space-y-2">
           {campaigns.map((c) => (
@@ -186,15 +188,18 @@ function AdCampaignsTab() {
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${badgeClass(c.moderation_status)}`}>{c.moderation_status}</span>
               </div>
               <p className="text-xs text-neutral-400">
-                Spent {Number(c.spent_credits).toLocaleString()} / {Number(c.total_budget_credits).toLocaleString()} Credits
+                {t('ads.campaigns.spentLine', 'Spent {{spent}} / {{total}} Credits', {
+                  spent: Number(c.spent_credits).toLocaleString(),
+                  total: Number(c.total_budget_credits).toLocaleString(),
+                })}
               </p>
               {c.moderation_status === 'approved' && (
                 <div className="mt-2 flex gap-2">
                   {c.status !== 'active' && (
-                    <button onClick={() => runStateMutation.mutate({ id: c.id, action: 'activate' })} className="rounded-lg bg-green-600 px-2.5 py-1 text-[11px] font-semibold text-white">Activate</button>
+                    <button onClick={() => runStateMutation.mutate({ id: c.id, action: 'activate' })} className="rounded-lg bg-green-600 px-2.5 py-1 text-[11px] font-semibold text-white">{t('ads.campaigns.activate', 'Activate')}</button>
                   )}
                   {c.status === 'active' && (
-                    <button onClick={() => runStateMutation.mutate({ id: c.id, action: 'pause' })} className="rounded-lg border border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-neutral-700">Pause</button>
+                    <button onClick={() => runStateMutation.mutate({ id: c.id, action: 'pause' })} className="rounded-lg border border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-neutral-700">{t('ads.campaigns.pause', 'Pause')}</button>
                   )}
                 </div>
               )}
@@ -211,6 +216,7 @@ function AdCampaignsTab() {
 // ---------------------------------------------------------------------------
 
 function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | null | undefined; pages: BusinessPageOption[] | undefined }) {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: quests, status } = useQuery({ queryKey: ['business', 'sponsored-quests'], queryFn: fetchQuests, enabled: !!account });
 
@@ -239,7 +245,7 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
       setTitle(''); setDescription(''); setRequirements(''); setDeadline('');
       qc.invalidateQueries({ queryKey: ['business', 'sponsored-quests'] });
     },
-    onError: (err: unknown) => setError(err instanceof Error ? err.message : 'Failed to submit'),
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : t('ads.quests.submitFailed', 'Failed to submit')),
   });
 
   const tierAllowed = account?.tier === 'growth' || account?.tier === 'enterprise';
@@ -247,8 +253,8 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
   if (account && !tierAllowed) {
     return (
       <div className="bg-white rounded-xl p-4 shadow-card text-center">
-        <p className="text-sm text-neutral-600">Sponsored Quests require the Growth tier or higher.</p>
-        <Link to="/business" className="mt-2 inline-block text-sm font-semibold text-primary-600">Upgrade on web/PWA →</Link>
+        <p className="text-sm text-neutral-600">{t('ads.quests.tierRequired', 'Sponsored Quests require the Growth tier or higher.')}</p>
+        <Link to="/business" className="mt-2 inline-block text-sm font-semibold text-primary-600">{t('ads.quests.upgradeOnWeb', 'Upgrade on web/PWA →')}</Link>
       </div>
     );
   }
@@ -263,33 +269,33 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
           disabled={!pages || pages.length === 0}
           className="w-full rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-40 mb-4"
         >
-          + Submit Sponsored Quest
+          {t('ads.quests.submitButton', '+ Submit Sponsored Quest')}
         </button>
       ) : (
         <div className="bg-white rounded-xl p-4 shadow-card mb-4 space-y-2">
           <select value={businessPageId} onChange={(e) => setBusinessPageId(e.target.value)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm">
-            <option value="">Select a page…</option>
+            <option value="">{t('ads.quests.selectPage', 'Select a page…')}</option>
             {(pages ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Quest title" className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Description" rows={2} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <textarea value={requirements} onChange={(e) => setRequirements(e.target.value)} placeholder="Requirements" rows={2} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <input type="number" min={100} value={rewardCoins} onChange={(e) => setRewardCoins(Number(e.target.value))} placeholder="Reward coins" className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('ads.quests.titlePlaceholder', 'Quest title')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('ads.quests.descriptionPlaceholder', 'Description')} rows={2} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <textarea value={requirements} onChange={(e) => setRequirements(e.target.value)} placeholder={t('ads.quests.requirementsPlaceholder', 'Requirements')} rows={2} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <input type="number" min={100} value={rewardCoins} onChange={(e) => setRewardCoins(Number(e.target.value))} placeholder={t('ads.quests.rewardPlaceholder', 'Reward coins')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
           <input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
           <button
             onClick={() => businessPageId && title && description && requirements && deadline && submitMutation.mutate()}
             disabled={submitMutation.isPending}
             className="w-full rounded-lg bg-primary-600 py-2 text-sm font-semibold text-white disabled:opacity-60"
           >
-            {submitMutation.isPending ? 'Submitting…' : 'Submit for Approval'}
+            {submitMutation.isPending ? t('ads.campaigns.submitting', 'Submitting…') : t('ads.quests.submit', 'Submit for Approval')}
           </button>
         </div>
       )}
 
       {status === 'pending' ? (
-        <p className="text-center text-sm text-neutral-400 py-8">Loading…</p>
+        <p className="text-center text-sm text-neutral-400 py-8">{t('action.loading', 'Loading…')}</p>
       ) : !quests || quests.length === 0 ? (
-        <p className="text-center text-sm text-neutral-400 py-8">No Sponsored Quests yet.</p>
+        <p className="text-center text-sm text-neutral-400 py-8">{t('ads.quests.empty', 'No Sponsored Quests yet.')}</p>
       ) : (
         <div className="space-y-2">
           {quests.map((q) => (
@@ -299,7 +305,7 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${badgeClass(q.moderation_status)}`}>{q.moderation_status}</span>
               </div>
               <p className="text-xs text-neutral-500 line-clamp-2">{q.description}</p>
-              <p className="text-xs text-neutral-400 mt-1">🪙 {q.reward_coins.toLocaleString()} coins</p>
+              <p className="text-xs text-neutral-400 mt-1">🪙 {t('ads.quests.rewardLabel', '{{count}} coins', { count: q.reward_coins.toLocaleString() })}</p>
             </div>
           ))}
         </div>
@@ -313,20 +319,21 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
 // ---------------------------------------------------------------------------
 
 function BusinessAdsPage() {
+  const { t } = useTranslation();
   const { data: account } = useQuery({ queryKey: ['business', 'me'], queryFn: fetchAccount });
   const { data: pages } = useQuery({ queryKey: ['business', 'pages', 'active'], queryFn: fetchPages, enabled: !!account });
   const [tab, setTab] = useState<'campaigns' | 'quests'>('campaigns');
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-lg font-bold text-neutral-900 mb-3">Advertising Panel</h1>
+      <h1 className="text-lg font-bold text-neutral-900 mb-3">{t('ads.panelTitle', 'Advertising Panel')}</h1>
 
       <div className="flex gap-2 rounded-xl bg-neutral-100 p-1 mb-4">
         <button onClick={() => setTab('campaigns')} className={`flex-1 rounded-lg py-2 text-xs font-semibold ${tab === 'campaigns' ? 'bg-white text-neutral-900 shadow-card' : 'text-neutral-500'}`}>
-          Ad Campaigns
+          {t('ads.tabs.campaigns', 'Ad Campaigns')}
         </button>
         <button onClick={() => setTab('quests')} className={`flex-1 rounded-lg py-2 text-xs font-semibold ${tab === 'quests' ? 'bg-white text-neutral-900 shadow-card' : 'text-neutral-500'}`}>
-          Sponsored Quests
+          {t('ads.tabs.quests', 'Sponsored Quests')}
         </button>
       </div>
 

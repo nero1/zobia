@@ -109,3 +109,70 @@ const serwist = new Serwist({
 });
 
 serwist.addEventListeners();
+
+// ---------------------------------------------------------------------------
+// Web Push (ZSB-17)
+// ---------------------------------------------------------------------------
+//
+// The Capacitor Android app registers for FCM push and handles foreground/
+// background notification taps (apps/android/src/lib/push/index.ts); this
+// service worker previously had no equivalent, so installed-PWA users never
+// received a background push notification regardless of what the backend
+// sent. `push` shows the OS-level notification; `notificationclick` focuses
+// (or opens) a window and navigates to the notification's action route.
+//
+// Payload shape sent by lib/notifications/webPush.ts:
+//   { title: string, body: string, data?: { action?: string, ... }, badge?: number }
+
+interface WebPushPayload {
+  title?: string;
+  body?: string;
+  data?: { action?: string; [key: string]: unknown };
+  badge?: number;
+}
+
+self.addEventListener("push", (event) => {
+  if (!event.data) return;
+
+  let payload: WebPushPayload = {};
+  try {
+    payload = event.data.json() as WebPushPayload;
+  } catch {
+    return;
+  }
+
+  const title = payload.title || "Zobia";
+  event.waitUntil(
+    self.registration.showNotification(title, {
+      body: payload.body || "",
+      icon: "/icons/icon-192x192.png",
+      badge: "/icons/icon-72x72.png",
+      data: payload.data ?? {},
+    })
+  );
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+
+  // Only ever navigate to a same-origin relative path — the action comes
+  // from our own server (lib/notifications/actionRoute.ts's bounded switch
+  // statement), but this guard is defense-in-depth against a malformed or
+  // unexpected payload ever carrying an absolute/external URL.
+  const rawAction = (event.notification.data as { action?: unknown } | undefined)?.action;
+  const path = typeof rawAction === "string" && rawAction.startsWith("/") ? rawAction : "/home";
+
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ("focus" in client) {
+          if ("navigate" in client) {
+            (client as WindowClient).navigate(new URL(path, self.location.origin).href).catch(() => {});
+          }
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(path);
+    })
+  );
+});

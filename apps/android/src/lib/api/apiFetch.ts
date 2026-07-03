@@ -8,7 +8,7 @@
  */
 
 import { env } from '@/lib/env';
-import { getCachedToken, refreshAccessToken, setCachedToken } from '@/lib/api/client';
+import { getCachedToken, refreshAccessToken, setCachedToken, signalUnauthenticated } from '@/lib/api/client';
 
 const MAX_ATTEMPTS = 4;
 const RETRY_BASE_MS = 500;
@@ -66,6 +66,12 @@ export async function apiFetch(
           (requestInit.headers as Headers).set('Authorization', `Bearer ${newToken}`);
           continue;
         }
+        // ZSB-08 fix: a failed refresh here is the same "session is dead"
+        // condition apiClient's interceptor handles — go through the same
+        // shared signal instead of silently dropping the request with no
+        // cleanup, so subscribers (AuthProvider) still get to sign the user
+        // out and redirect to /auth/login.
+        signalUnauthenticated();
         return response;
       }
 

@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import { createFileRoute, useParams } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 
 interface BusinessPage {
@@ -33,6 +34,7 @@ async function fetchPageDetail(pageId: string) {
 }
 
 function BusinessPageDetail() {
+  const { t } = useTranslation();
   const { pageId } = useParams({ from: '/business/pages/$pageId' });
   const qc = useQueryClient();
   const { data, status } = useQuery({ queryKey: ['business', 'pages', pageId], queryFn: () => fetchPageDetail(pageId) });
@@ -53,8 +55,8 @@ function BusinessPageDetail() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['business', 'pages', pageId] }),
   });
 
-  if (status === 'pending') return <div className="p-6 text-center text-neutral-400">Loading…</div>;
-  if (!data) return <div className="p-6 text-center text-neutral-400">Not found</div>;
+  if (status === 'pending') return <div className="p-6 text-center text-neutral-400">{t('action.loading', 'Loading…')}</div>;
+  if (!data) return <div className="p-6 text-center text-neutral-400">{t('business.pages.detail.notFound', 'Not found')}</div>;
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
@@ -62,28 +64,28 @@ function BusinessPageDetail() {
       {data.page.bio && <p className="text-sm text-neutral-500 mt-1">{data.page.bio}</p>}
 
       <div className="flex items-center justify-between mt-4 mb-2">
-        <h2 className="text-sm font-semibold text-neutral-700">Posts</h2>
+        <h2 className="text-sm font-semibold text-neutral-700">{t('business.pages.detail.posts', 'Posts')}</h2>
         <button onClick={() => setShowForm((s) => !s)} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white">
-          {showForm ? 'Cancel' : '+ Post'}
+          {showForm ? t('action.cancel', 'Cancel') : t('business.pages.detail.newPost', '+ Post')}
         </button>
       </div>
 
       {showForm && (
         <div className="bg-white rounded-xl p-4 shadow-card mb-3 space-y-2">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title" className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder="What's new?" rows={3} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('business.pages.detail.titlePlaceholder', 'Title')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder={t('business.pages.detail.bodyPlaceholder', "What's new?")} rows={3} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
           <button
             onClick={() => postMutation.mutate()}
             disabled={postMutation.isPending || !title.trim() || !body.trim()}
             className="w-full rounded-lg bg-primary-600 py-2 text-sm font-semibold text-white disabled:opacity-60"
           >
-            {postMutation.isPending ? 'Posting…' : 'Post'}
+            {postMutation.isPending ? t('business.pages.detail.posting', 'Posting…') : t('business.pages.detail.postButton', 'Post')}
           </button>
         </div>
       )}
 
       {data.posts.length === 0 ? (
-        <p className="text-center text-sm text-neutral-400 py-8">No posts yet.</p>
+        <p className="text-center text-sm text-neutral-400 py-8">{t('business.pages.detail.empty', 'No posts yet.')}</p>
       ) : (
         <div className="space-y-2">
           {data.posts.map((post) => (
@@ -93,7 +95,7 @@ function BusinessPageDetail() {
                   <p className="font-semibold text-sm text-neutral-900">{post.title}</p>
                   <p className="text-xs text-neutral-500 mt-1 line-clamp-2">{post.body}</p>
                 </div>
-                <button onClick={() => deleteMutation.mutate(post.id)} className="flex-shrink-0 text-xs font-semibold text-red-600">Delete</button>
+                <button onClick={() => deleteMutation.mutate(post.id)} className="flex-shrink-0 text-xs font-semibold text-red-600">{t('action.delete', 'Delete')}</button>
               </div>
             </div>
           ))}

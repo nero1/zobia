@@ -1,15 +1,19 @@
 name: Android APK Build
 
 on:
+  # ZSB-24 fix: this previously only triggered on `push` to a hand-maintained
+  # branch allow-list, so any new working branch (this one included) silently
+  # never got a debug-APK build until someone edited the workflow. Building on
+  # `pull_request` to main instead means every branch gets a build the moment
+  # a PR is opened, with no workflow edit required; `push` stays limited to
+  # the two long-lived branches that don't necessarily go through a PR.
   push:
     branches:
       - main
       - android
-      - claude/android-app-rewrite-strategy-ddzvem
-      - claude/zobia-android-monorepo-k04rcv
-      - claude/android-build-classnotfound-ag1r3x
-      - claude/capacitor-admin-pages-agnq0j
-      - claude/android-startup-errors-hvcnx7
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       release:
@@ -55,6 +59,12 @@ jobs:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_WEB_BASE_URL: ${{ secrets.VITE_WEB_BASE_URL }}
           VITE_APP_ENV: production
+          # ZSB-06 fix: this var was never forwarded to the build, so env.ts's
+          # 'none' default shipped in every APK/AAB, silently disabling Ably
+          # realtime (Rooms/DM instant updates) in production and always
+          # falling back to polling. Not sensitive — a plain literal, same as
+          # VITE_APP_ENV above (the actual secret is ABLY_API_KEY, server-side).
+          VITE_REALTIME_PROVIDER: 'ably'
           # Force-enable the on-device debug overlay even in production-flavoured
           # debug APKs so errors are visible on mobile (no console/CLI available).
           VITE_DEBUG_OVERLAY: '1'
@@ -110,6 +120,9 @@ jobs:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
           VITE_WEB_BASE_URL: ${{ secrets.VITE_WEB_BASE_URL }}
           VITE_APP_ENV: production
+          # ZSB-06 fix: see the `build` job above — without this, the
+          # store-shipped release build also defaults realtime off.
+          VITE_REALTIME_PROVIDER: 'ably'
           # Explicitly off (not just unset) — see DebugOverlay.tsx's
           # FORCED_OFF/FORCED_ON logic — so a real store build never ships
           # with the error/log-export overlay.

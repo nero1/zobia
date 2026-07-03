@@ -210,7 +210,16 @@ function WalletPage() {
         </div>
       )}
 
-      <BuyCurrencyPanel onPurchased={() => qc.invalidateQueries({ queryKey: ['users', 'me'] })} />
+      <BuyCurrencyPanel
+        onPurchased={() => {
+          qc.invalidateQueries({ queryKey: ['users', 'me'] });
+          // ZSB-12 fix: this only refreshed the balance cards — the
+          // transaction-history infinite query wasn't invalidated, so a
+          // just-completed Google Play purchase didn't show up in the list
+          // until something else happened to refetch it.
+          qc.invalidateQueries({ queryKey: ['wallet', 'transactions'] });
+        }}
+      />
 
       {/* Transaction history */}
       <div className="bg-white mb-3">

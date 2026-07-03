@@ -20,6 +20,7 @@ import { redis } from "@/lib/redis";
 import { atomicIncrWithTtl } from "@/lib/redis/helpers";
 import { logger } from "@/lib/logger";
 import { sendFcmBatch, type FcmMessage } from "@/lib/notifications/fcm";
+import { sendWebPushBatch, type WebPushMessage } from "@/lib/notifications/webPush";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -74,6 +75,7 @@ interface PushTokenRow {
   token: string;
   device_id: string | null;
   last_seen_at: string | null;
+  platform: string | null;
 }
 
 interface ExpoMessage {
@@ -476,7 +478,7 @@ export async function sendPushNotification(
     // Fetch active tokens for the user. ORDER BY last_seen_at DESC so that when
     // we deduplicate by device_id we keep the most recently seen token per device.
     const { rows } = await db.query<PushTokenRow>(
-      `SELECT token, device_id, last_seen_at FROM user_push_tokens
+      `SELECT token, device_id, last_seen_at, platform FROM user_push_tokens
        WHERE user_id = $1
          AND (last_seen_at IS NULL OR last_seen_at > NOW() - INTERVAL '90 days')
        ORDER BY last_seen_at DESC NULLS LAST`,
@@ -511,8 +513,13 @@ export async function sendPushNotification(
       messageData.action = options.action;
     }
 
-    const expoRows = dedupedRows.filter((r) => isValidExpoToken(r.token));
-    const fcmRows = dedupedRows.filter((r) => !isValidExpoToken(r.token));
+    // ZSB-17: PWA (Web Push) rows are tagged `platform = 'web'` and store a
+    // JSON-stringified PushSubscription in `token`, not an Expo/FCM token —
+    // route those to Web Push before the Expo/FCM format-sniffing below.
+    const webPushRows = dedupedRows.filter((r) => r.platform === "web");
+    const remainingRows = dedupedRows.filter((r) => r.platform !== "web");
+    const expoRows = remainingRows.filter((r) => isValidExpoToken(r.token));
+    const fcmRows = remainingRows.filter((r) => !isValidExpoToken(r.token));
 
     const messages = expoRows.map((r) => ({
       token: r.token,
@@ -546,6 +553,17 @@ export async function sendPushNotification(
         badge: options?.badge,
       }));
       (await sendFcmBatch(fcmMessages)).forEach((t) => stale.add(t));
+    }
+    // Installed-PWA (Web Push) tokens.
+    if (webPushRows.length > 0) {
+      const webPushMessages: WebPushMessage[] = webPushRows.map((r) => ({
+        subscriptionJson: r.token,
+        title,
+        body,
+        data: Object.keys(messageData).length > 0 ? messageData : undefined,
+        badge: options?.badge,
+      }));
+      (await sendWebPushBatch(webPushMessages)).forEach((t) => stale.add(t));
     }
 
     await purgeStaleTokens(stale);
@@ -609,8 +627,8 @@ export async function sendPushNotificationBatch(
 
     // Fetch active tokens for all users — excludes stale/abandoned devices.
     // ORDER BY last_seen_at DESC so deduplication by device_id keeps the most recent token.
-    const { rows } = await db.query<{ user_id: string; token: string; device_id: string | null }>(
-      `SELECT user_id, token, device_id FROM user_push_tokens
+    const { rows } = await db.query<{ user_id: string; token: string; device_id: string | null; platform: string | null }>(
+      `SELECT user_id, token, device_id, platform FROM user_push_tokens
        WHERE user_id = ANY($1)
          AND (last_seen_at IS NULL OR last_seen_at > NOW() - INTERVAL '90 days')
        ORDER BY last_seen_at DESC NULLS LAST`,
@@ -621,7 +639,7 @@ export async function sendPushNotificationBatch(
     // A user who reinstalled without unregistering gets multiple tokens for the same physical
     // device; keep only the most-recently-seen token per device_id to avoid duplicate deliveries.
     // BUG-PUSH-DEDUP-01: also deduplicate null-device_id rows by token value per user.
-    const tokenMap = new Map<string, string[]>();
+    const tokenMap = new Map<string, Array<{ token: string; platform: string | null }>>();
     const seenDevicesByUser = new Map<string, Set<string>>();
     const seenTokensByUser = new Map<string, Set<string>>();
     for (const row of rows) {
@@ -637,19 +655,29 @@ export async function sendPushNotificationBatch(
         seenTokensByUser.set(row.user_id, seenTokens);
       }
       const existing = tokenMap.get(row.user_id) ?? [];
-      existing.push(row.token);
+      existing.push({ token: row.token, platform: row.platform });
       tokenMap.set(row.user_id, existing);
     }
 
     // Build one message per (notification × device token) pair, routed to
-    // Expo or FCM (Capacitor Android) by token format.
+    // Expo, FCM (Capacitor Android), or Web Push (installed PWA) by
+    // platform tag / token format.
     const expoMessages: Array<{ msg: ExpoMessage; token: string; userId: string }> = [];
     const fcmMessages: FcmMessage[] = [];
+    const webPushMessages: WebPushMessage[] = [];
     for (const notification of dedupedNotifications) {
       const tokens = tokenMap.get(notification.userId) ?? [];
       const { sound, priority } = resolveExpoPriority(notification.priority);
-      for (const token of tokens) {
-        if (isValidExpoToken(token)) {
+      for (const { token, platform } of tokens) {
+        if (platform === "web") {
+          webPushMessages.push({
+            subscriptionJson: token,
+            title: notification.title,
+            body: notification.body,
+            data: notification.data,
+            badge: notification.badge,
+          });
+        } else if (isValidExpoToken(token)) {
           expoMessages.push({
             token,
             userId: notification.userId,
@@ -686,6 +714,9 @@ export async function sendPushNotificationBatch(
     }
     if (fcmMessages.length > 0) {
       (await sendFcmBatch(fcmMessages)).forEach((t) => allStale.add(t));
+    }
+    if (webPushMessages.length > 0) {
+      (await sendWebPushBatch(webPushMessages)).forEach((t) => allStale.add(t));
     }
     await purgeStaleTokens(allStale);
   } catch (err) {

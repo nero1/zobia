@@ -16,7 +16,7 @@ import { AuthGuard } from '@/components/auth/AuthGuard';
 import { AdminShell } from '@/components/admin/AdminShell';
 import { useAuth } from '@/lib/auth/store';
 import { AuthUserSchema } from '@zobia/shared/schemas/auth';
-import { setPreAuthToken } from '@/lib/auth/preAuth';
+import { setPreAuthToken, endOAuthAttempt, isOAuthInProgress } from '@/lib/auth/preAuth';
 import { env } from '@/lib/env';
 import { usePresenceHeartbeat } from '@/lib/hooks/usePresenceHeartbeat';
 import { initPushNotifications } from '@/lib/push';
@@ -94,69 +94,79 @@ function AppShell() {
         const isOAuthCallback = isHttpsCallback || isCustomSchemeCallback;
         if (!isOAuthCallback) return;
 
-        const code = parsed.searchParams.get('code');
-        const preAuthCode = parsed.searchParams.get('pre_auth_code');
+        // ZSB-22 fix: the login/register screens' loading spinner used to
+        // clear as soon as `Browser.open(...)` resolved (i.e. the instant the
+        // Custom Tab opened), giving almost no protection against
+        // double-tapping the button mid-flow. Now it stays set until this
+        // handler — which only fires once we're actually looking at an OAuth
+        // callback deep link — finishes, success or failure.
+        try {
+          const code = parsed.searchParams.get('code');
+          const preAuthCode = parsed.searchParams.get('pre_auth_code');
 
-        if (!code && !preAuthCode) return;
+          if (!code && !preAuthCode) return;
 
-        // Dismiss the OAuth Custom Tab now that we have the exchange code — otherwise
-        // it can linger on top of the app, making a successful login look like it
-        // "returned to the login page".
-        await Browser.close().catch(() => {});
+          // Dismiss the OAuth Custom Tab now that we have the exchange code — otherwise
+          // it can linger on top of the app, making a successful login look like it
+          // "returned to the login page".
+          await Browser.close().catch(() => {});
 
-        // Exchange the one-time code for tokens via the secure backend endpoint
-        const body = code ? { code } : { pre_auth_code: preAuthCode };
-        const res = await fetch(`${env.VITE_API_BASE_URL}/api/auth/mobile-token`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(body),
-        });
+          // Exchange the one-time code for tokens via the secure backend endpoint
+          const body = code ? { code } : { pre_auth_code: preAuthCode };
+          const res = await fetch(`${env.VITE_API_BASE_URL}/api/auth/mobile-token`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+          });
 
-        if (!res.ok) {
-          console.error('[auth] mobile-token exchange failed:', res.status, await res.text().catch(() => ''));
-          return;
-        }
-
-        const data = await res.json() as {
-          accessToken?: string;
-          refreshToken?: string;
-          preAuthToken?: string;
-          user?: unknown;
-          onboardingCompleted?: boolean;
-        };
-
-        if (preAuthCode && data.preAuthToken) {
-          // 2FA flow: store pre-auth token and go to 2FA screen
-          setPreAuthToken(data.preAuthToken);
-          navigate({ to: '/auth/two-factor', replace: true });
-          return;
-        }
-
-        if (data.accessToken && data.user) {
-          const rawUser = data.user as Record<string, unknown>;
-          const normalizedUser = {
-            ...rawUser,
-            email: (rawUser.email ?? null) as string | null,
-            is_admin: Boolean(rawUser.is_admin ?? rawUser.isAdmin ?? false),
-            is_creator: Boolean(rawUser.is_creator ?? rawUser.isCreator ?? false),
-            avatar_url: (rawUser.avatar_url ?? null) as string | null,
-          };
-          const userParsed = AuthUserSchema.safeParse(normalizedUser);
-          if (userParsed.success) {
-            await setAuth(data.accessToken, userParsed.data, data.refreshToken);
-            // BUG ZB-AND-03 fix: mobile-token's own top-level `onboardingCompleted`
-            // (not a field on the Zod-parsed AuthUser — the shared schema
-            // intentionally excludes it, same contract web/Expo share) decides
-            // whether a brand-new OAuth signup lands on /onboarding first,
-            // mirroring apps/expo/app/auth/login.tsx's identical branch.
-            navigate({ to: data.onboardingCompleted === false ? '/onboarding' : '/home', replace: true });
-          } else {
-            console.error('[auth] user schema parse failed:', userParsed.error);
+          if (!res.ok) {
+            console.error('[auth] mobile-token exchange failed:', res.status, await res.text().catch(() => ''));
+            return;
           }
-        } else {
-          console.error('[auth] mobile-token response missing accessToken or user:', data);
+
+          const data = await res.json() as {
+            accessToken?: string;
+            refreshToken?: string;
+            preAuthToken?: string;
+            user?: unknown;
+            onboardingCompleted?: boolean;
+          };
+
+          if (preAuthCode && data.preAuthToken) {
+            // 2FA flow: store pre-auth token and go to 2FA screen
+            setPreAuthToken(data.preAuthToken);
+            navigate({ to: '/auth/two-factor', replace: true });
+            return;
+          }
+
+          if (data.accessToken && data.user) {
+            const rawUser = data.user as Record<string, unknown>;
+            const normalizedUser = {
+              ...rawUser,
+              email: (rawUser.email ?? null) as string | null,
+              is_admin: Boolean(rawUser.is_admin ?? rawUser.isAdmin ?? false),
+              is_creator: Boolean(rawUser.is_creator ?? rawUser.isCreator ?? false),
+              avatar_url: (rawUser.avatar_url ?? null) as string | null,
+            };
+            const userParsed = AuthUserSchema.safeParse(normalizedUser);
+            if (userParsed.success) {
+              await setAuth(data.accessToken, userParsed.data, data.refreshToken);
+              // BUG ZB-AND-03 fix: mobile-token's own top-level `onboardingCompleted`
+              // (not a field on the Zod-parsed AuthUser — the shared schema
+              // intentionally excludes it, same contract web/Expo share) decides
+              // whether a brand-new OAuth signup lands on /onboarding first,
+              // mirroring apps/expo/app/auth/login.tsx's identical branch.
+              navigate({ to: data.onboardingCompleted === false ? '/onboarding' : '/home', replace: true });
+            } else {
+              console.error('[auth] user schema parse failed:', userParsed.error);
+            }
+          } else {
+            console.error('[auth] mobile-token response missing accessToken or user:', data);
+          }
+        } finally {
+          endOAuthAttempt();
         }
       } catch (err) {
         console.error('[auth] appUrlOpen handler error:', err);
@@ -167,6 +177,25 @@ function AppShell() {
       listenerPromise.then((h) => h.remove());
     };
   }, [setAuth, navigate]);
+
+  // ZSB-22 fix (abandon path): if the user backgrounds the OAuth Custom Tab
+  // and returns to the app *without* completing sign-in (closes the tab,
+  // switches apps and comes back, etc.), `appUrlOpen` above never fires, so
+  // nothing would otherwise clear `_oauthInProgress`. On every foreground
+  // resume, if an attempt is still marked in-progress, give the callback a
+  // short grace window (it may be about to fire) before treating it as
+  // abandoned and re-enabling the login/register buttons.
+  useEffect(() => {
+    const listenerPromise = CapApp.addListener('appStateChange', ({ isActive }) => {
+      if (!isActive || !isOAuthInProgress()) return;
+      setTimeout(() => {
+        if (isOAuthInProgress()) endOAuthAttempt();
+      }, 1500);
+    });
+    return () => {
+      listenerPromise.then((h) => h.remove());
+    };
+  }, []);
 
   const isPublicRoute = PUBLIC_ROUTES.some((r) => pathname.startsWith(r));
   const isTabRoot = TAB_ROOTS.some((r) => pathname === r);

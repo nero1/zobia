@@ -300,8 +300,18 @@ export default function OnboardingPage() {
   async function getCaptchaToken(): Promise<string | null> {
     if (!manifest || manifest.captchaProvider === "none") return null;
     if (manifest.captchaProvider === "recaptcha" && manifest.recaptchaSiteKey) {
-      return new Promise((resolve) => {
-        window.grecaptcha?.ready(async () => {
+      const recaptchaPromise = new Promise<string | null>((resolve) => {
+        // ZSB-20 fix: if window.grecaptcha is still undefined (the script tag
+        // is still loading), the optional-chaining call used to short-circuit
+        // the whole `.ready(...)` call and `resolve` was never invoked — the
+        // promise never settled, so `handleSubmit`'s `await getCaptchaToken()`
+        // hung forever with the submit button stuck on "Submitting…". Guard
+        // explicitly and always resolve.
+        if (!window.grecaptcha) {
+          resolve(null);
+          return;
+        }
+        window.grecaptcha.ready(async () => {
           try {
             const token = await window.grecaptcha!.execute(
               manifest.recaptchaSiteKey!,
@@ -313,6 +323,12 @@ export default function OnboardingPage() {
           }
         });
       });
+      // Belt-and-suspenders: even a script that *is* present but hangs inside
+      // `.ready()`/`.execute()` degrades to "no captcha token" (which the
+      // server rejects with a normal, recoverable error) instead of hanging
+      // the UI indefinitely.
+      const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 8000));
+      return Promise.race([recaptchaPromise, timeoutPromise]);
     }
     if (manifest.captchaProvider === "turnstile" && turnstileWidgetId.current) {
       return window.turnstile?.getResponse(turnstileWidgetId.current) ?? null;

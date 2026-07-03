@@ -14,15 +14,14 @@
 import { useEffect } from 'react';
 import { createFileRoute, useRouter } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
-import { Browser } from '@capacitor/browser';
-import { universalLink } from '@/lib/deeplinks/routes';
+import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
 
 function KycPage() {
   const { t } = useTranslation();
   const router = useRouter();
 
   useEffect(() => {
-    void Browser.open({ url: universalLink('/kyc'), presentationStyle: 'popover' });
+    void openAuthenticatedWebLink('/kyc');
   }, []);
 
   return (
@@ -33,7 +32,7 @@ function KycPage() {
         {t('kyc.androidWrapperDesc', 'Identity verification opens in a secure browser tab.')}
       </p>
       <button
-        onClick={() => void Browser.open({ url: universalLink('/kyc'), presentationStyle: 'popover' })}
+        onClick={() => void openAuthenticatedWebLink('/kyc')}
         className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white"
       >
         {t('kyc.startTier')}

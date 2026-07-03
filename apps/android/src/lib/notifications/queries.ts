@@ -18,6 +18,12 @@ export interface Notification {
   isRead: boolean;
   createdAt: string;
   metadata?: Record<string, unknown>;
+  // ZSB-16 fix: server-derived in-app route for this notification (see
+  // apps/web/app/api/notifications/route.ts's deriveNotificationActionUrl),
+  // mirrors web's `actionUrl` field. Still re-validated against the local
+  // allowlist (lib/notifications/routing.ts) before navigating — never
+  // trusted blindly.
+  actionUrl?: string | null;
 }
 
 export interface NotificationsPayload {

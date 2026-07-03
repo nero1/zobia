@@ -52,6 +52,20 @@ function notifyUnauthenticated(): void {
   });
 }
 
+/**
+ * Single source of truth for "the session is dead, tell the app." Clears the
+ * in-memory token and fires the `onUnauthenticated` subscribers exactly once
+ * per session, whether the 401 was observed via `apiClient` (axios) or
+ * `apiFetch` (plain fetch) — both call this instead of maintaining their own
+ * divergent copies of the same cleanup logic (ZSB-03/ZSB-08).
+ */
+export function signalUnauthenticated(): void {
+  _cachedToken = null;
+  if (_notifiedUnauthenticated) return;
+  _notifiedUnauthenticated = true;
+  notifyUnauthenticated();
+}
+
 type UserUpdateCallback = (userJson: string) => void;
 const userUpdateCallbacks: UserUpdateCallback[] = [];
 
@@ -210,10 +224,7 @@ apiClient.interceptors.response.use(
         Preferences.remove({ key: REFRESH_TOKEN_KEY }),
         Preferences.remove({ key: 'zobia_user' }),
       ]);
-      if (!_notifiedUnauthenticated) {
-        _notifiedUnauthenticated = true;
-        notifyUnauthenticated();
-      }
+      signalUnauthenticated();
     }
 
     return Promise.reject(error);

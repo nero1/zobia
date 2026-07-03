@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 
 interface BusinessPage {
@@ -24,6 +25,7 @@ async function fetchPages() {
 }
 
 function BusinessPagesList() {
+  const { t } = useTranslation();
   const qc = useQueryClient();
   const { data, status } = useQuery({ queryKey: ['business', 'pages'], queryFn: fetchPages, staleTime: 30_000 });
   const [showForm, setShowForm] = useState(false);
@@ -37,7 +39,7 @@ function BusinessPagesList() {
       setShowForm(false);
       qc.invalidateQueries({ queryKey: ['business', 'pages'] });
     },
-    onError: (err: unknown) => setError(err instanceof Error ? err.message : 'Failed to create page'),
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : t('business.pages.createFailed', 'Failed to create page')),
   });
 
   const deleteMutation = useMutation({
@@ -45,7 +47,7 @@ function BusinessPagesList() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['business', 'pages'] }),
   });
 
-  if (status === 'pending') return <div className="p-6 text-center text-neutral-400">Loading…</div>;
+  if (status === 'pending') return <div className="p-6 text-center text-neutral-400">{t('action.loading', 'Loading…')}</div>;
 
   const pages = data?.pages ?? [];
   const limit = data?.limit ?? 0;
@@ -55,8 +57,8 @@ function BusinessPagesList() {
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
       <div className="flex items-center justify-between mb-3">
-        <h1 className="text-lg font-bold text-neutral-900">Business Pages</h1>
-        <span className="text-xs text-neutral-500">{used}/{limit} slots</span>
+        <h1 className="text-lg font-bold text-neutral-900">{t('business.pages.title', 'Business Pages')}</h1>
+        <span className="text-xs text-neutral-500">{t('business.pages.slotsUsed', '{{used}}/{{limit}} slots', { used, limit })}</span>
       </div>
 
       {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
@@ -67,44 +69,44 @@ function BusinessPagesList() {
           disabled={atLimit}
           className="w-full rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-40 mb-4"
         >
-          + New Page
+          {t('business.pages.newButton', '+ New Page')}
         </button>
       ) : (
         <div className="bg-white rounded-xl p-4 shadow-card mb-4 space-y-2">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Page name"
+            placeholder={t('business.pages.namePlaceholder', 'Page name')}
             className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
           />
           <div className="flex gap-2">
-            <button onClick={() => setShowForm(false)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm">Cancel</button>
+            <button onClick={() => setShowForm(false)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm">{t('action.cancel', 'Cancel')}</button>
             <button
               onClick={() => name.trim() && createMutation.mutate(name.trim())}
               disabled={createMutation.isPending || !name.trim()}
               className="flex-1 rounded-lg bg-primary-600 py-2 text-sm font-semibold text-white disabled:opacity-60"
             >
-              {createMutation.isPending ? '…' : 'Create'}
+              {createMutation.isPending ? '…' : t('business.pages.createButton', 'Create')}
             </button>
           </div>
         </div>
       )}
 
       {pages.length === 0 ? (
-        <p className="text-center text-sm text-neutral-400 py-10">No Business Pages yet.</p>
+        <p className="text-center text-sm text-neutral-400 py-10">{t('business.pages.empty', 'No Business Pages yet.')}</p>
       ) : (
         <div className="space-y-2">
           {pages.map((p) => (
             <div key={p.id} className="bg-white rounded-xl p-4 shadow-card flex items-center justify-between">
               <Link to="/business/pages/$pageId" params={{ pageId: p.id }} className="min-w-0 flex-1">
                 <p className="font-semibold text-sm text-neutral-900 truncate">{p.name}</p>
-                <p className="text-xs text-neutral-400">👁 {p.view_count} · 📝 {p.post_count} · {p.status}</p>
+                <p className="text-xs text-neutral-400">{t('business.pages.stats', '👁 {{views}} · 📝 {{posts}} · {{status}}', { views: p.view_count, posts: p.post_count, status: p.status })}</p>
               </Link>
               <button
                 onClick={() => deleteMutation.mutate(p.id)}
                 className="ml-2 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600"
               >
-                Delete
+                {t('action.delete', 'Delete')}
               </button>
             </div>
           ))}

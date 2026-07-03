@@ -9,9 +9,9 @@
 import { useEffect } from 'react';
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
-import { Browser } from '@capacitor/browser';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
-import { universalLink } from '@/lib/deeplinks/routes';
+import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
 
 interface Eligibility {
   eligible: boolean;
@@ -23,14 +23,20 @@ async function fetchEligibility(): Promise<Eligibility> {
   return data;
 }
 
+// ZSB-18 fix: this whole file (and its siblings — business/ads/index.tsx,
+// business/pages/index.tsx, business/pages/$pageId.tsx) had no
+// useTranslation/t() usage at all, unlike the rest of the app. Feature copy
+// keys added under `ads.features.*`; everything else reuses the `ads.*`/
+// `action.*` keys already established by the web app's Advertising Panel.
 const FEATURES = [
-  { emoji: '🖼️', title: 'Ad formats', body: '300×250, 320×50, interstitial, rewarded video, and in-stream native placements.' },
-  { emoji: '💰', title: 'CPM billing', body: 'Pay per 1,000 impressions with Zobia Credits — top up with cash or Credits directly.' },
-  { emoji: '🤖', title: 'Fast, safe review', body: 'AI-assisted moderation with manual escalation.' },
-  { emoji: '📈', title: 'Boost your content', body: 'Promote a Blog post or Room alongside standalone campaigns.' },
-];
+  { emoji: '🖼️', titleKey: 'ads.features.formats.title', bodyKey: 'ads.features.formats.body' },
+  { emoji: '💰', titleKey: 'ads.features.cpm.title', bodyKey: 'ads.features.cpm.body' },
+  { emoji: '🤖', titleKey: 'ads.features.review.title', bodyKey: 'ads.features.review.body' },
+  { emoji: '📈', titleKey: 'ads.features.boost.title', bodyKey: 'ads.features.boost.body' },
+] as const;
 
 function AdsHubPage() {
+  const { t } = useTranslation();
   const router = useRouter();
   const { data, status } = useQuery({ queryKey: ['ads', 'eligibility'], queryFn: fetchEligibility });
 
@@ -48,28 +54,28 @@ function AdsHubPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-lg font-bold text-neutral-900 mb-1">Advertise on Zobia</h1>
-      <p className="text-sm text-neutral-500 mb-4">Reach the Zobia community with banners, native placements, interstitials, and rewarded video.</p>
+      <h1 className="text-lg font-bold text-neutral-900 mb-1">{t('ads.hubTitle', 'Advertise on Zobia')}</h1>
+      <p className="text-sm text-neutral-500 mb-4">{t('ads.hubSubtitle', 'Reach the Zobia community with banners, native placements, interstitials, and rewarded video — billed by CPM.')}</p>
 
       <div className="bg-white rounded-xl p-4 shadow-card mb-4">
-        <p className="text-sm text-neutral-600">{data?.reason ?? 'You need a verified Business Account with identity verification to place ads.'}</p>
+        <p className="text-sm text-neutral-600">{data?.reason ?? t('ads.eligibilityDefault', 'You need a verified Business Account with identity verification to place ads.')}</p>
         <div className="mt-3 flex gap-2">
-          <Link to="/business" className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white">Create Business Account</Link>
+          <Link to="/business" className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white">{t('ads.createBusinessAccount', 'Create a Business Account')}</Link>
           <button
-            onClick={() => void Browser.open({ url: universalLink('/kyc'), presentationStyle: 'popover' })}
+            onClick={() => void openAuthenticatedWebLink('/kyc')}
             className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700"
           >
-            Verify identity (KYC)
+            {t('ads.completeKyc', 'Complete identity verification')}
           </button>
         </div>
       </div>
 
       <div className="grid grid-cols-2 gap-2">
         {FEATURES.map((f) => (
-          <div key={f.title} className="bg-white rounded-xl p-3 shadow-card">
+          <div key={f.titleKey} className="bg-white rounded-xl p-3 shadow-card">
             <span className="text-xl">{f.emoji}</span>
-            <p className="mt-1 text-xs font-semibold text-neutral-900">{f.title}</p>
-            <p className="mt-0.5 text-[11px] text-neutral-500">{f.body}</p>
+            <p className="mt-1 text-xs font-semibold text-neutral-900">{t(f.titleKey)}</p>
+            <p className="mt-0.5 text-[11px] text-neutral-500">{t(f.bodyKey)}</p>
           </div>
         ))}
       </div>

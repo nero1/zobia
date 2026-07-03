@@ -44,7 +44,17 @@ export function PullToRefresh({ onRefresh, className, children }: PullToRefreshP
     };
 
     const onTouchMove = (e: TouchEvent) => {
-      if (startYRef.current === null || refreshingRef.current) return;
+      if (refreshingRef.current) return;
+      // ZSB-25 fix: `startYRef` used to only ever get latched in
+      // `onTouchStart`, based on scrollTop at the *instant the touch began*.
+      // A gesture that starts mid-list (scrollTop > 0) and scrolls up to the
+      // top within the same continuous touch never armed the refresh
+      // indicator, even though the user was now at the top and pulling down.
+      // Re-check here and latch the first time scrollTop reaches 0 mid-drag.
+      if (startYRef.current === null) {
+        if (el.scrollTop <= 0) startYRef.current = e.touches[0].clientY;
+        return;
+      }
       const delta = e.touches[0].clientY - startYRef.current;
       if (delta <= 0 || el.scrollTop > 0) {
         pullDistanceRef.current = 0;

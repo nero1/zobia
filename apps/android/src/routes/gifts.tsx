@@ -433,6 +433,12 @@ function GiftsPage() {
     setShowModal(false);
     refetch();
     qc.invalidateQueries({ queryKey: ['gifts', 'wallet'] });
+    // ZSB-11 fix: sending a gift spends coins server-side, but this never
+    // invalidated the shared balance query the Wallet screen (and anywhere
+    // else showing the coin balance) reads from — a user who sent a gift and
+    // navigated to Wallet within the query's staleTime window saw their
+    // pre-spend balance.
+    qc.invalidateQueries({ queryKey: ['users', 'me'] });
   };
 
   return (

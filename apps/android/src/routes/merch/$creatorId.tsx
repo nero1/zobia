@@ -94,6 +94,9 @@ function CreatorMerchStorePage() {
       setShippingCity('');
       setShippingCountry('');
       qc.invalidateQueries({ queryKey: ['merch', 'store', creatorId] });
+      // ZSB-11 fix: merch purchases spend coins server-side — see gifts.tsx's
+      // closeModal for the same fix and full explanation.
+      qc.invalidateQueries({ queryKey: ['users', 'me'] });
     },
     onError: (err: unknown) => {
       const e = err as { response?: { data?: { error?: string } } };

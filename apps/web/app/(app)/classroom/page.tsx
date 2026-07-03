@@ -98,7 +98,7 @@ function AddModuleForm({ roomId, onSuccess, onCancel }: AddModuleFormProps) {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim()) { setError("Title is required"); return; }
+    if (!title.trim()) { setError(tSub("classroom.module.titleRequired", "Title is required")); return; }
     setSaving(true);
     setError(null);
     try {
@@ -128,19 +128,19 @@ function AddModuleForm({ roomId, onSuccess, onCancel }: AddModuleFormProps) {
 
   return (
     <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3 rounded-xl border border-violet-200 bg-violet-50 p-4 dark:border-violet-900 dark:bg-violet-950">
-      <h4 className="text-sm font-semibold text-violet-900 dark:text-violet-200">Add Module</h4>
+      <h4 className="text-sm font-semibold text-violet-900 dark:text-violet-200">{tSub("classroom.module.formTitle", "Add Module")}</h4>
       {error && (
         <p className="text-xs text-red-600 dark:text-red-400">{error}</p>
       )}
       <div>
         <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
-          Title <span className="text-red-500">*</span>
+          {tSub("classroom.module.titleLabel", "Title")} <span className="text-red-500">*</span>
         </label>
         <input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="e.g. Introduction to JavaScript"
+          placeholder={tSub("classroom.module.titlePlaceholder", "e.g. Introduction to JavaScript")}
           maxLength={200}
           className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
           required
@@ -148,12 +148,12 @@ function AddModuleForm({ roomId, onSuccess, onCancel }: AddModuleFormProps) {
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
-          Description (optional)
+          {tSub("classroom.module.descriptionLabel", "Description (optional)")}
         </label>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
-          placeholder="Briefly describe this module…"
+          placeholder={tSub("classroom.module.descriptionPlaceholder", "Briefly describe this module…")}
           maxLength={1000}
           rows={2}
           className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100"
@@ -161,7 +161,7 @@ function AddModuleForm({ roomId, onSuccess, onCancel }: AddModuleFormProps) {
       </div>
       <div>
         <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
-          Resources (optional, one URL per line)
+          {tSub("classroom.module.resourcesLabel", "Resources (optional, one URL per line)")}
         </label>
         <textarea
           value={resources}
@@ -177,14 +177,14 @@ function AddModuleForm({ roomId, onSuccess, onCancel }: AddModuleFormProps) {
           disabled={saving}
           className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
         >
-          {saving ? "Saving…" : "Add Module"}
+          {saving ? tSub("classroom.module.saving", "Saving…") : tSub("classroom.module.save", "Add Module")}
         </button>
         <button
           type="button"
           onClick={onCancel}
           className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
         >
-          Cancel
+          {tSub("classroom.module.cancel", "Cancel")}
         </button>
       </div>
     </form>
@@ -205,7 +205,7 @@ interface ModuleListProps {
 function ModuleList({ roomId, modules, onModulesChange, onShowToast }: ModuleListProps) {
   const { t: tMod } = useTranslation();
   async function handleDelete(index: number) {
-    if (!confirm("Delete this module?")) return;
+    if (!confirm(tMod("classroom.module.deleteConfirm", "Delete this module?"))) return;
     try {
       const res = await fetch(`/api/classroom/${roomId}/modules`, {
         method: "DELETE",
@@ -216,7 +216,7 @@ function ModuleList({ roomId, modules, onModulesChange, onShowToast }: ModuleLis
       const json = (await res.json()) as { data?: { modules: CurriculumModule[] }; message?: string };
       if (!res.ok) throw new Error(typeof json.message === "string" ? json.message : "Delete failed");
       onModulesChange(json.data?.modules ?? []);
-      onShowToast("Module deleted");
+      onShowToast(tMod("classroom.toast.moduleDeleted", "Module deleted"));
     } catch (e) {
       onShowToast(e instanceof Error ? translateApiError(tMod, (e as Error & { code?: string | null }).code, e.message || "Delete failed") : "Delete failed");
     }
@@ -237,14 +237,14 @@ function ModuleList({ roomId, modules, onModulesChange, onShowToast }: ModuleLis
               <p className="mt-0.5 text-xs text-neutral-500 line-clamp-2">{m.description}</p>
             )}
             {m.resources && m.resources.length > 0 && (
-              <p className="mt-0.5 text-xs text-blue-500">{m.resources.length} resource{m.resources.length !== 1 ? "s" : ""}</p>
+              <p className="mt-0.5 text-xs text-blue-500">{tMod("classroom.card.resourceCount", "{{count}} resource(s)", { count: m.resources.length })}</p>
             )}
           </div>
           <button
             onClick={() => void handleDelete(i)}
             className="shrink-0 rounded px-2 py-1 text-xs text-red-500 hover:bg-red-50 dark:hover:bg-red-950"
           >
-            Delete
+            {tMod("classroom.module.delete", "Delete")}
           </button>
         </div>
       ))}
@@ -265,6 +265,7 @@ interface BrowseCardProps {
 }
 
 function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: BrowseCardProps) {
+  const { t } = useTranslation();
   const [modules, setModules] = useState<CurriculumModule[] | null>(null);
   const [loadingModules, setLoadingModules] = useState(false);
   const [showModules, setShowModules] = useState(false);
@@ -298,7 +299,7 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: B
   function handleAddSuccess(updated: CurriculumModule[]) {
     setModules(updated);
     setShowAddForm(false);
-    onShowToast("Module added!");
+    onShowToast(t("classroom.toast.moduleAdded", "Module added!"));
   }
 
   return (
@@ -312,15 +313,15 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: B
           </div>
           <h3 className="mt-2 text-base font-semibold text-neutral-900 dark:text-neutral-50">{room.title}</h3>
           <p className="mt-0.5 text-xs text-neutral-500">
-            Curriculum: {room.curriculumTitle}
+            {t("classroom.card.curriculum", "Curriculum: {{title}}", { title: room.curriculumTitle })}
           </p>
           {room.description && (
             <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400 line-clamp-2">{room.description}</p>
           )}
           <div className="mt-3 flex flex-wrap gap-3 text-xs text-neutral-500">
-            <span>By {room.creatorName}</span>
+            <span>{t("classroom.card.by", "By {{name}}", { name: room.creatorName })}</span>
             <span>·</span>
-            <span>{room.memberCount} members</span>
+            <span>{t("classroom.card.members", "{{count}} members", { count: room.memberCount })}</span>
             <span>·</span>
             <span>
               {new Date(room.startDate).toLocaleDateString("en-GB", { day: "numeric", month: "short" })}
@@ -333,12 +334,12 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: B
             onClick={() => void toggleModules()}
             className="mt-2 text-xs font-medium text-violet-600 hover:underline dark:text-violet-400"
           >
-            {loadingModules ? "Loading…" : showModules ? "Hide modules ▲" : "View modules ▼"}
+            {loadingModules ? t("action.loading", "Loading…") : showModules ? t("classroom.card.hideModules", "Hide modules ▲") : t("classroom.card.viewModules", "View modules ▼")}
           </button>
         </div>
         <div className="shrink-0 text-right">
           <p className="text-sm font-bold text-neutral-900 dark:text-neutral-50">
-            {room.enrolmentFee > 0 ? `${room.enrolmentFee.toLocaleString()} 🪙` : "Free"}
+            {room.enrolmentFee > 0 ? `${room.enrolmentFee.toLocaleString()} 🪙` : t("classroom.card.free", "Free")}
           </p>
           <button
             onClick={() => onEnroll(room.id)}
@@ -349,7 +350,7 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: B
                 : "bg-blue-600 text-white hover:bg-blue-700"
             }`}
           >
-            {room.isEnrolled ? "Enrolled" : enrolling === room.id ? "Enrolling…" : "Enroll"}
+            {room.isEnrolled ? t("classroom.card.enrolled", "Enrolled") : enrolling === room.id ? t("classroom.card.enrolling", "Enrolling…") : t("classroom.card.enroll", "Enroll")}
           </button>
         </div>
       </div>
@@ -360,7 +361,7 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: B
           {modules && modules.length > 0 ? (
             <div>
               <p className="mb-2 text-xs font-semibold text-neutral-500">
-                Modules ({modules.length})
+                {t("classroom.card.modulesCount", "Modules ({{count}})", { count: modules.length })}
               </p>
               <ModuleList
                 roomId={room.id}
@@ -370,7 +371,7 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: B
               />
             </div>
           ) : (
-            <p className="text-xs text-neutral-400">No modules yet.</p>
+            <p className="text-xs text-neutral-400">{t("classroom.card.noModules", "No modules yet.")}</p>
           )}
 
           {isCreator && !showAddForm && (
@@ -378,7 +379,7 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: B
               onClick={() => setShowAddForm(true)}
               className="rounded-lg border border-violet-300 px-3 py-1.5 text-xs font-semibold text-violet-600 hover:bg-violet-50 dark:border-violet-800 dark:text-violet-400"
             >
-              + Add Module
+              {t("classroom.card.addModule", "+ Add Module")}
             </button>
           )}
 
@@ -400,6 +401,7 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: B
 // ---------------------------------------------------------------------------
 
 function EnrolledCard({ room }: { room: EnrolledClassRoom }) {
+  const { t } = useTranslation();
   const pct = room.lessonCount > 0
     ? Math.round((room.completedLessons / room.lessonCount) * 100)
     : 0;
@@ -412,11 +414,11 @@ function EnrolledCard({ room }: { room: EnrolledClassRoom }) {
             {room.category}
           </span>
           <h3 className="mt-2 text-base font-semibold text-neutral-900 dark:text-neutral-50">{room.title}</h3>
-          <p className="mt-0.5 text-xs text-neutral-500">By {room.creatorName} · {room.curriculumTitle}</p>
+          <p className="mt-0.5 text-xs text-neutral-500">{t("classroom.card.by", "By {{name}}", { name: room.creatorName })} · {room.curriculumTitle}</p>
         </div>
         {room.quizScore !== null && room.quizScore !== undefined && (
           <div className="shrink-0 text-right">
-            <p className="text-xs font-semibold text-neutral-500">Quiz Score</p>
+            <p className="text-xs font-semibold text-neutral-500">{t("classroom.card.quizScore", "Quiz Score")}</p>
             <p className="text-lg font-bold text-neutral-900 dark:text-neutral-50">{room.quizScore}%</p>
           </div>
         )}
@@ -424,7 +426,7 @@ function EnrolledCard({ room }: { room: EnrolledClassRoom }) {
 
       <div className="mt-4">
         <div className="mb-1 flex items-center justify-between text-xs text-neutral-500">
-          <span>{room.completedLessons} / {room.lessonCount} lessons</span>
+          <span>{t("classroom.card.lessonsProgress", "{{completed}} / {{total}} lessons", { completed: room.completedLessons, total: room.lessonCount })}</span>
           <span>{pct}%</span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
@@ -437,10 +439,11 @@ function EnrolledCard({ room }: { room: EnrolledClassRoom }) {
 
       {room.lastActivityAt && (
         <p className="mt-2 text-xs text-neutral-400">
-          Last activity:{" "}
-          {new Date(room.lastActivityAt).toLocaleDateString("en-GB", {
-            day: "numeric",
-            month: "short",
+          {t("classroom.card.lastActivity", "Last activity: {{date}}", {
+            date: new Date(room.lastActivityAt).toLocaleDateString("en-GB", {
+              day: "numeric",
+              month: "short",
+            }),
           })}
         </p>
       )}
@@ -518,7 +521,7 @@ export default function ClassroomPage() {
           setCurrentUserId(typeof uid === "string" ? uid : null);
         }
       } catch (e) {
-        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || tRef.current("classroom.error.loadFailed", "Failed to load classrooms")) : tRef.current("classroom.error.loadFailed", "Failed to load classrooms"));
         setBrowseRooms([]);
         setEnrolledRooms([]);
       }
@@ -541,9 +544,9 @@ export default function ClassroomPage() {
       setBrowseRooms((prev) =>
         prev?.map((r) => (r.id === roomId ? { ...r, isEnrolled: true } : r))
       );
-      showToast("Enrolled successfully!");
+      showToast(t("classroom.toast.enrolled", "Enrolled successfully!"));
     } catch (e) {
-      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Enrollment failed") : "Enrollment failed");
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || t("classroom.error.enrollFailed", "Enrollment failed")) : t("classroom.error.enrollFailed", "Enrollment failed"));
     } finally {
       setEnrolling(null);
     }
@@ -553,7 +556,7 @@ export default function ClassroomPage() {
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
-      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Classroom</h1>
+      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("classroom.title", "Classroom")}</h1>
 
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 rounded-xl bg-teal-600 px-4 py-3 text-sm font-medium text-white shadow-modal">
@@ -564,8 +567,8 @@ export default function ClassroomPage() {
       {/* Tabs */}
       <div className="flex gap-1 rounded-xl border border-neutral-200 bg-neutral-50 p-1 dark:border-neutral-800 dark:bg-neutral-900">
         {([
-          { key: "browse", label: "Browse" },
-          { key: "mine", label: `My ClassRooms${enrolledRooms && enrolledRooms.length > 0 ? ` (${enrolledRooms.length})` : ""}` },
+          { key: "browse", label: t("classroom.tabs.browse", "Browse") },
+          { key: "mine", label: `${t("classroom.tabs.mine", "My ClassRooms")}${enrolledRooms && enrolledRooms.length > 0 ? ` (${enrolledRooms.length})` : ""}` },
         ] as { key: Tab; label: string }[]).map(({ key, label }) => (
           <button
             key={key}
@@ -593,8 +596,8 @@ export default function ClassroomPage() {
         browseRooms!.length === 0 ? (
           <div className="flex flex-col items-center py-16 text-center">
             <span className="text-5xl">🏫</span>
-            <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-50">No classrooms open</h2>
-            <p className="mt-1 text-sm text-neutral-500">Check back soon for open ClassRooms!</p>
+            <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-50">{t("classroom.empty.browse.title", "No classrooms open")}</h2>
+            <p className="mt-1 text-sm text-neutral-500">{t("classroom.empty.browse.subtitle", "Check back soon for open ClassRooms!")}</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -613,8 +616,8 @@ export default function ClassroomPage() {
       ) : enrolledRooms!.length === 0 ? (
         <div className="flex flex-col items-center py-16 text-center">
           <span className="text-5xl">📚</span>
-          <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-50">No enrolled classrooms</h2>
-          <p className="mt-1 text-sm text-neutral-500">Browse and enroll in a ClassRoom to get started!</p>
+          <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-50">{t("classroom.empty.mine.title", "No enrolled classrooms")}</h2>
+          <p className="mt-1 text-sm text-neutral-500">{t("classroom.empty.mine.subtitle", "Browse and enroll in a ClassRoom to get started!")}</p>
         </div>
       ) : (
         <div className="space-y-3">

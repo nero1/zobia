@@ -1113,7 +1113,7 @@ Run: `cd apps/web && npx jest --testPathPattern="security" --runInBand`
 
 ### Server-Side Delivery
 
-The server sends push notifications via `apps/web/lib/notifications/push.ts`, which routes each stored token to the right provider by format (v2.05): Expo push tokens (historically used by the discontinued Expo app) via the Expo Push API below, and Firebase Cloud Messaging tokens (the Capacitor Android app — see "Push Notifications (v2.05)" under Android App) via `apps/web/lib/notifications/fcm.ts` (FCM HTTP v1, single-request-per-message, no receipt-polling stage). No call site of `sendPushNotification()`/`sendPushNotificationBatch()` needs to know which provider a given user's device uses. The Expo half of the pipeline follows a **two-stage protocol** required by Expo:
+The server sends push notifications via `apps/web/lib/notifications/push.ts`, which routes each stored token to the right provider by format/platform tag: Expo push tokens (historically used by the discontinued Expo app) via the Expo Push API below, Firebase Cloud Messaging tokens (the Capacitor Android app — see "Push Notifications (v2.05)" under Android App) via `apps/web/lib/notifications/fcm.ts` (FCM HTTP v1, single-request-per-message, no receipt-polling stage), and — as of v2.08 — `platform: "web"` rows (installed-PWA Web Push subscriptions) via `apps/web/lib/notifications/webPush.ts` (VAPID, using the `web-push` npm package; see "Web Push (PWA — v2.08)" below). No call site of `sendPushNotification()`/`sendPushNotificationBatch()` needs to know which provider a given user's device uses. The Expo half of the pipeline follows a **two-stage protocol** required by Expo:
 
 #### Stage 1 — Send (immediate)
 
@@ -1172,6 +1172,16 @@ After login, the app additionally:
 
 Notification tap handling routes users to the deep-link `action` field attached to each notification payload (e.g. `/guild/wars/[warId]`, `/leaderboards`, `/profile/[userId]`).
 
+### Web Push (PWA — v2.08)
+
+Installed-PWA users previously received **zero** background push regardless of what the backend sent — `app/sw.ts` had no `push` event listener at all. Fixed with a standard VAPID Web Push implementation:
+
+- **Service worker** (`app/sw.ts`): a `push` listener parses the JSON payload (`{ title, body, data: { action }, badge }`) and calls `self.registration.showNotification()`; a `notificationclick` listener focuses an existing tab (navigating it to the notification's `action` route) or opens a new one, falling back to `/home` for anything that isn't a same-origin relative path.
+- **Client subscribe flow** (`apps/web/lib/push/webPush.ts`): `subscribeToWebPush()` requests Notification permission (only if not already decided — never auto-prompts), subscribes via `PushManager.subscribe()` using `NEXT_PUBLIC_VAPID_PUBLIC_KEY`, and registers the subscription with `POST /api/users/push-token` as `{ token: JSON.stringify(subscription.toJSON()), platform: "web" }`. Surfaced as a "Browser notifications" toggle in Settings → Notifications. `unsubscribeFromWebPush()` is called (best-effort, non-blocking) on logout.
+- **Server sender** (`apps/web/lib/notifications/webPush.ts`): parses the stored subscription JSON back into a `PushSubscription` shape and calls `web-push`'s `sendNotification()`, signed with `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`. A 404/410 response marks the subscription stale for purging, same convention as Expo's `DeviceNotRegistered`/FCM's 404. Unconfigured VAPID keys degrade to a "trusted no-op" in development (logged, not thrown) and are skipped with a warning in production — same convention as `FCM_SERVICE_ACCOUNT_JSON`.
+
+See `docs/SETUP.md`'s "Push Notifications (Web/PWA)" section for generating and configuring the `VAPID_*` env vars.
+
 ---
 
 ## Android App
@@ -1228,6 +1238,8 @@ zobia://auth/callback?token=<jwt>&user=<json>
 
 `AppShell` in `__root.tsx` listens for `appUrlOpen` events via `App.addListener`. On receiving `zobia://auth/callback`, it exchanges the code via `POST /api/auth/mobile-token`, validates the returned user shape with `AuthUserSchema`, calls `setAuth`, and — since v2.07 (ZB-AND-03) — navigates to `/onboarding` instead of `/home` when the exchange response's top-level `onboardingCompleted` is `false` (mirroring `apps/expo/app/auth/login.tsx`'s identical branch). Previously every brand-new signup landed straight on `/home` with an auto-generated username and no welcome XP/coins. The same `appUrlOpen` listener also mounts `useReferralCaptureFromLink()` (v2.07 / ZB-AND-02) so a `?r=CODE` referral link opened via the app is captured into Preferences and later redeemed by the onboarding screen — previously implemented but never called from anywhere.
 
+**Authenticated browser hand-offs (v2.08 — "mobile bridge").** This Bearer-JWT session is Android-only — the Custom Tab a screen opens via `Browser.open()` shares no cookies with it, so a plain `Browser.open(universalLink('/kyc'))` always landed on the web login page instead of the intended feature (KYC, creator bank account/wallet, admin KYC review, resume/play a game). `lib/deeplinks/bridge.ts`'s `openAuthenticatedWebLink(path)` fixes this: it calls `POST /api/auth/mobile-bridge` (authenticated, allowlisted `path`s only) to mint a short-lived (90s), single-use code stored in Redis against the caller's user id, then opens `universalLink('/api/auth/mobile-bridge/consume?code=...&redirect=' + path)` in the Custom Tab. The consume route (unauthenticated — the code itself is the credential) atomically `GETDEL`s the code, mints a brand-new web session (`createSession`), sets the same HttpOnly `accessCookie`/`refreshCookie` the OAuth web flow sets, and redirects to `path`. Falls back to a plain (unauthenticated) `Browser.open()` if minting fails, so a transient network error degrades to the previous behaviour instead of doing nothing.
+
 **Telegram Login** — same pattern as Google. Opens `GET /api/auth/telegram?mobile=true`; the API performs HMAC-SHA256 verification of Telegram's Login Widget data, then deep-links back via:
 
 ```
@@ -1281,7 +1293,9 @@ The purchase flow is identical for all four: `store.when().approved()` fires wit
 
 ### Push Notifications (v2.05)
 
-`src/lib/push/index.ts` wraps `@capacitor/push-notifications`, which registers a **Firebase Cloud Messaging (FCM)** token on Android — a different token format from the Expo push tokens the discontinued Expo app used. On first launch after login it requests permission, creates a default notification channel (required for a background/killed-app notification to display on Android O+), registers for a token, and POSTs it to the same `POST /api/users/push-token` endpoint (`{ token, platform: "android", deviceId }`) the Expo app used. `apps/web/lib/notifications/push.ts` — the single choke point every notification-triggering code path in the backend already calls through — routes each stored token to the right delivery provider by format (Expo vs. FCM, via `apps/web/lib/notifications/fcm.ts`), so no call site needed to change. Tapping a notification navigates to its `data.action` route if it's in `VALID_PUSH_ROUTES` (an allowlist scoped to routes that exist in this app — extend it when porting a new page that should be a push deep-link target).
+`src/lib/push/index.ts` wraps `@capacitor/push-notifications`, which registers a **Firebase Cloud Messaging (FCM)** token on Android — a different token format from the Expo push tokens the discontinued Expo app used. On first launch after login it requests permission, creates a default notification channel (required for a background/killed-app notification to display on Android O+), registers for a token, and POSTs it to the same `POST /api/users/push-token` endpoint (`{ token, platform: "android", deviceId }`) the Expo app used. `apps/web/lib/notifications/push.ts` — the single choke point every notification-triggering code path in the backend already calls through — routes each stored token to the right delivery provider by format (Expo vs. FCM, via `apps/web/lib/notifications/fcm.ts`), so no call site needed to change. Tapping a notification navigates to its `data.action` route if it's in `VALID_PUSH_ROUTES` (as of v2.08, this allowlist lives in `src/lib/notifications/routing.ts` — shared with the in-app notifications list below rather than duplicated — scoped to routes that exist in this app; extend it when porting a new page that should be a push/notification deep-link target). On logout, `unregisterPushOnLogout()` best-effort deletes the token server-side (`DELETE /api/users/push-token`) and resets the module's init latch so a different account logging into the same device re-registers instead of silently inheriting the previous account's token association (v2.08).
+
+Tapping a row in the in-app notifications list (`routes/notifications.tsx`) also navigates now (v2.08) — the server derives an `actionUrl` per notification from its `type`/`metadata` (`apps/web/lib/notifications/actionRoute.ts`, shared by the `GET /api/notifications` response both web and Android read), re-validated against the same `routing.ts` allowlist before navigating.
 
 ### Advertising (v2.05)
 

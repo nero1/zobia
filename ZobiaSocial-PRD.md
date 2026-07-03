@@ -4854,6 +4854,125 @@ every fix reused a pattern already present elsewhere in the codebase.
 
 ---
 
-*ZobiaSocial PRD v2.07*
+### v2.08 — Changelog
+
+#### Custom forensic audit — 25 findings fixed (ZSB-01 through ZSB-25)
+
+A cross-platform audit (Capacitor Android as primary target, cross-
+referenced against web/PWA for parity) found 25 confirmed issues spanning
+one severe live crash, one real security regression, several "the plumbing
+exists but nothing connects it" reliability gaps, systemic cache-
+invalidation gaps, and i18n coverage gaps. All 25 were independently
+re-verified against the actual code before being fixed.
+
+**Security / severe:**
+1. **Web Creator Dashboard crashed for every creator.**
+   `app/(app)/creator/page.tsx` read field names (`revenue.thisWeek`,
+   `dailyRevenue`, `revenueStreams` as an array, `totalMembers`,
+   `payoutBalance`, `topGifters[].userId`) that don't exist anywhere in
+   `GET /api/creator/dashboard`'s actual response shape — `.map()` on the
+   undefined `revenueStreams` threw on every load. Rewrote the page
+   against the real contract (`revenue.week/month/byStream`,
+   `members.total/active/churnRate`, `topGifters[].user_id/avatar_emoji/
+   total_coins`) and against the separate, PIN-gated `/api/creator/
+   payouts` endpoint for balance/history/request, mirroring the
+   already-correct Android contract.
+2. **Register screen still used the insecure `zobia://` OAuth callback**
+   that Login was specifically patched away from — any other installed
+   app can register the same custom scheme and race to intercept the
+   OAuth exchange code. Extracted a shared `OAUTH_CALLBACK_LINK` constant
+   (`lib/deeplinks/routes.ts`) built from the verified HTTPS App Link so
+   the two screens can't drift apart again.
+3. **"Open in browser" hand-offs (KYC, creator bank account/wallet, admin
+   KYC review, resume/play a game) had no authenticated session at all** —
+   the mobile OAuth flow intentionally never sets browser cookies, so the
+   Custom Tab always landed on the web login page. Added a short-lived,
+   single-use "mobile bridge" endpoint (`POST /api/auth/mobile-bridge` to
+   mint a code, `GET /api/auth/mobile-bridge/consume` to exchange it for a
+   real HttpOnly cookie session and redirect) and an Android-side
+   `openAuthenticatedWebLink()` helper that replaced every raw
+   `Browser.open()` call across the six affected screens.
+
+**Reliability — session/auth:**
+4. Wired up the previously-dead `onUnauthenticated` event system
+   (`lib/api/client.ts`) to `AuthProvider`, and fixed both `client.ts`'s
+   and `apiFetch.ts`'s failed-refresh branches to clear the cached token
+   through one shared `signalUnauthenticated()` — a user whose refresh
+   token expired now actually gets signed out instead of sitting in a
+   silently-broken "looks logged in, nothing loads" state.
+5. Push token lifecycle now survives an account switch on one device:
+   `clearAuth()` unregisters the last token server-side (new
+   `DELETE /api/users/push-token`) and resets the push module's init
+   latch so the next login re-registers instead of silently no-op'ing.
+6. 2FA login now persists the `refreshToken` the server returns (was
+   omitted from the `setAuth()` call), so 2FA users no longer get bounced
+   back to login far more often than everyone else.
+7. `VITE_REALTIME_PROVIDER` is now forwarded in the Android CI build
+   workflow — every shipped APK/AAB previously defaulted realtime off and
+   silently fell back to polling.
+
+**Cache correctness (systemic pattern, fixed everywhere found):**
+8. Coin/star-spend actions (gifts, sticker unlocks, paid Classroom
+   enrolment, merch purchases) now invalidate the shared `['users','me']`
+   balance query, so the Wallet screen reflects a spend immediately.
+9. Buying coins/stars now also invalidates the wallet transaction-history
+   query, so a purchase appears in the list without an unrelated refetch.
+10. Fixed a friend-request race (`friends.tsx` read the shared mutation
+    hook's `.variables` instead of the callback's own argument — accepting
+    one request and declining another in quick succession could read each
+    other's outcome).
+11. Serialized the ad-event queue's read-modify-write (`adEventQueue.ts`)
+    through an in-memory promise chain so concurrent impressions/clicks
+    can no longer clobber each other.
+
+**New capability — Web Push for PWA:** the installed PWA previously had
+*zero* background push notification support regardless of what the
+backend sent (`app/sw.ts` had no `push` handler at all). Added a full
+VAPID Web Push implementation: `push`/`notificationclick` listeners in
+`app/sw.ts`, a client subscribe/unsubscribe flow (`lib/push/webPush.ts`,
+surfaced as a "Browser notifications" toggle in Settings → Notifications),
+a server-side sender (`lib/notifications/webPush.ts`, using the `web-push`
+package), and a third `platform: "web"` branch through the existing
+`lib/notifications/push.ts` fan-out — see `docs/SETUP.md`'s new
+"Push Notifications (Web/PWA)" section for the `VAPID_*` env vars.
+
+**New capability — notification tap-to-navigate:** neither the Android
+notifications list nor (it turned out, once checked) the web one actually
+navigated anywhere on tap — web's `Notification.actionUrl` field was read
+by the UI but never populated by `GET /api/notifications`. Added
+`lib/notifications/actionRoute.ts` to derive an in-app route from each
+notification's `type`/`metadata`, wired it into the API response, and
+ported tap-to-navigate to Android (`lib/notifications/routing.ts`, shared
+with the push-tap-handler's existing route allowlist).
+
+**i18n coverage (keys added to all nine locales):** the Business Ads Hub
+and Business Pages screens (Android) and the web Classroom page were
+entirely/effectively unlocalized despite the rest of the app being fully
+wired for all 9 supported locales; the Friends screen's "Recent chats" tab
+was self-documented as omitted pending the missing `friends.tabs.recent`/
+`friends.recent.*` keys. All wired through; the Classroom keys already
+existed in every locale (Android's own port had added them) and just
+needed the web page to actually call `t()`.
+
+**Also fixed:** the onboarding CAPTCHA hang (a still-loading `grecaptcha`
+script left `getCaptchaToken()`'s promise unsettled forever — now races
+against an 8s timeout, both Android and web), Admin KYC's "Save schedule"
+action giving zero feedback, the OAuth loading spinner clearing the
+instant the Custom Tab *opened* instead of when the flow actually
+finished, `PullToRefresh` failing to arm when a gesture scrolls to the top
+mid-drag instead of starting there, the Android referral code never
+expiring (30-day TTL added, matching web), `applyStoredLanguagePref()`
+being fully implemented but never called, and a dead `VITE_ABLY_API_KEY`
+env var removed before it could accidentally ship a real key into the
+public APK bundle.
+
+Also replaced the Android CI workflow's hand-maintained `push.branches`
+allow-list with a `pull_request`-triggered build (plus `push` on `main`/
+`android` only), so a new working branch gets a debug APK automatically
+instead of silently never building until the workflow is edited.
+
+---
+
+*ZobiaSocial PRD v2.08*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

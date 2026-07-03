@@ -19,6 +19,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { deriveNotificationActionUrl } from "@/lib/notifications/actionRoute";
 
 // ---------------------------------------------------------------------------
 // Constants / schema
@@ -64,6 +65,8 @@ interface Notification {
   metadata: Record<string, unknown> | null;
   isRead: boolean;
   createdAt: string;
+  // ZSB-16 fix: derived from type + metadata — see lib/notifications/actionRoute.ts.
+  actionUrl: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -124,6 +127,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       metadata: row.metadata,
       isRead: row.is_read,
       createdAt: row.created_at,
+      actionUrl: deriveNotificationActionUrl(row.type, row.metadata),
     }));
 
     const unreadCount = parseInt(countResult.rows[0]?.count ?? "0", 10);
