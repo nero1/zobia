@@ -76,11 +76,19 @@ async function ensureLogTable(client: Client): Promise<void> {
   `);
 }
 
-async function getAppliedMigrations(client: Client): Promise<Set<string>> {
-  const result = await client.query<{ filename: string }>(
-    `SELECT filename FROM ${LOG_TABLE} ORDER BY id`
+/**
+ * Returns the filename → stored-checksum map for every migration already
+ * recorded in migrations_log.
+ *
+ * BUG-CAP-10: the checksum column was written on every INSERT but never read
+ * back anywhere — this is the first caller that actually uses it, to detect
+ * drift (see `verifyChecksums` below).
+ */
+async function getAppliedMigrations(client: Client): Promise<Map<string, string>> {
+  const result = await client.query<{ filename: string; checksum: string }>(
+    `SELECT filename, checksum FROM ${LOG_TABLE} ORDER BY id`
   );
-  return new Set(result.rows.map((r: { filename: string }) => r.filename));
+  return new Map(result.rows.map((r) => [r.filename, r.checksum]));
 }
 
 /** Simple FNV-1a checksum for change detection (not cryptographic). */
@@ -91,6 +99,32 @@ function checksum(content: string): string {
     hash = Math.imul(hash, 0x01000193) >>> 0;
   }
   return hash.toString(16).padStart(8, '0');
+}
+
+/**
+ * BUG-CAP-10 fix: recompute the checksum of every already-applied migration
+ * file still present on disk and compare it against what was recorded when
+ * it was applied. A mismatch means the file was edited after the fact
+ * (accidental hand-edit, a bad rebase/cherry-pick, …) — schema drift that was
+ * previously undetectable, since nothing ever read the stored checksum back.
+ *
+ * @param applied - filename → stored checksum, from `getAppliedMigrations`
+ * @param files   - absolute paths of every migration file currently on disk
+ * @returns filenames whose on-disk content no longer matches what was applied
+ */
+function verifyChecksums(applied: Map<string, string>, files: string[]): string[] {
+  const drifted: string[] = [];
+  for (const filePath of files) {
+    const filename = path.basename(filePath);
+    const storedChecksum = applied.get(filename);
+    if (storedChecksum === undefined) continue; // not yet applied — nothing to compare
+
+    const content = fs.readFileSync(filePath, 'utf8');
+    if (checksum(content) !== storedChecksum) {
+      drifted.push(filename);
+    }
+  }
+  return drifted;
 }
 
 async function applyMigration(client: Client, filePath: string): Promise<void> {
@@ -141,19 +175,31 @@ async function printStatus(client: Client): Promise<void> {
   await ensureLogTable(client);
   const applied = await getAppliedMigrations(client);
   const files = getMigrationFiles();
+  const drifted = new Set(verifyChecksums(applied, files));
 
   log(`\nMigration status (${files.length} total):`);
   log('─'.repeat(50));
 
   for (const filePath of files) {
     const filename = path.basename(filePath);
-    const status = applied.has(filename) ? '✓ applied' : '○ pending';
+    const status = drifted.has(filename)
+      ? '⚠ modified'
+      : applied.has(filename)
+        ? '✓ applied'
+        : '○ pending';
     log(`  ${status.padEnd(12)} ${filename}`);
   }
 
   const pending = files.filter((f) => !applied.has(path.basename(f)));
   log('─'.repeat(50));
-  log(`${applied.size} applied, ${pending.length} pending\n`);
+  log(`${applied.size} applied, ${pending.length} pending, ${drifted.size} modified since applied\n`);
+  if (drifted.size > 0) {
+    log(
+      `⚠ ${drifted.size} already-applied migration(s) no longer match what was run: ` +
+        `${[...drifted].join(', ')}. This file was edited after being applied — ` +
+        `verify the database schema still matches what's on disk.`
+    );
+  }
 }
 
 // ----------------------------------------------------------------
@@ -185,6 +231,21 @@ async function main(): Promise<void> {
 
     const applied = await getAppliedMigrations(client);
     const files = getMigrationFiles();
+
+    // BUG-CAP-10 fix: refuse to apply any pending migration while an
+    // already-applied file has drifted from what was actually run — proceeding
+    // could compound an unknown, undocumented schema difference. Run
+    // `--status` to see which file(s) drifted.
+    const drifted = verifyChecksums(applied, files);
+    if (drifted.length > 0) {
+      err(
+        `${drifted.length} already-applied migration file(s) no longer match their recorded checksum: ` +
+          `${drifted.join(', ')}. Refusing to run pending migrations until this is resolved — ` +
+          `run 'npx tsx db/migrate.ts --status' for details.`
+      );
+      process.exit(1);
+    }
+
     const pending = files.filter((f) => !applied.has(path.basename(f)));
 
     if (pending.length === 0) {

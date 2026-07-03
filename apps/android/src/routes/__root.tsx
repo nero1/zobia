@@ -68,10 +68,23 @@ function AppShell() {
           return;
         }
 
-        // Handle OAuth callback deep links: zobia://auth/callback?code=... or zobia://auth/callback?pre_auth_code=...
-        const isOAuthCallback =
+        // Handle OAuth callback deep links.
+        // BUG-CAP-04 fix: accept both the verified https App Link
+        // (https://<web-origin>/auth/callback?code=...) and the legacy
+        // zobia://auth/callback custom-scheme form as a fallback for
+        // devices/browsers where App Links verification hasn't succeeded.
+        const webOrigin = (() => {
+          try { return new URL(env.VITE_WEB_BASE_URL).hostname; } catch { return null; }
+        })();
+        const isHttpsCallback =
+          (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
+          webOrigin !== null &&
+          parsed.hostname === webOrigin &&
+          (parsed.pathname === '/auth/callback' || parsed.pathname === '/auth/telegram-callback');
+        const isCustomSchemeCallback =
           parsed.hostname === 'auth' &&
           (parsed.pathname === '/callback' || parsed.pathname === '/telegram-callback');
+        const isOAuthCallback = isHttpsCallback || isCustomSchemeCallback;
         if (!isOAuthCallback) return;
 
         const code = parsed.searchParams.get('code');

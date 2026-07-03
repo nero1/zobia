@@ -16,6 +16,7 @@
 
 import { PushNotifications, type ActionPerformed, type PushNotificationSchema, type Token } from '@capacitor/push-notifications';
 import { Preferences } from '@capacitor/preferences';
+import { App } from '@capacitor/app';
 import type { AnyRouter } from '@tanstack/react-router';
 import { apiClient } from '@/lib/api/client';
 
@@ -92,19 +93,42 @@ function extractAction(notification: PushNotificationSchema): string | undefined
   return typeof action === 'string' ? action : undefined;
 }
 
+// BUG-CAP-08 fix: `initialized` now only latches once registration has
+// actually been requested (permission granted + listeners wired), not the
+// moment the function is first called. Previously it was set at the very
+// top of initPushNotifications(), so a user who denied permission and later
+// granted it from Android system Settings — without force-closing the app —
+// could never get push registered again for the rest of that app session,
+// since every subsequent call was a silent no-op against the stale flag.
 let initialized = false;
+let foregroundRetryAttached = false;
 
 /**
- * Register for push notifications and wire up listeners. Call once, after
- * the user's identity is established (matches Expo's convention — the push
- * token is tied to a specific user via the auth'd apiClient request).
+ * Register for push notifications and wire up listeners. Safe to call
+ * multiple times — it only does real work once permission is granted, and
+ * re-checks are cheap no-ops otherwise (see `attemptInit` below).
  *
  * Non-fatal on any failure: notifications are an enhancement, never a
  * blocker for using the app.
  */
 export async function initPushNotifications(router: AnyRouter): Promise<void> {
+  await attemptInit(router);
+
+  // Re-check on every foreground resume while permission hasn't been granted
+  // yet, so a grant made from system Settings (a very common flow that does
+  // not force-close the app) is picked up without requiring a cold restart.
+  // Registered once per process — @capacitor/app already backs the same
+  // 'appStateChange' event consumed by lib/api/client.ts's focusManager.
+  if (!foregroundRetryAttached) {
+    foregroundRetryAttached = true;
+    App.addListener('appStateChange', ({ isActive }) => {
+      if (isActive && !initialized) void attemptInit(router);
+    }).catch((err) => console.error('[push] appStateChange listener failed:', err));
+  }
+}
+
+async function attemptInit(router: AnyRouter): Promise<void> {
   if (initialized) return;
-  initialized = true;
 
   try {
     await PushNotifications.createChannel({
@@ -121,6 +145,10 @@ export async function initPushNotifications(router: AnyRouter): Promise<void> {
       status = await PushNotifications.requestPermissions();
     }
     if (status.receive !== 'granted') return;
+
+    // Permission is granted from here on — latch now so a concurrent/later
+    // call (or the foreground-retry listener above) doesn't double-register.
+    initialized = true;
 
     await PushNotifications.addListener('registration', (token: Token) => {
       void registerToken(token.value);

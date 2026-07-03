@@ -16,6 +16,7 @@ import type {
   TransactionClient,
 } from "../interface";
 import { env } from "@/lib/env";
+import { withCircuitBreaker } from "../circuit";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -104,45 +105,52 @@ export class RailwayDatabaseAdapter implements DatabaseAdapter {
     sql: string,
     params?: SqlParam[]
   ): Promise<QueryResult<T>> {
-    const pool = getPool();
-    const result = await pool.query<T & Record<string, unknown>>(sql, params as unknown[]);
-    return { rows: result.rows as T[], rowCount: result.rowCount ?? 0 };
+    // BUG-CAP-02: gate every query through the shared DB circuit breaker so a
+    // degraded database fails fast instead of every request queuing behind
+    // the full pool/statement timeout. See lib/db/circuit.ts.
+    return withCircuitBreaker(async () => {
+      const pool = getPool();
+      const result = await pool.query<T & Record<string, unknown>>(sql, params as unknown[]);
+      return { rows: result.rows as T[], rowCount: result.rowCount ?? 0 };
+    });
   }
 
   /** @inheritdoc */
   async transaction<T>(
     fn: (client: TransactionClient) => Promise<T>
   ): Promise<T> {
-    // Use the direct pool so PgBouncer does not interfere with BEGIN/COMMIT
-    const directPool = getDirectPool();
-    const client: PoolClient = await directPool.connect();
+    return withCircuitBreaker(async () => {
+      // Use the direct pool so PgBouncer does not interfere with BEGIN/COMMIT
+      const directPool = getDirectPool();
+      const client: PoolClient = await directPool.connect();
 
-    try {
-      await client.query("BEGIN");
+      try {
+        await client.query("BEGIN");
 
-      const txClient: TransactionClient = {
-        query: async <R = Record<string, unknown>>(
-          sql: string,
-          params?: SqlParam[]
-        ): Promise<QueryResult<R>> => {
-          const res = await client.query<R & Record<string, unknown>>(sql, params as unknown[]);
-          return { rows: res.rows as R[], rowCount: res.rowCount ?? 0 };
-        },
-      };
+        const txClient: TransactionClient = {
+          query: async <R = Record<string, unknown>>(
+            sql: string,
+            params?: SqlParam[]
+          ): Promise<QueryResult<R>> => {
+            const res = await client.query<R & Record<string, unknown>>(sql, params as unknown[]);
+            return { rows: res.rows as R[], rowCount: res.rowCount ?? 0 };
+          },
+        };
 
-      const result = await fn(txClient);
-      await client.query("COMMIT");
-      return result;
-    } catch (err) {
-      try { await client.query("ROLLBACK"); } catch (rollbackErr) {
-        import("@/lib/logger").then(({ logger }) =>
-          logger.error({ err: rollbackErr }, "[db:railway] ROLLBACK failed")
-        ).catch(() => {});
+        const result = await fn(txClient);
+        await client.query("COMMIT");
+        return result;
+      } catch (err) {
+        try { await client.query("ROLLBACK"); } catch (rollbackErr) {
+          import("@/lib/logger").then(({ logger }) =>
+            logger.error({ err: rollbackErr }, "[db:railway] ROLLBACK failed")
+          ).catch(() => {});
+        }
+        throw err;
+      } finally {
+        client.release();
       }
-      throw err;
-    } finally {
-      client.release();
-    }
+    });
   }
 
   /** @inheritdoc */

@@ -231,3 +231,48 @@ export async function acknowledgeGooglePlaySubscription(
     clearTimeout(timer);
   }
 }
+
+/**
+ * Cancel a previously-active subscription on Google Play (BUG-CAP-05 fix).
+ *
+ * Called when a user verifies a purchase for a *different* plan tier
+ * (Plus/Pro/Max, or a Business Account tier) than one they already hold, so
+ * the old subscription actually stops billing instead of running alongside
+ * the new one. Per the Google Play Developer API, `:cancel` stops the
+ * subscription from renewing at the end of the current billing period (it
+ * does not immediately revoke access or issue a refund) — this is the
+ * standard, expected "switch plans" behaviour and mirrors how the client's
+ * `group` registration (see apps/android/src/lib/payments/googlePlay.ts)
+ * already tells Play Billing these products are mutually-exclusive tiers.
+ * Non-fatal on failure (logged) — never blocks crediting the new plan.
+ */
+export async function cancelGooglePlaySubscription(
+  packageName: string,
+  productId: string,
+  purchaseToken: string
+): Promise<void> {
+  const sa = loadServiceAccount();
+  if (!sa) return;
+
+  const accessToken = await getGoogleAccessToken(sa);
+  const url = `${GOOGLE_PLAY_API_BASE}/${packageName}/purchases/subscriptions/${productId}/tokens/${purchaseToken}:cancel`;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 5000);
+  try {
+    const resp = await fetch(url, {
+      signal: controller.signal,
+      method: "POST",
+      headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+      body: "{}",
+    });
+    if (!resp.ok && resp.status !== 204) {
+      const text = await resp.text();
+      logger.error({ status: resp.status, text }, "[googlePlayVerify] Subscription cancel failed");
+    }
+  } catch (e) {
+    logger.error({ err: e }, "[googlePlayVerify] Subscription cancel error:");
+  } finally {
+    clearTimeout(timer);
+  }
+}

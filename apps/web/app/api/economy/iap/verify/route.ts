@@ -35,6 +35,7 @@ import {
   consumeGooglePlayPurchase,
   verifyGooglePlaySubscriptionPurchase,
   acknowledgeGooglePlaySubscription,
+  cancelGooglePlaySubscription,
 } from "@/lib/payments/googlePlayVerify";
 
 // ---------------------------------------------------------------------------
@@ -158,6 +159,23 @@ async function verifyAndActivateSubscription(
   // Acknowledge to prevent auto-cancellation after 3 days.
   await acknowledgeGooglePlaySubscription(packageName, productId, purchaseToken);
 
+  // BUG-CAP-05: find any previously-verified subscription for a *different*
+  // plan tier product so it can be cancelled below — defense in depth against
+  // stacked/double-billed subscriptions, alongside the client-side `group`
+  // registration in apps/android/src/lib/payments/googlePlay.ts that already
+  // tells Play Billing these products are mutually exclusive.
+  const { rows: priorSubRows } = await db.query<{ product_id: string; purchase_token: string }>(
+    `SELECT metadata->>'productId' AS product_id, metadata->>'purchaseToken' AS purchase_token
+     FROM coin_ledger
+     WHERE user_id = $1 AND transaction_type = 'subscription_bonus'
+       AND metadata->>'purchaseToken' IS NOT NULL
+       AND metadata->>'productId' IS DISTINCT FROM $2
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [userId, productId]
+  );
+  const priorSub = priorSubRows[0];
+
   // Activate plan and credit monthly coin bonus atomically (BUG-FIN-17: single transaction)
   await db.transaction(async (tx) => {
     await tx.query(
@@ -179,6 +197,14 @@ async function verifyAndActivateSubscription(
       );
     }
   });
+
+  // Cancel the old subscription on Google Play *after* the new one is
+  // committed, so a cancel-call failure never leaves the user without any
+  // active plan. Non-fatal on failure (logged inside the helper) — the new
+  // plan is already active regardless.
+  if (priorSub?.purchase_token && priorSub.product_id) {
+    await cancelGooglePlaySubscription(packageName, priorSub.product_id, priorSub.purchase_token);
+  }
 
   return { plan: subConfig.plan, coinsGranted: subConfig.monthlyCoins };
 }

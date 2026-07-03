@@ -22,12 +22,27 @@
 import { Suspense, useEffect, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 
-// Schemes allowed as mobile redirect targets (mirrors Google callback allowlist).
+// Schemes allowed as mobile redirect targets (mirrors Google callback allowlist
+// in app/api/auth/google/route.ts and app/api/auth/telegram/callback/route.ts).
 const ALLOWED_SCHEMES = ["zobia:", "exp+zobia:", "exp+zobia-social:"];
 
+// BUG-CAP-04: the Capacitor Android app now passes the verified Android App
+// Link (https://<web-origin>/auth/callback) as its redirect target instead of
+// the zobia:// custom scheme, so https/http redirects back to this app's own
+// origin must also be accepted here — mirrors the server-side allowlist in
+// app/api/auth/telegram/callback/route.ts's isRedirectAllowed().
 function isAllowedRedirect(redirect: string): boolean {
   try {
-    return ALLOWED_SCHEMES.includes(new URL(redirect).protocol);
+    const url = new URL(redirect);
+    if (ALLOWED_SCHEMES.includes(url.protocol)) return true;
+    if (url.protocol === "https:" || url.protocol === "http:") {
+      const appOrigin = process.env["NEXT_PUBLIC_APP_URL"];
+      if (appOrigin) {
+        const appHost = new URL(appOrigin).hostname;
+        if (url.hostname === appHost) return true;
+      }
+    }
+    return false;
   } catch {
     return false;
   }

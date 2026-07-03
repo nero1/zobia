@@ -973,6 +973,9 @@ export default function SettingsPage() {
       {/* Two-Factor Authentication */}
       {featureFlags.twoFaEnabled && <TwoFactorSection onToast={showToast} />}
 
+      {/* Active Sessions (BUG-CAP-06) */}
+      <ActiveSessionsSection onToast={showToast} />
+
       {/* Chat Theme */}
       <Section title="Chat Theme">
         <div className="p-1">
@@ -1453,6 +1456,110 @@ function TwoFactorSection({ onToast }: { onToast: (msg: string, type?: "success"
         </div>
       )}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Active Sessions sub-component (BUG-CAP-06)
+// ---------------------------------------------------------------------------
+
+interface SessionListItem {
+  sid: string;
+  createdAt: string;
+  ip: string | null;
+  ua: string | null;
+  isAdmin: boolean;
+  isCurrent: boolean;
+}
+
+/** Very small UA sniff — just enough to show a friendly device label, not for any security decision. */
+function describeDevice(ua: string | null): string {
+  if (!ua) return "Unknown device";
+  if (/Android/i.test(ua)) return /wv\)/i.test(ua) || /Zobia/i.test(ua) ? "Zobia Android app" : "Android browser";
+  if (/iPhone|iPad|iPod/i.test(ua)) return "iOS browser";
+  if (/Macintosh/i.test(ua)) return "Mac browser";
+  if (/Windows/i.test(ua)) return "Windows browser";
+  return "Browser";
+}
+
+function ActiveSessionsSection({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
+  const { t } = useTranslation();
+  const [sessions, setSessions] = useState<SessionListItem[] | null>(null);
+  const [revokingSid, setRevokingSid] = useState<string | null>(null);
+
+  const loadSessions = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/sessions", { credentials: "include" });
+      if (!res.ok) return;
+      const json = await res.json();
+      setSessions(json?.data?.sessions ?? []);
+    } catch { /* non-fatal — section just stays empty */ }
+  }, []);
+
+  useEffect(() => { void loadSessions(); }, [loadSessions]);
+
+  const handleRevoke = async (sid: string) => {
+    setRevokingSid(sid);
+    try {
+      const res = await fetch(`/api/auth/sessions/${encodeURIComponent(sid)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const d = (await res.json().catch(() => null)) as { error?: { message?: string } } | null;
+        onToast(d?.error?.message ?? t("settings.sessions.revokeFailed", "Failed to sign out that device"), "error");
+        return;
+      }
+      setSessions((prev) => (prev ?? []).filter((s) => s.sid !== sid));
+      onToast(t("settings.sessions.revoked", "Device signed out"));
+    } catch {
+      onToast(t("settings.sessions.revokeFailed", "Failed to sign out that device"), "error");
+    } finally {
+      setRevokingSid(null);
+    }
+  };
+
+  return (
+    <Section title={t("settings.sessions.title", "Active Sessions")}>
+      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
+        {t("settings.sessions.description", "Devices and browsers currently signed into your account. If you lost a device, sign it out here.")}
+      </p>
+
+      {sessions === null ? (
+        <p className="text-sm text-neutral-400">{t("action.loading", "Loading…")}</p>
+      ) : sessions.length === 0 ? (
+        <p className="text-sm text-neutral-400">{t("settings.sessions.empty", "No active sessions found.")}</p>
+      ) : (
+        <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+          {sessions.map((s) => (
+            <li key={s.sid} className="flex items-center justify-between gap-3 py-2.5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                  {describeDevice(s.ua)}
+                  {s.isCurrent && (
+                    <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+                      {t("settings.sessions.current", "This device")}
+                    </span>
+                  )}
+                </p>
+                <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+                  {s.ip ?? t("settings.sessions.unknownIp", "Unknown location")} · {new Date(s.createdAt).toLocaleString()}
+                </p>
+              </div>
+              {!s.isCurrent && (
+                <button
+                  onClick={() => void handleRevoke(s.sid)}
+                  disabled={revokingSid === s.sid}
+                  className="flex-shrink-0 rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 disabled:opacity-40 dark:border-red-700 dark:hover:bg-red-950"
+                >
+                  {revokingSid === s.sid ? t("settings.sessions.revoking", "Signing out…") : t("settings.sessions.revoke", "Sign out")}
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </Section>
   );
 }
 
