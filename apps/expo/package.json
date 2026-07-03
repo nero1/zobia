@@ -1,5 +1,6 @@
 {
   "name": "zobia-social",
+  "description": "DEPRECATED: this Expo/React Native app is discontinued in favor of apps/android (Capacitor). Kept for historical reference only — do not build new features here. See docs/SETUP.md > Android App.",
   "version": "1.0.0",
   "main": "expo-router/entry",
   "scripts": {

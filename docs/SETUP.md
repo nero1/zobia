@@ -15,7 +15,7 @@ Before you begin, you will need accounts and tools for the following:
 - **Google Cloud Console** — OAuth 2.0 credentials (console.cloud.google.com)
 - **Telegram BotFather** — Telegram login bot (@BotFather on Telegram)
 - **Expo** — React Native build platform (expo.dev) — legacy app, being discontinued; kept for reference only, do not develop new features on it
-- **EAS CLI** — Expo Application Services for Android builds
+- **EAS CLI** — Expo Application Services for Android builds — only needed for the legacy, discontinued Expo app (`apps/expo/`); the current Capacitor Android app (`apps/android/`) builds via GitHub Actions + Gradle, no EAS account required
 - **Google AdMob** — banner/interstitial/rewarded ads in the Capacitor Android app (admob.google.com) — optional; the in-house ad system works without it
 - **Redis / Upstash** — session store, presence, rate limiting, cron idempotency
 
@@ -24,7 +24,7 @@ Before you begin, you will need accounts and tools for the following:
 
 ### Local Tools
 - **Node.js 20+** — `node --version` must show v20 or higher
-- **npm 10+** — bundled with Node 20. **This repo is an npm-workspaces monorepo with a single root `package-lock.json`.** Do **not** use pnpm or yarn, and do **not** run `npm install` inside `apps/expo` — that creates a nested `apps/expo/package-lock.json` and a divergent `node_modules` that breaks the EAS Android build. See [Mobile (Expo) Android APK Build](#mobile-expo-android-apk-build).
+- **npm 10+** — bundled with Node 20. **This repo is an npm-workspaces monorepo with a single root `package-lock.json`.** Do **not** use pnpm or yarn, and do **not** run `npm install` inside `apps/expo` — that creates a nested `apps/expo/package-lock.json` and a divergent `node_modules` that breaks the EAS Android build. See [APK Build (Legacy Expo App)](#apk-build-legacy-expo-app) — discontinued, kept for reference only; the current Android app builds from `apps/android/` (see [Android App](#android-app) below).
 - **EAS CLI** — `npm install -g eas-cli`
 - **Git**
 
@@ -229,7 +229,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `GOOGLE_PLAY_PACKAGE_NAME` | No | Your Android app's package name for IAP purchase validation (default: `com.zobiasocial.app`, the Capacitor app — the Expo app is discontinued). Must match the package name in your Google Play Console app. | Google Play Console → App details |
 | `FCM_PROJECT_ID` | No | Firebase project ID — enables push notification delivery to the Capacitor Android app (`@capacitor/push-notifications`). Without it, push sends to Android devices are skipped (Expo push, used historically by the discontinued Expo app, is unaffected). See [Push Notifications (Capacitor Android / FCM)](#push-notifications-capacitor-android--fcm) below. | Firebase Console → Project settings → General → Project ID |
 | `FCM_SERVICE_ACCOUNT_JSON` | No | Firebase service account JSON (base64-encoded or raw) with the Firebase Cloud Messaging API enabled | Firebase Console → Project settings → Service accounts → Generate new private key |
-| `ADMOB_APP_ID` | No | Google AdMob app ID (for rewarded ads + game banner ads in the Expo app) | AdMob → Apps |
+| `ADMOB_APP_ID` | No | Google AdMob app ID for the now-discontinued Expo app's rewarded ads + game banner ads. The current Capacitor Android app configures its AdMob App ID natively instead — see [AdMob (Capacitor Android)](#admob-capacitor-android). | AdMob → Apps |
 | `NEXT_PUBLIC_ADSENSE_CLIENT` | No | Google AdSense client id (`ca-pub-…`) for web/PWA ad slots (incl. game pages). Without it, `<AdSlot>` renders a labelled placeholder when ads are enabled. | AdSense → Account |
 | `NEXT_PUBLIC_ADSENSE_SLOT` | No | Default AdSense ad-unit slot id used by `<AdSlot>` | AdSense → Ads → By ad unit |
 | `RECAPTCHA_SITE_KEY` | No | reCAPTCHA v3 site key (if using reCAPTCHA) | console.cloud.google.com → reCAPTCHA |
@@ -241,8 +241,8 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `SERVICE_TOKEN` | No | Service-to-service auth token for internal endpoints (e.g. XP award). Defaults to `JWT_SECRET` if unset. | `openssl rand -hex 32` |
 | `TENOR_API_KEY` | No | Tenor GIF API key — enables Tenor GIF search in messages | console.cloud.google.com → Tenor API |
 | `GIPHY_API_KEY` | No | Giphy GIF API key — fallback GIF search | developers.giphy.com |
-| `EXPO_ACCESS_TOKEN` | No | Expo access token for enhanced push notification delivery | expo.dev → Account → Access tokens |
-| `EXPO_ORIGIN` | No | Origin URL of the Expo mobile app (e.g. `https://expo.dev` or your custom scheme) used by the CSRF middleware to allow requests from the mobile app. Must match the `Origin` header sent by the Expo Axios client. Defaults to `NEXT_PUBLIC_APP_URL` if unset. | Your Expo app origin |
+| `EXPO_ACCESS_TOKEN` | No | Expo access token for enhanced push notification delivery to the now-discontinued Expo app. Not used by the current Capacitor Android app, which uses FCM (`FCM_PROJECT_ID`/`FCM_SERVICE_ACCOUNT_JSON` above) instead. | expo.dev → Account → Access tokens |
+| `EXPO_ORIGIN` | No | Origin URL of the discontinued Expo mobile app, used by the CSRF/CORS middleware (`apps/web/middleware.ts`) to allow requests from it. Only needed if you still have Expo app installs in the wild whose API calls you don't want to break — new deployments can leave this unset. The Capacitor Android app doesn't need it: its origin (`https://localhost`) is allowlisted separately via `CAPACITOR_ORIGINS` in the same file. | Your Expo app origin |
 | `PROFANITY_WORDLIST` | No | Comma-separated list of additional profanity words to block | Custom list |
 | `NEXT_PUBLIC_APP_URL` | Yes | Full public URL of the app (e.g. `https://zobia.vercel.app`, later `https://zobia.org`). Drives canonical URLs, sitemap, `robots.txt`, OG tags and referral links. No trailing slash. | Your domain |
 | `NEXT_PUBLIC_API_URL` | Yes | Full public API URL (e.g. `https://zobia.vercel.app/api`) | Your domain |
@@ -603,7 +603,9 @@ Both secrets must be different and at least 32 characters long. Keep them privat
 
 New users (first-ever Google sign-in) are redirected to `/onboarding` after the OAuth callback completes. Returning users go straight to `/home`. This is handled automatically by `/api/auth/google/callback` — no configuration required.
 
-#### Mobile (Expo) OAuth
+#### Mobile (Expo) OAuth — legacy, discontinued
+
+> The Expo app is discontinued and frozen; this subsection is kept for reference only. The current Capacitor Android app uses a different mobile OAuth flow — see `apps/android/src/lib/auth/` and `POST /api/auth/mobile-token`.
 
 The Expo app opens an in-app browser to:
 
@@ -621,19 +623,17 @@ The app catches this deep link, stores the JWT in SecureStore, and routes to `/(
 
 ### Public URLs, Deep Links & App-Link Verification
 
-The app exposes SEO-friendly public URLs that double as universal/app links across web, PWA and Expo:
+The app exposes SEO-friendly public URLs that double as universal/app links across web and PWA:
 
 - `/u/<username>` (profile), `/r/<slug>` (room), `/c/<slug>` (course), `/g/<slug>` (game)
 - A `?r=<code>` referral param can be attached to **any** of these and is attributed automatically.
 
-To make these open the native app (instead of the browser) you must publish two association files **on the same domain as `NEXT_PUBLIC_APP_URL`** and fill in the platform credentials:
+To make these open a native app (instead of the browser) you must publish two association files **on the same domain as `NEXT_PUBLIC_APP_URL`** and fill in the platform credentials:
 
-1. **Android App Links** — `apps/web/public/.well-known/assetlinks.json`. Replace `REPLACE_WITH_YOUR_APP_SIGNING_CERT_SHA256` with your Play app-signing SHA-256 fingerprint (`Play Console → Setup → App signing`, or `keytool -list -v -keystore …`). Package is `org.zobia.social`.
-2. **iOS Universal Links** — `apps/web/public/.well-known/apple-app-site-association` (served as `application/json`, no extension — header set in `next.config.js`). Replace `REPLACE_WITH_TEAMID` with your Apple Team ID, giving `TEAMID.org.zobia.social`.
+1. **Android App Links** — `apps/web/public/.well-known/assetlinks.json`. Replace `REPLACE_WITH_YOUR_APP_SIGNING_CERT_SHA256` with your Play app-signing SHA-256 fingerprint (`Play Console → Setup → App signing`, or `keytool -list -v -keystore …`). Package is `com.zobiasocial.app` (the Capacitor app — this previously, incorrectly, listed the discontinued Expo app's `org.zobia.social`).
+2. **iOS Universal Links** — `apps/web/public/.well-known/apple-app-site-association` (served as `application/json`, no extension — header set in `next.config.js`). Still templated with a placeholder `org.zobia.social` bundle ID; there is currently no iOS app in this repo (Expo shipped Android-only, and the Capacitor app is Android-only), so this file has no real consumer yet — fill in `REPLACE_WITH_TEAMID` only once an iOS app exists.
 
-Expo config:
-- `app.json` declares the host in `android.intentFilters` (autoVerify) and `ios.associatedDomains` (`applinks:<host>`). Update both when the domain changes.
-- `WEB_BASE_URL` (in `app.json → extra`, read by `lib/env.ts`) is the origin used to build shareable universal/referral links from the app. Defaults to `https://zobia.vercel.app`; switch to `https://zobia.org` when the custom domain is connected.
+> **Known gap:** publishing `assetlinks.json` alone is not sufficient for `/u/<username>` etc. to open the Capacitor Android app — `apps/android/android/app/src/main/AndroidManifest.xml`'s only `android:autoVerify="true"` intent-filter is for the custom `zobia://` scheme (used for the OAuth callback deep link), not an `https` intent-filter for `NEXT_PUBLIC_APP_URL`'s host. Until an `https` data element + intent-filter is added there, tapping one of these public URLs opens the browser, not the app. (The old Expo `app.json` did declare `android.intentFilters` for this — that config was never ported when the app moved to Capacitor.)
 
 Verify after deploying:
 ```bash
@@ -663,13 +663,15 @@ are required.
   `WAGER_TOO_HIGH`. `game_max_play_session_age_seconds` (default 3600 — 1 hour) is the
   maximum age of a play session; `/score` submissions older than this are rejected to prevent
   replay attacks with stale sessions.
-- **Mobile (Expo):** games render in a `react-native-webview` that loads
-  `<WEB_BASE_URL>/g/<slug>/embed`. The dependency is declared in `apps/expo/package.json`;
-  run `npm install` (from the repo root) after pulling. No native game code ships — write a
-  game once as a web engine and it runs on web, PWA and mobile.
-- **Ads:** set `NEXT_PUBLIC_ADSENSE_CLIENT` / `NEXT_PUBLIC_ADSENSE_SLOT` (web) and/or
-  `ADMOB_APP_ID` (Expo) and enable the `admob_ads` flag to show ads on game surfaces;
-  otherwise web shows a labelled placeholder and mobile renders nothing.
+- **Mobile (Expo, legacy/discontinued):** games rendered in a `react-native-webview` that loaded
+  `<WEB_BASE_URL>/g/<slug>/embed`. Kept for reference only. The current Capacitor Android app
+  (`apps/android/src/routes/games/`) has its own native-feeling game list/detail routes talking
+  directly to the games API — see that directory for the actual current implementation rather
+  than assuming parity with the Expo webview approach described here.
+- **Ads:** set `NEXT_PUBLIC_ADSENSE_CLIENT` / `NEXT_PUBLIC_ADSENSE_SLOT` (web) and/or configure
+  AdMob for the Capacitor Android app (see [AdMob (Capacitor Android)](#admob-capacitor-android) above;
+  `ADMOB_APP_ID` was the equivalent for the now-discontinued Expo app) and enable the `admob_ads`
+  flag to show ads on game surfaces; otherwise web shows a labelled placeholder and mobile renders nothing.
 - **Cron:** add the hourly `/api/cron/games` job (see CRON Setup) so stale challenges
   expire and wagers refund.
 
@@ -689,7 +691,7 @@ Both methods are protected — just by different mechanisms. This is the correct
 4. The bot username is shown at the top of BotFather's reply (e.g. `ZobiaBot`) — copy it **without the `@`** to `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME`. This is required for the Login Widget to appear on the register/login pages.
 5. Send `/setdomain` to BotFather → select your bot → enter your domain (e.g. `zobia.social`).
 6. The Telegram Login Widget will now work on your domain.
-7. **Mobile (Expo):** The Expo app reads the bot name from `Constants.expoConfig?.extra?.telegramBotName`. Set it in `apps/expo/app.json` under `extra` so different EAS build profiles (development/staging/production) can use different bots:
+7. **Mobile (Expo, legacy/discontinued):** The Expo app read the bot name from `Constants.expoConfig?.extra?.telegramBotName`, set in `apps/expo/app.json` under `extra` so different EAS build profiles (development/staging/production) could use different bots. Kept for reference only — the current Capacitor Android app uses the same `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` env var as web (no separate mobile config):
    ```json
    {
      "expo": {
@@ -905,7 +907,9 @@ To ensure the Creator Fund pool is correctly seeded on the 1st of each month, ad
 
 ---
 
-## APK Build
+## APK Build (Legacy Expo App)
+
+> **This entire section describes the discontinued Expo app (`apps/expo/`) and is kept for historical reference only.** The current Android app is the Capacitor app (`apps/android/`) — for its build process see [Building an APK](#building-an-apk) under [Android App](#android-app) above, which builds via plain GitHub Actions + Gradle and needs no Expo/EAS account.
 
 ### Prerequisites
 
@@ -1239,7 +1243,9 @@ See `security-tests/pentest-runbook.md` for a full external assessor runbook.
 
 ---
 
-## Push Notification Setup (Expo App)
+## Push Notification Setup (Expo App — legacy, discontinued)
+
+> **The Expo app is discontinued; this section is kept for historical reference only.** The current Android app is the Capacitor app, which uses Firebase Cloud Messaging instead — see [Push Notifications (Capacitor Android / FCM)](#push-notifications-capacitor-android--fcm) above.
 
 The Expo app uses the Expo Push API (server-side) and `expo-notifications` (client-side).
 
@@ -1282,7 +1288,7 @@ Community Notes is an admin-toggleable crowdsourced fact-checking feature (PRD �
 - **Toggle:** In the admin panel under Feature Flags, set `community_notes_enabled` to on/off.
 - **User UI:** Available at `/community-notes` in the web app.
 - **API:** `GET/POST /api/community-notes`, `POST /api/community-notes/[noteId]/vote`.
-- **Expo:** Available at `/community-notes` in the Expo app.
+- **Capacitor Android:** Available at `/community-notes` (`apps/android/src/routes/community-notes.tsx`). (Was also in the now-discontinued Expo app; not relevant to current deployments.)
 
 When enabled, users can add contextual notes to flagged content and vote notes as helpful or unhelpful. Notes with sufficient helpful votes gain "Visible" status and appear alongside the original content.
 
