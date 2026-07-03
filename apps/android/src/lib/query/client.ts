@@ -39,6 +39,14 @@ export const queryClient = new QueryClient({
           },
         },
         maxAge: STALE_TIME,
+        // `refetchOnRestore` (default true) makes persisterFn fire an
+        // untracked `query.fetch()` right after restoring stale data from
+        // IndexedDB — that call's rejection is never awaited/caught inside
+        // the library, so an expired token on relaunch surfaces as an
+        // unhandled promise rejection instead of a normal query error.
+        // Disabled here; the mounting observer's own refetchOnMount still
+        // revalidates stale data through the properly-handled fetch path.
+        refetchOnRestore: false,
       }).persisterFn as any),
     },
     mutations: {
