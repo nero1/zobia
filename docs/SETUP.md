@@ -161,6 +161,10 @@ The Capacitor app ships with `@capacitor/push-notifications` (`apps/android/src/
 3. Firebase Console → Project settings → Service accounts → **Generate new private key**, then set `FCM_PROJECT_ID` (the Firebase project ID) and `FCM_SERVICE_ACCOUNT_JSON` (see Environment Variables Reference below). Without these, Android push sends are skipped (logged, not thrown) — the in-app notification center (`GET /api/notifications`) still works.
 4. Notification tap-to-navigate uses an allowlist of routes in `apps/android/src/lib/push/index.ts` (`VALID_PUSH_ROUTES`) — extend it alongside any new Android page that should be a valid push deep-link target.
 
+### Admin Panel (Capacitor Android)
+
+As of v2.06, the Capacitor Android app has full admin-panel parity with web — all 36 pages under `apps/android/src/routes/admin/`, requiring no setup beyond what the rest of the app already needs (same `VITE_API_BASE_URL`, same Bearer-JWT session). Nothing to configure: grant an account admin access the same way as on web (`UPDATE users SET is_admin = true WHERE id = '<uuid>'` in the database), and the "🛡️ Admin" link then appears automatically in the drawer menu for that account on every platform, including Android. See *HOW-IT-WORKS.md → Admin Features* for the full page list and the API contract each page talks to.
+
 ### Running on free tiers (Vercel Hobby + free Redis)
 
 The app is tuned to stay within a free Redis plan and Vercel Hobby's serverless quotas. Two mechanisms do the heavy lifting (see *HOW-IT-WORKS.md → Redis Cost Controls* for detail):
@@ -1044,7 +1048,7 @@ API keys for DeepSeek and Gemini can be managed in two ways:
    the environment variable without requiring a redeployment. Clearing the override reverts
    to the environment variable.
 
-The AI Settings page (available in both the web admin panel and the Expo mobile admin) also shows:
+The AI Settings page (available in the web admin panel and, as of v2.06, the Capacitor Android admin panel — the discontinued Expo app's admin section is frozen and no longer updated) also shows:
 - **Circuit breaker status** for DeepSeek (closed / half-open / open) with consecutive failure count.
 - **Live connection test** — sends a minimal ping to verify the key is valid and the provider
   is reachable. You can test a new key before saving it.

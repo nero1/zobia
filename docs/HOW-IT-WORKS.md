@@ -516,6 +516,13 @@ All deep-linkable routes are defined in `lib/deeplinks/routes.ts` — the single
 
 The admin panel is available at `/admin` and is protected by `is_admin = true` in the database (not just the JWT — every admin route calls `withAdminAuth` which re-checks the database).
 
+**Platform parity (v2.06):** all 36 admin pages exist natively on every platform:
+- **Web / mobile web / PWA** — `apps/web/app/(admin)/admin/**` (Next.js), the reference implementation for every admin API contract below.
+- **Capacitor Android** — `apps/android/src/routes/admin/**` (TanStack Router), a from-scratch native React rebuild (not a WebView wrapper) mirroring the same 36 pages with mobile card-list layouts instead of tables. Reached via the "🛡️ Admin" link in the drawer menu (`TopBar.tsx`), shown only when the signed-in user's `is_admin` is true, same as web's Navbar. `AdminShell`/`AdminGuard` (`apps/android/src/components/admin/`) provide the drawer nav and client-side gate; the real authorization boundary is still server-side `withAdminAuth` on every `/api/admin/*` call, exactly as on web — a spoofed client-side `is_admin` can change the Android app's nav, never its actual access.
+- **Expo** (`apps/expo/app/admin/**`) covers about 26 of the 36 pages and is frozen — the Expo app is discontinued in favour of the Capacitor app and is not being extended further, kept only as a reference for historical conventions.
+
+Because the Capacitor Android app authenticates with the same Bearer-JWT session as its regular login (2FA, if enabled on the account, already runs through the normal login flow), there is no separate "admin login" screen on Android the way there is on web (`/admin/login`, which exists to force TOTP entry when there's no existing browser session) — an admin's normal in-app session already carries `is_admin` and is independently re-verified against the database by every `/api/admin/*` call.
+
 ### Dashboard Overview (`/api/admin/overview`)
 Daily/weekly/monthly active users, new registrations, revenue totals (today / week / month), active rooms, active guilds, and moderation queue depth.
 
