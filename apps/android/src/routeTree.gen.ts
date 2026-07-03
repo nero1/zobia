@@ -23,6 +23,7 @@ import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
 import { Route as KycRouteImport } from './routes/kyc'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as HomeRouteImport } from './routes/home'
+import { Route as HelpRouteImport } from './routes/help'
 import { Route as GuildRouteImport } from './routes/guild'
 import { Route as GiftsRouteImport } from './routes/gifts'
 import { Route as FriendsRouteImport } from './routes/friends'
@@ -45,6 +46,8 @@ import { Route as BlogsIndexRouteImport } from './routes/blogs/index'
 import { Route as AnswersIndexRouteImport } from './routes/answers/index'
 import { Route as AdsIndexRouteImport } from './routes/ads/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as SettingsSecurityRouteImport } from './routes/settings/security'
+import { Route as SettingsPrivacyRouteImport } from './routes/settings/privacy'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
@@ -174,6 +177,11 @@ const HomeRoute = HomeRouteImport.update({
   path: '/home',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HelpRoute = HelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GuildRoute = GuildRouteImport.update({
   id: '/guild',
   path: '/guild',
@@ -283,6 +291,16 @@ const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/admin/',
   path: '/admin/',
   getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
+  id: '/security',
+  path: '/security',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsPrivacyRoute = SettingsPrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => SettingsRoute,
 } as any)
 const RoomsRoomIdRoute = RoomsRoomIdRouteImport.update({
   id: '/rooms/$roomId',
@@ -586,6 +604,7 @@ export interface FileRoutesByFullPath {
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
+  '/help': typeof HelpRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/kyc': typeof KycRoute
@@ -596,7 +615,7 @@ export interface FileRoutesByFullPath {
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
   '/seasons': typeof SeasonsRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
@@ -649,6 +668,8 @@ export interface FileRoutesByFullPath {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/settings/privacy': typeof SettingsPrivacyRoute
+  '/settings/security': typeof SettingsSecurityRoute
   '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
@@ -682,6 +703,7 @@ export interface FileRoutesByTo {
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
+  '/help': typeof HelpRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/kyc': typeof KycRoute
@@ -692,7 +714,7 @@ export interface FileRoutesByTo {
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
   '/seasons': typeof SeasonsRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
@@ -745,6 +767,8 @@ export interface FileRoutesByTo {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/settings/privacy': typeof SettingsPrivacyRoute
+  '/settings/security': typeof SettingsSecurityRoute
   '/admin': typeof AdminIndexRoute
   '/ads': typeof AdsIndexRoute
   '/answers': typeof AnswersIndexRoute
@@ -779,6 +803,7 @@ export interface FileRoutesById {
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
+  '/help': typeof HelpRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/kyc': typeof KycRoute
@@ -789,7 +814,7 @@ export interface FileRoutesById {
   '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
   '/seasons': typeof SeasonsRoute
-  '/settings': typeof SettingsRoute
+  '/settings': typeof SettingsRouteWithChildren
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
@@ -842,6 +867,8 @@ export interface FileRoutesById {
   '/moments/create': typeof MomentsCreateRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/settings/privacy': typeof SettingsPrivacyRoute
+  '/settings/security': typeof SettingsSecurityRoute
   '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
@@ -877,6 +904,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/gifts'
     | '/guild'
+    | '/help'
     | '/home'
     | '/inbox'
     | '/kyc'
@@ -940,6 +968,8 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/settings/privacy'
+    | '/settings/security'
     | '/admin/'
     | '/ads/'
     | '/answers/'
@@ -973,6 +1003,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/gifts'
     | '/guild'
+    | '/help'
     | '/home'
     | '/inbox'
     | '/kyc'
@@ -1036,6 +1067,8 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/settings/privacy'
+    | '/settings/security'
     | '/admin'
     | '/ads'
     | '/answers'
@@ -1069,6 +1102,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/gifts'
     | '/guild'
+    | '/help'
     | '/home'
     | '/inbox'
     | '/kyc'
@@ -1132,6 +1166,8 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/profile/$username'
     | '/rooms/$roomId'
+    | '/settings/privacy'
+    | '/settings/security'
     | '/admin/'
     | '/ads/'
     | '/answers/'
@@ -1166,6 +1202,7 @@ export interface RootRouteChildren {
   FriendsRoute: typeof FriendsRoute
   GiftsRoute: typeof GiftsRoute
   GuildRoute: typeof GuildRoute
+  HelpRoute: typeof HelpRoute
   HomeRoute: typeof HomeRoute
   InboxRoute: typeof InboxRoute
   KycRoute: typeof KycRoute
@@ -1176,7 +1213,7 @@ export interface RootRouteChildren {
   QuestsRoute: typeof QuestsRoute
   ReferralsRoute: typeof ReferralsRoute
   SeasonsRoute: typeof SeasonsRoute
-  SettingsRoute: typeof SettingsRoute
+  SettingsRoute: typeof SettingsRouteWithChildren
   StatsRoute: typeof StatsRoute
   StickersRoute: typeof StickersRoute
   WalletRoute: typeof WalletRoute
@@ -1353,6 +1390,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HomeRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/help': {
+      id: '/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof HelpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/guild': {
       id: '/guild'
       path: '/guild'
@@ -1506,6 +1550,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
       parentRoute: typeof rootRouteImport
+    }
+    '/settings/security': {
+      id: '/settings/security'
+      path: '/security'
+      fullPath: '/settings/security'
+      preLoaderRoute: typeof SettingsSecurityRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/privacy': {
+      id: '/settings/privacy'
+      path: '/privacy'
+      fullPath: '/settings/privacy'
+      preLoaderRoute: typeof SettingsPrivacyRouteImport
+      parentRoute: typeof SettingsRoute
     }
     '/rooms/$roomId': {
       id: '/rooms/$roomId'
@@ -1916,6 +1974,20 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface SettingsRouteChildren {
+  SettingsPrivacyRoute: typeof SettingsPrivacyRoute
+  SettingsSecurityRoute: typeof SettingsSecurityRoute
+}
+
+const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsPrivacyRoute: SettingsPrivacyRoute,
+  SettingsSecurityRoute: SettingsSecurityRoute,
+}
+
+const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
+  SettingsRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ClassroomRoute: ClassroomRoute,
@@ -1926,6 +1998,7 @@ const rootRouteChildren: RootRouteChildren = {
   FriendsRoute: FriendsRoute,
   GiftsRoute: GiftsRoute,
   GuildRoute: GuildRoute,
+  HelpRoute: HelpRoute,
   HomeRoute: HomeRoute,
   InboxRoute: InboxRoute,
   KycRoute: KycRoute,
@@ -1936,7 +2009,7 @@ const rootRouteChildren: RootRouteChildren = {
   QuestsRoute: QuestsRoute,
   ReferralsRoute: ReferralsRoute,
   SeasonsRoute: SeasonsRoute,
-  SettingsRoute: SettingsRoute,
+  SettingsRoute: SettingsRouteWithChildren,
   StatsRoute: StatsRoute,
   StickersRoute: StickersRoute,
   WalletRoute: WalletRoute,

@@ -5,8 +5,17 @@
  * Google: opens API OAuth init directly in Custom Tab so browser commits
  *   the CSRF cookie before the Google redirect (same pattern as Expo).
  * Telegram: opens the hosted Telegram-mobile widget page; after the user
- *   authorises, the server redirects to zobia://auth/callback?code=...
- *   which the appUrlOpen listener in __root.tsx picks up.
+ *   authorises, the server redirects to the callback deep link with
+ *   ?code=..., which the appUrlOpen listener in __root.tsx picks up.
+ *
+ * BUG-CAP-04 fix: the callback now targets the verified Android App Link
+ * (`https://<web-origin>/auth/callback`, see AndroidManifest.xml's `zobia.org`
+ * intent-filter and BUG-CAP-03) instead of the `zobia://` custom scheme.
+ * Android App Links are exclusive to the one app that owns the domain, unlike
+ * a custom scheme which any installed app can also register, so this closes
+ * the OAuth-code-interception window a custom-scheme-only redirect left open.
+ * `zobia://auth/callback` is still accepted by __root.tsx as a fallback for
+ * devices/browsers where App Links verification hasn't succeeded.
  */
 
 import { useState } from 'react';
@@ -15,7 +24,7 @@ import { useTranslation } from 'react-i18next';
 import { Browser } from '@capacitor/browser';
 import { env } from '@/lib/env';
 
-const CALLBACK_DEEP_LINK = 'zobia://auth/callback';
+const CALLBACK_DEEP_LINK = `${env.VITE_WEB_BASE_URL.replace(/\/$/, '')}/auth/callback`;
 
 function LoginPage() {
   const { t } = useTranslation();
@@ -125,6 +134,17 @@ function LoginPage() {
           <Link to="/auth/register" className="text-primary-600 font-medium">
             {t('auth.signUp')}
           </Link>
+        </p>
+
+        {/* BUG-CAP-07: link to the account-restore flow (for a deleted
+            account) — mirrors the existing plain <a> pattern used for
+            Terms/Privacy above; the page itself already exists on web
+            (app/auth/restore/page.tsx) but nothing linked to it on any
+            platform. */}
+        <p className="text-center text-xs text-neutral-400 mt-2">
+          <a href={`${env.VITE_API_BASE_URL}/auth/restore`} className="text-primary-600 underline">
+            {t('auth.restoreAccount', 'Deleted your account? Restore it')}
+          </a>
         </p>
       </div>
     </div>

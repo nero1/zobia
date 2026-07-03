@@ -37,11 +37,30 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <intent-filter android:autoVerify="true">
+            <!-- Custom-scheme deep link fallback (BUG-CAP-04): kept for the OAuth
+                 exchange-code callback and for any client that doesn't support
+                 Android App Links. autoVerify has no effect on a non-http(s)
+                 scheme, so it is intentionally omitted here — see the verified
+                 https intent-filter below instead. -->
+            <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="zobia" />
+            </intent-filter>
+
+            <!-- Verified Android App Links (BUG-CAP-03): lets real
+                 https://zobia.org/... links (shared via SMS/WhatsApp/search/
+                 referrals) open directly in the app instead of the browser.
+                 Requires apps/web/public/.well-known/assetlinks.json to carry
+                 the real release-signing certificate's SHA-256 fingerprint —
+                 see docs/SETUP.md "Android App Links". Verify after install
+                 with: adb shell pm get-app-links com.zobiasocial.app -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="zobia.org" />
             </intent-filter>
         </activity>
     </application>

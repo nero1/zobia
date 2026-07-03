@@ -633,7 +633,14 @@ To make these open a native app (instead of the browser) you must publish two as
 1. **Android App Links** — `apps/web/public/.well-known/assetlinks.json`. Replace `REPLACE_WITH_YOUR_APP_SIGNING_CERT_SHA256` with your Play app-signing SHA-256 fingerprint (`Play Console → Setup → App signing`, or `keytool -list -v -keystore …`). Package is `com.zobiasocial.app` (the Capacitor app — this previously, incorrectly, listed the discontinued Expo app's `org.zobia.social`).
 2. **iOS Universal Links** — `apps/web/public/.well-known/apple-app-site-association` (served as `application/json`, no extension — header set in `next.config.js`). Still templated with a placeholder `org.zobia.social` bundle ID; there is currently no iOS app in this repo (Expo shipped Android-only, and the Capacitor app is Android-only), so this file has no real consumer yet — fill in `REPLACE_WITH_TEAMID` only once an iOS app exists.
 
-> **Known gap:** publishing `assetlinks.json` alone is not sufficient for `/u/<username>` etc. to open the Capacitor Android app — `apps/android/android/app/src/main/AndroidManifest.xml`'s only `android:autoVerify="true"` intent-filter is for the custom `zobia://` scheme (used for the OAuth callback deep link), not an `https` intent-filter for `NEXT_PUBLIC_APP_URL`'s host. Until an `https` data element + intent-filter is added there, tapping one of these public URLs opens the browser, not the app. (The old Expo `app.json` did declare `android.intentFilters` for this — that config was never ported when the app moved to Capacitor.)
+`apps/android/android/app/src/main/AndroidManifest.xml` now declares a verified
+`android:autoVerify="true"` intent-filter for `https`/`zobia.org` (BUG-CAP-03 fix) — the
+custom `zobia://` scheme intent-filter is kept, unverified, purely as the OAuth-callback
+and pre-App-Links fallback. The only remaining step per environment is publishing the
+real signing certificate's SHA-256 fingerprint in `assetlinks.json` per step 1 above and
+confirming with `adb shell pm get-app-links com.zobiasocial.app` (see "Android App Links"
+below for the full walkthrough) — until that fingerprint is the real one, verification
+will show `legacy_failure`, and links will keep falling back to the browser.
 
 Verify after deploying:
 ```bash
@@ -985,34 +992,54 @@ Go to [expo.dev](https://expo.dev) → **Projects → zobia-social → Builds** 
 
 ### Android App Links
 
-Zobia uses Android App Links (Universal Links) so tapping a `https://zobia.social/...` link opens the app instead of a browser.
+Zobia uses Android App Links (Universal Links) so tapping a `https://zobia.org/...` link
+opens the Capacitor Android app (`com.zobiasocial.app`, `apps/android`) instead of a
+browser. `apps/android/android/app/src/main/AndroidManifest.xml` already declares the
+verified `https`/`zobia.org` intent-filter (BUG-CAP-03 fix) alongside the `zobia://`
+custom-scheme fallback used for the OAuth callback — the only remaining step per
+environment is publishing the real signing certificate's fingerprint below.
 
-1. Get your app's SHA-256 signing certificate fingerprint:
+1. Get your release keystore's SHA-256 signing certificate fingerprint:
    ```bash
-   eas credentials --platform android
-   # Look for SHA-256 fingerprint under Keystore
+   # If you manage your own upload keystore:
+   keytool -list -v -keystore /path/to/release.keystore -alias <your-key-alias>
+   # Look for "SHA256:" under the certificate fingerprints
+
+   # If you use Play App Signing (recommended — the default for new Play Console
+   # apps), the certificate that actually signs what users install is Google's, not
+   # your local upload key. Get it from:
+   # Play Console → your app → Setup → App signing → "App signing key certificate"
    ```
-2. Update `apps/web/public/.well-known/assetlinks.json`:
+2. Update `apps/web/public/.well-known/assetlinks.json` (replace the placeholder):
    ```json
    [{
      "relation": ["delegate_permission/common.handle_all_urls"],
      "target": {
        "namespace": "android_app",
-       "package_name": "com.zobia.social",
+       "package_name": "com.zobiasocial.app",
        "sha256_cert_fingerprints": ["AA:BB:CC:...your actual fingerprint..."]
      }
    }]
    ```
-3. Deploy the web app so `https://your-domain/.well-known/assetlinks.json` is publicly accessible.
+   Add a debug-keystore fingerprint as a second array entry under `sha256_cert_fingerprints`
+   if you also need `adb install`-ed debug builds to verify locally — this file supports
+   multiple fingerprints.
+3. Deploy the web app so `https://zobia.org/.well-known/assetlinks.json` is publicly accessible.
 4. Verify with:
    ```bash
-   curl https://your-domain/.well-known/assetlinks.json
+   curl https://zobia.org/.well-known/assetlinks.json
    # Should return your JSON without redirects
    ```
-5. Test deep linking:
+5. Confirm Android has verified the link (after installing the app):
+   ```bash
+   adb shell pm get-app-links com.zobiasocial.app
+   # Look for "zobia.org: verified" — "legacy_failure" or "unknown" means
+   # assetlinks.json's fingerprint doesn't match the installed build's signature yet
+   ```
+6. Test deep linking:
    ```bash
    adb shell am start -W -a android.intent.action.VIEW \
-     -d "https://your-domain/profile/testuser" com.zobia.social
+     -d "https://zobia.org/u/testuser" com.zobiasocial.app
    ```
 
 ---

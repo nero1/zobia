@@ -431,6 +431,68 @@ export async function invalidateSession(sid: string, uid: string): Promise<void>
   await redis.zrem(userSessionsKey(uid), sid);
 }
 
+// ---------------------------------------------------------------------------
+// Session listing (BUG-CAP-06 — active session management)
+// ---------------------------------------------------------------------------
+
+/** A single active session, safe to return to the client (no token hashes). */
+export interface SessionSummary {
+  sid: string;
+  createdAt: string;
+  ip: string | null;
+  ua: string | null;
+  isAdmin: boolean;
+}
+
+/**
+ * List a user's currently active sessions (most-recently-created first),
+ * reading from the same `user_sessions:{uid}` sorted set that session
+ * creation/eviction already maintains — see `createSession`'s MAX_SESSIONS
+ * eviction above. Never returns `refreshTokenHash` or other internal fields.
+ *
+ * @param uid - User ID
+ */
+export async function listUserSessions(uid: string): Promise<SessionSummary[]> {
+  const sids = await redis.zrange(userSessionsKey(uid), 0, -1);
+  if (sids.length === 0) return [];
+
+  const records = await Promise.all(
+    sids.map(async (sid) => {
+      const raw = await redis.get(sessionKey(sid));
+      if (!raw) return null;
+      try {
+        return JSON.parse(raw) as SessionRecord;
+      } catch {
+        return null;
+      }
+    })
+  );
+
+  return records
+    .filter((r): r is SessionRecord => r !== null)
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .map((r) => ({
+      sid: r.sid,
+      createdAt: r.created_at,
+      ip: r.ip ?? null,
+      ua: r.ua ?? null,
+      isAdmin: r.is_admin,
+    }));
+}
+
+/**
+ * Returns true if `sid` is one of `uid`'s currently tracked active sessions.
+ * Used to confirm ownership before revoking a session by ID — a user must
+ * never be able to revoke another user's session by guessing/leaking a sid.
+ *
+ * @param uid - User ID
+ * @param sid - Session ID to check
+ */
+export async function isUsersSession(uid: string, sid: string): Promise<boolean> {
+  const sids = await redis.zrange(userSessionsKey(uid), 0, -1);
+  return sids.includes(sid);
+}
+
 /**
  * Invalidate ALL sessions for a user (e.g. on password change or account ban).
  *

@@ -249,7 +249,12 @@ export async function initGooglePlayBilling(): Promise<void> {
     try {
       store.register([
         ...CONSUMABLE_IDS.map((id) => ({ id, type: ProductType.CONSUMABLE, platform: Platform.GOOGLE_PLAY })),
-        ...SUBSCRIPTION_IDS.map((id) => ({ id, type: ProductType.PAID_SUBSCRIPTION, platform: Platform.GOOGLE_PLAY })),
+        // BUG-CAP-05 fix: `group: 'plan_tier'` tells Play Billing that Plus/Pro/Max
+        // (monthly + annual) are mutually exclusive tiers of the same product —
+        // purchasing/upgrading one replaces any currently-owned one at the Play
+        // Billing level instead of allowing them to stack and double-bill the
+        // user. Mirrors the `business_tier` grouping already used below.
+        ...SUBSCRIPTION_IDS.map((id) => ({ id, type: ProductType.PAID_SUBSCRIPTION, platform: Platform.GOOGLE_PLAY, group: 'plan_tier' })),
         // `group: 'business_tier'` tells Play Billing these three subscriptions
         // are mutually exclusive tiers of the same product — purchasing one
         // replaces any currently-owned one instead of stacking subscriptions.
