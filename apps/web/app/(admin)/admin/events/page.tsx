@@ -17,7 +17,7 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 // Types
 // ---------------------------------------------------------------------------
 
-type EventType = "xp_boost" | "seasonal" | "challenge" | "community" | "other";
+type EventType = "cultural" | "season_launch" | "flash_xp" | "guild_war_event" | "mystery_drop" | "platform";
 
 interface PlatformEvent {
   id: string;
@@ -57,7 +57,7 @@ function defaultFormData(): EventFormData {
   const later = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
   return {
     name: "",
-    type: "xp_boost",
+    type: "flash_xp",
     description: "",
     startsAt: now.toISOString().slice(0, 16),
     endsAt: later.toISOString().slice(0, 16),
@@ -66,11 +66,12 @@ function defaultFormData(): EventFormData {
 }
 
 const EVENT_TYPES: { value: EventType; label: string }[] = [
-  { value: "xp_boost", label: "XP Boost" },
-  { value: "seasonal", label: "Seasonal" },
-  { value: "challenge", label: "Challenge" },
-  { value: "community", label: "Community" },
-  { value: "other", label: "Other" },
+  { value: "cultural", label: "Cultural" },
+  { value: "season_launch", label: "Season Launch" },
+  { value: "flash_xp", label: "Flash XP" },
+  { value: "guild_war_event", label: "Guild War Event" },
+  { value: "mystery_drop", label: "Mystery Drop" },
+  { value: "platform", label: "Platform" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -256,15 +257,16 @@ export default function AdminEventsPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: form.name,
-          type: form.type,
-          description: form.description || null,
+          event_type: form.type,
+          description: form.description || undefined,
           starts_at: new Date(form.startsAt).toISOString(),
           ends_at: new Date(form.endsAt).toISOString(),
           xp_multiplier: form.xpMultiplier,
         }),
       });
       if (!res.ok) throw new Error("Failed to create event");
-      const created = (await res.json()) as PlatformEvent;
+      const body = (await res.json()) as { success: boolean; data: { event: PlatformEvent } };
+      const created = body.data.event;
       setEvents((prev) => [created, ...prev]);
       setShowModal(false);
       showToast("Event created!");
