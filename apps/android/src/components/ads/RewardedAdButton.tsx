@@ -12,6 +12,13 @@
  * locally for the rest of the UTC day (Preferences) — mirrors the Expo
  * app's MMKV local cap hint (PRD Bug 52) so the button doesn't invite the
  * user to retry a call the server will just reject again.
+ *
+ * The hint key is namespaced per user id — Capacitor's Preferences plugin
+ * is native SharedPreferences scoped to the whole app, not the signed-in
+ * account, and clearAuth() (lib/auth/store.ts) never touches this key. An
+ * un-namespaced key would leak a cap hit on one account into the next
+ * account signed into on the same device (or hide a real cap for a device
+ * that switched into a fresh account after another one wasn't capped).
  */
 
 import { useEffect, useState } from 'react';
@@ -20,8 +27,11 @@ import { useTranslation } from 'react-i18next';
 import type { AxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import { showRewarded } from '@/lib/ads/admob';
+import { useAuth } from '@/lib/auth/store';
 
-const CAP_HINT_KEY = 'zobia_ad_reward_cap_date';
+function capHintKey(userId: string): string {
+  return `zobia_ad_reward_cap_date:${userId}`;
+}
 
 function todayUTC(): string {
   return new Date().toISOString().slice(0, 10);
@@ -38,29 +48,34 @@ interface AdRewardErrorBody {
 
 export default function RewardedAdButton({ onRewarded }: { onRewarded?: (coinsAwarded: number) => void }) {
   const { t } = useTranslation();
+  const { user } = useAuth();
   const [phase, setPhase] = useState<'idle' | 'loading' | 'claiming' | 'error' | 'capped'>('idle');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    Preferences.get({ key: CAP_HINT_KEY }).then(({ value }) => {
-      if (value === todayUTC()) setPhase('capped');
+    if (!user) return;
+    const key = capHintKey(user.id);
+    Preferences.get({ key }).then(({ value }) => {
+      setPhase(value === todayUTC() ? 'capped' : 'idle');
     });
-  }, []);
+  }, [user]);
 
   // Re-validate the cap-hint date periodically so a UTC-midnight rollover
   // while the Wallet screen stays mounted un-caps the button without
   // requiring a navigate-away/back or reload.
   useEffect(() => {
-    if (phase !== 'capped') return;
+    if (phase !== 'capped' || !user) return;
+    const key = capHintKey(user.id);
     const interval = setInterval(() => {
-      Preferences.get({ key: CAP_HINT_KEY }).then(({ value }) => {
+      Preferences.get({ key }).then(({ value }) => {
         if (value !== todayUTC()) setPhase('idle');
       });
     }, 5 * 60_000);
     return () => clearInterval(interval);
-  }, [phase]);
+  }, [phase, user]);
 
   async function handleWatch() {
+    if (!user) return;
     setPhase('loading');
     setError(null);
     try {
@@ -78,7 +93,7 @@ export default function RewardedAdButton({ onRewarded }: { onRewarded?: (coinsAw
     } catch (err) {
       const axiosErr = err as AxiosError<AdRewardErrorBody>;
       if (axiosErr.response?.status === 429) {
-        await Preferences.set({ key: CAP_HINT_KEY, value: todayUTC() });
+        await Preferences.set({ key: capHintKey(user.id), value: todayUTC() });
         setPhase('capped');
         return;
       }
