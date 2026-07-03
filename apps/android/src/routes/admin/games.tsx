@@ -320,7 +320,7 @@ function AdminGamesPage() {
   const toggleMutation = useMutation({
     mutationFn: (g: GameRow) => apiClient.put(`/admin/games/${g.id}`, { isActive: !g.is_active }),
     onSuccess: () => {
-      showToast(t('admin.events.updated', 'Game updated'));
+      showToast(t('admin.games.updated', 'Game updated'));
       qc.invalidateQueries({ queryKey: ['admin', 'games'] });
     },
     onError: () => showToast(t('admin.moderation.actionFailed', 'Action failed'), 'error'),

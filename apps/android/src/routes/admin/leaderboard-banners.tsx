@@ -143,7 +143,7 @@ function AdminLeaderboardBannersPage() {
   const toggleMutation = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) => apiClient.patch(`/admin/leaderboard-banners/${id}`, { isActive }),
     onSuccess: () => {
-      showToast(t('admin.events.updated', 'Banner updated'));
+      showToast(t('admin.leaderboardBanners.updated', 'Banner updated'));
       qc.invalidateQueries({ queryKey: ['admin', 'leaderboard-banners'] });
     },
     onError: () => showToast(t('admin.moderation.actionFailed', 'Action failed'), 'error'),

@@ -245,7 +245,7 @@ function AdminRoomsPage() {
                   onClick={() => Browser.open({ url: `${env.VITE_WEB_BASE_URL}/rooms/${room.id}` })}
                   className="rounded-lg bg-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-700"
                 >
-                  {t('admin.users.detail.viewProfile', 'View ↗')}
+                  {t('admin.rooms.viewRoom', 'View ↗')}
                 </button>
                 <button type="button" disabled={patchAction.isPending} onClick={() => setEditTarget(room)} className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700 disabled:opacity-50">
                   {t('admin.rooms.editDetails', 'Edit Details')}
