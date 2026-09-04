@@ -29,6 +29,7 @@ import { useAdsConfig } from "@/lib/hooks/useAdsConfig";
 import InStreamAd from "@/components/ads/InStreamAd";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
+import { UserBadgeRow } from "@/components/shared/UserBadges";
 
 // Resolved at build time. When undefined there is no push provider configured
 // and the 3-second baseline poll is the sole live channel.
@@ -96,6 +97,9 @@ interface Message {
   displayName?: string;
   avatarEmoji: string;
   senderIsCreator?: boolean;
+  senderIsVerified?: boolean;
+  senderPrestigeCount?: number;
+  senderXpTotal?: string | number;
   content: string;
   createdAt: string;
   giftEmoji?: string;
@@ -340,8 +344,9 @@ function MessageBubble({ msg, isOwn }: MessageBubbleProps) {
       <div className={`flex min-w-0 max-w-[75%] flex-col ${isOwn ? "items-end" : "items-start"}`}>
         <div className="flex items-baseline gap-1.5">
           {!isOwn && (
-            <Link href={`/profile/${msg.userId}`} className="max-w-[40vw] truncate text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400">
-              @{msg.username}
+            <Link href={`/profile/${msg.userId}`} className="inline-flex min-w-0 max-w-[40vw] items-center gap-1 text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400">
+              <span className="truncate">@{msg.username}</span>
+              <UserBadgeRow totalXp={msg.senderXpTotal} prestige={msg.senderPrestigeCount} verified={msg.senderIsVerified} />
             </Link>
           )}
           <span className="shrink-0 text-xs text-neutral-400">{timeAgo(msg.createdAt)}</span>

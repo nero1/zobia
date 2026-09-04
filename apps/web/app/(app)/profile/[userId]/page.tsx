@@ -15,6 +15,8 @@ import { useTranslation } from "react-i18next";
 import { OnlineRing } from "@/components/ui/OnlineRing";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
+import { XpLevelBadge } from "@/components/shared/UserBadges";
+import type { RankName } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -282,6 +284,7 @@ export default function ProfilePage() {
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="flex items-center gap-1.5 text-xl font-bold text-neutral-900 dark:text-neutral-50">
                 {profile.displayName}
+                <XpLevelBadge rank={profile.rankName as RankName} size="md" />
                 <VerifiedBadge show={profile.isVerified} size="md" />
               </h1>
               {profile.prestige > 0 && (
