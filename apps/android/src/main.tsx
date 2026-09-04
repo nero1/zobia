@@ -21,6 +21,7 @@ import { SplashScreen } from '@capacitor/splash-screen';
 
 import { queryClient } from '@/lib/query/client';
 import { AuthProvider } from '@/lib/auth/store';
+import { FloatingRewardProvider } from '@/components/notifications/FloatingRewardProvider';
 import { installGlobalErrorHandlers } from '@/lib/debug/logStore';
 import { DebugOverlay } from '@/components/debug/DebugOverlay';
 import { initGooglePlayBilling } from '@/lib/payments/googlePlay';
@@ -68,7 +69,9 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <RouterProvider router={router} />
+        <FloatingRewardProvider>
+          <RouterProvider router={router} />
+        </FloatingRewardProvider>
       </AuthProvider>
     </QueryClientProvider>
   );

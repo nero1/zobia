@@ -269,6 +269,19 @@ function AppShell() {
     );
   }
 
+  // In-app game player is full-screen, chrome-free — the embedded game needs
+  // the whole viewport, and TopBar/BottomNav would eat into it plus not make
+  // sense while inside a game (see routes/games/$slug/play.tsx).
+  if (/^\/games\/[^/]+\/play$/.test(pathname)) {
+    return (
+      <AuthGuard>
+        <div className="h-full">
+          <Outlet />
+        </div>
+      </AuthGuard>
+    );
+  }
+
   // The admin section (/admin/*) is a distinct area with its own drawer nav and
   // no bottom tab bar — mirrors web's separate (admin) route group / AdminLayoutShell.
   const isAdminRoute = pathname === '/admin' || pathname.startsWith('/admin/');

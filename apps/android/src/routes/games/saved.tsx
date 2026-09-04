@@ -4,11 +4,9 @@
  * Saved Games — mirrors apps/web app/(app)/games/saved/page.tsx. Slot count
  * is plan-gated (GET /api/games/saves returns { saves, limit, count }).
  *
- * The Android app doesn't host gameplay in-app yet (the game detail page's
- * Play button isn't wired to an engine — games run on web/PWA), so "Resume"
- * opens the web play page in the in-app browser via `openAuthenticatedWebLink`
- * (ZSB-04 — bridges the mobile session into a real web session first) rather
- * than trying to resume an engine that isn't here.
+ * "Resume" opens routes/games/$slug/play.tsx, the in-app embedded player —
+ * GameRunner fetches the current user's save for that slug itself and shows
+ * its own "Resume Saved Game" prompt, so no save-id needs passing through.
  */
 
 import { useState } from 'react';
@@ -16,7 +14,6 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
-import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
 
 interface GameSave {
   id: string;
@@ -192,13 +189,13 @@ function SavedGamesPage() {
                   {t('games.score', 'Score')}: {s.score} · {new Date(s.updated_at).toLocaleDateString()}
                 </p>
               </div>
-              <button
-                type="button"
-                onClick={() => void openAuthenticatedWebLink(`/g/${s.game_slug}/play`)}
+              <Link
+                to="/games/$slug/play"
+                params={{ slug: s.game_slug }}
                 className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white"
               >
                 {t('games.savedGames.resume', 'Resume')}
-              </button>
+              </Link>
               <button
                 type="button"
                 onClick={() => deleteOne.mutate(s.id)}

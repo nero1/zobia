@@ -141,7 +141,20 @@ export default function GameRunner({
     (type: string, payload: Record<string, unknown> = {}) => {
       if (!embed) return;
       const w = window as unknown as { ReactNativeWebView?: { postMessage: (m: string) => void } };
-      w.ReactNativeWebView?.postMessage(JSON.stringify({ type, ...payload }));
+      const message = JSON.stringify({ type, ...payload });
+      if (w.ReactNativeWebView) {
+        w.ReactNativeWebView.postMessage(message);
+        return;
+      }
+      // Not inside the Expo WebView — if this page is itself embedded in an
+      // <iframe> (the Capacitor app's in-app game player, apps/android's
+      // routes/games/$slug/play.tsx), forward the same lifecycle message to
+      // the parent frame via the standard cross-document postMessage API.
+      // No-ops harmlessly when running standalone on web/PWA (window.parent
+      // === window, so this is just talking to itself).
+      if (window.parent !== window) {
+        window.parent.postMessage(message, "*");
+      }
     },
     [embed]
   );
