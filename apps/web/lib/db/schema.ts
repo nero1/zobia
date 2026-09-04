@@ -97,6 +97,10 @@ export const users = pgTable("users", {
   isEmailVerified: boolean("is_email_verified").default(false),
   totpSecret: text("totp_secret"),
   totpEnabled: boolean("totp_enabled").notNull().default(false),
+  // Hashed "Secret Magic Word" an admin sets while logged in, used to
+  // self-unlock their /gate44 login after 3 failed attempts (see
+  // app/api/admin/auth/{login,unlock}/route.ts). Never stored in plaintext.
+  adminMagicWordHash: text("admin_magic_word_hash"),
 
   // Status
   plan: text("plan").notNull().default("free"),
@@ -3816,6 +3820,10 @@ export const platformEvents = pgTable(
     isActive: boolean("is_active").default(true),
     targetCities: text("target_cities").array(),
     isRecurringAnnual: boolean("is_recurring_annual").notNull().default(false),
+    // 'none' | 'monthly' | 'yearly' — supersedes isRecurringAnnual (kept for the
+    // existing month/day-anchor annual-clone cron path). 'monthly' clones by
+    // adding one calendar month to starts_at/ends_at (same duration) instead.
+    recurrenceInterval: text("recurrence_interval").notNull().default("none"),
     recurrenceAnchorMonthStart: integer("recurrence_anchor_month_start"),
     recurrenceAnchorDayStart: integer("recurrence_anchor_day_start"),
     recurrenceAnchorMonthEnd: integer("recurrence_anchor_month_end"),

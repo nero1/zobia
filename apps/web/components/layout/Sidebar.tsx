@@ -160,9 +160,9 @@ export function Sidebar() {
         <nav className="space-y-0.5">
           {user?.is_admin && (
             <SidebarLink
-              href="/admin"
+              href="/gate44"
               label="Admin"
-              isActive={pathname.startsWith("/admin")}
+              isActive={pathname.startsWith("/gate44")}
             />
           )}
           {primaryNavItems.map((item) => (

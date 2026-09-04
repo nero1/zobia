@@ -17,7 +17,7 @@ import { signTestJwt, TEST_USER_IDS } from "./fixtures";
 
 test.describe("Admin — Auth and Access Control", () => {
   test("Admin login page is accessible", async ({ page }) => {
-    const res = await page.goto("/admin/login");
+    const res = await page.goto("/gate44/login");
     expect(res?.status()).not.toBe(404);
   });
 

@@ -45,6 +45,9 @@ export async function GET(req: NextRequest) {
         username: payload.username,
         is_admin: payload.is_admin,
         is_moderator: rows[0]?.is_moderator ?? false,
+        // Set only while an admin is impersonating this account — see
+        // lib/auth/session.ts createSession() and components/admin/ImpersonationBanner.tsx.
+        impersonatedBy: payload.impersonated_by ?? null,
       },
     });
   } catch {

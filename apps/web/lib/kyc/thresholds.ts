@@ -3,7 +3,7 @@
  *
  * Admin-configurable KYC tier gating for high-value selling / payouts.
  * Thresholds live in the manifest (lib/manifest/index.ts `kyc.thresholds`),
- * editable at /admin/kyc (Settings tab) — see db/migrations/0005_kyc_verification.sql
+ * editable at /gate44/kyc (Settings tab) — see db/migrations/0005_kyc_verification.sql
  * for the seeded defaults.
  *
  * Call `getRequiredKycTier` wherever a product is priced or revenue is about

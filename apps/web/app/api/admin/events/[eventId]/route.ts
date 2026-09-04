@@ -4,7 +4,8 @@ export const dynamic = 'force-dynamic';
  * app/api/admin/events/[eventId]/route.ts
  *
  * PATCH /api/admin/events/:eventId
- *   Toggle event is_active, update dates. Admin only.
+ *   Update any subset of an event's fields (name, dates, type, XP multiplier,
+ *   recurrence, active state). Admin only.
  *
  * DELETE /api/admin/events/:eventId
  *   Deactivate event (set is_active = false). Admin only.
@@ -27,8 +28,17 @@ const updateEventSchema = z.object({
   ends_at: z.string().datetime().optional(),
   name: z.string().min(3).max(150).optional(),
   description: z.string().max(1000).optional(),
+  event_type: z.enum([
+    "cultural",
+    "season_launch",
+    "flash_xp",
+    "guild_war_event",
+    "mystery_drop",
+    "platform",
+  ]).optional(),
   xp_multiplier: z.number().min(0.5).max(10).optional(),
   coin_bonus_pct: z.number().int().min(0).max(100).optional(),
+  recurrence_interval: z.enum(["none", "monthly", "yearly"]).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -45,10 +55,34 @@ interface PlatformEventRow {
   starts_at: string;
   ends_at: string;
   is_active: boolean;
+  recurrence_interval: string;
   target_cities: string[] | null;
   created_at: string;
   updated_at: string;
 }
+
+function toApiEvent(row: PlatformEventRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    type: row.event_type,
+    xpMultiplier: parseFloat(row.xp_multiplier),
+    coinBonusPct: row.coin_bonus_pct,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    isActive: row.is_active,
+    recurrenceInterval: row.recurrence_interval,
+    targetCities: row.target_cities,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+const SELECT_COLUMNS = `id, name, description, event_type,
+                  xp_multiplier::TEXT AS xp_multiplier,
+                  coin_bonus_pct, starts_at, ends_at,
+                  is_active, recurrence_interval, target_cities, created_at, updated_at`;
 
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/events/:eventId
@@ -72,46 +106,33 @@ export const PATCH = withAdminAuth(
       const params2: (string | number | boolean | null)[] = [];
       let idx = 1;
 
-      if (body.is_active !== undefined) {
-        updates.push(`is_active = $${idx++}`);
-        params2.push(body.is_active);
-      }
-      if (body.starts_at !== undefined) {
-        updates.push(`starts_at = $${idx++}`);
-        params2.push(body.starts_at);
-      }
-      if (body.ends_at !== undefined) {
-        updates.push(`ends_at = $${idx++}`);
-        params2.push(body.ends_at);
-      }
-      if (body.name !== undefined) {
-        updates.push(`name = $${idx++}`);
-        params2.push(body.name);
-      }
-      if (body.description !== undefined) {
-        updates.push(`description = $${idx++}`);
-        params2.push(body.description);
-      }
-      if (body.xp_multiplier !== undefined) {
-        updates.push(`xp_multiplier = $${idx++}`);
-        params2.push(body.xp_multiplier);
-      }
-      if (body.coin_bonus_pct !== undefined) {
-        updates.push(`coin_bonus_pct = $${idx++}`);
-        params2.push(body.coin_bonus_pct);
+      const fieldMap: [keyof typeof body, string][] = [
+        ["is_active", "is_active"],
+        ["starts_at", "starts_at"],
+        ["ends_at", "ends_at"],
+        ["name", "name"],
+        ["description", "description"],
+        ["event_type", "event_type"],
+        ["xp_multiplier", "xp_multiplier"],
+        ["coin_bonus_pct", "coin_bonus_pct"],
+        ["recurrence_interval", "recurrence_interval"],
+      ];
+
+      for (const [key, column] of fieldMap) {
+        const value = body[key];
+        if (value !== undefined) {
+          updates.push(`${column} = $${idx++}`);
+          params2.push(value as string | number | boolean);
+        }
       }
 
       if (updates.length === 0) {
         const { rows } = await db.query<PlatformEventRow>(
-          `SELECT id, name, description, event_type,
-                  xp_multiplier::TEXT AS xp_multiplier,
-                  coin_bonus_pct, starts_at, ends_at,
-                  is_active, target_cities, created_at, updated_at
-           FROM platform_events WHERE id = $1 LIMIT 1`,
+          `SELECT ${SELECT_COLUMNS} FROM platform_events WHERE id = $1 LIMIT 1`,
           [eventId]
         );
         if (!rows[0]) throw notFound("Platform event not found");
-        return NextResponse.json({ success: true, data: { event: rows[0] }, error: null });
+        return NextResponse.json({ success: true, data: { event: toApiEvent(rows[0]) }, error: null });
       }
 
       updates.push(`updated_at = NOW()`);
@@ -121,25 +142,13 @@ export const PATCH = withAdminAuth(
         `UPDATE platform_events
          SET ${updates.join(", ")}
          WHERE id = $${idx}
-         RETURNING id, name, description, event_type,
-                   xp_multiplier::TEXT AS xp_multiplier,
-                   coin_bonus_pct, starts_at, ends_at,
-                   is_active, target_cities, created_at, updated_at`,
+         RETURNING ${SELECT_COLUMNS}`,
         params2
       );
 
       if (!rows[0]) throw notFound("Platform event not found");
 
-      return NextResponse.json({
-        success: true,
-        data: {
-          event: {
-            ...rows[0],
-            xpMultiplier: parseFloat(rows[0].xp_multiplier),
-          },
-        },
-        error: null,
-      });
+      return NextResponse.json({ success: true, data: { event: toApiEvent(rows[0]) }, error: null });
     } catch (err) {
       return handleApiError(err);
     }

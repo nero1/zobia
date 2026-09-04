@@ -5054,6 +5054,124 @@ here.
 
 ---
 
-*ZobiaSocial PRD v2.10*
+## Appendix: Version 2.11 Change Log
+
+### v2.11 — Changelog
+
+**Staff area moved off `/admin` to `/gate44`.** The admin/moderator login and
+management panel is no longer at a guessable path — the whole route tree
+(`app/(admin)/admin/*` → `app/(admin)/gate44/*`), `middleware.ts`
+`ADMIN_PREFIXES`/`ADMIN_LOGIN_URL`, and every internal link were moved
+together. `robots.txt` no longer lists it at all (a disallow rule would
+itself advertise the path), and it carries `robots: noindex`. The login
+screen dropped every "ADMIN" label/badge for logged-out visitors — it now
+reads as a generic sign-in screen — and `AdminLayoutShell` no longer renders
+the full staff nav menu on the login/2FA-setup screens (previously a
+logged-out visitor who found the URL saw the entire admin menu). Credentials
++ mandatory TOTP 2FA is unchanged (PRD §20 — still no Google OAuth for
+staff), and the existing "session expired" popup/redirect flow
+(`components/auth/SessionExpiredModal.tsx`) now correctly round-trips
+through `/gate44/login`.
+
+**Anti-brute-force lockout + Secret Magic Word.** Three failed attempts
+(wrong password OR wrong TOTP code) on the same staff email locks that
+account (`lib/auth/adminLockout.ts`, Redis-only counter, 24h fallback
+auto-expiry). The only real unlock path is the "Secret Magic Word" the
+admin sets in advance while logged in (`/gate44/settings/security`,
+`POST /api/admin/auth/magic-word`, hashed like a password) via
+`POST /api/admin/auth/unlock`. A red reminder bar
+(`components/admin/AdminLayoutShell.tsx` → `AdminStatusBar`) nags any admin
+who hasn't set one yet.
+
+**Maintenance mode.** New `/gate44/config` → "Maintenance Mode" group
+(`maintenance_mode_enabled`, `maintenance_message` in `x_manifest`; see
+`ZobiaManifest.maintenance` in `lib/manifest/index.ts`). Enabling it prompts
+a "Do you really want to enable maintenance mode?" confirm dialog. While on,
+every non-staff visitor — on the landing page, `/auth/login`, and every
+authenticated app page — sees the maintenance notice
+(`components/maintenance/MaintenancePage.tsx`) instead of the app; staff
+still get full access plus an amber reminder bar. `/auth/login?staff=1` is
+a hidden (unlinked, not in any sitemap) bypass so admins/moderators can
+still reach the real sign-in form during maintenance — logging in through
+it grants nothing extra to a non-staff account, which still hits the same
+maintenance gate post-login.
+
+**`/admin/events` crash fixed + full event tooling.** The page crashed with
+"can't access property 'replace', e.type is undefined" because
+`GET /api/admin/events` returned raw snake_case columns while the page
+expected camelCase — fixed by mapping the API response properly (both admin
+and public `/api/events`). Event creation now supports "start immediately"
+vs. "schedule for later", duration presets (1h/6h/1d/3d/7d/14d/30d/custom),
+XP-multiplier presets (1/1.5/2/3/4/5×), and monthly recurrence alongside the
+existing annual-anchor recurrence (`recurrence_interval` column, migration
+`0010`; cron `daily-platform` clones monthly events one calendar month
+forward). Active/upcoming events are now promoted near the top of every
+authenticated page (`components/events/ActiveEventStrip.tsx`, sourced from
+the existing public `/api/events`) and a one-time "New Event" popup fires
+the first time a viewer sees a newly-live event — tracked entirely in
+`localStorage`, no new server calls.
+
+**Admin impersonation.** "Impersonate this user" in `/gate44/users`'
+per-user detail panel logs the admin in as that user for up to 15 minutes
+(`POST /api/admin/users/[userId]/impersonate`) while stashing the admin's
+own session in a short-lived cookie pair; "Return to Admin"
+(`components/admin/ImpersonationBanner.tsx`, shown app-wide via a
+non-HttpOnly marker cookie so it costs zero extra Redis reads for everyone
+else) restores it (`POST /api/auth/impersonate/end`). Cannot target another
+admin account. Both start and end are written to `admin_audit_log`.
+
+**Mods/admins can edit forum content.** `/gate44/forum/posts` gained an
+Edit action (question title+body, or answer body) via a new `edit` action
+on `PATCH /api/admin/forum/posts/[id]`, available to both moderators and
+admins (unlike restore/lock/unlock, which stay admin-only).
+
+**Currency name is no longer hard-coded "coins".** `/gate44/refunds` (was
+"Coin Refunds") and the Financial Monitoring anomaly alerts/headings now
+read from the existing admin-configurable currency name
+(`lib/hooks/useCurrency.ts` client-side, `manifest.currency` server-side)
+instead of a literal "coins" string.
+
+**Admin test payments.** `/gate44/config` → "Test Payments" starts a real
+₦1 checkout with whichever Paystack/DodoPayments keys are currently
+configured (`POST /api/admin/payments/test`), so an admin can confirm a
+provider integration end-to-end without a real customer transaction. Marked
+`payment_type = 'admin_test'` and explicitly excluded from both coin/star
+crediting and Creator Fund revenue in both webhook handlers.
+
+**`/gate44/games` stats + responsive table.** The "Stats" button no longer
+dumps raw JSON at the bottom of the page — it opens a formatted popup with
+stat tiles. The games list table collapses less-critical columns on narrow
+screens and scrolls properly within its own bounded wrapper instead of
+appearing cut off with no visible scrollbar on mobile web/PWA.
+
+**Announcements: 400 on every banner, 500 on every save — fixed.** Banner
+creation always 400'd because `title` was required for both modals and
+banners even though the banner form never sends one. Every create/update
+(both types) always 500'd because `target_plans`/`target_roles` — native
+Postgres `text[]` columns — were being `JSON.stringify()`'d into a malformed
+array literal instead of passed as real arrays. Both fixed in
+`app/api/admin/announcements/{route,[id]/route}.ts`, and the request/response
+shape now matches what the admin page actually sends end-to-end
+(`audience{plans,roles}`, `startAt`/`endAt`, `status`). The recipients
+picker's plan list ("basic"/"vip", neither a real plan) is replaced by
+`lib/plans/allPlanOptions.ts`, sourced from the platform's actual personal
+plans (free/plus/pro/max) and business tiers (starter/growth/enterprise) —
+adding or removing a tier in that shared module updates the picker
+automatically. New announcements default to every non-business plan + every
+role selected.
+
+**Follow-up not in this batch:** `app/(app)/layout.tsx` resolves the
+announcement-targeting `plan_id`/`role` as hard-coded `null` for every user,
+so plan/role-scoped announcement targeting (not the recipients *picker*
+fixed above, but who actually receives it) doesn't yet work end-to-end —
+worth a dedicated pass.
+
+**New migrations to run:** `db/migrations/0010_platform_events_recurrence.sql`,
+`db/migrations/0011_admin_lockout_magic_word.sql`,
+`db/migrations/0012_maintenance_mode.sql`.
+
+---
+
+*ZobiaSocial PRD v2.11*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

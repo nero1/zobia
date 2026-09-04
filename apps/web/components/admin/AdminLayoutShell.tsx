@@ -15,43 +15,44 @@ import { useState, useEffect, useRef } from "react";
 import { clsx } from "clsx";
 
 const adminNavItems = [
-  { href: "/admin",                    label: "Dashboard",          icon: "◼" },
-  { href: "/admin/users",              label: "Users",              icon: "👥" },
-  { href: "/admin/moderation",         label: "Moderation",         icon: "🚩" },
+  { href: "/gate44",                    label: "Dashboard",          icon: "◼" },
+  { href: "/gate44/users",              label: "Users",              icon: "👥" },
+  { href: "/gate44/moderation",         label: "Moderation",         icon: "🚩" },
   { href: "/moderation",               label: "Moderation Center",  icon: "🧭" },
-  { href: "/admin/forum",              label: "Answers",            icon: "❓" },
-  { href: "/admin/community-notes",    label: "Community Notes",    icon: "📝" },
-  { href: "/admin/financial",          label: "Financial",          icon: "💳" },
-  { href: "/admin/payouts",            label: "Payouts",            icon: "💸" },
-  { href: "/admin/refunds",            label: "Refunds",            icon: "↩️" },
-  { href: "/admin/announcements",      label: "Announcements",      icon: "📢" },
-  { href: "/admin/messages",           label: "Messages",           icon: "💬" },
-  { href: "/admin/alerts",             label: "Alerts",             icon: "🔔" },
-  { href: "/admin/config",             label: "Config",             icon: "⚙️" },
-  { href: "/admin/settings/privacy",   label: "Privacy Settings",   icon: "🔒" },
-  { href: "/admin/settings/profile-stats", label: "Profile Stats",  icon: "📊" },
-  { href: "/admin/ai-settings",        label: "AI Settings",        icon: "🤖" },
-  { href: "/admin/feature-flags",      label: "Feature Flags",      icon: "🚀" },
-  { href: "/admin/business",            label: "Business Accounts",  icon: "🏢" },
-  { href: "/admin/kyc",                 label: "Identity KYC",       icon: "🪪" },
-  { href: "/admin/rooms",               label: "Rooms",              icon: "🏛" },
-  { href: "/admin/branded-rooms",      label: "Branded Rooms",      icon: "🏠" },
-  { href: "/admin/leaderboards",       label: "Leaderboards",       icon: "📊" },
-  { href: "/admin/leaderboard-banners",label: "Leaderboard Banners",icon: "🏆" },
-  { href: "/admin/footer-scripts",     label: "Footer Scripts",     icon: "📄" },
-  { href: "/admin/events",             label: "Events",             icon: "📅" },
-  { href: "/admin/flash-xp",           label: "Flash XP",           icon: "⚡" },
-  { href: "/admin/payouts/appeals",    label: "Payout Appeals",     icon: "⚖️" },
-  { href: "/admin/actions-log",        label: "Actions Log",        icon: "📋" },
-  { href: "/admin/automated-actions",  label: "Auto Actions",       icon: "🤖" },
-  { href: "/admin/creator-spotlight",  label: "Creator Spotlight",  icon: "⭐" },
-  { href: "/admin/gifts",               label: "Gifts Catalog",      icon: "🛍️" },
-  { href: "/admin/gift-drop",          label: "Gift Drop",          icon: "🎁" },
-  { href: "/admin/seasons",            label: "Seasons",            icon: "🏅" },
-  { href: "/admin/sponsored-quests",   label: "Sponsored Quests",   icon: "🎯" },
-  { href: "/admin/ads",                label: "Ads",                icon: "🖼️" },
-  { href: "/admin/games",              label: "Games",              icon: "🎮" },
-  { href: "/admin/blogs",              label: "Blogs",              icon: "📝" },
+  { href: "/gate44/forum",              label: "Answers",            icon: "❓" },
+  { href: "/gate44/community-notes",    label: "Community Notes",    icon: "📝" },
+  { href: "/gate44/financial",          label: "Financial",          icon: "💳" },
+  { href: "/gate44/payouts",            label: "Payouts",            icon: "💸" },
+  { href: "/gate44/refunds",            label: "Refunds",            icon: "↩️" },
+  { href: "/gate44/announcements",      label: "Announcements",      icon: "📢" },
+  { href: "/gate44/messages",           label: "Messages",           icon: "💬" },
+  { href: "/gate44/alerts",             label: "Alerts",             icon: "🔔" },
+  { href: "/gate44/config",             label: "Config",             icon: "⚙️" },
+  { href: "/gate44/settings/privacy",   label: "Privacy Settings",   icon: "🔒" },
+  { href: "/gate44/settings/security",  label: "Security",           icon: "🛡️" },
+  { href: "/gate44/settings/profile-stats", label: "Profile Stats",  icon: "📊" },
+  { href: "/gate44/ai-settings",        label: "AI Settings",        icon: "🤖" },
+  { href: "/gate44/feature-flags",      label: "Feature Flags",      icon: "🚀" },
+  { href: "/gate44/business",            label: "Business Accounts",  icon: "🏢" },
+  { href: "/gate44/kyc",                 label: "Identity KYC",       icon: "🪪" },
+  { href: "/gate44/rooms",               label: "Rooms",              icon: "🏛" },
+  { href: "/gate44/branded-rooms",      label: "Branded Rooms",      icon: "🏠" },
+  { href: "/gate44/leaderboards",       label: "Leaderboards",       icon: "📊" },
+  { href: "/gate44/leaderboard-banners",label: "Leaderboard Banners",icon: "🏆" },
+  { href: "/gate44/footer-scripts",     label: "Footer Scripts",     icon: "📄" },
+  { href: "/gate44/events",             label: "Events",             icon: "📅" },
+  { href: "/gate44/flash-xp",           label: "Flash XP",           icon: "⚡" },
+  { href: "/gate44/payouts/appeals",    label: "Payout Appeals",     icon: "⚖️" },
+  { href: "/gate44/actions-log",        label: "Actions Log",        icon: "📋" },
+  { href: "/gate44/automated-actions",  label: "Auto Actions",       icon: "🤖" },
+  { href: "/gate44/creator-spotlight",  label: "Creator Spotlight",  icon: "⭐" },
+  { href: "/gate44/gifts",               label: "Gifts Catalog",      icon: "🛍️" },
+  { href: "/gate44/gift-drop",          label: "Gift Drop",          icon: "🎁" },
+  { href: "/gate44/seasons",            label: "Seasons",            icon: "🏅" },
+  { href: "/gate44/sponsored-quests",   label: "Sponsored Quests",   icon: "🎯" },
+  { href: "/gate44/ads",                label: "Ads",                icon: "🖼️" },
+  { href: "/gate44/games",              label: "Games",              icon: "🎮" },
+  { href: "/gate44/blogs",              label: "Blogs",              icon: "📝" },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -77,8 +78,8 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
 
       {adminNavItems.map((item) => {
         const isActive =
-          item.href === "/admin"
-            ? pathname === "/admin"
+          item.href === "/gate44"
+            ? pathname === "/gate44"
             : pathname.startsWith(item.href);
         return (
           <Link
@@ -99,6 +100,55 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
         );
       })}
     </nav>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Status bar — magic-word reminder + maintenance-mode indicator
+// ---------------------------------------------------------------------------
+
+function AdminStatusBar() {
+  const [magicWordSet, setMagicWordSet] = useState<boolean | null>(null);
+  const [maintenance, setMaintenance] = useState<{ enabled: boolean } | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/auth/magic-word", { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { data?: { isSet: boolean } };
+        if (!cancelled) setMagicWordSet(!!data.data?.isSet);
+      } catch { /* ignore — non-critical reminder */ }
+    })();
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/maintenance", { credentials: "include" });
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { data?: { enabled: boolean } };
+        if (!cancelled) setMaintenance(data.data ?? null);
+      } catch { /* ignore */ }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  return (
+    <>
+      {maintenance?.enabled && (
+        <div role="status" className="flex items-center justify-center gap-2 bg-amber-500 px-4 py-1.5 text-xs font-semibold text-white">
+          🚧 Maintenance mode is ON — only admins and moderators can access Zobia right now.
+        </div>
+      )}
+      {magicWordSet === false && (
+        <div role="alert" className="flex items-center justify-center gap-2 bg-red-600 px-4 py-1.5 text-xs font-semibold text-white">
+          ⚠️ You haven&apos;t set a Secret Magic Word — you could be locked out permanently if your
+          login is ever locked.{" "}
+          <Link href="/gate44/settings/security" className="underline underline-offset-2">
+            Set it now
+          </Link>
+        </div>
+      )}
+    </>
   );
 }
 
@@ -175,7 +225,13 @@ function MobileDrawer({ open, onClose }: { open: boolean; onClose: () => void })
 // Main shell
 // ---------------------------------------------------------------------------
 
+/** Pages inside (admin)/gate44 that are reachable while logged OUT. The nav
+ * shell (menu, "Admin Panel" chrome, logout button) must never render on
+ * these — an unauthenticated visitor should see nothing but the bare form. */
+const LOGGED_OUT_PATHS = ["/gate44/login", "/gate44/setup-2fa"];
+
 export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerOpenRef = useRef(false);
   useEffect(() => { drawerOpenRef.current = drawerOpen; }, [drawerOpen]);
@@ -233,6 +289,16 @@ export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // BUG: the admin nav (with every management link + logout button) used to
+  // render unconditionally, including on the login screen itself — so a
+  // logged-out visitor who found the login URL saw the full admin menu.
+  // Those two auth-flow pages get a bare, unbranded shell instead. This check
+  // runs after all hooks above so it never violates the Rules of Hooks.
+  const isLoggedOutPath = LOGGED_OUT_PATHS.some((p) => pathname?.startsWith(p));
+  if (isLoggedOutPath) {
+    return <div className="min-h-screen bg-neutral-100 dark:bg-neutral-950">{children}</div>;
+  }
+
   return (
     <div className="flex min-h-screen bg-neutral-100 dark:bg-neutral-950">
       {/* Desktop sidebar — scrollable */}
@@ -276,6 +342,9 @@ export function AdminLayoutShell({ children }: { children: React.ReactNode }) {
        * mobile instead of just the table. See admin table pages.
        */}
       <div className="flex min-w-0 flex-1 flex-col lg:pl-56">
+        {/* Status bar — maintenance mode + magic-word reminder */}
+        <AdminStatusBar />
+
         {/* Top bar */}
         <header className="sticky top-0 z-40 flex h-16 items-center border-b border-neutral-200 bg-white px-4 dark:border-neutral-800 dark:bg-neutral-900 lg:px-6">
           {/* Hamburger (mobile only) */}

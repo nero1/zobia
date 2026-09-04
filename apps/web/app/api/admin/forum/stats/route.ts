@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 /**
  * app/api/admin/forum/stats/route.ts
  *
- * GET /api/admin/forum/stats — dashboard counts for /admin/forum.
+ * GET /api/admin/forum/stats — dashboard counts for /gate44/forum.
  */
 
 import { NextRequest, NextResponse } from "next/server";

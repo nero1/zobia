@@ -24,9 +24,12 @@ import { OfflineSyncProvider } from "@/components/offline/OfflineSyncProvider";
 import { PresenceHeartbeatProvider } from "@/components/presence/PresenceHeartbeatProvider";
 import { AnnouncementBanner, type BannerData } from "@/components/announcements/AnnouncementBanner";
 import { AnnouncementModal, type AnnouncementData } from "@/components/announcements/AnnouncementModal";
+import { ActiveEventStrip } from "@/components/events/ActiveEventStrip";
 import { PWAInstallPrompt } from "@/components/shared/PWAInstallPrompt";
+import { MaintenancePage } from "@/components/maintenance/MaintenancePage";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { env } from "@/lib/env";
+import { loadManifest } from "@/lib/manifest";
 import {
   getActiveBannerForUser,
   getActiveModalForUser,
@@ -40,25 +43,29 @@ interface AppLayoutProps {
 }
 
 /**
- * Resolve the active announcements for the current user.
- * Returns nulls gracefully if the JWT is missing, invalid, or DB calls fail.
+ * Resolve the active announcements for the current user, plus whether they
+ * are staff (admin/moderator) — the only visitors exempt from maintenance
+ * mode. Returns nulls/false gracefully if the JWT is missing, invalid, or
+ * DB calls fail.
  */
-async function resolveAnnouncements(cookieHeader: string | null): Promise<{
+async function resolveAnnouncements(): Promise<{
   banner: BannerData | null;
   modal: AnnouncementData | null;
   hasEmail: boolean;
+  isStaff: boolean;
 }> {
   if (!env.DATABASE_PROVIDER) {
-    return { banner: null, modal: null, hasEmail: true };
+    return { banner: null, modal: null, hasEmail: true, isStaff: false };
   }
   try {
     const cookieStore = await cookies();
     const accessToken = cookieStore.get("zobia_at")?.value;
-    if (!accessToken) return { banner: null, modal: null, hasEmail: true };
+    if (!accessToken) return { banner: null, modal: null, hasEmail: true, isStaff: false };
 
     const payload = await verifyAccessToken(accessToken);
     const userId = payload.sub;
     const hasEmail = !!payload.email;
+    const isStaff = !!payload.is_admin || !!payload.is_moderator;
     const announcementUser = {
       id: userId,
       plan_id: null as string | null,
@@ -88,9 +95,9 @@ async function resolveAnnouncements(cookieHeader: string | null): Promise<{
         }
       : null;
 
-    return { banner, modal, hasEmail };
+    return { banner, modal, hasEmail, isStaff };
   } catch {
-    return { banner: null, modal: null, hasEmail: true };
+    return { banner: null, modal: null, hasEmail: true, isStaff: false };
   }
 }
 
@@ -98,7 +105,18 @@ async function resolveAnnouncements(cookieHeader: string | null): Promise<{
  * Authenticated app shell layout.
  */
 export default async function AppLayout({ children }: AppLayoutProps) {
-  const { banner, modal, hasEmail } = await resolveAnnouncements(null);
+  const [{ banner, modal, hasEmail, isStaff }, manifest] = await Promise.all([
+    resolveAnnouncements(),
+    loadManifest(),
+  ]);
+
+  // Maintenance mode (x_manifest maintenance_mode_enabled, set at
+  // /gate44/config): everyone except admins/moderators sees the notice
+  // instead of the app. Staff still get the full shell plus a reminder bar
+  // (AdminLayoutShell) so they don't forget it's on.
+  if (manifest.maintenance.enabled && !isStaff) {
+    return <MaintenancePage message={manifest.maintenance.message} />;
+  }
 
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
@@ -118,6 +136,9 @@ export default async function AppLayout({ children }: AppLayoutProps) {
 
       {/* Top navigation */}
       <Navbar />
+
+      {/* Platform event promo strip / new-event popup — near the top of every app page */}
+      <ActiveEventStrip />
 
       <div className="flex">
         {/* Desktop sidebar */}

@@ -411,7 +411,7 @@ function parseAdCreativeReview(raw: string, provider: "deepseek" | "gemini"): Ad
  * Review a business-submitted ad campaign for auto-approval eligibility.
  * Used when x_manifest `ad_moderation_mode` is "ai" — campaigns scoring at
  * or above `ad_ai_auto_approve_threshold` are auto-approved; everything
- * else falls back to the manual admin queue at /admin/ads.
+ * else falls back to the manual admin queue at /gate44/ads.
  */
 export async function classifyAdCreative(
   advertiserName: string,

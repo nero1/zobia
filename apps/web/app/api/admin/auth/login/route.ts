@@ -24,9 +24,10 @@ import { compare, hash } from "bcryptjs"; // BUG-PERF-03: static import avoids p
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
-import { handleApiError, unauthorized } from "@/lib/api/errors";
+import { handleApiError, unauthorized, ApiError } from "@/lib/api/errors";
 import { validateBody } from "@/lib/api/middleware";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { isAdminLockedOut, recordAdminLoginFailure } from "@/lib/auth/adminLockout";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -68,6 +69,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const body = await validateBody(req, loginSchema);
 
+    // Anti-brute-force: reject before touching the DB/bcrypt if this email is
+    // already locked out from 3 prior failed attempts (see lib/auth/adminLockout.ts).
+    if (await isAdminLockedOut(body.email)) {
+      throw new ApiError(
+        423,
+        "ADMIN_LOCKED",
+        "This account is locked after too many failed attempts. Enter your Secret Magic Word to unlock it."
+      );
+    }
+
     // Look up admin by email
     const { rows } = await db.query<AdminUserRow>(
       `SELECT id, password_hash, totp_secret, totp_enabled, is_admin, deleted_at
@@ -84,6 +95,18 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const passwordValid = await compare(body.password, passwordHash);
 
     if (!user || !passwordValid || !user.is_admin || user.deleted_at) {
+      // Only count failures against real admin emails toward the lockout —
+      // still runs bcrypt above either way so timing doesn't leak which case this is.
+      if (user?.is_admin) {
+        const { locked } = await recordAdminLoginFailure(body.email);
+        if (locked) {
+          throw new ApiError(
+            423,
+            "ADMIN_LOCKED",
+            "This account is now locked after too many failed attempts. Enter your Secret Magic Word to unlock it."
+          );
+        }
+      }
       throw unauthorized("Invalid credentials");
     }
 

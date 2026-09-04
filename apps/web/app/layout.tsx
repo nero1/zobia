@@ -24,6 +24,7 @@ import { FloatingNotificationProvider } from "@/components/providers/FloatingNot
 import { ReferralCapture } from "@/components/referral/ReferralCapture";
 import { SkipToMain } from "@/components/shared/SkipToMain";
 import { SessionExpiredModal } from "@/components/auth/SessionExpiredModal";
+import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
 import { loadManifest } from "@/lib/manifest";
 import { db } from "@/lib/db";
 import { env } from "@/lib/env";
@@ -184,6 +185,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
                     401 (e.g. failing to start/score a game) previously went
                     unnoticed. Self-guards against showing on /auth/* routes. */}
                 <SessionExpiredModal />
+                <ImpersonationBanner />
                 <main id="main-content">
                   {children}
                 </main>

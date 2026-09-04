@@ -61,16 +61,16 @@ export const ROUTES = {
 
   // ---- Admin panel --------------------------------------------------------
   admin: {
-    login: "/admin/login",
-    dashboard: "/admin",
-    users: "/admin/users",
-    userDetail: (id: string) => `/admin/users/${id}`,
-    rooms: "/admin/rooms",
-    reports: "/admin/reports",
-    settings: "/admin/settings",
-    payments: "/admin/payments",
-    analytics: "/admin/analytics",
-    broadcast: "/admin/broadcast",
+    login: "/gate44/login",
+    dashboard: "/gate44",
+    users: "/gate44/users",
+    userDetail: (id: string) => `/gate44/users/${id}`,
+    rooms: "/gate44/rooms",
+    reports: "/gate44/reports",
+    settings: "/gate44/settings",
+    payments: "/gate44/payments",
+    analytics: "/gate44/analytics",
+    broadcast: "/gate44/broadcast",
   },
 } as const;
 

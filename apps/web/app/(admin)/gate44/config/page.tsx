@@ -1,0 +1,1290 @@
+"use client";
+
+/**
+ * app/(admin)/admin/config/page.tsx
+ *
+ * Platform configuration page for admin panel.
+ * Grouped settings with inline editing, toggle switches for booleans,
+ * select dropdowns for enum fields, and per-key save via PUT /api/admin/config/[key].
+ *
+ * Groups covered:
+ *   Auth       - Google OAuth, Telegram login
+ *   CAPTCHA    - provider selector (recaptcha / turnstile / none)
+ *   GIF        - provider selector (giphy / tenor)
+ *   PWA        - web / android / ios toggles
+ *   Payments   - primary provider, paystack, dodopayments
+ *   Economy    - coin-to-cash rate, payout thresholds, season pass, VIP room prices
+ *   Limits     - minimum age
+ *   AdMob      - admob ads, rewarded ads
+ *   Miscellaneous - deep link base URL, and any unknown keys
+ */
+
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
+import { GRACE_FEATURE_REGISTRY } from "@/lib/plans/graceFeatures";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+type ConfigValueType = "boolean" | "string" | "number" | "select" | "multiselect";
+
+interface SelectOption {
+  value: string;
+  label: string;
+}
+
+interface ConfigMeta {
+  label: string;
+  description: string;
+  type: ConfigValueType;
+  group: string;
+  options?: SelectOption[]; // for type === "select" | "multiselect"
+}
+
+interface ConfigItem {
+  key: string;
+  label: string;
+  description: string;
+  value: boolean | string | number | string[];
+  type: ConfigValueType;
+  group: string;
+  options?: SelectOption[];
+}
+
+type GroupedConfig = Record<string, ConfigItem[]>;
+
+// ---------------------------------------------------------------------------
+// Metadata map — defines label, description, type, group (and options) for
+// every x_manifest key that should appear in the config panel.
+// Keys not listed here are shown in "Miscellaneous" with a generic string type.
+// ---------------------------------------------------------------------------
+
+const CONFIG_META: Record<string, ConfigMeta> = {
+  // Maintenance Mode
+  maintenance_mode_enabled: {
+    label: "Maintenance Mode",
+    description: "When on, everyone except admins/moderators sees a maintenance notice instead of the app.",
+    type: "boolean",
+    group: "Maintenance Mode",
+  },
+  maintenance_message: {
+    label: "Maintenance Message",
+    description: "Shown to visitors while maintenance mode is on.",
+    type: "string",
+    group: "Maintenance Mode",
+  },
+  // Auth
+  auth_google_enabled: {
+    label: "Google OAuth",
+    description: "Allow users to sign in with their Google account.",
+    type: "boolean",
+    group: "Auth",
+  },
+  auth_telegram_enabled: {
+    label: "Telegram Login",
+    description: "Allow users to sign in via Telegram Login widget.",
+    type: "boolean",
+    group: "Auth",
+  },
+  auth_2fa_enabled: {
+    label: "Two-Factor Authentication (2FA)",
+    description: "Allow users to enable TOTP-based 2FA on their accounts.",
+    type: "boolean",
+    group: "Auth",
+  },
+  auth_2fa_required_for_mods: {
+    label: "Require 2FA for Moderators",
+    description: "Block moderator logins until they set up 2FA on their account.",
+    type: "boolean",
+    group: "Auth",
+  },
+  feature_pin_auth: {
+    label: "PIN Authentication",
+    description: "Allow users to set a numeric PIN for quick app unlock.",
+    type: "boolean",
+    group: "Auth",
+  },
+
+  // CAPTCHA
+  captcha_provider: {
+    label: "CAPTCHA Provider",
+    description:
+      "CAPTCHA service used on registration, login, and sensitive forms.",
+    type: "select",
+    group: "CAPTCHA",
+    options: [
+      { value: "recaptcha", label: "Google reCAPTCHA v3" },
+      { value: "turnstile", label: "Cloudflare Turnstile" },
+      { value: "none", label: "None (disable CAPTCHA)" },
+    ],
+  },
+
+  // GIF
+  gif_provider: {
+    label: "GIF Search Provider",
+    description: "Third-party service used to power the GIF picker in chat.",
+    type: "select",
+    group: "GIF",
+    options: [
+      { value: "giphy", label: "Giphy" },
+      { value: "tenor", label: "Tenor (Google)" },
+    ],
+  },
+
+  // PWA
+  pwa_web_enabled: {
+    label: "PWA — Web Browser",
+    description: "Enable Progressive Web App install prompt in desktop/mobile browsers.",
+    type: "boolean",
+    group: "PWA",
+  },
+  pwa_android_enabled: {
+    label: "PWA — Android",
+    description: "Enable PWA install for Android home screen.",
+    type: "boolean",
+    group: "PWA",
+  },
+  pwa_ios_enabled: {
+    label: "PWA — iOS",
+    description: "Enable PWA install for iOS home screen (Safari Add to Home Screen).",
+    type: "boolean",
+    group: "PWA",
+  },
+
+  // Payments
+  payment_primary_provider: {
+    label: "Primary Payment Provider",
+    description: "The default gateway used for deposits and payouts.",
+    type: "select",
+    group: "Payments",
+    options: [
+      { value: "paystack", label: "Paystack" },
+      { value: "dodopayments", label: "Dodo Payments" },
+      { value: "none", label: "None (payments disabled)" },
+    ],
+  },
+  payment_paystack_enabled: {
+    label: "Paystack Enabled",
+    description: "Allow Paystack as a payment method.",
+    type: "boolean",
+    group: "Payments",
+  },
+  payment_dodopayments_enabled: {
+    label: "Dodo Payments Enabled",
+    description: "Allow Dodo Payments as a payment method.",
+    type: "boolean",
+    group: "Payments",
+  },
+
+  // Economy
+  currency_soft_name_singular: {
+    label: "Soft Currency Name (Singular)",
+    description: "Display name for one unit of the soft (earned) currency. Default: Credit",
+    type: "string",
+    group: "Economy",
+  },
+  currency_soft_name_plural: {
+    label: "Soft Currency Name (Plural)",
+    description: "Display name for multiple units of the soft (earned) currency. Default: Credits",
+    type: "string",
+    group: "Economy",
+  },
+  currency_premium_name_singular: {
+    label: "Premium Currency Name (Singular)",
+    description: "Display name for one unit of the premium (purchased) currency. Default: Star",
+    type: "string",
+    group: "Economy",
+  },
+  currency_premium_name_plural: {
+    label: "Premium Currency Name (Plural)",
+    description: "Display name for multiple units of the premium (purchased) currency. Default: Stars",
+    type: "string",
+    group: "Economy",
+  },
+  coin_to_cash_rate: {
+    label: "Credit-to-Cash Rate",
+    description: "Number of Credits equivalent to ₦1 (e.g. 100 means 100 Credits = ₦1).",
+    type: "number",
+    group: "Economy",
+  },
+
+  // Creator Fund — per-activity revenue split (PRD §14). See
+  // lib/creator/fundContribution.ts and the "Creator Fund" admin page for
+  // the current balance + manual top-up.
+  creator_fund_split_room_subscription_percent: {
+    label: "Room Subscriptions",
+    description: "Percent of gross room-subscription revenue contributed to the Creator Fund.",
+    type: "number",
+    group: "Creator Fund",
+  },
+  creator_fund_split_room_entry_percent: {
+    label: "Room Entry Fees",
+    description: "Percent of gross room-entry-fee revenue contributed to the Creator Fund.",
+    type: "number",
+    group: "Creator Fund",
+  },
+  creator_fund_split_coin_purchase_percent: {
+    label: "Credit Pack Purchases",
+    description: "Percent of gross Credit-pack purchase revenue contributed to the Creator Fund.",
+    type: "number",
+    group: "Creator Fund",
+  },
+  creator_fund_split_sponsor_budget_percent: {
+    label: "Branded Room Sponsorships",
+    description: "Percent of branded-room sponsor budget contributed to the Creator Fund.",
+    type: "number",
+    group: "Creator Fund",
+  },
+  creator_fund_split_ad_reward_percent: {
+    label: "Rewarded Ad Payouts",
+    description: "Percent of rewarded-ad payout value contributed to the Creator Fund.",
+    type: "number",
+    group: "Creator Fund",
+  },
+  payout_threshold_kobo: {
+    label: "Minimum Payout (kobo)",
+    description: "Minimum creator payout amount in kobo. 100 kobo = ₦1.",
+    type: "number",
+    group: "Economy",
+  },
+  payout_large_approval_kobo: {
+    label: "Large Payout Approval Threshold (kobo)",
+    description:
+      "Withdrawals above this kobo amount require manual admin approval.",
+    type: "number",
+    group: "Economy",
+  },
+  season_pass_price_coins: {
+    label: "Season Pass Price (Credits)",
+    description: "Default price of a Season Pass in Credits.",
+    type: "number",
+    group: "Economy",
+  },
+  vip_room_min_price_kobo: {
+    label: "VIP Room Min Price (kobo)",
+    description: "Minimum subscription price a creator can set for a VIP Room.",
+    type: "number",
+    group: "Economy",
+  },
+  vip_room_max_price_kobo: {
+    label: "VIP Room Max Price (kobo)",
+    description: "Maximum subscription price a creator can set for a VIP Room.",
+    type: "number",
+    group: "Economy",
+  },
+
+  // Fraud Detection
+  fraud_gift_window_days: {
+    label: "Gift Fraud Window (days)",
+    description: "Look-back window for new-account gift-inflow fraud check. Default: 7.",
+    type: "number",
+    group: "Fraud Detection",
+  },
+  fraud_inflow_threshold_coins: {
+    label: "Gift Inflow Threshold (coins)",
+    description: "Minimum coins received from new accounts within the fraud window to trigger a flag. Default: 5000.",
+    type: "number",
+    group: "Fraud Detection",
+  },
+  fraud_new_account_age_days: {
+    label: "New Account Age (days)",
+    description: "Age (days) below which a gift sender is treated as a 'new account' for fraud purposes. Default: 7.",
+    type: "number",
+    group: "Fraud Detection",
+  },
+  fraud_max_payouts_per_day: {
+    label: "Max Payout Requests per Day",
+    description: "Maximum payout requests per creator per 24 h before a velocity fraud flag fires. Default: 3.",
+    type: "number",
+    group: "Fraud Detection",
+  },
+
+  // Limits
+  minimum_age: {
+    label: "Minimum Registration Age",
+    description: "Minimum age (in years) required to create an account.",
+    type: "number",
+    group: "Limits",
+  },
+
+  // AdMob
+  feature_admob_ads: {
+    label: "AdMob Ads",
+    description: "Show AdMob banner/interstitial ads to free-tier users.",
+    type: "boolean",
+    group: "AdMob",
+  },
+  feature_rewarded_ads: {
+    label: "Rewarded Ads",
+    description: "Allow free-tier users to earn Credits by watching rewarded ads.",
+    type: "boolean",
+    group: "AdMob",
+  },
+
+  // AI Moderation
+  ai_moderation_auto_action_threshold: {
+    label: "Auto-Action Threshold",
+    description:
+      "Confidence score (0.0–1.0) above which the AI automatically removes content / suspends users. Default: 0.9",
+    type: "number",
+    group: "AI Moderation",
+  },
+  ai_moderation_community_threshold: {
+    label: "Community Review Threshold",
+    description:
+      "Confidence score (0.0–1.0) above which a report is sent to Community Notes for crowd review. Below this = manual queue. Default: 0.7",
+    type: "number",
+    group: "AI Moderation",
+  },
+  ai_moderation_system_prompt: {
+    label: "AI System Prompt Override",
+    description:
+      "Custom system prompt for AI classification. Leave empty to use the built-in default prompt.",
+    type: "string",
+    group: "AI Moderation",
+  },
+
+  // Guild Wars
+  feature_war_event_active: {
+    label: "Platform War Event Active",
+    description: "Activates a platform-wide War Event. Reduces war cooldown to the configured hours below.",
+    type: "boolean",
+    group: "Guild Wars",
+  },
+  war_event_cooldown_hours: {
+    label: "War Event Cooldown (hours)",
+    description: "Guild war cooldown during an active War Event. Default is 48. Normal cooldown is 72 hours.",
+    type: "number",
+    group: "Guild Wars",
+  },
+
+  // Messaging
+  feature_pidgin_autocomplete: {
+    label: "Pidgin Autocomplete",
+    description: "When enabled, users can turn on Pidgin word suggestions in the message composer.",
+    type: "boolean",
+    group: "Messaging",
+  },
+  announcement_modal_display_mode: {
+    label: "Announcement Modal Display Mode",
+    description: "How modals are rotated per user: 'serial' shows them in order, 'random' picks randomly.",
+    type: "select",
+    group: "Messaging",
+    options: [
+      { value: "serial", label: "Serial (in order)" },
+      { value: "random", label: "Random" },
+    ],
+  },
+  announcement_banner_mode: {
+    label: "Announcement Banner Display Mode",
+    description: "How banners are rotated per user: 'serial' shows them in order, 'random' picks randomly.",
+    type: "select",
+    group: "Messaging",
+    options: [
+      { value: "serial", label: "Serial (in order)" },
+      { value: "random", label: "Random" },
+    ],
+  },
+
+  // Moments
+  feature_moments: {
+    label: "Enable Moments",
+    description: "Master toggle for Zobia Moments (the /moments feed and the in-Room ⚡ toggle). When off, all Moments endpoints return 503.",
+    type: "boolean",
+    group: "Moments",
+  },
+  moments_min_level: {
+    label: "Minimum Level to Post",
+    description: "Minimum account level (main rank number, 1 = Beginner, 2 = Rookie, …) required to share a Moment. Default: 2.",
+    type: "number",
+    group: "Moments",
+  },
+  moments_cost_credits: {
+    label: "Cost in Credits",
+    description: "Credits charged to post a Moment. Set to 0 to disable paying with Credits. Default: 100.",
+    type: "number",
+    group: "Moments",
+  },
+  moments_cost_stars: {
+    label: "Cost in Stars",
+    description: "Stars charged to post a Moment. Set to 0 to disable paying with Stars. Setting both costs to 0 makes Moments free. Default: 1.",
+    type: "number",
+    group: "Moments",
+  },
+
+  // Answers (Mini Forum / Q&A) — mirrored at /gate44/forum/settings
+  feature_forum: {
+    label: "Enable Answers",
+    description: "Master toggle for the mini forum (Q&A). When off, all /answers endpoints return 503.",
+    type: "boolean",
+    group: "Answers",
+  },
+  forum_min_level_to_post: {
+    label: "Minimum Level to Post",
+    description: "Minimum account level required to post a question. Default: 2.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_min_level_to_comment: {
+    label: "Minimum Level to Comment (Free)",
+    description: "Minimum account level required to answer/comment without paying. Below this level, users can still comment by spending credits. Default: 1.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_comment_bypass_cost_credits: {
+    label: "Comment Bypass Cost (Credits)",
+    description: "Credits charged to comment when below the comment level gate. Default: 1.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_reward_xp_per_question: {
+    label: "XP per Question",
+    description: "XP awarded for posting a question. Default: 10.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_reward_credits_per_question: {
+    label: "Credits per Question",
+    description: "Credits awarded for posting a question. Default: 0.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_reward_xp_per_answer: {
+    label: "XP per Answer",
+    description: "XP awarded for posting an answer. Default: 5.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_reward_credits_per_answer: {
+    label: "Credits per Answer",
+    description: "Credits awarded for posting an answer. Default: 0.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_reward_xp_per_upvote: {
+    label: "XP per Upvote Received",
+    description: "XP awarded to a content author each time their question/answer receives a net new upvote. Default: 1.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_reward_credits_per_upvote: {
+    label: "Credits per Upvote Received",
+    description: "Credits awarded to a content author each time their question/answer receives a net new upvote. Default: 0.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_reward_xp_best_answer: {
+    label: "XP for Best Answer",
+    description: "XP awarded to an answer's author when the question author marks it best. Default: 25.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_reward_credits_best_answer: {
+    label: "Credits for Best Answer",
+    description: "Credits awarded to an answer's author when the question author marks it best. Default: 10.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_daily_reward_cap_credits: {
+    label: "Daily Reward Cap (Credits)",
+    description: "Maximum total forum-sourced credit rewards a single user can earn per rolling 24h — an anti-farming ceiling. Default: 50.",
+    type: "number",
+    group: "Answers",
+  },
+  forum_auto_moderation_enabled: {
+    label: "Auto-Moderation",
+    description: "Run profanity and duplicate-post filters on new questions and answers automatically.",
+    type: "boolean",
+    group: "Answers",
+  },
+
+  // Physical Goods
+  physical_goods_enabled: {
+    label: "Allow Physical Product Sales",
+    description: "Master toggle — enables physical goods in creator merch stores.",
+    type: "boolean",
+    group: "Physical Goods",
+  },
+  physical_goods_fulfillment_manual: {
+    label: "Manual Fulfillment",
+    description: "Allow creators to fulfill physical orders manually (ship-it-yourself with optional tracking).",
+    type: "boolean",
+    group: "Physical Goods",
+  },
+  physical_goods_fulfillment_partner: {
+    label: "Partner Integration (Coming Soon)",
+    description: "Enable the partner fulfillment option. UI shows 'Coming Soon' — only manual fulfillment is processed.",
+    type: "boolean",
+    group: "Physical Goods",
+  },
+
+  // Floating Notifications
+  floating_notifications_enabled: {
+    label: "Enable Floating Notifications",
+    description: "Show floating reward notifications (+5 XP, +25 Credits, etc.) when users earn currency. Applies to all platforms.",
+    type: "boolean",
+    group: "Floating Notifications",
+  },
+  floating_notifications_xp_threshold: {
+    label: "XP Confetti Threshold",
+    description: "Single XP award must reach this amount to also trigger a confetti celebration. Default: 100.",
+    type: "number",
+    group: "Floating Notifications",
+  },
+  floating_notifications_credits_threshold: {
+    label: "Credits Confetti Threshold",
+    description: "Single Credit award must reach this amount to also trigger a confetti celebration. Default: 50.",
+    type: "number",
+    group: "Floating Notifications",
+  },
+  floating_notifications_stars_threshold: {
+    label: "Stars Confetti Threshold",
+    description: "Single Star award must reach this amount to also trigger a confetti celebration. Default: 10.",
+    type: "number",
+    group: "Floating Notifications",
+  },
+
+  // Grace Periods & Save Slots
+  save_slots_free: {
+    label: "Save Slots — Free",
+    description: "Number of save slots (paused in-progress games) available to Free plan users.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  save_slots_plus: {
+    label: "Save Slots — Plus",
+    description: "Number of save slots available to Plus plan users.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  save_slots_pro: {
+    label: "Save Slots — Pro",
+    description: "Number of save slots available to Pro plan users.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  save_slots_max: {
+    label: "Save Slots — Max",
+    description: "Number of save slots available to Max plan users.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_plus: {
+    label: "Grace Period (days) — Plus",
+    description: "Days after a Plus subscription lapses before grace-gated data (e.g. saved games) is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_pro: {
+    label: "Grace Period (days) — Pro",
+    description: "Days after a Pro subscription lapses before grace-gated data is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_max: {
+    label: "Grace Period (days) — Max",
+    description: "Days after a Max subscription lapses before grace-gated data is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_business_starter: {
+    label: "Grace Period (days) — Business Starter",
+    description: "Days after a Business Starter subscription lapses before grace-gated data is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_business_growth: {
+    label: "Grace Period (days) — Business Growth",
+    description: "Days after a Business Growth subscription lapses before grace-gated data is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_days_business_enterprise: {
+    label: "Grace Period (days) — Business Enterprise",
+    description: "Days after a Business Enterprise subscription lapses before grace-gated data is purged.",
+    type: "number",
+    group: "Grace Periods & Save Slots",
+  },
+  grace_period_features_plus: {
+    label: "Preserved During Grace — Plus",
+    description: "Which grace-gated features are kept (not purged) during the Plus grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+  grace_period_features_pro: {
+    label: "Preserved During Grace — Pro",
+    description: "Which grace-gated features are kept (not purged) during the Pro grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+  grace_period_features_max: {
+    label: "Preserved During Grace — Max",
+    description: "Which grace-gated features are kept (not purged) during the Max grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+  grace_period_features_business_starter: {
+    label: "Preserved During Grace — Business Starter",
+    description: "Which grace-gated features are kept during the Business Starter grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+  grace_period_features_business_growth: {
+    label: "Preserved During Grace — Business Growth",
+    description: "Which grace-gated features are kept during the Business Growth grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+  grace_period_features_business_enterprise: {
+    label: "Preserved During Grace — Business Enterprise",
+    description: "Which grace-gated features are kept during the Business Enterprise grace period.",
+    type: "multiselect",
+    group: "Grace Periods & Save Slots",
+    options: GRACE_FEATURE_REGISTRY.map((f) => ({ value: f.key, label: f.label })),
+  },
+
+  // Business Accounts
+  business_starter_price_kobo: {
+    label: "Business Starter Price (kobo)",
+    description: "Monthly price of the Business Starter tier, in kobo (default 500000 = ₦5,000).",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_growth_price_kobo: {
+    label: "Business Growth Price (kobo)",
+    description: "Monthly price of the Business Growth tier, in kobo (default 1500000 = ₦15,000).",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_enterprise_price_kobo: {
+    label: "Business Enterprise Price (kobo)",
+    description: "Monthly price of the Business Enterprise tier, in kobo (default 5000000 = ₦50,000).",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_page_limit_starter: {
+    label: "Business Page Limit — Starter",
+    description: "Max Business Pages a Business Starter account may create.",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_page_limit_growth: {
+    label: "Business Page Limit — Growth",
+    description: "Max Business Pages a Business Growth account may create.",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_page_limit_enterprise: {
+    label: "Business Page Limit — Enterprise",
+    description: "Max Business Pages a Business Enterprise account may create.",
+    type: "number",
+    group: "Business Accounts",
+  },
+  sponsored_quest_moderation_mode: {
+    label: "Sponsored Quest Moderation Mode",
+    description: "How business-submitted Sponsored Quests are moderated before going live.",
+    type: "select",
+    group: "Business Accounts",
+    options: [
+      { value: "manual", label: "Manual (admin approval queue)" },
+      { value: "ai", label: "AI moderation (with manual fallback)" },
+    ],
+  },
+  sponsored_quest_ai_auto_approve_threshold: {
+    label: "Sponsored Quest AI Auto-Approve Threshold",
+    description: "AI moderation confidence (0-1) at or above which a business-submitted Sponsored Quest is auto-approved when moderation mode is \"ai\".",
+    type: "number",
+    group: "Business Accounts",
+  },
+  business_downgrade_grace_days: {
+    label: "Business Downgrade Grace Period (days)",
+    description: "Days after a business account tier downgrade before extra pages are deactivated and running sponsored quests are stopped.",
+    type: "number",
+    group: "Business Accounts",
+  },
+
+  // Miscellaneous
+  deep_link_base_url: {
+    label: "Deep Link Base URL",
+    description: "Base URL used when generating deep links (e.g. https://zobia.app).",
+    type: "string",
+    group: "Miscellaneous",
+  },
+};
+
+// Groups that should be shown even if they have no items, and in what order.
+const GROUP_ORDER = [
+  "Maintenance Mode",
+  "Auth",
+  "CAPTCHA",
+  "GIF",
+  "PWA",
+  "Floating Notifications",
+  "Payments",
+  "Economy",
+  "Creator Fund",
+  "Fraud Detection",
+  "AdMob",
+  "Limits",
+  "AI Moderation",
+  "Guild Wars",
+  "Messaging",
+  "Moments",
+  "Answers",
+  "Physical Goods",
+  "Grace Periods & Save Slots",
+  "Business Accounts",
+  "Miscellaneous",
+];
+
+// ---------------------------------------------------------------------------
+// Toggle switch
+// ---------------------------------------------------------------------------
+
+interface ToggleSwitchProps {
+  checked: boolean;
+  onChange: (val: boolean) => void;
+  disabled?: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// Test payments — verify a provider is wired up without a real customer transaction
+// ---------------------------------------------------------------------------
+
+function TestPaymentsPanel({ showToast }: { showToast: (msg: string, type?: "success" | "error") => void }) {
+  const [running, setRunning] = useState<"paystack" | "dodopayments" | null>(null);
+
+  async function runTest(provider: "paystack" | "dodopayments") {
+    setRunning(provider);
+    try {
+      const res = await fetch("/api/admin/payments/test", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ provider }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        showToast(body.error?.message ?? `Failed to start ${provider} test payment`, "error");
+        return;
+      }
+      const paymentUrl = body.data?.paymentUrl as string | undefined;
+      if (paymentUrl) {
+        window.open(paymentUrl, "_blank", "noopener,noreferrer");
+        showToast(`${provider} checkout opened in a new tab — complete it to confirm the integration works.`);
+      }
+    } catch {
+      showToast(`Failed to start ${provider} test payment`, "error");
+    } finally {
+      setRunning(null);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Test Payments</h2>
+      <p className="mt-1 text-xs text-neutral-500">
+        Starts a real ₦1 checkout session with the currently configured provider keys (test or
+        live, whichever is active) so you can confirm the integration end-to-end. Nothing is
+        credited to your account — this is excluded from Creator Fund revenue.
+      </p>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          onClick={() => runTest("paystack")}
+          disabled={running !== null}
+          className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+        >
+          {running === "paystack" ? "Starting…" : "Test Paystack"}
+        </button>
+        <button
+          onClick={() => runTest("dodopayments")}
+          disabled={running !== null}
+          className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:opacity-60"
+        >
+          {running === "dodopayments" ? "Starting…" : "Test DodoPayments"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ToggleSwitch({ checked, onChange, disabled }: ToggleSwitchProps) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 ${checked ? "bg-blue-600" : "bg-neutral-300 dark:bg-neutral-600"}`}
+    >
+      <span
+        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-card transition duration-200 ${checked ? "translate-x-5" : "translate-x-0"}`}
+      />
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Config row — supports boolean toggle, select dropdown, and inline text/number edit
+// ---------------------------------------------------------------------------
+
+interface ConfigRowProps {
+  item: ConfigItem;
+  onSave: (key: string, value: boolean | string | number | string[]) => Promise<void>;
+}
+
+function ConfigRow({ item, onSave }: ConfigRowProps) {
+  const [editing, setEditing] = useState(false);
+  const [localValue, setLocalValue] = useState<string>(
+    Array.isArray(item.value) ? "" : String(item.value)
+  );
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [confirmingMaintenance, setConfirmingMaintenance] = useState(false);
+
+  async function commitToggle(val: boolean) {
+    setSaving(true);
+    await onSave(item.key, val);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleToggle(val: boolean) {
+    // Maintenance mode takes the whole platform down for everyone but staff —
+    // require an explicit confirmation before turning it ON.
+    if (item.key === "maintenance_mode_enabled" && val === true) {
+      setConfirmingMaintenance(true);
+      return;
+    }
+    await commitToggle(val);
+  }
+
+  async function handleSaveText() {
+    setSaving(true);
+    const parsed: boolean | string | number =
+      item.type === "number" ? Number(localValue) : localValue;
+    await onSave(item.key, parsed);
+    setEditing(false);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleSelectChange(val: string) {
+    setSaving(true);
+    await onSave(item.key, val);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  async function handleMultiselectToggle(optionValue: string, checked: boolean) {
+    const current = Array.isArray(item.value) ? item.value : [];
+    const next = checked ? [...current, optionValue] : current.filter((v) => v !== optionValue);
+    setSaving(true);
+    await onSave(item.key, next);
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
+  return (
+    <div className="flex flex-wrap items-start gap-4 border-b border-neutral-100 py-4 last:border-0 dark:border-neutral-800">
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-xs text-neutral-500 dark:text-neutral-400">
+            {item.key}
+          </span>
+          {saved && (
+            <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
+              Saved ✓
+            </span>
+          )}
+        </div>
+        <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+          {item.label}
+        </p>
+        <p className="text-xs text-neutral-500">{item.description}</p>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2">
+        {item.type === "boolean" ? (
+          <>
+            <ToggleSwitch
+              checked={item.value as boolean}
+              onChange={handleToggle}
+              disabled={saving}
+            />
+            {confirmingMaintenance && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+                <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl dark:bg-neutral-900">
+                  <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">
+                    Do you really want to enable maintenance mode?
+                  </h3>
+                  <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+                    Everyone except admins and moderators will be locked out of Zobia until you turn this off.
+                  </p>
+                  <div className="mt-5 flex gap-3">
+                    <button
+                      onClick={() => setConfirmingMaintenance(false)}
+                      className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700 dark:border-neutral-700 dark:text-neutral-300"
+                    >
+                      No, Cancel
+                    </button>
+                    <button
+                      onClick={async () => {
+                        setConfirmingMaintenance(false);
+                        await commitToggle(true);
+                      }}
+                      className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white hover:bg-red-700"
+                    >
+                      Yes, Proceed
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        ) : item.type === "select" ? (
+          <select
+            value={String(item.value)}
+            onChange={(e) => handleSelectChange(e.target.value)}
+            disabled={saving}
+            className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:opacity-60 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+          >
+            {item.options?.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        ) : item.type === "multiselect" ? (
+          <div className="flex flex-col gap-1.5">
+            {item.options?.map((opt) => {
+              const checked = Array.isArray(item.value) && item.value.includes(opt.value);
+              return (
+                <label key={opt.value} className="flex items-center gap-2 text-xs text-neutral-700 dark:text-neutral-300">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    disabled={saving}
+                    onChange={(e) => void handleMultiselectToggle(opt.value, e.target.checked)}
+                    className="h-3.5 w-3.5 rounded border-neutral-300 text-blue-600 focus:ring-blue-500 dark:border-neutral-600"
+                  />
+                  {opt.label}
+                </label>
+              );
+            })}
+          </div>
+        ) : editing ? (
+          <div className="flex items-center gap-2">
+            <input
+              type={item.type === "number" ? "number" : "text"}
+              value={localValue}
+              onChange={(e) => setLocalValue(e.target.value)}
+              className="w-40 rounded-lg border border-neutral-300 bg-white px-2.5 py-1.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+              autoFocus
+            />
+            <button
+              onClick={handleSaveText}
+              disabled={saving}
+              className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+            >
+              {saving ? "…" : "Save"}
+            </button>
+            <button
+              onClick={() => {
+                setEditing(false);
+                setLocalValue(String(item.value));
+              }}
+              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700 dark:border-neutral-700 dark:text-neutral-300"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-2">
+            <span className="rounded-lg bg-neutral-100 px-2.5 py-1 font-mono text-xs text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
+              {String(item.value)}
+            </span>
+            <button
+              onClick={() => setEditing(true)}
+              className="rounded-lg bg-blue-100 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300"
+            >
+              Edit
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Raw row returned by GET /api/admin/config */
+interface RawManifestEntry {
+  key: string;
+  value: string;
+  description: string | null;
+  updatedAt: string | null;
+}
+
+/**
+ * Convert a raw x_manifest row into a typed ConfigItem using CONFIG_META for
+ * label/description/type/group, falling back to sensible defaults for unknown keys.
+ */
+function toConfigItem(entry: RawManifestEntry): ConfigItem {
+  const meta = CONFIG_META[entry.key];
+
+  // Skip pure feature_* keys — they are managed by the Feature Flags panel,
+  // EXCEPT admob/rewarded which live in the AdMob group above.
+  if (
+    entry.key.startsWith("feature_") &&
+    entry.key !== "feature_admob_ads" &&
+    entry.key !== "feature_rewarded_ads"
+  ) {
+    return null as unknown as ConfigItem; // filtered out below
+  }
+
+  if (meta) {
+    let parsedValue: boolean | string | number | string[];
+    if (meta.type === "boolean") {
+      parsedValue = entry.value === "true";
+    } else if (meta.type === "number") {
+      parsedValue = parseInt(entry.value, 10) || 0;
+    } else if (meta.type === "multiselect") {
+      try {
+        const parsed = JSON.parse(entry.value) as unknown;
+        parsedValue = Array.isArray(parsed) ? (parsed as string[]) : [];
+      } catch {
+        parsedValue = [];
+      }
+    } else {
+      // string or select
+      parsedValue = entry.value;
+    }
+    return {
+      key: entry.key,
+      label: meta.label,
+      description: meta.description,
+      value: parsedValue,
+      type: meta.type,
+      group: meta.group,
+      options: meta.options,
+    };
+  }
+
+  // Fallback for unknown keys — show as editable string in Miscellaneous
+  return {
+    key: entry.key,
+    label: entry.key,
+    description: entry.description ?? "",
+    value: entry.value,
+    type: "string",
+    group: "Miscellaneous",
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Main page
+// ---------------------------------------------------------------------------
+
+/**
+ * Admin platform configuration page.
+ * Requires admin authentication (enforced by middleware).
+ */
+export default function AdminConfigPage() {
+  const { t } = useTranslation();
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
+  const [grouped, setGrouped] = useState<GroupedConfig>({});
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{
+    msg: string;
+    type: "success" | "error";
+  } | null>(null);
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
+    Object.fromEntries(GROUP_ORDER.map((g) => [g, true]))
+  );
+
+  const showToast = useCallback(
+    (msg: string, type: "success" | "error" = "success") => {
+      setToast({ msg, type });
+      setTimeout(() => setToast(null), 3500);
+    },
+    []
+  );
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/admin/config", { credentials: "include" });
+        if (res.status === 401 || res.status === 403) {
+          window.location.href = "/gate44/login";
+          return;
+        }
+        if (!res.ok) throw new Error("Failed to load config");
+
+        // The API returns { success, data: RawManifestEntry[], error }
+        const body = (await res.json()) as {
+          success: boolean;
+          data?: RawManifestEntry[];
+          // legacy shape support
+          config?: RawManifestEntry[];
+        };
+
+        const rawEntries: RawManifestEntry[] = body.data ?? body.config ?? [];
+
+        const items: ConfigItem[] = rawEntries
+          .map(toConfigItem)
+          .filter(Boolean);
+
+        const g: GroupedConfig = {};
+        for (const item of items) {
+          const group = item.group || "Miscellaneous";
+          if (!g[group]) g[group] = [];
+          g[group].push(item);
+        }
+        setGrouped(g);
+      } catch (e) {
+        setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  async function handleSave(key: string, value: boolean | string | number | string[]) {
+    try {
+      // The API expects string values
+      const stringValue = Array.isArray(value)
+        ? JSON.stringify(value)
+        : typeof value === "boolean"
+          ? String(value)
+          : String(value);
+
+      const res = await fetch(`/api/admin/config/${key}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value: stringValue }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        const err = new Error(body.error?.message ?? "Failed to save") as Error & { code?: string | null };
+        err.code = body.error?.code ?? null;
+        throw err;
+      }
+
+      // Update local state
+      setGrouped((prev) => {
+        const next: GroupedConfig = {};
+        for (const [g, items] of Object.entries(prev)) {
+          next[g] = items.map((i) => (i.key === key ? { ...i, value } : i));
+        }
+        return next;
+      });
+      showToast(`${key} saved`);
+    } catch (e) {
+      showToast(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Save failed") : "Save failed", "error");
+      throw e;
+    }
+  }
+
+  function toggleGroup(g: string) {
+    setOpenGroups((prev) => ({ ...prev, [g]: !prev[g] }));
+  }
+
+  const sortedGroups = GROUP_ORDER.filter((g) => grouped[g]).concat(
+    Object.keys(grouped).filter((g) => !GROUP_ORDER.includes(g))
+  );
+
+  return (
+    <div className="relative space-y-4">
+      <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
+        Platform Configuration
+      </h1>
+
+      {toast && (
+        <div
+          className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-modal ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}
+        >
+          {toast.msg}
+        </div>
+      )}
+
+      {error && (
+        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
+          {error}
+        </div>
+      )}
+
+      {loading ? (
+        <div className="space-y-4">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div
+              key={i}
+              className="animate-pulse rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900"
+            >
+              <div className="mb-4 h-5 w-32 rounded bg-neutral-200 dark:bg-neutral-700" />
+              {Array.from({ length: 3 }).map((__, j) => (
+                <div key={j} className="mb-3 flex items-center justify-between">
+                  <div className="h-4 w-48 rounded bg-neutral-200 dark:bg-neutral-700" />
+                  <div className="h-6 w-11 rounded-full bg-neutral-200 dark:bg-neutral-700" />
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      ) : (
+        sortedGroups.map((group) => (
+          <div
+            key={group}
+            className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900"
+          >
+            <button
+              onClick={() => toggleGroup(group)}
+              className="flex w-full items-center justify-between px-5 py-4 text-left"
+            >
+              <div>
+                <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">
+                  {group}
+                </h2>
+                <p className="text-xs text-neutral-500">
+                  {grouped[group]?.length ?? 0} settings
+                </p>
+              </div>
+              <span className="text-neutral-400">
+                {openGroups[group] ? "▲" : "▼"}
+              </span>
+            </button>
+            {openGroups[group] && (
+              <div className="border-t border-neutral-100 px-5 dark:border-neutral-800">
+                {grouped[group]?.map((item) => (
+                  <ConfigRow key={item.key} item={item} onSave={handleSave} />
+                ))}
+              </div>
+            )}
+          </div>
+        ))
+      )}
+
+      {!loading && <TestPaymentsPanel showToast={showToast} />}
+    </div>
+  );
+}
