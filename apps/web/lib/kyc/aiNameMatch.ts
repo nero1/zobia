@@ -14,6 +14,7 @@
  */
 
 import { aiClient } from "@/lib/ai/client";
+import { logAiCall } from "@/lib/ai/monitoring";
 import { logger } from "@/lib/logger";
 
 export interface NameMatchResult {
@@ -64,16 +65,44 @@ export async function compareNames(nameA: string, nameB: string): Promise<NameMa
     return { score: 1, match: true, reasoning: "Exact match." };
   }
 
+  const startedAt = Date.now();
   try {
     const response = await aiClient.chat(
       [{ role: "user", content: `Name A: "${a}"\nName B: "${b}"` }],
       { systemPrompt: SYSTEM_PROMPT, temperature: 0, maxTokens: 200 }
     );
     const parsed = parseJsonResponse(response.content);
-    if (parsed) return parsed;
+    if (parsed) {
+      await logAiCall({
+        provider: response.provider,
+        model: response.model,
+        feature: "kyc:name_match",
+        success: true,
+        latencyMs: Date.now() - startedAt,
+        confidence: parsed.score,
+        resultPreview: `match=${parsed.match} ${parsed.reasoning}`,
+      });
+      return parsed;
+    }
     logger.warn({ content: response.content }, "[kyc/aiNameMatch] Unparseable AI response — falling back to heuristic");
+    await logAiCall({
+      provider: response.provider,
+      model: response.model,
+      feature: "kyc:name_match",
+      success: false,
+      latencyMs: Date.now() - startedAt,
+      errorMessage: "Unparseable AI response",
+    });
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : String(err) }, "[kyc/aiNameMatch] AI call failed — falling back to heuristic");
+    await logAiCall({
+      provider: "none",
+      model: "n/a",
+      feature: "kyc:name_match",
+      success: false,
+      latencyMs: Date.now() - startedAt,
+      errorMessage: err instanceof Error ? err.message : String(err),
+    });
   }
 
   return heuristicNameMatch(a, b);

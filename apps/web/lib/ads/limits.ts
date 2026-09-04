@@ -198,10 +198,24 @@ export async function getOwnBusinessAccountId(userId: string): Promise<string | 
   return rows[0]?.id ?? null;
 }
 
-/** How business-submitted ad campaigns are moderated. */
+/** How business-submitted ad campaigns are moderated (all creative types combined). */
 export async function getAdModerationMode(): Promise<"manual" | "ai"> {
   const manifest = await loadManifest();
   return manifest.ads.moderationMode;
+}
+
+/**
+ * Per-creative-type moderation mode, admin-configurable separately for text
+ * and image ads (`ad_moderation_mode_text` / `ad_moderation_mode_image`).
+ * Falls back to the combined `ad_moderation_mode` (manifest.ads.moderationMode)
+ * when the type-specific key hasn't been set, so existing installs keep
+ * working without a config migration.
+ */
+export async function getAdModerationModeFor(type: "text" | "image"): Promise<"manual" | "ai"> {
+  const key = type === "image" ? "ad_moderation_mode_image" : "ad_moderation_mode_text";
+  const raw = await getManifestValue(key);
+  if (raw === "ai" || raw === "manual") return raw;
+  return getAdModerationMode();
 }
 
 export async function getAdAiAutoApproveThreshold(): Promise<number> {

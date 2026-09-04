@@ -75,5 +75,7 @@ INSERT INTO x_manifest (key, value, description) VALUES
     ('ad_min_level_free_accounts', '5', 'Minimum account level for a free-plan account to place ads, when allowed.'),
     ('ad_enforce_min_level_paid_business', 'false', 'Also enforce a minimum level for paid-plan/business advertisers.'),
     ('ad_min_level_paid_business', '1', 'Minimum account level for paid-plan/business advertisers, when enforced.'),
-    ('ad_advertiser_grace_days', '14', 'Days an ad keeps running under its original advertiser identity after the underlying business/page stops qualifying.')
+    ('ad_advertiser_grace_days', '14', 'Days an ad keeps running under its original advertiser identity after the underlying business/page stops qualifying.'),
+    ('ad_moderation_mode_text', 'manual', 'Moderation mode for text/native ad creatives: manual or ai.'),
+    ('ad_moderation_mode_image', 'manual', 'Moderation mode for image ad creatives: manual or ai. Always uses an image-capable model.')
 ON CONFLICT (key) DO NOTHING;

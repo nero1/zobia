@@ -325,6 +325,11 @@ const ADS_SETTINGS_FIELDS: AdsFieldMeta[] = [
   { key: "ad_advertiser_grace_days", label: "Advertiser Grace Period (days)", description: "How long an ad keeps running under its original advertiser identity after the business account/page behind it lapses.", type: "number" },
 ];
 
+const ADS_MODERATION_MODE_FIELDS: { key: string; label: string; description: string }[] = [
+  { key: "ad_moderation_mode_text", label: "Text/Native Ad Moderation", description: "manual = admin queue, ai = auto-approve above the AI confidence threshold." },
+  { key: "ad_moderation_mode_image", label: "Image Ad Moderation", description: "Always uses an image-capable model (Gemini Vision) when set to ai — text models can't see images." },
+];
+
 function AdsToggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
   return (
     <button
@@ -402,6 +407,29 @@ function SettingsTab() {
           {toast.msg}
         </div>
       )}
+      <div className="mb-4 divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900">
+        {ADS_MODERATION_MODE_FIELDS.map((field) => {
+          const raw = values[field.key] ?? "manual";
+          const isSaving = saving === field.key;
+          return (
+            <div key={field.key} className="flex items-center justify-between gap-4 px-4 py-3.5">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-50">{field.label}</p>
+                <p className="text-xs text-neutral-500">{field.description}</p>
+              </div>
+              <select
+                value={raw}
+                disabled={isSaving}
+                onChange={(e) => save(field.key, e.target.value)}
+                className="rounded-lg border border-neutral-300 bg-white px-2 py-1.5 text-sm text-neutral-900 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-50"
+              >
+                <option value="manual">Manual</option>
+                <option value="ai">AI (auto-approve)</option>
+              </select>
+            </div>
+          );
+        })}
+      </div>
       <div className="divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900">
         {ADS_SETTINGS_FIELDS.map((field) => {
           const raw = values[field.key] ?? "";

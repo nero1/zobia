@@ -19,8 +19,8 @@ import Decimal from "decimal.js";
 import { db } from "@/lib/db";
 import type { TransactionClient } from "@/lib/db/interface";
 import { debitAdWallet, creditAdWallet } from "@/lib/economy/adWallet";
-import { classifyAdCreative } from "@/lib/moderation/aiClassifier";
-import { getAdModerationMode, getAdAiAutoApproveThreshold, getDefaultCpmCredits, getAdsAdminConfig } from "@/lib/ads/limits";
+import { classifyAdCreative, classifyAdCreativeImage } from "@/lib/moderation/aiClassifier";
+import { getAdModerationModeFor, getAdAiAutoApproveThreshold, getDefaultCpmCredits, getAdsAdminConfig } from "@/lib/ads/limits";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -185,29 +185,36 @@ export async function listCreatives(campaignId: string): Promise<AdCreativeRow[]
  * Submit a draft campaign for moderation. Mirrors the Sponsored Quest
  * self-service moderation flow (lib/business/limits.ts +
  * app/api/business/sponsored-quests/route.ts): manual admin queue by
- * default, or AI auto-approval when x_manifest `ad_moderation_mode` is "ai".
+ * default, or AI auto-approval when the admin has turned it on for this
+ * creative's type (`ad_moderation_mode_text` / `ad_moderation_mode_image`
+ * — see lib/ads/limits.ts getAdModerationModeFor). Image creatives are
+ * always routed to an image-capable model (classifyAdCreativeImage),
+ * never the text classifier — a text model cannot see the image.
  */
 export async function submitCampaignForModeration(
   campaign: AdCampaignRow,
   advertiserName: string
 ): Promise<{ moderationStatus: "pending" | "approved"; reason: string | null }> {
-  const { rows: creativeRows } = await db.query<{ title: string | null; body: string | null; click_url: string | null }>(
-    `SELECT title, body, click_url FROM ad_creatives WHERE campaign_id = $1 LIMIT 1`,
+  const { rows: creativeRows } = await db.query<{ title: string | null; body: string | null; click_url: string | null; format: string; image_url: string | null }>(
+    `SELECT title, body, click_url, format, image_url FROM ad_creatives WHERE campaign_id = $1 LIMIT 1`,
     [campaign.id]
   );
   const creative = creativeRows[0];
-  const mode = await getAdModerationMode();
+  const isImageCreative = creative?.format === "image" && !!creative.image_url;
+  const mode = await getAdModerationModeFor(isImageCreative ? "image" : "text");
   let moderationStatus: "pending" | "approved" = "pending";
   let reason: string | null = null;
 
   if (mode === "ai") {
-    const review = await classifyAdCreative(
-      advertiserName,
-      campaign.name,
-      creative?.title ?? "",
-      creative?.body ?? "",
-      creative?.click_url ?? ""
-    );
+    const review = isImageCreative
+      ? await classifyAdCreativeImage(creative!.image_url!)
+      : await classifyAdCreative(
+          advertiserName,
+          campaign.name,
+          creative?.title ?? "",
+          creative?.body ?? "",
+          creative?.click_url ?? ""
+        );
     const threshold = await getAdAiAutoApproveThreshold();
     if (review.approvalConfidence >= threshold) moderationStatus = "approved";
     reason = review.reason;
