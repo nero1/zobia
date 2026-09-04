@@ -2232,3 +2232,57 @@ User-facing strings live under the `kyc.*` keys in
 the English default string via the existing `t(key, "default")` pattern).
 
 User-facing `/gifts` page has a "Browse gift catalog" link that opens the send-gift modal so users can explore available gifts before choosing a recipient.
+
+## Session Expiry Notice (Web/PWA + Capacitor)
+
+The "you've been signed out, please sign in again" modal is mounted once at the web root layout and listens to a small pub/sub bus (`lib/auth/sessionExpiredBus.ts`). It used to only fire for requests made through `authFetch`/`apiClient`; a large number of pages call the browser's native `fetch()` directly with no 401 handling, so a dead session on those pages just failed every click silently. `window.fetch` is now patched once at the same mount point: any same-origin `/api/*` 401 (excluding the auth endpoints themselves) marks the session expired platform-wide, and `authFetch`/`apiClient` route through the pre-patch `rawFetch` so their own silent-refresh-then-retry logic still runs first and this guard never preempts it. The modal itself now renders at `z-[10000]`, above every other overlay in the app (previously it could render behind an open panel, e.g. a room's Powers panel).
+
+On the Capacitor app, `AuthGuard` already redirected to `/auth/login` on an involuntary sign-out, but silently — no explanation. `signalUnauthenticated()` now tags the redirect with a reason, and the login screen shows a "your session has expired" banner.
+
+## Blog Subscribe — Login Redirect (Web/PWA)
+
+A logged-out visitor tapping Subscribe on `/b/<slug>` is sent to `/auth/login?redirect=/b/<slug>` with a one-shot intent (`zobia:pendingBlogSubscribe`) stashed in `sessionStorage` — deliberately not `localStorage`, so it can't leak between users of a shared device and can't outlive the tab. After login, `SubscribeButton` sees the pending intent for the current slug and fires the subscribe call automatically instead of leaving the user to notice and click Subscribe a second time. The Capacitor app's entire route tree sits behind `AuthGuard`, so a logged-out user can never reach a blog page there in the first place — this fix is web/PWA-only.
+
+## Mini-Badges (Web/PWA + Capacitor)
+
+Three small badges render immediately after a user's display name anywhere a username appears — Room chat messages, the Moments feed, and profile headers (`components/shared/UserBadges.tsx` on web, `apps/android/src/components/shared/UserBadges.tsx` on Capacitor, kept in exact sync):
+- An **XP-level dot** — a colored circle, one color per rank tier.
+- A **Prestige diamond** — an inline-SVG rhombus (not a fixed-color Unicode emoji, so each of the 10 Prestige tiers gets its own exact color and renders identically on every platform), shown once a user has Prestiged at least once.
+- The existing **blue verified checkmark** for `is_verified` accounts.
+
+`UserBadgeRow` composes all three in that order. Backend: `is_verified`/`prestige_count`/`xp_total` were added to the Room-messages GET/broadcast payload and the Moments feed query so the badge state is available without an extra round-trip.
+
+## Answers — Share Button
+
+The question detail page (`/answers/<id>` on web, `routes/answers/$questionId.tsx` on Capacitor) has a Share action that shares/copies the canonical public `/a/<slug>` URL — the public, crawlable, SEO-optimised page (title/OG/JSON-LD, sitemap-listed) already existed (`app/a/[slug]/page.tsx`) but nothing in the app surfaced its link. Uses the Web Share API with a clipboard fallback, same pattern as `GameCoverActions.tsx`'s existing referral-link share.
+
+## Moderation Center
+
+A standalone area at `/moderation` (outside `/admin`), reachable by both Moderators and Admins. It unifies:
+- **Reports** — the general report queue, now moderator-accessible (previously admin-only).
+- **Forum Queue** — Answers question/answer reports (already moderator-accessible).
+- **Audit Log** (Admin-only tab) — every *manual* moderation action with the acting moderator's username; distinct from the existing automated-actions log, which only ever surfaced system/AI-driven actions.
+
+Resolved reports show who acted on them. `ban_user`/`escalate_ai` stay Admin-only within the shared queue. Any manual action can be reversed — restores removed content, lifts a suspension/ban, credits back a warning, and resets the report to `pending` — reversing a ban is Admin-only. Admin gets a link to the Center from the Admin section (in addition to their full `/admin/moderation` queue); Moderators get one from their user-area drawer, mirroring the Admin link.
+
+A real, pre-existing bug was found and fixed while widening this surface: `moderation_actions`' `action_type` CHECK constraint and `report_id` foreign key didn't match what the action routes actually insert (`'suspend_user'`/`'ban_user'`/`'escalate_ai'` vs. the constraint's `'suspend'`/`'ban'`/`'escalate'`; the FK pointed at the legacy `reports` table instead of `moderation_reports`), so every POST to either action route's insert was failing. Fixed via a new migration — never hand-edit an already-applied migration file, the checksum-drift-detecting runner in `db/migrate.ts` refuses to proceed if you do.
+
+## Creator Fund — Per-Activity Split & Manual Top-Up
+
+Every activity that contributes to the Creator Fund (room subscriptions, room entry fees, Credit-pack purchases, branded-room sponsorships, rewarded-ad payouts) used to hard-code the same 5% literal inline, with no way to adjust it without a deploy. `lib/creator/fundContribution.ts`'s `contributeToCreatorFund()` now reads an admin-configurable percent per activity (via the manifest's existing shared cache — no new Redis calls) and is the one place all five call sites write through. The percentages are editable from the existing generic `/admin/config` panel under a new "Creator Fund" group (no bespoke admin UI needed for that part). A new manual top-up action (Financial Monitoring admin page, both web and Capacitor) lets admin credit the pool directly ahead of the monthly distribution, logged to `admin_audit_log`.
+
+A dead code path was found and removed while wiring this: the day-1 monthly cron seed step read an `ad_revenue_{year}_{month}_kobo` manifest key that nothing in the codebase ever wrote, so it had always contributed exactly ₦0. Contributions now accrue live per-transaction instead.
+
+## Android Keystore-Backed Token Storage
+
+The Capacitor app's JWT access token and refresh token previously lived in plaintext in `@capacitor/preferences`' SharedPreferences file, only excluded from Android's backup/device-transfer mechanisms — which stops the sanctioned backup path from leaking them but nothing else (a rooted device, say). A small native plugin (`SecureTokenStorePlugin.java`) now stores just those two values in an `EncryptedSharedPreferences` file, keyed by an AES-256 key generated and held in the Android Keystore (hardware-backed where supported), via `androidx.security:security-crypto`. Everything else (`zobia_user`, `zobia_lang`, ...) stays in the plain Preferences store since it isn't a credential. `lib/auth/secureTokenStore.ts` bridges the TS side to the plugin, with a `localStorage` fallback used only for browser-based `npm run dev` (never a shipped build). Existing sessions migrate automatically on next app boot rather than forcing a re-login.
+
+## Playing Games Inside the App (Android/Capacitor)
+
+Tapping Play on a game previously opened a Custom Tab (`openAuthenticatedWebLink`) — a visible hand-off out of the app to the system browser. `routes/games/$slug/play.tsx` now embeds the existing web player (`/g/<slug>/embed`) in a full-screen `<iframe>` instead — the Capacitor app already runs entirely inside one WebView, so this is the native-equivalent way to keep the player inside the app, porting the pattern from the now-retired Expo app's `react-native-webview` host (`GameWebView.tsx`) rather than adding a new native WebView plugin.
+
+`GameRunner.tsx`'s lifecycle bridge now also posts to `window.parent` (a no-op standalone on web/PWA) alongside its existing `window.ReactNativeWebView.postMessage`, so the same embed page works for both hosts. `middleware.ts`'s CSP narrowly allows only `/g/<slug>/embed` to be framed by the Capacitor app's own origin — every other route keeps `frame-ancestors 'self'`, no sitewide clickjacking exposure. On `game_over`, the Capacitor host invalidates the `['users', 'me']` query (the same one the Wallet page treats as the source of truth for `coin_balance`) so earnings show up without a manual refresh, and fires a floating "+X Credits / +X XP" reward pop-up via a new minimal `FloatingRewardProvider` — Android's first such notification (web's fuller `FloatingNotificationProvider`, with realtime wiring and confetti, was not ported in full; this is scoped to the game-reward moment).
+
+## i18n Key Parity (Web/PWA vs. Capacitor)
+
+`shared/i18n/locales/*` (used by the Capacitor app) and `apps/web/lib/i18n/locales/*` (used by web/PWA) had drifted apart — 1071 keys existed only in `shared`, 61 only in `web` — so raw keys like `nav.wallet`/`admin.link` rendered literally on whichever platform was missing them. Merged per-locale in both directions (never cross-language, so no locale's text comes from a different language's file); both trees now carry the same 2902 keys. `apps/expo` was left untouched since it's frozen and being retired.
