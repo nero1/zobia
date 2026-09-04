@@ -192,7 +192,7 @@ const ADMIN_PREFIXES = ["/gate44"];
  * still re-verified against the DATABASE by the API layer
  * (withModeratorOrAdminAuth) — this is only the cheap edge pre-filter.
  */
-const FORUM_MOD_PREFIXES = ["/gate44/forum"];
+const FORUM_MOD_PREFIXES = ["/gate44/answers", "/gate44/forum"];
 
 // ---------------------------------------------------------------------------
 // Helpers

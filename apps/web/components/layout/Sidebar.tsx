@@ -14,6 +14,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
+import { useFeatureFlags, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
 
 interface SidebarUser {
   display_name: string | null;
@@ -38,10 +39,17 @@ function useSidebarUser() {
 // Nav items
 // ---------------------------------------------------------------------------
 
-const primaryNavItems = [
+interface PrimaryNavItem {
+  href: string;
+  label: string;
+  /** When set, hides this entry from non-admins if the flag is off (see useFeatureFlags). */
+  flagKey?: keyof FeatureFlags;
+}
+
+const primaryNavItems: PrimaryNavItem[] = [
   { href: "/home", label: "Home" },
   { href: "/moments", label: "Moments" },
-  { href: "/answers", label: "Answers" },
+  { href: "/answers", label: "Answers", flagKey: "forum" },
   { href: "/quests", label: "Quests" },
   { href: "/games", label: "Games" },
   { href: "/blogs", label: "Blogs" },
@@ -59,7 +67,7 @@ const primaryNavItems = [
   { href: "/referrals", label: "Referrals" },
   { href: "/classroom", label: "Classroom" },
   { href: "/leaderboards", label: "Leaderboards" },
-] as const;
+];
 
 const secondaryNavItems = [
   { href: "/profile", label: "Profile" },
@@ -74,10 +82,12 @@ function SidebarLink({
   href,
   label,
   isActive,
+  isOffForUsers,
 }: {
   href: string;
   label: string;
   isActive: boolean;
+  isOffForUsers?: boolean;
 }) {
   return (
     <Link
@@ -95,6 +105,9 @@ function SidebarLink({
         {navIcon(label)}
       </span>
       {label}
+      {isOffForUsers && (
+        <span title="Disabled for regular users" className="ml-auto text-xs text-amber-500">⚠️</span>
+      )}
     </Link>
   );
 }
@@ -141,6 +154,11 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const user = useSidebarUser();
+  const featureFlags = useFeatureFlags();
+  const visibleNavItems = primaryNavItems.filter((item) => {
+    if (item.flagKey && featureFlags[item.flagKey] === false) return !!user?.is_admin;
+    return true;
+  });
 
   const handleLogout = useCallback(async () => {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" }).catch(() => {});
@@ -165,12 +183,13 @@ export function Sidebar() {
               isActive={pathname.startsWith("/gate44")}
             />
           )}
-          {primaryNavItems.map((item) => (
+          {visibleNavItems.map((item) => (
             <SidebarLink
               key={item.href}
               href={item.href}
               label={item.label}
               isActive={pathname.startsWith(item.href)}
+              isOffForUsers={!!item.flagKey && featureFlags[item.flagKey] === false}
             />
           ))}
         </nav>

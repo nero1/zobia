@@ -121,7 +121,7 @@ export interface ZobiaManifest {
     /** Minimum account level (main rank number, 1 = Beginner) required to post a Moment. */
     minLevel: number;
   };
-  // Answers — mini forum / Q&A (admin-editable at /gate44/config and /gate44/forum/settings)
+  // Answers — mini forum / Q&A (admin-editable at /gate44/config and /gate44/answers/settings)
   forum: {
     /** Minimum account level required to post a question. */
     minLevelToPost: number;

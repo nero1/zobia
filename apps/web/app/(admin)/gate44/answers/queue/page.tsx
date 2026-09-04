@@ -19,6 +19,8 @@ interface ForumReport {
   reported_forum_answer_id: string | null;
   question_title: string | null;
   answer_body: string | null;
+  question_slug: string | null;
+  content_author_id: string | null;
   report_type: string;
   description: string | null;
   status: string;
@@ -64,6 +66,12 @@ function ReportCard({
   const isBusy = busy === report.id;
   const targetLabel = report.reported_forum_question_id ? "question" : "answer";
   const preview = report.question_title ?? report.answer_body ?? "(content unavailable)";
+  const targetId = report.reported_forum_question_id ?? report.reported_forum_answer_id;
+  const postHref = report.question_slug
+    ? `/a/${report.question_slug}`
+    : targetId
+      ? `/answers/${targetId}`
+      : null;
 
   const actions: { label: string; action: string; classes: string; hidden?: boolean }[] = [
     { label: "Dismiss", action: "dismiss", classes: "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300" },
@@ -79,6 +87,14 @@ function ReportCard({
         <span className="font-semibold text-neutral-700 dark:text-neutral-200">@{report.reporter_username ?? "unknown"}</span>
         <span className="text-neutral-400">reported</span>
         <span className="rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">{targetLabel}</span>
+        {postHref && (
+          <a href={postHref} target="_blank" rel="noopener noreferrer" title="Open post" className="text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400">🔗</a>
+        )}
+        {report.content_author_id && (
+          <a href={`/profile/${report.content_author_id}`} target="_blank" rel="noopener noreferrer" className="text-neutral-500 hover:text-primary-600 hover:underline dark:hover:text-primary-400">
+            author
+          </a>
+        )}
         <span className="rounded-full bg-neutral-100 px-2 py-0.5 font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
           {report.report_type.replace(/_/g, " ")}
         </span>

@@ -19,6 +19,7 @@ import { clsx } from "clsx";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/Avatar";
 import { useUnreadNotificationsCount } from "@/lib/notifications/useUnreadCount";
+import { useFeatureFlags, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
 
 interface NavUser {
   display_name: string | null;
@@ -56,11 +57,19 @@ const bottomTabItems = [
   { href: "/profile", label: "Profile", shortLabelKey: "nav.profile" },
 ] as const;
 
+interface PrimaryNavItem {
+  href: string;
+  labelKey: string;
+  icon: string;
+  /** When set, hides this entry from non-admins if the flag is off (see useFeatureFlags). */
+  flagKey?: keyof FeatureFlags;
+}
+
 // Full nav for desktop + drawer
-const primaryNavItems = [
+const primaryNavItems: PrimaryNavItem[] = [
   { href: "/home",         labelKey: "nav.home",         icon: "🏠" },
   { href: "/moments",      labelKey: "nav.moments",      icon: "⚡" },
-  { href: "/answers",      labelKey: "nav.answers",      icon: "❓" },
+  { href: "/answers",      labelKey: "nav.answers",      icon: "❓", flagKey: "forum" },
   { href: "/quests",       labelKey: "nav.quests",       icon: "🎯" },
   { href: "/games",        labelKey: "nav.games",        icon: "🎮" },
   { href: "/blogs",        labelKey: "nav.blogs",        icon: "📝" },
@@ -79,7 +88,7 @@ const primaryNavItems = [
   { href: "/classroom",    labelKey: "nav.classroom",    icon: "🏫" },
   { href: "/leaderboards", labelKey: "nav.leaderboards", icon: "🏆" },
   { href: "/seasons",      labelKey: "nav.seasons",      icon: "🗓️" },
-] as const;
+];
 
 const secondaryNavItems = [
   { href: "/profile",  labelKey: "nav.profile",  icon: "👤" },
@@ -187,6 +196,7 @@ function MobileDrawer({
   isModerator?: boolean;
 }) {
   const { t } = useTranslation();
+  const featureFlags = useFeatureFlags();
 
   // Close on Escape
   useEffect(() => {
@@ -195,6 +205,13 @@ function MobileDrawer({
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose]);
+
+  // Hide nav entries for features an admin turned off. Admins still see the
+  // entry but with a small "off" indicator, since they can also manage it.
+  const visibleNavItems = primaryNavItems.filter((item) => {
+    if (item.flagKey && featureFlags[item.flagKey] === false) return isAdmin;
+    return true;
+  });
 
   return (
     <>
@@ -261,8 +278,9 @@ function MobileDrawer({
                 {t("moderation.title", "Moderation Center")}
               </Link>
             )}
-            {primaryNavItems.map((item) => {
+            {visibleNavItems.map((item) => {
               const isActive = pathname.startsWith(item.href);
+              const isOffForUsers = !!item.flagKey && featureFlags[item.flagKey] === false;
               return (
                 <Link
                   key={item.href}
@@ -278,6 +296,9 @@ function MobileDrawer({
                 >
                   <span className="w-5 text-center text-base leading-none" aria-hidden="true">{item.icon}</span>
                   {t(item.labelKey)}
+                  {isOffForUsers && (
+                    <span title="Disabled for regular users" className="ml-auto text-xs text-amber-500">⚠️</span>
+                  )}
                 </Link>
               );
             })}

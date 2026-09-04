@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/Avatar";
 import { useForumConfig } from "@/lib/hooks/useForumConfig";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { NotFoundGate } from "@/components/shared/NotFoundGate";
 
 type Tab = "popular" | "trending" | "new" | "favorites";
 
@@ -118,6 +119,7 @@ export default function AnswersPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [myLevel, setMyLevel] = useState<number | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     fetch("/api/users/me", { credentials: "include" })
@@ -125,6 +127,7 @@ export default function AnswersPage() {
       .then((json) => {
         const user = json?.user ?? json;
         if (user?.rank_level != null) setMyLevel(user.rank_level);
+        setIsAdmin(!!user?.is_admin);
       })
       .catch(() => {});
   }, []);
@@ -205,6 +208,7 @@ export default function AnswersPage() {
   const canPost = myLevel === null || myLevel >= forumConfig.minLevelToPost;
 
   return (
+    <NotFoundGate enabled={forumConfig.enabled} isAdmin={isAdmin} featureLabel={t("answers.title", "Answers")}>
     <div className="mx-auto max-w-2xl p-4 sm:p-6">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("answers.title", "Answers")}</h1>
@@ -266,5 +270,6 @@ export default function AnswersPage() {
         )}
       </div>
     </div>
+    </NotFoundGate>
   );
 }

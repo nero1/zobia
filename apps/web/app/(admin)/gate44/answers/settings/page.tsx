@@ -11,7 +11,7 @@
  *
  * Admin-only — the underlying config write endpoint is admin-only
  * (config changes are a platform-wide decision, unlike moderation actions
- * which moderators can also take on /gate44/forum/queue and /gate44/forum/posts).
+ * which moderators can also take on /gate44/answers/queue and /gate44/answers/posts).
  */
 
 import { useState, useEffect, useCallback } from "react";

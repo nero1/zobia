@@ -414,7 +414,7 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Moments",
   },
 
-  // Answers (Mini Forum / Q&A) — mirrored at /gate44/forum/settings
+  // Answers (Mini Forum / Q&A) — mirrored at /gate44/answers/settings
   feature_forum: {
     label: "Enable Answers",
     description: "Master toggle for the mini forum (Q&A). When off, all /answers endpoints return 503.",
