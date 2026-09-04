@@ -2900,5 +2900,7 @@
   "wallet.title": "Isikhwama",
   "wallet.transactionHistory": "Umlando Wezintengiselwano",
   "wallet.viewFullStats": "Buka Izibalo Eziphelele →",
-  "wallet.xpBalance": "XP"
+  "wallet.xpBalance": "XP",
+  "answers.share": "Share",
+  "answers.linkCopied": "Link copied"
 }

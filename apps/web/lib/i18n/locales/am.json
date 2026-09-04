@@ -2900,5 +2900,7 @@
   "wallet.title": "ቦርሳ",
   "wallet.transactionHistory": "የግብይት ታሪክ",
   "wallet.viewFullStats": "ሙሉ ስታቲስቲክስን ይመልከቱ →",
-  "wallet.xpBalance": "XP"
+  "wallet.xpBalance": "XP",
+  "answers.share": "Share",
+  "answers.linkCopied": "Link copied"
 }

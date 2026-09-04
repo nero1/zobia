@@ -2900,5 +2900,7 @@
   "wallet.title": "Jakar Kirediti",
   "wallet.transactionHistory": "Tarihin Mu'amalar",
   "wallet.viewFullStats": "Duba Cikakkun Ƙididdiga →",
-  "wallet.xpBalance": "XP"
+  "wallet.xpBalance": "XP",
+  "answers.share": "Share",
+  "answers.linkCopied": "Link copied"
 }

@@ -2900,5 +2900,7 @@
   "wallet.title": "Mkoba",
   "wallet.transactionHistory": "Historia ya Miamala",
   "wallet.viewFullStats": "Ona Takwimu Kamili →",
-  "wallet.xpBalance": "XP"
+  "wallet.xpBalance": "XP",
+  "answers.share": "Share",
+  "answers.linkCopied": "Link copied"
 }

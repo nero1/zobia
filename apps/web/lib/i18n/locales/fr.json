@@ -2900,5 +2900,7 @@
   "wallet.title": "Portefeuille",
   "wallet.transactionHistory": "Historique des transactions",
   "wallet.viewFullStats": "Voir les statistiques complètes →",
-  "wallet.xpBalance": "XP"
+  "wallet.xpBalance": "XP",
+  "answers.share": "Share",
+  "answers.linkCopied": "Link copied"
 }

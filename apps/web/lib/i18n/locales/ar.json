@@ -2900,5 +2900,7 @@
   "wallet.title": "المحفظة",
   "wallet.transactionHistory": "سجل المعاملات",
   "wallet.viewFullStats": "عرض الإحصائيات الكاملة ←",
-  "wallet.xpBalance": "XP"
+  "wallet.xpBalance": "XP",
+  "answers.share": "Share",
+  "answers.linkCopied": "Link copied"
 }
