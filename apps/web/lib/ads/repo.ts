@@ -18,9 +18,9 @@
 import Decimal from "decimal.js";
 import { db } from "@/lib/db";
 import type { TransactionClient } from "@/lib/db/interface";
-import { debitCoins, creditCoins } from "@/lib/economy/coins";
+import { debitAdWallet, creditAdWallet } from "@/lib/economy/adWallet";
 import { classifyAdCreative } from "@/lib/moderation/aiClassifier";
-import { getAdModerationMode, getAdAiAutoApproveThreshold, getDefaultCpmCredits } from "@/lib/ads/limits";
+import { getAdModerationMode, getAdAiAutoApproveThreshold, getDefaultCpmCredits, getAdsAdminConfig } from "@/lib/ads/limits";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,12 +31,17 @@ export type AdCampaignStatus = "draft" | "pending_review" | "approved" | "reject
 export type AdCreativeFormat = "html" | "text" | "image" | "native" | "third_party";
 export type AdSize = "300x250" | "320x50" | "interstitial" | "rewarded" | "native";
 
+export type AdvertiserType = "personal" | "business_account" | "business_page";
+
 export interface AdCampaignRow {
   id: string;
   owner_type: "business" | "admin";
   business_account_id: string | null;
   business_page_id: string | null;
   created_by: string;
+  advertiser_type: AdvertiserType;
+  advertiser_user_id: string | null;
+  advertiser_grace_until: string | null;
   name: string;
   objective: AdCampaignObjective;
   status: AdCampaignStatus;
@@ -75,9 +80,12 @@ export interface AdCreativeRow {
 }
 
 export interface CreateCampaignInput {
-  businessAccountId: string;
+  /** Null for a personal-advertiser campaign (no Business Account). */
+  businessAccountId: string | null;
   businessPageId: string | null;
   createdBy: string;
+  /** Which identity is shown to viewers as the advertiser. */
+  advertiserType: AdvertiserType;
   name: string;
   objective: AdCampaignObjective;
   targetPlans?: string[] | null;
@@ -93,17 +101,20 @@ export interface CreateCampaignInput {
 
 export async function createCampaign(input: CreateCampaignInput): Promise<AdCampaignRow> {
   const cpm = await getDefaultCpmCredits();
+  const advertiserUserId = input.advertiserType === "personal" ? input.createdBy : null;
   const { rows } = await db.query<AdCampaignRow>(
     `INSERT INTO ad_campaigns
-       (owner_type, business_account_id, business_page_id, created_by, name, objective,
-        status, moderation_status, cpm_credits, target_plans, boosted_content_type,
-        boosted_content_id, start_at, end_at)
-     VALUES ('business', $1, $2, $3, $4, $5, 'draft', 'pending', $6, $7, $8, $9, $10, $11)
+       (owner_type, business_account_id, business_page_id, created_by, advertiser_type,
+        advertiser_user_id, name, objective, status, moderation_status, cpm_credits,
+        target_plans, boosted_content_type, boosted_content_id, start_at, end_at)
+     VALUES ('business', $1, $2, $3, $4, $5, $6, $7, 'draft', 'pending', $8, $9, $10, $11, $12, $13)
      RETURNING *`,
     [
       input.businessAccountId,
       input.businessPageId,
       input.createdBy,
+      input.advertiserType,
+      advertiserUserId,
       input.name,
       input.objective,
       cpm,
@@ -117,18 +128,24 @@ export async function createCampaign(input: CreateCampaignInput): Promise<AdCamp
   return rows[0];
 }
 
-export async function getOwnCampaign(campaignId: string, businessAccountId: string): Promise<AdCampaignRow | null> {
+/**
+ * Ownership is always by `created_by` (the authenticated user who submitted
+ * the campaign) — not by business_account_id, which is null for a
+ * personal-advertiser campaign. business_account_id/business_page_id are
+ * purely "which identity is displayed", never "who controls this campaign".
+ */
+export async function getOwnCampaign(campaignId: string, userId: string): Promise<AdCampaignRow | null> {
   const { rows } = await db.query<AdCampaignRow>(
-    `SELECT * FROM ad_campaigns WHERE id = $1 AND business_account_id = $2 AND deleted_at IS NULL LIMIT 1`,
-    [campaignId, businessAccountId]
+    `SELECT * FROM ad_campaigns WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL LIMIT 1`,
+    [campaignId, userId]
   );
   return rows[0] ?? null;
 }
 
-export async function listOwnCampaigns(businessAccountId: string): Promise<AdCampaignRow[]> {
+export async function listOwnCampaigns(userId: string): Promise<AdCampaignRow[]> {
   const { rows } = await db.query<AdCampaignRow>(
-    `SELECT * FROM ad_campaigns WHERE business_account_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`,
-    [businessAccountId]
+    `SELECT * FROM ad_campaigns WHERE created_by = $1 AND deleted_at IS NULL ORDER BY created_at DESC`,
+    [userId]
   );
   return rows;
 }
@@ -228,28 +245,29 @@ export async function moderateCampaign(
 /** Advertiser starts/pauses/stops a campaign that has already cleared moderation. */
 export async function setCampaignRunState(
   campaignId: string,
-  businessAccountId: string,
+  userId: string,
   state: "active" | "paused" | "stopped"
 ): Promise<AdCampaignRow | null> {
   const { rows } = await db.query<AdCampaignRow>(
     `UPDATE ad_campaigns
      SET status = $1, updated_at = NOW()
-     WHERE id = $2 AND business_account_id = $3 AND moderation_status = 'approved' AND deleted_at IS NULL
+     WHERE id = $2 AND created_by = $3 AND moderation_status = 'approved' AND deleted_at IS NULL
      RETURNING *`,
-    [state, campaignId, businessAccountId]
+    [state, campaignId, userId]
   );
   return rows[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
-// Budget funding (Credits — cash/Play-Billing top-ups land here via the
-// existing coin purchase flow, then get moved into a campaign's budget)
+// Budget funding — draws from the advertiser's Ad Wallet (lib/economy/adWallet.ts),
+// a distinct prepaid balance from coin_balance. The Ad Wallet itself is funded
+// either by transfer from coin_balance or by direct purchase (see
+// app/api/business/ads/wallet/* routes) — see that module's header comment.
 // ---------------------------------------------------------------------------
 
 export async function fundCampaign(
   userId: string,
   campaignId: string,
-  businessAccountId: string,
   amountCredits: number,
   idempotencyRef: string
 ): Promise<AdCampaignRow> {
@@ -260,13 +278,13 @@ export async function fundCampaign(
 
   return db.transaction(async (tx: TransactionClient) => {
     const { rows } = await tx.query<AdCampaignRow>(
-      `SELECT * FROM ad_campaigns WHERE id = $1 AND business_account_id = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [campaignId, businessAccountId]
+      `SELECT * FROM ad_campaigns WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL FOR UPDATE`,
+      [campaignId, userId]
     );
     const campaign = rows[0];
     if (!campaign) throw new Error("Campaign not found");
 
-    await debitCoins(
+    await debitAdWallet(
       userId,
       amount.toNumber(),
       "ad_campaign_funding",
@@ -284,16 +302,15 @@ export async function fundCampaign(
   });
 }
 
-/** Refund any unspent budget back to the advertiser when a campaign is stopped/deleted. */
+/** Refund any unspent budget back to the advertiser's Ad Wallet when a campaign is stopped/deleted. */
 export async function refundUnspentBudget(
   userId: string,
-  campaignId: string,
-  businessAccountId: string
+  campaignId: string
 ): Promise<number> {
   return db.transaction(async (tx: TransactionClient) => {
     const { rows } = await tx.query<AdCampaignRow>(
-      `SELECT * FROM ad_campaigns WHERE id = $1 AND business_account_id = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [campaignId, businessAccountId]
+      `SELECT * FROM ad_campaigns WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL FOR UPDATE`,
+      [campaignId, userId]
     );
     const campaign = rows[0];
     if (!campaign) throw new Error("Campaign not found");
@@ -301,7 +318,7 @@ export async function refundUnspentBudget(
     const remaining = new Decimal(campaign.total_budget_credits).minus(campaign.spent_credits);
     if (remaining.lte(0)) return 0;
 
-    await creditCoins(
+    await creditAdWallet(
       userId,
       remaining.toNumber(),
       "ad_campaign_refund",
@@ -316,6 +333,51 @@ export async function refundUnspentBudget(
     );
     return remaining.toNumber();
   });
+}
+
+// ---------------------------------------------------------------------------
+// Advertiser grace period — when a business_account/business_page campaign's
+// underlying subscription lapses (status leaves 'active' or verification is
+// pulled), its currently-running ads keep serving under the original
+// advertiser identity for `ad_advertiser_grace_days` (default 14) instead of
+// stopping immediately. Called from the same daily sweep as the business
+// downgrade sweep (lib/business/downgradeSweep.ts).
+// ---------------------------------------------------------------------------
+
+/**
+ * Stamp `advertiser_grace_until` on any actively-serving business/page
+ * campaign whose business account is no longer active+verified and doesn't
+ * already have a grace deadline set. Idempotent — only touches rows where
+ * advertiser_grace_until IS NULL, so a re-run never extends the window.
+ */
+export async function stampLapsedAdvertiserGrace(): Promise<number> {
+  const graceDays = (await getAdsAdminConfig()).advertiserGraceDays;
+  const { rowCount } = await db.query(
+    `UPDATE ad_campaigns c
+     SET advertiser_grace_until = NOW() + ($1 || ' days')::interval, updated_at = NOW()
+     FROM business_accounts ba
+     WHERE c.business_account_id = ba.id
+       AND c.advertiser_type IN ('business_account', 'business_page')
+       AND c.status IN ('active', 'paused')
+       AND c.deleted_at IS NULL
+       AND c.advertiser_grace_until IS NULL
+       AND NOT (ba.status = 'active' AND ba.verified = true)`,
+    [graceDays]
+  );
+  return rowCount ?? 0;
+}
+
+/** Stop any campaign whose advertiser grace period has expired. */
+export async function stopExpiredGraceCampaigns(): Promise<number> {
+  const { rowCount } = await db.query(
+    `UPDATE ad_campaigns
+     SET status = 'stopped', updated_at = NOW()
+     WHERE advertiser_grace_until IS NOT NULL
+       AND advertiser_grace_until < NOW()
+       AND status IN ('active', 'paused')
+       AND deleted_at IS NULL`
+  );
+  return rowCount ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -337,7 +399,6 @@ export interface AdCouponRow {
 export async function redeemCoupon(
   userId: string,
   campaignId: string,
-  businessAccountId: string,
   code: string
 ): Promise<{ creditsApplied: number }> {
   return db.transaction(async (tx: TransactionClient) => {
@@ -353,8 +414,8 @@ export async function redeemCoupon(
     }
 
     const { rows: campaignRows } = await tx.query<AdCampaignRow>(
-      `SELECT * FROM ad_campaigns WHERE id = $1 AND business_account_id = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [campaignId, businessAccountId]
+      `SELECT * FROM ad_campaigns WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL FOR UPDATE`,
+      [campaignId, userId]
     );
     const campaign = campaignRows[0];
     if (!campaign) throw new Error("Campaign not found");
@@ -410,15 +471,15 @@ export async function getCampaignDailyStats(campaignId: string, days: number): P
   return rows;
 }
 
-export async function getCampaignTotals(businessAccountId: string): Promise<{ impressions: number; clicks: number; spend_credits: string }> {
+export async function getCampaignTotals(userId: string): Promise<{ impressions: number; clicks: number; spend_credits: string }> {
   const { rows } = await db.query<{ impressions: string; clicks: string; spend_credits: string }>(
     `SELECT COALESCE(SUM(s.impressions),0)::text AS impressions,
             COALESCE(SUM(s.clicks),0)::text AS clicks,
             COALESCE(SUM(c.spent_credits),0)::text AS spend_credits
      FROM ad_campaigns c
      LEFT JOIN ad_campaign_daily_stats s ON s.campaign_id = c.id
-     WHERE c.business_account_id = $1 AND c.deleted_at IS NULL`,
-    [businessAccountId]
+     WHERE c.created_by = $1 AND c.deleted_at IS NULL`,
+    [userId]
   );
   const r = rows[0];
   return { impressions: Number(r?.impressions ?? 0), clicks: Number(r?.clicks ?? 0), spend_credits: r?.spend_credits ?? "0" };

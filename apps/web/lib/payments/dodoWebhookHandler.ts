@@ -8,6 +8,7 @@
 
 import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
+import { creditAdWallet } from "@/lib/economy/adWallet";
 import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions, recordFailedCommission } from "@/lib/referrals/commissions";
 import { moveToDeadLetterQueue, getCreatorFeeRate } from "@/lib/payments/payouts";
@@ -43,6 +44,8 @@ export interface DodoPaymentSucceededEvent {
       planName?: string;
       interval?: string;
       type?: string;
+      /** "ad_wallet" routes a coin_pack credit to the Ad Wallet instead of coin_balance. */
+      destination?: "main_wallet" | "ad_wallet";
     };
     created_at: string;
   };
@@ -454,18 +457,32 @@ export async function processPaymentSucceeded(
         return; // do not throw — let the transaction commit with status=completed
       }
 
-      await creditCoins(
-        userId,
-        serverCoinsGranted,
-        "purchase",
-        paymentId,
-        `Purchased ${metadata.packName}`,
-        { packId: metadata.packId, amountSmallestUnit: amount, currency: data.currency },
-        tx
-      );
+      if (metadata.destination === "ad_wallet") {
+        // Ad Wallet top-ups are not eligible for referral commissions —
+        // those exist to reward inviting spenders into the main economy.
+        await creditAdWallet(
+          userId,
+          serverCoinsGranted,
+          "topup_purchase",
+          paymentId,
+          `Purchased ${metadata.packName} (Ad Wallet)`,
+          { packId: metadata.packId, amountSmallestUnit: amount, currency: data.currency },
+          tx
+        );
+      } else {
+        await creditCoins(
+          userId,
+          serverCoinsGranted,
+          "purchase",
+          paymentId,
+          `Purchased ${metadata.packName}`,
+          { packId: metadata.packId, amountSmallestUnit: amount, currency: data.currency },
+          tx
+        );
 
-      // Capture params for post-transaction referral commission award (B12 — reduces hot-path lock time)
-      referralPayload = { userId, coins: serverCoinsGranted, paymentId, amountSmallestUnit: amount };
+        // Capture params for post-transaction referral commission award (B12 — reduces hot-path lock time)
+        referralPayload = { userId, coins: serverCoinsGranted, paymentId, amountSmallestUnit: amount };
+      }
     }
 
     // Seed the Creator Fund from gross revenue (PRD §14; percent is admin-configurable)

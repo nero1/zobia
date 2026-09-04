@@ -63,9 +63,82 @@ const PLACEMENTS = [
   { key: "rewarded_global", label: "Rewarded video", size: "rewarded" },
 ] as const;
 
+function AdWalletPanel() {
+  const [balance, setBalance] = useState<{ adWalletBalance: number; mainWalletBalance: number } | null>(null);
+  const [transferAmount, setTransferAmount] = useState(1000);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const res = await fetch("/api/business/ads/wallet", { credentials: "include" });
+    const json = await res.json().catch(() => null);
+    if (json?.success) setBalance(json.data);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  async function handleTransfer() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/business/ads/wallet/transfer", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amountCredits: Number(transferAmount) }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Transfer failed");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Transfer failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
+      <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Ad Wallet</h2>
+      <p className="mt-1 text-sm text-neutral-500">
+        Ads only run once this wallet has funds — separate from your main Credits balance. Fund it by transferring
+        from your main wallet, or buy Credits directly into it.
+      </p>
+      <div className="mt-3 flex flex-wrap items-baseline gap-4">
+        <div>
+          <p className="text-xs text-neutral-400">Ad Wallet balance</p>
+          <p className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{(balance?.adWalletBalance ?? 0).toLocaleString()} <span className="text-sm font-normal text-neutral-400">Credits</span></p>
+        </div>
+        <div>
+          <p className="text-xs text-neutral-400">Main wallet balance</p>
+          <p className="text-sm font-semibold text-neutral-600 dark:text-neutral-300">{(balance?.mainWalletBalance ?? 0).toLocaleString()} Credits</p>
+        </div>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <input
+          type="number"
+          min={1}
+          value={transferAmount}
+          onChange={(e) => setTransferAmount(Number(e.target.value))}
+          className="w-32 rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-1.5 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100"
+        />
+        <button disabled={busy} onClick={handleTransfer} className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-neutral-700 disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900">
+          Transfer from main wallet
+        </button>
+        <Link href="/wallet?destination=ad_wallet" className="rounded-full border border-blue-300 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400">
+          Buy Credits directly →
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
   const [eligible, setEligible] = useState<boolean | null>(null);
   const [reason, setReason] = useState<string | null>(null);
+  const [canPersonal, setCanPersonal] = useState(false);
+  const [canBusiness, setCanBusiness] = useState(false);
   const [campaigns, setCampaigns] = useState<AdCampaign[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -74,6 +147,7 @@ function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
 
   const [name, setName] = useState("");
   const [objective, setObjective] = useState<"awareness" | "traffic" | "boost_post" | "boost_room">("traffic");
+  const [advertiserType, setAdvertiserType] = useState<"personal" | "business_account" | "business_page">("business_account");
   const [businessPageId, setBusinessPageId] = useState("");
   const [placementKey, setPlacementKey] = useState<(typeof PLACEMENTS)[number]["key"]>("feed_banner");
   const [creativeTitle, setCreativeTitle] = useState("");
@@ -95,6 +169,11 @@ function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
       const eligJson = await eligRes.json().catch(() => null);
       setEligible(Boolean(eligJson?.data?.eligible));
       setReason(eligJson?.data?.reason ?? null);
+      setCanPersonal(Boolean(eligJson?.data?.canAdvertiseAsPersonal));
+      setCanBusiness(Boolean(eligJson?.data?.canAdvertiseAsBusiness));
+      if (eligJson?.data?.canAdvertiseAsBusiness === false && eligJson?.data?.canAdvertiseAsPersonal) {
+        setAdvertiserType("personal");
+      }
 
       const campaignsJson = await campaignsRes.json().catch(() => null);
       if (campaignsJson?.success) setCampaigns(campaignsJson.data.campaigns);
@@ -116,7 +195,7 @@ function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), objective, businessPageId: businessPageId || null }),
+        body: JSON.stringify({ name: name.trim(), objective, advertiserType, businessPageId: advertiserType === "business_page" ? (businessPageId || null) : null }),
       });
       const createJson = await createRes.json();
       if (!createJson.success) throw new Error(createJson.error?.message ?? "Failed to create campaign");
@@ -148,7 +227,12 @@ function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
           body: JSON.stringify({ amountCredits: Number(budgetCredits) }),
         });
         const fundJson = await fundRes.json();
-        if (!fundJson.success) throw new Error(fundJson.error?.message ?? "Failed to fund campaign — check your Credit balance");
+        if (!fundJson.success) {
+          // Not fatal — the ad can still be created/submitted unfunded per
+          // the "create and preview even with an empty Ad Wallet" flow; the
+          // advertiser sees this note and can fund the wallet afterward.
+          setError(`Ad created, but not funded: ${fundJson.error?.message ?? "check your Ad Wallet balance"}. It won't start running until you fund it and hit Activate.`);
+        }
       }
 
       const submitRes = await fetch(`/api/business/ads/campaigns/${campaignId}/submit`, { method: "POST", credentials: "include" });
@@ -223,6 +307,8 @@ function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">{error}</div>
       )}
 
+      <AdWalletPanel />
+
       <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Ad Campaigns</h2>
         <p className="mt-1 text-sm text-neutral-500">
@@ -243,6 +329,19 @@ function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
             <label className="mb-1.5 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">Campaign Name</label>
             <input required maxLength={150} value={name} onChange={(e) => setName(e.target.value)} className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100" />
           </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">Shown as advertiser</label>
+            <select
+              value={advertiserType}
+              onChange={(e) => setAdvertiserType(e.target.value as typeof advertiserType)}
+              className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100"
+            >
+              {canBusiness && <option value="business_account">My Business Account</option>}
+              {canBusiness && pages.length > 0 && <option value="business_page">One of my Business Pages</option>}
+              {canPersonal && <option value="personal">My personal profile</option>}
+            </select>
+            <p className="mt-1 text-xs text-neutral-400">This identity is shown to viewers as the advertiser wherever the ad appears.</p>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">Objective</label>
@@ -253,13 +352,15 @@ function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
                 <option value="boost_room">Boost a Room</option>
               </select>
             </div>
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">Attribute to Page (optional)</label>
-              <select value={businessPageId} onChange={(e) => setBusinessPageId(e.target.value)} className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100">
-                <option value="">— none —</option>
-                {pages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-              </select>
-            </div>
+            {advertiserType === "business_page" && (
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">Which Page</label>
+                <select required value={businessPageId} onChange={(e) => setBusinessPageId(e.target.value)} className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100">
+                  <option value="">Select a page…</option>
+                  {pages.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              </div>
+            )}
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">Placement</label>
@@ -292,7 +393,10 @@ function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
           <div>
             <label className="mb-1.5 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">Budget (Credits)</label>
             <input required type="number" min={0} value={budgetCredits} onChange={(e) => setBudgetCredits(Number(e.target.value))} className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100" />
-            <p className="mt-1 text-xs text-neutral-400">Debited from your Credit balance now. Need more Credits? Top up on the <Link href="/wallet" className="underline">Wallet</Link> page with cash first.</p>
+            <p className="mt-1 text-xs text-neutral-400">
+              Debited from your <strong>Ad Wallet</strong> (not your main Credits balance). You can set this to 0 and fund later —
+              the ad won&apos;t run until the Ad Wallet has funds. Fund it in the panel above.
+            </p>
           </div>
           <button type="submit" disabled={submitting} className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
             {submitting ? "Submitting…" : "Create & Submit for Review"}

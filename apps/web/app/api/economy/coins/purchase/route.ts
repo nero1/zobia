@@ -45,6 +45,12 @@ const PurchaseSchema = z.object({
    * If omitted, each call creates a new payment.
    */
   clientRequestId: z.string().uuid("clientRequestId must be a valid UUID").optional(),
+  /**
+   * Where the purchased Credits land. "ad_wallet" routes the webhook's
+   * credit into the Ad Wallet (lib/economy/adWallet.ts) instead of the main
+   * coin_balance — used by the "Buy Credits" button on the Ads Wallet panel.
+   */
+  destination: z.enum(["main_wallet", "ad_wallet"]).default("main_wallet"),
 });
 
 // ---------------------------------------------------------------------------
@@ -154,6 +160,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       packName: pack.name,
       coinsGranted: pack.coins_granted,
       itemType: pack.item_type,
+      destination: body.destination,
     };
 
     const manifest = await loadManifest();

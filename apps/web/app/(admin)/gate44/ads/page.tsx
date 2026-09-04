@@ -303,6 +303,135 @@ function CouponsTab() {
 }
 
 // ---------------------------------------------------------------------------
+// Settings tab — advertiser eligibility rules (x_manifest, see
+// lib/ads/limits.ts getAdsAdminConfig / migration 0014_ads_advertiser_wallet.sql)
+// ---------------------------------------------------------------------------
+
+interface AdsFieldMeta {
+  key: string;
+  label: string;
+  description: string;
+  type: "boolean" | "number";
+}
+
+const ADS_SETTINGS_FIELDS: AdsFieldMeta[] = [
+  { key: "ad_allow_personal_accounts", label: "Allow Personal Accounts", description: "Let personal (non-business) accounts place ads, not just Business Accounts.", type: "boolean" },
+  { key: "ad_require_kyc", label: "Require KYC", description: "Require identity verification before an account can place ads.", type: "boolean" },
+  { key: "ad_min_kyc_tier_to_advertise", label: "Minimum KYC Tier", description: "Minimum KYC tier required to advertise, when KYC is required.", type: "number" },
+  { key: "ad_allow_free_accounts", label: "Allow Free Accounts", description: "Let free-plan accounts place ads (only relevant if Personal Accounts is on).", type: "boolean" },
+  { key: "ad_min_level_free_accounts", label: "Min Level — Free Accounts", description: "Minimum account level for a free-plan account to advertise, when allowed.", type: "number" },
+  { key: "ad_enforce_min_level_paid_business", label: "Enforce Level — Paid/Business", description: "Also require a minimum level for paid-plan and Business Account advertisers.", type: "boolean" },
+  { key: "ad_min_level_paid_business", label: "Min Level — Paid/Business", description: "Minimum account level for paid-plan/Business advertisers, when enforced.", type: "number" },
+  { key: "ad_advertiser_grace_days", label: "Advertiser Grace Period (days)", description: "How long an ad keeps running under its original advertiser identity after the business account/page behind it lapses.", type: "number" },
+];
+
+function AdsToggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      disabled={disabled}
+      onClick={() => onChange(!checked)}
+      className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${checked ? "bg-primary-600" : "bg-neutral-300 dark:bg-neutral-700"}`}
+    >
+      <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`} />
+    </button>
+  );
+}
+
+function SettingsTab() {
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+
+  const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
+  useEffect(() => {
+    fetch("/api/admin/config", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        const entries: { key: string; value: string }[] = json?.data ?? json?.entries ?? [];
+        const map: Record<string, string> = {};
+        for (const e of entries) map[e.key] = e.value;
+        setValues(map);
+      })
+      .catch(() => showToast("Failed to load settings", "error"))
+      .finally(() => setLoading(false));
+  }, [showToast]);
+
+  async function save(key: string, value: string) {
+    setSaving(key);
+    try {
+      const res = await fetch(`/api/admin/config/${key}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ value }),
+      });
+      if (!res.ok) throw new Error("Save failed");
+      setValues((prev) => ({ ...prev, [key]: value }));
+      showToast("Saved");
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Save failed", "error");
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-3">
+        {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-16 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />)}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <p className="mb-4 text-sm text-neutral-500">
+        Controls who can create ads, and whether their identity/KYC/level qualifies. This also decides
+        whether the &quot;Create Business Account&quot; and &quot;Complete KYC&quot; buttons show on the Ads page.
+      </p>
+      {toast && (
+        <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-modal ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}>
+          {toast.msg}
+        </div>
+      )}
+      <div className="divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900">
+        {ADS_SETTINGS_FIELDS.map((field) => {
+          const raw = values[field.key] ?? "";
+          const isSaving = saving === field.key;
+          return (
+            <div key={field.key} className="flex items-center justify-between gap-4 px-4 py-3.5">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-50">{field.label}</p>
+                <p className="text-xs text-neutral-500">{field.description}</p>
+              </div>
+              {field.type === "boolean" ? (
+                <AdsToggle checked={raw === "true"} disabled={isSaving} onChange={(v) => save(field.key, v ? "true" : "false")} />
+              ) : (
+                <input
+                  type="number"
+                  defaultValue={raw}
+                  disabled={isSaving}
+                  onBlur={(e) => { if (e.target.value !== raw) save(field.key, e.target.value); }}
+                  className="w-24 rounded-lg border border-neutral-300 bg-white px-2 py-1.5 text-right text-sm text-neutral-900 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-50"
+                />
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Page
 // ---------------------------------------------------------------------------
 
@@ -311,6 +440,7 @@ const TABS = [
   { key: "moderation", label: "Moderation Queue" },
   { key: "placements", label: "Placements" },
   { key: "coupons", label: "Coupons" },
+  { key: "settings", label: "Settings" },
 ] as const;
 
 export default function AdminAdsPage() {
@@ -334,6 +464,7 @@ export default function AdminAdsPage() {
       {tab === "moderation" && <ModerationTab />}
       {tab === "placements" && <PlacementsTab />}
       {tab === "coupons" && <CouponsTab />}
+      {tab === "settings" && <SettingsTab />}
     </div>
   );
 }

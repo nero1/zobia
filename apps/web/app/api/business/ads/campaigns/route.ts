@@ -4,10 +4,11 @@ export const dynamic = 'force-dynamic';
  * app/api/business/ads/campaigns/route.ts
  *
  * Business self-service ad campaigns (PRD §17 Pillar 3 — Platform
- * Advertising). Requires a verified Business Account whose owner holds at
- * least `ad_min_kyc_tier_to_advertise` (default 1) — see
- * lib/ads/limits.ts checkAdvertiserEligibility. Mirrors the Sponsored Quest
- * self-service submission pattern (app/api/business/sponsored-quests).
+ * Advertising). Eligibility (business-account-only vs. also allowing
+ * personal accounts, KYC requirement, level gates) is fully admin-configurable
+ * — see lib/ads/limits.ts checkAdvertiserEligibility / getAdsAdminConfig.
+ * Mirrors the Sponsored Quest self-service submission pattern
+ * (app/api/business/sponsored-quests).
  *
  * GET  /api/business/ads/campaigns — list the caller's own campaigns.
  * POST /api/business/ads/campaigns — create a new draft campaign.
@@ -18,12 +19,13 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
-import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
+import { handleApiError, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { checkAdvertiserEligibility, getOwnBusinessAccountId } from "@/lib/ads/limits";
+import { checkAdvertiserEligibility } from "@/lib/ads/limits";
 import { createCampaign, listOwnCampaigns } from "@/lib/ads/repo";
 
 const createSchema = z.object({
+  advertiserType: z.enum(["personal", "business_account", "business_page"]).default("business_account"),
   businessPageId: z.string().uuid().nullable().optional(),
   name: z.string().min(3).max(150),
   objective: z.enum(["awareness", "traffic", "boost_post", "boost_room"]).default("traffic"),
@@ -39,10 +41,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     await requireFeatureEnabled("adsSystem");
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
-    const businessAccountId = await getOwnBusinessAccountId(auth.user.sub);
-    if (!businessAccountId) throw notFound("Business account not found");
-
-    const campaigns = await listOwnCampaigns(businessAccountId);
+    const campaigns = await listOwnCampaigns(auth.user.sub);
     return NextResponse.json({ success: true, data: { campaigns }, error: null });
   } catch (err) {
     return handleApiError(err);
@@ -55,13 +54,21 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const eligibility = await checkAdvertiserEligibility(auth.user.sub);
-    if (!eligibility.eligible || !eligibility.businessAccountId) {
+    if (!eligibility.eligible) {
       throw forbidden(eligibility.reason ?? "You are not eligible to place ads.", "AD_ADVERTISER_INELIGIBLE");
     }
 
     const body = await validateBody(req, createSchema);
 
+    if (body.advertiserType !== "personal" && !eligibility.canAdvertiseAsBusiness) {
+      throw forbidden("You don't have a verified Business Account to advertise as.", "AD_NO_BUSINESS_ACCOUNT");
+    }
+    if (body.advertiserType === "personal" && !eligibility.canAdvertiseAsPersonal) {
+      throw forbidden("Advertising as your personal profile isn't available right now.", "AD_PERSONAL_NOT_ALLOWED");
+    }
+
     if (body.businessPageId) {
+      if (!eligibility.businessAccountId) throw forbidden("businessPageId requires a Business Account");
       const { rows: pageRows } = await db.query<{ id: string }>(
         `SELECT id FROM business_pages WHERE id = $1 AND business_account_id = $2 AND deleted_at IS NULL AND status = 'active' LIMIT 1`,
         [body.businessPageId, eligibility.businessAccountId]
@@ -70,9 +77,10 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     const campaign = await createCampaign({
-      businessAccountId: eligibility.businessAccountId,
-      businessPageId: body.businessPageId ?? null,
+      businessAccountId: body.advertiserType === "personal" ? null : (eligibility.businessAccountId ?? null),
+      businessPageId: body.advertiserType === "business_page" ? (body.businessPageId ?? null) : null,
       createdBy: auth.user.sub,
+      advertiserType: body.advertiserType,
       name: body.name,
       objective: body.objective,
       targetPlans: body.targetPlans ?? null,

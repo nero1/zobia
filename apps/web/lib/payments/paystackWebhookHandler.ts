@@ -9,6 +9,7 @@
 import Decimal from "decimal.js";
 import { db } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
+import { creditAdWallet } from "@/lib/economy/adWallet";
 import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions, recordFailedCommission } from "@/lib/referrals/commissions";
 import { getCreatorFeeRate, moveToDeadLetterQueue } from "@/lib/payments/payouts";
@@ -39,6 +40,8 @@ export interface PaystackChargeEvent {
       newTier?: string;
       businessName?: string;
       businessType?: string | null;
+      /** "ad_wallet" routes a coin_pack credit to the Ad Wallet instead of coin_balance. */
+      destination?: "main_wallet" | "ad_wallet";
     };
     paid_at: string;
   };
@@ -407,6 +410,16 @@ export async function processChargeSuccess(
         "purchase",
         paymentId,
         `Purchased ${metadata.packName}`,
+        tx
+      );
+    } else if (serverCoinsGranted > 0 && metadata.destination === "ad_wallet") {
+      await creditAdWallet(
+        userId,
+        serverCoinsGranted,
+        "topup_purchase",
+        paymentId,
+        `Purchased ${metadata.packName} (Ad Wallet)`,
+        { packId: metadata.packId, amountKobo: amount },
         tx
       );
     } else if (serverCoinsGranted > 0) {
