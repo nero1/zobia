@@ -13,6 +13,7 @@ import { useRef, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { UserBadgeRow } from "@/components/shared/UserBadges";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,6 +30,9 @@ interface Moment {
   authorId: string;
   authorUsername: string;
   authorAvatarEmoji: string;
+  authorIsVerified?: boolean;
+  authorPrestigeCount?: number;
+  authorXpTotal?: string | number;
   content: string;
   imageUrl?: string | null;
   caption?: string | null;
@@ -101,9 +105,10 @@ function MomentCard({
         <div className="min-w-0 flex-1">
           <Link
             href={`/profile/${moment.authorId}`}
-            className="text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
+            className="inline-flex items-center gap-1 text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100"
           >
-            @{moment.authorUsername}
+            <span>@{moment.authorUsername}</span>
+            <UserBadgeRow totalXp={moment.authorXpTotal} prestige={moment.authorPrestigeCount} verified={moment.authorIsVerified} />
           </Link>
           <p className="text-xs text-neutral-400">{timeAgo(moment.createdAt)}</p>
         </div>
@@ -199,6 +204,9 @@ function mapMomentRow(r: Record<string, unknown>): Moment {
     authorId: (r.user_id ?? r.authorId) as string,
     authorUsername: (r.username ?? r.authorUsername) as string,
     authorAvatarEmoji: (r.avatar_emoji ?? r.authorAvatarEmoji) as string,
+    authorIsVerified: Boolean(r.is_verified ?? r.authorIsVerified),
+    authorPrestigeCount: (r.prestige_count ?? r.authorPrestigeCount ?? 0) as number,
+    authorXpTotal: (r.xp_total ?? r.authorXpTotal ?? 0) as string | number,
     content: r.content as string,
     imageUrl: (r.media_url ?? r.imageUrl ?? null) as string | null,
     caption: (r.caption ?? null) as string | null,

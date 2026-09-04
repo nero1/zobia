@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { isAxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { env } from '@/lib/env';
 
 interface Author {
   id: string;
@@ -24,6 +25,7 @@ interface Author {
 
 interface QuestionDetail {
   id: string;
+  slug: string | null;
   title: string;
   body: string;
   author: Author;
@@ -108,6 +110,30 @@ function QuestionDetailPage() {
   const [expandingId, setExpandingId] = useState<string | null>(null);
   const [bypassPrompt, setBypassPrompt] = useState<{ minLevel: number; bypassCostCredits: number; parentAnswerId: string | null; body: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  // Shares the public, crawlable /a/<slug> web page — not this in-app route —
+  // so the recipient (who may not have the app) gets a working, SEO-friendly
+  // link. Uses the Web Share API available inside the Capacitor WebView, with
+  // a clipboard fallback, matching apps/web/app/(app)/answers/[id]/page.tsx.
+  async function handleShare(q: QuestionDetail): Promise<void> {
+    const url = `${env.VITE_API_BASE_URL}/a/${q.slug ?? q.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: q.title, url });
+        return;
+      }
+    } catch {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      // no fallback UI available
+    }
+  }
 
   // apiClient's response interceptor already unwraps { success, data, error }
   // down to `data`, so the axios `.data` below IS the payload already — the
@@ -286,6 +312,9 @@ function QuestionDetailPage() {
               <span>@{question.author.username ?? 'unknown'}</span>
               <span>·</span>
               <span>{timeAgo(question.createdAt)}</span>
+              <button onClick={() => void handleShare(question)} className="font-medium text-neutral-400">
+                {shareCopied ? t('answers.linkCopied', 'Link copied') : t('answers.share', 'Share')}
+              </button>
               <button onClick={() => favoriteQuestion.mutate(!question.isFavorited)} className={`ml-auto rounded-full px-1.5 py-0.5 ${question.isFavorited ? 'text-amber-500' : 'text-neutral-300'}`}>
                 {question.isFavorited ? '★' : '☆'} {question.favoriteCount}
               </button>

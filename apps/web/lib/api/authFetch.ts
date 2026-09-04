@@ -19,7 +19,7 @@
  * triggers only one /api/auth/refresh round-trip.
  */
 
-import { markSessionExpired } from "@/lib/auth/sessionExpiredBus";
+import { markSessionExpired, rawFetch } from "@/lib/auth/sessionExpiredBus";
 
 let refreshPromise: Promise<boolean> | null = null;
 
@@ -27,7 +27,7 @@ async function refreshOnce(): Promise<boolean> {
   if (refreshPromise) return refreshPromise;
   refreshPromise = (async () => {
     try {
-      const res = await fetch("/api/auth/refresh", {
+      const res = await rawFetch("/api/auth/refresh", {
         method: "POST",
         credentials: "include",
       });
@@ -49,12 +49,12 @@ async function refreshOnce(): Promise<boolean> {
 export async function authFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const withCreds: RequestInit = { credentials: "include", ...init };
 
-  let res = await fetch(input, withCreds);
+  let res = await rawFetch(input, withCreds);
   if (res.status !== 401) return res;
 
   const refreshed = await refreshOnce();
   if (refreshed) {
-    res = await fetch(input, withCreds);
+    res = await rawFetch(input, withCreds);
     if (res.status !== 401) return res;
   }
 

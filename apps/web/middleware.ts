@@ -49,7 +49,7 @@ function timingSafeStringEqual(a: string, b: string): boolean {
  * 'unsafe-inline' is intentionally omitted — it would silently override the
  * nonce protection in supporting browsers (BUG-30).
  */
-function buildCsp(nonce: string): string {
+function buildCsp(nonce: string, allowEmbedFraming = false): string {
   // Allowlist for connect-src: include all realtime providers the app supports
   // (Supabase, Ably, Pusher) plus Sentry browser-side error ingestion.
   // Prefer the specific Supabase project URL when set to avoid a wildcard.
@@ -102,7 +102,13 @@ function buildCsp(nonce: string): string {
     "object-src 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "frame-ancestors 'self'",
+    // The game embed route (/g/<slug>/embed) is the one page allowed to be
+    // framed by the Capacitor app's own WebView origin, so games can play
+    // inside the app instead of handing off to an external browser — every
+    // other route stays 'self'-only (no clickjacking exposure widened).
+    allowEmbedFraming
+      ? `frame-ancestors 'self' ${CAPACITOR_ORIGINS.join(" ")}`
+      : "frame-ancestors 'self'",
     "upgrade-insecure-requests",
     // STRUC-10: CSP violation reporting
     "report-to csp-endpoint",
@@ -322,7 +328,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   // Generate a per-request nonce for Content-Security-Policy.
   const nonce = Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64");
-  const csp = buildCsp(nonce);
+  const isGameEmbedRoute = /^\/g\/[^/]+\/embed$/.test(pathname);
+  const csp = buildCsp(nonce, isGameEmbedRoute);
 
   // Generate a per-request trace ID for observability (OBS-TRACE-01).
   const requestId = crypto.randomUUID();
@@ -385,7 +392,15 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       })
     );
     // additional hardening headers
-    res.headers.set("X-Frame-Options", "SAMEORIGIN");
+    // X-Frame-Options has no per-origin allowlist syntax (ALLOW-FROM is
+    // deprecated/unsupported), so it's omitted on the one route that needs
+    // cross-origin framing (the game embed, framed by the Capacitor app) —
+    // the CSP frame-ancestors directive above (which does support an
+    // allowlist, and takes precedence over X-Frame-Options in browsers that
+    // support both) still protects it from being framed by anything else.
+    if (!isGameEmbedRoute) {
+      res.headers.set("X-Frame-Options", "SAMEORIGIN");
+    }
     res.headers.set("Cross-Origin-Opener-Policy", "same-origin");
     res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
     res.headers.set("Cross-Origin-Embedder-Policy", "credentialless");

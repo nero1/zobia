@@ -114,6 +114,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const { rows } = await db.query(
       `SELECT m.id, m.user_id,
               u.username, u.avatar_emoji, u.avatar_url,
+              u.is_verified, u.prestige_count, u.xp_total,
               m.content, m.content_type, m.media_url, m.caption,
               m.view_count, m.reactions_count, m.expires_at, m.created_at,
               (EXISTS (

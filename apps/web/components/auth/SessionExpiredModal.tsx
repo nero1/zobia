@@ -19,7 +19,18 @@
 import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
-import { onSessionExpired, resetSessionExpired } from "@/lib/auth/sessionExpiredBus";
+import {
+  installSessionExpiryFetchGuard,
+  onSessionExpired,
+  resetSessionExpired,
+} from "@/lib/auth/sessionExpiredBus";
+
+// Installed once, at module-evaluation time on the client. This is the one
+// place that's guaranteed to be imported by every route (mounted at the
+// app root in app/layout.tsx), so it's the natural home for wiring up the
+// global 401 guard that lets pages using a raw `fetch()` still surface this
+// modal — see installSessionExpiryFetchGuard's doc comment for why.
+installSessionExpiryFetchGuard();
 
 export function SessionExpiredModal() {
   const { t } = useTranslation();
@@ -53,7 +64,7 @@ export function SessionExpiredModal() {
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-4"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby="session-expired-title"

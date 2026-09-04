@@ -10,15 +10,20 @@ export const dynamic = 'force-dynamic';
  *  - warn             — Issue a warning to the reported user
  *  - remove_content   — Delete the reported message/content
  *  - suspend_user     — Temporarily suspend the reported user
- *  - ban_user         — Permanently ban the reported user
+ *  - ban_user         — Permanently ban the reported user (admin only)
+ *  - escalate_ai      — Re-run AI analysis for a contested report (admin only, costs an API call)
  *
- * All actions are logged to moderation_actions for audit trail.
+ * Auth: moderator or admin (withModeratorOrAdminAuth) — mirrors
+ * app/api/admin/forum/queue/[reportId]/action/route.ts's mod/admin split.
+ * All actions are logged to moderation_actions (with moderator_id) for the
+ * audit trail — this is also how the Moderation Center attributes each
+ * resolved report to the mod/admin who acted on it.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { withAdminAuth } from "@/lib/api/middleware";
-import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
+import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
+import { handleApiError, notFound, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 import { DEEPSEEK_MODELS, GEMINI_MODELS, GEMINI_CONFIG } from "@/lib/ai/config";
@@ -42,6 +47,8 @@ const ActionBodySchema = z.object({
   /** Duration in hours — required for suspend_user. */
   duration_hours: z.number().int().positive().optional(),
 });
+
+const ADMIN_ONLY_ACTIONS = new Set(["ban_user", "escalate_ai"]);
 
 // ---------------------------------------------------------------------------
 // Layer-3 AI Escalation — re-analyze with DeepSeek/Gemini for appeals
@@ -182,21 +189,12 @@ Respond with JSON: { "verdict": "violation"|"borderline"|"no_violation", "confid
  *
  * @returns Updated report status + action record
  */
-export const POST = withAdminAuth(
-  async (
-    req: NextRequest,
-    {
-      auth,
-      params,
-    }: {
-      auth: { user: { sub: string } };
-      params: { reportId: string };
-    }
-  ) => {
+export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
+  async (req: NextRequest, { auth, params }) => {
     try {
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-      const { reportId } = params;
+      const { reportId } = await params;
 
       const body = await req.json().catch(() => ({}));
       const parsed = ActionBodySchema.safeParse(body);
@@ -205,6 +203,15 @@ export const POST = withAdminAuth(
       }
 
       const { action, note, duration_hours } = parsed.data;
+
+      if (ADMIN_ONLY_ACTIONS.has(action) && !auth.isAdmin) {
+        throw forbidden(
+          action === "ban_user"
+            ? "Only administrators can permanently ban a user."
+            : "Only administrators can trigger AI re-escalation.",
+          "ADMIN_ONLY_ACTION"
+        );
+      }
 
       if (action === "suspend_user" && !duration_hours) {
         throw badRequest("duration_hours is required for suspend_user");

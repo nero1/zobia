@@ -147,6 +147,7 @@ function AppShell() {
               ...rawUser,
               email: (rawUser.email ?? null) as string | null,
               is_admin: Boolean(rawUser.is_admin ?? rawUser.isAdmin ?? false),
+              is_moderator: Boolean(rawUser.is_moderator ?? rawUser.isModerator ?? false),
               is_creator: Boolean(rawUser.is_creator ?? rawUser.isCreator ?? false),
               avatar_url: (rawUser.avatar_url ?? null) as string | null,
             };
@@ -263,6 +264,19 @@ function AppShell() {
           <div className="flex-1 overflow-y-auto">
             <Outlet />
           </div>
+        </div>
+      </AuthGuard>
+    );
+  }
+
+  // In-app game player is full-screen, chrome-free — the embedded game needs
+  // the whole viewport, and TopBar/BottomNav would eat into it plus not make
+  // sense while inside a game (see routes/games/$slug/play.tsx).
+  if (/^\/games\/[^/]+\/play$/.test(pathname)) {
+    return (
+      <AuthGuard>
+        <div className="h-full">
+          <Outlet />
         </div>
       </AuthGuard>
     );

@@ -137,6 +137,11 @@ const CONFIG_META: Record<string, ConfigMeta> = Object.fromEntries([
   meta('season_pass_price_coins', 'Season Pass Price (Credits)', 'Default price of a Season Pass in Credits.', 'number', 'Economy'),
   meta('vip_room_min_price_kobo', 'VIP Room Min Price (kobo)', 'Minimum subscription price a creator can set for a VIP Room.', 'number', 'Economy'),
   meta('vip_room_max_price_kobo', 'VIP Room Max Price (kobo)', 'Maximum subscription price a creator can set for a VIP Room.', 'number', 'Economy'),
+  meta('creator_fund_split_room_subscription_percent', 'Room Subscriptions', 'Percent of gross room-subscription revenue contributed to the Creator Fund.', 'number', 'Creator Fund'),
+  meta('creator_fund_split_room_entry_percent', 'Room Entry Fees', 'Percent of gross room-entry-fee revenue contributed to the Creator Fund.', 'number', 'Creator Fund'),
+  meta('creator_fund_split_coin_purchase_percent', 'Credit Pack Purchases', 'Percent of gross Credit-pack purchase revenue contributed to the Creator Fund.', 'number', 'Creator Fund'),
+  meta('creator_fund_split_sponsor_budget_percent', 'Branded Room Sponsorships', 'Percent of branded-room sponsor budget contributed to the Creator Fund.', 'number', 'Creator Fund'),
+  meta('creator_fund_split_ad_reward_percent', 'Rewarded Ad Payouts', 'Percent of rewarded-ad payout value contributed to the Creator Fund.', 'number', 'Creator Fund'),
 
   // Fraud Detection
   meta('fraud_gift_window_days', 'Gift Fraud Window (days)', "Look-back window for new-account gift-inflow fraud check. Default: 7.", 'number', 'Fraud Detection'),
@@ -242,7 +247,7 @@ const CONFIG_META: Record<string, ConfigMeta> = Object.fromEntries([
 
 const GROUP_ORDER = [
   'Auth', 'CAPTCHA', 'GIF', 'PWA', 'Floating Notifications', 'Payments', 'Economy',
-  'Fraud Detection', 'AdMob', 'Limits', 'AI Moderation', 'Guild Wars', 'Messaging',
+  'Creator Fund', 'Fraud Detection', 'AdMob', 'Limits', 'AI Moderation', 'Guild Wars', 'Messaging',
   'Moments', 'Answers', 'Physical Goods', 'Grace Periods & Save Slots', 'Business Accounts',
   'Miscellaneous',
 ];

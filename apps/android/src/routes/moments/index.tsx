@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { useRef, useCallback, useState } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
+import { UserBadgeRow } from '@/components/shared/UserBadges';
 
 interface ReactionSummary {
   emoji: string;
@@ -26,6 +27,9 @@ interface Moment {
   authorId: string;
   authorUsername: string;
   authorAvatarEmoji: string;
+  authorIsVerified: boolean;
+  authorPrestigeCount: number;
+  authorXpTotal: string | number;
   content: string;
   imageUrl: string | null;
   caption: string | null;
@@ -39,6 +43,9 @@ interface MomentRow {
   user_id: string;
   username: string;
   avatar_emoji: string;
+  is_verified: boolean | null;
+  prestige_count: number | null;
+  xp_total: string | number | null;
   content: string;
   media_url: string | null;
   caption: string | null;
@@ -53,6 +60,9 @@ function mapMoment(row: MomentRow): Moment {
     authorId: row.user_id,
     authorUsername: row.username,
     authorAvatarEmoji: row.avatar_emoji || '👤',
+    authorIsVerified: Boolean(row.is_verified),
+    authorPrestigeCount: row.prestige_count ?? 0,
+    authorXpTotal: row.xp_total ?? 0,
     content: row.content,
     imageUrl: row.media_url,
     caption: row.caption,
@@ -111,8 +121,9 @@ function MomentCard({ moment, onReact }: { moment: Moment; onReact: (id: string,
           {moment.authorAvatarEmoji}
         </div>
         <div className="min-w-0 flex-1">
-          <Link to="/profile/$username" params={{ username: moment.authorUsername }} className="font-semibold text-neutral-900 text-sm">
-            @{moment.authorUsername}
+          <Link to="/profile/$username" params={{ username: moment.authorUsername }} className="inline-flex items-center gap-1 font-semibold text-neutral-900 text-sm">
+            <span>@{moment.authorUsername}</span>
+            <UserBadgeRow totalXp={moment.authorXpTotal} prestige={moment.authorPrestigeCount} verified={moment.authorIsVerified} />
           </Link>
           <p className="text-neutral-400 text-xs">{timeAgo(moment.createdAt)} ago</p>
         </div>

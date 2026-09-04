@@ -87,6 +87,9 @@ interface Message {
   displayName: string;
   avatarEmoji: string;
   senderIsCreator: boolean;
+  senderIsVerified: boolean;
+  senderPrestigeCount: number;
+  senderXpTotal: string;
   content: string;
   createdAt: string;
   message_type: string;
@@ -106,6 +109,9 @@ function rowToMessage(row: MessageRow): Message {
     displayName: row.sender_display_name ?? row.sender_username,
     avatarEmoji: row.sender_avatar_emoji,
     senderIsCreator: Boolean(row.sender_is_creator),
+    senderIsVerified: Boolean(row.sender_is_verified),
+    senderPrestigeCount: row.sender_prestige_count ?? 0,
+    senderXpTotal: row.sender_xp_total ?? "0",
     content: row.content ?? "",
     createdAt: row.created_at,
     message_type: row.message_type,
@@ -125,6 +131,9 @@ interface MessageRow {
   sender_display_name: string;
   sender_avatar_emoji: string;
   sender_is_creator: boolean;
+  sender_is_verified: boolean;
+  sender_prestige_count: number;
+  sender_xp_total: string;
   content: string | null;
   message_type: string;
   metadata: unknown | null;
@@ -318,6 +327,9 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          u.display_name    AS sender_display_name,
          u.avatar_emoji    AS sender_avatar_emoji,
          u.is_creator      AS sender_is_creator,
+         u.is_verified     AS sender_is_verified,
+         u.prestige_count  AS sender_prestige_count,
+         u.xp_total        AS sender_xp_total,
          m.content,
          m.message_type,
          m.metadata,
@@ -418,6 +430,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       display_name: string | null;
       avatar_emoji: string;
       is_creator: boolean;
+      is_verified: boolean;
+      prestige_count: number;
+      xp_total: string;
       is_suspended: boolean;
       is_banned: boolean;
       suspended_until: string | null;
@@ -425,6 +440,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }>(
       `SELECT username, display_name, avatar_emoji,
               COALESCE(is_creator, false) AS is_creator,
+              COALESCE(is_verified, false) AS is_verified,
+              COALESCE(prestige_count, 0) AS prestige_count,
+              COALESCE(xp_total, 0) AS xp_total,
               COALESCE(is_suspended, false) AS is_suspended,
               COALESCE(is_banned, false) AS is_banned,
               suspended_until,
@@ -460,6 +478,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         displayName: senderStatus?.display_name ?? senderStatus?.username ?? "",
         avatarEmoji: senderStatus?.avatar_emoji ?? "👤",
         senderIsCreator: Boolean(senderStatus?.is_creator),
+        senderIsVerified: Boolean(senderStatus?.is_verified),
+        senderPrestigeCount: senderStatus?.prestige_count ?? 0,
+        senderXpTotal: senderStatus?.xp_total ?? "0",
         content: msgContent ?? "",
         createdAt: row.created_at,
         message_type: row.message_type,

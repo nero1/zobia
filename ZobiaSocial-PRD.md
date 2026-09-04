@@ -210,7 +210,7 @@ A new user must feel the core loop — the sensation of earning something — wi
 - Users may optionally set a 4-digit PIN to protect login and sensitive operations (payments, payout requests). PIN is not mandatory.
 - 2FA defaults to authenticator app (Google Authenticator, Authy, or equivalent). No SMS 2FA.
 - The 2FA login flow uses a short-lived `pre_auth` JWT type. After verifying email + password the server issues a `pre_auth` token scoped only to the `/api/auth/2fa/verify` endpoint. All other API routes and app pages reject `pre_auth` tokens, redirecting the browser to `/auth/2fa`. A full-access access token is issued only after successful TOTP verification. TOTP codes are replay-protected with a Redis atomic SET NX keyed by `totp:used:<userId>:<code>` (90-second TTL matching the TOTP window).
-- On Android, the JWT is stored in Capacitor Preferences (backed by Android SharedPreferences with encryption). On web, in an HttpOnly cookie.
+- On Android, the JWT and refresh token are stored in an `EncryptedSharedPreferences` file whose AES-256 key is generated and held by the Android Keystore (`SecureTokenStorePlugin.java`, `androidx.security:security-crypto`; hardware-backed where the device supports it) — not plain `@capacitor/preferences` (v2.10; previously the tokens sat in plaintext there, only excluded from Android's backup/device-transfer mechanisms, which stops the sanctioned backup path from leaking them but nothing else). On web, in an HttpOnly cookie.
 
 ### The Onboarding Flow
 
@@ -501,6 +501,13 @@ Prestige is never forced. The platform asks: "You have mastered Zobia. Do you wa
 
 Each Prestige adds a star to the Prestige Badge displayed on the profile avatar.
 
+### Mini-Badges (v2.10)
+
+Three small badges render immediately after a user's display name anywhere a name appears — chat messages (Rooms), Moments, profile headers, and any other surface a username shows (`components/shared/UserBadges.tsx` on web, ported 1:1 to `apps/android/src/components/shared/UserBadges.tsx`), in this fixed order:
+1. **XP-level dot** — a small colored circle, one color per rank tier (`lib/xp/engine.ts`'s ten ranks, Beginner → Zobia Icon).
+2. **Prestige diamond** — a colored rhombus (an inline-SVG "card-suit diamond," not a fixed-color Unicode emoji, so each tier gets its own exact color and renders identically across web, PWA, and the Capacitor app) once a user has Prestiged at least once: Prestige 1 green, 2 orange, 3 pink, 4 sky blue, 5 yellow, 6 red, 7 teal, 8 indigo, 9 rose, 10 gold. Distinct from — and shown alongside — the star-based Prestige Badge on the profile avatar above, which is the fuller profile-page representation.
+3. **Verified checkmark** — the existing blue checkmark (`components/shared/VerifiedBadge.tsx`) for `users.is_verified` accounts.
+
 ---
 
 ## 10. Room System
@@ -784,7 +791,8 @@ Every member has a personal Contribution Score within their Guild — a rolling 
 
 5. **ClassRoom Enrolment:** One-time enrolment fees for structured courses. Creator receives 80%. ClassRooms scale without marginal cost once built.
 
-6. **Creator Fund:** Platform-level monthly fund seeded from 5% of the prior month's platform advertising revenue on the **1st of each month**. Funds are distributed to eligible creators (Elite tier+) on the **5th of each month**, based on Room engagement score, member growth rate, quest completion rates, and content consistency. During International Women's Month (first week of March), female creators receive a 1.5× boost to their Creator Fund allocation.
+6. **Creator Fund:** Platform-level fund distributed to eligible creators (Elite tier+) on the **5th of each month**, based on Room engagement score, member growth rate, quest completion rates, and content consistency. During International Women's Month (first week of March), female creators receive a 1.5× boost to their Creator Fund allocation.
+   - **Funding (v2.10):** the pool accrues live, per-transaction, from five contributing activities — room subscriptions, room entry fees, Credit-pack purchases, branded-room sponsorships, and rewarded-ad payouts — each at an independently admin-configurable percentage (default 5% each, matching the original flat 5% design), editable at `/admin/config` under "Creator Fund" (`lib/creator/fundContribution.ts`). Admin can also manually top up the pool ahead of a distribution from the Financial Monitoring admin page (`POST /api/admin/creator-fund/topup`), with every top-up recorded to `admin_audit_log`. The prior "5% of the prior month's ad revenue, seeded on the 1st" design is retired — it depended on an ad-revenue figure nothing in the codebase ever actually wrote, so it had always contributed ₦0.
 
 7. **Creator Merch Store (Elite tier+):** Mini storefront inside the Room for digital products, course materials, and (via logistics partner) physical merchandise. Creator receives 80% of Merch Store sales.
 
@@ -1326,6 +1334,15 @@ Prohibited content and behaviours:
 - Advanced moderation (edge cases, appeals, complex context) is escalated to DeepSeek AI with Gemini as fallback. This escalation is used sparingly given cost.
 - Admin receives a daily moderation digest and real-time alerts for critical escalations.
 
+### Moderation Center (v2.10)
+
+A standalone area at `/moderation` (outside `/admin`), reachable by both Moderators and Admins — Admin gets a link to it from the Admin section as well as their own full `/admin/moderation` queue; Moderators get a link to it from their user-area drawer, mirroring how the Admin link appears there for admins. It unifies:
+- **Reports** — the general report queue (`GET/POST /api/admin/moderation`), now `withModeratorOrAdminAuth` (previously admin-only) so Moderators can act on it directly, not just Answers content.
+- **Forum Queue** — Answers question/answer reports (`/api/admin/forum/queue`), already moderator-accessible.
+- **Audit Log** (Admin-only tab) — `GET /api/admin/moderation/audit`, every *manual* moderation action (`moderation_actions` where `actor_type = 'manual'`) with the acting moderator's username, distinct from the existing automated-actions log which only ever surfaced system/AI-driven actions.
+
+Every resolved report shows which mod/admin acted on it (`resolved_by_username`) — visible only within this mod/admin-gated area. `ban_user` and `escalate_ai` stay Admin-only actions within the shared queue (Moderators can dismiss/warn/remove-content/suspend). Any manual action can be reversed (`POST /api/admin/moderation/actions/[actionId]/reverse`) — restores removed content, lifts a suspension/ban, credits back a warning, and resets the report to `pending` for re-review; reversing a ban is Admin-only, mirroring the forward action.
+
 ### Trust Scores
 
 Every user has a private Trust Score derived from: account age, report rate vs report outcomes, verification status, and payment history. Trust Scores are never shown to users. They silently gate certain high-sensitivity features — for example, a new user cannot immediately create a paid ClassRoom; they need 30 days and a minimum Trust Score.
@@ -1686,7 +1703,9 @@ The Vercel Hobby Plan allows a maximum of one CRON run per day. This once-daily 
 - JWT + Redis for sessions. JWTs are short-lived (configurable expiry). Refresh tokens are stored in Redis with a sliding window.
 - Session invalidation (logout, ban, suspicious activity) is propagated via Redis key deletion — no waiting for JWT expiry.
 - Admin sessions have a separate, shorter-lived JWT with stricter validation.
-- **Expired-session UX:** Every authenticated `fetch` on web/PWA goes through a shared wrapper (`lib/api/authFetch.ts` for native `fetch` calls, an axios interceptor for `apiClient` calls) that, on a 401, attempts one silent token refresh and retries once. If the retry also 401s, the session is broadcast as expired via a small pub/sub bus and a blocking "you've been signed out, please sign in again" modal is shown, mounted once in the root layout so it covers every route (including standalone surfaces like `/g/<slug>/play`) — not just the authenticated app shell. Any page or component that bypasses the shared wrapper (e.g. calling `fetch` directly with its own headers) does not get this behaviour, so new authenticated client-side calls must go through `authFetch`/`apiClient` rather than raw `fetch`.
+- **Expired-session UX:** Every authenticated `fetch` on web/PWA goes through a shared wrapper (`lib/api/authFetch.ts` for native `fetch` calls, an axios interceptor for `apiClient` calls) that, on a 401, attempts one silent token refresh and retries once. If the retry also 401s, the session is broadcast as expired via a small pub/sub bus and a blocking "you've been signed out, please sign in again" modal is shown, mounted once in the root layout so it covers every route (including standalone surfaces like `/g/<slug>/play`) — not just the authenticated app shell.
+  - **(v2.10) Global 401 guard:** a large number of pages call the native `fetch()` directly (not through `authFetch`/`apiClient`), so a 401 on those calls previously went unnoticed — the modal never fired and the page just silently stopped responding to the user's actions. `lib/auth/sessionExpiredBus.ts` now patches `window.fetch` once at root-layout mount: any same-origin `/api/*` response with status 401 (excluding the auth endpoints themselves) marks the session expired, without needing every call site migrated to the shared wrapper. `authFetch`/`apiClient` route through the pre-patch `rawFetch` so their own silent-refresh-then-retry logic still runs first and this guard never short-circuits it.
+  - **(v2.10) Capacitor app:** `AuthGuard` now tags an involuntary sign-out (`signalUnauthenticated`, e.g. a failed refresh) with a reason it carries into the `/auth/login` redirect, and the login screen shows a "your session has expired" banner — previously it silently redirected with zero explanation, which read to users as the app randomly logging them out.
 
 ### Connection Pooling
 
@@ -1829,7 +1848,7 @@ End of Week 1: User is at Hustler I. Has joined a Guild. Has one active Nemesis.
 - Mystery XP Drop (algorithmically triggered at a random point within the week — not announced in advance).
 
 **Recurring Monthly:**
-- Creator Fund: pool seeded on the **1st of each month** from 5% of the prior month's platform advertising revenue; distributed to eligible creators (Elite tier+) on the **5th of each month**.
+- Creator Fund: pool accrues live from contributing activities (see §14) plus admin top-ups; distributed to eligible creators (Elite tier+) on the **5th of each month**.
 - Mystery Gift Drop: platform releases 1 exclusive limited gift available for purchase for 48 hours only, then retired permanently. Announced 24 hours in advance with a countdown.
 - Platform Council applications open (last week of each month).
 - Creator Spotlight: Zobia highlights a Creator of the Month in all users' discovery feeds.
@@ -1949,7 +1968,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - Creator dashboard (revenue summary, member analytics, top gifters, payout history, Room health score).
 - Creator payout account setup (bank account verification via Paystack Resolve Account API for Nigeria; USDT Tron wallet address for global creators).
 - Creator payout flow: method selector (bank transfer / credits / USDT), auto/manual approval mode, retry logic, dead-letter queue, appeal pipeline.
-- Creator Fund data model (seeded from 5% of ad revenue, distributed by engagement score).
+- Creator Fund data model (per-activity admin-configurable contribution splits + manual top-up, distributed by engagement score — see §14).
 - ClassRoom curriculum builder (modules, pinned resources, start/end dates).
 - Zobia Learning Certificates (Knowledge Track Level 25+ creators can issue).
 - Business Account application and management.
@@ -2181,8 +2200,23 @@ wager rake).
   True or False, Emoji Quiz, Flag Quiz), Strategy (Gem Swap, Dots & Boxes), Sports (Penalty
   Kick, Basketball Shot), Music (Beat Tap).
 - **Cross-platform:** each game is a single HTML5/canvas module rendered on web/PWA
-  directly and inside the Expo app via a WebView embed (`/g/<slug>/embed`). Write
-  once, run everywhere.
+  directly and inside a WebView embed (`/g/<slug>/embed`). Write once, run everywhere.
+  The now-retired Expo app loaded this embed in `react-native-webview`
+  (`GameWebView.tsx`, §32.9 below); the Capacitor app (v2.10) loads the same
+  embed page in a plain `<iframe>` — since the Capacitor app already runs
+  entirely inside one WebView, that's the native-equivalent way to keep the
+  player inside the app instead of handing off to the system browser (the
+  prior behaviour, and the one users reported as feeling like being kicked
+  out of the app to play). `GameRunner`'s lifecycle bridge (`bridge()`) now
+  posts to `window.parent` for this iframe case alongside its existing
+  `window.ReactNativeWebView.postMessage`. `middleware.ts`'s CSP narrowly
+  allows only `/g/<slug>/embed` to be framed by the Capacitor app's own
+  origin (`https://localhost` / `capacitor://localhost`) — every other route
+  keeps `frame-ancestors 'self'`. On `game_over`, the Capacitor host
+  invalidates the same `['users', 'me']` query the Wallet page already treats
+  as the source of truth for `coin_balance`, and fires a floating "+X
+  Credits / +X XP" reward pop-up (`FloatingRewardProvider`, Android's first
+  such notification — see §32).
 
 ### 30.2 Rewards, costs & the Gaming track
 
@@ -2379,6 +2413,12 @@ parallel system.
   the exact same platform-admin-authored convention as the seed rooms/
   guilds already in that file.
 
+- **Share (v2.10)**: the authenticated question detail page (`/answers/<id>`
+  on web, `routes/answers/$questionId.tsx` on Capacitor) has a Share action
+  that shares/copies the canonical public `/a/<slug>` URL (Web Share API
+  with a clipboard fallback) — the SEO page above existed with no in-app way
+  to actually get its link.
+
 ### 31.1 Overview
 
 - **Main page** (`/answers`, web/PWA; `/answers` in the Capacitor Android
@@ -2571,6 +2611,13 @@ principle as § 31 Answers).
 - **Subscriptions**: visitors can subscribe to a blog to be notified (via
   the existing notifications pipeline) when the owner publishes a new
   article. The owner can show or hide the subscriber count publicly.
+  A logged-out visitor who taps Subscribe (web/PWA only — the Capacitor
+  app is entirely behind its own auth gate, so this can't happen there) is
+  sent to login with a one-shot, tab-scoped intent stashed in
+  `sessionStorage` (never `localStorage`, so it can't leak between users of
+  a shared device); after login they land back on the same blog and the
+  subscribe call fires automatically (v2.10) instead of the prior behaviour
+  of dropping them at login with no way back to what they were doing.
 - **Likes**: readers can like articles; a net-new like awards the author
   1 XP on the Creator track (best-effort, fire-and-forget — never blocks
   the like itself).
@@ -4973,6 +5020,40 @@ instead of silently never building until the workflow is edited.
 
 ---
 
-*ZobiaSocial PRD v2.08*
+## Appendix: Version 2.10 Change Log
+
+### v2.10 — Changelog
+
+**Session-expiry visibility.** The web "you've been signed out" modal
+existed but 158 pages called `fetch()` directly against `/api/*` with no
+401 handling at all, so a dead session on those pages just failed every
+click silently — the modal never had a reason to fire. `window.fetch` is
+now patched once at root-layout mount to catch any such 401 platform-wide
+(§ Session Management); `authFetch`/`apiClient` are unaffected since they
+now go through the pre-patch `rawFetch`. On Capacitor, an involuntary
+sign-out now carries a reason into the login redirect and shows a banner,
+instead of silently dropping the user at login.
+
+**i18n key parity.** `shared/i18n/locales/*` (used by the Capacitor app)
+and `apps/web/lib/i18n/locales/*` (used by web/PWA) had drifted apart —
+1071 keys existed only in `shared`, 61 only in `web` — so raw keys like
+`nav.wallet`/`admin.link` rendered literally on whichever platform was
+missing them. Merged per-locale in both directions (never cross-language);
+both trees now carry the same 2902 keys, each with its own locale's real
+translation. `apps/expo` was left untouched (frozen, being retired).
+
+**Blog subscribe redirect**, **Answers Share button**, **mini-badges**
+(XP-level dot, Prestige diamond, verified checkmark after usernames in
+chats/Moments/profiles), the **Moderation Center**, **Creator Fund**
+per-activity split + manual top-up, **Android Keystore-backed token
+storage**, and **in-app game playback** on the Capacitor app are each
+described in their own sections above (Session Management; §31.0; §9
+Mini-Badges; Moderation Architecture → Moderation Center; §14 Creator
+Fund; Two-Factor Authentication → JWT storage; §30.1) rather than repeated
+here.
+
+---
+
+*ZobiaSocial PRD v2.10*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

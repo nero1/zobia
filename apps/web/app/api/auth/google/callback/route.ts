@@ -463,6 +463,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         isAdmin: user.is_admin,
         is_admin: user.is_admin,
         isModerator: user.is_moderator,
+        is_moderator: user.is_moderator,
         isCreator: user.is_creator,
         is_creator: user.is_creator,
         onboardingCompleted: user.onboarding_completed,

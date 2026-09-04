@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { withAdminAuth } from "@/lib/api/middleware";
+import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
@@ -31,15 +31,12 @@ import { db } from "@/lib/db";
  *
  * @returns Report detail object or 404 if not found
  */
-export const GET = withAdminAuth(
-  async (
-    req: NextRequest,
-    { auth, params }: { auth: { user: { sub: string } }; params: { reportId: string } }
-  ) => {
+export const GET = withModeratorOrAdminAuth<{ reportId: string }>(
+  async (req: NextRequest, { auth, params }) => {
     try {
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-      const { reportId } = params;
+      const { reportId } = await params;
 
       const { rows } = await db.query<{
         id: string;

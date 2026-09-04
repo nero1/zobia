@@ -18,13 +18,14 @@ import { useMomentsConfig } from '@/lib/hooks/useMomentsConfig';
 import { useAdsConfig } from '@/lib/hooks/useAdsConfig';
 import { LiveRoomPulseBar } from '@/components/ui/LiveRoomPulseBar';
 import InStreamAd from '@/components/ads/InStreamAd';
+import { UserBadgeRow } from '@/components/shared/UserBadges';
 
 interface Message {
   id: string;
   senderId: string;
   content: string;
   messageType?: string;
-  sender: { username: string; avatarEmoji: string };
+  sender: { username: string; avatarEmoji: string; isVerified?: boolean; prestigeCount?: number; xpTotal?: string | number };
 }
 
 // Raw row shape returned by GET /api/rooms/:id/messages and the realtime
@@ -34,6 +35,9 @@ interface RoomMessageRow {
   userId: string;
   username: string;
   avatarEmoji: string;
+  senderIsVerified?: boolean;
+  senderPrestigeCount?: number;
+  senderXpTotal?: string | number;
   content: string | null;
   message_type?: string;
 }
@@ -44,7 +48,13 @@ function mapMessage(row: RoomMessageRow): Message {
     senderId: row.userId,
     content: row.content ?? '',
     messageType: row.message_type,
-    sender: { username: row.username, avatarEmoji: row.avatarEmoji ?? '👤' },
+    sender: {
+      username: row.username,
+      avatarEmoji: row.avatarEmoji ?? '👤',
+      isVerified: row.senderIsVerified,
+      prestigeCount: row.senderPrestigeCount,
+      xpTotal: row.senderXpTotal,
+    },
   };
 }
 
@@ -217,7 +227,10 @@ function RoomChatPage() {
                 )}
                 <div>
                   {!isMine && msg.sender && (
-                    <p className="text-xs text-neutral-400 mb-0.5 ml-1">@{msg.sender.username}</p>
+                    <p className="flex items-center gap-1 text-xs text-neutral-400 mb-0.5 ml-1">
+                      <span>@{msg.sender.username}</span>
+                      <UserBadgeRow totalXp={msg.sender.xpTotal} prestige={msg.sender.prestigeCount} verified={msg.sender.isVerified} />
+                    </p>
                   )}
                   <div
                     className={`max-w-[75vw] px-4 py-2 rounded-2xl text-sm ${

@@ -18,6 +18,8 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
+import { UserBadgeRow } from '@/components/shared/UserBadges';
+import type { RankName } from '@zobia/shared/types';
 
 interface TrackLevel {
   track: string;
@@ -39,6 +41,7 @@ interface RichProfile {
   xp: number | null;
   plan: string;
   isVerified: boolean;
+  prestige?: number;
   trackLevels: TrackLevel[];
 }
 
@@ -104,7 +107,10 @@ function ProfilePage() {
             {profile.avatarEmoji || '👤'}
           </div>
           <div>
-            <h2 className="text-xl font-bold text-neutral-900">{profile.displayName ?? profile.username}</h2>
+            <h2 className="inline-flex items-center gap-1.5 text-xl font-bold text-neutral-900">
+              {profile.displayName ?? profile.username}
+              <UserBadgeRow rank={profile.rankName as RankName} prestige={profile.prestige} verified={profile.isVerified} size="md" />
+            </h2>
             <p className="text-neutral-500 text-sm">@{profile.username}</p>
           </div>
 

@@ -13,6 +13,7 @@ import { creditStars } from "@/lib/economy/stars";
 import { awardReferralCommissions, recordFailedCommission } from "@/lib/referrals/commissions";
 import { getCreatorFeeRate, moveToDeadLetterQueue } from "@/lib/payments/payouts";
 import { loadManifest } from "@/lib/manifest";
+import { contributeToCreatorFund } from "@/lib/creator/fundContribution";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -222,17 +223,7 @@ export async function processChargeSuccess(
       }
 
       // BUG-PAY-01: seed Creator Fund for room_subscription payments (was missing)
-      const subCreatorFundKobo = Math.floor(subGrossKobo * 0.05);
-      if (subCreatorFundKobo > 0) {
-        await tx.query(
-          `INSERT INTO x_manifest (key, value, updated_at)
-           VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
-           ON CONFLICT (key) DO UPDATE
-             SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
-                 updated_at = NOW()`,
-          [subCreatorFundKobo]
-        );
-      }
+      await contributeToCreatorFund(subGrossKobo, "room_subscription", tx);
       return;
     }
 
@@ -240,17 +231,7 @@ export async function processChargeSuccess(
     // The join route validates payment.status='completed'; no coin credit needed.
     if (itemType === "room_entry") {
       // BUG-PAY-02: seed Creator Fund for room_entry payments (was missing)
-      const entryCreatorFundKobo = Math.floor(amount * 0.05);
-      if (entryCreatorFundKobo > 0) {
-        await tx.query(
-          `INSERT INTO x_manifest (key, value, updated_at)
-           VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
-           ON CONFLICT (key) DO UPDATE
-             SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
-                 updated_at = NOW()`,
-          [entryCreatorFundKobo]
-        );
-      }
+      await contributeToCreatorFund(amount, "room_entry", tx);
       return;
     }
 
@@ -436,18 +417,8 @@ export async function processChargeSuccess(
       referralPayload = { userId, coins: serverCoinsGranted, paymentId, amountKobo: amount };
     }
 
-    // Seed 5% of gross revenue into Creator Fund (PRD §14)
-    const creatorFundContributionKobo = Math.floor(amount * 0.05);
-    if (creatorFundContributionKobo > 0) {
-      await tx.query(
-        `INSERT INTO x_manifest (key, value, updated_at)
-         VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
-         ON CONFLICT (key) DO UPDATE
-           SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
-               updated_at = NOW()`,
-        [creatorFundContributionKobo]
-      );
-    }
+    // Seed the Creator Fund from gross revenue (PRD §14; percent is admin-configurable)
+    await contributeToCreatorFund(amount, "coin_purchase", tx);
   });
 
   // Award referral commissions after the transaction commits so commission writes

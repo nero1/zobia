@@ -6,9 +6,9 @@
  */
 
 import { useEffect } from 'react';
-import { useNavigate } from '@tanstack/react-router';
+import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { useAuth } from '@/lib/auth/store';
-import { getCachedToken } from '@/lib/api/client';
+import { getCachedToken, consumeAutoSignOutReason } from '@/lib/api/client';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -17,6 +17,7 @@ interface AuthGuardProps {
 export function AuthGuard({ children }: AuthGuardProps) {
   const { token, isLoaded } = useAuth();
   const navigate = useNavigate();
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
 
   useEffect(() => {
     // getCachedToken() is set synchronously the instant login succeeds, before the
@@ -24,9 +25,19 @@ export function AuthGuard({ children }: AuthGuardProps) {
     // race right after OAuth where this effect can fire (and redirect to login)
     // during the one render that still sees the pre-login `token` from context.
     if (isLoaded && !token && !getCachedToken()) {
-      navigate({ to: '/auth/login', replace: true });
+      // A refresh-token failure (session expired / revoked) sets this reason
+      // via signalUnauthenticated(); a voluntary "Log out" tap never sets it.
+      // Carry it through so the login screen can show an explanatory banner
+      // instead of dumping the user back at login with no context — this is
+      // the case users report as "I just get logged out with no explanation".
+      const reason = consumeAutoSignOutReason();
+      navigate({
+        to: '/auth/login',
+        replace: true,
+        search: reason ? { reason, redirect: pathname } : undefined,
+      });
     }
-  }, [isLoaded, token, navigate]);
+  }, [isLoaded, token, navigate, pathname]);
 
   if (!isLoaded) {
     return (

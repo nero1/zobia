@@ -30,6 +30,7 @@ interface Author {
 
 interface QuestionDetail {
   id: string;
+  slug: string | null;
   title: string;
   body: string;
   author: Author;
@@ -114,6 +115,7 @@ export default function QuestionDetailPage() {
   const [bypassPrompt, setBypassPrompt] = useState<{ minLevel: number; bypassCostCredits: number; parentAnswerId: string | null; body: string } | null>(null);
   const [reportTarget, setReportTarget] = useState<{ type: "question" | "answer"; id: string } | null>(null);
   const [reportSubmitted, setReportSubmitted] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
 
   const fetchQuestion = useCallback(async () => {
     const res = await fetch(`/api/answers/questions/${questionId}`, { credentials: "include" });
@@ -183,6 +185,29 @@ export default function QuestionDetailPage() {
       await fetch(`/api/answers/questions/${questionId}/favorite`, { method: next ? "POST" : "DELETE", credentials: "include" });
     } catch {
       setQuestion((prev) => (prev ? { ...prev, isFavorited: !next, favoriteCount: prev.favoriteCount + (next ? -1 : 1) } : prev));
+    }
+  }
+
+  // Shares the public, crawlable /a/<slug> URL (see app/a/[slug]/page.tsx) —
+  // not this authenticated /answers/<uuid> route — so the link works for
+  // logged-out recipients and carries proper SEO metadata/JSON-LD.
+  async function handleShare() {
+    if (!question) return;
+    const url = `${window.location.origin}/a/${question.slug ?? question.id}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ title: question.title, url });
+        return;
+      }
+    } catch {
+      return; // user cancelled the native share sheet
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable — nothing more we can do without a fallback UI.
     }
   }
 
@@ -416,6 +441,9 @@ export default function QuestionDetailPage() {
                   <span>{timeAgo(question.createdAt)}</span>
                   <button onClick={() => void handleFavorite()} className={`rounded-full px-1.5 py-0.5 ${question.isFavorited ? "text-amber-500" : "text-neutral-300 hover:text-amber-400"}`}>
                     {question.isFavorited ? "★" : "☆"} {question.favoriteCount}
+                  </button>
+                  <button onClick={() => void handleShare()} className="font-medium text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400">
+                    {shareCopied ? t("answers.linkCopied", "Link copied") : t("answers.share", "Share")}
                   </button>
                   <button onClick={() => setReportTarget({ type: "question", id: question.id })} className="ml-auto font-medium text-neutral-400 hover:text-red-600 dark:hover:text-red-400">
                     {t("answers.report", "Report")}

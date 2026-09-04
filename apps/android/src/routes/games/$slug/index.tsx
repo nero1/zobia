@@ -1,14 +1,13 @@
 /**
- * apps/android/src/routes/games/$slug.tsx
+ * apps/android/src/routes/games/$slug/index.tsx
  *
  * Individual game view. GET /api/games/:slug + /api/games/:slug/leaderboard.
  */
 
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
-import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
 import type { GameSummary, GameLeaderboardRow } from '@zobia/shared/types';
 
 async function fetchGame(slug: string) {
@@ -81,20 +80,20 @@ function GameDetailPage() {
         )}
 
         {/*
-          ZB-AND-06 fix: previously had no onClick at all — tapping Play was a
-          complete no-op since there is no native game engine in this app.
-          Per this project's convention (no webview wrappers except for
-          genuinely complex flows — see routes/kyc.tsx, routes/ads/index.tsx),
-          hand off to the already-built, authenticated web player via a
-          Custom Tab instead of reimplementing every game engine natively.
+          Plays inside the app: routes/games/$slug/play.tsx embeds the
+          already-built web player (<API_BASE_URL>/g/<slug>/embed, the same
+          chromeless runner the now-retired Expo app loaded in a native
+          WebView) in an <iframe>, instead of handing off to a Custom Tab —
+          per user feedback, leaving the app to play felt like being kicked
+          out of it. See that route for the reward/wallet-sync bridge.
         */}
-        <button
-          type="button"
-          onClick={() => void openAuthenticatedWebLink(`/g/${game.slug}/play`)}
-          className="w-full py-3 bg-primary-600 text-white font-semibold rounded-lg"
+        <Link
+          to="/games/$slug/play"
+          params={{ slug: game.slug }}
+          className="block w-full py-3 bg-primary-600 text-white font-semibold rounded-lg text-center"
         >
           {t('android.games.play')}
-        </button>
+        </Link>
       </div>
 
       {/* Rewards */}
@@ -142,6 +141,6 @@ function GameDetailPage() {
   );
 }
 
-export const Route = createFileRoute('/games/$slug')({
+export const Route = createFileRoute('/games/$slug/')({
   component: GameDetailPage,
 });

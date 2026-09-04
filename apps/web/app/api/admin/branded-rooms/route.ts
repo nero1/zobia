@@ -18,6 +18,7 @@ import { z } from "zod";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { db } from "@/lib/db";
+import { contributeToCreatorFund } from "@/lib/creator/fundContribution";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -162,18 +163,8 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
 
       created = rows[0];
 
-      // Seed 5% of sponsor budget into Creator Fund (PRD §14)
-      const creatorFundContribution = Math.floor(sponsorBudgetCoins * 0.05);
-      if (creatorFundContribution > 0) {
-        await tx.query(
-          `INSERT INTO x_manifest (key, value, updated_at)
-           VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
-           ON CONFLICT (key) DO UPDATE
-             SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
-                 updated_at = NOW()`,
-          [creatorFundContribution]
-        );
-      }
+      // Seed the Creator Fund from sponsor budget (PRD §14; percent is admin-configurable)
+      await contributeToCreatorFund(sponsorBudgetCoins, "sponsor_budget", tx);
     });
 
     return NextResponse.json(formatBrandedRoom(created!), { status: 201 });
