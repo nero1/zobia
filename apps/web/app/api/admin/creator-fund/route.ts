@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
  * lib/creator/fundContribution.ts's per-activity contributions plus any
  * manual top-up — see POST /api/admin/creator-fund/topup) and the
  * admin-configured split percent per contributing activity (also editable
- * generically via /admin/config, this just saves a round-trip for the
+ * generically via /gate44/config, this just saves a round-trip for the
  * dedicated Creator Fund admin page).
  */
 

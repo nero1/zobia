@@ -6,7 +6,7 @@
  * Saved Games — manage save slots (pause an in-progress game, resume it
  * later from here or from the game's own pregame screen). Slot count is
  * plan-gated (Free 0 / Plus 1 / Pro 3 / Max 5 by default, admin-configurable
- * at /admin/config). If a downgrade drops the limit below the current save
+ * at /gate44/config). If a downgrade drops the limit below the current save
  * count, this page surfaces the overage and lets the user pick which saves
  * to delete — or confirm auto-deleting the oldest ones.
  */

@@ -103,6 +103,15 @@ export async function processPaymentSucceeded(
     const paymentId = existing[0].id;
     const { userId, itemType } = metadata;
 
+    // Admin test payment (POST /api/admin/payments/test) — just confirms the
+    // provider integration works end-to-end. Not a real purchase: no coins/
+    // stars to credit, and it must not be logged as a coin_pack DLQ failure
+    // (it has no itemType, which the fallback branch below would otherwise
+    // treat as an unresolved coin pack).
+    if ((metadata as Record<string, unknown>).adminTest) {
+      return;
+    }
+
     // Resolve server-authoritative grant amounts from store_items to prevent metadata tampering (BUG-02)
     const itemSlug = metadata.itemSlug;
     let serverCoinsGranted = metadata.coinsGranted ?? 0;

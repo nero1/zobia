@@ -22,6 +22,7 @@ import { handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { writeAuditLog } from "@/lib/audit/auditLog";
 import { logger } from "@/lib/logger";
+import { loadManifest } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Helper: coin economy summary
@@ -193,9 +194,13 @@ interface AnomalyAlert {
 
 async function detectAnomalies(): Promise<AnomalyAlert[]> {
   const alerts: AnomalyAlert[] = [];
+  // Currency display name is admin-configurable (x_manifest currency_soft_name_*)
+  // — never hard-code "coins" in alert text. See lib/manifest/index.ts.
+  const manifest = await loadManifest();
+  const currencyPlural = manifest.currency.softNamePlural.toLowerCase();
 
   try {
-    // Check for users with unusually large coin balances (> 1 million coins)
+    // Check for users with unusually large balances (> 1 million)
     const { rows: largeBalances } = await db.query<{ count: string }>(
       `SELECT COUNT(*)::TEXT AS count FROM users WHERE coin_balance > 1000000 AND deleted_at IS NULL`
     );
@@ -204,7 +209,7 @@ async function detectAnomalies(): Promise<AnomalyAlert[]> {
       alerts.push({
         level: "warning",
         code: "LARGE_COIN_BALANCES",
-        message: `${largeCount} user(s) have coin balances exceeding 1,000,000 coins.`,
+        message: `${largeCount} user(s) have ${currencyPlural} balances exceeding 1,000,000 ${currencyPlural}.`,
       });
     }
 
@@ -226,7 +231,7 @@ async function detectAnomalies(): Promise<AnomalyAlert[]> {
       alerts.push({
         level: "critical",
         code: "COIN_MINTING_SPIKE",
-        message: `Hourly coin minting (${hourly}) is 10× the 24h average (${dailyAvg.toFixed(0)}). Possible fraud.`,
+        message: `Hourly ${currencyPlural} minting (${hourly}) is 10× the 24h average (${dailyAvg.toFixed(0)}). Possible fraud.`,
       });
     }
 

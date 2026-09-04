@@ -135,6 +135,13 @@ export async function processChargeSuccess(
     const paymentId = existing[0].id;
     const { userId, coinsGranted, starsGranted, itemType } = metadata;
 
+    // Admin test payment (POST /api/admin/payments/test) — just confirms the
+    // provider integration works end-to-end. Not a real purchase: no coins/
+    // stars to credit and it must not count toward Creator Fund revenue.
+    if ((metadata as Record<string, unknown>).adminTest) {
+      return;
+    }
+
     // Subscription charges: plan activation is handled by subscription.create event;
     // skip coin/star crediting here to avoid double-crediting or NaN errors.
     if (itemType === "subscription") {

@@ -231,15 +231,15 @@ function MobileDrawer({
           <nav className="space-y-0.5" aria-label="Primary">
             {isAdmin && (
               <Link
-                href="/admin"
+                href="/gate44"
                 onClick={onClose}
                 className={clsx(
                   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
-                  pathname.startsWith("/admin")
+                  pathname.startsWith("/gate44")
                     ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
                     : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
                 )}
-                aria-current={pathname.startsWith("/admin") ? "page" : undefined}
+                aria-current={pathname.startsWith("/gate44") ? "page" : undefined}
               >
                 <span className="w-5 text-center text-base leading-none" aria-hidden="true">🛡️</span>
                 {t("admin.link")}
@@ -620,11 +620,11 @@ export function Navbar() {
           <div className="flex items-center gap-2">
             {navUser?.is_admin && (
               <Link
-                href="/admin"
+                href="/gate44"
                 aria-label={t("admin.link")}
                 className={clsx(
                   "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  pathname.startsWith("/admin")
+                  pathname.startsWith("/gate44")
                     ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
                     : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
                 )}

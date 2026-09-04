@@ -6,12 +6,12 @@ export const dynamic = 'force-dynamic';
  * Admin platform events management.
  *
  * GET /api/admin/events
- *   List all platform events (admin only).
+ *   List all platform events (admin only). Returns camelCase fields matching
+ *   the admin UI's PlatformEvent type — see app/(admin)/gate44/events/page.tsx.
  *
  * POST /api/admin/events
- *   Create a platform event.
- *   Body: { name, description, event_type, xp_multiplier, coin_bonus_pct,
- *           starts_at, ends_at, target_cities? }
+ *   Create a platform event, optionally scheduled for the future and/or
+ *   recurring monthly or yearly.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -41,6 +41,7 @@ const createEventSchema = z.object({
   starts_at: z.string().datetime(),
   ends_at: z.string().datetime(),
   target_cities: z.array(z.string()).optional(),
+  recurrence_interval: z.enum(["none", "monthly", "yearly"]).default("none"),
 });
 
 // ---------------------------------------------------------------------------
@@ -57,10 +58,30 @@ interface PlatformEventRow {
   starts_at: string;
   ends_at: string;
   is_active: boolean;
+  recurrence_interval: string;
   target_cities: string[] | null;
   metadata: unknown;
   created_at: string;
   updated_at: string;
+}
+
+/** Shape returned to the admin UI — matches PlatformEvent in gate44/events/page.tsx. */
+function toApiEvent(row: PlatformEventRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    type: row.event_type,
+    xpMultiplier: parseFloat(row.xp_multiplier),
+    coinBonusPct: row.coin_bonus_pct,
+    startsAt: row.starts_at,
+    endsAt: row.ends_at,
+    isActive: row.is_active,
+    recurrenceInterval: row.recurrence_interval,
+    targetCities: row.target_cities,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -75,19 +96,14 @@ export const GET = withAdminAuth(async (_req: NextRequest, { auth }) => {
       `SELECT id, name, description, event_type,
               xp_multiplier::TEXT AS xp_multiplier,
               coin_bonus_pct, starts_at, ends_at,
-              is_active, target_cities, metadata, created_at, updated_at
+              is_active, recurrence_interval, target_cities, metadata, created_at, updated_at
        FROM platform_events
        ORDER BY starts_at DESC`
     );
 
-    const events = rows.map((row) => ({
-      ...row,
-      xpMultiplier: parseFloat(row.xp_multiplier),
-    }));
-
     return NextResponse.json({
       success: true,
-      data: { events },
+      data: { events: rows.map(toApiEvent) },
       error: null,
     });
   } catch (err) {
@@ -99,7 +115,7 @@ export const GET = withAdminAuth(async (_req: NextRequest, { auth }) => {
 // POST /api/admin/events
 // ---------------------------------------------------------------------------
 
-export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => {
+export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
@@ -108,12 +124,13 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     const { rows } = await db.query<PlatformEventRow>(
       `INSERT INTO platform_events
          (name, description, event_type, xp_multiplier, coin_bonus_pct,
-          starts_at, ends_at, is_active, target_cities, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, $8, NOW(), NOW())
+          starts_at, ends_at, is_active, recurrence_interval, target_cities,
+          created_by, created_at, updated_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, $8, $9, $10, NOW(), NOW())
        RETURNING id, name, description, event_type,
                  xp_multiplier::TEXT AS xp_multiplier,
                  coin_bonus_pct, starts_at, ends_at,
-                 is_active, target_cities, metadata, created_at, updated_at`,
+                 is_active, recurrence_interval, target_cities, metadata, created_at, updated_at`,
       [
         body.name,
         body.description ?? null,
@@ -122,21 +139,14 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
         body.coin_bonus_pct,
         body.starts_at,
         body.ends_at,
+        body.recurrence_interval,
         body.target_cities ?? null,
+        auth.user.sub,
       ]
     );
 
     return NextResponse.json(
-      {
-        success: true,
-        data: {
-          event: {
-            ...rows[0],
-            xpMultiplier: parseFloat(rows[0].xp_multiplier),
-          },
-        },
-        error: null,
-      },
+      { success: true, data: { event: toApiEvent(rows[0]) }, error: null },
       { status: 201 }
     );
   } catch (err) {

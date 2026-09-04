@@ -3,7 +3,7 @@
 /**
  * app/(app)/moderation/page.tsx
  *
- * Moderation Center — a standalone area (outside /admin) reachable by both
+ * Moderation Center — a standalone area (outside /gate44) reachable by both
  * moderators and admins. Unifies the existing report queues:
  *   - "Reports"     → GET /api/admin/moderation (general reports)
  *   - "Forum Queue" → GET /api/admin/forum/queue (Answers questions/answers)
@@ -291,7 +291,7 @@ export default function ModerationCenterPage() {
           {t("moderation.title", "Moderation Center")}
         </h1>
         {isAdmin && (
-          <Link href="/admin/moderation" className="text-xs font-medium text-primary-600 hover:underline">
+          <Link href="/gate44/moderation" className="text-xs font-medium text-primary-600 hover:underline">
             {t("moderation.legacyLink", "Admin moderation queue")} →
           </Link>
         )}

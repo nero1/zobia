@@ -4,7 +4,7 @@
  * Next.js Edge Middleware for authentication and route protection.
  *
  * Route protection rules:
- *   - /admin/*          → requires valid JWT + is_admin=true (from JWT claim;
+ *   - /gate44/*         → requires valid JWT + is_admin=true (from JWT claim;
  *                         the admin API routes re-verify against the DB)
  *   - /auth/*           → public (redirect to /home if already authenticated)
  *   - /api/auth/*       → public (login/refresh/logout endpoints)
@@ -123,7 +123,7 @@ function buildCsp(nonce: string, allowEmbedFraming = false): string {
 const ACCESS_TOKEN_COOKIE = "zobia_at";
 const REFRESH_TOKEN_COOKIE = "zobia_rt";
 const LOGIN_URL = "/auth/login";
-const ADMIN_LOGIN_URL = "/admin/login";
+const ADMIN_LOGIN_URL = "/gate44/login";
 const HOME_URL = "/home";
 
 /** Routes that are always public (no auth required). */
@@ -183,16 +183,16 @@ const PUBLIC_PREFIXES = [
 ];
 
 /** Routes that require admin JWT claim. */
-const ADMIN_PREFIXES = ["/admin"];
+const ADMIN_PREFIXES = ["/gate44"];
 
 /**
- * Scoped exception within /admin/*: moderators (is_moderator=true) may pass
+ * Scoped exception within /gate44/*: moderators (is_moderator=true) may pass
  * the edge pre-filter for these prefixes even without is_admin. Every other
- * /admin/* page still requires is_admin. Per-page/action authorization is
+ * /gate44/* page still requires is_admin. Per-page/action authorization is
  * still re-verified against the DATABASE by the API layer
  * (withModeratorOrAdminAuth) — this is only the cheap edge pre-filter.
  */
-const FORUM_MOD_PREFIXES = ["/admin/forum"];
+const FORUM_MOD_PREFIXES = ["/gate44/forum"];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -448,7 +448,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     if (token) {
       const payload = await verifyToken(token);
       if (payload?.is_admin) {
-        return NextResponse.redirect(new URL("/admin", request.url));
+        return NextResponse.redirect(new URL("/gate44", request.url));
       }
     }
     return withCsp(new Headers(request.headers));
@@ -489,7 +489,7 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     const isAllowedModerator = isForumModRoute && !!payload.is_moderator;
 
     if (!payload.is_admin && !isAllowedModerator) {
-      // Valid token but not admin (and not a moderator on a scoped /admin/forum/* route) – redirect to app
+      // Valid token but not admin (and not a moderator on a scoped /gate44/forum/* route) – redirect to app
       return NextResponse.redirect(new URL(HOME_URL, request.url));
     }
 

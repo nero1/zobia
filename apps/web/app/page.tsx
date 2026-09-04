@@ -7,6 +7,8 @@
 
 import Link from "next/link";
 import type { Metadata } from "next";
+import { MaintenancePage } from "@/components/maintenance/MaintenancePage";
+import { loadManifest } from "@/lib/manifest";
 
 export const metadata: Metadata = {
   title: "Zobia Social – Connect, Engage, Belong",
@@ -84,7 +86,12 @@ const features: FeatureCardProps[] = [
 /**
  * Public landing page.
  */
-export default function LandingPage() {
+export default async function LandingPage() {
+  const manifest = await loadManifest();
+  if (manifest.maintenance.enabled) {
+    return <MaintenancePage message={manifest.maintenance.message} />;
+  }
+
   return (
     <div className="min-h-screen bg-neutral-50 dark:bg-neutral-950">
       {/* Header */}

@@ -3,7 +3,7 @@
  *
  * Registry of features that CAN be preserved during a subscription's grace
  * period (see lib/plans/gracePeriod.ts). Admin picks a subset of this list
- * per plan/business tier at /admin/config ("Grace Periods & Save Slots").
+ * per plan/business tier at /gate44/config ("Grace Periods & Save Slots").
  *
  * To add a new grace-gated feature:
  *   1. Add an entry below.

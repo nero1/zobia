@@ -21,7 +21,10 @@ import { deleteQuestion, deleteAnswer, setQuestionLocked } from "@/lib/forum/ser
 
 const bodySchema = z.object({
   targetType: z.enum(["question", "answer"]),
-  action: z.enum(["remove", "restore", "lock", "unlock"]),
+  action: z.enum(["remove", "restore", "lock", "unlock", "edit"]),
+  // Only used when action === "edit". Title is question-only.
+  title: z.string().min(3).max(200).optional(),
+  body: z.string().min(1).max(10000).optional(),
 });
 
 const ADMIN_ONLY_ACTIONS = new Set(["restore", "lock", "unlock"]);
@@ -55,6 +58,25 @@ export const PATCH = withModeratorOrAdminAuth<{ id: string }>(async (req: NextRe
     } else if (body.action === "unlock") {
       if (body.targetType !== "question") throw badRequest("Only questions can be locked");
       await setQuestionLocked(id, false);
+    } else if (body.action === "edit") {
+      // Mods and admins can both edit content (unlike restore/lock, which
+      // reverse a moderation decision — editing is a content correction).
+      if (!body.body?.trim()) throw badRequest("Body is required");
+      if (body.targetType === "question") {
+        const { rowCount } = await db.query(
+          `UPDATE forum_questions
+           SET title = COALESCE($2, title), body = $3, updated_at = NOW()
+           WHERE id = $1`,
+          [id, body.title?.trim() || null, body.body.trim()]
+        );
+        if (!rowCount) throw notFound("Not found");
+      } else {
+        const { rowCount } = await db.query(
+          `UPDATE forum_answers SET body = $2, updated_at = NOW() WHERE id = $1`,
+          [id, body.body.trim()]
+        );
+        if (!rowCount) throw notFound("Not found");
+      }
     }
 
     await db.query(

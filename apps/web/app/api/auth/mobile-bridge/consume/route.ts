@@ -28,7 +28,7 @@ import { handleApiError } from "@/lib/api/errors";
 // route.ts, which disallows query strings entirely because that redirect
 // target is public-facing (BUG-030). This endpoint's redirect targets are
 // restricted server-side to `ALLOWED_BRIDGE_PATHS` in ../route.ts — the only
-// one that currently carries a query string is `/admin/kyc?userId=<uuid>`,
+// one that currently carries a query string is `/gate44/kyc?userId=<uuid>`,
 // so allowing a bounded alphanumeric query string here is required for that
 // flow to actually land on the right admin page instead of silently falling
 // back to /home, while still rejecting anything that could carry `<`, `"`,

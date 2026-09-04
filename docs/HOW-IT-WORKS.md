@@ -59,7 +59,7 @@ Moments are short-lived posts (text, optionally one image) that expire 24 hours 
 **How they work:**
 - **Feed page** (`POST /api/moments`, web + Android Capacitor app) and the **Room ⚡ toggle** (`POST /api/rooms/:roomId/messages` with `messageType: "moment"`) both call `createMoment()`, so a Moment sent from inside a Room shows up on the public `/moments` feed for every user, not just Room members.
 - The feed is served by `GET /api/moments` — a **public, cross-user** feed (every non-expired Moment from every user, newest first), cursor-paginated (`?cursor=<created_at>&limit=<n>`, capped at 50/page) via the `idx_moments_active_feed` index so it stays fast at thousands of Moments/day. It is not filtered to the caller's follows.
-- **Eligibility & pricing** (all admin-configurable via `/admin/config`, backed by `x_manifest` and cached in `ZobiaManifest.moments`):
+- **Eligibility & pricing** (all admin-configurable via `/gate44/config`, backed by `x_manifest` and cached in `ZobiaManifest.moments`):
   - `moments_min_level` (default `2`) — minimum main-rank level required to post.
   - `moments_cost_credits` (default `100`) and `moments_cost_stars` (default `1`) — either currency is accepted when both are priced > 0; set a cost to `0` to disable that currency, set both to `0` to make Moments free.
   - `feature_moments` — master on/off toggle (`requireFeatureEnabled("moments")`).
@@ -281,7 +281,7 @@ business logic lives in `lib/blogs/repo.ts` + `lib/blogs/service.ts` +
   90-day daily drill-down + CSV export for Pro/Max
   (`GET /api/blogs/<slug>/stats(+/export)`), backed by the lightweight
   `blog_post_daily_stats` rollup table.
-- **Admin:** `feature_blogs` master toggle; `/admin/blogs` lists every
+- **Admin:** `feature_blogs` master toggle; `/gate44/blogs` lists every
   blog with pause/suspend/ban/deactivate/restore/delete actions (each
   logged to `blog_moderation_log`) and an admin-only ownership-transfer
   action (`POST /api/admin/blogs/<id>/transfer`).
@@ -344,7 +344,7 @@ Settings are stored as five columns on the `users` table:
 
 **User control** via `PATCH /api/users/me/privacy` — only toggles the user is eligible for (based on plan/prestige) are accepted. Eligibility is checked server-side against `x_manifest` flags.
 
-**Admin control** — the admin panel page at `/admin/settings/privacy` lets admins configure which plans and prestige ranks can access each privacy feature. The four configurable flags stored in `x_manifest`:
+**Admin control** — the admin panel page at `/gate44/settings/privacy` lets admins configure which plans and prestige ranks can access each privacy feature. The four configurable flags stored in `x_manifest`:
 
 | Key | Default |
 |---|---|
@@ -382,7 +382,7 @@ A dedicated Stats page at `/profile/[userId]/stats`, backed by `GET /api/users/[
 
 **Basic vs. Full tiers.** `lib/plans/eligibility.ts` (`getAllowedPlans` + `isPlanEligible`, extracted from the Profile Privacy gates below so the same plan/prestige-tier logic isn't duplicated a third time) checks the target user's plan against the `profile_stats_full_plans` x_manifest key (JSON array, default `["plus","pro","max"]`). Free users get **Basic**: badges, tracks, rooms, guild, social counts, and a single "main track, global scope" leaderboard rank. Plans on the list get **Full**: everything in Basic plus every track × every scope (global/city/guild/season) leaderboard rank and season history — computed with the same `getUserRank()` helper used by `GET /api/leaderboards/me`, just scoped to the target `userId` instead of the caller.
 
-**Admin control.** The master switch (`feature_profile_stats`) is a normal `feature_*` key, so it's picked up automatically by the existing Feature Flags panel (`/admin/feature-flags`) with no code change beyond a nicer label. Which plans get Full vs Basic is configured separately at `/admin/settings/profile-stats` (chip selector, same UI pattern as `/admin/settings/privacy`), writing to `profile_stats_full_plans` via the existing generic `PUT /api/admin/config/[key]` route.
+**Admin control.** The master switch (`feature_profile_stats`) is a normal `feature_*` key, so it's picked up automatically by the existing Feature Flags panel (`/gate44/feature-flags`) with no code change beyond a nicer label. Which plans get Full vs Basic is configured separately at `/gate44/settings/profile-stats` (chip selector, same UI pattern as `/gate44/settings/privacy`), writing to `profile_stats_full_plans` via the existing generic `PUT /api/admin/config/[key]` route.
 
 **Wallet integration.** The Wallet page shows a compact rank/badges/prestige summary (reading `GET /api/users/me`, which now also returns a cheap `badge_count` via one correlated subquery) linking to this Stats page, so users don't have to leave Wallet to see their standing.
 
@@ -407,7 +407,7 @@ Self-service, CPM-billed ad system layered on existing infrastructure — no par
 
 - **Eligibility.** `checkAdvertiserEligibility()` (`lib/ads/limits.ts`) requires a `verified` Business Account whose owner's `users.kyc_tier` is at least `ad_min_kyc_tier_to_advertise` (x_manifest, default 1). Checked on every campaign create/list route — never trusted from a client claim.
 - **Schema** (`db/migrations/0006_ads.sql`): `ad_placements` (admin slot catalogue + base CPM), `ad_campaigns` (business- or admin-owned), `ad_creatives` (per-placement creative, format html/text/image/native/third_party — `third_party` is admin-only), `ad_events` (append-only impression/click log, idempotent per `client_event_id`), `ad_campaign_daily_stats` (rollup written in the same transaction as each event), `ad_coupons`/`ad_coupon_redemptions`.
-- **Moderation** (`lib/ads/repo.ts` `submitCampaignForModeration`) mirrors the Sponsored Quest flow exactly: `ad_moderation_mode` manual → admin queue at `/admin/ads` (approve/reject, `admin_audit_log`, notification to submitter); `ai` → `classifyAdCreative()` (`lib/moderation/aiClassifier.ts`, DeepSeek primary/Gemini fallback, user content only ever in the user turn) auto-approves at or above `ad_ai_auto_approve_threshold`, else falls back to manual.
+- **Moderation** (`lib/ads/repo.ts` `submitCampaignForModeration`) mirrors the Sponsored Quest flow exactly: `ad_moderation_mode` manual → admin queue at `/gate44/ads` (approve/reject, `admin_audit_log`, notification to submitter); `ai` → `classifyAdCreative()` (`lib/moderation/aiClassifier.ts`, DeepSeek primary/Gemini fallback, user content only ever in the user turn) auto-approves at or above `ad_ai_auto_approve_threshold`, else falls back to manual.
 - **Billing.** Funding a campaign (`POST /business/ads/campaigns/:id/fund`) debits the advertiser's `coin_balance` through the existing `coin_ledger` (atomic, idempotent, `SELECT FOR UPDATE`) — the "pay with cash" path is just the existing Credit Pack purchase flow (Paystack/DodoPayments/Play Billing) run first. Per-impression CPM spend (`lib/ads/serve.ts` `recordAdEvents`) then draws down `ad_campaigns.spent_credits` directly, **not** one `coin_ledger` row per impression — that would balloon the ledger under normal ad traffic; `ad_events` is the impression-level audit trail instead. A campaign auto-completes once `spent_credits >= total_budget_credits`.
 - **Serving** (`GET /api/ads/serve?placement=<key>`, `lib/ads/serve.ts` `serveAd`) picks a random active/approved/in-budget/plan-eligible creative for a placement — no per-user Redis frequency tracking; the client (`components/ads/AdSlot.tsx`) does offline-friendly frequency/queueing in `localStorage` instead (`adEventQueue.ts`), batching impression/click reports and flushing via `sendBeacon` on unload/visibility-change, so ad tracking costs at most a couple of requests per session, not one per impression.
 - **In-stream Room ads.** `app/(app)/rooms/[roomId]/page.tsx` interleaves `<InStreamAd />` after every `roomInstreamInterval` messages (x_manifest `ad_room_instream_interval`, default 10) — **`free_open` Rooms only**, gated client-side via `useAdsConfig()` (rides the same cached `GET /api/manifest` as `useMomentsConfig`/`useCurrency`).
@@ -514,14 +514,26 @@ All deep-linkable routes are defined in `lib/deeplinks/routes.ts` — the single
 
 ## Admin Features
 
-The admin panel is available at `/admin` and is protected by `is_admin = true` in the database (not just the JWT — every admin route calls `withAdminAuth` which re-checks the database).
+The admin panel is available at `/gate44` and is protected by `is_admin = true` in the database (not just the JWT — every admin route calls `withAdminAuth` which re-checks the database).
 
 **Platform parity (v2.06):** all 36 admin pages exist natively on every platform:
-- **Web / mobile web / PWA** — `apps/web/app/(admin)/admin/**` (Next.js), the reference implementation for every admin API contract below.
+- **Web / mobile web / PWA** — `apps/web/app/(admin)/gate44/**` (Next.js), the reference implementation for every admin API contract below.
 - **Capacitor Android** — `apps/android/src/routes/admin/**` (TanStack Router), a from-scratch native React rebuild (not a WebView wrapper) mirroring the same 36 pages with mobile card-list layouts instead of tables. Reached via the "🛡️ Admin" link in the drawer menu (`TopBar.tsx`), shown only when the signed-in user's `is_admin` is true, same as web's Navbar. `AdminShell`/`AdminGuard` (`apps/android/src/components/admin/`) provide the drawer nav and client-side gate; the real authorization boundary is still server-side `withAdminAuth` on every `/api/admin/*` call, exactly as on web — a spoofed client-side `is_admin` can change the Android app's nav, never its actual access.
 - **Expo** (`apps/expo/app/admin/**`) covers about 26 of the 36 pages and is frozen — the Expo app is discontinued in favour of the Capacitor app and is not being extended further, kept only as a reference for historical conventions.
 
-Because the Capacitor Android app authenticates with the same Bearer-JWT session as its regular login (2FA, if enabled on the account, already runs through the normal login flow), there is no separate "admin login" screen on Android the way there is on web (`/admin/login`, which exists to force TOTP entry when there's no existing browser session) — an admin's normal in-app session already carries `is_admin` and is independently re-verified against the database by every `/api/admin/*` call.
+Because the Capacitor Android app authenticates with the same Bearer-JWT session as its regular login (2FA, if enabled on the account, already runs through the normal login flow), there is no separate "admin login" screen on Android the way there is on web (`/gate44/login`, which exists to force TOTP entry when there's no existing browser session) — an admin's normal in-app session already carries `is_admin` and is independently re-verified against the database by every `/api/admin/*` call.
+
+**v2.11 scope note:** the `/admin` → `/gate44` rename, brute-force lockout +
+Secret Magic Word, maintenance mode gating, impersonation, event
+scheduling/recurrence UI, currency-name fixes, games stats popup, and the
+announcements bug fixes described in the v2.11 changelog (PRD Appendix) were
+implemented on **web/mobile-web/PWA only**. None of those apply to the
+Android app's own route-hiding concerns the same way (it has no browser-
+addressable URL for search engines/robots.txt to index in the first place),
+but the underlying *features* — maintenance mode, impersonation, event
+scheduling, currency-name display, games stats formatting — are not yet
+ported to `apps/android/src/routes/admin/**`, so Android admin currently
+lags web on those specific pages until a follow-up pass mirrors them.
 
 ### Dashboard Overview (`/api/admin/overview`)
 Daily/weekly/monthly active users, new registrations, revenue totals (today / week / month), active rooms, active guilds, and moderation queue depth.
@@ -693,7 +705,7 @@ Atomicity: every debit operation pairs the `UPDATE users SET coin_balance = ...`
 Admin reviews payouts in the admin panel. For bank transfers: Approve → status `pending` (CRON processes). Admin can also manually advance status: `processing → completed/failed`. For crypto: Approve → admin sees the decrypted wallet address snapshot and manually sends USDT; then marks `completed` via the status PATCH endpoint.
 
 **Appeal Pipeline:**
-Creator can submit `POST /api/creator/payouts/:id/appeal` with a written reason for rejected payouts. Admin reviews in `/admin/payouts/appeals`. Approving re-opens the payout; dismissing closes the appeal. Both notify the creator.
+Creator can submit `POST /api/creator/payouts/:id/appeal` with a written reason for rejected payouts. Admin reviews in `/gate44/payouts/appeals`. Approving re-opens the payout; dismissing closes the appeal. Both notify the creator.
 
 **The 80/20 split** (80% to creator, 20% platform) is applied at the `creator_earnings` record level. Zobia Icon tier creators and those with the Creator Track L50 unlock receive an 85% split.
 
@@ -1017,7 +1029,7 @@ War points stop accumulating for the suspended user's guild. The guild still com
 If the platform's payment provider balance falls below the `payout_low_balance_alert_kobo` threshold in `x_manifest`, the admin alert system fires a `payout_low_balance` system alert. Payouts are queued but not processed. Admin tops up the account → the queue processes on the next CRON run or manual trigger.
 
 **AI provider failure**
-Both DeepSeek and Gemini have independent circuit breakers persisted in Redis (`ai:circuit:deepseek:*` and `ai:circuit:gemini:*`). After 3 consecutive failures, the respective provider's circuit opens and the request is routed to the other provider. If both circuits are open simultaneously, the call throws an error and the moderation report is held in `pending` status — a `ai_provider_failure` system alert fires. Human moderators can process the backlog manually. Each circuit enters a half-open state after the configurable recovery window and resets on the next successful call. The admin AI Settings page (`/admin/ai-settings`) shows the circuit status and failure count for both providers.
+Both DeepSeek and Gemini have independent circuit breakers persisted in Redis (`ai:circuit:deepseek:*` and `ai:circuit:gemini:*`). After 3 consecutive failures, the respective provider's circuit opens and the request is routed to the other provider. If both circuits are open simultaneously, the call throws an error and the moderation report is held in `pending` status — a `ai_provider_failure` system alert fires. Human moderators can process the backlog manually. Each circuit enters a half-open state after the configurable recovery window and resets on the next successful call. The admin AI Settings page (`/gate44/ai-settings`) shows the circuit status and failure count for both providers.
 
 **CRON failure**
 CRON failures are caught, logged to Redis (`cron_failure:<handler>:<date>`), and trigger a `cron_failure` system alert. The daily quest deck rollover is designed to be safe to apply late: if the CRON runs at 1:00 AM instead of midnight, it detects which users need their deck reset and applies it. Partial runs (e.g. CRON hit a timeout at user #5000 of 10000) are handled by idempotent checks — already-reset users are skipped on re-run.
@@ -1388,13 +1400,13 @@ that can be bypassed by spending Credits (`forum_comment_bypass_cost_credits`).
 
 ### Feature Flag
 
-Controlled by `feature_forum` in x_manifest / `/admin/config` (or
-`/admin/forum/settings`, which edits the same rows). Default: enabled. When
+Controlled by `feature_forum` in x_manifest / `/gate44/config` (or
+`/gate44/forum/settings`, which edits the same rows). Default: enabled. When
 disabled, `/api/answers/**` routes return 503.
 
 ### Moderator Access Is Scoped
 
-Unlike the rest of `/admin/*` (admin-only), `/admin/forum/*` accepts either
+Unlike the rest of `/gate44/*` (admin-only), `/gate44/forum/*` accepts either
 `is_admin` **or** `is_moderator`. This required adding `is_moderator` to the
 signed JWT access-token payload (previously only carried in the Redis
 session record, not the token itself — see `lib/auth/session.ts`) so the
@@ -1404,7 +1416,7 @@ check it without a DB round trip. The API layer still always re-verifies
 (`withModeratorOrAdminAuth` in `lib/api/middleware.ts`) before authorizing
 any action — the JWT claim is only ever used for the low-cost page-level
 gate, matching this codebase's existing `withAdminAuth` convention. Within
-`/admin/forum/*`, a small set of actions (permanently banning a user,
+`/gate44/forum/*`, a small set of actions (permanently banning a user,
 restoring removed content, locking/unlocking a question) remain admin-only.
 
 ### API Routes
@@ -1604,7 +1616,7 @@ A business account can run one or more **Business Pages** — its brand identity
 - **Slot limits per tier** — Starter 2, Growth 10, Enterprise 50, admin-configurable via `x_manifest` (`business_page_limit_<tier>`, `lib/business/limits.ts`). `POST /api/business/pages` rejects creation with `403 BUSINESS_PAGE_LIMIT_REACHED` once the active-page count reaches the limit; `DELETE /api/business/pages/<id>` frees the slot.
 - **Public page** — `GET zobia.org/p/<slug>` (`app/p/[slug]/page.tsx`), SSR/crawlable, same convention as `/b/<slug>` for Blogs: `lib/public/resolveBusinessPage.ts` resolves by slug → legacy UUID → `slug_redirects` (entity `business_page`), listed in `app/sitemap.ts` (capped 2000), `/p/` is public in `middleware.ts`. Views are deduped client-side via `localStorage` (`zobia_biz_page_viewed`, `components/business/PageViewTracker.tsx`) exactly like blog post views, not a per-view DB row.
 - **Stats depth by tier** — mirrors the Blogs stats-tier convention exactly (`lib/business/limits.ts` `getBusinessStatsTier`, same `basic`/`more`/`detailed`/`detailed_export` shape as `lib/blogs/limits.ts`): Starter = account-wide totals only; Growth = totals + per-page breakdown; Enterprise = + a 90-day daily drill-down and CSV export (`GET /api/business/pages/stats(+/export)`).
-- **Admin moderation** — `/admin/business/pages` (API: `GET/PATCH /api/admin/business/pages`) mirrors `/admin/business`'s filter-pills + table + action pattern: suspend/ban/deactivate/restore/delete a single page, each action logged to `admin_audit_log` (`resource = 'business_page'`) and notified to the owner.
+- **Admin moderation** — `/gate44/business/pages` (API: `GET/PATCH /api/admin/business/pages`) mirrors `/gate44/business`'s filter-pills + table + action pattern: suspend/ban/deactivate/restore/delete a single page, each action logged to `admin_audit_log` (`resource = 'business_page'`) and notified to the owner.
 
 ### Sponsored Quests — business self-service submission
 
@@ -1612,8 +1624,8 @@ Growth+ tier business accounts can submit **Sponsored Quests** — reusing the p
 
 - `sponsored_quests` gains (migration `0003_business_expansion.sql`): `business_account_id`, `business_page_id`, `submitted_by`, `moderation_status` (`pending`/`approved`/`rejected`, defaults to `'approved'` so the pre-existing admin-only flow is unaffected), `moderation_reason`, and a `deleted_at` column — the latter fixes a pre-existing bug where the admin `DELETE /api/admin/sponsored-quests/[questId]` handler referenced `deleted_at` on a column that was never actually added to the schema.
 - `POST /api/business/sponsored-quests` (`lib/business/limits.ts` `canSubmitSponsoredQuests` gates on tier ≥ Growth) requires an active Business Page (`businessPageId`) — the quest's `brand_name`/`brand_logo_url` are copied from that page, so "adverts run by this page are shown to come from the selected business page." The quest is inserted `is_active = false` and `moderation_status` per the admin's moderation-mode toggle.
-- **Moderation mode** (`x_manifest` key `sponsored_quest_moderation_mode`, admin-editable at `/admin/config` under "Business Accounts"): `manual` (default) queues the submission for the admin approval panel; `ai` runs it through `lib/moderation/aiClassifier.ts` `classifySponsoredQuest()` — a new, dedicated system prompt (never interpolates the untrusted brief into the prompt itself, same prompt-injection defense as `classifyReport()`) that scores `approvalConfidence` 0–1; scores at or above `sponsored_quest_ai_auto_approve_threshold` (default 0.85, admin-configurable) auto-approve, everything else falls back to the manual queue.
-- **Admin approval queue** — `/admin/sponsored-quests` (pre-existing admin publish/edit page) gains a moderation badge per quest and Approve/Reject buttons for business submissions, calling the new `POST /api/admin/sponsored-quests/[questId]/moderate` endpoint (`{ action: "approve"|"reject", reason? }`) — distinct from `creator/sponsored-quests/[questId]/approve` (which approves a *creator's completed application*, not the quest listing itself). Approval flips `is_active = true`; rejection notifies the submitting business owner with the reason.
+- **Moderation mode** (`x_manifest` key `sponsored_quest_moderation_mode`, admin-editable at `/gate44/config` under "Business Accounts"): `manual` (default) queues the submission for the admin approval panel; `ai` runs it through `lib/moderation/aiClassifier.ts` `classifySponsoredQuest()` — a new, dedicated system prompt (never interpolates the untrusted brief into the prompt itself, same prompt-injection defense as `classifyReport()`) that scores `approvalConfidence` 0–1; scores at or above `sponsored_quest_ai_auto_approve_threshold` (default 0.85, admin-configurable) auto-approve, everything else falls back to the manual queue.
+- **Admin approval queue** — `/gate44/sponsored-quests` (pre-existing admin publish/edit page) gains a moderation badge per quest and Approve/Reject buttons for business submissions, calling the new `POST /api/admin/sponsored-quests/[questId]/moderate` endpoint (`{ action: "approve"|"reject", reason? }`) — distinct from `creator/sponsored-quests/[questId]/approve` (which approves a *creator's completed application*, not the quest listing itself). Approval flips `is_active = true`; rejection notifies the submitting business owner with the reason.
 - Branded Room sponsorships and Sponsored Leaderboard Banners (Pillar 3) remain admin-arranged rather than self-service — the Advertising Panel (`/business/ads`) surfaces a "Contact sales" callout for those instead of a submission form.
 
 ### Self-service tier downgrade & grace period
@@ -1901,12 +1913,12 @@ pair (one row = has played) before accepting a rating.
 ### Admin
 
 - **`feature_games`** master toggle (Feature Flags) disables the directory, API and pages.
-- **`/admin/games`** — CRUD over the cover page (name, slug, descriptions, emoji, cover
+- **`/gate44/games`** — CRUD over the cover page (name, slug, descriptions, emoji, cover
   image URL, category, engine), per-game rewards, free/paid play cost, score cap, min play
   time, sort order, active flag; per-game stats; and games-played milestone management.
   The admin games page defaults to **list view** (sortable table); a card-grid view is also
   available. Category filter and text search are supported client-side.
-- Runtime config (`/admin/config`): `game_wager_rake_pct`, `game_challenge_expiry_hours`,
+- Runtime config (`/gate44/config`): `game_wager_rake_pct`, `game_challenge_expiry_hours`,
   `game_default_reward_credits`, `game_default_reward_xp`, `game_max_wager_credits`
   (default 10 000 — server-enforced upper bound on per-challenge credit wagers),
   `game_max_play_session_age_seconds` (default 3600 — `/score` submissions older than this
@@ -1916,7 +1928,7 @@ pair (one row = has played) before accepting a rating.
 
 Users can pause an in-progress game and resume it later — a plan-gated pool of "save
 slots" shared across all games (not per-game): **Free 0 / Plus 1 / Pro 3 / Max 5**,
-admin-configurable at `/admin/config` (`save_slots_<plan>`, `lib/plans/saveSlots.ts`).
+admin-configurable at `/gate44/config` (`save_slots_<plan>`, `lib/plans/saveSlots.ts`).
 Only one in-flight save per specific game is kept — saving again for the same game
 overwrites the existing save rather than consuming a second slot.
 
@@ -1970,7 +1982,7 @@ subscription lapses (doesn't renew), the account is downgraded immediately, but
 admin-selected data isn't deleted right away — it survives a **grace period** first.
 
 - **Config:** `lib/plans/gracePeriod.ts` reads two `x_manifest` key families (migration
-  `0042`, editable at `/admin/config` → "Grace Periods & Save Slots"):
+  `0042`, editable at `/gate44/config` → "Grace Periods & Save Slots"):
   `grace_period_days_<plan>` (default 7/14/30 for Plus/Pro/Max, mirrored per Business
   tier as `grace_period_days_business_<tier>`) and `grace_period_features_<plan>` — a
   JSON array of feature keys from the extensible registry
@@ -2134,7 +2146,7 @@ The prompt never appears inside a standalone PWA (detected via `window.matchMedi
 
 ## Gifts Catalog Admin
 
-Admins can manage the full gift item catalog at `/admin/gifts`. The page lists all gift items (active and retired) with cursor-based pagination suited to large catalogs. Actions: create a new gift item, edit any field (name, emoji, coin cost, tier, animation URL, spectacle threshold), retire an item (soft-disable), or restore a retired one.
+Admins can manage the full gift item catalog at `/gate44/gifts`. The page lists all gift items (active and retired) with cursor-based pagination suited to large catalogs. Actions: create a new gift item, edit any field (name, emoji, coin cost, tier, animation URL, spectacle threshold), retire an item (soft-disable), or restore a retired one.
 
 API:
 - `GET  /api/admin/gifts`       — list with cursor pagination and optional `?retired=true`
@@ -2178,7 +2190,7 @@ higher selling/advertising limits. User-facing page: `/kyc`
   This tier is inherently a human, in-person process: an admin/mod
   schedules the physical check (`physical_verification_scheduled_at` /
   `physical_verification_notes`, set via `PATCH /api/admin/kyc/[id]/schedule`
-  and a scheduling form in the `/admin/kyc` detail drawer) and completes it
+  and a scheduling form in the `/gate44/kyc` detail drawer) and completes it
   out-of-band before approving or rejecting the submission.
 
 ### AI review (Tier 1)
@@ -2195,7 +2207,7 @@ always routes straight to manual review, skipping AI entirely.
 
 ### Admin review
 
-`/admin/kyc` — queue tab (filters by status/tier/account type, AI
+`/gate44/kyc` — queue tab (filters by status/tier/account type, AI
 confidence columns) and a settings tab for the `x_manifest` thresholds
 above. The detail drawer shows decrypted PII (`decryptKycField()`),
 short-lived signed document URLs, and Approve/Reject actions
@@ -2258,18 +2270,18 @@ The question detail page (`/answers/<id>` on web, `routes/answers/$questionId.ts
 
 ## Moderation Center
 
-A standalone area at `/moderation` (outside `/admin`), reachable by both Moderators and Admins. It unifies:
+A standalone area at `/moderation` (outside `/gate44`), reachable by both Moderators and Admins. It unifies:
 - **Reports** — the general report queue, now moderator-accessible (previously admin-only).
 - **Forum Queue** — Answers question/answer reports (already moderator-accessible).
 - **Audit Log** (Admin-only tab) — every *manual* moderation action with the acting moderator's username; distinct from the existing automated-actions log, which only ever surfaced system/AI-driven actions.
 
-Resolved reports show who acted on them. `ban_user`/`escalate_ai` stay Admin-only within the shared queue. Any manual action can be reversed — restores removed content, lifts a suspension/ban, credits back a warning, and resets the report to `pending` — reversing a ban is Admin-only. Admin gets a link to the Center from the Admin section (in addition to their full `/admin/moderation` queue); Moderators get one from their user-area drawer, mirroring the Admin link.
+Resolved reports show who acted on them. `ban_user`/`escalate_ai` stay Admin-only within the shared queue. Any manual action can be reversed — restores removed content, lifts a suspension/ban, credits back a warning, and resets the report to `pending` — reversing a ban is Admin-only. Admin gets a link to the Center from the Admin section (in addition to their full `/gate44/moderation` queue); Moderators get one from their user-area drawer, mirroring the Admin link.
 
 A real, pre-existing bug was found and fixed while widening this surface: `moderation_actions`' `action_type` CHECK constraint and `report_id` foreign key didn't match what the action routes actually insert (`'suspend_user'`/`'ban_user'`/`'escalate_ai'` vs. the constraint's `'suspend'`/`'ban'`/`'escalate'`; the FK pointed at the legacy `reports` table instead of `moderation_reports`), so every POST to either action route's insert was failing. Fixed via a new migration — never hand-edit an already-applied migration file, the checksum-drift-detecting runner in `db/migrate.ts` refuses to proceed if you do.
 
 ## Creator Fund — Per-Activity Split & Manual Top-Up
 
-Every activity that contributes to the Creator Fund (room subscriptions, room entry fees, Credit-pack purchases, branded-room sponsorships, rewarded-ad payouts) used to hard-code the same 5% literal inline, with no way to adjust it without a deploy. `lib/creator/fundContribution.ts`'s `contributeToCreatorFund()` now reads an admin-configurable percent per activity (via the manifest's existing shared cache — no new Redis calls) and is the one place all five call sites write through. The percentages are editable from the existing generic `/admin/config` panel under a new "Creator Fund" group (no bespoke admin UI needed for that part). A new manual top-up action (Financial Monitoring admin page, both web and Capacitor) lets admin credit the pool directly ahead of the monthly distribution, logged to `admin_audit_log`.
+Every activity that contributes to the Creator Fund (room subscriptions, room entry fees, Credit-pack purchases, branded-room sponsorships, rewarded-ad payouts) used to hard-code the same 5% literal inline, with no way to adjust it without a deploy. `lib/creator/fundContribution.ts`'s `contributeToCreatorFund()` now reads an admin-configurable percent per activity (via the manifest's existing shared cache — no new Redis calls) and is the one place all five call sites write through. The percentages are editable from the existing generic `/gate44/config` panel under a new "Creator Fund" group (no bespoke admin UI needed for that part). A new manual top-up action (Financial Monitoring admin page, both web and Capacitor) lets admin credit the pool directly ahead of the monthly distribution, logged to `admin_audit_log`.
 
 A dead code path was found and removed while wiring this: the day-1 monthly cron seed step read an `ad_revenue_{year}_{month}_kobo` manifest key that nothing in the codebase ever wrote, so it had always contributed exactly ₦0. Contributions now accrue live per-transaction instead.
 

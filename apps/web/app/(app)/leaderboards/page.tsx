@@ -242,7 +242,7 @@ function LeaderboardsContent() {
   const [banner, setBanner] = useState<SponsoredBanner | null>(null);
   const [rankRipple, setRankRipple] = useState<"up" | "down" | null>(null);
   // The Plan column leaks another user's subscription tier — restrict it to
-  // Moderator/Admin viewers, same as the /admin nav link gating in Navbar.tsx.
+  // Moderator/Admin viewers, same as the /gate44 nav link gating in Navbar.tsx.
   const [canSeePlan, setCanSeePlan] = useState(false);
   const perPage = 20;
 

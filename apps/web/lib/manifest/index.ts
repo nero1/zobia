@@ -70,6 +70,11 @@ export interface ZobiaManifest {
     vipRoomPricing?: { minNgn: number; maxNgn: number };
   };
   warEventCooldownHours: number;
+  // Maintenance mode (admin-editable at /gate44/config)
+  maintenance: {
+    enabled: boolean;
+    message: string;
+  };
   // Auth
   auth: {
     googleEnabled: boolean;
@@ -91,7 +96,7 @@ export interface ZobiaManifest {
     creditsThreshold: number;   // Credits >= which confetti fires (default 50)
     starsThreshold: number;     // Stars >= which confetti fires (default 10)
   };
-  // Games feature runtime config (admin-editable at /admin/config)
+  // Games feature runtime config (admin-editable at /gate44/config)
   games: {
     wagerRakePct: number;             // platform rake on a challenge wager pot (default 5)
     challengeExpiryHours: number;     // hours a challenge stays open (default 720 = 30 days)
@@ -107,7 +112,7 @@ export interface ZobiaManifest {
     premiumNameSingular: string; // e.g. "Star"
     premiumNamePlural: string;   // e.g. "Stars"
   };
-  // Zobia Moments — pricing & eligibility (admin-editable at /admin/config)
+  // Zobia Moments — pricing & eligibility (admin-editable at /gate44/config)
   moments: {
     /** Credits charged per Moment. 0 = free via Credits (default 100). */
     costCredits: number;
@@ -116,7 +121,7 @@ export interface ZobiaManifest {
     /** Minimum account level (main rank number, 1 = Beginner) required to post a Moment. */
     minLevel: number;
   };
-  // Answers — mini forum / Q&A (admin-editable at /admin/config and /admin/forum/settings)
+  // Answers — mini forum / Q&A (admin-editable at /gate44/config and /gate44/forum/settings)
   forum: {
     /** Minimum account level required to post a question. */
     minLevelToPost: number;
@@ -145,7 +150,7 @@ export interface ZobiaManifest {
     /** Run profanity/duplicate auto-moderation on new questions and answers. */
     autoModerationEnabled: boolean;
   };
-  // Platform Advertising (PRD §17, Pillar 3) — admin-editable at /admin/ads
+  // Platform Advertising (PRD §17, Pillar 3) — admin-editable at /gate44/ads
   ads: {
     /** How self-service business-submitted ad campaigns are reviewed. */
     moderationMode: "manual" | "ai";
@@ -248,7 +253,7 @@ export interface ZobiaManifest {
     moderator: { accessTtl: number; refreshTtl: number };
     admin:     { accessTtl: number; refreshTtl: number };
   };
-  // Identity KYC (Tier 1-3) — admin-editable at /admin/kyc (settings tab)
+  // Identity KYC (Tier 1-3) — admin-editable at /gate44/kyc (settings tab)
   kyc: {
     /** Credits charged per verification attempt (Tier 1 submission). */
     costCredits: number;
@@ -347,6 +352,10 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     admob: { appId: "", bannerUnitId: "", interstitialUnitId: "", rewardedUnitId: "", testMode: true },
   },
   warEventCooldownHours: 72,
+  maintenance: {
+    enabled: false,
+    message: "Zobia is briefly unavailable at the moment due to system maintenance. Kindly check back later.",
+  },
   auth: {
     googleEnabled: true,
     telegramEnabled: true,
@@ -626,6 +635,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       },
     },
     warEventCooldownHours: parseInt10(kv["war_event_cooldown_hours"], DEFAULT_MANIFEST.warEventCooldownHours),
+    maintenance: {
+      enabled: parseBool(kv["maintenance_mode_enabled"] ?? "false", DEFAULT_MANIFEST.maintenance.enabled),
+      message: unquote(kv["maintenance_message"]) ?? DEFAULT_MANIFEST.maintenance.message,
+    },
     auth: {
       googleEnabled:   parseBool(kv["auth_google_enabled"],   DEFAULT_MANIFEST.auth.googleEnabled),
       telegramEnabled: parseBool(kv["auth_telegram_enabled"], DEFAULT_MANIFEST.auth.telegramEnabled),

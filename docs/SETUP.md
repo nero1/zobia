@@ -136,7 +136,7 @@ The Capacitor app ships with `@capacitor-community/admob` (`apps/android/src/lib
 
 1. Create an app in [AdMob](https://admob.google.com) and note the **App ID** (`ca-app-pub-...~...`).
 2. Create Banner, Interstitial, and Rewarded ad units and note their **Ad unit IDs**.
-3. Set them via `/admin/config` (or directly in `x_manifest`): `ad_admob_app_id`, `ad_admob_banner_unit_id`, `ad_admob_interstitial_unit_id`, `ad_admob_rewarded_unit_id`, and flip `ad_admob_test_mode` to `false`. These are read at runtime from `GET /api/manifest` — no rebuild needed.
+3. Set them via `/gate44/config` (or directly in `x_manifest`): `ad_admob_app_id`, `ad_admob_banner_unit_id`, `ad_admob_interstitial_unit_id`, `ad_admob_rewarded_unit_id`, and flip `ad_admob_test_mode` to `false`. These are read at runtime from `GET /api/manifest` — no rebuild needed.
 4. Replace the sample AdMob **App ID** in `apps/android/android/app/src/main/AndroidManifest.xml` (inside `<application>`) with your real one:
    ```xml
    <meta-data android:name="com.google.android.gms.ads.APPLICATION_ID" android:value="ca-app-pub-xxxxxxxxxxxxxxxx~yyyyyyyyyy"/>
@@ -402,9 +402,9 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 
 ---
 
-**Business Accounts (v2.02) manifest keys** (admin-editable at `/admin/config` under "Business Accounts"): `business_starter_price_kobo` (500000), `business_growth_price_kobo` (1500000), `business_enterprise_price_kobo` (5000000), `business_page_limit_starter` (2), `business_page_limit_growth` (10), `business_page_limit_enterprise` (50), `sponsored_quest_moderation_mode` (`manual`|`ai`), `sponsored_quest_ai_auto_approve_threshold` (0.85), `business_downgrade_grace_days` (30, uniform across tiers).
+**Business Accounts (v2.02) manifest keys** (admin-editable at `/gate44/config` under "Business Accounts"): `business_starter_price_kobo` (500000), `business_growth_price_kobo` (1500000), `business_enterprise_price_kobo` (5000000), `business_page_limit_starter` (2), `business_page_limit_growth` (10), `business_page_limit_enterprise` (50), `sponsored_quest_moderation_mode` (`manual`|`ai`), `sponsored_quest_ai_auto_approve_threshold` (0.85), `business_downgrade_grace_days` (30, uniform across tiers).
 
-**Platform Advertising (v2.03) manifest keys** (admin-editable at `/admin/ads` and `/admin/config`): `feature_ads_system`/`feature_native_ads`/`feature_instream_ads`/`feature_boosted_posts`/`feature_ad_coupons` (all `true`), `ad_moderation_mode` (`manual`|`ai`), `ad_ai_auto_approve_threshold` (0.85), `ad_min_kyc_tier_to_advertise` (1), `ad_default_cpm_credits` (500), `ad_room_instream_interval` (10), `ad_rewarded_daily_cap` (5), `ad_rewarded_credits_min`/`ad_rewarded_credits_max` (10/20), `ad_plan_free_ads_level`/`ad_plan_plus_ads_level`/`ad_plan_pro_ads_level`/`ad_plan_max_ads_level` (`full`/`reduced`/`none`, default full/reduced/none/none), `ad_admob_app_id`/`ad_admob_banner_unit_id`/`ad_admob_interstitial_unit_id`/`ad_admob_rewarded_unit_id`/`ad_admob_test_mode` — see [AdMob (Capacitor Android)](#admob-capacitor-android) above.
+**Platform Advertising (v2.03) manifest keys** (admin-editable at `/gate44/ads` and `/gate44/config`): `feature_ads_system`/`feature_native_ads`/`feature_instream_ads`/`feature_boosted_posts`/`feature_ad_coupons` (all `true`), `ad_moderation_mode` (`manual`|`ai`), `ad_ai_auto_approve_threshold` (0.85), `ad_min_kyc_tier_to_advertise` (1), `ad_default_cpm_credits` (500), `ad_room_instream_interval` (10), `ad_rewarded_daily_cap` (5), `ad_rewarded_credits_min`/`ad_rewarded_credits_max` (10/20), `ad_plan_free_ads_level`/`ad_plan_plus_ads_level`/`ad_plan_pro_ads_level`/`ad_plan_max_ads_level` (`full`/`reduced`/`none`, default full/reduced/none/none), `ad_admob_app_id`/`ad_admob_banner_unit_id`/`ad_admob_interstitial_unit_id`/`ad_admob_rewarded_unit_id`/`ad_admob_test_mode` — see [AdMob (Capacitor Android)](#admob-capacitor-android) above.
 
 ## Realtime Setup
 
@@ -412,7 +412,7 @@ Zobia uses a **provider-native** realtime architecture. The server makes a fast,
 
 **Mobile (Expo):** set `EXPO_PUBLIC_REALTIME_PROVIDER=ably` to enable WebSocket push in the app (only Ably is wired client-side today; unset = adaptive poll only). The app authorizes Ably via `GET /api/realtime/ably-token` using its Bearer JWT (an `authCallback`, not a cookie), so that endpoint accepts both cookie and `Authorization: Bearer` auth and grants subscribe-only capability on `dm:*`, `room:*`, and `group:*` channels.
 
-**Room capacity & push (v1.7) manifest keys** (admin-editable at `/admin/config`, all integers): `room_free_open_cap` (30), `room_tipping_cap` (30), `room_vip_cap` (200), `room_drop_cap` (100), `room_classroom_cap` (150), `room_guild_cap` (100), `room_capacity_upgrade_step` (25), `room_capacity_upgrade_cost` (500 Credits), `room_capacity_hard_max` (1000). Per-category push toggles live on `users` (`dm_notifications`, `group_notifications`, `room_mention_notifications`); both are part of the consolidated schema (`db/migrations/0001_consolidated_schema.sql`). Room presence and the online check reuse Redis — no extra service.
+**Room capacity & push (v1.7) manifest keys** (admin-editable at `/gate44/config`, all integers): `room_free_open_cap` (30), `room_tipping_cap` (30), `room_vip_cap` (200), `room_drop_cap` (100), `room_classroom_cap` (150), `room_guild_cap` (100), `room_capacity_upgrade_step` (25), `room_capacity_upgrade_cost` (500 Credits), `room_capacity_hard_max` (1000). Per-category push toggles live on `users` (`dm_notifications`, `group_notifications`, `room_mention_notifications`); both are part of the consolidated schema (`db/migrations/0001_consolidated_schema.sql`). Room presence and the online check reuse Redis — no extra service.
 
 ### Architecture
 
@@ -686,9 +686,9 @@ are required.
   (`ON CONFLICT DO NOTHING` / `IF NOT EXISTS`).
 - **Master toggle:** `feature_games` (Admin → Feature Flags), default on. Per-game
   activation, cover-page editing, rewards, free/paid play cost and stats live at
-  `/admin/games`. Runtime config (`game_wager_rake_pct`, `game_challenge_expiry_hours`,
+  `/gate44/games`. Runtime config (`game_wager_rake_pct`, `game_challenge_expiry_hours`,
   `game_default_reward_credits/xp`, `game_max_wager_credits`,
-  `game_max_play_session_age_seconds`) at `/admin/config`.
+  `game_max_play_session_age_seconds`) at `/gate44/config`.
   `game_max_wager_credits` (default 10 000) is the server-enforced ceiling on per-challenge
   credit wagers; attempts to create a challenge above this value are rejected with
   `WAGER_TOO_HIGH`. `game_max_play_session_age_seconds` (default 3600 — 1 hour) is the
@@ -1349,10 +1349,10 @@ When enabled, users can add contextual notes to flagged content and vote notes a
 
 Answers is an admin-toggleable Reddit-style Q&A feature (PRD §31). No new CRON job is required — all rewards and moderation run synchronously on the write path.
 
-- **Toggle:** In the admin panel under Feature Flags (or `/admin/config` → "Answers"), set `feature_forum` to on/off. Default: enabled.
+- **Toggle:** In the admin panel under Feature Flags (or `/gate44/config` → "Answers"), set `feature_forum` to on/off. Default: enabled.
 - **User UI:** Available at `/answers` in the web app and PWA, and `apps/android/src/routes/answers/**` in the Capacitor Android app (reached via the drawer menu).
-- **Admin/moderator panel:** `/admin/forum` (dashboard), `/admin/forum/queue` (moderation queue — accessible to `is_moderator` users, not just `is_admin`), `/admin/forum/posts` (post management), `/admin/forum/settings` (level gates, reward amounts, daily reward cap).
-- **Config keys** (editable at `/admin/config` → "Answers" group, or `/admin/forum/settings`): `feature_forum`, `forum_min_level_to_post`, `forum_min_level_to_comment`, `forum_comment_bypass_cost_credits`, `forum_reward_xp_per_question`, `forum_reward_credits_per_question`, `forum_reward_xp_per_answer`, `forum_reward_credits_per_answer`, `forum_reward_xp_per_upvote`, `forum_reward_credits_per_upvote`, `forum_reward_xp_best_answer`, `forum_reward_credits_best_answer`, `forum_daily_reward_cap_credits`, `forum_auto_moderation_enabled`.
+- **Admin/moderator panel:** `/gate44/forum` (dashboard), `/gate44/forum/queue` (moderation queue — accessible to `is_moderator` users, not just `is_admin`), `/gate44/forum/posts` (post management), `/gate44/forum/settings` (level gates, reward amounts, daily reward cap).
+- **Config keys** (editable at `/gate44/config` → "Answers" group, or `/gate44/forum/settings`): `feature_forum`, `forum_min_level_to_post`, `forum_min_level_to_comment`, `forum_comment_bypass_cost_credits`, `forum_reward_xp_per_question`, `forum_reward_credits_per_question`, `forum_reward_xp_per_answer`, `forum_reward_credits_per_answer`, `forum_reward_xp_per_upvote`, `forum_reward_credits_per_upvote`, `forum_reward_xp_best_answer`, `forum_reward_credits_best_answer`, `forum_daily_reward_cap_credits`, `forum_auto_moderation_enabled`.
 - **API:** see `docs/HOW-IT-WORKS.md` → "Answers (Mini Forum / Q&A)" for the full route table.
 - **Expo:** not ported — the Expo app is being discontinued in favor of the Capacitor Android app.
 - **SEO (v1.97):** questions get a `slug` (generated from the title, same dedupe convention as rooms/games) and are servable at the public, crawlable, SSR `/a/<slug>` page — see PRD §31.0 and `SEO.md`. The consolidated schema (`db/migrations/0001_consolidated_schema.sql`) includes `forum_categories` + `forum_questions.slug`/`category_id` and seeds the category taxonomy; `db/seed.sql` (optional, run once after the schema) adds sample questions/answers per category.

@@ -54,6 +54,8 @@ export interface SessionRecord {
   prevRefreshTokenHash?: string;
   /** Unix ms timestamp until which prevRefreshTokenHash is accepted (grace window). */
   prevRefreshValidUntil?: number;
+  /** Set only on an impersonation session — the admin user id who started it. */
+  impersonatedBy?: string;
 }
 
 /** Result of a successful login or token refresh. */
@@ -131,7 +133,7 @@ export async function createSession(
     is_creator?: boolean;
     onboarding_completed?: boolean;
   },
-  options: { ip?: string; ua?: string; adminSession?: boolean } = {}
+  options: { ip?: string; ua?: string; adminSession?: boolean; impersonatedBy?: string } = {}
 ): Promise<AuthTokens> {
   const sid = randomUUID();
   const manifest = await loadManifest();
@@ -139,7 +141,11 @@ export async function createSession(
     : user.is_moderator ? "moderator"
     : user.is_creator   ? "creator"
     : "default";
-  const { accessTtl, refreshTtl } = manifest.sessionTtls[ttlRole];
+  // An impersonation session is deliberately capped short (15 min) regardless
+  // of the target's own role — it should not persist like a normal login.
+  const { accessTtl, refreshTtl } = options.impersonatedBy
+    ? { accessTtl: 900, refreshTtl: 900 }
+    : manifest.sessionTtls[ttlRole];
 
   // Generate tokens first so we can hash the refresh token into the session record (ZB-24)
   const [accessToken, refreshToken] = await Promise.all([
@@ -153,6 +159,7 @@ export async function createSession(
       ...(typeof user.onboarding_completed === "boolean"
         ? { onboarding_completed: user.onboarding_completed }
         : {}),
+      ...(options.impersonatedBy ? { impersonated_by: options.impersonatedBy } : {}),
     }, accessTtl),
     signRefreshToken(user.id, sid, refreshTtl),
   ]);
@@ -171,6 +178,7 @@ export async function createSession(
     ip: options.ip,
     ua: options.ua,
     refreshTokenHash: createHash("sha256").update(refreshToken).digest("hex"), // ZB-24: for rotation detection
+    impersonatedBy: options.impersonatedBy,
   };
 
   // Write session with TTL matching the refresh token lifetime
@@ -520,6 +528,12 @@ export const REFRESH_TOKEN_COOKIE = "zobia_rt";
 
 /** Name of the httpOnly cookie that stores the access token. */
 export const ACCESS_TOKEN_COOKIE = "zobia_at";
+
+/** Cookie pair that stashes an admin's own tokens during impersonation
+ *  (see app/api/admin/users/[userId]/impersonate/route.ts and
+ *  app/api/auth/impersonate/end/route.ts). */
+export const ADMIN_BACKUP_ACCESS_COOKIE = "zobia_admin_at";
+export const ADMIN_BACKUP_REFRESH_COOKIE = "zobia_admin_rt";
 
 /**
  * Build Set-Cookie header values for both tokens.

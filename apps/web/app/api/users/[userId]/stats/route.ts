@@ -14,7 +14,7 @@ export const dynamic = 'force-dynamic';
  * eligible plans get the "full" view (all leaderboard scopes + season
  * history); everyone else gets the "basic" view. Free users get basic by
  * default; the admin can reconfigure the eligible plan list at
- * /admin/settings/profile-stats.
+ * /gate44/settings/profile-stats.
  *
  * Gated by the `feature_profile_stats` master switch (Admin > Feature Flags).
  */

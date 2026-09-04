@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
  * Tier 2. The applicant chooses whether to reuse their Tier 1/2 address or
  * supply an updated one — physical verification will be against whichever
  * address is on file, so this matters. An admin/mod schedules and completes
- * the physical check out-of-band, then approves/rejects from /admin/kyc.
+ * the physical check out-of-band, then approves/rejects from /gate44/kyc.
  */
 
 import { NextRequest, NextResponse } from "next/server";

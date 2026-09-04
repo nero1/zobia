@@ -204,6 +204,57 @@ export const GET = async (req: NextRequest) => {
     errors.push(`annualEventRecurrence: ${String(err)}`);
   }
 
+  // 5b. Monthly event recurrence — clones one calendar month forward, preserving
+  // the original duration and time-of-day. Unlike the annual path above this
+  // has no month/day anchor pair (a month has no fixed length), so the clone's
+  // new starts_at/ends_at are simply +1 month on the original event's.
+  try {
+    interface MonthlyRecurringEventRow {
+      id: string; name: string; description: string; event_type: string;
+      xp_multiplier: string; coin_bonus_pct: number; metadata: string;
+      starts_at: string; ends_at: string;
+    }
+
+    const { rows: monthlyEvents } = await db.query<MonthlyRecurringEventRow>(
+      `SELECT id, name, description, event_type, xp_multiplier::TEXT AS xp_multiplier,
+              coin_bonus_pct, metadata::TEXT AS metadata,
+              starts_at::TEXT AS starts_at, ends_at::TEXT AS ends_at
+       FROM platform_events
+       WHERE recurrence_interval = 'monthly' AND ends_at < NOW() AND is_active = TRUE`
+    );
+
+    let monthlyEventsCloned = 0;
+
+    for (const evt of monthlyEvents) {
+      const nextStart = new Date(evt.starts_at);
+      nextStart.setUTCMonth(nextStart.getUTCMonth() + 1);
+      const nextEnd = new Date(evt.ends_at);
+      nextEnd.setUTCMonth(nextEnd.getUTCMonth() + 1);
+
+      const { rows: futureCheck } = await db.query<{ count: string }>(
+        `SELECT COUNT(*)::TEXT AS count FROM platform_events
+         WHERE name = $1 AND starts_at = $2`,
+        [evt.name, nextStart.toISOString()]
+      );
+      if (parseInt(futureCheck[0]?.count ?? "0", 10) > 0) continue;
+
+      await db.query(
+        `INSERT INTO platform_events
+           (name, description, event_type, xp_multiplier, coin_bonus_pct,
+            starts_at, ends_at, metadata, recurrence_interval, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, 'monthly', TRUE)
+         ON CONFLICT DO NOTHING`,
+        [evt.name, evt.description, evt.event_type, parseFloat(evt.xp_multiplier),
+         evt.coin_bonus_pct, nextStart.toISOString(), nextEnd.toISOString(), evt.metadata ?? '{}']
+      );
+      monthlyEventsCloned++;
+    }
+
+    results.monthlyEventRecurrence = { eventsCloned: monthlyEventsCloned };
+  } catch (err) {
+    errors.push(`monthlyEventRecurrence: ${String(err)}`);
+  }
+
   // 6. Moderation digest (Fridays only)
   try {
     if (now.getUTCDay() === 5) {

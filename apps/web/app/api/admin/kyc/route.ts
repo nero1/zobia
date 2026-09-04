@@ -47,7 +47,7 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
     const params: (string | number)[] = [];
 
     if (status) { params.push(status); where.push(`k.status = $${params.length}`); }
-    // Deep-linking into a specific user's submissions (e.g. from /admin/users)
+    // Deep-linking into a specific user's submissions (e.g. from /gate44/users)
     // should show their full history, not just the in-progress queue.
     else if (!userId) { where.push(`k.status IN ('pending', 'ai_review', 'manual_review')`); }
     if (tier) { params.push(tier); where.push(`k.tier = $${params.length}`); }

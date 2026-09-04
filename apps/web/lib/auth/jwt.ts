@@ -140,7 +140,7 @@ export interface AccessTokenPayload extends JWTPayload {
   username: string;
   is_admin: boolean;
   /** True when the user holds the moderator role. Only used for the cheap
-   *  edge middleware pre-filter on /admin/forum/* (scoped moderator
+   *  edge middleware pre-filter on /gate44/forum/* (scoped moderator
    *  access) — authorization decisions always re-verify against the
    *  DATABASE, this claim is never trusted alone. */
   is_moderator?: boolean;
@@ -150,6 +150,9 @@ export interface AccessTokenPayload extends JWTPayload {
   type?: 'pre_auth' | 'access';
   /** False when the user has not yet completed onboarding. Absent on old tokens. */
   onboarding_completed?: boolean;
+  /** Set only on an impersonation session — the admin user id who started it.
+   *  See lib/auth/impersonation.ts and app/api/admin/users/[userId]/impersonate/route.ts. */
+  impersonated_by?: string;
 }
 
 /** Claims embedded in every refresh token. */
