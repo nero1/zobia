@@ -61,9 +61,26 @@ function notifyUnauthenticated(): void {
  */
 export function signalUnauthenticated(): void {
   _cachedToken = null;
+  _autoSignOutReason = 'session_expired';
   if (_notifiedUnauthenticated) return;
   _notifiedUnauthenticated = true;
   notifyUnauthenticated();
+}
+
+// ---------------------------------------------------------------------------
+// Auto sign-out reason — lets the login screen tell an involuntary sign-out
+// (session expired, refresh token revoked) apart from a user tapping
+// "Log out" so it can show an explanatory banner instead of silently
+// dropping the user back on the login screen with no context.
+// ---------------------------------------------------------------------------
+
+let _autoSignOutReason: string | null = null;
+
+/** Read and clear the pending auto-sign-out reason (one-shot, consumed by AuthGuard's redirect). */
+export function consumeAutoSignOutReason(): string | null {
+  const reason = _autoSignOutReason;
+  _autoSignOutReason = null;
+  return reason;
 }
 
 type UserUpdateCallback = (userJson: string) => void;

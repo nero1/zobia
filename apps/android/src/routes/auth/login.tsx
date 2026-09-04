@@ -30,6 +30,7 @@ const CALLBACK_DEEP_LINK = OAUTH_CALLBACK_LINK;
 
 function LoginPage() {
   const { t } = useTranslation();
+  const { reason } = Route.useSearch();
 
   const [googleLoading, setGoogleLoading] = useState(false);
   const [telegramLoading, setTelegramLoading] = useState(false);
@@ -98,6 +99,12 @@ function LoginPage() {
           <h1 className="text-2xl font-bold text-neutral-900">{t('app.name')}</h1>
           <p className="text-neutral-500 mt-1">{t('auth.signInTagline')}</p>
         </div>
+
+        {reason === 'session_expired' && (
+          <div className="bg-amber-50 text-amber-800 px-4 py-3 rounded-lg text-sm mb-4">
+            {t('auth.sessionExpired.banner', 'Your session has expired. Please sign in again.')}
+          </div>
+        )}
 
         {error && (
           <div className="bg-danger-50 text-danger-700 px-4 py-3 rounded-lg text-sm mb-4">
@@ -170,6 +177,12 @@ function LoginPage() {
 }
 
 export const Route = createFileRoute('/auth/login')({
+  validateSearch: (
+    search: Record<string, unknown>,
+  ): { reason?: string; redirect?: string } => ({
+    reason: typeof search.reason === 'string' ? search.reason : undefined,
+    redirect: typeof search.redirect === 'string' ? search.redirect : undefined,
+  }),
   component: LoginPage,
 });
 
