@@ -2,19 +2,28 @@
 <!--
   Android 12+ (API 31+) backup/transfer scoping — ZB-AND-04 fix.
 
-  Excludes the SharedPreferences file Capacitor's @capacitor/preferences plugin
-  writes to (default file name "CapacitorStorage") from both cloud backup and
-  device-to-device transfer, since it holds the JWT access token and long-lived
-  refresh token (JWT_KEY/REFRESH_TOKEN_KEY in src/lib/api/client.ts). Without
-  this, `allowBackup="true"` (still needed for normal app-data restore) would
-  let those tokens be extracted via `adb backup`, Android Auto Backup to
-  Google Drive, or device-to-device transfer.
+  CapacitorStorage.xml: the SharedPreferences file @capacitor/preferences
+  writes to. Tokens no longer live here (see zobia_secure_tokens.xml below),
+  but it still holds other locally-cached data worth keeping out of backups
+  by default, so the exclusion stays.
+
+  zobia_secure_tokens.xml: the EncryptedSharedPreferences file
+  SecureTokenStorePlugin.java writes the JWT access token and refresh token
+  to, encrypted with an Android Keystore-backed AES-256 key
+  (JWT_KEY/REFRESH_TOKEN_KEY in src/lib/api/client.ts). Keystore keys are
+  hardware-bound and are never included in a backup, so a restored copy of
+  this file would be undecryptable garbage on any other device (or even a
+  factory-reset same device, whose Keystore is wiped) — excluding it avoids
+  that failing on every read and simply leaves the restored install logged
+  out, same as before this file existed.
 -->
 <data-extraction-rules>
     <cloud-backup>
         <exclude domain="sharedpref" path="CapacitorStorage.xml" />
+        <exclude domain="sharedpref" path="zobia_secure_tokens.xml" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="CapacitorStorage.xml" />
+        <exclude domain="sharedpref" path="zobia_secure_tokens.xml" />
     </device-transfer>
 </data-extraction-rules>

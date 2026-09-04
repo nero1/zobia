@@ -3,7 +3,9 @@
  *
  * Adapted from apps/expo/lib/api/client.ts.
  * Changes:
- *  - expo-secure-store → @capacitor/preferences
+ *  - expo-secure-store → Android Keystore-backed EncryptedSharedPreferences
+ *    (lib/auth/secureTokenStore.ts) for JWT_KEY/REFRESH_TOKEN_KEY specifically;
+ *    @capacitor/preferences for everything else (non-credential cached data)
  *  - AppState (React Native) → @capacitor/app
  *  - NetInfo → @capacitor/network
  *  - expo-constants → import.meta.env (Vite)
@@ -18,6 +20,7 @@ import { App } from '@capacitor/app';
 import { Network } from '@capacitor/network';
 import { focusManager, onlineManager } from '@tanstack/react-query';
 import { env } from '@/lib/env';
+import { secureGet, secureSet, secureRemove } from '@/lib/auth/secureTokenStore';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -125,7 +128,7 @@ export async function refreshAccessToken(): Promise<string | null> {
 
   refreshPromise = (async () => {
     try {
-      const { value: refreshToken } = await Preferences.get({ key: REFRESH_TOKEN_KEY });
+      const refreshToken = await secureGet(REFRESH_TOKEN_KEY);
       if (!refreshToken) return null;
 
       const res = await axios.post<{ accessToken: string; refreshToken?: string; expiresIn: number }>(
@@ -145,12 +148,12 @@ export async function refreshAccessToken(): Promise<string | null> {
       const newToken = res.data.accessToken;
       if (!newToken) return null;
 
-      await Preferences.set({ key: JWT_KEY, value: newToken });
+      await secureSet(JWT_KEY, newToken);
       _cachedToken = newToken;
 
       const newRefreshToken = res.data.refreshToken;
       if (newRefreshToken) {
-        await Preferences.set({ key: REFRESH_TOKEN_KEY, value: newRefreshToken });
+        await secureSet(REFRESH_TOKEN_KEY, newRefreshToken);
       }
 
       // Background user update (non-blocking)
@@ -199,7 +202,7 @@ apiClient.interceptors.request.use(
       config.headers.Authorization = `Bearer ${_cachedToken}`;
       return config;
     }
-    const { value: token } = await Preferences.get({ key: JWT_KEY });
+    const token = await secureGet(JWT_KEY);
     if (token) {
       _cachedToken = token;
       config.headers.Authorization = `Bearer ${token}`;
@@ -237,8 +240,8 @@ apiClient.interceptors.response.use(
       }
 
       await Promise.all([
-        Preferences.remove({ key: JWT_KEY }),
-        Preferences.remove({ key: REFRESH_TOKEN_KEY }),
+        secureRemove(JWT_KEY),
+        secureRemove(REFRESH_TOKEN_KEY),
         Preferences.remove({ key: 'zobia_user' }),
       ]);
       signalUnauthenticated();

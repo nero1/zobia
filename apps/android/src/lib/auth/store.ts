@@ -9,7 +9,25 @@ import { createContext, useContext, useEffect, useRef, useState, type ReactNode,
 import { Preferences } from '@capacitor/preferences';
 import { AuthUserSchema, type AuthUser } from '@zobia/shared/schemas/auth';
 import { setCachedToken, resetUnauthenticatedFlag, onUnauthenticated, JWT_KEY, REFRESH_TOKEN_KEY } from '@/lib/api/client';
+import { secureGet, secureSet, secureRemove } from '@/lib/auth/secureTokenStore';
 import { unregisterPushOnLogout } from '@/lib/push';
+
+/**
+ * One-time migration for installs that logged in before tokens moved to the
+ * Keystore-backed EncryptedSharedPreferences store (see secureTokenStore.ts):
+ * if a token still sits in the old plaintext @capacitor/preferences file,
+ * copy it into the encrypted store and delete the plaintext copy, rather
+ * than silently signing the user out on their next app update.
+ */
+async function migrateLegacyPlaintextToken(key: string): Promise<string | null> {
+  const encrypted = await secureGet(key);
+  if (encrypted) return encrypted;
+  const { value: legacy } = await Preferences.get({ key });
+  if (!legacy) return null;
+  await secureSet(key, legacy);
+  await Preferences.remove({ key });
+  return legacy;
+}
 
 const USER_KEY = 'zobia_user';
 
@@ -37,10 +55,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const [{ value: token }, { value: userJson }] = await Promise.all([
-          Preferences.get({ key: JWT_KEY }),
+        const [token, { value: userJson }] = await Promise.all([
+          migrateLegacyPlaintextToken(JWT_KEY),
           Preferences.get({ key: USER_KEY }),
         ]);
+        // Refresh token has no in-memory cache to populate, but still needs
+        // migrating off the plaintext store on this same boot.
+        void migrateLegacyPlaintextToken(REFRESH_TOKEN_KEY);
         let user: AuthUser | null = null;
         if (userJson) {
           try {
@@ -60,14 +81,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setAuth = async (token: string, user: AuthUser, refreshToken?: string) => {
-    const prefs: Array<Promise<void>> = [
-      Preferences.set({ key: JWT_KEY, value: token }),
+    const writes: Array<Promise<void>> = [
+      secureSet(JWT_KEY, token),
       Preferences.set({ key: USER_KEY, value: JSON.stringify(user) }),
     ];
     if (refreshToken) {
-      prefs.push(Preferences.set({ key: REFRESH_TOKEN_KEY, value: refreshToken }));
+      writes.push(secureSet(REFRESH_TOKEN_KEY, refreshToken));
     }
-    await Promise.all(prefs);
+    await Promise.all(writes);
     setCachedToken(token);
     resetUnauthenticatedFlag();
     setState((prev) => ({ ...prev, token, user }));
@@ -77,8 +98,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Best-effort — never let a push-unregister failure block sign-out.
     void unregisterPushOnLogout();
     await Promise.all([
-      Preferences.remove({ key: JWT_KEY }),
-      Preferences.remove({ key: REFRESH_TOKEN_KEY }),
+      secureRemove(JWT_KEY),
+      secureRemove(REFRESH_TOKEN_KEY),
       Preferences.remove({ key: USER_KEY }),
     ]);
     setCachedToken(null);
