@@ -21,6 +21,7 @@ export const maxDuration = 10;
  * SYS-01: Retry failed XP awards (DLQ)
  * SYS-02: Coin + star ledger reconciliation
  * SYS-04: Circuit breaker metrics
+ * Audit log retention: prune admin_audit_log/audit_log rows past 365 days
  * WEBHOOK-RETRY-01: Retry failed webhook deliveries (up to 3 attempts)
  * PUSH-RECEIPT-01: Poll Expo push receipts (stage 2 delivery confirmation)
  */
@@ -33,6 +34,7 @@ import { processPendingGiftDrops } from "@/lib/events/monthlyGiftDrop";
 import { sendBulkTelegramMessages } from "@/lib/notifications/telegram";
 import { retryFailedXPAwards } from "@/lib/xp/safeAwardXP";
 import { getAllCircuitMetrics } from "@/lib/payments/circuit";
+import { pruneAuditLogs } from "@/lib/audit/pruneAuditLogs";
 import { logger } from "@/lib/logger";
 
 const ALLIANCE_WAR_VICTORY_XP = 300;
@@ -753,6 +755,14 @@ export const GET = async (req: NextRequest) => {
     );
   } catch (err) {
     logger.warn({ err }, '[daily-platform] Failed to prune stale data export requests');
+  }
+
+  // Prune audit_log / admin_audit_log rows past the retention window (see
+  // lib/audit/pruneAuditLogs.ts) — otherwise these grow unbounded.
+  try {
+    results.auditLogPrune = await pruneAuditLogs();
+  } catch (err) {
+    errors.push(`auditLogPrune: ${String(err)}`);
   }
 
   return NextResponse.json({

@@ -22,6 +22,7 @@ import { z } from "zod";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { db } from "@/lib/db";
+import { normalizeFooterScriptContent } from "@/lib/admin/footerScriptNormalize";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -111,12 +112,16 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     }
 
     const { name, content, isActive, position } = parsed.data;
+    const normalizedContent = normalizeFooterScriptContent(content);
+    if (!normalizedContent) {
+      throw badRequest("Script content is empty after normalization.");
+    }
 
     const { rows } = await db.query<FooterScriptRow>(
       `INSERT INTO footer_scripts (name, content, is_active, position, created_at, updated_at)
        VALUES ($1, $2, $3, $4, NOW(), NOW())
        RETURNING id, name, content, is_active, position, created_at, updated_at`,
-      [name, content, isActive, position]
+      [name, normalizedContent, isActive, position]
     );
 
     // BUG-020: Audit-log all footer script writes — raw script injection is

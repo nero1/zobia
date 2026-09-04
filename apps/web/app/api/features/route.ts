@@ -13,26 +13,7 @@ import { handleApiError } from "@/lib/api/errors";
 import { loadManifest, getManifestValue } from "@/lib/manifest";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
-
-async function getJsonManifestList(key: string, fallback: string[]): Promise<string[]> {
-  try {
-    const raw = await getManifestValue(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as string[];
-  } catch {
-    return fallback;
-  }
-}
-
-function userEligibleForFeature(plan: string, prestigeCount: number, allowed: string[]): boolean {
-  const p = plan.toLowerCase();
-  if (allowed.includes(p)) return true;
-  for (const entry of allowed) {
-    const m = /^prestige_(\d+)$/.exec(entry);
-    if (m && prestigeCount >= parseInt(m[1], 10)) return true;
-  }
-  return false;
-}
+import { getAllowedPlans as getJsonManifestList, isPlanEligible as userEligibleForFeature, allEligibilityOptionsExcept } from "@/lib/plans/eligibility";
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
@@ -43,18 +24,24 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const [twoFaRaw, twoFaModsRaw, userRow] = await Promise.all([
       getManifestValue("auth_2fa_enabled"),
       getManifestValue("auth_2fa_required_for_mods"),
-      db.query<{ plan: string; prestige_count: number }>(
-        `SELECT COALESCE(plan,'free') AS plan, COALESCE(prestige_count,0) AS prestige_count FROM users WHERE id = $1 LIMIT 1`,
+      db.query<{ plan: string; prestige_count: number; is_admin: boolean; is_moderator: boolean; business_tier: string | null }>(
+        `SELECT COALESCE(u.plan,'free') AS plan, COALESCE(u.prestige_count,0) AS prestige_count,
+                COALESCE(u.is_admin, false) AS is_admin, COALESCE(u.is_moderator, false) AS is_moderator,
+                ba.tier AS business_tier
+         FROM users u
+         LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
+         WHERE u.id = $1 LIMIT 1`,
         [auth.user.sub]
-      ).catch(() => ({ rows: [] as Array<{ plan: string; prestige_count: number }> })),
+      ).catch(() => ({ rows: [] as Array<{ plan: string; prestige_count: number; is_admin: boolean; is_moderator: boolean; business_tier: string | null }> })),
     ]);
 
-    const user = userRow.rows[0] ?? { plan: "free", prestige_count: 0 };
+    const user = userRow.rows[0] ?? { plan: "free", prestige_count: 0, is_admin: false, is_moderator: false, business_tier: null };
+    const eligibilityContext = { businessTier: user.business_tier, isAdmin: user.is_admin, isModerator: user.is_moderator };
 
     const [lockAllowed, hideAllowed, noFrAllowed, hideableSections, onlineStatusAllowed] = await Promise.all([
-      getJsonManifestList('privacy_can_lock_profile', ['pro', 'max', 'prestige_1']),
-      getJsonManifestList('privacy_can_hide_sections', ['plus', 'pro', 'max', 'prestige_1']),
-      getJsonManifestList('privacy_can_disable_friend_requests', ['plus', 'pro', 'max', 'prestige_1']),
+      getJsonManifestList('privacy_can_lock_profile', allEligibilityOptionsExcept(['free', 'plus'])),
+      getJsonManifestList('privacy_can_hide_sections', allEligibilityOptionsExcept(['free'])),
+      getJsonManifestList('privacy_can_disable_friend_requests', allEligibilityOptionsExcept(['free'])),
       getJsonManifestList('privacy_hideable_sections', ['avatar', 'bio', 'rank', 'xp', 'guild', 'seasons', 'badges']),
       getJsonManifestList('privacy_can_show_online_status', ['pro', 'max', 'prestige_1']),
     ]);
@@ -65,10 +52,10 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         pinEnabled: manifest.features.pinAuth,
         twoFaRequiredForMods: twoFaModsRaw === "true",
         privacy: {
-          canLockProfile: userEligibleForFeature(user.plan, user.prestige_count, lockAllowed),
-          canHideSections: userEligibleForFeature(user.plan, user.prestige_count, hideAllowed),
-          canDisableFriendRequests: userEligibleForFeature(user.plan, user.prestige_count, noFrAllowed),
-          canShowOnlineStatus: userEligibleForFeature(user.plan, user.prestige_count, onlineStatusAllowed),
+          canLockProfile: userEligibleForFeature(user.plan, user.prestige_count, lockAllowed, eligibilityContext),
+          canHideSections: userEligibleForFeature(user.plan, user.prestige_count, hideAllowed, eligibilityContext),
+          canDisableFriendRequests: userEligibleForFeature(user.plan, user.prestige_count, noFrAllowed, eligibilityContext),
+          canShowOnlineStatus: userEligibleForFeature(user.plan, user.prestige_count, onlineStatusAllowed, eligibilityContext),
           hideableSections,
         },
       },

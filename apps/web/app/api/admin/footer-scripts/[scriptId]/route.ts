@@ -21,6 +21,7 @@ import { z } from "zod";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { db, SqlParam } from "@/lib/db";
+import { normalizeFooterScriptContent } from "@/lib/admin/footerScriptNormalize";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -120,7 +121,12 @@ export const PATCH = withAdminAuth<RouteParams>(
       const { name, content, isActive, position } = parsed.data;
 
       if (name !== undefined) { updates.push(`name = $${idx++}`); values.push(name); }
-      if (content !== undefined) { updates.push(`content = $${idx++}`); values.push(content); }
+      if (content !== undefined) {
+        const normalizedContent = normalizeFooterScriptContent(content);
+        if (!normalizedContent) throw badRequest("Script content is empty after normalization.");
+        updates.push(`content = $${idx++}`);
+        values.push(normalizedContent);
+      }
       if (isActive !== undefined) { updates.push(`is_active = $${idx++}`); values.push(isActive); }
       if (position !== undefined) { updates.push(`position = $${idx++}`); values.push(position); }
 

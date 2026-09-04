@@ -444,9 +444,15 @@ interface Milestone {
   is_active: boolean;
 }
 
+const EMPTY_MILESTONE_DRAFT = { gamesPlayedThreshold: 0, rewardCredits: 0, rewardXp: 0, rewardStars: 0 };
+
 function MilestonesManager() {
   const [items, setItems] = useState<Milestone[]>([]);
-  const [draft, setDraft] = useState({ gamesPlayedThreshold: 0, rewardCredits: 0, rewardXp: 0, rewardStars: 0 });
+  const [draft, setDraft] = useState(EMPTY_MILESTONE_DRAFT);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState({ rewardCredits: 0, rewardXp: 0, rewardStars: 0, isActive: true });
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const load = () => {
     fetch("/api/admin/game-milestones", { credentials: "include" })
@@ -458,37 +464,115 @@ function MilestonesManager() {
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
-    await fetch("/api/admin/game-milestones", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(draft),
-    });
-    setDraft({ gamesPlayedThreshold: 0, rewardCredits: 0, rewardXp: 0, rewardStars: 0 });
-    load();
+    setError(null);
+    if (!draft.gamesPlayedThreshold || draft.gamesPlayedThreshold < 1) {
+      setError("Games-played threshold must be at least 1.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await fetch("/api/admin/game-milestones", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(draft),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body?.error?.message ?? "Failed to create milestone.");
+        return;
+      }
+      setDraft(EMPTY_MILESTONE_DRAFT);
+      load();
+    } finally {
+      setSaving(false);
+    }
   }
+
+  function startEdit(m: Milestone) {
+    setEditingId(m.id);
+    setEditDraft({
+      rewardCredits: m.reward_credits,
+      rewardXp: m.reward_xp,
+      rewardStars: m.reward_stars,
+      isActive: m.is_active,
+    });
+    setError(null);
+  }
+
+  async function saveEdit(id: string) {
+    setError(null);
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/admin/game-milestones/${id}`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editDraft),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        setError(body?.error?.message ?? "Failed to update milestone.");
+        return;
+      }
+      setEditingId(null);
+      load();
+    } finally {
+      setSaving(false);
+    }
+  }
+
   async function remove(id: string) {
-    await fetch(`/api/admin/game-milestones/${id}`, { method: "DELETE", credentials: "include" });
+    if (!window.confirm("Delete this milestone? This cannot be undone.")) return;
+    setError(null);
+    const res = await fetch(`/api/admin/game-milestones/${id}`, { method: "DELETE", credentials: "include" });
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      setError(body?.error?.message ?? "Failed to delete milestone.");
+      return;
+    }
     load();
   }
 
   return (
     <div className="mt-10">
       <h2 className="mb-3 text-lg font-bold">Games-played milestones (gaming track)</h2>
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
       <ul className="mb-3 space-y-1 text-sm">
-        {items.map((m) => (
-          <li key={m.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
-            <span>{m.games_played_threshold} plays → +{m.reward_credits}c +{m.reward_xp}xp{m.reward_stars ? ` +${m.reward_stars}⭐` : ""}</span>
-            <button onClick={() => remove(m.id)} className="text-xs text-red-600">Delete</button>
-          </li>
-        ))}
+        {items.map((m) =>
+          editingId === m.id ? (
+            <li key={m.id} className="flex flex-wrap items-end gap-2 rounded-lg border border-primary px-3 py-2">
+              <span className="w-24 text-xs text-neutral-500">{m.games_played_threshold} plays</span>
+              <input className="w-20 rounded border px-2 py-1" type="number" placeholder="credits" value={editDraft.rewardCredits} onChange={(e) => setEditDraft({ ...editDraft, rewardCredits: Number(e.target.value) })} />
+              <input className="w-20 rounded border px-2 py-1" type="number" placeholder="xp" value={editDraft.rewardXp} onChange={(e) => setEditDraft({ ...editDraft, rewardXp: Number(e.target.value) })} />
+              <input className="w-20 rounded border px-2 py-1" type="number" placeholder="stars" value={editDraft.rewardStars} onChange={(e) => setEditDraft({ ...editDraft, rewardStars: Number(e.target.value) })} />
+              <label className="flex items-center gap-1 text-xs">
+                <input type="checkbox" checked={editDraft.isActive} onChange={(e) => setEditDraft({ ...editDraft, isActive: e.target.checked })} />
+                Active
+              </label>
+              <button type="button" disabled={saving} onClick={() => saveEdit(m.id)} className="rounded bg-primary px-2 py-1 text-xs font-semibold text-primary-foreground disabled:opacity-50">Save</button>
+              <button type="button" onClick={() => setEditingId(null)} className="text-xs text-neutral-500">Cancel</button>
+            </li>
+          ) : (
+            <li key={m.id} className="flex items-center justify-between rounded-lg border px-3 py-2">
+              <span className={m.is_active ? "" : "text-neutral-400 line-through"}>
+                {m.games_played_threshold} plays → +{m.reward_credits}c +{m.reward_xp}xp{m.reward_stars ? ` +${m.reward_stars}⭐` : ""}
+                {!m.is_active && " (inactive)"}
+              </span>
+              <span className="flex gap-3">
+                <button onClick={() => startEdit(m)} className="text-xs text-blue-600">Edit</button>
+                <button onClick={() => remove(m.id)} className="text-xs text-red-600">Delete</button>
+              </span>
+            </li>
+          )
+        )}
       </ul>
       <form onSubmit={add} className="flex flex-wrap items-end gap-2 text-sm">
-        <input className="w-24 rounded border px-2 py-1" type="number" placeholder="plays" value={draft.gamesPlayedThreshold || ""} onChange={(e) => setDraft({ ...draft, gamesPlayedThreshold: Number(e.target.value) })} />
+        <input className="w-24 rounded border px-2 py-1" type="number" min={1} placeholder="plays" value={draft.gamesPlayedThreshold || ""} onChange={(e) => setDraft({ ...draft, gamesPlayedThreshold: Number(e.target.value) })} />
         <input className="w-24 rounded border px-2 py-1" type="number" placeholder="credits" value={draft.rewardCredits || ""} onChange={(e) => setDraft({ ...draft, rewardCredits: Number(e.target.value) })} />
         <input className="w-24 rounded border px-2 py-1" type="number" placeholder="xp" value={draft.rewardXp || ""} onChange={(e) => setDraft({ ...draft, rewardXp: Number(e.target.value) })} />
         <input className="w-24 rounded border px-2 py-1" type="number" placeholder="stars" value={draft.rewardStars || ""} onChange={(e) => setDraft({ ...draft, rewardStars: Number(e.target.value) })} />
-        <button type="submit" className="rounded bg-primary px-3 py-1 font-semibold text-primary-foreground">Add</button>
+        <button type="submit" disabled={saving} className="rounded bg-primary px-3 py-1 font-semibold text-primary-foreground disabled:opacity-50">Add</button>
       </form>
     </div>
   );

@@ -5172,6 +5172,115 @@ worth a dedicated pass.
 
 ---
 
-*ZobiaSocial PRD v2.11*
+## Appendix: Version 2.12 Change Log
+
+### v2.12 — Changelog
+
+**Admin Audit Logs viewer.** `admin_audit_log` (config/KYC/payout/feature-flag/
+etc. writes made through the admin panel) and `audit_log`
+(login/2FA/PIN/ban-suspend security events, `lib/audit/auditLog.ts`) were
+write-only — no page ever read them back. New `/gate44/audit-logs`
+(`GET /api/admin/audit-logs?source=admin|security`, admin-only, linked from
+the staff nav) with source tabs, action/actor/date filters, and a detail
+modal (before/after diff, metadata, IP/user-agent). Both tables are
+keyset-paginated (`created_at, id`) — see `db/migrations/0013_audit_log_viewer.sql`
+for the supporting indexes — so listing stays fast at any table size, no
+OFFSET scans. **Retention:** to keep these tables from growing forever,
+`app/api/cron/daily-platform/route.ts` now also prunes rows older than 365
+days in bounded batches (`lib/audit/pruneAuditLogs.ts`) — added to the
+existing daily-platform slot rather than a new cron entry, since Vercel
+Hobby only allows daily crons and this project's cron-slot budget is
+already spent. If longer retention is ever needed for compliance, archive
+to cold storage before deleting rather than raising the window indefinitely.
+
+**Footer scripts fixed (were silently no-ops).** Two independent bugs: (1)
+the `<script src="/api/static/footer-script/[id]">` tag in `app/layout.tsx`
+carried no nonce, and the page's CSP is `script-src 'nonce-<nonce>'
+'strict-dynamic'` with no `'self'` (`'strict-dynamic'` makes host allowlists
+inert per CSP3) — browsers silently dropped the tag. Now nonce'd. (2) The
+admin form's own placeholder told admins to paste a full `<script>...
+</script>` tag, but the content is served as a raw JS file
+(`Content-Type: application/javascript`) — a literal `<script>` token is a
+JS syntax error, so anything pasted that way (the common case for
+analytics/embed snippets) failed silently. `lib/admin/footerScriptNormalize.ts`
+now parses whatever is pasted (bare JS, one `<script>` tag, or several,
+inline and/or with `src=`) into a flat executable JS body at save time — a
+`src` tag becomes a dynamically-inserted `<script>` element, which
+`'strict-dynamic'` trusts regardless of host because a nonce'd script
+inserted it.
+
+**Eligibility gating extended to business tiers + staff roles.**
+`lib/plans/eligibility.ts`'s `isPlanEligible` allow-list previously
+understood only plan slugs and `prestige_N` entries. It now also matches
+`business_starter`/`business_growth`/`business_enterprise` (against the
+user's active `business_accounts.tier`) and `role_admin`/`role_moderator`
+(against `users.is_admin`/`is_moderator`) — same flat-array-in-x_manifest
+mechanism, just a richer vocabulary. `/gate44/settings/privacy` and
+`/gate44/settings/profile-stats` now offer every prestige level (1–10, was
+a hardcoded 1/2/5/10 subset), all three business tiers, and both staff
+roles as selectable options, with defaults changed to "everyone except
+free" (hide sections / disable friend requests / Profile Stats full view)
+or "everyone except free and plus" (lock profile) — previously only a
+narrow plan+prestige_1 subset was selected by default. `app/api/features/route.ts`
+had its own second copy of the eligibility check (missing business/role
+support entirely); it now calls the shared helper instead of duplicating it.
+
+**`/gate44/config` categories collapse by default.** Every settings
+category now starts minimized; expanding/collapsing one is remembered in
+`localStorage` (`zobia_admin_config_open_groups`) — a per-device UI
+preference, not platform config, so it isn't written to `x_manifest`.
+
+**`/gate44/moderation` Resolved/Escalated tabs fixed.** `GET
+/api/admin/moderation` returned raw snake_case rows (`report_type`,
+`ai_category`, …) with no camelCase mapping and no derived `targetType`,
+so the page's own `Report` interface never matched what it actually got —
+crashing on `report.reportType.replace(...)` the moment a report existed
+(the Pending tab only avoided it by usually being empty). Also, `escalated`
+wasn't in the status route's validation allow-list, so the Escalated tab
+silently fell back to Pending. Both fixed with a proper row→camelCase
+mapper (also now returns the resolving action's type) and defensive
+`?? "other"` fallbacks in the UI.
+
+**`/gate44/messages` list + detail crash fixed.** Same root cause as
+moderation: `GET /api/admin/messages` and `GET
+/api/admin/messages/[id]` returned raw snake_case rows/an unmapped
+`{message, receipts}` shape while the page's `SentMessage`/`MessageDetail`
+types expected camelCase (`recipientsCount`, `deliveredCount`, `deliveries`,
+…) — fixed with proper mappers on both routes, plus defensive `?? 0`
+guards on the `.toLocaleString()` call sites.
+
+**`/gate44/events` crash hardened.** The camelCase mapping fixed in v2.11
+was already correct; added a defensive `event_type ?? "platform"` fallback
+server-side and `(event.type ?? "unknown")` client-side in case of stale
+rows or a degraded response from the database circuit breaker
+(`lib/payments/circuit.ts`) — a null/undefined `type` should render as
+"unknown", never crash the page.
+
+**`/gate44/games` milestones: full CRUD + the 400 explained.** The
+Games-played milestones manager only supported add/delete. Add now
+validates the threshold client-side before submitting (the reported
+`POST /api/admin/game-milestones` 400s were simply the Add form being
+submitted with the threshold left at its default of 0, which fails the
+`min(1)` schema — there's no cron involved). Edit is now supported inline
+(rewards + active flag, via the existing `PUT /api/admin/game-milestones/[id]`
+that already existed but had no UI) with a delete confirmation.
+
+**`/gate44/creator-spotlight` username search.** Replaced the raw
+"paste the creator's UUID" field with the same debounced username-typeahead
+component used by the admin Messages composer (`GET /api/admin/users?q=`),
+so admins no longer need to look up a UUID manually.
+
+**User Management modal.** Action buttons in the user detail panel are
+taller (44px min height) and every mutating action (suspend, ban, restore,
+mod status, password reset, force-2FA, mark-verified, impersonate) now
+requires an explicit confirm step. On success the panel stays open,
+refreshed with the post-action user row, instead of closing back to the
+bare list — admins commonly take several actions on one user in a row.
+
+**New migrations to run:** `db/migrations/0013_audit_log_viewer.sql`.
+
+---
+
+*ZobiaSocial PRD v2.12*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

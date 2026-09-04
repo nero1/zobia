@@ -193,15 +193,20 @@ export default async function RootLayout({ children }: RootLayoutProps) {
             </I18nProvider>
           </ReactQueryProvider>
         </ThemeProvider>
-        {/* TASK-01: Admin footer scripts are served via a sandboxed external script src
-            (/api/static/footer-script/[id]) rather than being injected inline with the
-            page nonce. This prevents a compromised admin account from executing arbitrary
-            JS in every visitor's session via the nonce — the script content is approved
-            at save-time and served with its own Content-Security-Policy header. */}
+        {/* Admin footer scripts are served from a sandboxed external file
+            (/api/static/footer-script/[id]) rather than injected inline, so the
+            raw admin-authored content never runs through dangerouslySetInnerHTML.
+            The page's script-src policy is `'nonce-<nonce>' 'strict-dynamic'` with
+            no 'self' (strict-dynamic makes host allowlists inert per CSP3), so the
+            tag still needs the request nonce or the browser silently drops it —
+            that omission previously made every footer script a no-op. Trust here
+            is equivalent to before: only admins can create these scripts, and
+            each write is audit-logged (see POST /api/admin/footer-scripts). */}
         {footerScripts.filter(s => s.content.trim()).map((script) => (
           <script
             key={script.id}
             src={`/api/static/footer-script/${script.id}`}
+            nonce={nonce}
             async
           />
         ))}

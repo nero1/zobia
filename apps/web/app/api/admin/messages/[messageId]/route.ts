@@ -77,7 +77,7 @@ export const GET = withAdminAuth(
       // Per-recipient status
       const { rows: receipts } = await db.query<{
         recipient_id: string;
-        username: string;
+        username: string | null;
         delivered_at: string | null;
         read_at: string | null;
       }>(
@@ -94,7 +94,27 @@ export const GET = withAdminAuth(
         [messageId, limit, offset]
       );
 
-      return NextResponse.json({ message, receipts, limit, offset });
+      const deliveredCount = receipts.filter((r) => r.delivered_at).length;
+
+      return NextResponse.json({
+        id: message.id,
+        subject: message.subject ?? "(no subject)",
+        bodyPreview: message.body ? message.body.slice(0, 140) : "",
+        body: message.body,
+        recipientMode: message.broadcast_type === "direct" ? "specific" : message.broadcast_type,
+        recipientsCount: message.recipient_count ?? 0,
+        deliveredCount,
+        sentAt: message.created_at,
+        senderUsername: message.sender_username ?? undefined,
+        deliveries: receipts.map((r) => ({
+          userId: r.recipient_id,
+          username: r.username ?? "unknown",
+          deliveredAt: r.delivered_at,
+          readAt: r.read_at,
+        })),
+        limit,
+        offset,
+      });
     } catch (err) {
       return handleApiError(err);
     }

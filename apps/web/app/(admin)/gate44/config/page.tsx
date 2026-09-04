@@ -1118,9 +1118,32 @@ export default function AdminConfigPage() {
     msg: string;
     type: "success" | "error";
   } | null>(null);
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(
-    Object.fromEntries(GROUP_ORDER.map((g) => [g, true]))
-  );
+  // Collapsed/expanded state per settings category. Defaults to minimized;
+  // once an admin toggles a category, its state is remembered in
+  // localStorage (not the database — this is per-device UI preference, not
+  // platform config) until changed again.
+  const OPEN_GROUPS_STORAGE_KEY = "zobia_admin_config_open_groups";
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+  const [openGroupsLoaded, setOpenGroupsLoaded] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(OPEN_GROUPS_STORAGE_KEY);
+      if (raw) setOpenGroups(JSON.parse(raw));
+    } catch {
+      /* ignore malformed/inaccessible storage */
+    }
+    setOpenGroupsLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!openGroupsLoaded) return;
+    try {
+      window.localStorage.setItem(OPEN_GROUPS_STORAGE_KEY, JSON.stringify(openGroups));
+    } catch {
+      /* ignore quota/private-mode errors */
+    }
+  }, [openGroups, openGroupsLoaded]);
 
   const showToast = useCallback(
     (msg: string, type: "success" | "error" = "success") => {

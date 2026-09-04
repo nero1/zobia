@@ -17,17 +17,32 @@ import { useState, useEffect, useCallback } from "react";
 // ---------------------------------------------------------------------------
 
 const PLAN_OPTIONS = ["free", "plus", "pro", "max"] as const;
-const PRESTIGE_OPTIONS = ["prestige_1", "prestige_2", "prestige_5", "prestige_10"] as const;
+const PRESTIGE_OPTIONS = Array.from({ length: 10 }, (_, i) => `prestige_${i + 1}` as const);
+const BUSINESS_TIER_OPTIONS = ["business_starter", "business_growth", "business_enterprise"] as const;
+const ROLE_OPTIONS = ["role_admin", "role_moderator"] as const;
 const ALL_SECTIONS = ["avatar", "bio", "rank", "xp", "guild", "seasons", "badges"] as const;
 
 type PlanOption = (typeof PLAN_OPTIONS)[number];
 type PrestigeOption = (typeof PRESTIGE_OPTIONS)[number];
+type BusinessTierOption = (typeof BUSINESS_TIER_OPTIONS)[number];
+type RoleOption = (typeof ROLE_OPTIONS)[number];
 type SectionKey = (typeof ALL_SECTIONS)[number];
+type EligibilityOption = PlanOption | PrestigeOption | BusinessTierOption | RoleOption;
+
+/** "Select all except free [and plus]" default — every option minus the given exclusions. */
+function allExcept(excluded: PlanOption[]): EligibilityOption[] {
+  return [
+    ...PLAN_OPTIONS.filter((p) => !excluded.includes(p)),
+    ...PRESTIGE_OPTIONS,
+    ...BUSINESS_TIER_OPTIONS,
+    ...ROLE_OPTIONS,
+  ];
+}
 
 interface PrivacyConfig {
-  canLockProfile: (PlanOption | PrestigeOption)[];
-  canHideSections: (PlanOption | PrestigeOption)[];
-  canDisableFriendRequests: (PlanOption | PrestigeOption)[];
+  canLockProfile: EligibilityOption[];
+  canHideSections: EligibilityOption[];
+  canDisableFriendRequests: EligibilityOption[];
   hideableSections: SectionKey[];
 }
 
@@ -84,9 +99,9 @@ function toggleInList<T>(list: T[], value: T): T[] {
 
 export default function AdminPrivacySettingsPage() {
   const [config, setConfig] = useState<PrivacyConfig>({
-    canLockProfile: ["pro", "max", "prestige_1"],
-    canHideSections: ["plus", "pro", "max", "prestige_1"],
-    canDisableFriendRequests: ["plus", "pro", "max", "prestige_1"],
+    canLockProfile: allExcept(["free", "plus"]),
+    canHideSections: allExcept(["free"]),
+    canDisableFriendRequests: allExcept(["free"]),
     hideableSections: [...ALL_SECTIONS],
   });
   const [loading, setLoading] = useState(true);
@@ -107,9 +122,9 @@ export default function AdminPrivacySettingsPage() {
         const entries = data.data ?? [];
         const get = (key: string) => entries.find((e) => e.key === key)?.value;
         setConfig({
-          canLockProfile: parseJsonList(get("privacy_can_lock_profile"), ["pro", "max", "prestige_1"]),
-          canHideSections: parseJsonList(get("privacy_can_hide_sections"), ["plus", "pro", "max", "prestige_1"]),
-          canDisableFriendRequests: parseJsonList(get("privacy_can_disable_friend_requests"), ["plus", "pro", "max", "prestige_1"]),
+          canLockProfile: parseJsonList(get("privacy_can_lock_profile"), allExcept(["free", "plus"])),
+          canHideSections: parseJsonList(get("privacy_can_hide_sections"), allExcept(["free"])),
+          canDisableFriendRequests: parseJsonList(get("privacy_can_disable_friend_requests"), allExcept(["free"])),
           hideableSections: parseJsonList(get("privacy_hideable_sections"), [...ALL_SECTIONS]),
         });
       } catch { /* non-fatal */ }
@@ -160,28 +175,24 @@ export default function AdminPrivacySettingsPage() {
     apiKey: string;
     title: string;
     description: string;
-    options: (PlanOption | PrestigeOption)[];
   }[] = [
     {
       key: "canLockProfile",
       apiKey: "privacy_can_lock_profile",
       title: "Who can lock (privatise) their profile",
-      description: "Users on these plans/ranks can hide their profile from non-friends.",
-      options: [...PLAN_OPTIONS, ...PRESTIGE_OPTIONS],
+      description: "Users on these plans/ranks/tiers/roles can hide their profile from non-friends.",
     },
     {
       key: "canHideSections",
       apiKey: "privacy_can_hide_sections",
       title: "Who can hide profile sections",
-      description: "Users on these plans/ranks can individually hide sections of their profile.",
-      options: [...PLAN_OPTIONS, ...PRESTIGE_OPTIONS],
+      description: "Users on these plans/ranks/tiers/roles can individually hide sections of their profile.",
     },
     {
       key: "canDisableFriendRequests",
       apiKey: "privacy_can_disable_friend_requests",
       title: "Who can disable friend requests",
-      description: "Users on these plans/ranks can prevent others from sending them friend requests.",
-      options: [...PLAN_OPTIONS, ...PRESTIGE_OPTIONS],
+      description: "Users on these plans/ranks/tiers/roles can prevent others from sending them friend requests.",
     },
   ];
 
@@ -222,7 +233,7 @@ export default function AdminPrivacySettingsPage() {
                 ))}
               </div>
             </div>
-            <div className="mb-5">
+            <div className="mb-4">
               <p className="mb-2 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Prestige Ranks</p>
               <div className="flex flex-wrap gap-2">
                 {PRESTIGE_OPTIONS.map((p) => (
@@ -232,6 +243,34 @@ export default function AdminPrivacySettingsPage() {
                     active={(config[block.key] as string[]).includes(p)}
                     onToggle={(v) => updateList(block.key, v as PrestigeOption)}
                     label={p.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="mb-4">
+              <p className="mb-2 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Business Account Tiers</p>
+              <div className="flex flex-wrap gap-2">
+                {BUSINESS_TIER_OPTIONS.map((tier) => (
+                  <Chip
+                    key={tier}
+                    value={tier}
+                    active={(config[block.key] as string[]).includes(tier)}
+                    onToggle={(v) => updateList(block.key, v as BusinessTierOption)}
+                    label={tier.replace("business_", "").replace(/\b\w/g, (c) => c.toUpperCase())}
+                  />
+                ))}
+              </div>
+            </div>
+            <div className="mb-5">
+              <p className="mb-2 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Roles</p>
+              <div className="flex flex-wrap gap-2">
+                {ROLE_OPTIONS.map((role) => (
+                  <Chip
+                    key={role}
+                    value={role}
+                    active={(config[block.key] as string[]).includes(role)}
+                    onToggle={(v) => updateList(block.key, v as RoleOption)}
+                    label={role.replace("role_", "").replace(/\b\w/g, (c) => c.toUpperCase())}
                   />
                 ))}
               </div>

@@ -25,7 +25,7 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { isFeatureEnabled } from "@/lib/manifest";
-import { getAllowedPlans, isPlanEligible } from "@/lib/plans/eligibility";
+import { getAllowedPlans, isPlanEligible, allEligibilityOptionsExcept } from "@/lib/plans/eligibility";
 import { isAdminOrModerator } from "@/lib/auth/roles";
 import { getRankForXP } from "@/lib/xp/engine";
 import { getUserRank, type LeaderboardTrack } from "@/lib/leaderboards/engine";
@@ -99,6 +99,9 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       city: string | null;
       plan: string;
       prestige_count: number;
+      is_admin: boolean;
+      is_moderator: boolean;
+      business_tier: string | null;
       xp_total: number;
       legacy_score: number;
       is_creator: boolean;
@@ -109,24 +112,32 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       level_social: number; level_creator: number; level_competitor: number; level_generosity: number;
       level_gaming: number; level_knowledge: number; level_explorer: number;
     }>(
-      `SELECT id, username, display_name, avatar_emoji, city,
-              COALESCE(plan, 'free') AS plan,
-              COALESCE(prestige_count, 0) AS prestige_count,
-              xp_total, COALESCE(legacy_score, 0) AS legacy_score,
-              COALESCE(is_creator, false) AS is_creator,
-              created_at, guild_id,
-              xp_social, xp_creator, xp_competitor, xp_generosity, xp_gaming, xp_knowledge, xp_explorer,
-              level_social, level_creator, level_competitor, level_generosity, level_gaming, level_knowledge, level_explorer
-       FROM users
-       WHERE id = $1 AND deleted_at IS NULL
+      `SELECT u.id, u.username, u.display_name, u.avatar_emoji, u.city,
+              COALESCE(u.plan, 'free') AS plan,
+              COALESCE(u.prestige_count, 0) AS prestige_count,
+              COALESCE(u.is_admin, false) AS is_admin,
+              COALESCE(u.is_moderator, false) AS is_moderator,
+              ba.tier AS business_tier,
+              u.xp_total, COALESCE(u.legacy_score, 0) AS legacy_score,
+              COALESCE(u.is_creator, false) AS is_creator,
+              u.created_at, u.guild_id,
+              u.xp_social, u.xp_creator, u.xp_competitor, u.xp_generosity, u.xp_gaming, u.xp_knowledge, u.xp_explorer,
+              u.level_social, u.level_creator, u.level_competitor, u.level_generosity, u.level_gaming, u.level_knowledge, u.level_explorer
+       FROM users u
+       LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
+       WHERE u.id = $1 AND u.deleted_at IS NULL
        LIMIT 1`,
       [userId]
     );
     const user = userRows[0];
     if (!user) throw notFound("User not found");
 
-    const fullPlans = await getAllowedPlans("profile_stats_full_plans", ["plus", "pro", "max"]);
-    const tier: "basic" | "full" = isPlanEligible(user.plan, user.prestige_count, fullPlans) ? "full" : "basic";
+    const fullPlans = await getAllowedPlans("profile_stats_full_plans", allEligibilityOptionsExcept(["free"]));
+    const tier: "basic" | "full" = isPlanEligible(user.plan, user.prestige_count, fullPlans, {
+      businessTier: user.business_tier,
+      isAdmin: user.is_admin,
+      isModerator: user.is_moderator,
+    }) ? "full" : "basic";
 
     const rankInfo = getRankForXP(user.xp_total);
 

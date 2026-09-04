@@ -538,7 +538,7 @@ export default function AdminEventsPage() {
                     )}
                   </td>
                   <td className="px-4 py-3 capitalize text-neutral-600 dark:text-neutral-400">
-                    {event.type.replace(/_/g, " ")}
+                    {(event.type ?? "unknown").replace(/_/g, " ")}
                   </td>
                   <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400">
                     <span className="text-xs">{formatDate(event.startsAt)} – {formatDate(event.endsAt)}</span>

@@ -153,15 +153,15 @@ function ReportCard({ report, onAction, busy }: ReportCardProps) {
           @{report.reporterUsername}
         </span>
         <span className="text-neutral-400">reported</span>
-        <span className={`rounded-full px-2 py-0.5 font-semibold ${TARGET_BADGE[report.targetType]}`}>
-          {report.targetType}
+        <span className={`rounded-full px-2 py-0.5 font-semibold ${TARGET_BADGE[report.targetType] ?? TARGET_BADGE.user}`}>
+          {report.targetType ?? "user"}
         </span>
         <span
           className={`rounded-full px-2 py-0.5 font-semibold ${
             REPORT_TYPE_BADGE[report.reportType] ?? REPORT_TYPE_BADGE.other
           }`}
         >
-          {report.reportType.replace(/_/g, " ")}
+          {(report.reportType ?? "other").replace(/_/g, " ")}
         </span>
         <span className="ml-auto text-neutral-400">{timeAgo(report.createdAt)}</span>
       </div>
