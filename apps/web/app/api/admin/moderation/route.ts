@@ -3,7 +3,7 @@ export const dynamic = 'force-dynamic';
 /**
  * app/api/admin/moderation/route.ts
  *
- * GET /api/admin/moderation — Moderation queue (admin only).
+ * GET /api/admin/moderation — Moderation queue (moderator or admin).
  *
  * Returns pending reports ordered by AI confidence (desc) and severity
  * derived from the AI recommendation tier. Supports pagination via
@@ -11,7 +11,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { withAdminAuth } from "@/lib/api/middleware";
+import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
@@ -45,7 +45,7 @@ const SEVERITY_CASE = `
  *
  * @returns Paginated list of reports with AI metadata
  */
-export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
+export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
@@ -89,6 +89,14 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
       severity: number;
       created_at: string;
       resolved_at: string | null;
+      // Attribution — who actually resolved this report. Only meaningful for
+      // mods/admins (this route requires that role already), so no extra
+      // visibility gate is needed on top of the auth check.
+      resolved_by: string | null;
+      resolved_by_username: string | null;
+      resolution_note: string | null;
+      /** moderation_actions.id for the (unreversed) action that resolved this report, if any — needed to call the reverse endpoint. */
+      action_id: string | null;
     }>(
       `SELECT
          r.id,
@@ -108,10 +116,17 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
          r.ai_provider,
          (${SEVERITY_CASE}) AS severity,
          r.created_at,
-         r.resolved_at
+         r.resolved_at,
+         r.resolved_by,
+         resolver.username    AS resolved_by_username,
+         r.resolution_note,
+         (SELECT ma.id FROM moderation_actions ma
+          WHERE ma.report_id = r.id AND ma.reversed_at IS NULL
+          ORDER BY ma.created_at DESC LIMIT 1) AS action_id
        FROM moderation_reports r
        LEFT JOIN users reporter ON reporter.id = r.reporter_id
        LEFT JOIN users reported ON reported.id  = r.reported_user_id
+       LEFT JOIN users resolver ON resolver.id  = r.resolved_by
        WHERE ${whereClause}
        ORDER BY severity DESC, r.ai_confidence DESC NULLS LAST, r.created_at DESC
        LIMIT $1`,

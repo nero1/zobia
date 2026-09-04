@@ -41,6 +41,7 @@ interface UserFullProfile {
   /** ISO timestamp the user's active business plan subscription expires, or null. */
   business_plan_ends_at: string | null;
   is_admin: boolean;
+  is_moderator: boolean;
   is_creator: boolean;
   is_verified: boolean;
   onboarding_completed: boolean;
@@ -157,7 +158,7 @@ const updateProfileSchema = z.object({
 
 const SELECT_COLUMNS = `
   id, email, username, display_name, bio, avatar_url, avatar_emoji,
-  city, country, locale, plan, is_admin, is_creator, is_verified,
+  city, country, locale, plan, is_admin, COALESCE(is_moderator, false) AS is_moderator, is_creator, is_verified,
   onboarding_completed, coin_balance, star_balance,
   (password_hash IS NOT NULL) AS has_password,
   (google_id IS NOT NULL OR telegram_id IS NOT NULL) AS has_oauth_login,

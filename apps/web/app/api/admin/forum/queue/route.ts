@@ -58,6 +58,10 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
       ai_recommendation: string | null;
       created_at: string;
       resolved_at: string | null;
+      resolved_by: string | null;
+      resolved_by_username: string | null;
+      resolution_note: string | null;
+      action_id: string | null;
     }>(
       `SELECT
          r.id,
@@ -74,9 +78,16 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
          r.ai_confidence,
          r.ai_recommendation,
          r.created_at,
-         r.resolved_at
+         r.resolved_at,
+         r.resolved_by,
+         resolver.username AS resolved_by_username,
+         r.resolution_note,
+         (SELECT ma.id FROM moderation_actions ma
+          WHERE ma.report_id = r.id AND ma.reversed_at IS NULL
+          ORDER BY ma.created_at DESC LIMIT 1) AS action_id
        FROM moderation_reports r
        LEFT JOIN users reporter ON reporter.id = r.reporter_id
+       LEFT JOIN users resolver ON resolver.id = r.resolved_by
        LEFT JOIN forum_questions q ON q.id = r.reported_forum_question_id
        LEFT JOIN forum_answers a ON a.id = r.reported_forum_answer_id
        WHERE ${whereClause}

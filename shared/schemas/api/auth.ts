@@ -50,6 +50,7 @@ export const AuthUserSchema = z.object({
   username: z.string(),
   plan: z.enum(["free", "plus", "pro", "max"]),
   is_admin: z.boolean(),
+  is_moderator: z.boolean().optional(),
   is_creator: z.boolean(),
   avatar_url: z.string().nullable().optional(),
 });

@@ -180,6 +180,19 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                 {t('admin.link', 'Admin')}
               </Link>
             )}
+            {(user?.is_moderator || user?.is_admin) && (
+              <Link
+                to="/moderation"
+                onClick={closeDrawer}
+                className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
+                  pathname.startsWith('/moderation') ? 'bg-primary-50 text-primary-700' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
+                }`}
+                aria-current={pathname.startsWith('/moderation') ? 'page' : undefined}
+              >
+                <span className="w-5 text-center text-base leading-none" aria-hidden="true">🧭</span>
+                {t('moderation.title', 'Moderation Center')}
+              </Link>
+            )}
             {primaryNavItems.map((item) => (
               <Link
                 key={item.href}

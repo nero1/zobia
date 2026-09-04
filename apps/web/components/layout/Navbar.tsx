@@ -26,6 +26,7 @@ interface NavUser {
   avatar_emoji: string | null;
   plan?: string | null;
   is_admin?: boolean;
+  is_moderator?: boolean;
 }
 
 function useNavUser() {
@@ -175,6 +176,7 @@ function MobileDrawer({
   displayName,
   onLogout,
   isAdmin,
+  isModerator,
 }: {
   open: boolean;
   onClose: () => void;
@@ -182,6 +184,7 @@ function MobileDrawer({
   displayName: string;
   onLogout: () => void;
   isAdmin?: boolean;
+  isModerator?: boolean;
 }) {
   const { t } = useTranslation();
 
@@ -240,6 +243,22 @@ function MobileDrawer({
               >
                 <span className="w-5 text-center text-base leading-none" aria-hidden="true">🛡️</span>
                 {t("admin.link")}
+              </Link>
+            )}
+            {(isModerator || isAdmin) && (
+              <Link
+                href="/moderation"
+                onClick={onClose}
+                className={clsx(
+                  "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
+                  pathname.startsWith("/moderation")
+                    ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
+                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+                )}
+                aria-current={pathname.startsWith("/moderation") ? "page" : undefined}
+              >
+                <span className="w-5 text-center text-base leading-none" aria-hidden="true">🧭</span>
+                {t("moderation.title", "Moderation Center")}
               </Link>
             )}
             {primaryNavItems.map((item) => {
@@ -613,6 +632,20 @@ export function Navbar() {
                 🛡️ {t("admin.link")}
               </Link>
             )}
+            {(navUser?.is_moderator || navUser?.is_admin) && (
+              <Link
+                href="/moderation"
+                aria-label={t("moderation.title", "Moderation Center")}
+                className={clsx(
+                  "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+                  pathname.startsWith("/moderation")
+                    ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
+                    : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
+                )}
+              >
+                🧭 {t("moderation.title", "Moderation Center")}
+              </Link>
+            )}
             <Link
               href="/notifications"
               aria-label={unreadCount > 0 ? `${t("notifications.title")}, ${t("notifications.unread", { count: unreadCount })}` : t("notifications.title")}
@@ -639,6 +672,7 @@ export function Navbar() {
         displayName={displayName}
         onLogout={handleLogout}
         isAdmin={navUser?.is_admin}
+        isModerator={navUser?.is_moderator}
       />
 
       {/* Mobile bottom tab bar */}

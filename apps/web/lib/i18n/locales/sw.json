@@ -2902,5 +2902,16 @@
   "wallet.viewFullStats": "Ona Takwimu Kamili →",
   "wallet.xpBalance": "XP",
   "answers.share": "Share",
-  "answers.linkCopied": "Link copied"
+  "answers.linkCopied": "Link copied",
+  "moderation.title": "Moderation Center",
+  "moderation.legacyLink": "Admin moderation queue",
+  "moderation.tab.reports": "Reports",
+  "moderation.tab.forum": "Forum Queue",
+  "moderation.tab.audit": "Audit Log",
+  "moderation.actionApplied": "Action applied",
+  "moderation.actionReversed": "Action reversed",
+  "moderation.reverseNotePrompt": "Optional note for the audit trail:",
+  "moderation.noAuditEntries": "No moderation activity yet.",
+  "moderation.reversedBy": "Reversed",
+  "moderation.queueClear": "Queue is clear."
 }
