@@ -59,6 +59,19 @@ interface FinancialData {
   generatedAt: string;
 }
 
+interface CreatorFundData {
+  balanceKobo: number;
+  splits: Record<string, number>;
+}
+
+const CREATOR_FUND_ACTIVITY_LABELS: Record<string, string> = {
+  room_subscription: "Room Subscriptions",
+  room_entry: "Room Entry Fees",
+  coin_purchase: "Credit Pack Purchases",
+  sponsor_budget: "Branded Room Sponsorships",
+  ad_reward: "Rewarded Ad Payouts",
+};
+
 // Derived helpers
 function koboToNgn(kobo: number): number { return kobo / 100; }
 
@@ -190,6 +203,10 @@ export default function AdminFinancialPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
+  const [creatorFund, setCreatorFund] = useState<CreatorFundData | null>(null);
+  const [topUpAmount, setTopUpAmount] = useState("");
+  const [topUpNote, setTopUpNote] = useState("");
+  const [topUpBusy, setTopUpBusy] = useState(false);
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type });
@@ -215,6 +232,45 @@ export default function AdminFinancialPage() {
   }, []);
 
   useEffect(() => { void fetchData(); }, [fetchData]);
+
+  const fetchCreatorFund = useCallback(async () => {
+    try {
+      const res = await fetch("/api/admin/creator-fund", { credentials: "include" });
+      if (!res.ok) return;
+      const json = (await res.json()) as { data?: CreatorFundData };
+      if (json.data) setCreatorFund(json.data);
+    } catch {
+      // Non-critical widget — silently skip on failure.
+    }
+  }, []);
+
+  useEffect(() => { void fetchCreatorFund(); }, [fetchCreatorFund]);
+
+  async function handleTopUp() {
+    const amountNgn = parseFloat(topUpAmount);
+    if (!Number.isFinite(amountNgn) || amountNgn <= 0) {
+      showToast("Enter a valid amount", "error");
+      return;
+    }
+    setTopUpBusy(true);
+    try {
+      const res = await fetch("/api/admin/creator-fund/topup", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ amountKobo: Math.round(amountNgn * 100), note: topUpNote || undefined }),
+      });
+      if (!res.ok) throw new Error("Top-up failed");
+      showToast("Creator Fund topped up");
+      setTopUpAmount("");
+      setTopUpNote("");
+      await fetchCreatorFund();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Top-up failed", "error");
+    } finally {
+      setTopUpBusy(false);
+    }
+  }
 
   return (
     <div className="relative space-y-6">
@@ -303,6 +359,58 @@ export default function AdminFinancialPage() {
           ))}
         </div>
       )}
+
+      {/* Creator Fund */}
+      <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+          <h2 className="font-semibold text-neutral-900 dark:text-neutral-50">Creator Fund</h2>
+          <p className="text-xs text-neutral-500">
+            Distributed to eligible creators on the 5th of each month. Per-activity split percentages are also editable in{" "}
+            <a href="/admin/config" className="text-primary-600 hover:underline">Config → Creator Fund</a>.
+          </p>
+        </div>
+        <div className="grid gap-4 p-5 sm:grid-cols-2">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">Current Pool Balance</p>
+            <p className="text-2xl font-bold text-teal-600">{creatorFund ? formatNgn(koboToNgn(creatorFund.balanceKobo)) : "—"}</p>
+            {creatorFund && (
+              <ul className="mt-3 space-y-1 text-xs text-neutral-500">
+                {Object.entries(creatorFund.splits).map(([activity, percent]) => (
+                  <li key={activity}>{CREATOR_FUND_ACTIVITY_LABELS[activity] ?? activity}: {percent}%</li>
+                ))}
+              </ul>
+            )}
+          </div>
+          <div className="space-y-2">
+            <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">Manual Top-Up</p>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="Amount (₦)"
+                value={topUpAmount}
+                onChange={(e) => setTopUpAmount(e.target.value)}
+                className="w-32 rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+              />
+              <input
+                type="text"
+                placeholder="Note (optional)"
+                value={topUpNote}
+                onChange={(e) => setTopUpNote(e.target.value)}
+                className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+              />
+              <button
+                onClick={() => void handleTopUp()}
+                disabled={topUpBusy}
+                className="rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-50"
+              >
+                {topUpBusy ? "…" : "Top Up"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Revenue by provider */}
       <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">

@@ -2,12 +2,14 @@
  * apps/android/src/routes/admin/financial.tsx
  *
  * Financial monitoring dashboard — mirrors apps/web/app/(admin)/admin/financial/page.tsx.
- * GET /admin/financial (flat JSON, no {success,data} envelope — read-only, no mutations).
+ * GET /admin/financial (flat JSON, no {success,data} envelope — mostly read-only; the
+ * Creator Fund section below is the one mutation, POST /admin/creator-fund/topup).
  * All monetary values from the API are in kobo; divide by 100 before fmtCurrency.
  */
 
+import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import {
@@ -17,9 +19,28 @@ import {
   AdminCardSkeleton,
   AdminErrorState,
   AdminSectionHeader,
+  AdminToast,
   fmtNumber,
   fmtCurrency,
 } from '@/components/admin/AdminUI';
+
+interface CreatorFundData {
+  balanceKobo: number;
+  splits: Record<string, number>;
+}
+
+const CREATOR_FUND_ACTIVITY_LABELS: Record<string, string> = {
+  room_subscription: 'Room Subscriptions',
+  room_entry: 'Room Entry Fees',
+  coin_purchase: 'Credit Pack Purchases',
+  sponsor_budget: 'Branded Room Sponsorships',
+  ad_reward: 'Rewarded Ad Payouts',
+};
+
+async function fetchCreatorFund(): Promise<CreatorFundData> {
+  const { data } = await apiClient.get<CreatorFundData>('/admin/creator-fund');
+  return data;
+}
 
 interface CoinEconomy {
   totalCoinsInCirculation: number;
@@ -104,15 +125,44 @@ function EconomyBar({ economy, t }: { economy: CoinEconomy; t: (k: string, d: st
 
 function AdminFinancialPage() {
   const { t } = useTranslation();
+  const qc = useQueryClient();
   const { data, status, refetch } = useQuery({
     queryKey: ['admin', 'financial'],
     queryFn: fetchFinancial,
     staleTime: 30_000,
   });
+  const { data: creatorFund } = useQuery({
+    queryKey: ['admin', 'creator-fund'],
+    queryFn: fetchCreatorFund,
+    staleTime: 30_000,
+  });
+  const [topUpAmount, setTopUpAmount] = useState('');
+  const [topUpNote, setTopUpNote] = useState('');
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
+  const topUpMutation = useMutation({
+    mutationFn: async () => {
+      const amountNgn = parseFloat(topUpAmount);
+      if (!Number.isFinite(amountNgn) || amountNgn <= 0) throw new Error('Enter a valid amount');
+      await apiClient.post('/admin/creator-fund/topup', {
+        amountKobo: Math.round(amountNgn * 100),
+        note: topUpNote || undefined,
+      });
+    },
+    onSuccess: () => {
+      setToast({ msg: t('admin.financial.creatorFundToppedUp', 'Creator Fund topped up'), type: 'success' });
+      setTopUpAmount('');
+      setTopUpNote('');
+      void qc.invalidateQueries({ queryKey: ['admin', 'creator-fund'] });
+    },
+    onError: (e) => setToast({ msg: e instanceof Error ? e.message : 'Top-up failed', type: 'error' }),
+  });
 
   return (
     <div className="px-4 py-5 space-y-5">
       <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.financial', 'Financial Monitoring')}</h1>
+
+      {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
       {status === 'error' && <AdminErrorState onRetry={() => refetch()} />}
 
@@ -187,6 +237,50 @@ function AdminFinancialPage() {
               </div>
             </section>
           )}
+
+          <section>
+            <AdminSectionHeader>{t('admin.financial.creatorFund', 'Creator Fund')}</AdminSectionHeader>
+            <AdminCard>
+              <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+                {t('admin.financial.currentPoolBalance', 'Current Pool Balance')}
+              </p>
+              <p className="text-xl font-bold text-teal-600">
+                {creatorFund ? fmtCurrency(koboToNgn(creatorFund.balanceKobo)) : '—'}
+              </p>
+              {creatorFund && (
+                <ul className="mt-2 space-y-0.5 text-xs text-neutral-500">
+                  {Object.entries(creatorFund.splits).map(([activity, percent]) => (
+                    <li key={activity}>{CREATOR_FUND_ACTIVITY_LABELS[activity] ?? activity}: {percent}%</li>
+                  ))}
+                </ul>
+              )}
+              <div className="mt-3 space-y-2">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  placeholder={t('admin.financial.amountNgn', 'Amount (₦)')}
+                  value={topUpAmount}
+                  onChange={(e) => setTopUpAmount(e.target.value)}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+                />
+                <input
+                  type="text"
+                  placeholder={t('admin.financial.noteOptional', 'Note (optional)')}
+                  value={topUpNote}
+                  onChange={(e) => setTopUpNote(e.target.value)}
+                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+                />
+                <button
+                  onClick={() => topUpMutation.mutate()}
+                  disabled={topUpMutation.isPending}
+                  className="w-full rounded-lg bg-teal-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {topUpMutation.isPending ? '…' : t('admin.financial.topUp', 'Top Up')}
+                </button>
+              </div>
+            </AdminCard>
+          </section>
 
           <section>
             <AdminSectionHeader>{t('admin.financial.revenueByProvider', 'Revenue by Provider')}</AdminSectionHeader>

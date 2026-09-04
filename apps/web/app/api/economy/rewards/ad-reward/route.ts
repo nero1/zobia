@@ -24,6 +24,7 @@ import { redis } from "@/lib/redis";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 import { loadManifest } from "@/lib/manifest";
+import { contributeToCreatorFund } from "@/lib/creator/fundContribution";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -144,19 +145,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           [userId, coinsAwarded, balanceBefore, balanceAfter]
         );
 
-        // Creator Fund auto-seeding: 5% of ad revenue contributed to the weekly creator pool.
-        // Platform rate: 100 coins = 1 kobo for fund accounting purposes.
-        const creatorFundContributionKobo = Math.floor(coinsAwarded * 0.05);
-        if (creatorFundContributionKobo > 0) {
-          await client.query(
-            `INSERT INTO x_manifest (key, value, updated_at)
-             VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
-             ON CONFLICT (key) DO UPDATE
-             SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
-                 updated_at = NOW()`,
-            [creatorFundContributionKobo]
-          ).catch(() => {/* non-fatal if x_manifest table doesn't exist yet */});
-        }
+        // Creator Fund auto-seeding, contributed to the monthly creator pool
+        // (percent is admin-configurable — see lib/creator/fundContribution.ts).
+        // NOTE: preserves the pre-existing coinsAwarded-as-kobo arithmetic
+        // unchanged (the old inline comment here claimed "100 coins = 1 kobo"
+        // but the code never divided by 100) — not touched by this refactor,
+        // which is scoped to making the split percent configurable, not
+        // auditing the coin↔kobo conversion rate.
+        await contributeToCreatorFund(coinsAwarded, "ad_reward", client)
+          .catch(() => {/* non-fatal if x_manifest table doesn't exist yet */});
       });
     } catch (dbErr) {
       // DB transaction failed — release the Redis slot so the user can retry.

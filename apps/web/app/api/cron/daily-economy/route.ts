@@ -6,7 +6,7 @@ export const maxDuration = 10;
  *
  * CRON slot 5 of 7 — runs at 03:00 UTC (04:00 WAT).
  *
- *  1. Creator Fund cycle (seed on day 1, distribute on day 5)
+ *  1. Creator Fund distribution (day 5 of each month; contributions accrue live)
  *  2. Monthly plan coin bonus (1st of month only)
  *  3. Ad revenue share auto-enrolment (1st of month only)
  *  4. Weekly automated creator payouts (Fridays only)
@@ -36,27 +36,15 @@ export const GET = async (req: NextRequest) => {
   const utcDay = nowDate.getUTCDate();
   const dayOfWeek = nowDate.getUTCDay();
 
-  // 1. Creator Fund — seed on day 1, distribute on day 5
-  if (utcDay === 1) {
-    try {
-      const prevMonth = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth() - 1, 1));
-      const prevMonthKey = `ad_revenue_${prevMonth.getUTCFullYear()}_${String(prevMonth.getUTCMonth() + 1).padStart(2, '0')}_kobo`;
-      const { rows: revenueRows } = await db.query<{ value: string }>(
-        `SELECT value FROM x_manifest WHERE key = $1 LIMIT 1`, [prevMonthKey]
-      );
-      const newPoolKobo = Math.floor(parseInt(revenueRows[0]?.value ?? "0", 10) * 0.05);
-      await db.query(
-        `INSERT INTO x_manifest (key, value) VALUES ('creator_fund_balance_kobo', $1::text)
-         ON CONFLICT (key) DO UPDATE
-           SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT, updated_at = NOW()`,
-        [String(newPoolKobo)]
-      );
-      results.creatorFundSeed = { seededKobo: newPoolKobo };
-    } catch (err) {
-      errors.push(`creatorFundSeed: ${String(err)}`);
-    }
-  }
-
+  // 1. Creator Fund — distribute on day 5. Seeding is no longer a monthly
+  // batch step here: lib/creator/fundContribution.ts's contributeToCreatorFund()
+  // credits x_manifest.creator_fund_balance_kobo live, per-transaction, from
+  // every contributing activity (room subscriptions/entry fees, coin
+  // purchases, branded-room sponsorships, rewarded ads — see that file's doc
+  // comment) plus any admin manual top-up
+  // (POST /api/admin/creator-fund/topup). The day-1 step this replaced read
+  // an `ad_revenue_{year}_{month}_kobo` x_manifest key that nothing in the
+  // codebase ever wrote, so it had always contributed exactly 0.
   if (utcDay === 5) {
     try {
       const { distributeCreatorFund } = await import('@/lib/creator/fund');

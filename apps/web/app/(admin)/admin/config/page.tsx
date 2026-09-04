@@ -196,6 +196,40 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     type: "number",
     group: "Economy",
   },
+
+  // Creator Fund — per-activity revenue split (PRD §14). See
+  // lib/creator/fundContribution.ts and the "Creator Fund" admin page for
+  // the current balance + manual top-up.
+  creator_fund_split_room_subscription_percent: {
+    label: "Room Subscriptions",
+    description: "Percent of gross room-subscription revenue contributed to the Creator Fund.",
+    type: "number",
+    group: "Creator Fund",
+  },
+  creator_fund_split_room_entry_percent: {
+    label: "Room Entry Fees",
+    description: "Percent of gross room-entry-fee revenue contributed to the Creator Fund.",
+    type: "number",
+    group: "Creator Fund",
+  },
+  creator_fund_split_coin_purchase_percent: {
+    label: "Credit Pack Purchases",
+    description: "Percent of gross Credit-pack purchase revenue contributed to the Creator Fund.",
+    type: "number",
+    group: "Creator Fund",
+  },
+  creator_fund_split_sponsor_budget_percent: {
+    label: "Branded Room Sponsorships",
+    description: "Percent of branded-room sponsor budget contributed to the Creator Fund.",
+    type: "number",
+    group: "Creator Fund",
+  },
+  creator_fund_split_ad_reward_percent: {
+    label: "Rewarded Ad Payouts",
+    description: "Percent of rewarded-ad payout value contributed to the Creator Fund.",
+    type: "number",
+    group: "Creator Fund",
+  },
   payout_threshold_kobo: {
     label: "Minimum Payout (kobo)",
     description: "Minimum creator payout amount in kobo. 100 kobo = ₦1.",
@@ -681,6 +715,7 @@ const GROUP_ORDER = [
   "Floating Notifications",
   "Payments",
   "Economy",
+  "Creator Fund",
   "Fraud Detection",
   "AdMob",
   "Limits",
