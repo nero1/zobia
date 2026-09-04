@@ -66,7 +66,7 @@ function toApiEvent(row: PlatformEventRow) {
     id: row.id,
     name: row.name,
     description: row.description,
-    type: row.event_type,
+    type: row.event_type ?? "platform",
     xpMultiplier: parseFloat(row.xp_multiplier),
     coinBonusPct: row.coin_bonus_pct,
     startsAt: row.starts_at,

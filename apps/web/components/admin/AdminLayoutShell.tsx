@@ -44,6 +44,7 @@ const adminNavItems = [
   { href: "/gate44/flash-xp",           label: "Flash XP",           icon: "⚡" },
   { href: "/gate44/payouts/appeals",    label: "Payout Appeals",     icon: "⚖️" },
   { href: "/gate44/actions-log",        label: "Actions Log",        icon: "📋" },
+  { href: "/gate44/audit-logs",         label: "Audit Logs",         icon: "🧾" },
   { href: "/gate44/automated-actions",  label: "Auto Actions",       icon: "🤖" },
   { href: "/gate44/creator-spotlight",  label: "Creator Spotlight",  icon: "⭐" },
   { href: "/gate44/gifts",               label: "Gifts Catalog",      icon: "🛍️" },

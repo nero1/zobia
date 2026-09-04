@@ -175,11 +175,11 @@ function DetailDrawer({ msg, onClose }: DetailDrawerProps) {
         <div className="grid grid-cols-2 gap-3">
           <div className="rounded-lg border border-neutral-200 p-2.5 dark:border-neutral-800">
             <p className="text-xs text-neutral-500">Recipients</p>
-            <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{msg.recipientsCount.toLocaleString()}</p>
+            <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{(msg.recipientsCount ?? 0).toLocaleString()}</p>
           </div>
           <div className="rounded-lg border border-neutral-200 p-2.5 dark:border-neutral-800">
             <p className="text-xs text-neutral-500">Delivered</p>
-            <p className="text-lg font-bold text-teal-600">{msg.deliveredCount.toLocaleString()}</p>
+            <p className="text-lg font-bold text-teal-600">{(msg.deliveredCount ?? 0).toLocaleString()}</p>
           </div>
         </div>
         {msg.recipientMode === "specific" && msg.deliveries.length > 0 && (
@@ -419,8 +419,8 @@ export default function AdminMessagesPage() {
                   </div>
                   <p className="mt-0.5 line-clamp-1 text-xs text-neutral-500">{m.bodyPreview}</p>
                   <div className="mt-1.5 flex items-center gap-3 text-xs text-neutral-400">
-                    <span>{m.recipientsCount.toLocaleString()} recipients</span>
-                    <span>{m.deliveredCount.toLocaleString()} delivered</span>
+                    <span>{(m.recipientsCount ?? 0).toLocaleString()} recipients</span>
+                    <span>{(m.deliveredCount ?? 0).toLocaleString()} delivered</span>
                     <span className="ml-auto">{formatDate(m.sentAt)}</span>
                   </div>
                 </button>

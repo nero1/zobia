@@ -222,9 +222,10 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
 
     const { rows } = await db.query<{
       id: string;
-      sender_id: string;
-      sender_username: string;
-      subject: string;
+      sender_admin_id: string;
+      sender_username: string | null;
+      subject: string | null;
+      body: string;
       broadcast_type: string;
       recipient_count: number;
       delivered_count: number;
@@ -236,6 +237,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
          m.sender_admin_id,
          u.username AS sender_username,
          m.subject,
+         m.body,
          m.broadcast_type,
          m.recipient_count,
          COUNT(r.id) FILTER (WHERE r.delivered_at IS NOT NULL)::int AS delivered_count,
@@ -250,7 +252,19 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
       [limit, offset]
     );
 
-    return NextResponse.json({ items: rows, limit, offset });
+    const items = rows.map((r) => ({
+      id: r.id,
+      subject: r.subject ?? "(no subject)",
+      bodyPreview: r.body ? r.body.slice(0, 140) : "",
+      recipientMode: r.broadcast_type === "direct" ? "specific" : r.broadcast_type,
+      recipientsCount: r.recipient_count ?? 0,
+      deliveredCount: r.delivered_count ?? 0,
+      readCount: r.read_count ?? 0,
+      senderUsername: r.sender_username ?? undefined,
+      sentAt: r.created_at,
+    }));
+
+    return NextResponse.json({ items, limit, offset });
   } catch (err) {
     return handleApiError(err);
   }

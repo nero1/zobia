@@ -763,7 +763,7 @@ The 7 daily slots are staggered hourly through the night so each finishes well w
 | 02:00 | `/api/cron/daily-guilds` | Guild tier demotion/promotion, Patron badge, guild contribution alerts, guild quest reset (Mondays) |
 | 03:00 | `/api/cron/daily-economy` | Creator Fund seed (day 1) + distribute (day 5), monthly plan bonus (day 1), ad revenue enrolment (day 1), weekly payouts (Fridays), referral streak qualifying |
 | 04:00 | `/api/cron/daily-social` | Nemesis refresh (Sundays), season leaderboard snapshot (Sundays), leaderboard ripple notifications, DM sticker milestones, trust score batch recalculation, earnable sticker unlocks, creator tier progression |
-| 05:00 | `/api/cron/daily-platform` | Season transitions, gift drops, mystery XP drop, Flash XP lifecycle, annual event recurrence, moderation digest (Fridays), Master Teacher award, Alliance Wars resolution + pairing (Sundays), Telegram delivery queue, room expiry, SYS-01/SYS-02/SYS-04/WEBHOOK-RETRY/PUSH-RECEIPT |
+| 05:00 | `/api/cron/daily-platform` | Season transitions, gift drops, mystery XP drop, Flash XP lifecycle, annual event recurrence, moderation digest (Fridays), Master Teacher award, Alliance Wars resolution + pairing (Sundays), Telegram delivery queue, room expiry, SYS-01/SYS-02/SYS-04/WEBHOOK-RETRY/PUSH-RECEIPT, audit log retention pruning |
 
 No additional setup is required for these — they are already defined in `apps/web/vercel.json` and Vercel schedules them automatically on deploy.
 

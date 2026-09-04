@@ -129,12 +129,25 @@ interface DetailPanelProps {
   onImpersonate: (userId: string) => Promise<void>;
 }
 
+const ACTION_LABELS: Record<ActionType, string> = {
+  suspend: "suspend",
+  ban: "ban",
+  restore: "restore",
+  upgrade_moderator: "make a moderator",
+  downgrade_moderator: "revoke moderator status from",
+  reset_password: "force a password reset for",
+  force_2fa: "force 2FA setup for",
+  verify_account: "mark the email verified for",
+};
+
 function DetailPanel({ user, onClose, onAction, onImpersonate }: DetailPanelProps) {
   const [suspendDuration, setSuspendDuration] = useState<SuspendDuration>("24h");
   const [reason, setReason] = useState("");
   const [banType, setBanType] = useState<"temporary" | "permanent">("temporary");
   const [loading, setLoading] = useState<ActionType | null>(null);
   const [impersonating, setImpersonating] = useState(false);
+  const [confirmAction, setConfirmAction] = useState<ActionType | null>(null);
+  const [confirmImpersonate, setConfirmImpersonate] = useState(false);
 
   async function handleAction(action: ActionType) {
     setLoading(action);
@@ -143,6 +156,13 @@ function DetailPanel({ user, onClose, onAction, onImpersonate }: DetailPanelProp
     } finally {
       setLoading(null);
     }
+  }
+
+  async function handleConfirmedAction() {
+    if (!confirmAction) return;
+    const action = confirmAction;
+    setConfirmAction(null);
+    await handleAction(action);
   }
 
   return (
@@ -235,27 +255,27 @@ function DetailPanel({ user, onClose, onAction, onImpersonate }: DetailPanelProp
         <div className="grid grid-cols-2 gap-2">
           <ActionButton
             label={`Suspend ${suspendDuration}`}
-            onClick={() => handleAction("suspend")}
+            onClick={() => setConfirmAction("suspend")}
             loading={loading === "suspend"}
             disabled={!reason}
             className="bg-gold-100 text-gold-800 hover:bg-gold-200 dark:bg-gold-900 dark:text-gold-200"
           />
           <ActionButton
             label="Ban"
-            onClick={() => handleAction("ban")}
+            onClick={() => setConfirmAction("ban")}
             loading={loading === "ban"}
             disabled={!reason}
             className="bg-danger-100 text-danger-700 hover:bg-danger-200 dark:bg-danger-900 dark:text-danger-300"
           />
           <ActionButton
             label="Restore"
-            onClick={() => handleAction("restore")}
+            onClick={() => setConfirmAction("restore")}
             loading={loading === "restore"}
             className="bg-success-100 text-success-700 hover:bg-success-200 dark:bg-success-900 dark:text-success-300"
           />
           <ActionButton
             label={user.isModerator ? "Revoke Mod" : "Make Mod"}
-            onClick={() => handleAction(user.isModerator ? "downgrade_moderator" : "upgrade_moderator")}
+            onClick={() => setConfirmAction(user.isModerator ? "downgrade_moderator" : "upgrade_moderator")}
             loading={loading === "upgrade_moderator" || loading === "downgrade_moderator"}
             className="bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300"
           />
@@ -267,13 +287,13 @@ function DetailPanel({ user, onClose, onAction, onImpersonate }: DetailPanelProp
             href={`/profile/${user.id}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center justify-center rounded-lg bg-neutral-100 px-3 py-2 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
+            className="flex min-h-[44px] items-center justify-center rounded-lg bg-neutral-100 px-3 py-3 text-xs font-semibold text-neutral-700 transition-colors hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-700"
           >
             View Profile ↗
           </Link>
           <Link
             href={`/gate44/kyc?userId=${user.id}`}
-            className="flex items-center justify-center rounded-lg bg-teal-100 px-3 py-2 text-xs font-semibold text-teal-700 transition-colors hover:bg-teal-200 dark:bg-teal-900 dark:text-teal-300 dark:hover:bg-teal-800"
+            className="flex min-h-[44px] items-center justify-center rounded-lg bg-teal-100 px-3 py-3 text-xs font-semibold text-teal-700 transition-colors hover:bg-teal-200 dark:bg-teal-900 dark:text-teal-300 dark:hover:bg-teal-800"
           >
             View KYC Submissions →
           </Link>
@@ -286,16 +306,9 @@ function DetailPanel({ user, onClose, onAction, onImpersonate }: DetailPanelProp
             Logs you in as @{user.username} for up to 15 minutes. You can return to your admin session anytime.
           </p>
           <button
-            onClick={async () => {
-              setImpersonating(true);
-              try {
-                await onImpersonate(user.id);
-              } finally {
-                setImpersonating(false);
-              }
-            }}
+            onClick={() => setConfirmImpersonate(true)}
             disabled={impersonating}
-            className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-purple-600 px-3 py-2 text-xs font-semibold text-white hover:bg-purple-700 disabled:opacity-60"
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-purple-600 px-3 py-3 text-xs font-semibold text-white hover:bg-purple-700 disabled:opacity-60"
           >
             {impersonating ? "Starting…" : "🎭 Impersonate this user"}
           </button>
@@ -312,25 +325,99 @@ function DetailPanel({ user, onClose, onAction, onImpersonate }: DetailPanelProp
           <div className="grid grid-cols-1 gap-2">
             <ActionButton
               label="Reset Password"
-              onClick={() => handleAction("reset_password")}
+              onClick={() => setConfirmAction("reset_password")}
               loading={loading === "reset_password"}
               className="bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900 dark:text-orange-300"
             />
             <ActionButton
               label="Force 2FA Setup"
-              onClick={() => handleAction("force_2fa")}
+              onClick={() => setConfirmAction("force_2fa")}
               loading={loading === "force_2fa"}
               className="bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900 dark:text-indigo-300"
             />
             <ActionButton
               label="Mark Email Verified"
-              onClick={() => handleAction("verify_account")}
+              onClick={() => setConfirmAction("verify_account")}
               loading={loading === "verify_account"}
               className="bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900 dark:text-teal-300"
             />
           </div>
         </div>
       </div>
+
+      {/* Confirmation dialog — every mutating action here is significant
+          (suspend/ban/mod status/security resets), so require an explicit
+          confirm step rather than firing on the first click. */}
+      {confirmAction && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setConfirmAction(null); }}
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
+            <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-50">Confirm action</h3>
+            <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+              Are you sure you want to {ACTION_LABELS[confirmAction]} <span className="font-semibold">@{user.username}</span>?
+              {(confirmAction === "suspend" || confirmAction === "ban") && reason && (
+                <span className="mt-1 block text-xs text-neutral-400">Reason: &quot;{reason}&quot;</span>
+              )}
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmAction(null)}
+                className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => void handleConfirmedAction()}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmImpersonate && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setConfirmImpersonate(false); }}
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
+            <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-50">Confirm impersonation</h3>
+            <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+              You are about to log in as <span className="font-semibold">@{user.username}</span> for up to 15 minutes. Continue?
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setConfirmImpersonate(false)}
+                className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={async () => {
+                  setConfirmImpersonate(false);
+                  setImpersonating(true);
+                  try {
+                    await onImpersonate(user.id);
+                  } finally {
+                    setImpersonating(false);
+                  }
+                }}
+                className="rounded-xl bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700"
+              >
+                Impersonate
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </aside>
   );
 }
@@ -348,7 +435,7 @@ function ActionButton({ label, onClick, loading, disabled, className = "" }: Act
     <button
       onClick={onClick}
       disabled={disabled || loading}
-      className={`flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50 ${className}`}
+      className={`flex min-h-[44px] items-center justify-center rounded-lg px-3 py-3 text-xs font-semibold transition-colors disabled:opacity-50 ${className}`}
     >
       {loading ? (
         <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
@@ -405,7 +492,7 @@ export default function AdminUsersPage() {
     return () => clearTimeout(id);
   }, [query]);
 
-  const search = useCallback(async (cursor: string | undefined, targetIndex: number) => {
+  const search = useCallback(async (cursor: string | undefined, targetIndex: number): Promise<AdminUser[]> => {
     setLoading(true);
     setError(null);
     try {
@@ -415,7 +502,7 @@ export default function AdminUsersPage() {
       const res = await fetch(`/api/admin/users?${params}`, { credentials: "include" });
       if (res.status === 401 || res.status === 403) {
         window.location.href = "/gate44/login";
-        return;
+        return [];
       }
       if (!res.ok) throw new Error("Failed to load users");
       const data = (await res.json()) as UsersResponse;
@@ -423,8 +510,10 @@ export default function AdminUsersPage() {
       setHasMore(data.hasMore);
       setNextCursor(data.nextCursor);
       setPageIndex(targetIndex);
+      return data.users;
     } catch (e) {
       setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
+      return [];
     } finally {
       setLoading(false);
     }
@@ -465,9 +554,16 @@ export default function AdminUsersPage() {
       return;
     }
     showToast("Action applied successfully");
-    // Refresh the current page in place
-    await search(cursorHistory[pageIndex], pageIndex);
-    setSelected(null);
+    // Refresh the current page in place and keep the modal open on the same
+    // user (re-synced with the post-action row) instead of dropping back to
+    // the bare list — the admin is usually taking several actions in a row
+    // on one user (e.g. suspend, then reset password) and re-opening the
+    // modal each time was the reported friction.
+    const refreshedUsers = await search(cursorHistory[pageIndex], pageIndex);
+    setSelected((prev) => {
+      if (!prev || prev.id !== userId) return prev;
+      return refreshedUsers.find((u) => u.id === userId) ?? prev;
+    });
   }
 
   async function handleImpersonate(userId: string) {

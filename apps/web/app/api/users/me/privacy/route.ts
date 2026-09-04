@@ -17,7 +17,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { badRequest, forbidden, handleApiError } from '@/lib/api/errors';
 import { db, type SqlParam } from '@/lib/db';
-import { getAllowedPlans, isPlanEligible as userEligible } from '@/lib/plans/eligibility';
+import { getAllowedPlans, isPlanEligible as userEligible, allEligibilityOptionsExcept } from '@/lib/plans/eligibility';
 
 const VALID_SECTIONS = ['avatar', 'bio', 'rank', 'xp', 'guild', 'seasons', 'badges'];
 
@@ -33,19 +33,36 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       show_online_status?: boolean;
     };
 
-    // Fetch current user plan + prestige
-    const { rows: userRows } = await db.query<{ plan: string; prestige_count: number }>(
-      `SELECT COALESCE(plan, 'free') AS plan, COALESCE(prestige_count, 0) AS prestige_count
-       FROM users WHERE id = $1 LIMIT 1`,
+    // Fetch current user plan + prestige + role + business tier (business
+    // tier and role are additional eligibility dimensions alongside plan/
+    // prestige — see lib/plans/eligibility.ts).
+    const { rows: userRows } = await db.query<{
+      plan: string;
+      prestige_count: number;
+      is_admin: boolean;
+      is_moderator: boolean;
+      business_tier: string | null;
+    }>(
+      `SELECT COALESCE(u.plan, 'free') AS plan, COALESCE(u.prestige_count, 0) AS prestige_count,
+              COALESCE(u.is_admin, false) AS is_admin, COALESCE(u.is_moderator, false) AS is_moderator,
+              ba.tier AS business_tier
+       FROM users u
+       LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
+       WHERE u.id = $1 LIMIT 1`,
       [userId]
     );
     const user = userRows[0];
     if (!user) throw forbidden('User not found');
+    const eligibilityContext = {
+      businessTier: user.business_tier,
+      isAdmin: user.is_admin,
+      isModerator: user.is_moderator,
+    };
 
     const [lockAllowed, hideAllowed, noFrAllowed, hideableSectionsRaw, onlineStatusAllowed] = await Promise.all([
-      getAllowedPlans('privacy_can_lock_profile', ['pro', 'max', 'prestige_1']),
-      getAllowedPlans('privacy_can_hide_sections', ['plus', 'pro', 'max', 'prestige_1']),
-      getAllowedPlans('privacy_can_disable_friend_requests', ['plus', 'pro', 'max', 'prestige_1']),
+      getAllowedPlans('privacy_can_lock_profile', allEligibilityOptionsExcept(['free', 'plus'])),
+      getAllowedPlans('privacy_can_hide_sections', allEligibilityOptionsExcept(['free'])),
+      getAllowedPlans('privacy_can_disable_friend_requests', allEligibilityOptionsExcept(['free'])),
       getAllowedPlans('privacy_hideable_sections', VALID_SECTIONS),
       getAllowedPlans('privacy_can_show_online_status', ['pro', 'max', 'prestige_1']),
     ]);
@@ -53,14 +70,14 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     const updates: Record<string, SqlParam> = {};
 
     if (body.profile_private !== undefined) {
-      if (!userEligible(user.plan, user.prestige_count, lockAllowed)) {
+      if (!userEligible(user.plan, user.prestige_count, lockAllowed, eligibilityContext)) {
         throw forbidden('Your plan does not allow locking your profile');
       }
       updates.profile_private = Boolean(body.profile_private);
     }
 
     if (body.profile_hidden_sections !== undefined) {
-      if (!userEligible(user.plan, user.prestige_count, hideAllowed)) {
+      if (!userEligible(user.plan, user.prestige_count, hideAllowed, eligibilityContext)) {
         throw forbidden('Your plan does not allow hiding profile sections');
       }
       const sections = Array.isArray(body.profile_hidden_sections)
@@ -70,7 +87,7 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     if (body.disable_friend_requests !== undefined) {
-      if (!userEligible(user.plan, user.prestige_count, noFrAllowed)) {
+      if (!userEligible(user.plan, user.prestige_count, noFrAllowed, eligibilityContext)) {
         throw forbidden('Your plan does not allow disabling friend requests');
       }
       updates.disable_friend_requests = Boolean(body.disable_friend_requests);
@@ -81,7 +98,7 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     if (body.show_online_status !== undefined) {
-      if (!userEligible(user.plan, user.prestige_count, onlineStatusAllowed)) {
+      if (!userEligible(user.plan, user.prestige_count, onlineStatusAllowed, eligibilityContext)) {
         throw forbidden('Your plan does not allow showing your online status');
       }
       updates.show_online_status = Boolean(body.show_online_status);
@@ -111,29 +128,42 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const { rows } = await db.query<{
       plan: string;
       prestige_count: number;
+      is_admin: boolean;
+      is_moderator: boolean;
+      business_tier: string | null;
       profile_private: boolean;
       profile_hidden_sections: string[];
       disable_friend_requests: boolean;
       sitemap_opt_out: boolean;
       show_online_status: boolean;
     }>(
-      `SELECT COALESCE(plan, 'free') AS plan,
-              COALESCE(prestige_count, 0) AS prestige_count,
-              COALESCE(profile_private, false) AS profile_private,
-              COALESCE(profile_hidden_sections, '[]'::jsonb) AS profile_hidden_sections,
-              COALESCE(disable_friend_requests, false) AS disable_friend_requests,
-              COALESCE(sitemap_opt_out, false) AS sitemap_opt_out,
-              COALESCE(show_online_status, false) AS show_online_status
-       FROM users WHERE id = $1 LIMIT 1`,
+      `SELECT COALESCE(u.plan, 'free') AS plan,
+              COALESCE(u.prestige_count, 0) AS prestige_count,
+              COALESCE(u.is_admin, false) AS is_admin,
+              COALESCE(u.is_moderator, false) AS is_moderator,
+              ba.tier AS business_tier,
+              COALESCE(u.profile_private, false) AS profile_private,
+              COALESCE(u.profile_hidden_sections, '[]'::jsonb) AS profile_hidden_sections,
+              COALESCE(u.disable_friend_requests, false) AS disable_friend_requests,
+              COALESCE(u.sitemap_opt_out, false) AS sitemap_opt_out,
+              COALESCE(u.show_online_status, false) AS show_online_status
+       FROM users u
+       LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
+       WHERE u.id = $1 LIMIT 1`,
       [userId]
     );
     const user = rows[0];
     if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+    const eligibilityContext = {
+      businessTier: user.business_tier,
+      isAdmin: user.is_admin,
+      isModerator: user.is_moderator,
+    };
 
     const [lockAllowed, hideAllowed, noFrAllowed, hideableSections, onlineStatusAllowed] = await Promise.all([
-      getAllowedPlans('privacy_can_lock_profile', ['pro', 'max', 'prestige_1']),
-      getAllowedPlans('privacy_can_hide_sections', ['plus', 'pro', 'max', 'prestige_1']),
-      getAllowedPlans('privacy_can_disable_friend_requests', ['plus', 'pro', 'max', 'prestige_1']),
+      getAllowedPlans('privacy_can_lock_profile', allEligibilityOptionsExcept(['free', 'plus'])),
+      getAllowedPlans('privacy_can_hide_sections', allEligibilityOptionsExcept(['free'])),
+      getAllowedPlans('privacy_can_disable_friend_requests', allEligibilityOptionsExcept(['free'])),
       getAllowedPlans('privacy_hideable_sections', VALID_SECTIONS),
       getAllowedPlans('privacy_can_show_online_status', ['pro', 'max', 'prestige_1']),
     ]);
@@ -149,10 +179,10 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         show_online_status: user.show_online_status,
       },
       capabilities: {
-        canLockProfile: userEligible(user.plan, user.prestige_count, lockAllowed),
-        canHideSections: userEligible(user.plan, user.prestige_count, hideAllowed),
-        canDisableFriendRequests: userEligible(user.plan, user.prestige_count, noFrAllowed),
-        canShowOnlineStatus: userEligible(user.plan, user.prestige_count, onlineStatusAllowed),
+        canLockProfile: userEligible(user.plan, user.prestige_count, lockAllowed, eligibilityContext),
+        canHideSections: userEligible(user.plan, user.prestige_count, hideAllowed, eligibilityContext),
+        canDisableFriendRequests: userEligible(user.plan, user.prestige_count, noFrAllowed, eligibilityContext),
+        canShowOnlineStatus: userEligible(user.plan, user.prestige_count, onlineStatusAllowed, eligibilityContext),
         hideableSections,
       },
     });

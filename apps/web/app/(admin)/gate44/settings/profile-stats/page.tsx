@@ -21,10 +21,25 @@ import Link from "next/link";
 // ---------------------------------------------------------------------------
 
 const PLAN_OPTIONS = ["free", "plus", "pro", "max"] as const;
-const PRESTIGE_OPTIONS = ["prestige_1", "prestige_2", "prestige_5", "prestige_10"] as const;
+const PRESTIGE_OPTIONS = Array.from({ length: 10 }, (_, i) => `prestige_${i + 1}` as const);
+const BUSINESS_TIER_OPTIONS = ["business_starter", "business_growth", "business_enterprise"] as const;
+const ROLE_OPTIONS = ["role_admin", "role_moderator"] as const;
 
 type PlanOption = (typeof PLAN_OPTIONS)[number];
 type PrestigeOption = (typeof PRESTIGE_OPTIONS)[number];
+type BusinessTierOption = (typeof BUSINESS_TIER_OPTIONS)[number];
+type RoleOption = (typeof ROLE_OPTIONS)[number];
+type EligibilityOption = PlanOption | PrestigeOption | BusinessTierOption | RoleOption;
+
+/** "Select all except free" default — every option minus free. */
+function defaultFullPlans(): EligibilityOption[] {
+  return [
+    ...PLAN_OPTIONS.filter((p) => p !== "free"),
+    ...PRESTIGE_OPTIONS,
+    ...BUSINESS_TIER_OPTIONS,
+    ...ROLE_OPTIONS,
+  ];
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -74,7 +89,7 @@ function Chip<T extends string>({
 // ---------------------------------------------------------------------------
 
 export default function AdminProfileStatsSettingsPage() {
-  const [fullPlans, setFullPlans] = useState<(PlanOption | PrestigeOption)[]>(["plus", "pro", "max"]);
+  const [fullPlans, setFullPlans] = useState<EligibilityOption[]>(defaultFullPlans());
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -92,7 +107,7 @@ export default function AdminProfileStatsSettingsPage() {
         const data = (await res.json()) as { data?: { key: string; value: string }[] };
         const entries = data.data ?? [];
         const get = (key: string) => entries.find((e) => e.key === key)?.value;
-        setFullPlans(parseJsonList(get("profile_stats_full_plans"), ["plus", "pro", "max"]));
+        setFullPlans(parseJsonList(get("profile_stats_full_plans"), defaultFullPlans()));
       } catch { /* non-fatal */ }
       finally { setLoading(false); }
     })();
@@ -169,7 +184,7 @@ export default function AdminProfileStatsSettingsPage() {
               ))}
             </div>
           </div>
-          <div className="mb-5">
+          <div className="mb-4">
             <p className="mb-2 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Prestige Ranks</p>
             <div className="flex flex-wrap gap-2">
               {PRESTIGE_OPTIONS.map((p) => (
@@ -179,6 +194,34 @@ export default function AdminProfileStatsSettingsPage() {
                   active={fullPlans.includes(p)}
                   onToggle={(v) => setFullPlans((prev) => toggleInList(prev, v as PrestigeOption))}
                   label={p.replace("_", " ").replace(/\b\w/g, (c) => c.toUpperCase())}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="mb-4">
+            <p className="mb-2 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Business Account Tiers</p>
+            <div className="flex flex-wrap gap-2">
+              {BUSINESS_TIER_OPTIONS.map((tier) => (
+                <Chip
+                  key={tier}
+                  value={tier}
+                  active={fullPlans.includes(tier)}
+                  onToggle={(v) => setFullPlans((prev) => toggleInList(prev, v as BusinessTierOption))}
+                  label={tier.replace("business_", "").replace(/\b\w/g, (c) => c.toUpperCase())}
+                />
+              ))}
+            </div>
+          </div>
+          <div className="mb-5">
+            <p className="mb-2 text-xs font-semibold text-neutral-500 uppercase tracking-wider">Roles</p>
+            <div className="flex flex-wrap gap-2">
+              {ROLE_OPTIONS.map((role) => (
+                <Chip
+                  key={role}
+                  value={role}
+                  active={fullPlans.includes(role)}
+                  onToggle={(v) => setFullPlans((prev) => toggleInList(prev, v as RoleOption))}
+                  label={role.replace("role_", "").replace(/\b\w/g, (c) => c.toUpperCase())}
                 />
               ))}
             </div>

@@ -110,7 +110,10 @@ function ScriptForm({ initial, onSave, onCancel }: ScriptFormProps) {
             placeholder={"<script>\n  // Your script here\n</script>"}
           />
           <p className="mt-1 text-xs text-neutral-400">
-            HTML, JS, or CSS injected into the site footer server-side. Admin-only. Content is sanitised.
+            Paste the snippet exactly as your provider gave it — a full <code>&lt;script&gt;</code> tag
+            (with a <code>src</code>, inline, or both), several tags, or bare JavaScript. It's
+            normalized into a plain script automatically and served on every page. Admin-only —
+            this executes for every visitor, so only paste scripts you trust.
           </p>
         </div>
 

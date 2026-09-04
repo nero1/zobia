@@ -54,7 +54,7 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { params, a
     const cursor = url.searchParams.get("cursor");
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50"), 100);
 
-    const validStatuses = ["pending", "resolved", "dismissed", "all"];
+    const validStatuses = ["pending", "resolved", "escalated", "dismissed", "all"];
     const safeStatus = validStatuses.includes(status) ? status : "pending";
 
     const params: (string | number)[] = [limit + 1];
@@ -97,6 +97,7 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { params, a
       resolution_note: string | null;
       /** moderation_actions.id for the (unreversed) action that resolved this report, if any — needed to call the reverse endpoint. */
       action_id: string | null;
+      action_type: string | null;
     }>(
       `SELECT
          r.id,
@@ -120,13 +121,17 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { params, a
          r.resolved_by,
          resolver.username    AS resolved_by_username,
          r.resolution_note,
-         (SELECT ma.id FROM moderation_actions ma
-          WHERE ma.report_id = r.id AND ma.reversed_at IS NULL
-          ORDER BY ma.created_at DESC LIMIT 1) AS action_id
+         action.id            AS action_id,
+         action.action_type   AS action_type
        FROM moderation_reports r
        LEFT JOIN users reporter ON reporter.id = r.reporter_id
        LEFT JOIN users reported ON reported.id  = r.reported_user_id
        LEFT JOIN users resolver ON resolver.id  = r.resolved_by
+       LEFT JOIN LATERAL (
+         SELECT ma.id, ma.action_type FROM moderation_actions ma
+         WHERE ma.report_id = r.id AND ma.reversed_at IS NULL
+         ORDER BY ma.created_at DESC LIMIT 1
+       ) action ON true
        WHERE ${whereClause}
        ORDER BY severity DESC, r.ai_confidence DESC NULLS LAST, r.created_at DESC
        LIMIT $1`,
@@ -137,8 +142,39 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { params, a
     const items = hasMore ? rows.slice(0, limit) : rows;
     const nextCursor = hasMore ? items[items.length - 1]?.id ?? null : null;
 
+    const mapped = items.map((r) => {
+      const targetType = r.reported_message_id
+        ? "message"
+        : r.reported_room_id
+          ? "room"
+          : r.reported_guild_id
+            ? "guild"
+            : "user";
+      const targetId =
+        r.reported_message_id ?? r.reported_room_id ?? r.reported_guild_id ?? r.reported_user_id ?? "";
+
+      return {
+        id: r.id,
+        reporterUsername: r.reporter_username ?? "unknown",
+        targetType,
+        targetId,
+        reportType: r.report_type ?? "other",
+        description: r.description,
+        aiCategory: r.ai_category ?? "unclassified",
+        aiConfidence: r.ai_confidence != null ? Math.round(Number(r.ai_confidence) * 100) : 0,
+        aiRecommendation: r.ai_recommendation,
+        createdAt: r.created_at,
+        status: r.status as "pending" | "resolved" | "escalated",
+        resolvedBy: r.resolved_by_username ?? undefined,
+        resolvedAt: r.resolved_at ?? undefined,
+        actionTaken: r.action_type ?? undefined,
+        actionId: r.action_id ?? undefined,
+        resolutionNote: r.resolution_note ?? undefined,
+      };
+    });
+
     return NextResponse.json({
-      items,
+      items: mapped,
       pagination: {
         has_more: hasMore,
         next_cursor: nextCursor,

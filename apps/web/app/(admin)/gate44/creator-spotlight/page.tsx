@@ -41,6 +41,12 @@ interface FormData {
   blurb: string;
 }
 
+interface UserSearchResult {
+  id: string;
+  username: string;
+  avatarEmoji: string | null;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -99,6 +105,100 @@ function RowSkeleton() {
 }
 
 // ---------------------------------------------------------------------------
+// Creator search (username typeahead — mirrors UserSearchInput in
+// app/(admin)/gate44/messages/page.tsx)
+// ---------------------------------------------------------------------------
+
+interface CreatorSearchProps {
+  selected: UserSearchResult | null;
+  onSelect: (u: UserSearchResult | null) => void;
+}
+
+function CreatorSearchInput({ selected, onSelect }: CreatorSearchProps) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState<UserSearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout>>();
+
+  function handleChange(val: string) {
+    setQ(val);
+    clearTimeout(timer.current);
+    if (!val.trim()) {
+      setResults([]);
+      return;
+    }
+    timer.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const res = await fetch(
+          `/api/admin/users?q=${encodeURIComponent(val)}&limit=8`,
+          { credentials: "include" }
+        );
+        const data = (await res.json()) as { users: UserSearchResult[] };
+        setResults(data.users ?? []);
+      } catch {
+        /* ignore */
+      }
+      setSearching(false);
+    }, 300);
+  }
+
+  if (selected) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800">
+        <span>{selected.avatarEmoji ?? "👤"}</span>
+        <span className="flex-1 font-medium text-neutral-900 dark:text-neutral-100">
+          @{selected.username}
+        </span>
+        <button
+          type="button"
+          onClick={() => onSelect(null)}
+          className="text-xs text-neutral-500 hover:text-red-600"
+        >
+          Change
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative">
+      <input
+        type="text"
+        value={q}
+        onChange={(e) => handleChange(e.target.value)}
+        placeholder="Search username…"
+        className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100"
+      />
+      {searching && (
+        <span className="absolute right-3 top-2.5 h-4 w-4 animate-spin rounded-full border-2 border-blue-600 border-t-transparent" />
+      )}
+      {results.length > 0 && (
+        <div className="absolute z-10 mt-1 w-full rounded-xl border border-neutral-200 bg-white shadow-modal dark:border-neutral-700 dark:bg-neutral-800">
+          {results.map((u) => (
+            <button
+              key={u.id}
+              type="button"
+              onClick={() => {
+                onSelect(u);
+                setQ("");
+                setResults([]);
+              }}
+              className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-neutral-50 dark:hover:bg-neutral-700"
+            >
+              <span>{u.avatarEmoji ?? "👤"}</span>
+              <span className="font-medium text-neutral-900 dark:text-neutral-100">
+                @{u.username}
+              </span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Add spotlight form
 // ---------------------------------------------------------------------------
 
@@ -109,6 +209,7 @@ interface AddFormProps {
 
 function AddSpotlightForm({ onSubmit, saving }: AddFormProps) {
   const [form, setForm] = useState<FormData>(defaultForm());
+  const [creator, setCreator] = useState<UserSearchResult | null>(null);
 
   function update<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -119,6 +220,7 @@ function AddSpotlightForm({ onSubmit, saving }: AddFormProps) {
     if (!form.creatorId.trim()) return;
     await onSubmit(form);
     setForm(defaultForm());
+    setCreator(null);
   }
 
   return (
@@ -131,21 +233,20 @@ function AddSpotlightForm({ onSubmit, saving }: AddFormProps) {
       </h2>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {/* Creator ID */}
+        {/* Creator search */}
         <div className="lg:col-span-1">
           <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">
-            Creator User ID *
+            Creator *
           </label>
-          <input
-            type="text"
-            value={form.creatorId}
-            onChange={(e) => update("creatorId", e.target.value.trim())}
-            placeholder="UUID of the creator"
-            required
-            className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100"
+          <CreatorSearchInput
+            selected={creator}
+            onSelect={(u) => {
+              setCreator(u);
+              update("creatorId", u?.id ?? "");
+            }}
           />
           <p className="mt-0.5 text-xs text-neutral-400">
-            Paste the user&apos;s UUID from the Users page.
+            Search by username.
           </p>
         </div>
 
