@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
 interface Totals {
@@ -41,6 +41,8 @@ function formatNaira(kobo: string): string {
 export default function BlogStatsPage() {
   const { t } = useTranslation();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const blogParam = searchParams.get("blog");
   const [blogSlug, setBlogSlug] = useState<string | null>(null);
   const [tier, setTier] = useState<string>("basic");
   const [totals, setTotals] = useState<Totals | null>(null);
@@ -52,8 +54,10 @@ export default function BlogStatsPage() {
     (async () => {
       const meRes = await fetch("/api/blogs/me", { credentials: "include" });
       const meJson = await meRes.json().catch(() => null);
-      const blog = meJson?.data?.blog;
-      if (!blog) { router.replace("/blogs/new"); return; }
+      const blogs = meJson?.data?.blogs ?? [];
+      if (blogs.length === 0) { router.replace("/blogs/new"); return; }
+      const blog = blogs.length === 1 ? blogs[0] : blogs.find((b: { slug: string }) => b.slug === blogParam);
+      if (!blog) { router.replace("/blogs/dashboard"); return; }
       setBlogSlug(blog.slug);
 
       const res = await fetch(`/api/blogs/${blog.slug}/stats`, { credentials: "include" });
@@ -65,7 +69,7 @@ export default function BlogStatsPage() {
       setCanExport(!!data?.canExport);
       setLoading(false);
     })();
-  }, [router]);
+  }, [router, blogParam]);
 
   if (loading) return <div className="mx-auto max-w-3xl px-4 py-8 text-muted-foreground">{t("blogs.loading", "Loading…")}</div>;
 

@@ -13,11 +13,18 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { Preferences } from '@capacitor/preferences';
 import { apiClient } from '@/lib/api/client';
+import { formatShortDate } from '@/lib/format/date';
+import { BlogOwnerToolbar } from '@/components/blogs/BlogOwnerToolbar';
+import { BlogMenu } from '@/components/blogs/BlogMenu';
+import { DEFAULT_MENU_CONFIG, type BlogMenuConfig } from '@/lib/blogs/menu';
 
 interface PostDetail {
   id: string;
   title: string;
   type: string;
+  status: string;
+  /** 'about'|'privacy'|'contact' for an auto-generated default page (web migration 0023), else null. */
+  page_key?: string | null;
   body_html: string;
   is_paywalled: boolean;
   paywall_credits_cost: number;
@@ -33,7 +40,24 @@ interface PostDetailResponse {
   post: PostDetail;
   locked: boolean;
   isLiked: boolean;
-  blog: { title: string; hideAuthorInfo: boolean };
+  isAuthor: boolean;
+  blog: { slug: string; title: string; hideAuthorInfo: boolean };
+}
+
+interface BlogMenuInfo {
+  menu_config?: BlogMenuConfig;
+}
+
+async function fetchBlogMenu(slug: string): Promise<BlogMenuConfig> {
+  const { data } = await apiClient.get<{ blog: BlogMenuInfo }>(`/blogs/${slug}`);
+  return data?.blog?.menu_config ?? DEFAULT_MENU_CONFIG;
+}
+
+interface TreasuryState {
+  status: string;
+  maxClaimants: number;
+  claimantCount: number;
+  rewardPerClaimant: number;
 }
 
 interface CommentRow {
@@ -42,6 +66,8 @@ interface CommentRow {
   status: string;
   author_username: string | null;
   author_display_name: string | null;
+  /** Rewarded Gifts (web migration 0024) — active vip_badge gift purchase for this blog. */
+  author_is_vip?: boolean;
 }
 
 const VIEWED_KEY = 'zobia_blog_viewed';
@@ -62,6 +88,8 @@ function PostViewPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [commentText, setCommentText] = useState('');
+  const [contactMessage, setContactMessage] = useState('');
+  const [contactSent, setContactSent] = useState(false);
 
   // apiClient's response interceptor already unwraps the { success, data, error }
   // envelope down to `data`, so `.data` below IS the PostDetailResponse/comments
@@ -75,6 +103,23 @@ function PostViewPage() {
     queryKey: ['blogs', 'comments', slug, postSlug],
     queryFn: async () => (await apiClient.get<{ comments: CommentRow[] }>(`/blogs/${slug}/posts/${postSlug}/comments`)).data?.comments ?? [],
     enabled: postQuery.data?.post.type === 'article',
+  });
+
+  const treasuryQuery = useQuery({
+    queryKey: ['blogs', 'treasury', slug, postSlug],
+    queryFn: async () => (await apiClient.get<{ treasury: TreasuryState | null }>(`/blogs/${slug}/posts/${postSlug}/treasury`)).data?.treasury ?? null,
+    enabled: postQuery.data?.post.type === 'article',
+  });
+
+  const menuQuery = useQuery({ queryKey: ['blogs', 'menu', slug], queryFn: () => fetchBlogMenu(slug), staleTime: 60_000 });
+
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const share = useMutation({
+    mutationFn: () => apiClient.post<{ rewardClaimed: number | null }>(`/blogs/${slug}/posts/${postSlug}/share`, {}),
+    onSuccess: (res) => {
+      if (res.data?.rewardClaimed) setShareNotice(t('blogs.post.shareRewardClaimed', 'You earned {{amount}} credits for sharing!', { amount: res.data.rewardClaimed }));
+      qc.invalidateQueries({ queryKey: ['blogs', 'treasury', slug, postSlug] });
+    },
   });
 
   useEffect(() => {
@@ -91,6 +136,15 @@ function PostViewPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['blogs', 'post', slug, postSlug] }),
   });
 
+  // No CAPTCHA widget on Android yet (deferred — see web's ContactForm.tsx for
+  // the reCAPTCHA/Turnstile pattern to port). If the sitewide captcha toggle
+  // is on, an anonymous submission from Android is rejected server-side with
+  // CAPTCHA_FAILED; logged-in senders are unaffected either way.
+  const submitContact = useMutation({
+    mutationFn: () => apiClient.post(`/blogs/${slug}/contact`, { message: contactMessage.trim() }),
+    onSuccess: () => { setContactSent(true); setContactMessage(''); },
+  });
+
   const postComment = useMutation({
     mutationFn: () => apiClient.post(`/blogs/${slug}/posts/${postSlug}/comments`, { body: commentText.trim() }),
     onSuccess: () => {
@@ -104,15 +158,25 @@ function PostViewPage() {
   if (postQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
   if (!data) return <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center text-sm text-neutral-500">{t('blogs.notFound', 'Post not found.')}</div>;
 
-  const { post, locked, isLiked, blog } = data;
+  const { post, locked, isLiked, isAuthor, blog } = data;
   const isArticle = post.type === 'article';
+  const isDraft = post.status !== 'published';
+  const isContactPage = post.page_key === 'contact';
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
+      {isAuthor && <BlogOwnerToolbar blogSlug={slug} isDraft={isDraft} />}
+      {menuQuery.data && <BlogMenu blogSlug={slug} menuConfig={menuQuery.data} />}
+
       <div className="rounded-xl border border-neutral-200 bg-white p-4">
         <h1 className="text-lg font-bold text-neutral-900">{post.title}</h1>
         {isArticle && post.published_at && (
-          <p className="text-xs text-neutral-400 mt-1">{new Date(post.published_at).toLocaleDateString()}</p>
+          <p className="text-xs text-neutral-400 mt-1">{formatShortDate(post.published_at)}</p>
+        )}
+        {isArticle && treasuryQuery.data && treasuryQuery.data.status === 'active' && treasuryQuery.data.claimantCount < treasuryQuery.data.maxClaimants && (
+          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            🎁 {t('blogs.post.rewardPotBadge', 'Reward pot: {{amount}} credits each for the next {{slots}} people who comment or share!', { amount: treasuryQuery.data.rewardPerClaimant, slots: treasuryQuery.data.maxClaimants - treasuryQuery.data.claimantCount })}
+          </div>
         )}
         {isArticle && !blog.hideAuthorInfo && (
           <p className="text-xs text-neutral-500 mt-2">
@@ -120,8 +184,31 @@ function PostViewPage() {
           </p>
         )}
 
-        {/* Server-sanitized HTML — safe to render (sanitize-html allow-list applied server-side). */}
-        <div className="prose prose-sm mt-3" dangerouslySetInnerHTML={{ __html: post.body_html }} />
+        {isContactPage ? (
+          contactSent ? (
+            <p className="mt-3 text-sm text-neutral-700">{t('blogs.contact.sent', 'Your message has been sent. Thanks for reaching out!')}</p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              <textarea
+                value={contactMessage}
+                onChange={(e) => setContactMessage(e.target.value.slice(0, 4000))}
+                rows={4}
+                placeholder={t('blogs.contact.messagePlaceholder', 'What would you like to say?')}
+                className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+              />
+              <button
+                onClick={() => submitContact.mutate()}
+                disabled={!contactMessage.trim() || submitContact.isPending}
+                className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {submitContact.isPending ? t('blogs.contact.sending', 'Sending…') : t('blogs.contact.send', 'Send message')}
+              </button>
+            </div>
+          )
+        ) : (
+          // Server-sanitized HTML — safe to render (sanitize-html allow-list applied server-side).
+          <div className="prose prose-sm mt-3" dangerouslySetInnerHTML={{ __html: post.body_html }} />
+        )}
 
         {locked && (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
@@ -148,9 +235,18 @@ function PostViewPage() {
               <span>{isLiked ? '❤️' : '🤍'}</span>
               <span>{post.like_count}</span>
             </button>
+            <button
+              onClick={() => share.mutate()}
+              disabled={share.isPending}
+              className="flex items-center gap-1 rounded-lg border border-neutral-200 px-3 py-1.5 text-sm"
+            >
+              <span>🔗</span>
+              <span>{t('blogs.post.share', 'Share')}</span>
+            </button>
             <span className="text-xs text-neutral-400">👁 {post.view_count} views</span>
           </div>
         )}
+        {shareNotice && <p className="mt-2 text-xs text-amber-600">{shareNotice}</p>}
       </div>
 
       {isArticle && (
@@ -176,7 +272,14 @@ function PostViewPage() {
           <div className="mt-3 space-y-2">
             {(commentsQuery.data ?? []).map((c) => (
               <div key={c.id} className="rounded-lg border border-neutral-100 bg-neutral-50 p-2.5">
-                <p className="text-xs font-semibold text-neutral-700">{c.author_display_name ?? `@${c.author_username}`}</p>
+                <p className="text-xs font-semibold text-neutral-700 flex items-center gap-1.5">
+                  {c.author_display_name ?? `@${c.author_username}`}
+                  {c.author_is_vip && (
+                    <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
+                      {t('blogs.gifts.vipBadge', 'VIP')}
+                    </span>
+                  )}
+                </p>
                 <p className="text-sm text-neutral-800 mt-0.5">{c.body}</p>
               </div>
             ))}

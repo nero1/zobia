@@ -9,8 +9,9 @@
  */
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { DEFAULT_MENU_CONFIG, type BlogMenuConfig, type BlogMenuItem } from "@/lib/blogs/menu";
 
 interface BlogRow {
   id: string;
@@ -22,6 +23,7 @@ interface BlogRow {
   show_subscriber_count: boolean;
   avatar_url: string | null;
   cover_image_url: string | null;
+  menu_config?: BlogMenuConfig;
 }
 
 interface CategoryRow {
@@ -35,8 +37,11 @@ interface ThemeItem {
   id: string;
   name: string;
   description: string | null;
-  coins_cost: number | null;
-  owned: boolean;
+  layout_variant: string;
+  credits_cost: number | null;
+  stars_cost: number | null;
+  availability: "free_default" | "plan_included" | "owned" | "purchasable" | "locked";
+  isActive: boolean;
 }
 
 function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
@@ -51,33 +56,41 @@ function ToggleRow({ label, checked, onChange }: { label: string; checked: boole
 export default function BlogSettingsPage() {
   const { t } = useTranslation();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const blogParam = searchParams.get("blog");
   const [blog, setBlog] = useState<BlogRow | null>(null);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [newCategory, setNewCategory] = useState("");
   const [themes, setThemes] = useState<ThemeItem[]>([]);
   const [saving, setSaving] = useState(false);
+  const [menuConfig, setMenuConfig] = useState<BlogMenuConfig>(DEFAULT_MENU_CONFIG);
+  const [newItemLabel, setNewItemLabel] = useState("");
+  const [newItemUrl, setNewItemUrl] = useState("");
 
   useEffect(() => {
     (async () => {
       const meRes = await fetch("/api/blogs/me", { credentials: "include" });
       const meJson = await meRes.json().catch(() => null);
-      const b = meJson?.data?.blog;
-      if (!b) { router.replace("/blogs/new"); return; }
+      const blogs: BlogRow[] = meJson?.data?.blogs ?? [];
+      if (blogs.length === 0) { router.replace("/blogs/new"); return; }
+      const b = blogs.length === 1 ? blogs[0] : blogs.find((x) => x.slug === blogParam);
+      if (!b) { router.replace("/blogs/dashboard"); return; }
       setBlog(b);
+      setMenuConfig(b.menu_config ?? DEFAULT_MENU_CONFIG);
 
       const catRes = await fetch(`/api/blogs/${b.slug}/categories`, { credentials: "include" });
       const catJson = await catRes.json().catch(() => null);
       setCategories(catJson?.data?.categories ?? []);
 
-      const themeRes = await fetch("/api/economy/cosmetics", { credentials: "include" });
+      const themeRes = await fetch(`/api/blogs/${b.slug}/themes`, { credentials: "include" });
       const themeJson = await themeRes.json().catch(() => null);
-      setThemes((themeJson?.cosmetics ?? []).filter((c: { cosmetic_type: string }) => c.cosmetic_type === "blog_theme"));
+      setThemes(themeJson?.data?.themes ?? []);
     })();
-  }, [router]);
+  }, [router, blogParam]);
 
-  async function saveSetting(patch: Partial<BlogRow>) {
+  async function saveSetting(patch: Partial<BlogRow> | { menuConfig: BlogMenuConfig }) {
     if (!blog) return;
-    setBlog({ ...blog, ...patch });
+    setBlog({ ...blog, ...("menuConfig" in patch ? { menu_config: patch.menuConfig } : patch) });
     setSaving(true);
     try {
       await fetch(`/api/blogs/${blog.slug}`, {
@@ -107,25 +120,53 @@ export default function BlogSettingsPage() {
     }
   }
 
-  async function buyOrEquipTheme(itemId: string, owned: boolean) {
-    if (owned) {
-      await fetch("/api/economy/cosmetics/equip", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId }),
-      });
-    } else {
-      await fetch("/api/economy/cosmetics/purchase", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId, currency: "coins" }),
-      }).then(async (res) => {
-        if (res.ok) {
-          setThemes((prev) => prev.map((th) => (th.id === itemId ? { ...th, owned: true } : th)));
-        }
-      });
+  async function saveMenuConfig(next: BlogMenuConfig) {
+    setMenuConfig(next);
+    await saveSetting({ menuConfig: next });
+  }
+
+  function addMenuItem() {
+    if (!newItemLabel.trim()) return;
+    const item: BlogMenuItem = {
+      id: `item-${Date.now()}`,
+      label: newItemLabel.trim(),
+      type: "url",
+      externalUrl: newItemUrl.trim() || "/",
+    };
+    void saveMenuConfig({ ...menuConfig, items: [...menuConfig.items, item] });
+    setNewItemLabel("");
+    setNewItemUrl("");
+  }
+
+  function removeMenuItem(id: string) {
+    void saveMenuConfig({ ...menuConfig, items: menuConfig.items.filter((it) => it.id !== id) });
+  }
+
+  function moveMenuItem(id: string, direction: -1 | 1) {
+    const items = [...menuConfig.items];
+    const idx = items.findIndex((it) => it.id === id);
+    const swapWith = idx + direction;
+    if (idx < 0 || swapWith < 0 || swapWith >= items.length) return;
+    [items[idx], items[swapWith]] = [items[swapWith], items[idx]];
+    void saveMenuConfig({ ...menuConfig, items });
+  }
+
+  function setOrientation(orientation: BlogMenuConfig["orientation"]) {
+    void saveMenuConfig({ ...menuConfig, orientation });
+  }
+
+  async function equipOrBuyTheme(themeId: string, currency?: "credits" | "stars") {
+    if (!blog) return;
+    const res = await fetch(`/api/blogs/${blog.slug}/themes/equip`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(currency ? { themeId, currency } : { themeId }),
+    });
+    if (res.ok) {
+      const themeRes = await fetch(`/api/blogs/${blog.slug}/themes`, { credentials: "include" });
+      const themeJson = await themeRes.json().catch(() => null);
+      setThemes(themeJson?.data?.themes ?? []);
     }
   }
 
@@ -138,7 +179,12 @@ export default function BlogSettingsPage() {
       <div className="space-y-2">
         <ToggleRow label={t("blogs.settings.commentsEnabled", "Allow comments")} checked={blog.comments_enabled} onChange={(v) => saveSetting({ comments_enabled: v })} />
         {blog.comments_enabled && (
-          <ToggleRow label={t("blogs.settings.commentsModeration", "Moderate comments before they're visible")} checked={blog.comments_moderation_enabled} onChange={(v) => saveSetting({ comments_moderation_enabled: v })} />
+          <div>
+            <ToggleRow label={t("blogs.settings.commentsModeration", "Moderate comments before they're visible")} checked={blog.comments_moderation_enabled} onChange={(v) => saveSetting({ comments_moderation_enabled: v })} />
+            <p className="mt-1.5 px-1 text-xs text-muted-foreground">
+              {t("blogs.settings.commentsModerationHint", "When enabled, new comments won't appear publicly until you approve them in Comments.")}
+            </p>
+          </div>
         )}
         <ToggleRow label={t("blogs.settings.hideAuthorInfo", "Hide author info box on articles")} checked={blog.hide_author_info} onChange={(v) => saveSetting({ hide_author_info: v })} />
         <ToggleRow label={t("blogs.settings.showSubscriberCount", "Show subscriber count publicly")} checked={blog.show_subscriber_count} onChange={(v) => saveSetting({ show_subscriber_count: v })} />
@@ -164,20 +210,96 @@ export default function BlogSettingsPage() {
         </div>
       </div>
 
+      <div>
+        <h2 className="text-sm font-semibold text-foreground mb-2">{t("blogs.settings.menuTitle", "Navigation menu")}</h2>
+        <p className="mb-2 text-xs text-muted-foreground">
+          {t("blogs.settings.menuHint", "Shown to every visitor on your blog. On desktop web this respects the orientation below; on Android and mobile web/PWA it's always a vertical menu inside the hamburger icon.")}
+        </p>
+
+        <div className="mb-3 flex gap-1 rounded-xl border border-border bg-neutral-900/50 p-1 w-fit">
+          {(["horizontal", "vertical"] as const).map((o) => (
+            <button
+              key={o}
+              onClick={() => setOrientation(o)}
+              className={`rounded-lg px-4 py-1.5 text-sm font-semibold capitalize transition-colors ${menuConfig.orientation === o ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {o === "horizontal" ? t("blogs.settings.menuHorizontal", "Horizontal (desktop)") : t("blogs.settings.menuVertical", "Vertical (desktop)")}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-1.5 mb-3">
+          {menuConfig.items.map((item, i) => (
+            <div key={item.id} className="flex items-center gap-2 rounded-xl border border-border bg-card p-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-foreground truncate">{item.label}</div>
+                <div className="text-xs text-muted-foreground truncate">
+                  {item.type === "url" ? item.externalUrl : `${item.type}: ${item.targetId ?? "—"}`}
+                </div>
+              </div>
+              <button onClick={() => moveMenuItem(item.id, -1)} disabled={i === 0} className="rounded-lg bg-neutral-800 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-700 disabled:opacity-30">↑</button>
+              <button onClick={() => moveMenuItem(item.id, 1)} disabled={i === menuConfig.items.length - 1} className="rounded-lg bg-neutral-800 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-700 disabled:opacity-30">↓</button>
+              <button onClick={() => removeMenuItem(item.id)} className="rounded-lg bg-red-950/40 px-2 py-1 text-xs text-red-400 hover:bg-red-950/70">{t("blogs.settings.menuRemove", "Remove")}</button>
+            </div>
+          ))}
+          {menuConfig.items.length === 0 && <p className="text-xs text-muted-foreground">{t("blogs.settings.menuEmpty", "No menu items yet.")}</p>}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={newItemLabel}
+            onChange={(e) => setNewItemLabel(e.target.value)}
+            placeholder={t("blogs.settings.menuLabelPlaceholder", "Label (e.g. About)")}
+            className="flex-1 min-w-[140px] rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+          />
+          <input
+            value={newItemUrl}
+            onChange={(e) => setNewItemUrl(e.target.value)}
+            placeholder={t("blogs.settings.menuUrlPlaceholder", "Link (e.g. /about-page-post-slug or https://…)")}
+            className="flex-1 min-w-[180px] rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+          />
+          <button onClick={addMenuItem} className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90">
+            {t("blogs.settings.menuAdd", "Add")}
+          </button>
+        </div>
+      </div>
+
       {themes.length > 0 && (
         <div>
           <h2 className="text-sm font-semibold text-foreground mb-2">{t("blogs.settings.themes", "Blog Themes")}</h2>
+          <p className="mb-2 text-xs text-muted-foreground">
+            {t("blogs.settings.themesHint", "Themes change the structural layout of your blog, not just its colors.")}
+          </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {themes.map((th) => (
-              <div key={th.id} className="rounded-xl border border-border bg-card p-3">
-                <div className="font-medium text-foreground text-sm">{th.name}</div>
+              <div key={th.id} className={`rounded-xl border p-3 ${th.isActive ? "border-primary bg-primary/5" : "border-border bg-card"}`}>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-foreground text-sm">{th.name}</span>
+                  {th.isActive && <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{t("blogs.settings.themeActive", "Active")}</span>}
+                </div>
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{th.layout_variant}</span>
                 <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{th.description}</p>
-                <button
-                  onClick={() => buyOrEquipTheme(th.id, th.owned)}
-                  className="mt-2 w-full rounded-lg bg-neutral-800 px-2 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700"
-                >
-                  {th.owned ? t("blogs.settings.applyTheme", "Apply") : t("blogs.settings.buyTheme", "Buy for {{cost}} credits", { cost: th.coins_cost })}
-                </button>
+
+                {th.isActive ? null : th.availability === "free_default" || th.availability === "plan_included" || th.availability === "owned" ? (
+                  <button onClick={() => equipOrBuyTheme(th.id)} className="mt-2 w-full rounded-lg bg-neutral-800 px-2 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700">
+                    {t("blogs.settings.applyTheme", "Use this theme")}
+                  </button>
+                ) : th.availability === "purchasable" ? (
+                  <div className="mt-2 space-y-1">
+                    {!!th.credits_cost && (
+                      <button onClick={() => equipOrBuyTheme(th.id, "credits")} className="w-full rounded-lg bg-amber-950/40 px-2 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-950/70">
+                        {t("blogs.settings.buyThemeCredits", "Buy for {{cost}} credits", { cost: th.credits_cost })}
+                      </button>
+                    )}
+                    {!!th.stars_cost && (
+                      <button onClick={() => equipOrBuyTheme(th.id, "stars")} className="w-full rounded-lg bg-amber-950/40 px-2 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-950/70">
+                        {t("blogs.settings.buyThemeStars", "Buy for {{cost}} stars", { cost: th.stars_cost })}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">{t("blogs.settings.themeLocked", "Upgrade your plan to unlock")}</p>
+                )}
               </div>
             ))}
           </div>

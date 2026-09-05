@@ -32,7 +32,11 @@ export type StarTransactionType =
   | "cosmetic_purchase"
   | "game_reward"
   | "game_play_cost"
-  | "moment_created";
+  | "moment_created"
+  | "blog_extra_slot"
+  | "blog_theme_purchase"
+  | "blog_gift_purchase"
+  | "blog_gift_earnings";
 
 // ---------------------------------------------------------------------------
 // Internal helpers

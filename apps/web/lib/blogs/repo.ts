@@ -6,7 +6,8 @@
  */
 
 import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db/interface";
+import type { SqlParam, TransactionClient } from "@/lib/db/interface";
+import type { BlogMenuConfig } from "@/lib/blogs/menu";
 
 export interface BlogSummaryRow {
   id: string;
@@ -156,6 +157,7 @@ export interface BlogRow {
   avatar_url: string | null;
   cover_image_url: string | null;
   theme_store_item_id: string | null;
+  active_theme_id: string;
   comments_enabled: boolean;
   comments_moderation_enabled: boolean;
   hide_author_info: boolean;
@@ -164,6 +166,12 @@ export interface BlogRow {
   status_reason: string | null;
   subscriber_count: number;
   post_count: number;
+  business_account_id: string | null;
+  slot_source: string;
+  slot_unlock_currency: string | null;
+  slot_unlock_cost: number | null;
+  slot_unlock_reference_id: string | null;
+  menu_config: BlogMenuConfig;
   created_at: string;
   owner_username: string | null;
   owner_display_name: string | null;
@@ -180,14 +188,49 @@ export async function getBlogBySlug(slug: string): Promise<BlogRow | null> {
   return rows[0] ?? null;
 }
 
-export async function getBlogByOwner(ownerId: string): Promise<BlogRow | null> {
+/**
+ * All blogs owned by a user — personal (business_account_id IS NULL) and,
+ * since owner_id on a business blog is the business account's owner user,
+ * business blogs too. This is the single query behind GET /api/blogs/me:
+ * "my blogs across personal + business scopes" needs nothing more than
+ * filtering this list by `business_account_id`.
+ */
+export async function getBlogsByOwner(ownerId: string): Promise<BlogRow[]> {
   const { rows } = await db.query<BlogRow>(
     `SELECT b.*, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url
      FROM blogs b JOIN users u ON u.id = b.owner_id
-     WHERE b.owner_id = $1 AND b.deleted_at IS NULL LIMIT 1`,
+     WHERE b.owner_id = $1 AND b.deleted_at IS NULL
+     ORDER BY b.created_at ASC`,
     [ownerId]
   );
-  return rows[0] ?? null;
+  return rows;
+}
+
+/** Blogs belonging to a specific business account (business-scope blogs only). */
+export async function getBlogsByBusinessAccount(businessAccountId: string): Promise<BlogRow[]> {
+  const { rows } = await db.query<BlogRow>(
+    `SELECT b.*, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url
+     FROM blogs b JOIN users u ON u.id = b.owner_id
+     WHERE b.business_account_id = $1 AND b.deleted_at IS NULL
+     ORDER BY b.created_at ASC`,
+    [businessAccountId]
+  );
+  return rows;
+}
+
+/** Active (non-deactivated, non-deleted) blog count for a scope — used by quota checks. Pass a TransactionClient to read under a row lock. */
+export async function countActiveBlogsForScope(
+  scope: { ownerId: string; businessAccountId: string | null },
+  tx?: TransactionClient
+): Promise<number> {
+  const client = tx ?? db;
+  const { rows } = await client.query<{ count: string }>(
+    scope.businessAccountId
+      ? `SELECT COUNT(*)::text AS count FROM blogs WHERE business_account_id = $1 AND deleted_at IS NULL AND status != 'deactivated'`
+      : `SELECT COUNT(*)::text AS count FROM blogs WHERE owner_id = $1 AND business_account_id IS NULL AND deleted_at IS NULL AND status != 'deactivated'`,
+    [scope.businessAccountId ?? scope.ownerId]
+  );
+  return parseInt(rows[0]?.count ?? "0", 10);
 }
 
 export interface BlogPostSummaryRow {
@@ -197,6 +240,8 @@ export interface BlogPostSummaryRow {
   type: string;
   title: string;
   slug: string;
+  /** 'about'|'privacy'|'contact' for an auto-generated default page (migration 0023), else null. */
+  page_key: string | null;
   excerpt: string | null;
   featured_image_url: string | null;
   status: string;
@@ -247,7 +292,7 @@ export async function listBlogPosts(
 
   params.push(opts.limit + 1);
   const { rows } = await db.query<BlogPostSummaryRow>(
-    `SELECT p.id, p.blog_id, p.category_id, p.type, p.title, p.slug, p.excerpt, p.featured_image_url,
+    `SELECT p.id, p.blog_id, p.category_id, p.type, p.title, p.slug, p.page_key, p.excerpt, p.featured_image_url,
             p.status, p.is_paywalled, p.paywall_credits_cost, p.word_count, p.view_count, p.like_count,
             p.comment_count, p.sort_order, p.published_at, p.created_at,
             c.name AS category_name
@@ -325,14 +370,22 @@ export interface BlogCommentRow {
   author_username: string | null;
   author_display_name: string | null;
   author_avatar_url: string | null;
+  /** True when the commenter holds an active vip_badge gift purchase for this post's blog. */
+  author_is_vip: boolean;
 }
 
 export async function listBlogComments(postId: string, includeStatuses: string[]): Promise<BlogCommentRow[]> {
   const { rows } = await db.query<BlogCommentRow>(
     `SELECT c.id, c.post_id, c.author_id, c.parent_comment_id, c.body, c.status, c.created_at,
-            u.username AS author_username, u.display_name AS author_display_name, u.avatar_url AS author_avatar_url
+            u.username AS author_username, u.display_name AS author_display_name, u.avatar_url AS author_avatar_url,
+            EXISTS (
+              SELECT 1 FROM blog_gift_purchases gp
+              WHERE gp.blog_id = p.blog_id AND gp.buyer_id = c.author_id
+                AND gp.benefit_type = 'vip_badge' AND gp.status = 'active'
+            ) AS author_is_vip
      FROM blog_post_comments c
      JOIN users u ON u.id = c.author_id
+     JOIN blog_posts p ON p.id = c.post_id
      WHERE c.post_id = $1 AND c.deleted_at IS NULL AND c.status = ANY($2::text[])
      ORDER BY c.created_at ASC`,
     [postId, includeStatuses]
@@ -419,4 +472,115 @@ export async function getBlogDailyStats(blogId: string, days: number): Promise<B
     [blogId, days]
   );
   return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Rewarded Gifts (migration 0024) — read queries. Writes/purchase flow live
+// in lib/blogs/service.ts.
+// ---------------------------------------------------------------------------
+
+export interface BlogGiftTierRow {
+  id: string;
+  blog_id: string;
+  name: string;
+  description: string | null;
+  credits_price: number | null;
+  stars_price: number | null;
+  benefit_type: "vip_badge" | "vip_section_access" | "custom_reward";
+  benefit_config: Record<string, unknown>;
+  max_redemptions: number | null;
+  redemption_count: number;
+  expires_at: string | null;
+  enabled: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+const GIFT_TIER_SELECT = `
+  SELECT id, blog_id, name, description, credits_price, stars_price, benefit_type,
+         benefit_config, max_redemptions, redemption_count, expires_at, enabled, created_at, updated_at
+  FROM blog_gift_tiers
+`;
+
+/** All tiers for a blog (owner dashboard view — includes disabled/expired). */
+export async function listGiftTiersForOwner(blogId: string): Promise<BlogGiftTierRow[]> {
+  const { rows } = await db.query<BlogGiftTierRow>(`${GIFT_TIER_SELECT} WHERE blog_id = $1 ORDER BY created_at ASC`, [blogId]);
+  return rows;
+}
+
+/** Public, purchasable tiers for a blog's page (enabled, not expired, not sold out). */
+export async function listPublicGiftTiers(blogId: string): Promise<BlogGiftTierRow[]> {
+  const { rows } = await db.query<BlogGiftTierRow>(
+    `${GIFT_TIER_SELECT}
+     WHERE blog_id = $1 AND enabled = true
+       AND (expires_at IS NULL OR expires_at > NOW())
+       AND (max_redemptions IS NULL OR redemption_count < max_redemptions)
+     ORDER BY created_at ASC`,
+    [blogId]
+  );
+  return rows;
+}
+
+export async function getGiftTierById(tierId: string): Promise<BlogGiftTierRow | null> {
+  const { rows } = await db.query<BlogGiftTierRow>(`${GIFT_TIER_SELECT} WHERE id = $1 LIMIT 1`, [tierId]);
+  return rows[0] ?? null;
+}
+
+export interface BlogGiftPurchaseRow {
+  id: string;
+  tier_id: string;
+  blog_id: string;
+  buyer_id: string;
+  currency: "credits" | "stars";
+  amount_paid: number;
+  benefit_type: string;
+  status: string;
+  created_at: string;
+  tier_name: string;
+  buyer_username: string | null;
+}
+
+/** Purchases for a blog's tiers (owner dashboard — redemption feed). */
+export async function listGiftPurchasesForBlog(blogId: string, limit = 100): Promise<BlogGiftPurchaseRow[]> {
+  const { rows } = await db.query<BlogGiftPurchaseRow>(
+    `SELECT p.id, p.tier_id, p.blog_id, p.buyer_id, p.currency, p.amount_paid, p.benefit_type, p.status, p.created_at,
+            t.name AS tier_name, u.username AS buyer_username
+     FROM blog_gift_purchases p
+     JOIN blog_gift_tiers t ON t.id = p.tier_id
+     JOIN users u ON u.id = p.buyer_id
+     WHERE p.blog_id = $1
+     ORDER BY p.created_at DESC LIMIT $2`,
+    [blogId, limit]
+  );
+  return rows;
+}
+
+export interface AdminGiftTierRow extends BlogGiftTierRow {
+  blog_slug: string;
+  blog_title: string;
+  owner_username: string | null;
+}
+
+/** All gift tiers across every blog, for the gate44 admin screen. */
+export async function adminListAllGiftTiers(limit = 200): Promise<AdminGiftTierRow[]> {
+  const { rows } = await db.query<AdminGiftTierRow>(
+    `SELECT t.id, t.blog_id, t.name, t.description, t.credits_price, t.stars_price, t.benefit_type,
+            t.benefit_config, t.max_redemptions, t.redemption_count, t.expires_at, t.enabled, t.created_at, t.updated_at,
+            b.slug AS blog_slug, b.title AS blog_title, u.username AS owner_username
+     FROM blog_gift_tiers t
+     JOIN blogs b ON b.id = t.blog_id
+     JOIN users u ON u.id = b.owner_id
+     ORDER BY t.created_at DESC LIMIT $1`,
+    [limit]
+  );
+  return rows;
+}
+
+/** A buyer's own purchase of a given tier, if any (used to gate the text-unlock reveal). */
+export async function getGiftPurchaseForBuyer(tierId: string, buyerId: string): Promise<{ id: string } | null> {
+  const { rows } = await db.query<{ id: string }>(
+    `SELECT id FROM blog_gift_purchases WHERE tier_id = $1 AND buyer_id = $2 AND status = 'active' ORDER BY created_at DESC LIMIT 1`,
+    [tierId, buyerId]
+  );
+  return rows[0] ?? null;
 }

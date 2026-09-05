@@ -15,10 +15,12 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { getBusinessPageLimit } from "@/lib/business/limits";
+import { getIncludedBusinessBlogCount } from "@/lib/blogs/limits";
 
 export interface BusinessDowngradeSweepResult {
   accountsDowngraded: number;
   pagesDeactivated: number;
+  blogsDeactivated: number;
   questsStopped: number;
 }
 
@@ -31,7 +33,7 @@ interface DueDowngradeRow {
 }
 
 export async function sweepBusinessDowngrades(): Promise<BusinessDowngradeSweepResult> {
-  const result: BusinessDowngradeSweepResult = { accountsDowngraded: 0, pagesDeactivated: 0, questsStopped: 0 };
+  const result: BusinessDowngradeSweepResult = { accountsDowngraded: 0, pagesDeactivated: 0, blogsDeactivated: 0, questsStopped: 0 };
 
   const { rows: due } = await db.query<DueDowngradeRow>(
     `SELECT id, user_id, business_name, tier, downgrade_to_tier
@@ -59,6 +61,27 @@ export async function sweepBusinessDowngrades(): Promise<BusinessDowngradeSweepR
         [newTier, account.id, limit]
       );
       result.pagesDeactivated += deactivated ?? 0;
+
+      // Same treatment for the business account's blogs (migration 0018):
+      // keep the oldest `blogLimit` active blogs, deactivate the rest. Blogs
+      // that were individually paid-unlocked (slot_source = 'purchased')
+      // are deactivated the same as included ones — the grace-period
+      // mechanics don't refund extra-slot purchases, matching how excess
+      // business_pages above are handled without a refund either.
+      const blogLimit = await getIncludedBusinessBlogCount(newTier);
+      const { rowCount: blogsDeactivated } = await db.query(
+        `UPDATE blogs
+         SET status = 'deactivated', status_reason = 'Business account downgraded to ' || $1 || ' tier', updated_at = NOW()
+         WHERE business_account_id = $2 AND deleted_at IS NULL AND status = 'active'
+           AND id NOT IN (
+             SELECT id FROM blogs
+             WHERE business_account_id = $2 AND deleted_at IS NULL AND status = 'active'
+             ORDER BY created_at ASC
+             LIMIT $3
+           )`,
+        [newTier, account.id, blogLimit]
+      );
+      result.blogsDeactivated += blogsDeactivated ?? 0;
 
       // Stop all running sponsored quests — "running adverts stop".
       const { rowCount: stopped } = await db.query(

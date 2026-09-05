@@ -14,9 +14,21 @@ import { resolvePublicBlog } from "@/lib/public/resolveBlog";
 import { resolvePublicBlogPost } from "@/lib/public/resolveBlogPost";
 import { NOT_FOUND_METADATA } from "@/lib/public/roomMetadata";
 import { generateArticleSchema } from "@/lib/seo/metadata";
+import { formatShortDate } from "@/lib/format/date";
+import { getPostTreasury } from "@/lib/blogs/service";
 import { PostBody } from "@/components/blogs/PostBody";
 import { PostActions } from "@/components/blogs/PostActions";
 import { CommentsSection } from "@/components/blogs/CommentsSection";
+import { ContactForm } from "@/components/blogs/ContactForm";
+import { BlogNavBar } from "@/components/blogs/BlogNavBar";
+import { getOptionalServerUser } from "@/lib/auth/serverUser";
+import { getTheme, resolveLayout } from "@/lib/blogs/themes";
+import { listBlogCategories } from "@/lib/blogs/repo";
+import { listPopularBlogPosts } from "@/lib/public/resolveBlogPost";
+import { BlogPostLayout } from "@/components/blogs/layouts/BlogPostLayout";
+import { db } from "@/lib/db";
+
+const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string; postSlug: string }> }): Promise<Metadata> {
   const { slug, postSlug } = await params;
@@ -27,33 +39,68 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
   const title = `${post.title} — ${resolved.blog.title}`;
   const description = post.excerpt ?? `Read "${post.title}" on ${resolved.blog.title}.`;
+  const image = post.featured_image_url || resolved.blog.cover_image_url || DEFAULT_OG_IMAGE;
+  const ogType = post.type === "page" ? "website" : "article";
 
   return {
     title,
     description,
-    openGraph: { title, description, images: post.featured_image_url ? [{ url: post.featured_image_url }] : [], type: "article" },
-    twitter: { card: "summary_large_image", title, description, images: post.featured_image_url ? [post.featured_image_url] : [] },
+    openGraph: { title, description, images: [{ url: image }], type: ogType, siteName: "Zobia Social" },
+    twitter: { card: "summary_large_image", title, description, images: [image] },
     alternates: { canonical: `/b/${slug}/${postSlug}` },
   };
 }
 
-export default async function PublicBlogPostPage({ params }: { params: Promise<{ slug: string; postSlug: string }> }) {
+export default async function PublicBlogPostPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string; postSlug: string }>;
+  searchParams: Promise<{ preview?: string }>;
+}) {
   const { slug, postSlug } = await params;
+  const { preview } = await searchParams;
   const resolved = await resolvePublicBlog(slug).catch(() => null);
   if (!resolved) notFound();
-  const post = await resolvePublicBlogPost(resolved.blog.id, postSlug).catch(() => null);
+  const { blog } = resolved;
+
+  const viewer = await getOptionalServerUser();
+  const showOwnerToolbar = !!viewer && (viewer.userId === blog.owner_id || viewer.isAdmin || viewer.isModerator);
+  // ?preview=1 lets the owner/staff view a draft post as it would appear
+  // published — gated server-side, never trusted from the query string
+  // alone (a regular visitor requesting ?preview=1 on someone else's blog
+  // still gets the normal published-only lookup, i.e. a 404 for a draft).
+  const wantsPreview = preview === "1" && showOwnerToolbar;
+
+  const post = await resolvePublicBlogPost(blog.id, postSlug, { allowUnpublished: wantsPreview }).catch(() => null);
   if (!post) notFound();
 
-  const { blog } = resolved;
   const isPage = post.type === "page";
+  const isContactPage = post.page_key === "contact";
+  const isDraft = post.status !== "published";
+  const treasury = !isPage ? await getPostTreasury(post.id).catch(() => null) : null;
+  const treasuryActive = treasury && treasury.status === "active" && treasury.claimantCount < treasury.maxClaimants;
+
+  const theme = await getTheme(blog.active_theme_id).catch(() => null);
+  const layoutVariant = theme ? resolveLayout(theme) : "classic";
+  const [sidebarCategories, sidebarPopular] = layoutVariant === "sidebar-left"
+    ? await Promise.all([listBlogCategories(blog.id), listPopularBlogPosts(blog.id, 5)])
+    : [[], []];
+
+  let contactViewer: { username: string } | null = null;
+  if (isContactPage && viewer) {
+    const { rows } = await db.query<{ username: string }>(`SELECT username FROM users WHERE id = $1 LIMIT 1`, [viewer.userId]);
+    contactViewer = rows[0] ? { username: rows[0].username } : null;
+  }
 
   const schema = !isPage
     ? generateArticleSchema({
         title: post.title,
         description: post.excerpt ?? post.title,
         url: `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/b/${slug}/${postSlug}`,
-        image: post.featured_image_url ?? undefined,
+        image: post.featured_image_url ?? blog.cover_image_url ?? undefined,
         datePublished: post.published_at ?? new Date().toISOString(),
+        dateModified: post.updated_at ?? post.published_at ?? new Date().toISOString(),
         authorName: post.author_display_name ?? post.author_username ?? undefined,
       })
     : null;
@@ -64,7 +111,20 @@ export default async function PublicBlogPostPage({ params }: { params: Promise<{
         // eslint-disable-next-line react/no-danger
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: schema }} />
       )}
-      <div className="mx-auto max-w-2xl px-4 py-8">
+      <div className={`mx-auto px-4 py-8 ${layoutVariant === "sidebar-left" ? "max-w-5xl" : "max-w-2xl"}`}>
+        <BlogNavBar
+          blogSlug={blog.slug}
+          menuConfig={blog.menu_config}
+          showOwnerToolbar={showOwnerToolbar}
+          previewHref={isDraft ? `/b/${blog.slug}/${post.slug}${wantsPreview ? "" : "?preview=1"}` : null}
+          previewActive={wantsPreview}
+        />
+        {isDraft && wantsPreview && (
+          <div className="mb-4 rounded-lg border border-dashed border-amber-500/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-400">
+            This post is a draft — you&apos;re previewing it as it will appear once published. Visitors can&apos;t see it yet.
+          </div>
+        )}
+        <BlogPostLayout blogSlug={blog.slug} layoutVariant={layoutVariant} tokens={theme?.config ?? { bg: "", card: "", accent: "", text: "", muted: "" }} featuredImageUrl={post.featured_image_url} categories={sidebarCategories} popular={sidebarPopular}>
         <Link href={`/b/${blog.slug}`} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
           ← {blog.title}
         </Link>
@@ -78,8 +138,17 @@ export default async function PublicBlogPostPage({ params }: { params: Promise<{
 
         {!isPage && (
           <div className="mt-2 flex items-center gap-3 text-sm text-muted-foreground">
-            {post.published_at && <span>{new Date(post.published_at).toLocaleDateString()}</span>}
+            {post.published_at && <span>{formatShortDate(post.published_at)}</span>}
             {post.category_name && <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-xs">{post.category_name}</span>}
+          </div>
+        )}
+
+        {treasuryActive && treasury && (
+          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-300">
+            {/* This page renders server-side without an i18n context (see the
+               rest of this file's hardcoded English strings) — kept consistent
+               rather than introducing a one-off server-i18n path. */}
+            🎁 Reward pot: {treasury.rewardPerClaimant} credits each for the next {treasury.maxClaimants - treasury.claimantCount} people who comment or share!
           </div>
         )}
 
@@ -99,13 +168,17 @@ export default async function PublicBlogPostPage({ params }: { params: Promise<{
         )}
 
         <div className="mt-6">
-          <PostBody
-            blogSlug={blog.slug}
-            postSlug={post.slug}
-            serverHtml={post.body_html}
-            isPaywalled={post.is_paywalled}
-            paywallCreditsCost={post.paywall_credits_cost}
-          />
+          {isContactPage ? (
+            <ContactForm blogSlug={blog.slug} viewer={contactViewer} />
+          ) : (
+            <PostBody
+              blogSlug={blog.slug}
+              postSlug={post.slug}
+              serverHtml={post.body_html}
+              isPaywalled={post.is_paywalled}
+              paywallCreditsCost={post.paywall_credits_cost}
+            />
+          )}
         </div>
 
         {!isPage && (
@@ -117,6 +190,7 @@ export default async function PublicBlogPostPage({ params }: { params: Promise<{
             <CommentsSection blogSlug={blog.slug} postSlug={post.slug} commentsEnabled={blog.comments_enabled} />
           </>
         )}
+        </BlogPostLayout>
       </div>
     </main>
   );

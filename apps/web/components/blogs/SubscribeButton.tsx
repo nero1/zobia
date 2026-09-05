@@ -122,16 +122,28 @@ export function SubscribeButton({ blogSlug, showCount, initialCount }: { blogSlu
   }
 
   return (
-    <button
-      type="button"
-      onClick={toggle}
-      disabled={subscribed === null || busy}
-      className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
-        subscribed ? "border border-border bg-card text-foreground hover:bg-accent" : "bg-primary text-primary-foreground hover:opacity-90"
-      }`}
-    >
-      {subscribed ? t("blogs.subscribed", "Subscribed ✓") : t("blogs.subscribe", "Subscribe")}
-      {showCount && <span className="ml-1.5 opacity-70">· {count}</span>}
-    </button>
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={toggle}
+        disabled={subscribed === null || busy}
+        className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-50 ${
+          subscribed ? "border border-border bg-card text-foreground hover:bg-accent" : "bg-primary text-primary-foreground hover:opacity-90"
+        }`}
+      >
+        {subscribed ? t("blogs.subscribed", "Subscribed ✓") : t("blogs.subscribe", "Subscribe")}
+        {showCount && <span className="ml-1.5 opacity-70">· {count}</span>}
+      </button>
+      {subscribed && (
+        <button
+          type="button"
+          onClick={toggle}
+          disabled={busy}
+          className="text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground disabled:opacity-50"
+        >
+          {t("blogs.unsubscribe", "Unsubscribe")}
+        </button>
+      )}
+    </div>
   );
 }

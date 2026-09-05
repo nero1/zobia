@@ -12,6 +12,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { TreasuryPanel } from "@/components/blogs/TreasuryPanel";
+import { ArticleQuotaNotice } from "@/components/blogs/ArticleQuotaNotice";
 
 export interface BlogCategoryOption {
   id: string;
@@ -23,6 +25,7 @@ export interface PostEditorInitial {
   title: string;
   excerpt: string;
   bodyMarkdown: string;
+  contentFormat: "markdown" | "plaintext";
   featuredImageUrl: string;
   categoryId: string;
   isPaywalled: boolean;
@@ -35,6 +38,7 @@ const EMPTY: PostEditorInitial = {
   title: "",
   excerpt: "",
   bodyMarkdown: "",
+  contentFormat: "markdown",
   featuredImageUrl: "",
   categoryId: "",
   isPaywalled: false,
@@ -51,11 +55,14 @@ export function PostEditor({
   postSlug,
   initial,
   initialType,
+  pageKey,
 }: {
   blogSlug: string;
   postSlug?: string;
   initial?: Partial<PostEditorInitial>;
   initialType?: "article" | "page";
+  /** Set when this post is one of the three auto-generated default pages (About/Privacy/Contact — migration 0023); shows a "Reset to default" action. */
+  pageKey?: "about" | "privacy" | "contact" | null;
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -63,7 +70,26 @@ export function PostEditor({
   const [categories, setCategories] = useState<BlogCategoryOption[]>([]);
   const [maxWords, setMaxWords] = useState<number>(1000);
   const [busy, setBusy] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleResetToDefault() {
+    if (!postSlug || !confirm(t("blogs.editor.confirmReset", "Reset this page back to its default template? Your edits will be lost."))) return;
+    setResetting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/blogs/${blogSlug}/posts/${postSlug}/reset-default`, { method: "POST", credentials: "include" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error?.message ?? "Failed to reset");
+      }
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset");
+    } finally {
+      setResetting(false);
+    }
+  }
 
   useEffect(() => {
     fetch(`/api/blogs/${blogSlug}/categories`, { credentials: "include" })
@@ -81,6 +107,7 @@ export function PostEditor({
         title: form.title,
         excerpt: form.excerpt || undefined,
         bodyMarkdown: form.bodyMarkdown,
+        contentFormat: form.contentFormat,
         featuredImageUrl: form.featuredImageUrl || undefined,
         categoryId: form.categoryId || undefined,
         isPaywalled: form.type === "article" ? form.isPaywalled : false,
@@ -95,7 +122,7 @@ export function PostEditor({
         setMaxWords(json?.error?.params?.maxWords ?? maxWords);
         throw new Error(json?.error?.message ?? "Failed to save");
       }
-      router.push("/blogs/dashboard");
+      router.push(`/blogs/dashboard?blog=${encodeURIComponent(blogSlug)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
@@ -111,6 +138,24 @@ export function PostEditor({
       <h1 className="text-2xl font-bold text-foreground mb-4">
         {postSlug ? t("blogs.editor.editTitle", "Edit {{type}}", { type: form.type }) : t("blogs.editor.newTitle", "New {{type}}", { type: form.type })}
       </h1>
+
+      {!postSlug && <ArticleQuotaNotice blogSlug={blogSlug} />}
+
+      {pageKey && (
+        <div className="mb-4 flex items-center justify-between rounded-xl border border-dashed border-border bg-card px-4 py-2.5">
+          <p className="text-xs text-muted-foreground">
+            {t("blogs.editor.defaultPageNotice", "This is an auto-generated default page. You can edit it freely, or restore the original text.")}
+          </p>
+          <button
+            type="button"
+            onClick={handleResetToDefault}
+            disabled={resetting}
+            className="ml-3 shrink-0 rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-neutral-200 hover:bg-neutral-700 disabled:opacity-50"
+          >
+            {resetting ? t("blogs.editor.resetting", "Resetting…") : t("blogs.editor.resetToDefault", "Reset to default")}
+          </button>
+        </div>
+      )}
 
       <div className="space-y-4">
         <input
@@ -150,10 +195,29 @@ export function PostEditor({
         )}
 
         <div>
+          <div className="mb-2 flex items-center justify-between">
+            <div className="flex gap-1 rounded-lg border border-border bg-neutral-900/50 p-0.5 w-fit">
+              {(["markdown", "plaintext"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setForm((f) => ({ ...f, contentFormat: mode }))}
+                  className={`rounded-md px-3 py-1 text-xs font-semibold transition-colors ${form.contentFormat === mode ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+                >
+                  {mode === "markdown" ? t("blogs.editor.modeMarkdown", "Markdown") : t("blogs.editor.modePlainText", "Plain text")}
+                </button>
+              ))}
+            </div>
+            <span className="text-[11px] text-muted-foreground">
+              {form.contentFormat === "markdown"
+                ? t("blogs.editor.modeMarkdownHint", "Use #, *, > etc. for formatting.")
+                : t("blogs.editor.modePlainTextHint", "Blank lines start a new paragraph.")}
+            </span>
+          </div>
           <textarea
             value={form.bodyMarkdown}
             onChange={(e) => setForm((f) => ({ ...f, bodyMarkdown: e.target.value }))}
-            placeholder={t("blogs.editor.bodyPlaceholder", "Write in Markdown…")}
+            placeholder={form.contentFormat === "markdown" ? t("blogs.editor.bodyPlaceholder", "Write in Markdown…") : t("blogs.editor.bodyPlaceholderPlainText", "Write in plain text — leave a blank line between paragraphs…")}
             rows={16}
             className={`w-full rounded-xl border bg-card px-4 py-3 text-sm text-foreground font-mono focus:outline-none focus:ring-1 ${overLimit ? "border-red-500 focus:ring-red-500" : "border-border focus:border-primary focus:ring-primary"}`}
           />
@@ -193,6 +257,8 @@ export function PostEditor({
             </p>
           </div>
         )}
+
+        {form.type === "article" && postSlug && <TreasuryPanel blogSlug={blogSlug} postSlug={postSlug} />}
 
         {error && <p className="text-sm text-red-500">{error}</p>}
 

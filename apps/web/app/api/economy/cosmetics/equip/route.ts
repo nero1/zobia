@@ -12,6 +12,15 @@ export const dynamic = 'force-dynamic';
  * When a profile_frame is activated, users.active_cosmetic_frame_id is updated.
  * When a title is activated, users.active_cosmetic_title is set to the item name.
  *
+ * NOTE (migration 0022): the 'blog_theme' branch below is legacy — it still
+ * writes blogs.theme_store_item_id (by owner_id, which is also stale now
+ * that a user can own several blogs — see lib/blogs/service.ts), but
+ * rendering no longer reads that column. The current theme catalog/equip
+ * flow is lib/blogs/themes.ts + POST /api/blogs/[slug]/themes/equip, which
+ * writes blogs.active_theme_id per-blog. This branch is left in place only
+ * so an old client hitting this endpoint with a blog_theme item doesn't
+ * hard-error; it's a no-op as far as the current theme engine is concerned.
+ *
  * Auth: required (withAuth).
  */
 

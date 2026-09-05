@@ -5,7 +5,13 @@ export const dynamic = "force-dynamic";
  *
  * GET  /api/blogs  — cursor-paginated blog discovery list
  *   ?tab=popular|trending|new|random&cursor=&limit=&q=
- * POST /api/blogs  — create the caller's blog (one per user)
+ * POST /api/blogs  — create a blog for the caller. Personal by default;
+ *   pass `businessAccountId` to create it under a business account the
+ *   caller owns instead (additive slot quota — see lib/blogs/limits.ts).
+ *   A blog beyond the scope's included quota requires a one-time Credits/
+ *   Stars unlock, charged automatically using `paymentCurrency` (or the
+ *   first admin-accepted currency if omitted) — see createBlog's
+ *   CreateBlogResult.slotSource in the response to tell which happened.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -27,6 +33,10 @@ const createBlogSchema = z.object({
   title: z.string().trim().min(2, "Title must be at least 2 characters").max(100),
   tagline: z.string().trim().max(160).optional().nullable(),
   description: z.string().trim().max(2000).optional().nullable(),
+  /** Create as a blog under this business account (must be owned by the caller) instead of a personal blog. */
+  businessAccountId: z.string().uuid().optional(),
+  /** Currency to pay with if this blog is beyond the scope's included quota. Defaults to the first admin-accepted currency. */
+  paymentCurrency: z.enum(["credits", "stars"]).optional(),
 });
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
@@ -44,7 +54,14 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.blogWrite);
     const body = await validateBody(req, createBlogSchema);
-    const result = await createBlog({ userId: auth.user.sub, title: body.title, tagline: body.tagline, description: body.description });
+    const result = await createBlog({
+      userId: auth.user.sub,
+      title: body.title,
+      tagline: body.tagline,
+      description: body.description,
+      businessAccountId: body.businessAccountId,
+      paymentCurrency: body.paymentCurrency,
+    });
     return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

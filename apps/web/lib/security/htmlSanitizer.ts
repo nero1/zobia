@@ -63,6 +63,36 @@ export function sanitizeBlogPostHtml(markdown: string): string {
   return sanitizeHtmlLib(html, BLOG_SANITIZE_OPTIONS);
 }
 
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/**
+ * Plain text → sanitized HTML for blog article/page bodies written in
+ * "plain text" mode (contentFormat = 'plaintext'). Blank-line-separated
+ * blocks become `<p>` paragraphs; single newlines within a block become
+ * `<br>` so the reader's line breaks are preserved (plain text collapses
+ * whitespace/newlines by default in HTML, which is the bug this fixes).
+ * The text is escaped first, so this is inert with respect to injected
+ * markup — sanitizeHtml is still applied for defense in depth.
+ */
+export function plainTextToBlogPostHtml(text: string): string {
+  const blocks = text
+    .replace(/\r\n/g, '\n')
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  const html = blocks
+    .map((block) => `<p>${escapeHtml(block).replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return sanitizeHtmlLib(html, BLOG_SANITIZE_OPTIONS);
+}
+
 export function sanitizeAnnouncementContent(content: string, contentType: string): string {
   if (contentType === 'html') {
     return sanitizeHtml(content);

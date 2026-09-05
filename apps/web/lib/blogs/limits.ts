@@ -9,6 +9,8 @@
 
 import { getManifestValue } from "@/lib/manifest";
 import type { Plan } from "@zobia/types";
+import type { BusinessTier } from "@/lib/business/limits";
+import { normalizeBusinessTier } from "@/lib/business/limits";
 
 /** Max articles + pages combined, per plan. */
 const DEFAULT_MAX_POSTS: Record<Plan, number> = {
@@ -110,4 +112,100 @@ export const BLOG_PLAN_DEFAULTS = {
   maxWords: DEFAULT_MAX_WORDS,
   revSharePct: DEFAULT_REV_SHARE_PCT,
   economy: DEFAULT_ECONOMY,
+};
+
+// ---------------------------------------------------------------------------
+// Multi-blog quotas (migration 0018) — how many blogs a personal account or
+// business account may hold before an extra one requires a paid unlock.
+// ---------------------------------------------------------------------------
+
+/** Blogs included free per personal plan. Free-plan is gated by creator level — see getIncludedPersonalBlogCount. */
+const DEFAULT_INCLUDED_PERSONAL: Record<Plan, number> = {
+  free: 1,
+  plus: 2,
+  pro: 5,
+  max: 10,
+};
+
+/** Blogs included per business tier — additive to the owner's personal quota. */
+const DEFAULT_INCLUDED_BUSINESS: Record<BusinessTier, number> = {
+  starter: 5,
+  growth: 20,
+  enterprise: 50,
+};
+
+export type BlogSlotCurrency = "credits" | "stars";
+
+export interface BlogExtraSlotCost {
+  credits: number;
+  stars: number;
+  /** Which of the above the caller may actually pay with, admin-configurable. */
+  acceptedCurrencies: BlogSlotCurrency[];
+}
+
+function parseAcceptedCurrencies(raw: string | null, fallback: BlogSlotCurrency[]): BlogSlotCurrency[] {
+  if (!raw) return fallback;
+  const parsed = raw
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s): s is BlogSlotCurrency => s === "credits" || s === "stars");
+  return parsed.length > 0 ? parsed : fallback;
+}
+
+/** Creator/reputation level (users.level_creator) a Free-plan user must reach to get any blog included free. */
+export async function getBlogCreatorLevelThreshold(): Promise<number> {
+  const raw = await getManifestValue("blog_creator_level_threshold");
+  const parsed = raw != null ? parseInt(raw, 10) : NaN;
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  return 2;
+}
+
+/**
+ * Blogs included free for a personal account, given its plan and the owner's
+ * creator level. Paid plans (plus/pro/max) always qualify regardless of
+ * level; the Free plan needs `creatorLevel >= blog_creator_level_threshold`
+ * to get its included blog(s) — below that, every blog (including the
+ * first) must be paid-unlocked.
+ */
+export async function getIncludedPersonalBlogCount(plan: string, creatorLevel: number): Promise<number> {
+  const key = normalizePlan(plan);
+  if (key === "free") {
+    const threshold = await getBlogCreatorLevelThreshold();
+    if (creatorLevel < threshold) return 0;
+  }
+  const raw = await getManifestValue(`blog_included_${key}`);
+  const parsed = raw != null ? parseInt(raw, 10) : NaN;
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  return DEFAULT_INCLUDED_PERSONAL[key];
+}
+
+/** Blogs included for a business account at the given tier — additive to the owner's personal quota. */
+export async function getIncludedBusinessBlogCount(tier: string): Promise<number> {
+  const key = normalizeBusinessTier(tier);
+  const raw = await getManifestValue(`blog_business_included_${key}`);
+  const parsed = raw != null ? parseInt(raw, 10) : NaN;
+  if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  return DEFAULT_INCLUDED_BUSINESS[key];
+}
+
+/** One-time cost (and accepted currencies) to unlock an extra blog slot beyond the included quota. */
+export async function getExtraBlogSlotCost(scope: "personal" | "business"): Promise<BlogExtraSlotCost> {
+  const prefix = scope === "business" ? "blog_business_extra_slot" : "blog_extra_slot";
+  const [creditsRaw, starsRaw, currenciesRaw] = await Promise.all([
+    getManifestValue(`${prefix}_cost_credits`),
+    getManifestValue(`${prefix}_cost_stars`),
+    getManifestValue(`${prefix}_currencies`),
+  ]);
+  const credits = creditsRaw != null ? parseInt(creditsRaw, 10) : NaN;
+  const stars = starsRaw != null ? parseInt(starsRaw, 10) : NaN;
+  return {
+    credits: Number.isFinite(credits) && credits >= 0 ? credits : 500,
+    stars: Number.isFinite(stars) && stars >= 0 ? stars : 3,
+    acceptedCurrencies: parseAcceptedCurrencies(currenciesRaw, ["credits", "stars"]),
+  };
+}
+
+export const BLOG_SLOT_DEFAULTS = {
+  includedPersonal: DEFAULT_INCLUDED_PERSONAL,
+  includedBusiness: DEFAULT_INCLUDED_BUSINESS,
 };

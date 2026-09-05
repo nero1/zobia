@@ -708,6 +708,22 @@ are required.
 - **Cron:** add the hourly `/api/cron/games` job (see CRON Setup) so stale challenges
   expire and wagers refund.
 
+### CAPTCHA provider selection
+
+Setting `RECAPTCHA_SITE_KEY`/`RECAPTCHA_SECRET_KEY` or the Turnstile
+equivalents only makes a provider *available* — which one (if any) is
+actually active is the `captcha_provider` key in `x_manifest`
+(`recaptcha` | `turnstile` | `none`, admin-editable at `/gate44/config`;
+defaults to `none` until an admin turns it on). `lib/security/captcha.ts`
+is the single verification helper every CAPTCHA-gated flow calls, each
+passing its own `expectedAction` string (e.g. password reset uses
+`password_reset`; the blog Contact page's public form, §32.11 of the PRD,
+uses `blog_contact`, required only for a logged-out sender) so a token
+solved for one form can't be replayed against another. There's nothing
+blog-specific to configure: set the site/secret keys above and pick a
+provider in `/gate44/config` once, and every CAPTCHA-gated flow —
+including new ones — picks it up automatically.
+
 ### Why reCAPTCHA applies to Google sign-in but not Telegram
 
 The "Continue with Google" button calls your own API endpoint (`/api/auth/google`) before redirecting to Google. This endpoint is publicly reachable and needs reCAPTCHA/Turnstile protection to prevent automated abuse.

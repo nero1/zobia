@@ -16,6 +16,19 @@ import { getBlogBySlug, listBlogCategories } from "@/lib/blogs/repo";
 import { updateBlogSettings } from "@/lib/blogs/service";
 import { db } from "@/lib/db";
 
+const menuItemSchema = z.object({
+  id: z.string().min(1).max(60),
+  label: z.string().trim().min(1).max(60),
+  type: z.enum(["url", "post", "page", "category"]),
+  targetId: z.string().max(200).optional().nullable(),
+  externalUrl: z.string().max(500).optional().nullable(),
+});
+
+const menuConfigSchema = z.object({
+  orientation: z.enum(["horizontal", "vertical"]),
+  items: z.array(menuItemSchema).max(20),
+});
+
 const updateSchema = z.object({
   title: z.string().trim().min(2).max(100).optional(),
   tagline: z.string().trim().max(160).optional().nullable(),
@@ -26,6 +39,7 @@ const updateSchema = z.object({
   commentsModerationEnabled: z.boolean().optional(),
   hideAuthorInfo: z.boolean().optional(),
   showSubscriberCount: z.boolean().optional(),
+  menuConfig: menuConfigSchema.optional(),
 });
 
 export const GET = withAuth<{ slug: string }>(async (_req: NextRequest, { params, auth }) => {

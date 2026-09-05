@@ -63,6 +63,10 @@ export interface ZobiaManifest {
     /** Old-school BB-style forum (boards/threads at /forum, /f/<slug>) — separate from the Answers Q&A feature above. */
     bbforum: boolean;
     blogs: boolean;
+    /** Rewarded Gifts on blogs (tiers, purchases, VIP badges/unlocks) — requires `blogs` and `blogMonetization` too. */
+    blogGifts: boolean;
+    /** Master kill-switch for ALL blog monetization (paywall unlocks, post/blog treasuries, gifts). */
+    blogMonetization: boolean;
     kyc: boolean;
     adsSystem: boolean;
     nativeAds: boolean;
@@ -309,6 +313,8 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     forum: true,
     bbforum: true,
     blogs: true,
+    blogGifts: true,
+    blogMonetization: true,
     kyc: true,
     adsSystem: true,
     nativeAds: true,
@@ -575,6 +581,8 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       forum:                      parseBool(kv["feature_forum"]                     ?? "true",  DEFAULT_MANIFEST.features.forum),
       bbforum:                    parseBool(kv["feature_bbforum"]                   ?? "true",  DEFAULT_MANIFEST.features.bbforum),
       blogs:                      parseBool(kv["feature_blogs"]                     ?? "true",  DEFAULT_MANIFEST.features.blogs),
+      blogGifts:                  parseBool(kv["feature_blog_gifts"]                ?? "true",  DEFAULT_MANIFEST.features.blogGifts),
+      blogMonetization:           parseBool(kv["blog_monetization_enabled"]         ?? "true",  DEFAULT_MANIFEST.features.blogMonetization),
       kyc:                        parseBool(kv["feature_kyc"]                       ?? "true",  DEFAULT_MANIFEST.features.kyc),
       adsSystem:                  parseBool(kv["feature_ads_system"]                ?? "true",  DEFAULT_MANIFEST.features.adsSystem),
       nativeAds:                  parseBool(kv["feature_native_ads"]                ?? "true",  DEFAULT_MANIFEST.features.nativeAds),

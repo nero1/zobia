@@ -243,9 +243,10 @@ Tier boundaries are re-evaluated by the daily CRON (step 28). Creator Fund distr
 ### Blogs (PRD §32)
 
 A mini blog/CMS system reusing the platform's existing economy, XP, plans,
-moderation and admin infrastructure (same pattern as Answers, §31). Every
-user may create one blog (`blogs` table, one row per owner) with a public,
-SEO-crawlable home page at `/b/<slug>` and articles/pages at
+moderation and admin infrastructure (same pattern as Answers, §31). A blog
+is no longer strictly one-per-user (see **Multi-blog quotas** below) —
+each blog gets a public, SEO-crawlable home page at `/b/<slug>` and
+articles/pages at
 `/b/<slug>/<postSlug>` — see `app/b/[slug]/page.tsx`,
 `app/b/[slug]/[postSlug]/page.tsx`, `lib/public/resolveBlog.ts`,
 `lib/public/resolveBlogPost.ts`. `/blogs` (discovery, mirrors Games) and
@@ -274,9 +275,75 @@ business logic lives in `lib/blogs/repo.ts` + `lib/blogs/service.ts` +
   applying provider-fee/VAT/plan-revenue-share rates from
   `lib/blogs/limits.ts` (all admin-configurable in `x_manifest`; default
   revenue share by plan: Free 40%, Plus 50%, Pro 60%, Max 70%).
-- **Themes:** three purchasable themes reuse the existing cosmetics store
-  (`store_items.cosmetic_type = 'blog_theme'`,
-  `GET/POST /api/economy/cosmetics(+/equip)`) — no new purchase flow.
+- **Themes (theme picker):** `/gate44/blogs/themes` lets an admin edit the
+  live theme catalog (`lib/blogs/themes.ts` + the `blog_themes` table) —
+  each theme is a structurally different page layout (single-column
+  "Classic", a card grid "Minimal Cards", a hero-plus-grid "Editorial"
+  magazine layout, or a "Noir Sidebar" left-rail layout), not just a color
+  swap. Classic and Minimal Cards are free for everyone; Editorial is
+  included on Pro/Max (personal) and Growth/Enterprise (business) plans,
+  otherwise a 500-Credit purchase; Noir Sidebar is included on Max/
+  Enterprise only, otherwise 800 Credits; Botanical is always an
+  1,200-Credit purchase. A blog owner picks/buys a theme from their
+  dashboard settings, per-blog (two blogs owned by the same person can run
+  different themes). To reset a blog's look, an owner just re-applies
+  "Classic" from the theme picker — there's no separate reset control. The
+  older cosmetics-store theme purchase flow (`store_items.cosmetic_type =
+  'blog_theme'`) still exists in the economy for historical purchases but
+  no longer controls what actually renders.
+- **Multi-blog quotas:** how many blogs a user can have is no longer
+  fixed at one. A personal account's included-blogs count depends on
+  plan (and, on the Free plan, on Creator level — Free below Creator
+  Level 2 gets zero included blogs; Free at/above Level 2 gets 1; Plus
+  gets 2; Pro gets 5; Max gets 10). A Business Account gets its own,
+  additive quota by tier (Starter 5, Growth 20, Enterprise 50). Once a
+  user is past their included count, creating one more blog charges a
+  one-time unlock fee (default 500 Credits or 3 Stars, admin-configurable
+  in `/gate44/config`) before the new blog is created — support staff can
+  tell a user why a blog creation attempt asked for payment by checking
+  which of these two thresholds they're past. If a Business Account
+  downgrades to a lower tier, any blogs beyond the new tier's included
+  count are deactivated (not deleted) after the same grace period used
+  for Business Pages — the newest blogs go first, oldest are kept, and
+  any slot that was individually paid for is not refunded.
+- **Navigation menu builder:** every blog has an owner-editable menu shown
+  on its public pages (dashboard → Settings → Navigation menu). An owner
+  can add/reorder/remove items pointing at a URL, one of their own posts
+  or pages, or a category. On desktop web the owner can choose a
+  horizontal bar or a vertical list; on Android and mobile web it's always
+  a vertical list inside the hamburger icon, regardless of that setting.
+  Every blog starts with the same default menu (Home, Categories,
+  Subscribe), plus the three auto-created pages below.
+- **Auto-created About / Privacy / Contact pages:** every new blog gets
+  three starter pages automatically, editable like any other page. If an
+  owner has mangled one of them, "Reset to default" on that page's editor
+  regenerates the original template text without losing its URL or menu
+  entry. The Contact page is special — instead of showing static text, it
+  shows a live contact form (with a captcha challenge for anonymous
+  senders, so support can point an owner confused about spam at the
+  captcha setting in `/gate44/config`); messages land in that blog's own
+  inbox at `/blogs/dashboard/messages`.
+- **Plain-text or Markdown editor:** an author picks per-post whether to
+  write in Markdown (the original behaviour) or plain text (no special
+  formatting characters — a blank line just starts a new paragraph). Good
+  for authors who keep asking why their `*` or `#` characters look wrong
+  on the page.
+- **Reward pot ("treasury") on a post:** a blog owner can fund a pot of
+  Credits on one of their own posts and choose how many people it's split
+  between. The first readers (up to that number) who comment on or share
+  that post each get an equal cut automatically, shown live on the post
+  as a reward-pot badge. A reader can only claim once per post.
+- **Rewarded Gifts:** separate from the reward pot above — a blog owner
+  can define one or more "gifts" a reader can buy with Credits or Stars
+  from a "Send a Gift" section on the blog's homepage. A gift can grant a
+  VIP badge next to the buyer's name in that blog's comments, unlock a
+  paywalled section the same way paying to read an article does, or be a
+  fully custom reward the owner writes (revealed text and/or a payout from
+  a pot, same mechanic as the per-post reward pot above). If support needs
+  to turn off all blog money features at once (e.g. a policy or app-store
+  requirement), `blog_monetization_enabled` in `/gate44/config` is the one
+  switch that disables Gifts, paywalled articles, and reward pots
+  together; `feature_blog_gifts` is a narrower switch for Gifts alone.
 - **Stats:** basic totals for Free; a per-post breakdown for Plus; a
   90-day daily drill-down + CSV export for Pro/Max
   (`GET /api/blogs/<slug>/stats(+/export)`), backed by the lightweight

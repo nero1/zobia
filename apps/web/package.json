@@ -25,6 +25,7 @@
     "@aws-sdk/s3-request-presigner": "^3.651.1",
     "@serwist/next": "^9.0.0",
     "@supabase/supabase-js": "^2.45.4",
+    "@tailwindcss/typography": "^0.5.20",
     "@tanstack/react-query": "^5.56.2",
     "@tanstack/react-query-devtools": "^5.56.2",
     "@types/bcryptjs": "^2.4.6",

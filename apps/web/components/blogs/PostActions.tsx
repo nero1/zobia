@@ -43,6 +43,8 @@ export function PostActions({ blogSlug, postSlug, postId, initialLikeCount }: { 
   const [liked, setLiked] = useState<boolean | null>(null);
   const [count, setCount] = useState(initialLikeCount);
   const [busy, setBusy] = useState(false);
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const [sharing, setSharing] = useState(false);
 
   useEffect(() => {
     if (!hasRecordedView(postId)) {
@@ -75,16 +77,53 @@ export function PostActions({ blogSlug, postSlug, postId, initialLikeCount }: { 
     }
   }
 
+  async function handleShare() {
+    if (sharing) return;
+    setSharing(true);
+    setShareNotice(null);
+    try {
+      // Copy the link either way — the reward-pot claim (if any) is a bonus
+      // on top of the normal share action, not a gate on it.
+      const url = `${window.location.origin}/b/${blogSlug}/${postSlug}`;
+      if (navigator.share) {
+        await navigator.share({ url }).catch(() => {});
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(url).catch(() => {});
+        setShareNotice(t("blogs.post.linkCopied", "Link copied!"));
+      }
+      const res = await fetch(`/api/blogs/${blogSlug}/posts/${postSlug}/share`, { method: "POST", credentials: "include" });
+      if (res.status === 401) { router.push("/auth/login"); return; }
+      const json = await res.json().catch(() => null);
+      if (res.ok && json?.data?.rewardClaimed) {
+        setShareNotice(t("blogs.post.shareRewardClaimed", "You earned {{amount}} credits for sharing!", { amount: json.data.rewardClaimed }));
+      }
+    } finally {
+      setSharing(false);
+    }
+  }
+
   return (
-    <button
-      type="button"
-      onClick={toggleLike}
-      disabled={liked === null || busy}
-      className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
-    >
-      <span>{liked ? "❤️" : "🤍"}</span>
-      <span>{count}</span>
-      <span className="sr-only">{t("blogs.post.like", "Like")}</span>
-    </button>
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={toggleLike}
+        disabled={liked === null || busy}
+        className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+      >
+        <span>{liked ? "❤️" : "🤍"}</span>
+        <span>{count}</span>
+        <span className="sr-only">{t("blogs.post.like", "Like")}</span>
+      </button>
+      <button
+        type="button"
+        onClick={handleShare}
+        disabled={sharing}
+        className="flex items-center gap-1.5 rounded-xl border border-border bg-card px-3 py-1.5 text-sm font-medium text-foreground hover:bg-accent disabled:opacity-50"
+      >
+        <span>🔗</span>
+        <span>{t("blogs.post.share", "Share")}</span>
+      </button>
+      {shareNotice && <span className="text-xs text-amber-400">{shareNotice}</span>}
+    </div>
   );
 }

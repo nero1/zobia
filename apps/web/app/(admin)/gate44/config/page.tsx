@@ -414,6 +414,23 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Moments",
   },
 
+  // Blogs — Rewarded Gifts (migration 0024) + the monetization kill-switch.
+  // Per-plan blog_rev_share_pct_* / blog_paystack_fee_pct / blog_vat_pct
+  // (defined in lib/blogs/limits.ts) already apply to gift purchases too —
+  // no separate gifts-only rate, by design (see lib/blogs/service.ts).
+  feature_blog_gifts: {
+    label: "Enable Blog Gifts",
+    description: "Master toggle for Rewarded Gifts on blogs (tiers, purchases, VIP badges/unlocks). When off, owners can't create tiers and readers don't see the \"Send a Gift\" section. See gate44/blogs/gifts for the full tier table.",
+    type: "boolean",
+    group: "Blogs",
+  },
+  blog_monetization_enabled: {
+    label: "Blog Monetization Kill-Switch",
+    description: "Master switch for ALL blog monetization at once: paywalled-post unlocks, per-post/blog reward pots, and gifts. Turning this off disables all three regardless of their individual toggles.",
+    type: "boolean",
+    group: "Blogs",
+  },
+
   // Answers (Mini Forum / Q&A) — mirrored at /gate44/answers/settings
   feature_forum: {
     label: "Enable Answers",
@@ -738,6 +755,7 @@ const GROUP_ORDER = [
   "Messaging",
   "Moments",
   "Answers",
+  "Blogs",
   "Physical Goods",
   "Grace Periods & Save Slots",
   "Business Accounts",

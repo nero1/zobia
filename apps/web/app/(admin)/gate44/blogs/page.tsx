@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { formatShortDate } from "@/lib/format/date";
 
 interface BlogRow {
   id: string;
@@ -36,6 +37,8 @@ const STATUS_BADGE: Record<string, string> = {
 
 export default function AdminBlogsPage() {
   const [status, setStatus] = useState<StatusFilter>("all");
+  const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [rows, setRows] = useState<BlogRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -46,10 +49,17 @@ export default function AdminBlogsPage() {
     setTimeout(() => setToast(null), 3000);
   }, []);
 
-  const fetchBlogs = useCallback(async (s: StatusFilter) => {
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(t);
+  }, [search]);
+
+  const fetchBlogs = useCallback(async (s: StatusFilter, q: string) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/blogs?status=${s}&limit=50`, { credentials: "include" });
+      const params = new URLSearchParams({ status: s, limit: "50" });
+      if (q) params.set("q", q);
+      const res = await fetch(`/api/admin/blogs?${params.toString()}`, { credentials: "include" });
       if (res.status === 401 || res.status === 403) { window.location.href = "/gate44/login"; return; }
       const data = await res.json();
       setRows(data?.data?.items ?? []);
@@ -60,7 +70,7 @@ export default function AdminBlogsPage() {
     }
   }, [showToast]);
 
-  useEffect(() => { void fetchBlogs(status); }, [status, fetchBlogs]);
+  useEffect(() => { void fetchBlogs(status, debouncedSearch); }, [status, debouncedSearch, fetchBlogs]);
 
   async function handleAction(id: string, action: "suspend" | "ban" | "deactivate" | "pause" | "restore" | "delete") {
     if (action === "delete" && !confirm("Permanently delete this blog? This cannot be undone.")) return;
@@ -75,7 +85,7 @@ export default function AdminBlogsPage() {
       });
       if (!res.ok) throw new Error("Action failed");
       showToast("Action applied");
-      await fetchBlogs(status);
+      await fetchBlogs(status, debouncedSearch);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Action failed", "error");
     } finally {
@@ -102,7 +112,7 @@ export default function AdminBlogsPage() {
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message ?? "Transfer failed");
       showToast(`Transferred to @${username.trim()}`);
-      await fetchBlogs(status);
+      await fetchBlogs(status, debouncedSearch);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Transfer failed", "error");
     } finally {
@@ -112,13 +122,29 @@ export default function AdminBlogsPage() {
 
   return (
     <div className="relative">
-      <h1 className="mb-6 text-2xl font-bold text-neutral-900 dark:text-neutral-50">Blogs</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Blogs</h1>
+        <div className="flex gap-4">
+          <Link href="/gate44/blogs/themes" className="text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400">Manage Themes →</Link>
+          <Link href="/gate44/blogs/gifts" className="text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400">Manage Gifts →</Link>
+        </div>
+      </div>
 
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-modal ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}>
           {toast.msg}
         </div>
       )}
+
+      <div className="mb-4">
+        <input
+          type="search"
+          placeholder="Search by title, slug, owner username, or email…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="w-full max-w-sm rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-900"
+        />
+      </div>
 
       <div className="mb-4 flex flex-wrap gap-1 rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-800 dark:bg-neutral-800/50 w-fit">
         {(["all", "active", "paused", "suspended", "banned", "deactivated"] as StatusFilter[]).map((s) => (
@@ -164,7 +190,7 @@ export default function AdminBlogsPage() {
                 </td>
                 <td className="px-4 py-3 tabular-nums">{b.post_count}</td>
                 <td className="px-4 py-3 tabular-nums">{b.subscriber_count}</td>
-                <td className="px-4 py-3 text-neutral-500">{new Date(b.created_at).toLocaleDateString()}</td>
+                <td className="px-4 py-3 text-neutral-500">{formatShortDate(b.created_at)}</td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1.5">
                     {b.status !== "active" && (

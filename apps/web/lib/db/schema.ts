@@ -4053,11 +4053,16 @@ export const forumModerationLog = pgTable("forum_moderation_log", {
 // Blogs — mini blog/CMS system (articles + static pages)
 // ---------------------------------------------------------------------------
 
+// Migration 0018 (db): blogs stop being strictly 1:1 with owner_id — a user
+// (and, additively, their linked business account) can hold several blogs,
+// gated by plan/level (personal) or tier (business) quotas — see
+// lib/blogs/limits.ts. owner_id keeps its NOT NULL + FK but is no longer
+// unique; businessAccountId/slot* below track scope and how the slot backing
+// this blog was acquired.
 export const blogs = pgTable("blogs", {
   id: uuidPk(),
   ownerId: uuid("owner_id")
     .notNull()
-    .unique()
     .references(() => users.id, { onDelete: "cascade" }),
   slug: text("slug").notNull().unique(),
   title: text("title").notNull(),
@@ -4074,6 +4079,16 @@ export const blogs = pgTable("blogs", {
   statusReason: text("status_reason"),
   subscriberCount: integer("subscriber_count").notNull().default(0),
   postCount: integer("post_count").notNull().default(0),
+  // NULL = personal blog (quota from the owner's plan/level). Set = business
+  // blog (quota from the business account's tier), additive to the owner's
+  // personal quota.
+  businessAccountId: uuid("business_account_id").references(() => businessAccounts.id, { onDelete: "cascade" }),
+  // 'included' (counted against the free plan/tier quota) or 'purchased'
+  // (paid one-time unlock beyond the quota) — see lib/blogs/limits.ts.
+  slotSource: text("slot_source").notNull().default("included"),
+  slotUnlockCurrency: text("slot_unlock_currency"),
+  slotUnlockCost: integer("slot_unlock_cost"),
+  slotUnlockReferenceId: text("slot_unlock_reference_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -4109,10 +4124,14 @@ export const blogPosts = pgTable("blog_posts", {
   status: text("status").notNull().default("draft"),
   isPaywalled: boolean("is_paywalled").notNull().default(false),
   paywallCreditsCost: integer("paywall_credits_cost").notNull().default(0),
+  // 'markdown' (default, pre-existing behavior) or 'plaintext' — see
+  // lib/security/htmlSanitizer.ts's plainTextToBlogPostHtml (migration 0019).
+  contentFormat: text("content_format").notNull().default("markdown"),
   wordCount: integer("word_count").notNull().default(0),
   viewCount: integer("view_count").notNull().default(0),
   likeCount: integer("like_count").notNull().default(0),
   commentCount: integer("comment_count").notNull().default(0),
+  shareCount: integer("share_count").notNull().default(0),
   sortOrder: integer("sort_order").notNull().default(0),
   publishedAt: timestamp("published_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -4169,6 +4188,55 @@ export const blogPostUnlocks = pgTable(
   },
   (t) => ({
     unique: uniqueIndex("blog_post_unlocks_post_user_idx").on(t.postId, t.userId),
+  })
+);
+
+export const blogPostShares = pgTable(
+  "blog_post_shares",
+  {
+    id: uuidPk(),
+    postId: uuid("post_id").notNull().references(() => blogPosts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("blog_post_shares_post_user_idx").on(t.postId, t.userId),
+  })
+);
+
+// Migration 0020: per-post Credits reward pot — the first `maxClaimants`
+// people to comment on or share a post split `fundedAmount` evenly.
+export const blogPostTreasuries = pgTable(
+  "blog_post_treasuries",
+  {
+    id: uuidPk(),
+    postId: uuid("post_id").notNull().references(() => blogPosts.id, { onDelete: "cascade" }),
+    ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    fundedAmount: integer("funded_amount").notNull().default(0),
+    remainingAmount: integer("remaining_amount").notNull().default(0),
+    maxClaimants: integer("max_claimants").notNull(),
+    claimantCount: integer("claimant_count").notNull().default(0),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("blog_post_treasuries_post_idx").on(t.postId),
+  })
+);
+
+export const blogPostTreasuryClaims = pgTable(
+  "blog_post_treasury_claims",
+  {
+    id: uuidPk(),
+    treasuryId: uuid("treasury_id").notNull().references(() => blogPostTreasuries.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    claimType: text("claim_type").notNull(),
+    amount: integer("amount").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("blog_post_treasury_claims_treasury_user_idx").on(t.treasuryId, t.userId),
   })
 );
 

@@ -176,6 +176,7 @@ export function generateArticleSchema(article: {
   url: string;
   image?: string;
   datePublished: string;
+  dateModified?: string;
   authorName?: string;
 }): string {
   return generateStructuredData('BlogPosting', {
@@ -184,7 +185,33 @@ export function generateArticleSchema(article: {
     url: article.url,
     image: article.image,
     datePublished: article.datePublished,
+    dateModified: article.dateModified ?? article.datePublished,
     author: article.authorName ? { '@type': 'Person', name: article.authorName } : undefined,
+  });
+}
+
+/**
+ * Generate Blog schema (schema.org) for a blog's homepage —
+ * https://schema.org/Blog. Not in generateStructuredData's `type` union
+ * (that list only covers types already used elsewhere in the app) — this
+ * calls it with the closest existing type ('Thing') and overrides `@type`
+ * via the data spread, same trick as generateLocalBusinessSchema below
+ * would need if LocalBusiness weren't already in the union.
+ */
+export function generateBlogSchema(blog: {
+  name: string;
+  description?: string;
+  url: string;
+  image?: string;
+  authorName?: string;
+}): string {
+  return generateStructuredData('Thing', {
+    '@type': 'Blog',
+    name: blog.name,
+    description: blog.description,
+    url: blog.url,
+    image: blog.image,
+    publisher: blog.authorName ? { '@type': 'Person', name: blog.authorName } : undefined,
   });
 }
 
