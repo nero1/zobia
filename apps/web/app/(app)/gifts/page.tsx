@@ -35,6 +35,7 @@ interface GiftRecord {
   sender: GiftUser;
   recipient: GiftUser;
   giftItem: { name: string; emoji: string; tier: number };
+  reward: { label: string; description: string | null; customText: string | null; benefitType: string | null } | null;
 }
 
 interface GiftItem {
@@ -44,6 +45,9 @@ interface GiftItem {
   coinCost: number;
   starCost: number | null;
   tier: number;
+  isRewarded?: boolean;
+  rewardLabel?: string | null;
+  rewardDescription?: string | null;
 }
 
 interface GiftTier {
@@ -425,7 +429,7 @@ function SendGiftModal({
                   onClick={() => canAfford && setSelectedGift(isSelected ? null : gift)}
                   disabled={!canAfford}
                   className={clsx(
-                    "flex flex-col items-center gap-1 rounded-xl border-2 p-2.5 text-center transition-colors",
+                    "relative flex flex-col items-center gap-1 rounded-xl border-2 p-2.5 text-center transition-colors",
                     isSelected
                       ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950"
                       : canAfford
@@ -433,6 +437,15 @@ function SendGiftModal({
                       : "cursor-not-allowed border-neutral-100 bg-neutral-50 opacity-40 dark:border-neutral-800 dark:bg-neutral-900"
                   )}
                 >
+                  {gift.isRewarded && (
+                    <span
+                      className="absolute -top-1.5 -right-1.5 text-[13px]"
+                      title={gift.rewardLabel ? `Unlocks: ${gift.rewardLabel}` : "Unlocks a reward"}
+                      aria-hidden="true"
+                    >
+                      ✨
+                    </span>
+                  )}
                   <span className="text-2xl leading-none" aria-hidden="true">{gift.emoji}</span>
                   <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700 dark:text-neutral-300">{gift.name}</span>
                   <span className={clsx("rounded-full px-1.5 py-0.5 text-[11px] font-semibold", tierColour(gift.tier))}>
@@ -479,26 +492,48 @@ function GiftRow({ gift, currentUserId }: { gift: GiftRecord; currentUserId: str
   const isSent = gift.direction === "sent";
   const other = isSent ? gift.recipient : gift.sender;
   const displayName = other.displayName ?? other.username ?? "Unknown";
+  const [expanded, setExpanded] = useState(false);
+  const hasReward = isSent && !!gift.reward;
 
   return (
-    <div className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
-      <span className="text-2xl leading-none" aria-hidden="true">{gift.giftItem.emoji}</span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-50">
-          {gift.giftItem.name}
-        </p>
-        <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
-          {isSent ? "To" : "From"} @{other.username ?? "unknown"}
-        </p>
-      </div>
-      <div className="flex flex-col items-end gap-0.5">
-        <span className={clsx("rounded-full px-2 py-0.5 text-[10px] font-semibold", tierColour(gift.giftItem.tier))}>
-          Tier {gift.giftItem.tier}
-        </span>
-        <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
-          {relativeTime(gift.createdAt)}
-        </span>
-      </div>
+    <div className="rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
+      <button
+        type="button"
+        onClick={() => hasReward && setExpanded((v) => !v)}
+        disabled={!hasReward}
+        className="flex w-full items-center gap-3 px-3 py-3 text-left disabled:cursor-default"
+      >
+        <span className="text-2xl leading-none" aria-hidden="true">{gift.giftItem.emoji}</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-50">
+            {gift.giftItem.name}
+          </p>
+          <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+            {isSent ? "To" : "From"} @{other.username ?? "unknown"}
+          </p>
+          {hasReward && (
+            <p className="mt-0.5 truncate text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+              ✨ Unlocked: {gift.reward!.label} {expanded ? "▲" : "▼"}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-0.5">
+          <span className={clsx("rounded-full px-2 py-0.5 text-[10px] font-semibold", tierColour(gift.giftItem.tier))}>
+            Tier {gift.giftItem.tier}
+          </span>
+          <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
+            {relativeTime(gift.createdAt)}
+          </span>
+        </div>
+      </button>
+      {hasReward && expanded && (
+        <div className="mx-3 mb-3 -mt-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          {gift.reward!.description && <p className="mb-1">{gift.reward!.description}</p>}
+          {gift.reward!.customText && (
+            <p className="whitespace-pre-wrap border-t border-amber-200/60 pt-1 dark:border-amber-800/60">{gift.reward!.customText}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -647,8 +682,17 @@ function GiftsPageContent() {
                   key={gift.id}
                   type="button"
                   onClick={() => openCatalogGift(gift)}
-                  className="flex flex-col items-center gap-1 rounded-xl border-2 border-neutral-200 bg-neutral-50 p-2.5 text-center transition-colors hover:border-neutral-300 dark:border-neutral-700 dark:bg-neutral-800"
+                  className="relative flex flex-col items-center gap-1 rounded-xl border-2 border-neutral-200 bg-neutral-50 p-2.5 text-center transition-colors hover:border-neutral-300 dark:border-neutral-700 dark:bg-neutral-800"
                 >
+                  {gift.isRewarded && (
+                    <span
+                      className="absolute -top-1.5 -right-1.5 text-[13px]"
+                      title={gift.rewardLabel ? `Unlocks: ${gift.rewardLabel}` : "Unlocks a reward"}
+                      aria-hidden="true"
+                    >
+                      ✨
+                    </span>
+                  )}
                   <span className="text-2xl leading-none" aria-hidden="true">{gift.emoji}</span>
                   <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700 dark:text-neutral-300">{gift.name}</span>
                   <span className={clsx("rounded-full px-1.5 py-0.5 text-[10px] font-semibold", tierColour(gift.tier))}>

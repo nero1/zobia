@@ -95,9 +95,22 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
               {blog.tagline && <p className="mt-1 text-muted-foreground">{blog.tagline}</p>}
               <p className="mt-1 text-sm text-muted-foreground">by @{blog.owner_username}</p>
             </div>
-            <span id="subscribe">
-              <SubscribeButton blogSlug={blog.slug} showCount={blog.show_subscriber_count} initialCount={blog.subscriber_count} />
-            </span>
+            <div className="flex shrink-0 flex-col items-end gap-1.5">
+              <span id="subscribe">
+                <SubscribeButton blogSlug={blog.slug} showCount={blog.show_subscriber_count} initialCount={blog.subscriber_count} />
+              </span>
+              {/* Sitewide gift economy entry point — sending credits/coins to
+                  @{blog.owner_username}. Deliberately labeled and styled
+                  differently from the blog's OWN reward-tier GiftTiersSection
+                  below so the two don't read as the same feature. */}
+              <Link
+                href={`/blogs/gift/${blog.slug}`}
+                className="text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+                title={`Send a site gift to @${blog.owner_username}`}
+              >
+                🎁 Send @{blog.owner_username} a gift
+              </Link>
+            </div>
           </div>
 
           {pages.length > 0 && (

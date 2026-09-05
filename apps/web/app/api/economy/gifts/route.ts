@@ -35,6 +35,12 @@ interface GiftHistoryRow {
   gift_emoji: string;
   gift_tier: number;
   gift_type_name: string | null;
+  // Rewarded Gifts (migration 0026) — present only when this gift send
+  // triggered a reward grant (recipient was the actual room/blog owner).
+  reward_label: string | null;
+  reward_description: string | null;
+  reward_custom_text: string | null;
+  reward_benefit_type: string | null;
 }
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
@@ -92,12 +98,17 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
               gi.name        AS gift_name,
               gi.emoji       AS gift_emoji,
               gi.tier        AS gift_tier,
-              gt.name        AS gift_type_name
+              gt.name        AS gift_type_name,
+              rg.label       AS reward_label,
+              rg.description AS reward_description,
+              rg.custom_text AS reward_custom_text,
+              rg.benefit_type AS reward_benefit_type
        FROM gifts g
        JOIN users s            ON s.id = g.sender_id
        JOIN users r            ON r.id = g.recipient_id
        JOIN gift_items gi      ON gi.id = g.gift_item_id
        LEFT JOIN gift_types gt ON gt.id = g.gift_type_id
+       LEFT JOIN gift_reward_grants rg ON rg.gift_id = g.id
        WHERE ${typeCondition}
        ${cursorCondition}
        ORDER BY g.created_at DESC, g.id DESC
@@ -129,6 +140,14 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         tier: row.gift_tier,
         typeName: row.gift_type_name ?? null,
       },
+      reward: row.reward_label
+        ? {
+            label: row.reward_label,
+            description: row.reward_description,
+            customText: row.reward_custom_text,
+            benefitType: row.reward_benefit_type,
+          }
+        : null,
     }));
 
     // Produce the next cursor from the last item returned, if the page is full.

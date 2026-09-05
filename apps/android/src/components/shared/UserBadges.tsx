@@ -146,3 +146,29 @@ export function UserBadgeRow({ rank, totalXp, prestige, verified, size = 'sm', c
     </span>
   );
 }
+
+// ---------------------------------------------------------------------------
+// Rewarded Gifts sender badge (migration 0026) — mirrors
+// apps/web/components/shared/UserBadges.tsx's RewardBadge. Distinct from the
+// unrelated per-blog VIP badge (blog_gift_tiers "vip_badge" purchases).
+// ---------------------------------------------------------------------------
+
+interface RewardBadgeProps {
+  label?: string | null;
+  className?: string;
+}
+
+export function RewardBadge({ label, className = '' }: RewardBadgeProps) {
+  if (!label) return null;
+  return (
+    <span
+      role="img"
+      aria-label={`Reward unlocked: ${label}`}
+      title={`Reward unlocked: ${label}`}
+      className={`inline-flex items-center gap-0.5 rounded-full border border-amber-400/60 bg-gradient-to-r from-amber-400/20 to-yellow-300/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-600 ${className}`}
+    >
+      <span aria-hidden="true">✨</span>
+      {label}
+    </span>
+  );
+}

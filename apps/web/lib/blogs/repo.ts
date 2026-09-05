@@ -370,8 +370,10 @@ export interface BlogCommentRow {
   author_username: string | null;
   author_display_name: string | null;
   author_avatar_url: string | null;
-  /** True when the commenter holds an active vip_badge gift purchase for this post's blog. */
+  /** True when the commenter holds an active vip_badge gift purchase for this post's blog (unrelated blog_gift_tiers feature). */
   author_is_vip: boolean;
+  /** Rewarded Gifts (migration 0026): label of the commenter's active sitewide gift_reward_grants row for this blog, if any. Distinct from author_is_vip above. */
+  author_reward_label: string | null;
 }
 
 export async function listBlogComments(postId: string, includeStatuses: string[]): Promise<BlogCommentRow[]> {
@@ -382,7 +384,15 @@ export async function listBlogComments(postId: string, includeStatuses: string[]
               SELECT 1 FROM blog_gift_purchases gp
               WHERE gp.blog_id = p.blog_id AND gp.buyer_id = c.author_id
                 AND gp.benefit_type = 'vip_badge' AND gp.status = 'active'
-            ) AS author_is_vip
+            ) AS author_is_vip,
+            (
+              SELECT rg.label FROM gift_reward_grants rg
+              WHERE rg.context_type = 'blog' AND rg.context_id = p.blog_id AND rg.sender_id = c.author_id
+                AND rg.benefit_type IN ('sender_badge', 'blog_privilege')
+                AND rg.revoked_at IS NULL AND (rg.expires_at IS NULL OR rg.expires_at > NOW())
+              ORDER BY rg.created_at DESC
+              LIMIT 1
+            ) AS author_reward_label
      FROM blog_post_comments c
      JOIN users u ON u.id = c.author_id
      JOIN blog_posts p ON p.id = c.post_id

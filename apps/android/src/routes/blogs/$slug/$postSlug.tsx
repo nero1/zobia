@@ -17,6 +17,7 @@ import { formatShortDate } from '@/lib/format/date';
 import { BlogOwnerToolbar } from '@/components/blogs/BlogOwnerToolbar';
 import { BlogMenu } from '@/components/blogs/BlogMenu';
 import { DEFAULT_MENU_CONFIG, type BlogMenuConfig } from '@/lib/blogs/menu';
+import { RewardBadge } from '@/components/shared/UserBadges';
 
 interface PostDetail {
   id: string;
@@ -68,6 +69,8 @@ interface CommentRow {
   author_display_name: string | null;
   /** Rewarded Gifts (web migration 0024) — active vip_badge gift purchase for this blog. */
   author_is_vip?: boolean;
+  /** Sitewide Rewarded Gifts (web migration 0026) — distinct feature from author_is_vip above. */
+  author_reward_label?: string | null;
 }
 
 const VIEWED_KEY = 'zobia_blog_viewed';
@@ -279,6 +282,7 @@ function PostViewPage() {
                       {t('blogs.gifts.vipBadge', 'VIP')}
                     </span>
                   )}
+                  <RewardBadge label={c.author_reward_label} />
                 </p>
                 <p className="text-sm text-neutral-800 mt-0.5">{c.body}</p>
               </div>

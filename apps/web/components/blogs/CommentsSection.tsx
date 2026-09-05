@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { RewardBadge } from "@/components/shared/UserBadges";
 
 interface CommentRow {
   id: string;
@@ -22,6 +23,8 @@ interface CommentRow {
   author_username: string | null;
   author_display_name: string | null;
   author_is_vip?: boolean;
+  /** Rewarded Gifts (migration 0026) sitewide gift badge — distinct from author_is_vip above (unrelated per-blog blog_gift_tiers feature). */
+  author_reward_label?: string | null;
 }
 
 export function CommentsSection({ blogSlug, postSlug, commentsEnabled }: { blogSlug: string; postSlug: string; commentsEnabled: boolean }) {
@@ -115,6 +118,10 @@ export function CommentsSection({ blogSlug, postSlug, commentsEnabled }: { blogS
                     {t("blogs.gifts.vipBadge", "VIP")}
                   </span>
                 )}
+                {/* Sitewide Rewarded Gift badge — separate feature and separate DOM
+                    node from the per-blog VIP badge above; renders the admin-defined
+                    label text instead of a fixed "VIP" string. */}
+                <RewardBadge label={c.author_reward_label} />
                 {c.status === "pending" && (
                   <span
                     title={t("blogs.post.commentPendingModeratorHint", "Only visible to you until approved.")}
