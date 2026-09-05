@@ -10,6 +10,9 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { formatShortDate } from '@/lib/format/date';
+import { BlogOwnerToolbar } from '@/components/blogs/BlogOwnerToolbar';
+import { BlogMenu } from '@/components/blogs/BlogMenu';
+import { DEFAULT_MENU_CONFIG, type BlogMenuConfig } from '@/lib/blogs/menu';
 
 interface BlogDetail {
   id: string;
@@ -19,6 +22,7 @@ interface BlogDetail {
   subscriber_count: number;
   show_subscriber_count: boolean;
   owner_username: string;
+  menu_config?: BlogMenuConfig;
 }
 
 interface PostSummary {
@@ -36,7 +40,7 @@ async function fetchBlog(slug: string) {
   // apiClient's response interceptor already unwraps the { success, data, error }
   // envelope down to `data`, so `data` here IS { blog, isSubscribed, ... } already —
   // reading `data.data` was always undefined, so the blog page showed "not found" forever.
-  const { data } = await apiClient.get<{ blog: BlogDetail; isSubscribed: boolean }>(`/blogs/${slug}`);
+  const { data } = await apiClient.get<{ blog: BlogDetail; isSubscribed: boolean; isOwner: boolean }>(`/blogs/${slug}`);
   return data;
 }
 
@@ -63,12 +67,16 @@ function BlogHomePage() {
 
   const blog = blogQuery.data?.blog;
   const isSubscribed = blogQuery.data?.isSubscribed ?? false;
+  const isOwner = blogQuery.data?.isOwner ?? false;
 
   if (blogQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
   if (!blog) return <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center text-sm text-neutral-500">{t('blogs.notFound', 'Blog not found.')}</div>;
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
+      {isOwner && <BlogOwnerToolbar blogSlug={slug} />}
+      <BlogMenu blogSlug={slug} menuConfig={blog.menu_config ?? DEFAULT_MENU_CONFIG} />
+
       <div className="rounded-xl border border-neutral-200 bg-white p-4">
         <div className="flex items-start justify-between gap-2">
           <div>

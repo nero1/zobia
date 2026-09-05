@@ -14,11 +14,15 @@ import { useTranslation } from 'react-i18next';
 import { Preferences } from '@capacitor/preferences';
 import { apiClient } from '@/lib/api/client';
 import { formatShortDate } from '@/lib/format/date';
+import { BlogOwnerToolbar } from '@/components/blogs/BlogOwnerToolbar';
+import { BlogMenu } from '@/components/blogs/BlogMenu';
+import { DEFAULT_MENU_CONFIG, type BlogMenuConfig } from '@/lib/blogs/menu';
 
 interface PostDetail {
   id: string;
   title: string;
   type: string;
+  status: string;
   body_html: string;
   is_paywalled: boolean;
   paywall_credits_cost: number;
@@ -34,7 +38,17 @@ interface PostDetailResponse {
   post: PostDetail;
   locked: boolean;
   isLiked: boolean;
-  blog: { title: string; hideAuthorInfo: boolean };
+  isAuthor: boolean;
+  blog: { slug: string; title: string; hideAuthorInfo: boolean };
+}
+
+interface BlogMenuInfo {
+  menu_config?: BlogMenuConfig;
+}
+
+async function fetchBlogMenu(slug: string): Promise<BlogMenuConfig> {
+  const { data } = await apiClient.get<{ blog: BlogMenuInfo }>(`/blogs/${slug}`);
+  return data?.blog?.menu_config ?? DEFAULT_MENU_CONFIG;
 }
 
 interface TreasuryState {
@@ -91,6 +105,8 @@ function PostViewPage() {
     enabled: postQuery.data?.post.type === 'article',
   });
 
+  const menuQuery = useQuery({ queryKey: ['blogs', 'menu', slug], queryFn: () => fetchBlogMenu(slug), staleTime: 60_000 });
+
   const [shareNotice, setShareNotice] = useState<string | null>(null);
   const share = useMutation({
     mutationFn: () => apiClient.post<{ rewardClaimed: number | null }>(`/blogs/${slug}/posts/${postSlug}/share`, {}),
@@ -127,11 +143,15 @@ function PostViewPage() {
   if (postQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
   if (!data) return <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center text-sm text-neutral-500">{t('blogs.notFound', 'Post not found.')}</div>;
 
-  const { post, locked, isLiked, blog } = data;
+  const { post, locked, isLiked, isAuthor, blog } = data;
   const isArticle = post.type === 'article';
+  const isDraft = post.status !== 'published';
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
+      {isAuthor && <BlogOwnerToolbar blogSlug={slug} isDraft={isDraft} />}
+      {menuQuery.data && <BlogMenu blogSlug={slug} menuConfig={menuQuery.data} />}
+
       <div className="rounded-xl border border-neutral-200 bg-white p-4">
         <h1 className="text-lg font-bold text-neutral-900">{post.title}</h1>
         {isArticle && post.published_at && (
