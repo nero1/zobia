@@ -24,6 +24,8 @@ import { getOptionalServerUser } from "@/lib/auth/serverUser";
 import { generateBlogSchema } from "@/lib/seo/metadata";
 import { getTheme, resolveLayout, DEFAULT_THEME_TOKENS } from "@/lib/blogs/themes";
 import { BlogHomeLayout } from "@/components/blogs/layouts/BlogHomeLayout";
+import { GiftTiersSection } from "@/components/blogs/GiftTiersSection";
+import { listPublicGiftTiers } from "@/lib/blogs/service";
 
 const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
@@ -55,13 +57,14 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
   }
 
   const { blog } = resolved;
-  const [articles, pages, popular, categories, viewer, theme] = await Promise.all([
+  const [articles, pages, popular, categories, viewer, theme, giftTiers] = await Promise.all([
     listPublicBlogPosts(blog.id, "article", 20),
     listPublicBlogPosts(blog.id, "page", 20),
     listPopularBlogPosts(blog.id, 5),
     listBlogCategories(blog.id),
     getOptionalServerUser(),
     getTheme(blog.active_theme_id).catch(() => null),
+    listPublicGiftTiers(blog.id).catch(() => []),
   ]);
   const showOwnerToolbar = !!viewer && (viewer.userId === blog.owner_id || viewer.isAdmin || viewer.isModerator);
   const layoutVariant = theme ? resolveLayout(theme) : "classic";
@@ -118,6 +121,8 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
           popular={popular}
           categories={categories}
         />
+
+        {giftTiers.length > 0 && <GiftTiersSection blogSlug={blog.slug} tiers={giftTiers} />}
 
         <div className="mt-8">
           <Link href="/blogs" className="text-sm text-muted-foreground hover:text-foreground transition-colors">

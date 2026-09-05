@@ -66,6 +66,8 @@ interface CommentRow {
   status: string;
   author_username: string | null;
   author_display_name: string | null;
+  /** Rewarded Gifts (web migration 0024) — active vip_badge gift purchase for this blog. */
+  author_is_vip?: boolean;
 }
 
 const VIEWED_KEY = 'zobia_blog_viewed';
@@ -270,7 +272,14 @@ function PostViewPage() {
           <div className="mt-3 space-y-2">
             {(commentsQuery.data ?? []).map((c) => (
               <div key={c.id} className="rounded-lg border border-neutral-100 bg-neutral-50 p-2.5">
-                <p className="text-xs font-semibold text-neutral-700">{c.author_display_name ?? `@${c.author_username}`}</p>
+                <p className="text-xs font-semibold text-neutral-700 flex items-center gap-1.5">
+                  {c.author_display_name ?? `@${c.author_username}`}
+                  {c.author_is_vip && (
+                    <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
+                      {t('blogs.gifts.vipBadge', 'VIP')}
+                    </span>
+                  )}
+                </p>
                 <p className="text-sm text-neutral-800 mt-0.5">{c.body}</p>
               </div>
             ))}

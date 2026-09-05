@@ -21,6 +21,7 @@ interface CommentRow {
   created_at: string;
   author_username: string | null;
   author_display_name: string | null;
+  author_is_vip?: boolean;
 }
 
 export function CommentsSection({ blogSlug, postSlug, commentsEnabled }: { blogSlug: string; postSlug: string; commentsEnabled: boolean }) {
@@ -104,7 +105,17 @@ export function CommentsSection({ blogSlug, postSlug, commentsEnabled }: { blogS
         <div className="space-y-3">
           {comments.map((c) => (
             <div key={c.id} className="rounded-xl border border-border bg-card p-3">
-              <div className="text-xs font-medium text-foreground">{c.author_display_name ?? (c.author_username ? `@${c.author_username}` : t("blogs.post.anonymous", "Anonymous"))}</div>
+              <div className="text-xs font-medium text-foreground flex items-center gap-1.5">
+                {c.author_display_name ?? (c.author_username ? `@${c.author_username}` : t("blogs.post.anonymous", "Anonymous"))}
+                {c.author_is_vip && (
+                  <span
+                    title={t("blogs.gifts.vipBadgeTitle", "VIP supporter")}
+                    className="inline-flex items-center rounded-full bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-500"
+                  >
+                    {t("blogs.gifts.vipBadge", "VIP")}
+                  </span>
+                )}
+              </div>
               <p className="text-sm text-foreground mt-1">{c.body}</p>
             </div>
           ))}
