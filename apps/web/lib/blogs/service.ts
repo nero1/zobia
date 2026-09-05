@@ -23,7 +23,8 @@ import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 import { debitCoins, checkAndDebit, creditCoins } from "@/lib/economy/coins";
 import { debitStars } from "@/lib/economy/stars";
 import { sanitizeBlogPostHtml, plainTextToBlogPostHtml } from "@/lib/security/htmlSanitizer";
-import { generateUniqueSlug, generateUniqueBlogPostSlug } from "@/lib/slug";
+import { generateUniqueSlug, generateUniqueBlogPostSlug, recordSlugRedirect } from "@/lib/slug";
+import { normalizeMenuConfig, type BlogMenuConfig } from "@/lib/blogs/menu";
 import {
   getMaxBlogPosts,
   getMaxWordsForPlan,
@@ -60,6 +61,16 @@ async function assertBlogWritable(blogId: string): Promise<{ ownerId: string; st
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Blog slugs are derived from at most the first `maxWords` words of the
+ * blog's title/name (product spec) rather than the full title — keeps slugs
+ * short and readable for long blog names. `generateUniqueSlug` still does
+ * the actual slugify() + de-dupe-suffix work; this just trims its input.
+ */
+function slugSourceWords(name: string, maxWords = 6): string {
+  return name.trim().split(/\s+/).filter(Boolean).slice(0, maxWords).join(" ");
 }
 
 export type BlogPostContentFormat = "markdown" | "plaintext";
@@ -133,7 +144,7 @@ export async function createBlog(input: CreateBlogInput): Promise<CreateBlogResu
     : await getIncludedPersonalBlogCount(user.plan, user.level_creator);
 
   const blogId = randomUUID();
-  const slug = await generateUniqueSlug("blog", input.title, blogId);
+  const slug = await generateUniqueSlug("blog", slugSourceWords(input.title), blogId);
 
   // Lock a stable row for the scope (the business account for a business
   // blog, the user for a personal blog) across the count-check + insert so
@@ -205,22 +216,44 @@ export interface UpdateBlogSettingsInput {
   commentsModerationEnabled?: boolean;
   hideAuthorInfo?: boolean;
   showSubscriberCount?: boolean;
+  menuConfig?: BlogMenuConfig;
 }
 
+/**
+ * Renaming a blog regenerates its slug using the same first-6-words rule as
+ * creation (lib/blogs/service.ts's slugSourceWords), and the old slug is
+ * recorded in `slug_redirects` (the same table/mechanism the admin games
+ * editor uses for its own renames — see app/api/admin/games/[id]/route.ts)
+ * so old /b/<oldSlug> links 301 to the new one instead of 404ing. Trade-off:
+ * this is a *pointer* redirect, not a slug-history log — only the most
+ * recent old slug for a given blog resolves; anything older than that
+ * (a blog renamed twice) stops resolving. Acceptable per the existing
+ * precedent elsewhere in the app; a full history table would be
+ * over-engineering for what's a rare, owner-initiated action.
+ */
 export async function updateBlogSettings(blogId: string, callerId: string, input: UpdateBlogSettingsInput): Promise<void> {
-  const { rows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [blogId]);
+  const { rows } = await db.query<{ owner_id: string; title: string; slug: string }>(`SELECT owner_id, title, slug FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [blogId]);
   const blog = rows[0];
   if (!blog) throw notFound("Blog not found");
   if (blog.owner_id !== callerId) throw forbidden("Only the blog owner can update these settings.");
 
   const fields: string[] = [];
   const params: SqlParam[] = [blogId];
-  const push = (col: string, value: SqlParam) => {
+  const push = (col: string, value: SqlParam, cast?: string) => {
     params.push(value);
-    fields.push(`${col} = $${params.length}`);
+    fields.push(`${col} = $${params.length}${cast ? `::${cast}` : ""}`);
   };
 
-  if (input.title !== undefined) push("title", input.title.trim());
+  let newSlug: string | null = null;
+  if (input.title !== undefined) {
+    const trimmedTitle = input.title.trim();
+    push("title", trimmedTitle);
+    if (trimmedTitle && trimmedTitle !== blog.title) {
+      newSlug = await generateUniqueSlug("blog", slugSourceWords(trimmedTitle), blogId, db, blogId);
+      if (newSlug !== blog.slug) push("slug", newSlug);
+      else newSlug = null;
+    }
+  }
   if (input.tagline !== undefined) push("tagline", input.tagline?.trim() || null);
   if (input.description !== undefined) push("description", input.description?.trim() || null);
   if (input.avatarUrl !== undefined) push("avatar_url", input.avatarUrl || null);
@@ -229,9 +262,11 @@ export async function updateBlogSettings(blogId: string, callerId: string, input
   if (input.commentsModerationEnabled !== undefined) push("comments_moderation_enabled", input.commentsModerationEnabled);
   if (input.hideAuthorInfo !== undefined) push("hide_author_info", input.hideAuthorInfo);
   if (input.showSubscriberCount !== undefined) push("show_subscriber_count", input.showSubscriberCount);
+  if (input.menuConfig !== undefined) push("menu_config", JSON.stringify(normalizeMenuConfig(input.menuConfig)), "jsonb");
 
   if (fields.length === 0) return;
   await db.query(`UPDATE blogs SET ${fields.join(", ")}, updated_at = NOW() WHERE id = $1`, params);
+  if (newSlug) await recordSlugRedirect("blog", blog.slug, blogId, newSlug).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
@@ -418,6 +453,50 @@ export async function deletePost(postId: string, callerId: string, callerIsModer
     await tx.query(`UPDATE blog_posts SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [postId]);
     await tx.query(`UPDATE blogs SET post_count = GREATEST(post_count - 1, 0), updated_at = NOW() WHERE id = $1`, [post.blog_id]);
   });
+}
+
+/**
+ * Batch draft/delete for the owner's post-management screen (dashboard).
+ * Scoped to a single blog + ownership check up front, then a single
+ * `WHERE id = ANY($ids) AND blog_id = $blogId` write — mirrors the
+ * single-SQL-statement style used elsewhere for scoped bulk writes (e.g.
+ * business_pages slot sweeps) rather than looping per-post, since every
+ * post here shares the same blog_id + owner_id and the same target status.
+ */
+export async function batchUpdatePosts(
+  blogId: string,
+  callerId: string,
+  postIds: string[],
+  action: "draft" | "delete"
+): Promise<{ affected: number }> {
+  if (postIds.length === 0) return { affected: 0 };
+  const { rows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [blogId]);
+  const blog = rows[0];
+  if (!blog) throw notFound("Blog not found");
+  if (blog.owner_id !== callerId) throw forbidden("Only the blog owner can manage these posts.");
+
+  if (action === "delete") {
+    const result = await db.transaction(async (tx: TransactionClient) => {
+      const { rowCount } = await tx.query(
+        `UPDATE blog_posts SET deleted_at = NOW(), updated_at = NOW()
+         WHERE blog_id = $1 AND id = ANY($2::uuid[]) AND deleted_at IS NULL`,
+        [blogId, postIds]
+      );
+      const affected = rowCount ?? 0;
+      if (affected > 0) {
+        await tx.query(`UPDATE blogs SET post_count = GREATEST(post_count - $2, 0), updated_at = NOW() WHERE id = $1`, [blogId, affected]);
+      }
+      return affected;
+    });
+    return { affected: result };
+  }
+
+  const { rowCount } = await db.query(
+    `UPDATE blog_posts SET status = 'draft', updated_at = NOW()
+     WHERE blog_id = $1 AND id = ANY($2::uuid[]) AND deleted_at IS NULL AND status != 'draft'`,
+    [blogId, postIds]
+  );
+  return { affected: rowCount ?? 0 };
 }
 
 // ---------------------------------------------------------------------------

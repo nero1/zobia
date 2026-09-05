@@ -7,6 +7,7 @@
 
 import { db } from "@/lib/db";
 import type { SqlParam, TransactionClient } from "@/lib/db/interface";
+import type { BlogMenuConfig } from "@/lib/blogs/menu";
 
 export interface BlogSummaryRow {
   id: string;
@@ -169,6 +170,7 @@ export interface BlogRow {
   slot_unlock_currency: string | null;
   slot_unlock_cost: number | null;
   slot_unlock_reference_id: string | null;
+  menu_config: BlogMenuConfig;
   created_at: string;
   owner_username: string | null;
   owner_display_name: string | null;

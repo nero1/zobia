@@ -10,6 +10,7 @@
 import { db } from "@/lib/db";
 import { looksLikeUuid } from "@zobia/shared/utils";
 import { lookupSlugRedirect } from "@/lib/slug";
+import { normalizeMenuConfig, type BlogMenuConfig } from "@/lib/blogs/menu";
 
 export interface PublicBlog {
   id: string;
@@ -24,6 +25,7 @@ export interface PublicBlog {
   comments_enabled: boolean;
   subscriber_count: number;
   post_count: number;
+  menu_config: BlogMenuConfig;
   owner_id: string;
   owner_username: string;
   owner_display_name: string;
@@ -40,6 +42,7 @@ export interface ResolvedBlog {
 const SELECT = `
   SELECT b.id, b.slug, b.title, b.tagline, b.description, b.avatar_url, b.cover_image_url,
          b.show_subscriber_count, b.hide_author_info, b.comments_enabled, b.subscriber_count, b.post_count,
+         b.menu_config,
          b.owner_id, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url,
          b.created_at, b.updated_at
   FROM blogs b
@@ -49,7 +52,9 @@ const SELECT = `
 
 async function queryBy(column: "slug" | "id", value: string): Promise<PublicBlog | null> {
   const { rows } = await db.query<PublicBlog>(`${SELECT} AND b.${column} = $1 LIMIT 1`, [value]);
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  return { ...row, menu_config: normalizeMenuConfig(row.menu_config) };
 }
 
 export async function resolvePublicBlog(identifier: string): Promise<ResolvedBlog | null> {
