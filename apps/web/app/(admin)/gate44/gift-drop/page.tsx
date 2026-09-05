@@ -14,6 +14,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { GIFT_TIER_LABELS } from "@zobia/shared/utils";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 
@@ -89,6 +90,19 @@ export default function AdminGiftDropPage() {
     startAt: "",
   });
 
+  // Toggle between picking an existing gift and creating a brand-new one
+  // inline (used for the drop only, same fields/validation as
+  // POST /api/admin/gifts's createGiftSchema).
+  const [giftSource, setGiftSource] = useState<"existing" | "new">("existing");
+  const [newGiftForm, setNewGiftForm] = useState({
+    name: "",
+    emoji: "",
+    coinCost: "",
+    tier: "1",
+    animationUrl: "",
+    spectacleThresholdCoins: "",
+  });
+
   // Fetch gift drops list
   const fetchDrops = useCallback(async () => {
     try {
@@ -134,20 +148,49 @@ export default function AdminGiftDropPage() {
     setSubmitting(true);
     setError(null);
     try {
+      const payload: Record<string, unknown> = { startAt: form.startAt };
+      if (giftSource === "new") {
+        const coinCost = parseInt(newGiftForm.coinCost, 10);
+        const tier = parseInt(newGiftForm.tier, 10);
+        if (!newGiftForm.name.trim() || !newGiftForm.emoji.trim() || isNaN(coinCost) || isNaN(tier)) {
+          throw new Error("Name, emoji, coin cost, and tier are required for the new gift");
+        }
+        payload.newGift = {
+          name: newGiftForm.name.trim(),
+          emoji: newGiftForm.emoji.trim(),
+          coinCost,
+          tier,
+          animationUrl: newGiftForm.animationUrl.trim() || null,
+          spectacleThresholdCoins: newGiftForm.spectacleThresholdCoins
+            ? parseInt(newGiftForm.spectacleThresholdCoins, 10)
+            : null,
+        };
+      } else {
+        payload.giftItemId = form.giftItemId;
+      }
+
       const res = await fetch("/api/admin/gift-drop", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          giftItemId: form.giftItemId,
-          startAt: form.startAt,
-        }),
+        body: JSON.stringify(payload),
       });
-      const data = (await res.json()) as { error?: string; message?: string };
-      if (!res.ok) throw new Error(data.error ?? data.message ?? "Failed to schedule drop");
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as {
+          error?: { code?: string; message?: string } | string;
+        };
+        const code = typeof body.error === "object" ? body.error?.code : undefined;
+        const message = typeof body.error === "object" ? body.error?.message : body.error;
+        const err = new Error(message ?? "Failed to schedule drop") as Error & { code?: string | null };
+        err.code = code ?? null;
+        throw err;
+      }
       setShowForm(false);
       setForm({ giftItemId: "", startAt: "" });
+      setGiftSource("existing");
+      setNewGiftForm({ name: "", emoji: "", coinCost: "", tier: "1", animationUrl: "", spectacleThresholdCoins: "" });
       await fetchDrops();
+      await fetchGiftItems();
     } catch (e) {
       setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Error") : "Error");
     } finally {
@@ -178,6 +221,8 @@ export default function AdminGiftDropPage() {
           onClick={() => {
             setShowForm((v) => !v);
             setForm({ giftItemId: "", startAt: defaultStartAt });
+            setGiftSource("existing");
+            setNewGiftForm({ name: "", emoji: "", coinCost: "", tier: "1", animationUrl: "", spectacleThresholdCoins: "" });
           }}
           className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
         >
@@ -201,26 +246,127 @@ export default function AdminGiftDropPage() {
           <h2 className="mb-4 text-base font-semibold text-neutral-900 dark:text-neutral-50">
             Schedule New Gift Drop
           </h2>
+
+          {/* Existing gift vs. create-new-inline toggle */}
+          <div className="mb-4 inline-flex rounded-lg border border-neutral-300 p-0.5 text-xs font-semibold dark:border-neutral-700">
+            <button
+              type="button"
+              onClick={() => setGiftSource("existing")}
+              className={`rounded-md px-3 py-1.5 ${giftSource === "existing" ? "bg-blue-600 text-white" : "text-neutral-600 dark:text-neutral-400"}`}
+            >
+              Use existing gift
+            </button>
+            <button
+              type="button"
+              onClick={() => setGiftSource("new")}
+              className={`rounded-md px-3 py-1.5 ${giftSource === "new" ? "bg-blue-600 text-white" : "text-neutral-600 dark:text-neutral-400"}`}
+            >
+              Create new gift
+            </button>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
-            {/* Gift Item */}
-            <div>
-              <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">
-                Gift Item *
-              </label>
-              <select
-                required
-                value={form.giftItemId}
-                onChange={(e) => setForm((f) => ({ ...f, giftItemId: e.target.value }))}
-                className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-              >
-                <option value="">Select a gift item…</option>
-                {giftItems.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.emoji} {g.name} — {g.coinCost.toLocaleString()} {currency.softPlural.toLowerCase()} (Tier {g.tier})
-                  </option>
-                ))}
-              </select>
-            </div>
+            {giftSource === "existing" ? (
+              /* Gift Item */
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">
+                  Gift Item *
+                </label>
+                <select
+                  required
+                  value={form.giftItemId}
+                  onChange={(e) => setForm((f) => ({ ...f, giftItemId: e.target.value }))}
+                  className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                >
+                  <option value="">Select a gift item…</option>
+                  {giftItems.map((g) => (
+                    <option key={g.id} value={g.id}>
+                      {g.emoji} {g.name} — {g.coinCost.toLocaleString()} {currency.softPlural.toLowerCase()} (Tier {g.tier})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">
+                    Name *
+                  </label>
+                  <input
+                    required
+                    value={newGiftForm.name}
+                    onChange={(e) => setNewGiftForm((f) => ({ ...f, name: e.target.value }))}
+                    placeholder="e.g. Golden Phoenix"
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">
+                    Emoji *
+                  </label>
+                  <input
+                    required
+                    maxLength={10}
+                    value={newGiftForm.emoji}
+                    onChange={(e) => setNewGiftForm((f) => ({ ...f, emoji: e.target.value }))}
+                    placeholder="🔥"
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">
+                    {currency.softSingular} Cost *
+                  </label>
+                  <input
+                    required
+                    type="number"
+                    min="1"
+                    value={newGiftForm.coinCost}
+                    onChange={(e) => setNewGiftForm((f) => ({ ...f, coinCost: e.target.value }))}
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">
+                    Tier (1–5) *
+                  </label>
+                  <select
+                    value={newGiftForm.tier}
+                    onChange={(e) => setNewGiftForm((f) => ({ ...f, tier: e.target.value }))}
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  >
+                    {[1, 2, 3, 4, 5].map((tval) => (
+                      <option key={tval} value={tval}>
+                        T{tval} — {GIFT_TIER_LABELS[tval]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">
+                    Animation URL (optional)
+                  </label>
+                  <input
+                    value={newGiftForm.animationUrl}
+                    onChange={(e) => setNewGiftForm((f) => ({ ...f, animationUrl: e.target.value }))}
+                    placeholder="https://…"
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">
+                    Spectacle threshold {currency.softPlural.toLowerCase()} (optional)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newGiftForm.spectacleThresholdCoins}
+                    onChange={(e) => setNewGiftForm((f) => ({ ...f, spectacleThresholdCoins: e.target.value }))}
+                    className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  />
+                </div>
+              </>
+            )}
 
             {/* Start date/time */}
             <div>
@@ -251,7 +397,13 @@ export default function AdminGiftDropPage() {
             </button>
             <button
               type="submit"
-              disabled={submitting || !form.giftItemId || !form.startAt}
+              disabled={
+                submitting ||
+                !form.startAt ||
+                (giftSource === "existing"
+                  ? !form.giftItemId
+                  : !newGiftForm.name.trim() || !newGiftForm.emoji.trim() || !newGiftForm.coinCost)
+              }
               className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             >
               {submitting ? "Scheduling…" : "Schedule Drop"}

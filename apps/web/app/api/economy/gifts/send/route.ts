@@ -225,7 +225,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
               gi.spectacle_threshold_coins, gt.id AS gift_type_id
        FROM gift_items gi
        LEFT JOIN gift_types gt ON gt.name = gi.name AND gt.is_active = TRUE
-       WHERE gi.id = $1 AND gi.is_active = TRUE
+       WHERE gi.id = $1 AND gi.is_active = TRUE AND gi.is_retired = FALSE
        LIMIT 1`,
       [body.giftItemId]
     );

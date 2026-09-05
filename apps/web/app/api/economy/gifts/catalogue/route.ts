@@ -77,7 +77,7 @@ export const GET = withAuth(async (_req: NextRequest, _ctx) => {
       `SELECT id, name, emoji, coin_cost, tier,
               animation_url, spectacle_threshold_coins, is_active
        FROM gift_items
-       WHERE is_active = TRUE
+       WHERE is_active = TRUE AND is_retired = FALSE
        ORDER BY tier ASC, coin_cost ASC`
     );
 

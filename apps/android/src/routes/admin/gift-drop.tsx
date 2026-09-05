@@ -13,6 +13,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 import {
   AdminCard,
   AdminCardSkeleton,
@@ -65,6 +66,7 @@ async function fetchGiftItems(): Promise<GiftItem[]> {
 
 function AdminGiftDropPage() {
   const { t } = useTranslation();
+  const currency = useCurrency();
   const qc = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [giftItemId, setGiftItemId] = useState('');
@@ -118,7 +120,7 @@ function AdminGiftDropPage() {
                 <option value="">{t('admin.giftDrop.selectItem', 'Select a gift item…')}</option>
                 {giftItems?.map((g) => (
                   <option key={g.id} value={g.id}>
-                    {g.emoji} {g.name} — {g.coinCost.toLocaleString()} {t('admin.giftDrop.coins', 'coins')} (T{g.tier})
+                    {g.emoji} {g.name} — {g.coinCost.toLocaleString()} {currency.softPlural.toLowerCase()} (T{g.tier})
                   </option>
                 ))}
               </select>

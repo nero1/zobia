@@ -12,6 +12,7 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
+import { createGiftItem } from "@/lib/economy/giftItems";
 
 interface GiftItemRow {
   id: string;
@@ -102,21 +103,9 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
   try {
     const body = await validateBody(req, createGiftSchema);
 
-    const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO gift_items (name, emoji, coin_cost, tier, animation_url, spectacle_threshold_coins, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE)
-       RETURNING id`,
-      [
-        body.name,
-        body.emoji,
-        body.coinCost,
-        body.tier,
-        body.animationUrl ?? null,
-        body.spectacleThresholdCoins ?? null,
-      ]
-    );
+    const gift = await createGiftItem(body, db);
 
-    return NextResponse.json({ success: true, data: { id: rows[0].id }, error: null }, { status: 201 });
+    return NextResponse.json({ success: true, data: { id: gift.id }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }
