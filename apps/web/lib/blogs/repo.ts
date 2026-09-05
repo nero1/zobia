@@ -6,7 +6,7 @@
  */
 
 import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db/interface";
+import type { SqlParam, TransactionClient } from "@/lib/db/interface";
 
 export interface BlogSummaryRow {
   id: string;
@@ -164,6 +164,11 @@ export interface BlogRow {
   status_reason: string | null;
   subscriber_count: number;
   post_count: number;
+  business_account_id: string | null;
+  slot_source: string;
+  slot_unlock_currency: string | null;
+  slot_unlock_cost: number | null;
+  slot_unlock_reference_id: string | null;
   created_at: string;
   owner_username: string | null;
   owner_display_name: string | null;
@@ -180,14 +185,49 @@ export async function getBlogBySlug(slug: string): Promise<BlogRow | null> {
   return rows[0] ?? null;
 }
 
-export async function getBlogByOwner(ownerId: string): Promise<BlogRow | null> {
+/**
+ * All blogs owned by a user — personal (business_account_id IS NULL) and,
+ * since owner_id on a business blog is the business account's owner user,
+ * business blogs too. This is the single query behind GET /api/blogs/me:
+ * "my blogs across personal + business scopes" needs nothing more than
+ * filtering this list by `business_account_id`.
+ */
+export async function getBlogsByOwner(ownerId: string): Promise<BlogRow[]> {
   const { rows } = await db.query<BlogRow>(
     `SELECT b.*, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url
      FROM blogs b JOIN users u ON u.id = b.owner_id
-     WHERE b.owner_id = $1 AND b.deleted_at IS NULL LIMIT 1`,
+     WHERE b.owner_id = $1 AND b.deleted_at IS NULL
+     ORDER BY b.created_at ASC`,
     [ownerId]
   );
-  return rows[0] ?? null;
+  return rows;
+}
+
+/** Blogs belonging to a specific business account (business-scope blogs only). */
+export async function getBlogsByBusinessAccount(businessAccountId: string): Promise<BlogRow[]> {
+  const { rows } = await db.query<BlogRow>(
+    `SELECT b.*, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url
+     FROM blogs b JOIN users u ON u.id = b.owner_id
+     WHERE b.business_account_id = $1 AND b.deleted_at IS NULL
+     ORDER BY b.created_at ASC`,
+    [businessAccountId]
+  );
+  return rows;
+}
+
+/** Active (non-deactivated, non-deleted) blog count for a scope — used by quota checks. Pass a TransactionClient to read under a row lock. */
+export async function countActiveBlogsForScope(
+  scope: { ownerId: string; businessAccountId: string | null },
+  tx?: TransactionClient
+): Promise<number> {
+  const client = tx ?? db;
+  const { rows } = await client.query<{ count: string }>(
+    scope.businessAccountId
+      ? `SELECT COUNT(*)::text AS count FROM blogs WHERE business_account_id = $1 AND deleted_at IS NULL AND status != 'deactivated'`
+      : `SELECT COUNT(*)::text AS count FROM blogs WHERE owner_id = $1 AND business_account_id IS NULL AND deleted_at IS NULL AND status != 'deactivated'`,
+    [scope.businessAccountId ?? scope.ownerId]
+  );
+  return parseInt(rows[0]?.count ?? "0", 10);
 }
 
 export interface BlogPostSummaryRow {

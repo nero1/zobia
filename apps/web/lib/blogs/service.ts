@@ -20,14 +20,24 @@ import { db } from "@/lib/db";
 import type { SqlParam, TransactionClient } from "@/lib/db/interface";
 import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
-import { debitCoins } from "@/lib/economy/coins";
+import { debitCoins, checkAndDebit } from "@/lib/economy/coins";
+import { debitStars } from "@/lib/economy/stars";
 import { sanitizeBlogPostHtml } from "@/lib/security/htmlSanitizer";
 import { generateUniqueSlug, generateUniqueBlogPostSlug } from "@/lib/slug";
-import { getMaxBlogPosts, getMaxWordsForPlan, getBlogRevSharePct, getBlogEconomyConfig } from "@/lib/blogs/limits";
+import {
+  getMaxBlogPosts,
+  getMaxWordsForPlan,
+  getBlogRevSharePct,
+  getBlogEconomyConfig,
+  getIncludedPersonalBlogCount,
+  getIncludedBusinessBlogCount,
+  getExtraBlogSlotCost,
+  type BlogSlotCurrency,
+} from "@/lib/blogs/limits";
 import { insertNotificationBatch } from "@/lib/notifications/insert";
-import { ApiError, badRequest, forbidden, notFound, conflict } from "@/lib/api/errors";
+import { ApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
-import { getBlogByOwner } from "@/lib/blogs/repo";
+import { countActiveBlogsForScope } from "@/lib/blogs/repo";
 
 // ---------------------------------------------------------------------------
 // Permissions
@@ -61,24 +71,122 @@ export interface CreateBlogInput {
   title: string;
   tagline?: string | null;
   description?: string | null;
+  /** Create as a blog belonging to this business account (must be owned by userId) instead of a personal blog. */
+  businessAccountId?: string | null;
+  /** Which currency to pay with if this blog is beyond the scope's included quota. Defaults to the first admin-accepted currency. */
+  paymentCurrency?: BlogSlotCurrency;
 }
 
-export async function createBlog(input: CreateBlogInput): Promise<{ id: string; slug: string }> {
+export interface CreateBlogResult {
+  id: string;
+  slug: string;
+  /** 'included' if this blog fit within the free quota, 'purchased' if an extra-slot unlock was charged. */
+  slotSource: "included" | "purchased";
+  slotUnlockCurrency: BlogSlotCurrency | null;
+  slotUnlockCost: number | null;
+}
+
+/**
+ * Creates a blog for the caller — either a personal blog (default) or a
+ * business blog (`businessAccountId` set, must be a business account the
+ * caller owns). Blogs are no longer 1:1 with an owner (migration 0018):
+ * each scope (the user's personal blogs, and separately each business
+ * account they own) gets an included-blog quota from lib/blogs/limits.ts;
+ * a blog beyond that quota requires a one-time Credits/Stars unlock before
+ * the row is created.
+ */
+export async function createBlog(input: CreateBlogInput): Promise<CreateBlogResult> {
   await requireFeatureEnabled("blogs");
 
-  const existing = await getBlogByOwner(input.userId);
-  if (existing) throw conflict("You already have a blog.", "BLOG_ALREADY_EXISTS");
+  let businessAccountId: string | null = null;
+  let businessTier: string | null = null;
+  if (input.businessAccountId) {
+    const { rows } = await db.query<{ id: string; user_id: string; tier: string; status: string }>(
+      `SELECT id, user_id, tier, status FROM business_accounts WHERE id = $1 LIMIT 1`,
+      [input.businessAccountId]
+    );
+    const account = rows[0];
+    if (!account) throw notFound("Business account not found");
+    if (account.user_id !== input.userId) throw forbidden("You don't own this business account.");
+    if (account.status !== "active") {
+      throw forbidden("Your business account must be active to create a blog.", "BUSINESS_ACCOUNT_INACTIVE");
+    }
+    businessAccountId = account.id;
+    businessTier = account.tier;
+  }
+
+  const { rows: userRows } = await db.query<{ plan: string; level_creator: number }>(
+    `SELECT plan, level_creator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    [input.userId]
+  );
+  const user = userRows[0];
+  if (!user) throw notFound("User not found");
+
+  const includedCount = businessAccountId
+    ? await getIncludedBusinessBlogCount(businessTier!)
+    : await getIncludedPersonalBlogCount(user.plan, user.level_creator);
 
   const blogId = randomUUID();
   const slug = await generateUniqueSlug("blog", input.title, blogId);
 
-  await db.query(
-    `INSERT INTO blogs (id, owner_id, slug, title, tagline, description, status)
-     VALUES ($1, $2, $3, $4, $5, $6, 'active')`,
-    [blogId, input.userId, slug, input.title.trim(), input.tagline?.trim() || null, input.description?.trim() || null]
-  );
+  // Lock a stable row for the scope (the business account for a business
+  // blog, the user for a personal blog) across the count-check + insert so
+  // two concurrent creates for the same scope can't both slip in under the
+  // quota — mirrors POST /api/business/pages's BIZ-PAGE-RACE guard.
+  const lockSql = businessAccountId
+    ? `SELECT id FROM business_accounts WHERE id = $1 FOR UPDATE`
+    : `SELECT id FROM users WHERE id = $1 FOR UPDATE`;
+  const lockParam = businessAccountId ?? input.userId;
 
-  return { id: blogId, slug };
+  const outcome = await db.transaction(async (tx: TransactionClient) => {
+    await tx.query(lockSql, [lockParam]);
+    const used = await countActiveBlogsForScope({ ownerId: input.userId, businessAccountId }, tx);
+
+    let slotSource: "included" | "purchased" = "included";
+    let slotCurrency: BlogSlotCurrency | null = null;
+    let slotCost: number | null = null;
+    let referenceId: string | null = null;
+
+    if (used >= includedCount) {
+      slotSource = "purchased";
+      const slotPricing = await getExtraBlogSlotCost(businessAccountId ? "business" : "personal");
+      const currency: BlogSlotCurrency | undefined =
+        input.paymentCurrency && slotPricing.acceptedCurrencies.includes(input.paymentCurrency)
+          ? input.paymentCurrency
+          : slotPricing.acceptedCurrencies[0];
+      if (!currency) {
+        throw forbidden("Extra blog slots are not available for purchase right now.", "BLOG_SLOT_PAYMENT_UNAVAILABLE");
+      }
+
+      // Not fully replay-safe (the timestamp makes each attempt's reference
+      // unique) — a client retry after a network drop could double-charge.
+      // Acceptable for now per product spec; a client-supplied idempotency
+      // key would close this gap if it becomes a real issue.
+      referenceId = `blog_extra_slot:${input.userId}:${Date.now()}`;
+      if (currency === "credits") {
+        await checkAndDebit(input.userId, slotPricing.credits, "blog_extra_slot", referenceId, "Unlocked an additional blog slot", { businessAccountId }, tx);
+        slotCost = slotPricing.credits;
+      } else {
+        await debitStars(input.userId, slotPricing.stars, "blog_extra_slot", referenceId, "Unlocked an additional blog slot", tx);
+        slotCost = slotPricing.stars;
+      }
+      slotCurrency = currency;
+    }
+
+    await tx.query(
+      `INSERT INTO blogs
+         (id, owner_id, slug, title, tagline, description, status, business_account_id, slot_source, slot_unlock_currency, slot_unlock_cost, slot_unlock_reference_id)
+       VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $11)`,
+      [
+        blogId, input.userId, slug, input.title.trim(), input.tagline?.trim() || null, input.description?.trim() || null,
+        businessAccountId, slotSource, slotCurrency, slotCost, referenceId,
+      ]
+    );
+
+    return { slotSource, slotCurrency, slotCost };
+  });
+
+  return { id: blogId, slug, slotSource: outcome.slotSource, slotUnlockCurrency: outcome.slotCurrency, slotUnlockCost: outcome.slotCost };
 }
 
 export interface UpdateBlogSettingsInput {
@@ -607,9 +715,9 @@ export async function transferBlogOwnership(blogId: string, moderatorId: string,
   const { rows: userRows } = await db.query<{ id: string }>(`SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [newOwnerId]);
   if (!userRows[0]) throw notFound("Target user not found");
 
-  const existingBlog = await getBlogByOwner(newOwnerId);
-  if (existingBlog) throw conflict("The target user already owns a blog.", "BLOG_OWNER_ALREADY_HAS_BLOG");
-
+  // Blogs are no longer 1:1 with an owner (migration 0018) — a target user
+  // already having other blogs is no longer a conflict, so there's nothing
+  // to check here beyond the target existing.
   const { rows } = await db.query<{ owner_id: string }>(
     `UPDATE blogs SET owner_id = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING owner_id`,
     [blogId, newOwnerId]

@@ -3,8 +3,10 @@
 /**
  * app/(app)/blogs/new/page.tsx
  *
- * Create the caller's blog (one per user). On success, redirects to the
- * creator dashboard.
+ * Create a personal blog for the caller (quota-gated — see
+ * lib/blogs/limits.ts; this page doesn't yet surface extra-slot purchase or
+ * business-blog creation, that's a later UI phase). On success, redirects to
+ * the creator dashboard.
  */
 
 import { useState } from "react";
