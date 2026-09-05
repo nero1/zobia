@@ -2582,11 +2582,16 @@ principle as § 31 Answers).
   (§32.2), sorted by most recently updated first — "updated" meaning the
   blog's most recent published article, falling back to the blog's creation
   date for blogs with no articles yet.
-- Every user may create **one blog** (`POST /api/blogs`). The creator
-  dashboard (`/blogs/dashboard`) manages articles and pages (draft/
-  published), categories, comment moderation queue, stats, and blog
-  settings (comments on/off + moderation, author-info-box visibility,
-  subscriber-count visibility, theme).
+- Users may create one or more blogs (`POST /api/blogs`), gated by the
+  multi-blog quota system in § 32.1.1 — a **personal** blog (default) or,
+  additively, a **business** blog under a business account they own
+  (`businessAccountId`). The creator dashboard (`/blogs/dashboard`) manages
+  articles and pages (draft/published), categories, comment moderation
+  queue, stats, and blog settings (comments on/off + moderation,
+  author-info-box visibility, subscriber-count visibility, theme) — one
+  blog at a time; a blog picker across the caller's blogs (`GET
+  /api/blogs/me`, now returning `blogs: []` for all of a user's blogs
+  across both scopes) lands in a later phase.
 - **Word limits**: Free-plan articles up to 1,000 words; Plus/Pro/Max up to
   5,000 words. Pages share the same per-plan limit. Admin-configurable
   per plan (`blog_max_words_<plan>` in `x_manifest`).
@@ -2598,6 +2603,53 @@ principle as § 31 Answers).
   (`GET /api/blogs/<slug>/stats/export`). Post view/like/comment counts and
   earnings are visible to the post's creator, blog moderators, and admins
   only.
+
+### 32.1.1 Multi-blog quotas (v2.02)
+
+Blogs are no longer strictly 1:1 with a user. A user's blog quota has two
+independent, additive axes — a personal quota from their own plan/level,
+and, only if they also own a business account, a separate business quota
+from that account's tier. Every number below is admin-configurable via
+`x_manifest`; values shown are the shipped defaults.
+
+- **Personal accounts** — included blog count depends on plan, and for the
+  Free plan, on the owner's Creator-track level (`users.level_creator`,
+  the same creator/reputation level used for other level-gated perks
+  elsewhere on the platform):
+  - **Free plan, at/above Level 2** (`blog_creator_level_threshold`): 1
+    blog included (`blog_included_free`).
+  - **Free plan, below Level 2**: 0 blogs included — every blog, including
+    the first, requires the extra-slot unlock below.
+  - **Plus**: 2 included (`blog_included_plus`) — no level gate.
+  - **Pro**: 5 included (`blog_included_pro`) — no level gate.
+  - **Max**: 10 included (`blog_included_max`) — no level gate.
+- **Business accounts** (additive to the owner's personal quota, mirrors
+  the Business Pages tier-slot convention of § 17): Starter 5
+  (`blog_business_included_starter`), Growth 20
+  (`blog_business_included_growth`), Enterprise 50
+  (`blog_business_included_enterprise`).
+- **Extra blog slots**: a blog beyond a scope's included count costs a
+  one-time unlock, charged automatically at creation time, before the
+  blog is created. Personal: 500 Credits or 3 Stars
+  (`blog_extra_slot_cost_credits` / `blog_extra_slot_cost_stars`), caller's
+  choice of currency, subject to `blog_extra_slot_currencies` (which
+  currencies the admin accepts — comma list, default `credits,stars`).
+  Business: independently priced, same shape
+  (`blog_business_extra_slot_cost_credits` / `_cost_stars` /
+  `_currencies`), default identical to personal (500 Credits / 3 Stars).
+  Each blog row remembers how its slot was acquired
+  (`blogs.slot_source` = `included` or `purchased`, plus the currency/
+  amount/ledger-reference actually charged) so quota recalculation after a
+  plan or tier change never re-charges or silently drops an already-paid
+  slot.
+- **Business downgrade grace period**: business blogs are subject to the
+  same self-service downgrade grace period as Business Pages (§ 17,
+  `business_downgrade_grace_days`, default 30). When the grace period
+  elapses, `sweepBusinessDowngrades` deactivates the newest business
+  blogs beyond the new tier's included count (oldest-kept, same rule as
+  Business Pages) — including ones that were individually paid-unlocked,
+  which are not refunded, again matching how excess Business Pages are
+  handled.
 
 ### 32.2 Categories, comments & subscriptions
 
@@ -2680,13 +2732,18 @@ principle as § 31 Answers).
 - **Ownership transfer** (admin-only): `POST
   /api/admin/blogs/<id>/transfer` reassigns a blog (and all of its posts)
   to a different user — e.g. for account-recovery or dispute resolution.
-  A target user who already owns a blog cannot receive a second one (one
-  blog per user is enforced platform-wide).
+  Since multi-blog (§ 32.1.1), a target user already owning other blogs is
+  no longer a blocker — the transferred blog simply becomes one more of
+  theirs.
 
 ### 32.6 Data model
 
-New tables: `blogs` (one row per owner — slug, status, comment/author-box/
-subscriber-count settings, theme), `blog_categories`, `blog_posts`
+New tables: `blogs` (slug, status, comment/author-box/subscriber-count
+settings, theme; since migration 0018/§32.1.1, `owner_id` is no longer
+unique — a user may own several — and gains `business_account_id`
+(nullable; set for a business blog) plus `slot_source`/
+`slot_unlock_currency`/`slot_unlock_cost`/`slot_unlock_reference_id` for
+extra-slot-purchase bookkeeping), `blog_categories`, `blog_posts`
 (articles + pages, `type` discriminator, draft/published status, word
 count, paywall fields), `blog_post_likes`, `blog_post_comments`
 (self-referencing `parent_comment_id`, `visible`/`pending`/`removed`
