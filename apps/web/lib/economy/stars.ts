@@ -34,7 +34,9 @@ export type StarTransactionType =
   | "game_play_cost"
   | "moment_created"
   | "blog_extra_slot"
-  | "blog_theme_purchase";
+  | "blog_theme_purchase"
+  | "blog_gift_purchase"
+  | "blog_gift_earnings";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
