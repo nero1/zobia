@@ -11,6 +11,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { DEFAULT_MENU_CONFIG, type BlogMenuConfig, type BlogMenuItem } from "@/lib/blogs/menu";
 
 interface BlogRow {
   id: string;
@@ -22,6 +23,7 @@ interface BlogRow {
   show_subscriber_count: boolean;
   avatar_url: string | null;
   cover_image_url: string | null;
+  menu_config?: BlogMenuConfig;
 }
 
 interface CategoryRow {
@@ -58,6 +60,9 @@ export default function BlogSettingsPage() {
   const [newCategory, setNewCategory] = useState("");
   const [themes, setThemes] = useState<ThemeItem[]>([]);
   const [saving, setSaving] = useState(false);
+  const [menuConfig, setMenuConfig] = useState<BlogMenuConfig>(DEFAULT_MENU_CONFIG);
+  const [newItemLabel, setNewItemLabel] = useState("");
+  const [newItemUrl, setNewItemUrl] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -68,6 +73,7 @@ export default function BlogSettingsPage() {
       const b = blogs.length === 1 ? blogs[0] : blogs.find((x) => x.slug === blogParam);
       if (!b) { router.replace("/blogs/dashboard"); return; }
       setBlog(b);
+      setMenuConfig(b.menu_config ?? DEFAULT_MENU_CONFIG);
 
       const catRes = await fetch(`/api/blogs/${b.slug}/categories`, { credentials: "include" });
       const catJson = await catRes.json().catch(() => null);
@@ -79,9 +85,9 @@ export default function BlogSettingsPage() {
     })();
   }, [router, blogParam]);
 
-  async function saveSetting(patch: Partial<BlogRow>) {
+  async function saveSetting(patch: Partial<BlogRow> | { menuConfig: BlogMenuConfig }) {
     if (!blog) return;
-    setBlog({ ...blog, ...patch });
+    setBlog({ ...blog, ...("menuConfig" in patch ? { menu_config: patch.menuConfig } : patch) });
     setSaving(true);
     try {
       await fetch(`/api/blogs/${blog.slug}`, {
@@ -109,6 +115,41 @@ export default function BlogSettingsPage() {
       const catJson = await catRes.json().catch(() => null);
       setCategories(catJson?.data?.categories ?? []);
     }
+  }
+
+  async function saveMenuConfig(next: BlogMenuConfig) {
+    setMenuConfig(next);
+    await saveSetting({ menuConfig: next });
+  }
+
+  function addMenuItem() {
+    if (!newItemLabel.trim()) return;
+    const item: BlogMenuItem = {
+      id: `item-${Date.now()}`,
+      label: newItemLabel.trim(),
+      type: "url",
+      externalUrl: newItemUrl.trim() || "/",
+    };
+    void saveMenuConfig({ ...menuConfig, items: [...menuConfig.items, item] });
+    setNewItemLabel("");
+    setNewItemUrl("");
+  }
+
+  function removeMenuItem(id: string) {
+    void saveMenuConfig({ ...menuConfig, items: menuConfig.items.filter((it) => it.id !== id) });
+  }
+
+  function moveMenuItem(id: string, direction: -1 | 1) {
+    const items = [...menuConfig.items];
+    const idx = items.findIndex((it) => it.id === id);
+    const swapWith = idx + direction;
+    if (idx < 0 || swapWith < 0 || swapWith >= items.length) return;
+    [items[idx], items[swapWith]] = [items[swapWith], items[idx]];
+    void saveMenuConfig({ ...menuConfig, items });
+  }
+
+  function setOrientation(orientation: BlogMenuConfig["orientation"]) {
+    void saveMenuConfig({ ...menuConfig, orientation });
   }
 
   async function buyOrEquipTheme(itemId: string, owned: boolean) {
@@ -169,6 +210,60 @@ export default function BlogSettingsPage() {
           />
           <button onClick={addCategory} className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90">
             {t("blogs.settings.addCategory", "Add")}
+          </button>
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-sm font-semibold text-foreground mb-2">{t("blogs.settings.menuTitle", "Navigation menu")}</h2>
+        <p className="mb-2 text-xs text-muted-foreground">
+          {t("blogs.settings.menuHint", "Shown to every visitor on your blog. On desktop web this respects the orientation below; on Android and mobile web/PWA it's always a vertical menu inside the hamburger icon.")}
+        </p>
+
+        <div className="mb-3 flex gap-1 rounded-xl border border-border bg-neutral-900/50 p-1 w-fit">
+          {(["horizontal", "vertical"] as const).map((o) => (
+            <button
+              key={o}
+              onClick={() => setOrientation(o)}
+              className={`rounded-lg px-4 py-1.5 text-sm font-semibold capitalize transition-colors ${menuConfig.orientation === o ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {o === "horizontal" ? t("blogs.settings.menuHorizontal", "Horizontal (desktop)") : t("blogs.settings.menuVertical", "Vertical (desktop)")}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-1.5 mb-3">
+          {menuConfig.items.map((item, i) => (
+            <div key={item.id} className="flex items-center gap-2 rounded-xl border border-border bg-card p-2.5">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-medium text-foreground truncate">{item.label}</div>
+                <div className="text-xs text-muted-foreground truncate">
+                  {item.type === "url" ? item.externalUrl : `${item.type}: ${item.targetId ?? "—"}`}
+                </div>
+              </div>
+              <button onClick={() => moveMenuItem(item.id, -1)} disabled={i === 0} className="rounded-lg bg-neutral-800 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-700 disabled:opacity-30">↑</button>
+              <button onClick={() => moveMenuItem(item.id, 1)} disabled={i === menuConfig.items.length - 1} className="rounded-lg bg-neutral-800 px-2 py-1 text-xs text-neutral-200 hover:bg-neutral-700 disabled:opacity-30">↓</button>
+              <button onClick={() => removeMenuItem(item.id)} className="rounded-lg bg-red-950/40 px-2 py-1 text-xs text-red-400 hover:bg-red-950/70">{t("blogs.settings.menuRemove", "Remove")}</button>
+            </div>
+          ))}
+          {menuConfig.items.length === 0 && <p className="text-xs text-muted-foreground">{t("blogs.settings.menuEmpty", "No menu items yet.")}</p>}
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <input
+            value={newItemLabel}
+            onChange={(e) => setNewItemLabel(e.target.value)}
+            placeholder={t("blogs.settings.menuLabelPlaceholder", "Label (e.g. About)")}
+            className="flex-1 min-w-[140px] rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+          />
+          <input
+            value={newItemUrl}
+            onChange={(e) => setNewItemUrl(e.target.value)}
+            placeholder={t("blogs.settings.menuUrlPlaceholder", "Link (e.g. /about-page-post-slug or https://…)")}
+            className="flex-1 min-w-[180px] rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
+          />
+          <button onClick={addMenuItem} className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90">
+            {t("blogs.settings.menuAdd", "Add")}
           </button>
         </div>
       </div>

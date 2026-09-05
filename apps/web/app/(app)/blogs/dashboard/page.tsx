@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { withBlogParam } from "@/lib/blogs/useSelectedBlog";
+import { ArticleQuotaNotice } from "@/components/blogs/ArticleQuotaNotice";
 
 interface BlogRow {
   id: string;
@@ -50,6 +51,8 @@ export default function BlogDashboardPage() {
   const [status, setStatus] = useState<StatusTab>("published");
   const [posts, setPosts] = useState<PostRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [batchBusy, setBatchBusy] = useState(false);
 
   useEffect(() => {
     fetch("/api/blogs/me", { credentials: "include" })
@@ -79,12 +82,44 @@ export default function BlogDashboardPage() {
   }, [blog, type, status]);
 
   useEffect(() => { void fetchPosts(); }, [fetchPosts]);
+  useEffect(() => { setSelected(new Set()); }, [type, status, blog]);
 
   async function handleDelete(postSlug: string) {
     if (!blog) return;
     if (!confirm(t("blogs.dashboard.confirmDelete", "Delete this post?"))) return;
     await fetch(`/api/blogs/${blog.slug}/posts/${postSlug}`, { method: "DELETE", credentials: "include" });
     void fetchPosts();
+  }
+
+  function toggleSelected(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    setSelected((prev) => (prev.size === posts.length ? new Set() : new Set(posts.map((p) => p.id))));
+  }
+
+  async function handleBatch(action: "draft" | "delete") {
+    if (!blog || selected.size === 0) return;
+    if (action === "delete" && !confirm(t("blogs.dashboard.confirmBatchDelete", "Delete {{count}} selected post(s)? This can't be undone.", { count: selected.size }))) return;
+    setBatchBusy(true);
+    try {
+      await fetch(`/api/blogs/${blog.slug}/posts/batch`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ postIds: Array.from(selected), action }),
+      });
+      setSelected(new Set());
+      void fetchPosts();
+    } finally {
+      setBatchBusy(false);
+    }
   }
 
   if (blog === undefined) return <div className="mx-auto max-w-4xl px-4 py-8 text-muted-foreground">{t("blogs.loading", "Loading…")}</div>;
@@ -145,6 +180,8 @@ export default function BlogDashboardPage() {
         </div>
       </div>
 
+      <ArticleQuotaNotice blogSlug={blog.slug} />
+
       <div className="mb-4 flex gap-1 rounded-xl border border-border bg-neutral-900/50 p-1 w-fit">
         {(["article", "page"] as TypeTab[]).map((tKey) => (
           <button key={tKey} onClick={() => setType(tKey)} className={`rounded-lg px-4 py-1.5 text-sm font-semibold capitalize transition-colors ${type === tKey ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}>
@@ -167,8 +204,41 @@ export default function BlogDashboardPage() {
         <div className="text-center py-16 text-muted-foreground">{t("blogs.dashboard.empty", "Nothing here yet.")}</div>
       ) : (
         <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-neutral-900/40 px-3 py-2">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground">
+              <input type="checkbox" checked={selected.size > 0 && selected.size === posts.length} onChange={toggleSelectAll} />
+              {selected.size > 0
+                ? t("blogs.dashboard.selectedCount", "{{count}} selected", { count: selected.size })
+                : t("blogs.dashboard.selectAll", "Select all")}
+            </label>
+            {selected.size > 0 && (
+              <div className="ml-auto flex gap-2">
+                <button
+                  disabled={batchBusy}
+                  onClick={() => handleBatch("draft")}
+                  className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 disabled:opacity-50"
+                >
+                  {t("blogs.dashboard.batchDraft", "Move to draft")}
+                </button>
+                <button
+                  disabled={batchBusy}
+                  onClick={() => handleBatch("delete")}
+                  className="rounded-lg bg-red-950/40 px-3 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/70 disabled:opacity-50"
+                >
+                  {t("blogs.dashboard.batchDelete", "Delete selected")}
+                </button>
+              </div>
+            )}
+          </div>
           {posts.map((p) => (
             <div key={p.id} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
+              <input
+                type="checkbox"
+                className="flex-shrink-0"
+                checked={selected.has(p.id)}
+                onChange={() => toggleSelected(p.id)}
+                aria-label={t("blogs.dashboard.selectPost", "Select {{title}}", { title: p.title })}
+              />
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-foreground text-sm truncate">{p.title}</span>
