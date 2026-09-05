@@ -124,7 +124,10 @@ export default function AdminBlogsPage() {
     <div className="relative">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Blogs</h1>
-        <Link href="/gate44/blogs/themes" className="text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400">Manage Themes →</Link>
+        <div className="flex gap-4">
+          <Link href="/gate44/blogs/themes" className="text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400">Manage Themes →</Link>
+          <Link href="/gate44/blogs/gifts" className="text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400">Manage Gifts →</Link>
+        </div>
       </div>
 
       {toast && (
