@@ -35,7 +35,6 @@ interface GiftHistoryRow {
   gift_emoji: string;
   gift_tier: number;
   gift_type_name: string | null;
-  gift_type_slug: string | null;
 }
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
@@ -93,8 +92,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
               gi.name        AS gift_name,
               gi.emoji       AS gift_emoji,
               gi.tier        AS gift_tier,
-              gt.name        AS gift_type_name,
-              gt.slug        AS gift_type_slug
+              gt.name        AS gift_type_name
        FROM gifts g
        JOIN users s            ON s.id = g.sender_id
        JOIN users r            ON r.id = g.recipient_id
@@ -130,7 +128,6 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         emoji: row.gift_emoji,
         tier: row.gift_tier,
         typeName: row.gift_type_name ?? null,
-        typeSlug: row.gift_type_slug ?? null,
       },
     }));
 
