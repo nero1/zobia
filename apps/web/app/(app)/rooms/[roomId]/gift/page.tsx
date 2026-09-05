@@ -204,10 +204,10 @@ export default function RoomGiftPage() {
                     }`}
                   >
                     <span className="text-2xl">{gift.emoji}</span>
-                    <span className="mt-1 text-center text-[10px] leading-tight text-neutral-500 dark:text-neutral-400">
+                    <span className="mt-1 w-full truncate text-center text-xs leading-tight text-neutral-500 dark:text-neutral-400">
                       {gift.name}
                     </span>
-                    <span className="mt-0.5 text-[10px] font-bold text-amber-600">
+                    <span className="mt-0.5 text-[11px] font-bold text-amber-600">
                       🪙{gift.coinCost.toLocaleString()}
                     </span>
                   </button>

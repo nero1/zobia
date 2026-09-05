@@ -1923,6 +1923,7 @@
   "gifts.send.walletBalance": "🪙 {{amount}} credits available",
   "gifts.sendBtn": "🎁 Send a Gift",
   "gifts.subtitle": "Send gifts to friends and see your gift history",
+  "gifts.tabs.catalog": "🗂️ Catalog",
   "gifts.tabs.received": "📥 Received",
   "gifts.tabs.sent": "📤 Sent",
   "gifts.title": "Gifts",
