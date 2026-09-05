@@ -21,7 +21,7 @@ import type { SqlParam, TransactionClient } from "@/lib/db/interface";
 import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 import { debitCoins, checkAndDebit, creditCoins } from "@/lib/economy/coins";
-import { debitStars } from "@/lib/economy/stars";
+import { debitStars, creditStars } from "@/lib/economy/stars";
 import { sanitizeBlogPostHtml, plainTextToBlogPostHtml } from "@/lib/security/htmlSanitizer";
 import { generateUniqueSlug, generateUniqueBlogPostSlug, recordSlugRedirect } from "@/lib/slug";
 import { normalizeMenuConfig, type BlogMenuConfig, type BlogMenuItem } from "@/lib/blogs/menu";
@@ -39,7 +39,15 @@ import {
 import { insertNotificationBatch } from "@/lib/notifications/insert";
 import { ApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
-import { countActiveBlogsForScope } from "@/lib/blogs/repo";
+import {
+  countActiveBlogsForScope,
+  listGiftTiersForOwner as repoListGiftTiersForOwner,
+  listPublicGiftTiers as repoListPublicGiftTiers,
+  listGiftPurchasesForBlog as repoListGiftPurchasesForBlog,
+  getGiftTierById,
+  getGiftPurchaseForBuyer,
+  type BlogGiftTierRow,
+} from "@/lib/blogs/repo";
 
 // ---------------------------------------------------------------------------
 // Permissions
@@ -853,6 +861,7 @@ export interface UnlockResult {
 
 export async function unlockPost(postId: string, userId: string, userPlan: string): Promise<UnlockResult> {
   await requireFeatureEnabled("blogs");
+  await requireFeatureEnabled("blogMonetization");
 
   const { rows: postRows } = await db.query<{ id: string; blog_id: string; author_id: string; is_paywalled: boolean; paywall_credits_cost: number }>(
     `SELECT id, blog_id, author_id, is_paywalled, paywall_credits_cost FROM blog_posts WHERE id = $1 AND deleted_at IS NULL AND status = 'published' LIMIT 1`,
@@ -1023,6 +1032,7 @@ export async function getPostTreasury(postId: string): Promise<TreasuryState | n
  */
 export async function fundPostTreasury(ownerId: string, postId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
   await requireFeatureEnabled("blogs");
+  await requireFeatureEnabled("blogMonetization");
   if (!Number.isInteger(amount) || amount <= 0) throw badRequest("Amount must be a positive integer.", "BLOG_TREASURY_INVALID_AMOUNT");
   if (!Number.isInteger(maxClaimants) || maxClaimants <= 0) throw badRequest("Max claimants must be a positive integer.", "BLOG_TREASURY_INVALID_MAX_CLAIMANTS");
 
@@ -1060,6 +1070,11 @@ export async function fundPostTreasury(ownerId: string, postId: string, amount: 
  * addComment()/recordShare() and never surface its absence as an error.
  */
 export async function claimTreasuryReward(postId: string, userId: string, claimType: "comment" | "share"): Promise<{ amount: number } | null> {
+  // Best-effort claim: a monetization kill-switch just means no payout, not
+  // an error surfaced to the comment/share flow that triggered this.
+  const manifest = await loadManifest();
+  if (!manifest.features.blogMonetization) return null;
+
   return db.transaction(async (tx: TransactionClient) => {
     const { rows: treasuryRows } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string; owner_id: string }>(
       `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id FROM blog_post_treasuries WHERE post_id = $1 FOR UPDATE`,
@@ -1111,4 +1126,416 @@ export async function recordShare(postId: string, userId: string): Promise<{ sha
 
   const { rows: countRows } = await db.query<{ share_count: number }>(`SELECT share_count FROM blog_posts WHERE id = $1`, [postId]);
   return { shareCount: countRows[0]?.share_count ?? 0, rewardClaimed: claim?.amount ?? null };
+}
+
+// ---------------------------------------------------------------------------
+// Rewarded Gifts (migration 0024) — a blog owner defines purchasable "gift
+// tiers"; a reader spends Credits or Stars to buy one and unlocks a benefit
+// for themselves. Gated by feature_blogs + feature_blog_gifts +
+// blog_monetization_enabled (all three, mirroring the paywall/treasury
+// kill-switch wiring above). Blog-level reward pots for custom_reward tiers
+// reuse blog_post_treasuries with post_id NULL / gift_tier_id set — see
+// db/migrations/0024_blog_gifts.sql.
+//
+// Revenue share: gift purchases follow the exact same creator revenue-share
+// convention as paywall unlocks (getBlogRevSharePct + provider fee/VAT for
+// Credits, via creditPaywallEarnings's sibling below) rather than inventing
+// a separate economic model. Stars purchases have no cash-equivalent
+// conversion elsewhere in the codebase, so the owner is credited Stars
+// directly, net of the same revenue-share percentage (no fee/VAT — those
+// only apply to the cash-equivalent kobo ledger).
+// ---------------------------------------------------------------------------
+
+export type GiftBenefitType = "vip_badge" | "vip_section_access" | "custom_reward";
+export type GiftCurrency = "credits" | "stars";
+
+const GIFT_BENEFIT_TYPES: GiftBenefitType[] = ["vip_badge", "vip_section_access", "custom_reward"];
+
+export interface GiftTierInput {
+  name: string;
+  description?: string | null;
+  creditsPrice?: number | null;
+  starsPrice?: number | null;
+  benefitType: GiftBenefitType;
+  /** vip_section_access: { unlockPostId }. custom_reward: { treasuryAmount?, textInstructions? }. */
+  benefitConfig?: Record<string, unknown>;
+  /** Generic cap shared by all benefit types; for custom_reward this is the "first X redeemers" limit. */
+  maxRedemptions?: number | null;
+  expiresAt?: string | null;
+}
+
+async function assertGiftsEnabled(): Promise<void> {
+  await requireFeatureEnabled("blogs");
+  await requireFeatureEnabled("blogGifts");
+  await requireFeatureEnabled("blogMonetization");
+}
+
+interface NormalizedGiftTier {
+  name: string;
+  description: string | null;
+  creditsPrice: number | null;
+  starsPrice: number | null;
+  benefitType: GiftBenefitType;
+  benefitConfig: Record<string, unknown>;
+  maxRedemptions: number | null;
+  expiresAt: string | null;
+}
+
+function normalizeGiftTierInput(input: GiftTierInput): NormalizedGiftTier {
+  const name = input.name?.trim();
+  if (!name) throw badRequest("A gift tier needs a name.", "BLOG_GIFT_INVALID_NAME");
+
+  const creditsPrice = input.creditsPrice != null && Number.isFinite(input.creditsPrice) ? Math.trunc(input.creditsPrice) : null;
+  const starsPrice = input.starsPrice != null && Number.isFinite(input.starsPrice) ? Math.trunc(input.starsPrice) : null;
+  const finalCreditsPrice = creditsPrice != null && creditsPrice > 0 ? creditsPrice : null;
+  const finalStarsPrice = starsPrice != null && starsPrice > 0 ? starsPrice : null;
+  if (finalCreditsPrice == null && finalStarsPrice == null) {
+    throw badRequest("Set at least one positive price (Credits and/or Stars).", "BLOG_GIFT_MISSING_PRICE");
+  }
+
+  if (!GIFT_BENEFIT_TYPES.includes(input.benefitType)) {
+    throw badRequest("Unsupported benefit type.", "BLOG_GIFT_INVALID_BENEFIT");
+  }
+  const benefitConfig = input.benefitConfig ?? {};
+  if (input.benefitType === "vip_section_access" && typeof benefitConfig.unlockPostId !== "string") {
+    throw badRequest("vip_section_access requires benefitConfig.unlockPostId.", "BLOG_GIFT_MISSING_UNLOCK_TARGET");
+  }
+
+  const maxRedemptions = input.maxRedemptions != null && Number.isFinite(input.maxRedemptions) ? Math.trunc(input.maxRedemptions) : null;
+  if (maxRedemptions != null && maxRedemptions <= 0) {
+    throw badRequest("maxRedemptions must be a positive integer.", "BLOG_GIFT_INVALID_MAX_REDEMPTIONS");
+  }
+
+  return {
+    name,
+    description: input.description?.trim() || null,
+    creditsPrice: finalCreditsPrice,
+    starsPrice: finalStarsPrice,
+    benefitType: input.benefitType,
+    benefitConfig,
+    maxRedemptions,
+    expiresAt: input.expiresAt ?? null,
+  };
+}
+
+export async function createGiftTier(ownerId: string, blogId: string, input: GiftTierInput): Promise<BlogGiftTierRow> {
+  await assertGiftsEnabled();
+  const blog = await assertBlogWritable(blogId);
+  if (blog.ownerId !== ownerId) throw forbidden("Only the blog owner can manage gift tiers.");
+
+  const n = normalizeGiftTierInput(input);
+  const { rows } = await db.query<BlogGiftTierRow>(
+    `INSERT INTO blog_gift_tiers (blog_id, name, description, credits_price, stars_price, benefit_type, benefit_config, max_redemptions, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+     RETURNING id, blog_id, name, description, credits_price, stars_price, benefit_type, benefit_config, max_redemptions, redemption_count, expires_at, enabled, created_at, updated_at`,
+    [blogId, n.name, n.description, n.creditsPrice, n.starsPrice, n.benefitType, JSON.stringify(n.benefitConfig), n.maxRedemptions, n.expiresAt]
+  );
+  return rows[0];
+}
+
+export async function updateGiftTier(
+  ownerId: string,
+  tierId: string,
+  patch: Partial<GiftTierInput> & { enabled?: boolean }
+): Promise<BlogGiftTierRow> {
+  await assertGiftsEnabled();
+
+  const { rows: existingRows } = await db.query<{
+    owner_id: string;
+    name: string;
+    description: string | null;
+    credits_price: number | null;
+    stars_price: number | null;
+    benefit_type: GiftBenefitType;
+    benefit_config: Record<string, unknown>;
+    max_redemptions: number | null;
+    expires_at: string | null;
+    enabled: boolean;
+  }>(
+    `SELECT b.owner_id, t.name, t.description, t.credits_price, t.stars_price, t.benefit_type, t.benefit_config, t.max_redemptions, t.expires_at, t.enabled
+     FROM blog_gift_tiers t JOIN blogs b ON b.id = t.blog_id WHERE t.id = $1 LIMIT 1`,
+    [tierId]
+  );
+  const existing = existingRows[0];
+  if (!existing) throw notFound("Gift tier not found");
+  if (existing.owner_id !== ownerId) throw forbidden("Only the blog owner can manage gift tiers.");
+
+  const merged = normalizeGiftTierInput({
+    name: patch.name ?? existing.name,
+    description: patch.description !== undefined ? patch.description : existing.description,
+    creditsPrice: patch.creditsPrice !== undefined ? patch.creditsPrice : existing.credits_price,
+    starsPrice: patch.starsPrice !== undefined ? patch.starsPrice : existing.stars_price,
+    benefitType: patch.benefitType ?? existing.benefit_type,
+    benefitConfig: patch.benefitConfig ?? existing.benefit_config,
+    maxRedemptions: patch.maxRedemptions !== undefined ? patch.maxRedemptions : existing.max_redemptions,
+    expiresAt: patch.expiresAt !== undefined ? patch.expiresAt : existing.expires_at,
+  });
+  const enabled = patch.enabled !== undefined ? patch.enabled : existing.enabled;
+
+  const { rows } = await db.query<BlogGiftTierRow>(
+    `UPDATE blog_gift_tiers
+     SET name = $2, description = $3, credits_price = $4, stars_price = $5, benefit_type = $6,
+         benefit_config = $7::jsonb, max_redemptions = $8, expires_at = $9, enabled = $10, updated_at = NOW()
+     WHERE id = $1
+     RETURNING id, blog_id, name, description, credits_price, stars_price, benefit_type, benefit_config, max_redemptions, redemption_count, expires_at, enabled, created_at, updated_at`,
+    [tierId, merged.name, merged.description, merged.creditsPrice, merged.starsPrice, merged.benefitType, JSON.stringify(merged.benefitConfig), merged.maxRedemptions, merged.expiresAt, enabled]
+  );
+  return rows[0];
+}
+
+/** Admin override (gate44/blogs/gifts): disable a tier platform-wide regardless of ownership. */
+export async function adminSetGiftTierEnabled(tierId: string, enabled: boolean): Promise<void> {
+  const { rowCount } = await db.query(`UPDATE blog_gift_tiers SET enabled = $2, updated_at = NOW() WHERE id = $1`, [tierId, enabled]);
+  if (!rowCount) throw notFound("Gift tier not found");
+}
+
+export async function listGiftTiersForOwner(ownerId: string, blogId: string): Promise<BlogGiftTierRow[]> {
+  const blog = await assertBlogWritable(blogId);
+  if (blog.ownerId !== ownerId) throw forbidden("Only the blog owner can view its gift tiers.");
+  return repoListGiftTiersForOwner(blogId);
+}
+
+/** Public tiers for a blog's page — empty when gifts are disabled site-wide rather than throwing (readers just see no gift section). */
+export async function listPublicGiftTiers(blogId: string): Promise<BlogGiftTierRow[]> {
+  const manifest = await loadManifest();
+  if (!manifest.features.blogs || !manifest.features.blogGifts || !manifest.features.blogMonetization) return [];
+  return repoListPublicGiftTiers(blogId);
+}
+
+export async function listGiftPurchasesForBlog(ownerId: string, blogId: string): Promise<Awaited<ReturnType<typeof repoListGiftPurchasesForBlog>>> {
+  const blog = await assertBlogWritable(blogId);
+  if (blog.ownerId !== ownerId) throw forbidden("Only the blog owner can view its gift redemptions.");
+  return repoListGiftPurchasesForBlog(blogId);
+}
+
+export interface GiftTreasuryState {
+  fundedAmount: number;
+  remainingAmount: number;
+}
+
+export async function getGiftTierTreasury(tierId: string): Promise<GiftTreasuryState | null> {
+  const { rows } = await db.query<{ funded_amount: number; remaining_amount: number }>(
+    `SELECT funded_amount, remaining_amount FROM blog_post_treasuries WHERE gift_tier_id = $1 LIMIT 1`,
+    [tierId]
+  );
+  return rows[0] ? { fundedAmount: rows[0].funded_amount, remainingAmount: rows[0].remaining_amount } : null;
+}
+
+/** Fund (or top up) a custom_reward tier's blog-level reward pot. Owner-only. */
+export async function fundBlogGiftTreasury(ownerId: string, tierId: string, amount: number): Promise<GiftTreasuryState> {
+  await assertGiftsEnabled();
+  if (!Number.isInteger(amount) || amount <= 0) throw badRequest("Amount must be a positive integer.", "BLOG_GIFT_TREASURY_INVALID_AMOUNT");
+
+  const { rows: tierRows } = await db.query<{ blog_id: string; owner_id: string; benefit_type: GiftBenefitType }>(
+    `SELECT t.blog_id, b.owner_id, t.benefit_type FROM blog_gift_tiers t JOIN blogs b ON b.id = t.blog_id WHERE t.id = $1 LIMIT 1`,
+    [tierId]
+  );
+  const tier = tierRows[0];
+  if (!tier) throw notFound("Gift tier not found");
+  if (tier.owner_id !== ownerId) throw forbidden("Only the blog owner can fund a gift tier's reward pot.");
+  if (tier.benefit_type !== "custom_reward") throw badRequest("Only custom_reward tiers have a fundable reward pot.", "BLOG_GIFT_NOT_CUSTOM_REWARD");
+
+  const referenceId = `blog_gift_treasury_fund:${tierId}:${Date.now()}`;
+  const result = await db.transaction(async (tx: TransactionClient) => {
+    await checkAndDebit(ownerId, amount, "blog_gift_treasury_fund", referenceId, "Funded a blog gift reward pot", { tierId }, tx);
+    const { rows } = await tx.query<{ funded_amount: number; remaining_amount: number }>(
+      `INSERT INTO blog_post_treasuries (blog_id, gift_tier_id, owner_id, funded_amount, remaining_amount)
+       VALUES ($1, $2, $3, $4, $4)
+       ON CONFLICT (gift_tier_id) DO UPDATE SET
+         funded_amount = blog_post_treasuries.funded_amount + $4,
+         remaining_amount = blog_post_treasuries.remaining_amount + $4,
+         status = CASE WHEN blog_post_treasuries.status = 'closed' THEN 'closed' ELSE 'active' END,
+         updated_at = NOW()
+       RETURNING funded_amount, remaining_amount`,
+      [tier.blog_id, tierId, ownerId, amount]
+    );
+    return rows[0];
+  });
+
+  return { fundedAmount: result.funded_amount, remainingAmount: result.remaining_amount };
+}
+
+/** After purchasing a custom_reward tier, reveals its text instructions to the buyer. Returns null if not purchased. */
+export async function getGiftTextReveal(buyerId: string, tierId: string): Promise<{ textInstructions: string | null } | null> {
+  const purchase = await getGiftPurchaseForBuyer(tierId, buyerId);
+  if (!purchase) return null;
+  const tier = await getGiftTierById(tierId);
+  if (!tier || tier.benefit_type !== "custom_reward") return null;
+  const textInstructions = typeof tier.benefit_config?.textInstructions === "string" ? (tier.benefit_config.textInstructions as string) : null;
+  return { textInstructions };
+}
+
+export interface GiftPurchaseResult {
+  purchaseId: string;
+  benefitType: GiftBenefitType;
+  unlockedPostId?: string;
+  treasuryPayout?: number;
+  textInstructions?: string | null;
+}
+
+/**
+ * Buy a gift tier: validates the feature is on, the tier is active/not
+ * expired/under its redemption cap (checked atomically under FOR UPDATE,
+ * mirroring claimTreasuryReward), debits the buyer, fulfills the benefit,
+ * then credits the owner's earnings and notifies both parties best-effort.
+ */
+export async function sendGift(buyerId: string, tierId: string, currency: GiftCurrency): Promise<GiftPurchaseResult> {
+  await assertGiftsEnabled();
+  if (currency !== "credits" && currency !== "stars") throw badRequest("Invalid currency.", "BLOG_GIFT_INVALID_CURRENCY");
+
+  const { rows: tierRows } = await db.query<{
+    id: string; blog_id: string; owner_id: string; name: string;
+    credits_price: number | null; stars_price: number | null;
+    benefit_type: GiftBenefitType; benefit_config: Record<string, unknown>;
+  }>(
+    `SELECT t.id, t.blog_id, b.owner_id, t.name, t.credits_price, t.stars_price, t.benefit_type, t.benefit_config
+     FROM blog_gift_tiers t JOIN blogs b ON b.id = t.blog_id WHERE t.id = $1 AND b.deleted_at IS NULL LIMIT 1`,
+    [tierId]
+  );
+  const tier = tierRows[0];
+  if (!tier) throw notFound("Gift tier not found");
+  if (tier.owner_id === buyerId) throw forbidden("You can't send a gift to your own blog.", "BLOG_GIFT_SELF");
+
+  const price = currency === "credits" ? tier.credits_price : tier.stars_price;
+  if (price == null || price <= 0) throw badRequest(`This tier does not accept ${currency}.`, "BLOG_GIFT_CURRENCY_NOT_ACCEPTED");
+
+  const referenceId = `blog_gift:${tierId}:${buyerId}:${Date.now()}`;
+
+  const outcome = await db.transaction(async (tx: TransactionClient) => {
+    const { rows: lockRows } = await tx.query<{ enabled: boolean; expires_at: string | null; max_redemptions: number | null; redemption_count: number }>(
+      `SELECT enabled, expires_at, max_redemptions, redemption_count FROM blog_gift_tiers WHERE id = $1 FOR UPDATE`,
+      [tierId]
+    );
+    const locked = lockRows[0];
+    if (!locked) throw notFound("Gift tier not found");
+    if (!locked.enabled) throw forbidden("This gift tier is no longer available.", "BLOG_GIFT_TIER_DISABLED");
+    if (locked.expires_at && new Date(locked.expires_at) <= new Date()) throw forbidden("This gift tier has expired.", "BLOG_GIFT_TIER_EXPIRED");
+    if (locked.max_redemptions != null && locked.redemption_count >= locked.max_redemptions) {
+      throw forbidden("This gift tier is sold out.", "BLOG_GIFT_TIER_SOLD_OUT");
+    }
+
+    if (tier.benefit_type === "vip_badge") {
+      const { rows: existingVip } = await tx.query<{ id: string }>(
+        `SELECT id FROM blog_gift_purchases WHERE blog_id = $1 AND buyer_id = $2 AND benefit_type = 'vip_badge' AND status = 'active' LIMIT 1`,
+        [tier.blog_id, buyerId]
+      );
+      if (existingVip[0]) throw badRequest("You already hold an active VIP badge for this blog.", "BLOG_GIFT_ALREADY_VIP");
+    }
+
+    if (currency === "credits") {
+      await checkAndDebit(buyerId, price, "blog_gift_purchase", referenceId, `Gift: ${tier.name}`, { tierId, blogId: tier.blog_id }, tx);
+    } else {
+      await debitStars(buyerId, price, "blog_gift_purchase", referenceId, `Gift: ${tier.name}`, tx);
+    }
+
+    await tx.query(`UPDATE blog_gift_tiers SET redemption_count = redemption_count + 1, updated_at = NOW() WHERE id = $1`, [tierId]);
+
+    const { rows: purchaseRows } = await tx.query<{ id: string }>(
+      `INSERT INTO blog_gift_purchases (tier_id, blog_id, buyer_id, currency, amount_paid, benefit_type)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
+      [tierId, tier.blog_id, buyerId, currency, price, tier.benefit_type]
+    );
+    const purchaseId = purchaseRows[0].id;
+    const result: GiftPurchaseResult = { purchaseId, benefitType: tier.benefit_type };
+
+    if (tier.benefit_type === "vip_section_access") {
+      const unlockPostId = typeof tier.benefit_config?.unlockPostId === "string" ? (tier.benefit_config.unlockPostId as string) : null;
+      if (unlockPostId) {
+        await tx.query(
+          `INSERT INTO blog_post_unlocks (post_id, user_id, credits_spent) VALUES ($1, $2, $3) ON CONFLICT (post_id, user_id) DO NOTHING`,
+          [unlockPostId, buyerId, currency === "credits" ? price : 0]
+        );
+        result.unlockedPostId = unlockPostId;
+      }
+    } else if (tier.benefit_type === "custom_reward") {
+      const config = tier.benefit_config ?? {};
+      const treasuryAmount = typeof config.treasuryAmount === "number" && config.treasuryAmount > 0 ? Math.trunc(config.treasuryAmount) : null;
+      const textInstructions = typeof config.textInstructions === "string" && config.textInstructions.trim() ? config.textInstructions.trim() : null;
+
+      let payoutAmount: number | null = null;
+      if (treasuryAmount != null) {
+        const { rows: treasuryRows } = await tx.query<{ id: string; remaining_amount: number }>(
+          `SELECT id, remaining_amount FROM blog_post_treasuries WHERE gift_tier_id = $1 FOR UPDATE`,
+          [tierId]
+        );
+        const treasury = treasuryRows[0];
+        if (treasury && treasury.remaining_amount >= treasuryAmount) {
+          await tx.query(
+            `UPDATE blog_post_treasuries SET remaining_amount = remaining_amount - $2, claimant_count = claimant_count + 1, updated_at = NOW() WHERE id = $1`,
+            [treasury.id, treasuryAmount]
+          );
+          await creditCoins(buyerId, treasuryAmount, "blog_gift_treasury_claim", `blog_gift_treasury_claim:${purchaseId}`, "Gift reward pot payout", { tierId, purchaseId }, tx);
+          payoutAmount = treasuryAmount;
+        } else {
+          logger.warn({ tierId, purchaseId }, "[blogs/service] gift custom_reward reward pot has insufficient funds; skipping payout");
+        }
+      }
+
+      await tx.query(
+        `INSERT INTO blog_gift_claims (purchase_id, treasury_payout_amount, text_revealed) VALUES ($1, $2, $3)`,
+        [purchaseId, payoutAmount, textInstructions != null]
+      );
+      result.treasuryPayout = payoutAmount ?? undefined;
+      result.textInstructions = textInstructions;
+    }
+
+    return result;
+  });
+
+  await creditGiftEarnings(tier.owner_id, price, currency, referenceId).catch((err) => {
+    logger.error({ err, tierId, ownerId: tier.owner_id }, "[blogs/service] failed to credit gift earnings");
+  });
+
+  await insertNotificationBatch(
+    db, [tier.owner_id], "blog_gift_received",
+    `New gift: ${tier.name}`, `Someone sent your blog a "${tier.name}" gift.`,
+    { blogId: tier.blog_id, tierId, purchaseId: outcome.purchaseId }
+  ).catch((err) => logger.error({ err, tierId }, "[blogs/service] failed to notify blog owner of a gift"));
+
+  await insertNotificationBatch(
+    db, [buyerId], "blog_gift_sent",
+    "Gift sent", `Your "${tier.name}" gift was sent successfully.`,
+    { blogId: tier.blog_id, tierId, purchaseId: outcome.purchaseId }
+  ).catch((err) => logger.error({ err, tierId }, "[blogs/service] failed to notify buyer of a gift"));
+
+  safeAwardXPFireAndForget(tier.owner_id, 5, "creator", "blog_gift_received", `blog_gift_xp:${outcome.purchaseId}`);
+
+  return outcome;
+}
+
+/** Credits the blog owner's earnings for a gift purchase, using the same revenue-share convention as paywall unlocks. */
+async function creditGiftEarnings(creatorId: string, amountPaid: number, currency: GiftCurrency, referenceId: string): Promise<void> {
+  const { rows } = await db.query<{ plan: string }>(`SELECT plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [creatorId]);
+  const plan = rows[0]?.plan ?? "free";
+  const revSharePct = await getBlogRevSharePct(plan);
+
+  if (currency === "stars") {
+    // No Stars->cash conversion rate exists in this codebase (unlike coinToCashRate
+    // for Credits) — credit the owner Stars directly, net of the same rev-share %.
+    const netStars = new Decimal(amountPaid).mul(revSharePct).div(100).floor();
+    if (netStars.lte(0)) return;
+    await creditStars(creatorId, netStars.toNumber(), "blog_gift_earnings", `${referenceId}:earnings`, "Gift earnings share");
+    return;
+  }
+
+  const [economy, manifest] = await Promise.all([getBlogEconomyConfig(), loadManifest()]);
+  const grossKobo = new Decimal(amountPaid).mul(manifest.coinToCashRate);
+  const afterProviderFee = grossKobo.mul(new Decimal(1).minus(new Decimal(economy.paystackFeePct).div(100)));
+  const afterVat = afterProviderFee.mul(new Decimal(1).minus(new Decimal(economy.vatPct).div(100)));
+  const netKobo = afterVat.mul(new Decimal(revSharePct).div(100)).floor();
+  const platformFeeKobo = grossKobo.minus(netKobo);
+  if (netKobo.lte(0)) return;
+
+  await db.transaction(async (tx: TransactionClient) => {
+    await tx.query(
+      `INSERT INTO creator_earnings (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
+       VALUES ($1, 'blog_gift', $2, $3, $4, $5)
+       ON CONFLICT (creator_id, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
+      [creatorId, grossKobo.toFixed(0), platformFeeKobo.toFixed(0), netKobo.toFixed(0), `${referenceId}:earnings`]
+    );
+    await tx.query(
+      `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1, updated_at = NOW() WHERE id = $2`,
+      [netKobo.toFixed(0), creatorId]
+    );
+  });
 }
