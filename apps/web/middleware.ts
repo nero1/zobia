@@ -157,6 +157,8 @@ const PUBLIC_PREFIXES = [
   "/forum",
   "/f/",
   "/api/forum",
+  // Answers category pages — publicly readable, indexable (SEO)
+  "/answers/category/",
   "/_next",
   "/favicon.ico",
   // App-link association files for Android (assetlinks.json) and iOS

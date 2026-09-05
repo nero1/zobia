@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/Avatar";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { QuestionMiniList, type QuestionMiniListItem } from "@/components/answers/QuestionMiniList";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -108,6 +109,7 @@ export default function QuestionDetailPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newAnswerBody, setNewAnswerBody] = useState("");
+  const [answerFormExpanded, setAnswerFormExpanded] = useState(false);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState("");
   const [expandingId, setExpandingId] = useState<string | null>(null);
@@ -146,11 +148,24 @@ export default function QuestionDetailPage() {
     }
   }, [questionId, sort, t]);
 
+  const [related, setRelated] = useState<QuestionMiniListItem[]>([]);
+  const [newPosts, setNewPosts] = useState<QuestionMiniListItem[]>([]);
+  const [recentlyAnswered, setRecentlyAnswered] = useState<QuestionMiniListItem[]>([]);
+
   useEffect(() => {
     setError(null);
     Promise.all([fetchQuestion(), fetchAnswers(false, null, sort)]).catch((e) => {
       setError(e instanceof Error ? e.message : "Something went wrong");
     });
+    fetch(`/api/answers/questions/${questionId}/related`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        if (!json?.data) return;
+        setRelated(json.data.related ?? []);
+        setNewPosts(json.data.newPosts ?? []);
+        setRecentlyAnswered(json.data.recentlyAnswered ?? []);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [questionId]);
 
@@ -453,26 +468,42 @@ export default function QuestionDetailPage() {
             </div>
           </div>
 
-          {/* New top-level answer composer */}
+          {/* New top-level answer composer — minimized by default, expands on click */}
           {!question.isLocked && (
-            <div className="mt-4 rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-              <textarea
-                value={newAnswerBody}
-                onChange={(e) => setNewAnswerBody(e.target.value.slice(0, 5000))}
-                rows={4}
-                placeholder={t("answers.answerPlaceholder", "Write an answer…")}
-                className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
-              />
-              <div className="mt-2 flex justify-end">
-                <button
-                  disabled={!newAnswerBody.trim() || submitting}
-                  onClick={() => void submitAnswer(newAnswerBody.trim(), null)}
-                  className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
-                >
-                  {submitting ? t("answers.ask.posting", "Posting…") : t("answers.postAnswer", "Post Answer")}
-                </button>
+            !answerFormExpanded ? (
+              <button
+                onClick={() => setAnswerFormExpanded(true)}
+                className="mt-4 w-full rounded-xl border border-dashed border-neutral-300 px-4 py-3 text-left text-sm text-neutral-500 hover:border-primary-400 hover:text-primary-600 dark:border-neutral-700 dark:hover:border-primary-600"
+              >
+                {t("answers.answerPlaceholder", "Write an answer…")}
+              </button>
+            ) : (
+              <div className="mt-4 rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+                <textarea
+                  autoFocus
+                  value={newAnswerBody}
+                  onChange={(e) => setNewAnswerBody(e.target.value.slice(0, 5000))}
+                  rows={4}
+                  placeholder={t("answers.answerPlaceholder", "Write an answer…")}
+                  className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                />
+                <div className="mt-2 flex justify-end gap-2">
+                  <button
+                    onClick={() => { setAnswerFormExpanded(false); setNewAnswerBody(""); }}
+                    className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 dark:border-neutral-700 dark:text-neutral-200"
+                  >
+                    {t("answers.cancel", "Cancel")}
+                  </button>
+                  <button
+                    disabled={!newAnswerBody.trim() || submitting}
+                    onClick={() => { void submitAnswer(newAnswerBody.trim(), null); setAnswerFormExpanded(false); }}
+                    className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
+                  >
+                    {submitting ? t("answers.ask.posting", "Posting…") : t("answers.postAnswer", "Post Answer")}
+                  </button>
+                </div>
               </div>
-            </div>
+            )
           )}
 
           {error && (
@@ -515,6 +546,14 @@ export default function QuestionDetailPage() {
               </button>
             )}
           </div>
+
+          {(related.length > 0 || newPosts.length > 0 || recentlyAnswered.length > 0) && (
+            <div className="mt-6 grid gap-3 sm:grid-cols-3">
+              <QuestionMiniList title={t("answers.related", "Related posts")} items={related} seeMoreHref="/answers" linkPrefix="/answers" />
+              <QuestionMiniList title={t("answers.newPosts", "New posts")} items={newPosts} seeMoreHref="/answers" linkPrefix="/answers" />
+              <QuestionMiniList title={t("answers.recentlyAnswered", "Recently answered")} items={recentlyAnswered} seeMoreHref="/answers" linkPrefix="/answers" />
+            </div>
+          )}
         </>
       ) : null}
 

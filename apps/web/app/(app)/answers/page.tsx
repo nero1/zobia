@@ -15,6 +15,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { useForumConfig } from "@/lib/hooks/useForumConfig";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { NotFoundGate } from "@/components/shared/NotFoundGate";
+import { CategoryList, type CategoryListItem } from "@/components/answers/CategoryList";
 
 type Tab = "popular" | "trending" | "new" | "favorites";
 
@@ -111,7 +112,7 @@ function CardSkeleton() {
 export default function AnswersPage() {
   const { t } = useTranslation();
   const forumConfig = useForumConfig();
-  const [tab, setTab] = useState<Tab>("new");
+  const [tab, setTab] = useState<Tab>("trending");
   const [questions, setQuestions] = useState<QuestionSummary[]>([]);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
@@ -120,6 +121,7 @@ export default function AnswersPage() {
   const [error, setError] = useState<string | null>(null);
   const [myLevel, setMyLevel] = useState<number | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [categories, setCategories] = useState<CategoryListItem[]>([]);
 
   useEffect(() => {
     fetch("/api/users/me", { credentials: "include" })
@@ -129,6 +131,11 @@ export default function AnswersPage() {
         if (user?.rank_level != null) setMyLevel(user.rank_level);
         setIsAdmin(!!user?.is_admin);
       })
+      .catch(() => {});
+
+    fetch("/api/answers/categories", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => { if (json?.data) setCategories(json.data); })
       .catch(() => {});
   }, []);
 
@@ -199,10 +206,10 @@ export default function AnswersPage() {
   }
 
   const tabs: { key: Tab; label: string; icon: string }[] = [
-    { key: "popular", label: t("answers.tabs.popular", "Popular"), icon: "🔥" },
     { key: "trending", label: t("answers.tabs.trending", "Trending"), icon: "📈" },
+    { key: "popular", label: t("answers.tabs.popular", "Popular"), icon: "🔥" },
     { key: "new", label: t("answers.tabs.new", "New"), icon: "🆕" },
-    { key: "favorites", label: t("answers.tabs.favorites", "Favorites"), icon: "★" },
+    { key: "favorites", label: t("answers.tabs.favorites", "Faves"), icon: "★" },
   ];
 
   const canPost = myLevel === null || myLevel >= forumConfig.minLevelToPost;
@@ -239,6 +246,12 @@ export default function AnswersPage() {
         ))}
       </div>
 
+      {categories.length > 0 && (
+        <div className="mb-4">
+          <CategoryList categories={categories} layout="horizontal" />
+        </div>
+      )}
+
       {error && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
           {error}
@@ -269,6 +282,13 @@ export default function AnswersPage() {
           </button>
         )}
       </div>
+
+      {categories.length > 0 && (
+        <div className="mt-8">
+          <h2 className="mb-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t("answers.browseCategories", "Browse by category")}</h2>
+          <CategoryList categories={categories} layout="vertical" />
+        </div>
+      )}
     </div>
     </NotFoundGate>
   );
