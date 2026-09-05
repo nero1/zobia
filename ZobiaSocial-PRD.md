@@ -2588,10 +2588,19 @@ principle as § 31 Answers).
   (`businessAccountId`). The creator dashboard (`/blogs/dashboard`) manages
   articles and pages (draft/published), categories, comment moderation
   queue, stats, and blog settings (comments on/off + moderation,
-  author-info-box visibility, subscriber-count visibility, theme) — one
-  blog at a time; a blog picker across the caller's blogs (`GET
-  /api/blogs/me`, now returning `blogs: []` for all of a user's blogs
-  across both scopes) lands in a later phase.
+  author-info-box visibility, subscriber-count visibility, theme, and the
+  navigation menu builder, § 32.9) — one blog at a time, with a picker
+  ("Your blogs") across the caller's blogs when they own more than one
+  (`GET /api/blogs/me` returns `blogs: []` for all of a user's blogs
+  across both scopes; `blog` is kept alongside it for backward
+  compatibility, set to their first personal blog or else their first
+  blog of any scope). The picker, per-post batch draft/delete actions, and
+  the articles-remaining nag (§ 32.10) shipped in v2.14 — the web
+  "Start a Blog" flow (`/blogs/new`) still only covers plain creation
+  within the included quota; surfacing the extra-slot purchase currency
+  choice (§ 32.1.1) and business-blog creation inline on that same page,
+  rather than only via the API, remains a follow-up UI phase (the
+  Android app's equivalent screen already has this).
 - **Word limits**: Free-plan articles up to 1,000 words; Plus/Pro/Max up to
   5,000 words. Pages share the same per-plan limit. Admin-configurable
   per plan (`blog_max_words_<plan>` in `x_manifest`).
@@ -2706,17 +2715,51 @@ from that account's tier. Every number below is admin-configurable via
 
 ### 32.4 Blog themes
 
-- A rudimentary theme system: three professional themes ("Editorial",
-  "Noir", "Botanical") are purchasable Credit items in the existing
-  cosmetics store (`store_items.item_type = 'cosmetic'`,
-  `cosmetic_type = 'blog_theme'`) — no new purchase flow was built; blog
-  themes reuse `GET/POST /api/economy/cosmetics` and
-  `POST /api/economy/cosmetics/equip` exactly as profile frames and titles
-  do. Equipping a `blog_theme` cosmetic sets `blogs.theme_store_item_id`
-  for the owner's blog.
-- Admins can add further themes to the catalogue at any time via the
-  existing store-items admin tooling — no blog-specific admin UI is
-  required for the catalogue itself.
+- **Superseded by the theme engine (v2.14, migration 0022)** — kept here
+  only as history: the original system equipped one of three purchasable
+  Credit cosmetics (`store_items.cosmetic_type = 'blog_theme'`) via
+  `POST /api/economy/cosmetics/equip`, which set `blogs.theme_store_item_id`
+  and only ever changed a colour skin, not the page's structure. That
+  purchase/ownership ledger (`store_items`/`user_cosmetics`) is still the
+  underlying record of what a user has bought, and the legacy equip
+  endpoint is still a harmless no-op for old clients, but rendering no
+  longer reads `theme_store_item_id` at all — see § 32.4.1.
+
+#### 32.4.1 Theme engine v2 (v2.14)
+
+- A `blog_themes` catalogue table (`lib/blogs/themes.ts`) is now the
+  source of truth for what a blog can look like: each row is a short
+  stable key (`classic`, `minimal`, `editorial`, `sidebar`, `botanical`)
+  carrying a structural **layout variant** (`classic` / `magazine` /
+  `minimal-cards` / `sidebar-left` — an actual different React component
+  tree, not just different colours) plus a `config` of color tokens
+  (background/card/accent/text/muted), admin-editable pricing, and
+  plan/tier gating. `blogs.active_theme_id` (FK into `blog_themes`,
+  default `'classic'`) says which one a blog is currently using.
+- **Shipped catalogue**:
+  - **Classic** (`classic` layout) — free default, single-column list +
+    sidebar. **Minimal Cards** (`minimal-cards` layout) — free default, a
+    compact card grid with less metadata per post.
+  - **Editorial** (`magazine` layout) — a featured-post hero above a card
+    grid; included free for Pro/Max personal plans and Growth/Enterprise
+    business tiers, otherwise a 500-Credit purchase.
+  - **Noir Sidebar** (`sidebar-left` layout) — a left sidebar of
+    categories/recent posts; included free for Max/Enterprise only,
+    otherwise 800 Credits.
+  - **Botanical** (`minimal-cards` layout, warm green palette) — always a
+    1200-Credit purchase regardless of plan/tier.
+  - A theme's price and plan/tier-included lists are editable per-theme
+    from `/gate44/blogs/themes` without a redeploy; an admin can also
+    disable a theme (existing owners keep it equipped, but it drops out of
+    the picker for new selections).
+- Equipping is per-blog (`POST /api/blogs/<slug>/themes/equip`) rather
+  than per-user, matching multi-blog (§ 32.1.1) — two blogs owned by the
+  same person can run different themes. A theme that requires purchase or
+  plan/tier-inclusion is enforced server-side at equip time, not just
+  hidden in the picker UI.
+- Every layout variant renders the same anchor targets the default nav
+  menu (§ 32.9) points at (`#categories`, `#subscribe`) so the menu builder
+  and the theme picker never conflict regardless of which is applied.
 
 ### 32.5 Admin controls
 
@@ -2757,6 +2800,174 @@ reuse the existing `store_items`/`user_cosmetics` tables. Post view counts
 are incremented at most once per browser per post — deduped client-side
 via `localStorage`, matching the platform's offline-first, low-Redis-call
 discipline (§ 22 "Scalability").
+
+Migrations 0019–0024 (v2.14) extend this: `blog_posts` gains
+`content_format` (§ 32.7) and `page_key` (§ 32.11); `blogs` gains
+`menu_config` (§ 32.9) and `active_theme_id` (§ 32.4.1); new tables
+`blog_post_shares`, `blog_post_treasuries`, `blog_post_treasury_claims`
+(§ 32.8), `blog_themes` (§ 32.4.1), `blog_contact_messages` (§ 32.11), and
+`blog_gift_tiers`/`blog_gift_purchases`/`blog_gift_claims` (§ 32.12) — see
+those sections for detail. Full list of blog-related migration files, in
+apply order: `0018_blogs_multi.sql`, `0019_blog_post_content_format.sql`,
+`0020_blog_post_treasury.sql`, `0021_blog_menu_seo.sql`,
+`0022_blog_themes.sql`, `0023_blog_default_pages.sql`,
+`0024_blog_gifts.sql`.
+
+### 32.7 Editor mode: Markdown or plain text (v2.14)
+
+- Every article or page has a `content_format` of `markdown` (default,
+  unchanged behaviour) or `plaintext`, chosen per-post by the author in
+  the editor. `body_markdown` keeps holding the raw source either way —
+  `content_format` only says how to interpret it when regenerating
+  `body_html` and when re-populating the editor for a later edit.
+- **Plain text mode**: no Markdown syntax is applied; a blank line starts
+  a new paragraph, single line breaks are preserved within a paragraph.
+  Exists for authors who don't want to learn Markdown and were previously
+  seeing their `*`/`#`/`>` characters rendered literally or, worse,
+  fighting unintended formatting.
+- Existing posts default to `markdown` (the only mode that existed
+  before), so no existing content changes appearance.
+
+### 32.8 Per-post credit reward pot ("treasury") (v2.14)
+
+- A blog owner can fund a Credits pot for one of their own posts
+  (`POST /api/blogs/<slug>/posts/<postSlug>/treasury`, Credits only —
+  no Stars): they set the total amount and a maximum number of
+  claimants. The first N distinct readers who **comment** on the post or
+  **share** it (§ 32.8.1) each earn an equal split, computed at claim time
+  as `funded_amount / max_claimants` using the pot's *current* funded
+  amount — so a top-up mid-flight raises the remaining slots' per-claim
+  reward rather than requiring a reset.
+- One claim per reader per post (comment and share don't stack for the
+  same person); a claim credits the reader's Credits balance immediately
+  and is recorded in `blog_post_treasury_claims`. The pot's status moves
+  `active` → `exhausted` once all claimant slots are used, or `closed` if
+  the owner ends it early with unclaimed Credits refunded back to them.
+- The post page shows a "Reward pot" badge with the live per-claimant
+  amount and remaining slots to any visitor, and the owner's dashboard
+  shows funded/remaining/claimed totals plus a "Top up" control.
+
+#### 32.8.1 Share tracking (v2.14)
+
+- Blogs previously had no share signal at all. `blog_post_shares` records
+  one row per (post, user) the first time a signed-in reader uses the
+  post's Share action (copies the public link) — a unique index makes a
+  repeat share a no-op rather than a duplicate treasury claim.
+
+### 32.9 Blog navigation menu & owner toolbar (v2.14, migration 0021)
+
+- Every blog has an owner-configurable `menu_config`
+  (`{ orientation: 'horizontal' | 'vertical', items: [...] }`), edited from
+  the dashboard's Settings → Navigation menu builder. Each item is a
+  label plus one of: a raw URL/anchor (`type: 'url'`, e.g. `#categories`),
+  a link to one of the blog's own posts or pages (`type: 'post'` /
+  `type: 'page'`, storing the target's slug), or a category anchor
+  (`type: 'category'`). The owner can add, relabel, reorder, and remove
+  items freely.
+- **Orientation only applies on desktop web.** Android and mobile
+  web/PWA always render the menu as a vertical accordion inside the
+  hamburger icon, regardless of the owner's `orientation` choice, per
+  product spec — a phone-width column has no room for a horizontal bar.
+- Every new blog is seeded with the same default menu (Home, Categories →
+  `#categories`, Subscribe → `#subscribe`); every existing blog was
+  backfilled with that same default when the column was added. Every
+  layout variant across the theme engine (§ 32.4.1) renders the
+  `#categories` and `#subscribe` anchor targets, so the default menu
+  resolves correctly no matter which theme is active.
+- When a blog is created, its three auto-generated default pages
+  (§ 32.11) are appended to this same default menu automatically — the
+  owner sees About/Privacy/Contact as menu items from the moment the blog
+  exists, not as a separate manual step.
+- **Owner toolbar**: the blog owner (or a site admin/moderator) sees an
+  extra, visitor-invisible bar alongside the public menu on `/b/<slug>`
+  and `/b/<slug>/<postSlug>` with quick links to My Blogs, Blog config,
+  Post management, and — on a draft post — a Preview toggle. Rendered
+  server-side only when the SSR page has already resolved the viewer as
+  the owner/staff, so a regular visitor's HTML never contains this
+  markup at all.
+- **SEO slug rule**: a blog's slug (and, on rename, its new slug — with
+  the old one 301-redirected via the existing `slug_redirects` mechanism,
+  same as games/rooms) is generated from at most the **first 6 words** of
+  its title, not the full title, keeping URLs short and readable; the
+  platform-wide numeric-suffix collision rule still applies on top of
+  that.
+
+### 32.10 Articles-remaining quota nag (v2.14)
+
+- The dashboard's post list and the new-post editor show a running
+  "You have N article(s) left" (or, at zero, "You have used up all your
+  available articles — delete some or upgrade your plan") notice, backed
+  by `GET /api/blogs/<slug>/limits` wrapping the existing admin-configurable
+  `getMaxBlogPosts` (§ 32.1, `blog_max_posts_<plan>`) — the nag never
+  hardcodes plan numbers itself, so an admin changing the manifest values
+  is reflected immediately. Below Max plan, it also shows the Plus/Pro/Max
+  posts-included figures and an "Upgrade plan" link.
+
+### 32.11 Auto-created About / Privacy / Contact pages (v2.14, migration 0023)
+
+- Every new blog is seeded at creation time with three ordinary
+  `blog_posts` rows of `type = 'page'`, tagged `page_key` ∈
+  `{'about', 'privacy', 'contact'}` so they survive a title/slug rename
+  and get full page CRUD (edit, draft, delete) for free like any other
+  page — they are not a special content type. `page_key` is cleared only
+  if the owner deletes the page outright.
+- **"Reset to default"** (dashboard page editor) regenerates one of the
+  three back to its original template text without touching its id, slug,
+  or `page_key` — so anything bookmarking or linking to it (including a
+  menu item) keeps working. At most one page per key per blog is
+  enforced by a unique index.
+- **Contact page is special**: rather than rendering `body_html` like
+  every other page, the public post page detects `page_key = 'contact'`
+  (not a guessable slug string an owner could rename away) and renders a
+  live contact form instead. Submissions are captcha-protected for
+  anonymous senders (the blog's existing captcha config, admin-set — see
+  SETUP.md) and stored in `blog_contact_messages` (sender name/email
+  optional for a signed-in sender, message body required), notifying the
+  blog owner via the platform's existing notifications pipeline and
+  surfaced in a dashboard inbox (`/blogs/dashboard/messages`) that can
+  mark messages read.
+
+### 32.12 Rewarded Gifts (v2.14, migration 0024)
+
+A blog subscriber/reader can send an owner-defined "gift" — a one-time
+Credits or Stars purchase — to unlock a benefit for themselves. Owners
+define any number of **gift tiers** per blog (`blog_gift_tiers`: name,
+description, price in Credits and/or Stars, a benefit type, and an
+optional `max_redemptions` / `expires_at`), and readers redeem them from
+a "Send a Gift" section on the blog's public home page.
+
+- **Benefit types**:
+  - `vip_badge` — the buyer gets a small "VIP" badge next to their name
+    in that blog's comment threads for as long as the purchase stays
+    `active` (one active VIP badge per buyer per blog — a repeat
+    purchase renews rather than stacking).
+  - `vip_section_access` — the buyer gets the same kind of unlock a
+    paywalled post grants (§ 32.3), reusing `blog_post_unlocks` rather
+    than a parallel entitlement table.
+  - `custom_reward` — an owner-authored reward: a payout from a
+    **blog-level** treasury (first N redeemers split a Credits pot,
+    reusing the same `blog_post_treasuries` table as § 32.8 with
+    `post_id` NULL and `blog_id`/`gift_tier_id` set instead) and/or a
+    text blob revealed to the buyer only after purchase
+    (`blog_gift_claims.text_revealed`).
+- A purchase debits the buyer's chosen currency, records a row in
+  `blog_gift_purchases`, and — for `custom_reward` — a corresponding
+  `blog_gift_claims` row tracking the text reveal and any treasury
+  payout, one row per purchase.
+- **Sitewide kill-switch**: `blog_monetization_enabled` in `x_manifest`
+  disables Rewarded Gifts *and* the existing paywall/treasury features
+  (§ 32.3, § 32.8) in one flip, for a jurisdiction or App-Store-policy
+  reason that requires all blog monetization off at once, without
+  touching `feature_blogs` itself (the blog feature keeps working,
+  just with no money changing hands). A separate, narrower
+  `feature_blog_gifts` flag turns off Gifts specifically while leaving
+  paywalls/treasuries running. Readers simply see no "Send a Gift"
+  section and no reward-pot badge when either is off — no error state.
+- **Admin** (`/gate44/blogs/gifts`): both flags plus a cross-blog table
+  of every gift tier with a disable override (existing owners' purchases
+  are unaffected; the tier just stops accepting new ones). Revenue share
+  for gifts follows the same per-plan `blog_rev_share_pct_<plan>` keys as
+  paywall unlocks (§ 32.3) — no separate gifts-only rate.
 
 ---
 
@@ -5454,6 +5665,72 @@ building a parallel one was judged out of scope for this pass).
 
 ---
 
-*ZobiaSocial PRD v2.13*
+## Appendix: Version 2.14 Change Log
+
+### v2.14 — Changelog
+
+**Blogs: markdown/plain-text editor mode, per-post reward pots, nav menu
+builder, quota nag, theme engine v2, auto-created default pages, and
+Rewarded Gifts.** See § 32.4.1 and §§ 32.6–32.12 for full detail; summary:
+
+- Authors can now write a post in plain text as well as Markdown
+  (`blog_posts.content_format`) — no forced Markdown syntax for authors
+  who don't want it (§ 32.7).
+- Blog owners can fund a Credits reward pot for a specific post; the first
+  N readers to comment or share it split it evenly (§ 32.8), backed by new
+  `blog_post_shares`/`blog_post_treasuries`/`blog_post_treasury_claims`
+  tables.
+- Owner-configurable navigation menu (`blogs.menu_config`) rendered as a
+  horizontal or vertical bar on desktop web (always a hamburger accordion
+  on Android/mobile), plus a visitor-invisible owner toolbar on the public
+  pages and a first-6-words slug-generation rule with redirect-on-rename
+  (§ 32.9).
+- Dashboard and new-post editor show a live "N articles left" nag driven
+  by the existing per-plan post-count manifest keys, never hardcoded
+  (§ 32.10).
+- The theme system moved from a 3-skin cosmetics-store afterthought to a
+  proper `blog_themes` catalogue with 5 themes across 4 structurally
+  distinct layouts, plan/tier-gated and admin-editable without a redeploy
+  (§ 32.4.1); the old cosmetics-equip path still no-ops harmlessly for old
+  clients.
+- Every new blog is auto-seeded with About/Privacy/Contact pages
+  (resettable to template, survive rename); Contact renders a live,
+  captcha-protected form instead of static content, feeding an owner inbox
+  (§ 32.11).
+- **Rewarded Gifts**: owner-defined per-blog gift tiers (VIP comment badge,
+  paywall-style section-access unlock, or a custom reward combining a
+  blog-level treasury payout and/or a revealed text blob) purchasable with
+  Credits or Stars, plus a sitewide `blog_monetization_enabled`
+  kill-switch that also covers the existing paywall/treasury features in
+  one flip, and a narrower `feature_blog_gifts` flag for Gifts alone
+  (§ 32.12).
+- Also fixed as part of final QA on this batch: `t("blogs...")` calls in
+  several dashboard/editor/treasury/quota components referenced i18n keys
+  that existed in the Android locale file but not the web one (silently
+  falling back to the hardcoded default string) — added the missing keys
+  verbatim to `apps/web/lib/i18n/locales/en.json`; and the public comments
+  list showed a moderator-visible pending comment with no visual
+  difference from an already-approved one — added a "pending" badge next
+  to the existing VIP badge.
+
+**New migrations to run (in order):** `db/migrations/0018_blogs_multi.sql`,
+`db/migrations/0019_blog_post_content_format.sql`,
+`db/migrations/0020_blog_post_treasury.sql`,
+`db/migrations/0021_blog_menu_seo.sql`,
+`db/migrations/0022_blog_themes.sql`,
+`db/migrations/0023_blog_default_pages.sql`,
+`db/migrations/0024_blog_gifts.sql`. All 7 were verified end-to-end against
+a fresh local Postgres 16 database (run cleanly in order with no errors,
+right after `0017_answers_categories.sql`).
+
+**Not done in this pass**: the web "Start a Blog" page still doesn't
+surface the extra-blog-slot purchase currency choice or business-blog
+creation inline (the API and Android already support both) — flagged in
+§ 32.1 as a follow-up UI phase rather than built here, to keep this pass
+to verification/bugfixing of what already shipped.
+
+---
+
+*ZobiaSocial PRD v2.14*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
