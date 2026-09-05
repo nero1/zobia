@@ -4053,11 +4053,16 @@ export const forumModerationLog = pgTable("forum_moderation_log", {
 // Blogs — mini blog/CMS system (articles + static pages)
 // ---------------------------------------------------------------------------
 
+// Migration 0018 (db): blogs stop being strictly 1:1 with owner_id — a user
+// (and, additively, their linked business account) can hold several blogs,
+// gated by plan/level (personal) or tier (business) quotas — see
+// lib/blogs/limits.ts. owner_id keeps its NOT NULL + FK but is no longer
+// unique; businessAccountId/slot* below track scope and how the slot backing
+// this blog was acquired.
 export const blogs = pgTable("blogs", {
   id: uuidPk(),
   ownerId: uuid("owner_id")
     .notNull()
-    .unique()
     .references(() => users.id, { onDelete: "cascade" }),
   slug: text("slug").notNull().unique(),
   title: text("title").notNull(),
@@ -4074,6 +4079,16 @@ export const blogs = pgTable("blogs", {
   statusReason: text("status_reason"),
   subscriberCount: integer("subscriber_count").notNull().default(0),
   postCount: integer("post_count").notNull().default(0),
+  // NULL = personal blog (quota from the owner's plan/level). Set = business
+  // blog (quota from the business account's tier), additive to the owner's
+  // personal quota.
+  businessAccountId: uuid("business_account_id").references(() => businessAccounts.id, { onDelete: "cascade" }),
+  // 'included' (counted against the free plan/tier quota) or 'purchased'
+  // (paid one-time unlock beyond the quota) — see lib/blogs/limits.ts.
+  slotSource: text("slot_source").notNull().default("included"),
+  slotUnlockCurrency: text("slot_unlock_currency"),
+  slotUnlockCost: integer("slot_unlock_cost"),
+  slotUnlockReferenceId: text("slot_unlock_reference_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
