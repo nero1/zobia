@@ -23,6 +23,8 @@ interface BlogDetail {
   show_subscriber_count: boolean;
   owner_username: string;
   menu_config?: BlogMenuConfig;
+  /** Structural theme (web migration 0022). Android mirrors only the two layouts that make sense on a phone-width column — 'magazine' (featured hero) and everything else (the existing compact list, which already reads like 'minimal-cards'); 'sidebar-left' has no meaningful phone equivalent and falls back to the list, same as 'classic'. Full theme picker/purchase UI is deferred to web (see dashboard/settings). */
+  active_theme_id?: string;
 }
 
 interface PostSummary {
@@ -68,6 +70,11 @@ function BlogHomePage() {
   const blog = blogQuery.data?.blog;
   const isSubscribed = blogQuery.data?.isSubscribed ?? false;
   const isOwner = blogQuery.data?.isOwner ?? false;
+  // Mirrors apps/web/lib/blogs/themes.ts's seed catalog's layout_variant for
+  // the one variant that reads distinctly even at phone width — a featured
+  // hero above the list, for the 'magazine' theme ('editorial').
+  const isMagazine = blog?.active_theme_id === 'editorial';
+  const [featured, ...restArticles] = articlesQuery.data ?? [];
 
   if (blogQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
   if (!blog) return <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center text-sm text-neutral-500">{t('blogs.notFound', 'Blog not found.')}</div>;
@@ -121,7 +128,17 @@ function BlogHomePage() {
         <p className="text-sm text-neutral-500 text-center py-10">{t('blogs.dashboard.empty', 'Nothing here yet.')}</p>
       ) : (
         <div className="space-y-2">
-          {articlesQuery.data!.map((a) => (
+          {isMagazine && featured && (
+            <Link to="/blogs/$slug/$postSlug" params={{ slug, postSlug: featured.slug }} className="block overflow-hidden rounded-xl border border-neutral-200 bg-white">
+              <div className="h-32 w-full bg-gradient-to-br from-neutral-200 to-neutral-100" />
+              <div className="p-3">
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-primary-600">{t('blogs.featured', 'Featured')}</span>
+                <h2 className="font-bold text-neutral-900">{featured.title}</h2>
+                {featured.excerpt && <p className="text-xs text-neutral-500 mt-1 line-clamp-2">{featured.excerpt}</p>}
+              </div>
+            </Link>
+          )}
+          {(isMagazine ? restArticles : articlesQuery.data!).map((a) => (
             <Link key={a.id} to="/blogs/$slug/$postSlug" params={{ slug, postSlug: a.slug }} className="block rounded-xl border border-neutral-200 bg-white p-3">
               <div className="flex items-center gap-1.5">
                 <h2 className="font-semibold text-sm text-neutral-900">{a.title}</h2>

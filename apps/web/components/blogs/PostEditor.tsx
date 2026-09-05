@@ -55,11 +55,14 @@ export function PostEditor({
   postSlug,
   initial,
   initialType,
+  pageKey,
 }: {
   blogSlug: string;
   postSlug?: string;
   initial?: Partial<PostEditorInitial>;
   initialType?: "article" | "page";
+  /** Set when this post is one of the three auto-generated default pages (About/Privacy/Contact — migration 0023); shows a "Reset to default" action. */
+  pageKey?: "about" | "privacy" | "contact" | null;
 }) {
   const { t } = useTranslation();
   const router = useRouter();
@@ -67,7 +70,26 @@ export function PostEditor({
   const [categories, setCategories] = useState<BlogCategoryOption[]>([]);
   const [maxWords, setMaxWords] = useState<number>(1000);
   const [busy, setBusy] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function handleResetToDefault() {
+    if (!postSlug || !confirm(t("blogs.editor.confirmReset", "Reset this page back to its default template? Your edits will be lost."))) return;
+    setResetting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/blogs/${blogSlug}/posts/${postSlug}/reset-default`, { method: "POST", credentials: "include" });
+      if (!res.ok) {
+        const json = await res.json().catch(() => null);
+        throw new Error(json?.error?.message ?? "Failed to reset");
+      }
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to reset");
+    } finally {
+      setResetting(false);
+    }
+  }
 
   useEffect(() => {
     fetch(`/api/blogs/${blogSlug}/categories`, { credentials: "include" })
@@ -118,6 +140,22 @@ export function PostEditor({
       </h1>
 
       {!postSlug && <ArticleQuotaNotice blogSlug={blogSlug} />}
+
+      {pageKey && (
+        <div className="mb-4 flex items-center justify-between rounded-xl border border-dashed border-border bg-card px-4 py-2.5">
+          <p className="text-xs text-muted-foreground">
+            {t("blogs.editor.defaultPageNotice", "This is an auto-generated default page. You can edit it freely, or restore the original text.")}
+          </p>
+          <button
+            type="button"
+            onClick={handleResetToDefault}
+            disabled={resetting}
+            className="ml-3 shrink-0 rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-neutral-200 hover:bg-neutral-700 disabled:opacity-50"
+          >
+            {resetting ? t("blogs.editor.resetting", "Resetting…") : t("blogs.editor.resetToDefault", "Reset to default")}
+          </button>
+        </div>
+      )}
 
       <div className="space-y-4">
         <input

@@ -19,8 +19,14 @@ import { getPostTreasury } from "@/lib/blogs/service";
 import { PostBody } from "@/components/blogs/PostBody";
 import { PostActions } from "@/components/blogs/PostActions";
 import { CommentsSection } from "@/components/blogs/CommentsSection";
+import { ContactForm } from "@/components/blogs/ContactForm";
 import { BlogNavBar } from "@/components/blogs/BlogNavBar";
 import { getOptionalServerUser } from "@/lib/auth/serverUser";
+import { getTheme, resolveLayout } from "@/lib/blogs/themes";
+import { listBlogCategories } from "@/lib/blogs/repo";
+import { listPopularBlogPosts } from "@/lib/public/resolveBlogPost";
+import { BlogPostLayout } from "@/components/blogs/layouts/BlogPostLayout";
+import { db } from "@/lib/db";
 
 const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
@@ -70,9 +76,22 @@ export default async function PublicBlogPostPage({
   if (!post) notFound();
 
   const isPage = post.type === "page";
+  const isContactPage = post.page_key === "contact";
   const isDraft = post.status !== "published";
   const treasury = !isPage ? await getPostTreasury(post.id).catch(() => null) : null;
   const treasuryActive = treasury && treasury.status === "active" && treasury.claimantCount < treasury.maxClaimants;
+
+  const theme = await getTheme(blog.active_theme_id).catch(() => null);
+  const layoutVariant = theme ? resolveLayout(theme) : "classic";
+  const [sidebarCategories, sidebarPopular] = layoutVariant === "sidebar-left"
+    ? await Promise.all([listBlogCategories(blog.id), listPopularBlogPosts(blog.id, 5)])
+    : [[], []];
+
+  let contactViewer: { username: string } | null = null;
+  if (isContactPage && viewer) {
+    const { rows } = await db.query<{ username: string }>(`SELECT username FROM users WHERE id = $1 LIMIT 1`, [viewer.userId]);
+    contactViewer = rows[0] ? { username: rows[0].username } : null;
+  }
 
   const schema = !isPage
     ? generateArticleSchema({
@@ -92,7 +111,7 @@ export default async function PublicBlogPostPage({
         // eslint-disable-next-line react/no-danger
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: schema }} />
       )}
-      <div className="mx-auto max-w-2xl px-4 py-8">
+      <div className={`mx-auto px-4 py-8 ${layoutVariant === "sidebar-left" ? "max-w-5xl" : "max-w-2xl"}`}>
         <BlogNavBar
           blogSlug={blog.slug}
           menuConfig={blog.menu_config}
@@ -105,6 +124,7 @@ export default async function PublicBlogPostPage({
             This post is a draft — you&apos;re previewing it as it will appear once published. Visitors can&apos;t see it yet.
           </div>
         )}
+        <BlogPostLayout blogSlug={blog.slug} layoutVariant={layoutVariant} tokens={theme?.config ?? { bg: "", card: "", accent: "", text: "", muted: "" }} featuredImageUrl={post.featured_image_url} categories={sidebarCategories} popular={sidebarPopular}>
         <Link href={`/b/${blog.slug}`} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
           ← {blog.title}
         </Link>
@@ -148,13 +168,17 @@ export default async function PublicBlogPostPage({
         )}
 
         <div className="mt-6">
-          <PostBody
-            blogSlug={blog.slug}
-            postSlug={post.slug}
-            serverHtml={post.body_html}
-            isPaywalled={post.is_paywalled}
-            paywallCreditsCost={post.paywall_credits_cost}
-          />
+          {isContactPage ? (
+            <ContactForm blogSlug={blog.slug} viewer={contactViewer} />
+          ) : (
+            <PostBody
+              blogSlug={blog.slug}
+              postSlug={post.slug}
+              serverHtml={post.body_html}
+              isPaywalled={post.is_paywalled}
+              paywallCreditsCost={post.paywall_credits_cost}
+            />
+          )}
         </div>
 
         {!isPage && (
@@ -166,6 +190,7 @@ export default async function PublicBlogPostPage({
             <CommentsSection blogSlug={blog.slug} postSlug={post.slug} commentsEnabled={blog.comments_enabled} />
           </>
         )}
+        </BlogPostLayout>
       </div>
     </main>
   );

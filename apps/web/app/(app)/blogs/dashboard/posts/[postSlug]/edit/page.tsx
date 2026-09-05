@@ -15,6 +15,7 @@ export default function EditBlogPostPage() {
   const blogParam = searchParams.get("blog");
   const [blogSlug, setBlogSlug] = useState<string | null>(null);
   const [initial, setInitial] = useState<Partial<PostEditorInitial> | null>(null);
+  const [pageKey, setPageKey] = useState<"about" | "privacy" | "contact" | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -43,9 +44,10 @@ export default function EditBlogPostPage() {
         paywallCreditsCost: post.paywall_credits_cost,
         status: post.status,
       });
+      setPageKey(post.page_key ?? null);
     })().catch(() => router.replace("/blogs/dashboard"));
   }, [params.postSlug, router, blogParam]);
 
   if (!blogSlug || !initial) return null;
-  return <PostEditor blogSlug={blogSlug} postSlug={params.postSlug} initial={initial} />;
+  return <PostEditor blogSlug={blogSlug} postSlug={params.postSlug} initial={initial} pageKey={pageKey} />;
 }

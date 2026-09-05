@@ -33,7 +33,8 @@ export type StarTransactionType =
   | "game_reward"
   | "game_play_cost"
   | "moment_created"
-  | "blog_extra_slot";
+  | "blog_extra_slot"
+  | "blog_theme_purchase";
 
 // ---------------------------------------------------------------------------
 // Internal helpers

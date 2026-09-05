@@ -22,6 +22,8 @@ export interface PublicBlogPost {
   status: string;
   title: string;
   slug: string;
+  /** 'about'|'privacy'|'contact' for an auto-generated default page (migration 0023), else null. */
+  page_key: string | null;
   excerpt: string | null;
   body_html: string;
   featured_image_url: string | null;
@@ -49,13 +51,13 @@ export async function resolvePublicBlogPost(blogId: string, postSlug: string, op
   const statusClause = opts?.allowUnpublished ? "" : "AND p.status = 'published'";
   const { rows } = await db.query<{
     id: string; blog_id: string; author_id: string; category_id: string | null; category_name: string | null;
-    type: string; status: string; title: string; slug: string; excerpt: string | null; body_markdown: string; content_format: string;
+    type: string; status: string; title: string; slug: string; page_key: string | null; excerpt: string | null; body_markdown: string; content_format: string;
     featured_image_url: string | null; is_paywalled: boolean; paywall_credits_cost: number; word_count: number;
     view_count: number; like_count: number; comment_count: number; published_at: string | null; updated_at: string;
     author_username: string | null; author_display_name: string | null; author_avatar_url: string | null;
   }>(
     `SELECT p.id, p.blog_id, p.author_id, p.category_id, c.name AS category_name,
-            p.type, p.status, p.title, p.slug, p.excerpt, p.body_markdown, p.content_format, p.featured_image_url,
+            p.type, p.status, p.title, p.slug, p.page_key, p.excerpt, p.body_markdown, p.content_format, p.featured_image_url,
             p.is_paywalled, p.paywall_credits_cost, p.word_count, p.view_count, p.like_count, p.comment_count,
             p.published_at, p.updated_at, u.username AS author_username, u.display_name AS author_display_name, u.avatar_url AS author_avatar_url
      FROM blog_posts p

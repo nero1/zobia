@@ -171,6 +171,9 @@ export default function BlogDashboardPage() {
           <Link href={withBlogParam("/blogs/dashboard/comments", blog.slug, blogs.length)} className="rounded-lg border border-border bg-card px-3 py-1.5 font-medium text-foreground hover:bg-accent">
             {t("blogs.dashboard.comments", "Comments")}
           </Link>
+          <Link href={withBlogParam("/blogs/dashboard/messages", blog.slug, blogs.length)} className="rounded-lg border border-border bg-card px-3 py-1.5 font-medium text-foreground hover:bg-accent">
+            {t("blogs.dashboard.messages", "Messages")}
+          </Link>
           <Link href={withBlogParam("/blogs/dashboard/stats", blog.slug, blogs.length)} className="rounded-lg border border-border bg-card px-3 py-1.5 font-medium text-foreground hover:bg-accent">
             {t("blogs.dashboard.stats", "Stats")}
           </Link>

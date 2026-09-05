@@ -24,7 +24,8 @@ import { debitCoins, checkAndDebit, creditCoins } from "@/lib/economy/coins";
 import { debitStars } from "@/lib/economy/stars";
 import { sanitizeBlogPostHtml, plainTextToBlogPostHtml } from "@/lib/security/htmlSanitizer";
 import { generateUniqueSlug, generateUniqueBlogPostSlug, recordSlugRedirect } from "@/lib/slug";
-import { normalizeMenuConfig, type BlogMenuConfig } from "@/lib/blogs/menu";
+import { normalizeMenuConfig, type BlogMenuConfig, type BlogMenuItem } from "@/lib/blogs/menu";
+import { DEFAULT_PAGE_TITLES, getDefaultPageContent, type DefaultPageKey } from "@/lib/blogs/defaultPages";
 import {
   getMaxBlogPosts,
   getMaxWordsForPlan,
@@ -200,10 +201,72 @@ export async function createBlog(input: CreateBlogInput): Promise<CreateBlogResu
       ]
     );
 
+    await createDefaultPagesAndMenu(tx, blogId, input.userId, input.title.trim());
+
     return { slotSource, slotCurrency, slotCost };
   });
 
   return { id: blogId, slug, slotSource: outcome.slotSource, slotUnlockCurrency: outcome.slotCurrency, slotUnlockCost: outcome.slotCost };
+}
+
+// ---------------------------------------------------------------------------
+// Default pages (About / Privacy / Contact) — migration 0023
+// ---------------------------------------------------------------------------
+
+const DEFAULT_PAGE_KEYS: DefaultPageKey[] = ["about", "privacy", "contact"];
+
+/**
+ * Inserts the three auto-generated pages for a brand-new blog, and appends
+ * them to its (still-default) menu_config. Runs inside createBlog's
+ * transaction. Slugs are fixed ('about'/'privacy'/'contact') — safe because
+ * the blog was just created in this same transaction, so nothing can
+ * already occupy them.
+ */
+async function createDefaultPagesAndMenu(tx: TransactionClient, blogId: string, authorId: string, blogTitle: string): Promise<void> {
+  const menuItems: BlogMenuItem[] = [];
+  for (const key of DEFAULT_PAGE_KEYS) {
+    const postId = randomUUID();
+    const bodyMarkdown = getDefaultPageContent(key, blogTitle);
+    const bodyHtml = renderBodyHtml(bodyMarkdown, "markdown");
+    await tx.query(
+      `INSERT INTO blog_posts (id, blog_id, author_id, type, page_key, title, slug, body_markdown, body_html, content_format, status, published_at, word_count)
+       VALUES ($1, $2, $3, 'page', $4, $5, $4, $6, $7, 'markdown', 'published', NOW(), $8)`,
+      [postId, blogId, authorId, key, DEFAULT_PAGE_TITLES[key], bodyMarkdown, bodyHtml, wordCount(bodyMarkdown)]
+    );
+    menuItems.push({ id: `page-${key}`, label: DEFAULT_PAGE_TITLES[key], type: "page", targetId: key });
+  }
+  await tx.query(`UPDATE blogs SET post_count = post_count + $2 WHERE id = $1`, [blogId, DEFAULT_PAGE_KEYS.length]);
+
+  const { rows } = await tx.query<{ menu_config: BlogMenuConfig }>(`SELECT menu_config FROM blogs WHERE id = $1 LIMIT 1`, [blogId]);
+  const current = normalizeMenuConfig(rows[0]?.menu_config);
+  const nextConfig: BlogMenuConfig = { ...current, items: [...current.items, ...menuItems] };
+  await tx.query(`UPDATE blogs SET menu_config = $2::jsonb WHERE id = $1`, [blogId, JSON.stringify(nextConfig)]);
+}
+
+/**
+ * Regenerates one of the three default pages' content back to its
+ * template, keeping the same post row (id/slug/page_key/status untouched)
+ * — so any menu items or bookmarks pointing at it keep working. Owner or
+ * moderator/admin only, mirroring updatePost's permission shape.
+ */
+export async function resetDefaultPage(blogId: string, callerId: string, callerIsModerator: boolean, pageKey: DefaultPageKey): Promise<void> {
+  const { rows } = await db.query<{ id: string; owner_id: string; title: string }>(
+    `SELECT p.id, b.owner_id, b.title
+     FROM blog_posts p JOIN blogs b ON b.id = p.blog_id
+     WHERE p.blog_id = $1 AND p.page_key = $2 AND p.deleted_at IS NULL LIMIT 1`,
+    [blogId, pageKey]
+  );
+  const row = rows[0];
+  if (!row) throw notFound("Default page not found");
+  if (row.owner_id !== callerId && !callerIsModerator) throw forbidden("You can't manage this page.");
+
+  const bodyMarkdown = getDefaultPageContent(pageKey, row.title);
+  const bodyHtml = renderBodyHtml(bodyMarkdown, "markdown");
+  await db.query(
+    `UPDATE blog_posts SET title = $2, body_markdown = $3, body_html = $4, content_format = 'markdown', word_count = $5, updated_at = NOW()
+     WHERE id = $1`,
+    [row.id, DEFAULT_PAGE_TITLES[pageKey], bodyMarkdown, bodyHtml, wordCount(bodyMarkdown)]
+  );
 }
 
 export interface UpdateBlogSettingsInput {
@@ -267,6 +330,82 @@ export async function updateBlogSettings(blogId: string, callerId: string, input
   if (fields.length === 0) return;
   await db.query(`UPDATE blogs SET ${fields.join(", ")}, updated_at = NOW() WHERE id = $1`, params);
   if (newSlug) await recordSlugRedirect("blog", blog.slug, blogId, newSlug).catch(() => {});
+}
+
+// ---------------------------------------------------------------------------
+// Contact form (migration 0023) — open to every visitor, logged in or not,
+// regardless of the blog's comment settings; see app/api/blogs/[slug]/contact.
+// ---------------------------------------------------------------------------
+
+export interface SubmitContactMessageInput {
+  blogId: string;
+  senderUserId?: string | null;
+  senderName?: string | null;
+  senderEmail?: string | null;
+  message: string;
+}
+
+export async function submitContactMessage(input: SubmitContactMessageInput): Promise<{ id: string }> {
+  await requireFeatureEnabled("blogs");
+
+  const { rows: blogRows } = await db.query<{ id: string; owner_id: string; slug: string; title: string }>(
+    `SELECT id, owner_id, slug, title FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    [input.blogId]
+  );
+  const blog = blogRows[0];
+  if (!blog) throw notFound("Blog not found");
+
+  const { rows } = await db.query<{ id: string }>(
+    `INSERT INTO blog_contact_messages (blog_id, sender_user_id, sender_name, sender_email, message)
+     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+    [blog.id, input.senderUserId ?? null, input.senderName?.trim() || null, input.senderEmail?.trim() || null, input.message.trim()]
+  );
+
+  await insertNotificationBatch(
+    db,
+    [blog.owner_id],
+    "blog_contact_message",
+    `New message on ${blog.title}`,
+    input.message.trim().slice(0, 140),
+    { blogId: blog.id, blogSlug: blog.slug, messageId: rows[0].id }
+  ).catch((err) => {
+    logger.error({ err, blogId: blog.id }, "[blogs/service] failed to notify blog owner of a contact message");
+  });
+
+  return { id: rows[0].id };
+}
+
+export interface BlogContactMessageRow {
+  id: string;
+  sender_name: string | null;
+  sender_email: string | null;
+  sender_username: string | null;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+}
+
+export async function listContactMessages(blogId: string, callerId: string): Promise<BlogContactMessageRow[]> {
+  const { rows: blogRows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [blogId]);
+  const blog = blogRows[0];
+  if (!blog) throw notFound("Blog not found");
+  if (blog.owner_id !== callerId) throw forbidden("Only the blog owner can view contact messages.");
+
+  const { rows } = await db.query<BlogContactMessageRow>(
+    `SELECT m.id, m.sender_name, m.sender_email, u.username AS sender_username, m.message, m.is_read, m.created_at
+     FROM blog_contact_messages m LEFT JOIN users u ON u.id = m.sender_user_id
+     WHERE m.blog_id = $1 ORDER BY m.created_at DESC LIMIT 200`,
+    [blogId]
+  );
+  return rows;
+}
+
+export async function markContactMessageRead(blogId: string, callerId: string, messageId: string): Promise<void> {
+  const { rows: blogRows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [blogId]);
+  const blog = blogRows[0];
+  if (!blog) throw notFound("Blog not found");
+  if (blog.owner_id !== callerId) throw forbidden("Only the blog owner can manage contact messages.");
+  await db.query(`UPDATE blog_contact_messages SET is_read = TRUE WHERE id = $1 AND blog_id = $2`, [messageId, blogId]);
 }
 
 // ---------------------------------------------------------------------------

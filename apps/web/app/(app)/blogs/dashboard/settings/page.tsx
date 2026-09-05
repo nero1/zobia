@@ -37,8 +37,11 @@ interface ThemeItem {
   id: string;
   name: string;
   description: string | null;
-  coins_cost: number | null;
-  owned: boolean;
+  layout_variant: string;
+  credits_cost: number | null;
+  stars_cost: number | null;
+  availability: "free_default" | "plan_included" | "owned" | "purchasable" | "locked";
+  isActive: boolean;
 }
 
 function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
@@ -79,9 +82,9 @@ export default function BlogSettingsPage() {
       const catJson = await catRes.json().catch(() => null);
       setCategories(catJson?.data?.categories ?? []);
 
-      const themeRes = await fetch("/api/economy/cosmetics", { credentials: "include" });
+      const themeRes = await fetch(`/api/blogs/${b.slug}/themes`, { credentials: "include" });
       const themeJson = await themeRes.json().catch(() => null);
-      setThemes((themeJson?.cosmetics ?? []).filter((c: { cosmetic_type: string }) => c.cosmetic_type === "blog_theme"));
+      setThemes(themeJson?.data?.themes ?? []);
     })();
   }, [router, blogParam]);
 
@@ -152,25 +155,18 @@ export default function BlogSettingsPage() {
     void saveMenuConfig({ ...menuConfig, orientation });
   }
 
-  async function buyOrEquipTheme(itemId: string, owned: boolean) {
-    if (owned) {
-      await fetch("/api/economy/cosmetics/equip", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId }),
-      });
-    } else {
-      await fetch("/api/economy/cosmetics/purchase", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId, currency: "coins" }),
-      }).then(async (res) => {
-        if (res.ok) {
-          setThemes((prev) => prev.map((th) => (th.id === itemId ? { ...th, owned: true } : th)));
-        }
-      });
+  async function equipOrBuyTheme(themeId: string, currency?: "credits" | "stars") {
+    if (!blog) return;
+    const res = await fetch(`/api/blogs/${blog.slug}/themes/equip`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(currency ? { themeId, currency } : { themeId }),
+    });
+    if (res.ok) {
+      const themeRes = await fetch(`/api/blogs/${blog.slug}/themes`, { credentials: "include" });
+      const themeJson = await themeRes.json().catch(() => null);
+      setThemes(themeJson?.data?.themes ?? []);
     }
   }
 
@@ -271,17 +267,39 @@ export default function BlogSettingsPage() {
       {themes.length > 0 && (
         <div>
           <h2 className="text-sm font-semibold text-foreground mb-2">{t("blogs.settings.themes", "Blog Themes")}</h2>
+          <p className="mb-2 text-xs text-muted-foreground">
+            {t("blogs.settings.themesHint", "Themes change the structural layout of your blog, not just its colors.")}
+          </p>
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             {themes.map((th) => (
-              <div key={th.id} className="rounded-xl border border-border bg-card p-3">
-                <div className="font-medium text-foreground text-sm">{th.name}</div>
+              <div key={th.id} className={`rounded-xl border p-3 ${th.isActive ? "border-primary bg-primary/5" : "border-border bg-card"}`}>
+                <div className="flex items-center gap-1.5">
+                  <span className="font-medium text-foreground text-sm">{th.name}</span>
+                  {th.isActive && <span className="rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">{t("blogs.settings.themeActive", "Active")}</span>}
+                </div>
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">{th.layout_variant}</span>
                 <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{th.description}</p>
-                <button
-                  onClick={() => buyOrEquipTheme(th.id, th.owned)}
-                  className="mt-2 w-full rounded-lg bg-neutral-800 px-2 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700"
-                >
-                  {th.owned ? t("blogs.settings.applyTheme", "Apply") : t("blogs.settings.buyTheme", "Buy for {{cost}} credits", { cost: th.coins_cost })}
-                </button>
+
+                {th.isActive ? null : th.availability === "free_default" || th.availability === "plan_included" || th.availability === "owned" ? (
+                  <button onClick={() => equipOrBuyTheme(th.id)} className="mt-2 w-full rounded-lg bg-neutral-800 px-2 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700">
+                    {t("blogs.settings.applyTheme", "Use this theme")}
+                  </button>
+                ) : th.availability === "purchasable" ? (
+                  <div className="mt-2 space-y-1">
+                    {!!th.credits_cost && (
+                      <button onClick={() => equipOrBuyTheme(th.id, "credits")} className="w-full rounded-lg bg-amber-950/40 px-2 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-950/70">
+                        {t("blogs.settings.buyThemeCredits", "Buy for {{cost}} credits", { cost: th.credits_cost })}
+                      </button>
+                    )}
+                    {!!th.stars_cost && (
+                      <button onClick={() => equipOrBuyTheme(th.id, "stars")} className="w-full rounded-lg bg-amber-950/40 px-2 py-1.5 text-xs font-medium text-amber-300 hover:bg-amber-950/70">
+                        {t("blogs.settings.buyThemeStars", "Buy for {{cost}} stars", { cost: th.stars_cost })}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">{t("blogs.settings.themeLocked", "Upgrade your plan to unlock")}</p>
+                )}
               </div>
             ))}
           </div>

@@ -122,7 +122,10 @@ export default function AdminBlogsPage() {
 
   return (
     <div className="relative">
-      <h1 className="mb-6 text-2xl font-bold text-neutral-900 dark:text-neutral-50">Blogs</h1>
+      <div className="mb-6 flex items-center justify-between">
+        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Blogs</h1>
+        <Link href="/gate44/blogs/themes" className="text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400">Manage Themes →</Link>
+      </div>
 
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-modal ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}>

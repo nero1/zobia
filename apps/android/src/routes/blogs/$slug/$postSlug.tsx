@@ -23,6 +23,8 @@ interface PostDetail {
   title: string;
   type: string;
   status: string;
+  /** 'about'|'privacy'|'contact' for an auto-generated default page (web migration 0023), else null. */
+  page_key?: string | null;
   body_html: string;
   is_paywalled: boolean;
   paywall_credits_cost: number;
@@ -84,6 +86,8 @@ function PostViewPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [commentText, setCommentText] = useState('');
+  const [contactMessage, setContactMessage] = useState('');
+  const [contactSent, setContactSent] = useState(false);
 
   // apiClient's response interceptor already unwraps the { success, data, error }
   // envelope down to `data`, so `.data` below IS the PostDetailResponse/comments
@@ -130,6 +134,15 @@ function PostViewPage() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['blogs', 'post', slug, postSlug] }),
   });
 
+  // No CAPTCHA widget on Android yet (deferred — see web's ContactForm.tsx for
+  // the reCAPTCHA/Turnstile pattern to port). If the sitewide captcha toggle
+  // is on, an anonymous submission from Android is rejected server-side with
+  // CAPTCHA_FAILED; logged-in senders are unaffected either way.
+  const submitContact = useMutation({
+    mutationFn: () => apiClient.post(`/blogs/${slug}/contact`, { message: contactMessage.trim() }),
+    onSuccess: () => { setContactSent(true); setContactMessage(''); },
+  });
+
   const postComment = useMutation({
     mutationFn: () => apiClient.post(`/blogs/${slug}/posts/${postSlug}/comments`, { body: commentText.trim() }),
     onSuccess: () => {
@@ -146,6 +159,7 @@ function PostViewPage() {
   const { post, locked, isLiked, isAuthor, blog } = data;
   const isArticle = post.type === 'article';
   const isDraft = post.status !== 'published';
+  const isContactPage = post.page_key === 'contact';
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
@@ -168,8 +182,31 @@ function PostViewPage() {
           </p>
         )}
 
-        {/* Server-sanitized HTML — safe to render (sanitize-html allow-list applied server-side). */}
-        <div className="prose prose-sm mt-3" dangerouslySetInnerHTML={{ __html: post.body_html }} />
+        {isContactPage ? (
+          contactSent ? (
+            <p className="mt-3 text-sm text-neutral-700">{t('blogs.contact.sent', 'Your message has been sent. Thanks for reaching out!')}</p>
+          ) : (
+            <div className="mt-3 space-y-2">
+              <textarea
+                value={contactMessage}
+                onChange={(e) => setContactMessage(e.target.value.slice(0, 4000))}
+                rows={4}
+                placeholder={t('blogs.contact.messagePlaceholder', 'What would you like to say?')}
+                className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+              />
+              <button
+                onClick={() => submitContact.mutate()}
+                disabled={!contactMessage.trim() || submitContact.isPending}
+                className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {submitContact.isPending ? t('blogs.contact.sending', 'Sending…') : t('blogs.contact.send', 'Send message')}
+              </button>
+            </div>
+          )
+        ) : (
+          // Server-sanitized HTML — safe to render (sanitize-html allow-list applied server-side).
+          <div className="prose prose-sm mt-3" dangerouslySetInnerHTML={{ __html: post.body_html }} />
+        )}
 
         {locked && (
           <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">

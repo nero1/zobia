@@ -157,6 +157,7 @@ export interface BlogRow {
   avatar_url: string | null;
   cover_image_url: string | null;
   theme_store_item_id: string | null;
+  active_theme_id: string;
   comments_enabled: boolean;
   comments_moderation_enabled: boolean;
   hide_author_info: boolean;
@@ -239,6 +240,8 @@ export interface BlogPostSummaryRow {
   type: string;
   title: string;
   slug: string;
+  /** 'about'|'privacy'|'contact' for an auto-generated default page (migration 0023), else null. */
+  page_key: string | null;
   excerpt: string | null;
   featured_image_url: string | null;
   status: string;
@@ -289,7 +292,7 @@ export async function listBlogPosts(
 
   params.push(opts.limit + 1);
   const { rows } = await db.query<BlogPostSummaryRow>(
-    `SELECT p.id, p.blog_id, p.category_id, p.type, p.title, p.slug, p.excerpt, p.featured_image_url,
+    `SELECT p.id, p.blog_id, p.category_id, p.type, p.title, p.slug, p.page_key, p.excerpt, p.featured_image_url,
             p.status, p.is_paywalled, p.paywall_credits_cost, p.word_count, p.view_count, p.like_count,
             p.comment_count, p.sort_order, p.published_at, p.created_at,
             c.name AS category_name

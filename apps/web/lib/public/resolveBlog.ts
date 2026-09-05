@@ -26,6 +26,7 @@ export interface PublicBlog {
   subscriber_count: number;
   post_count: number;
   menu_config: BlogMenuConfig;
+  active_theme_id: string;
   owner_id: string;
   owner_username: string;
   owner_display_name: string;
@@ -42,7 +43,7 @@ export interface ResolvedBlog {
 const SELECT = `
   SELECT b.id, b.slug, b.title, b.tagline, b.description, b.avatar_url, b.cover_image_url,
          b.show_subscriber_count, b.hide_author_info, b.comments_enabled, b.subscriber_count, b.post_count,
-         b.menu_config,
+         b.menu_config, b.active_theme_id,
          b.owner_id, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url,
          b.created_at, b.updated_at
   FROM blogs b

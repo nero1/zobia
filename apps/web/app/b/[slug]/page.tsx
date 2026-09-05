@@ -17,12 +17,13 @@ import { notFound, redirect } from "next/navigation";
 import { resolvePublicBlog } from "@/lib/public/resolveBlog";
 import { listPublicBlogPosts, listPopularBlogPosts } from "@/lib/public/resolveBlogPost";
 import { listBlogCategories } from "@/lib/blogs/repo";
-import { formatShortDate } from "@/lib/format/date";
 import { NOT_FOUND_METADATA } from "@/lib/public/roomMetadata";
 import { SubscribeButton } from "@/components/blogs/SubscribeButton";
 import { BlogNavBar } from "@/components/blogs/BlogNavBar";
 import { getOptionalServerUser } from "@/lib/auth/serverUser";
 import { generateBlogSchema } from "@/lib/seo/metadata";
+import { getTheme, resolveLayout, DEFAULT_THEME_TOKENS } from "@/lib/blogs/themes";
+import { BlogHomeLayout } from "@/components/blogs/layouts/BlogHomeLayout";
 
 const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
@@ -54,14 +55,17 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
   }
 
   const { blog } = resolved;
-  const [articles, pages, popular, categories, viewer] = await Promise.all([
+  const [articles, pages, popular, categories, viewer, theme] = await Promise.all([
     listPublicBlogPosts(blog.id, "article", 20),
     listPublicBlogPosts(blog.id, "page", 20),
     listPopularBlogPosts(blog.id, 5),
     listBlogCategories(blog.id),
     getOptionalServerUser(),
+    getTheme(blog.active_theme_id).catch(() => null),
   ]);
   const showOwnerToolbar = !!viewer && (viewer.userId === blog.owner_id || viewer.isAdmin || viewer.isModerator);
+  const layoutVariant = theme ? resolveLayout(theme) : "classic";
+  const tokens = theme?.config ?? DEFAULT_THEME_TOKENS;
 
   const websiteSchema = generateBlogSchema({
     name: blog.title,
@@ -104,62 +108,16 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
           )}
         </header>
 
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
-          <div className="md:col-span-2 space-y-4">
-            {articles.length === 0 ? (
-              <p className="text-muted-foreground">No articles yet.</p>
-            ) : (
-              articles.map((a) => (
-                <Link key={a.id} href={`/b/${blog.slug}/${a.slug}`} className="block rounded-2xl border border-border bg-card p-4 hover:border-primary/60 transition-colors">
-                  <div className="flex gap-4">
-                    {a.featured_image_url && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={a.featured_image_url} alt="" className="h-20 w-20 flex-shrink-0 rounded-xl object-cover" />
-                    )}
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h2 className="font-bold text-foreground">{a.title}</h2>
-                        {a.is_paywalled && <span className="text-[10px] rounded-full bg-amber-950/40 text-amber-400 px-1.5 py-0.5">🔒</span>}
-                      </div>
-                      {a.excerpt && <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{a.excerpt}</p>}
-                      <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                        {a.published_at && <span>{formatShortDate(a.published_at)}</span>}
-                        {a.category_name && <span className="rounded-full bg-neutral-800 px-2 py-0.5">{a.category_name}</span>}
-                        <span>👁 {a.view_count}</span>
-                        <span>❤️ {a.like_count}</span>
-                      </div>
-                    </div>
-                  </div>
-                </Link>
-              ))
-            )}
-          </div>
-
-          <aside className="space-y-6">
-            {categories.length > 0 && (
-              <div id="categories" className="rounded-2xl border border-border bg-card p-4">
-                <h3 className="mb-2 text-sm font-semibold text-foreground">Categories</h3>
-                <div className="flex flex-wrap gap-1.5">
-                  {categories.map((c) => (
-                    <span key={c.id} className="rounded-full bg-neutral-800 px-2.5 py-1 text-xs text-neutral-300">{c.name} ({c.post_count})</span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {popular.length > 0 && (
-              <div className="rounded-2xl border border-border bg-card p-4">
-                <h3 className="mb-2 text-sm font-semibold text-foreground">Popular</h3>
-                <div className="space-y-2">
-                  {popular.map((p) => (
-                    <Link key={p.id} href={`/b/${blog.slug}/${p.slug}`} className="block text-sm text-foreground hover:text-primary truncate">
-                      {p.title}
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
-          </aside>
-        </div>
+        <BlogHomeLayout
+          blogSlug={blog.slug}
+          blogTitle={blog.title}
+          layoutVariant={layoutVariant}
+          tokens={tokens}
+          articles={articles}
+          pages={pages}
+          popular={popular}
+          categories={categories}
+        />
 
         <div className="mt-8">
           <Link href="/blogs" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
