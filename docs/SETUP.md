@@ -239,7 +239,9 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `NEXT_PUBLIC_TELEGRAM_BOT_USERNAME` | Yes | Bot username **without** the `@` (e.g. `ZobiaBot`) — used by the Telegram Login Widget on the frontend. Without this, the widget is hidden. | @BotFather → `/mybots` → select your bot → username shown at the top |
 | `DEEPSEEK_API_KEY` | No* | DeepSeek API key for AI moderation. Optional — app starts without it, but AI moderation calls will fail if not set. | platform.deepseek.com → API Keys |
 | `DEEPSEEK_API_ENDPOINT` | No | Override endpoint (default: `https://api.deepseek.com/v1`) | DeepSeek docs |
-| `GEMINI_API_KEY` | No* | Google Gemini API key (AI fallback). Optional — at least one AI key should be set for moderation to work. | aistudio.google.com → Get API key |
+| `GEMINI_API_KEY` | No* | Google Gemini API key (2nd-level AI fallback). Optional — at least one AI key should be set for moderation to work. | aistudio.google.com → Get API key |
+| `GROQ_API_KEY` | No* | Groq API key (3rd-level AI fallback — GPT-OSS-120B by default, switchable to Llama 3.1 8B Instant in Admin → AI Settings). Optional. | console.groq.com → API Keys |
+| `GROQ_API_ENDPOINT` | No | Override endpoint (default: `https://api.groq.com/openai/v1`) | Groq docs |
 | `MAILGUN_API_KEY` | No | Mailgun API key for transactional email | Mailgun → Account → API Keys |
 | `MAILGUN_DOMAIN` | No | Mailgun sending domain (e.g. `mg.yourdomain.com`) | Mailgun → Sending → Domains |
 | `PAYSTACK_SECRET_KEY` | No | Paystack secret key — must have Transfers permission enabled | Paystack dashboard → Settings → API Keys |
@@ -816,6 +818,13 @@ Because Vercel Hobby limits each path to once per day, sub-daily jobs must be tr
 - Schedule: Every night at 06:00 UTC (after the 7 daily slots complete)
 - HTTP Method: GET
 - Header: `Authorization: Bearer YOUR_CRON_SECRET`
+
+**AI Call Log Rotation (once or twice a day)**
+- URL: `https://your-domain.com/api/cron/rotate-ai-call-log`
+- Schedule: Every 12 hours (a 48-hour window doesn't need tighter cadence)
+- HTTP Method: GET
+- Header: `Authorization: Bearer YOUR_CRON_SECRET`
+- Purpose: deletes `ai_call_log` rows older than 48 hours so the AI monitoring table (Admin → AI Settings → Recent Calls) never grows unbounded.
 
 ### Paystack Setup (Payments & Payouts)
 
