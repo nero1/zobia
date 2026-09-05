@@ -17,13 +17,14 @@ import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug, getBlogPostBySlug } from "@/lib/blogs/repo";
 import { updatePost, deletePost, isUserModeratorOrAdmin } from "@/lib/blogs/service";
-import { sanitizeBlogPostHtml } from "@/lib/security/htmlSanitizer";
+import { sanitizeBlogPostHtml, plainTextToBlogPostHtml } from "@/lib/security/htmlSanitizer";
 import { db } from "@/lib/db";
 
 const updateSchema = z.object({
   title: z.string().trim().min(2).max(200).optional(),
   excerpt: z.string().trim().max(500).optional().nullable(),
   bodyMarkdown: z.string().trim().min(1).max(60_000).optional(),
+  contentFormat: z.enum(["markdown", "plaintext"]).optional(),
   featuredImageUrl: z.string().url().max(500).optional().nullable(),
   categoryId: z.string().uuid().optional().nullable(),
   isPaywalled: z.boolean().optional(),
@@ -32,11 +33,12 @@ const updateSchema = z.object({
   sortOrder: z.number().int().min(0).max(10_000).optional(),
 });
 
-function previewHtml(bodyMarkdown: string, wordCount: number): { html: string; previewWords: number } {
+function previewHtml(bodyMarkdown: string, wordCount: number, contentFormat: string): { html: string; previewWords: number } {
   const previewWords = Math.max(100, Math.round(wordCount * 0.2));
   const words = bodyMarkdown.trim().split(/\s+/);
   const truncated = words.slice(0, previewWords).join(" ");
-  return { html: sanitizeBlogPostHtml(truncated), previewWords };
+  const html = contentFormat === "plaintext" ? plainTextToBlogPostHtml(truncated) : sanitizeBlogPostHtml(truncated);
+  return { html, previewWords };
 }
 
 export const GET = withAuth<{ slug: string; postSlug: string }>(async (_req: NextRequest, { params, auth }) => {
@@ -62,7 +64,7 @@ export const GET = withAuth<{ slug: string; postSlug: string }>(async (_req: Nex
       );
       if (!rows[0]?.exists) {
         locked = true;
-        const preview = previewHtml(post.body_markdown, post.word_count);
+        const preview = previewHtml(post.body_markdown, post.word_count, (post as { content_format?: string }).content_format ?? "markdown");
         bodyHtml = preview.html;
         previewWordCount = preview.previewWords;
       }

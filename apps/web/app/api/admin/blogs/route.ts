@@ -30,7 +30,7 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
     }
     if (q) {
       params.push(`%${q}%`);
-      where += ` AND (b.title ILIKE $${params.length} OR u.username ILIKE $${params.length})`;
+      where += ` AND (b.title ILIKE $${params.length} OR b.slug ILIKE $${params.length} OR u.username ILIKE $${params.length} OR u.email ILIKE $${params.length})`;
     }
     if (cursor) {
       params.push(cursor);

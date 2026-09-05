@@ -13,6 +13,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { Preferences } from '@capacitor/preferences';
 import { apiClient } from '@/lib/api/client';
+import { formatShortDate } from '@/lib/format/date';
 
 interface PostDetail {
   id: string;
@@ -34,6 +35,13 @@ interface PostDetailResponse {
   locked: boolean;
   isLiked: boolean;
   blog: { title: string; hideAuthorInfo: boolean };
+}
+
+interface TreasuryState {
+  status: string;
+  maxClaimants: number;
+  claimantCount: number;
+  rewardPerClaimant: number;
 }
 
 interface CommentRow {
@@ -77,6 +85,21 @@ function PostViewPage() {
     enabled: postQuery.data?.post.type === 'article',
   });
 
+  const treasuryQuery = useQuery({
+    queryKey: ['blogs', 'treasury', slug, postSlug],
+    queryFn: async () => (await apiClient.get<{ treasury: TreasuryState | null }>(`/blogs/${slug}/posts/${postSlug}/treasury`)).data?.treasury ?? null,
+    enabled: postQuery.data?.post.type === 'article',
+  });
+
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
+  const share = useMutation({
+    mutationFn: () => apiClient.post<{ rewardClaimed: number | null }>(`/blogs/${slug}/posts/${postSlug}/share`, {}),
+    onSuccess: (res) => {
+      if (res.data?.rewardClaimed) setShareNotice(t('blogs.post.shareRewardClaimed', 'You earned {{amount}} credits for sharing!', { amount: res.data.rewardClaimed }));
+      qc.invalidateQueries({ queryKey: ['blogs', 'treasury', slug, postSlug] });
+    },
+  });
+
   useEffect(() => {
     if (postQuery.data?.post.id) void markViewOnce(slug, postSlug, postQuery.data.post.id);
   }, [slug, postSlug, postQuery.data?.post.id]);
@@ -112,7 +135,12 @@ function PostViewPage() {
       <div className="rounded-xl border border-neutral-200 bg-white p-4">
         <h1 className="text-lg font-bold text-neutral-900">{post.title}</h1>
         {isArticle && post.published_at && (
-          <p className="text-xs text-neutral-400 mt-1">{new Date(post.published_at).toLocaleDateString()}</p>
+          <p className="text-xs text-neutral-400 mt-1">{formatShortDate(post.published_at)}</p>
+        )}
+        {isArticle && treasuryQuery.data && treasuryQuery.data.status === 'active' && treasuryQuery.data.claimantCount < treasuryQuery.data.maxClaimants && (
+          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+            🎁 {t('blogs.post.rewardPotBadge', 'Reward pot: {{amount}} credits each for the next {{slots}} people who comment or share!', { amount: treasuryQuery.data.rewardPerClaimant, slots: treasuryQuery.data.maxClaimants - treasuryQuery.data.claimantCount })}
+          </div>
         )}
         {isArticle && !blog.hideAuthorInfo && (
           <p className="text-xs text-neutral-500 mt-2">
@@ -148,9 +176,18 @@ function PostViewPage() {
               <span>{isLiked ? '❤️' : '🤍'}</span>
               <span>{post.like_count}</span>
             </button>
+            <button
+              onClick={() => share.mutate()}
+              disabled={share.isPending}
+              className="flex items-center gap-1 rounded-lg border border-neutral-200 px-3 py-1.5 text-sm"
+            >
+              <span>🔗</span>
+              <span>{t('blogs.post.share', 'Share')}</span>
+            </button>
             <span className="text-xs text-neutral-400">👁 {post.view_count} views</span>
           </div>
         )}
+        {shareNotice && <p className="mt-2 text-xs text-amber-600">{shareNotice}</p>}
       </div>
 
       {isArticle && (

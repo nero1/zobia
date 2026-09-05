@@ -9,8 +9,9 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { withBlogParam } from "@/lib/blogs/useSelectedBlog";
 
 interface BlogRow {
   id: string;
@@ -19,6 +20,7 @@ interface BlogRow {
   status: string;
   post_count: number;
   subscriber_count: number;
+  business_account_id?: string | null;
 }
 
 interface PostRow {
@@ -40,6 +42,9 @@ type StatusTab = "published" | "draft";
 export default function BlogDashboardPage() {
   const { t } = useTranslation();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const blogParam = searchParams.get("blog");
+  const [blogs, setBlogs] = useState<BlogRow[]>([]);
   const [blog, setBlog] = useState<BlogRow | null | undefined>(undefined);
   const [type, setType] = useState<TypeTab>("article");
   const [status, setStatus] = useState<StatusTab>("published");
@@ -50,12 +55,15 @@ export default function BlogDashboardPage() {
     fetch("/api/blogs/me", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
-        const b = json?.data?.blog;
-        if (!b) { router.replace("/blogs/new"); return; }
-        setBlog(b);
+        const list: BlogRow[] = json?.data?.blogs ?? [];
+        if (list.length === 0) { router.replace("/blogs/new"); return; }
+        setBlogs(list);
+        if (list.length === 1) { setBlog(list[0]); return; }
+        const match = blogParam ? list.find((b) => b.slug === blogParam) : undefined;
+        setBlog(match ?? null); // null (not undefined) => render the picker below
       })
       .catch(() => setBlog(null));
-  }, [router]);
+  }, [router, blogParam]);
 
   const fetchPosts = useCallback(async () => {
     if (!blog) return;
@@ -80,26 +88,58 @@ export default function BlogDashboardPage() {
   }
 
   if (blog === undefined) return <div className="mx-auto max-w-4xl px-4 py-8 text-muted-foreground">{t("blogs.loading", "Loading…")}</div>;
-  if (!blog) return null;
+
+  if (!blog) {
+    // Multiple blogs and none selected (or an unknown ?blog= slug) — show the picker.
+    return (
+      <div className="mx-auto max-w-4xl px-4 py-6">
+        <h1 className="text-2xl font-bold text-foreground mb-4">{t("blogs.dashboard.pickBlogTitle", "Your blogs")}</h1>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          {blogs.map((b) => (
+            <button
+              key={b.id}
+              onClick={() => router.push(withBlogParam("/blogs/dashboard", b.slug, blogs.length))}
+              className="text-left rounded-2xl border border-border bg-card p-4 hover:border-primary/60 transition-colors"
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-foreground">{b.title}</span>
+                {b.business_account_id && (
+                  <span className="text-[10px] rounded-full bg-blue-950/40 text-blue-400 px-1.5 py-0.5">{t("blogs.dashboard.businessBadge", "Business")}</span>
+                )}
+              </div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                {t("blogs.dashboard.pickBlogStats", "{{posts}} posts · {{subs}} subscribers", { posts: b.post_count, subs: b.subscriber_count })}
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
+      {blogs.length > 1 && (
+        <Link href="/blogs/dashboard" className="mb-3 inline-block text-xs text-muted-foreground hover:text-foreground">
+          ← {t("blogs.dashboard.allBlogs", "All your blogs")}
+        </Link>
+      )}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{blog.title}</h1>
           <Link href={`/b/${blog.slug}`} className="text-xs text-primary hover:underline">zobia.org/b/{blog.slug} ↗</Link>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
-          <Link href={`/blogs/dashboard/posts/new?type=${type}`} className="rounded-lg bg-primary px-3 py-1.5 font-semibold text-primary-foreground hover:opacity-90">
+          <Link href={withBlogParam(`/blogs/dashboard/posts/new?type=${type}`, blog.slug, blogs.length)} className="rounded-lg bg-primary px-3 py-1.5 font-semibold text-primary-foreground hover:opacity-90">
             {t("blogs.dashboard.newPost", "+ New")}
           </Link>
-          <Link href="/blogs/dashboard/comments" className="rounded-lg border border-border bg-card px-3 py-1.5 font-medium text-foreground hover:bg-accent">
+          <Link href={withBlogParam("/blogs/dashboard/comments", blog.slug, blogs.length)} className="rounded-lg border border-border bg-card px-3 py-1.5 font-medium text-foreground hover:bg-accent">
             {t("blogs.dashboard.comments", "Comments")}
           </Link>
-          <Link href="/blogs/dashboard/stats" className="rounded-lg border border-border bg-card px-3 py-1.5 font-medium text-foreground hover:bg-accent">
+          <Link href={withBlogParam("/blogs/dashboard/stats", blog.slug, blogs.length)} className="rounded-lg border border-border bg-card px-3 py-1.5 font-medium text-foreground hover:bg-accent">
             {t("blogs.dashboard.stats", "Stats")}
           </Link>
-          <Link href="/blogs/dashboard/settings" className="rounded-lg border border-border bg-card px-3 py-1.5 font-medium text-foreground hover:bg-accent">
+          <Link href={withBlogParam("/blogs/dashboard/settings", blog.slug, blogs.length)} className="rounded-lg border border-border bg-card px-3 py-1.5 font-medium text-foreground hover:bg-accent">
             {t("blogs.dashboard.settings", "Settings")}
           </Link>
         </div>
@@ -139,7 +179,7 @@ export default function BlogDashboardPage() {
                 </div>
               </div>
               <div className="flex gap-1.5 flex-shrink-0">
-                <Link href={`/blogs/dashboard/posts/${p.slug}/edit`} className="rounded-lg bg-neutral-800 px-2 py-1 text-xs font-medium text-neutral-200 hover:bg-neutral-700">
+                <Link href={withBlogParam(`/blogs/dashboard/posts/${p.slug}/edit`, blog.slug, blogs.length)} className="rounded-lg bg-neutral-800 px-2 py-1 text-xs font-medium text-neutral-200 hover:bg-neutral-700">
                   {t("blogs.dashboard.edit", "Edit")}
                 </Link>
                 <button onClick={() => handleDelete(p.slug)} className="rounded-lg bg-red-950/40 px-2 py-1 text-xs font-medium text-red-400 hover:bg-red-950/70">

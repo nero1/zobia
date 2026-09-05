@@ -10,7 +10,9 @@ const config: Config = {
   theme: {
     extend: { ...tokens },
   },
-  plugins: [],
+  // Mirrors apps/web's fix — .prose classes render blog post/announcement
+  // HTML; without this plugin they're no-ops and content renders unstyled.
+  plugins: [require("@tailwindcss/typography")],
 };
 
 export default config;

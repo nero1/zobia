@@ -14,6 +14,8 @@ import { resolvePublicBlog } from "@/lib/public/resolveBlog";
 import { resolvePublicBlogPost } from "@/lib/public/resolveBlogPost";
 import { NOT_FOUND_METADATA } from "@/lib/public/roomMetadata";
 import { generateArticleSchema } from "@/lib/seo/metadata";
+import { formatShortDate } from "@/lib/format/date";
+import { getPostTreasury } from "@/lib/blogs/service";
 import { PostBody } from "@/components/blogs/PostBody";
 import { PostActions } from "@/components/blogs/PostActions";
 import { CommentsSection } from "@/components/blogs/CommentsSection";
@@ -46,6 +48,8 @@ export default async function PublicBlogPostPage({ params }: { params: Promise<{
 
   const { blog } = resolved;
   const isPage = post.type === "page";
+  const treasury = !isPage ? await getPostTreasury(post.id).catch(() => null) : null;
+  const treasuryActive = treasury && treasury.status === "active" && treasury.claimantCount < treasury.maxClaimants;
 
   const schema = !isPage
     ? generateArticleSchema({
@@ -78,8 +82,17 @@ export default async function PublicBlogPostPage({ params }: { params: Promise<{
 
         {!isPage && (
           <div className="mt-2 flex items-center gap-3 text-sm text-muted-foreground">
-            {post.published_at && <span>{new Date(post.published_at).toLocaleDateString()}</span>}
+            {post.published_at && <span>{formatShortDate(post.published_at)}</span>}
             {post.category_name && <span className="rounded-full bg-neutral-800 px-2 py-0.5 text-xs">{post.category_name}</span>}
+          </div>
+        )}
+
+        {treasuryActive && treasury && (
+          <div className="mt-4 rounded-xl border border-amber-500/30 bg-amber-950/20 px-4 py-3 text-sm text-amber-300">
+            {/* This page renders server-side without an i18n context (see the
+               rest of this file's hardcoded English strings) — kept consistent
+               rather than introducing a one-off server-i18n path. */}
+            🎁 Reward pot: {treasury.rewardPerClaimant} credits each for the next {treasury.maxClaimants - treasury.claimantCount} people who comment or share!
           </div>
         )}
 

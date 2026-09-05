@@ -17,6 +17,7 @@ import { notFound, redirect } from "next/navigation";
 import { resolvePublicBlog } from "@/lib/public/resolveBlog";
 import { listPublicBlogPosts, listPopularBlogPosts } from "@/lib/public/resolveBlogPost";
 import { listBlogCategories } from "@/lib/blogs/repo";
+import { formatShortDate } from "@/lib/format/date";
 import { NOT_FOUND_METADATA } from "@/lib/public/roomMetadata";
 import { SubscribeButton } from "@/components/blogs/SubscribeButton";
 
@@ -101,7 +102,7 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
                       </div>
                       {a.excerpt && <p className="mt-1 text-sm text-muted-foreground line-clamp-2">{a.excerpt}</p>}
                       <div className="mt-2 flex items-center gap-3 text-xs text-muted-foreground">
-                        {a.published_at && <span>{new Date(a.published_at).toLocaleDateString()}</span>}
+                        {a.published_at && <span>{formatShortDate(a.published_at)}</span>}
                         {a.category_name && <span className="rounded-full bg-neutral-800 px-2 py-0.5">{a.category_name}</span>}
                         <span>👁 {a.view_count}</span>
                         <span>❤️ {a.like_count}</span>

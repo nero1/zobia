@@ -6,7 +6,7 @@
  * transfer ownership to another user by username.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -49,8 +49,10 @@ const STATUS_COLOR: Record<string, 'green' | 'gold' | 'red' | 'neutral'> = {
   deactivated: 'neutral',
 };
 
-async function fetchBlogs(status: StatusFilter): Promise<BlogRow[]> {
-  const { data } = await apiClient.get<{ items: BlogRow[] }>(`/admin/blogs?status=${status}&limit=50`);
+async function fetchBlogs(status: StatusFilter, q: string): Promise<BlogRow[]> {
+  const params = new URLSearchParams({ status, limit: '50' });
+  if (q) params.set('q', q);
+  const { data } = await apiClient.get<{ items: BlogRow[] }>(`/admin/blogs?${params.toString()}`);
   return data?.items ?? [];
 }
 
@@ -131,6 +133,8 @@ function AdminBlogsPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const [status, setStatus] = useState<StatusFilter>('all');
+  const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [reasonAction, setReasonAction] = useState<{ blog: BlogRow; action: 'suspend' | 'ban' } | null>(null);
   const [deleting, setDeleting] = useState<BlogRow | null>(null);
@@ -142,7 +146,12 @@ function AdminBlogsPage() {
     setTimeout(() => setToast(null), 3500);
   };
 
-  const { data, status: qStatus, refetch } = useQuery({ queryKey: ['admin', 'blogs', status], queryFn: () => fetchBlogs(status) });
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const { data, status: qStatus, refetch } = useQuery({ queryKey: ['admin', 'blogs', status, debouncedSearch], queryFn: () => fetchBlogs(status, debouncedSearch) });
 
   const actionMutation = useMutation({
     mutationFn: ({ id, action, reason }: { id: string; action: Action; reason?: string }) =>
@@ -151,7 +160,7 @@ function AdminBlogsPage() {
       showToast(t('admin.moderation.actionApplied', 'Action applied'));
       setReasonAction(null);
       setDeleting(null);
-      qc.invalidateQueries({ queryKey: ['admin', 'blogs', status] });
+      qc.invalidateQueries({ queryKey: ['admin', 'blogs', status, debouncedSearch] });
     },
     onError: () => showToast(t('admin.moderation.actionFailed', 'Action failed'), 'error'),
     onSettled: () => setBusyId(null),
@@ -166,7 +175,7 @@ function AdminBlogsPage() {
     onSuccess: (_res, vars) => {
       showToast(t('admin.blogs.transferred', 'Transferred to @{{username}}', { username: vars.username }));
       setTransferring(null);
-      qc.invalidateQueries({ queryKey: ['admin', 'blogs', status] });
+      qc.invalidateQueries({ queryKey: ['admin', 'blogs', status, debouncedSearch] });
     },
     onError: (err: unknown) => showToast(err instanceof Error ? err.message : t('admin.blogs.transferFailed', 'Transfer failed'), 'error'),
     onSettled: () => setBusyId(null),
@@ -186,6 +195,14 @@ function AdminBlogsPage() {
     <div className="px-4 py-5">
       <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.blogs', 'Blogs')}</h1>
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
+
+      <input
+        type="search"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        placeholder={t('admin.blogs.searchPlaceholder', 'Search by title, slug, owner username, or email…')}
+        className={`${adminInputClass} mb-3`}
+      />
 
       <AdminTabs tabs={tabs} active={status} onChange={setStatus} />
 

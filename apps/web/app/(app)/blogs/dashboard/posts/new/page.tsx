@@ -15,16 +15,21 @@ export default function NewBlogPostPage() {
   const searchParams = useSearchParams();
   const [blogSlug, setBlogSlug] = useState<string | null | undefined>(undefined);
 
+  const blogParam = searchParams.get("blog");
+
   useEffect(() => {
     fetch("/api/blogs/me", { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => {
-        const b = json?.data?.blog;
-        if (!b) { router.replace("/blogs/new"); return; }
-        setBlogSlug(b.slug);
+        const blogs = json?.data?.blogs ?? [];
+        if (blogs.length === 0) { router.replace("/blogs/new"); return; }
+        if (blogs.length === 1) { setBlogSlug(blogs[0].slug); return; }
+        const match = blogParam ? blogs.find((b: { slug: string }) => b.slug === blogParam) : undefined;
+        if (!match) { router.replace("/blogs/dashboard"); return; }
+        setBlogSlug(match.slug);
       })
       .catch(() => setBlogSlug(null));
-  }, [router]);
+  }, [router, blogParam]);
 
   if (!blogSlug) return null;
 

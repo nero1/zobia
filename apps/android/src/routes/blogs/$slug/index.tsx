@@ -9,6 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { formatShortDate } from '@/lib/format/date';
 
 interface BlogDetail {
   id: string;
@@ -75,13 +76,24 @@ function BlogHomePage() {
             {blog.tagline && <p className="text-sm text-neutral-500 mt-0.5">{blog.tagline}</p>}
             <p className="text-xs text-neutral-400 mt-1">@{blog.owner_username}</p>
           </div>
-          <button
-            onClick={() => toggleSubscribe.mutate(!isSubscribed)}
-            disabled={toggleSubscribe.isPending}
-            className={`flex-shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold ${isSubscribed ? 'border border-neutral-300 text-neutral-700' : 'bg-primary-600 text-white'}`}
-          >
-            {isSubscribed ? t('blogs.subscribed', 'Subscribed ✓') : t('blogs.subscribe', 'Subscribe')}
-          </button>
+          <div className="flex flex-shrink-0 flex-col items-end gap-1">
+            <button
+              onClick={() => toggleSubscribe.mutate(!isSubscribed)}
+              disabled={toggleSubscribe.isPending}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${isSubscribed ? 'border border-neutral-300 text-neutral-700' : 'bg-primary-600 text-white'}`}
+            >
+              {isSubscribed ? t('blogs.subscribed', 'Subscribed ✓') : t('blogs.subscribe', 'Subscribe')}
+            </button>
+            {isSubscribed && (
+              <button
+                onClick={() => toggleSubscribe.mutate(false)}
+                disabled={toggleSubscribe.isPending}
+                className="text-[11px] text-neutral-400 underline underline-offset-2"
+              >
+                {t('blogs.unsubscribe', 'Unsubscribe')}
+              </button>
+            )}
+          </div>
         </div>
 
         {pagesQuery.data && pagesQuery.data.length > 0 && (
@@ -109,7 +121,7 @@ function BlogHomePage() {
               </div>
               {a.excerpt && <p className="text-xs text-neutral-500 mt-1 line-clamp-2">{a.excerpt}</p>}
               <div className="mt-1.5 flex items-center gap-3 text-[11px] text-neutral-400">
-                {a.published_at && <span>{new Date(a.published_at).toLocaleDateString()}</span>}
+                {a.published_at && <span>{formatShortDate(a.published_at)}</span>}
                 <span>👁 {a.view_count}</span>
                 <span>❤️ {a.like_count}</span>
               </div>

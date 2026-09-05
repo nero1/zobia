@@ -487,6 +487,8 @@ export type CoinTransactionType =
   | 'blog_paywall_unlock'
   | 'blog_theme_purchase'
   | 'blog_extra_slot'
+  | 'blog_treasury_fund'
+  | 'blog_treasury_claim'
   | 'kyc_verification_fee'
   | 'ad_campaign_funding'
   | 'ad_spend'

@@ -20,9 +20,9 @@ import { db } from "@/lib/db";
 import type { SqlParam, TransactionClient } from "@/lib/db/interface";
 import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
-import { debitCoins, checkAndDebit } from "@/lib/economy/coins";
+import { debitCoins, checkAndDebit, creditCoins } from "@/lib/economy/coins";
 import { debitStars } from "@/lib/economy/stars";
-import { sanitizeBlogPostHtml } from "@/lib/security/htmlSanitizer";
+import { sanitizeBlogPostHtml, plainTextToBlogPostHtml } from "@/lib/security/htmlSanitizer";
 import { generateUniqueSlug, generateUniqueBlogPostSlug } from "@/lib/slug";
 import {
   getMaxBlogPosts,
@@ -60,6 +60,12 @@ async function assertBlogWritable(blogId: string): Promise<{ ownerId: string; st
 
 function wordCount(text: string): number {
   return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+export type BlogPostContentFormat = "markdown" | "plaintext";
+
+function renderBodyHtml(bodyMarkdown: string, contentFormat: BlogPostContentFormat): string {
+  return contentFormat === "plaintext" ? plainTextToBlogPostHtml(bodyMarkdown) : sanitizeBlogPostHtml(bodyMarkdown);
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +267,7 @@ export interface CreatePostInput {
   title: string;
   excerpt?: string | null;
   bodyMarkdown: string;
+  contentFormat?: BlogPostContentFormat;
   featuredImageUrl?: string | null;
   categoryId?: string | null;
   isPaywalled?: boolean;
@@ -300,7 +307,8 @@ export async function createPost(input: CreatePostInput): Promise<{ id: string; 
 
   const postId = randomUUID();
   const slug = await generateUniqueBlogPostSlug(input.blogId, input.title, postId);
-  const bodyHtml = sanitizeBlogPostHtml(input.bodyMarkdown);
+  const contentFormat: BlogPostContentFormat = input.contentFormat === "plaintext" ? "plaintext" : "markdown";
+  const bodyHtml = renderBodyHtml(input.bodyMarkdown, contentFormat);
   const isPaywalled = input.type === "article" && !!input.isPaywalled;
   const paywallCost = isPaywalled ? Math.max(0, Math.floor(input.paywallCreditsCost ?? 0)) : 0;
   const publishedAt = input.status === "published" ? new Date().toISOString() : null;
@@ -308,12 +316,12 @@ export async function createPost(input: CreatePostInput): Promise<{ id: string; 
   await db.transaction(async (tx: TransactionClient) => {
     await tx.query(
       `INSERT INTO blog_posts
-         (id, blog_id, author_id, category_id, type, title, slug, excerpt, body_markdown, body_html,
+         (id, blog_id, author_id, category_id, type, title, slug, excerpt, body_markdown, body_html, content_format,
           featured_image_url, status, is_paywalled, paywall_credits_cost, word_count, published_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
       [
         postId, input.blogId, input.authorId, input.categoryId ?? null, input.type, input.title.trim(),
-        slug, input.excerpt?.trim() || null, input.bodyMarkdown, bodyHtml,
+        slug, input.excerpt?.trim() || null, input.bodyMarkdown, bodyHtml, contentFormat,
         input.featuredImageUrl || null, input.status, isPaywalled, paywallCost, words, publishedAt,
       ]
     );
@@ -334,6 +342,7 @@ export interface UpdatePostInput {
   title?: string;
   excerpt?: string | null;
   bodyMarkdown?: string;
+  contentFormat?: BlogPostContentFormat;
   featuredImageUrl?: string | null;
   categoryId?: string | null;
   isPaywalled?: boolean;
@@ -343,8 +352,8 @@ export interface UpdatePostInput {
 }
 
 export async function updatePost(postId: string, callerId: string, callerPlan: string, input: UpdatePostInput): Promise<void> {
-  const { rows } = await db.query<{ blog_id: string; author_id: string; type: string; status: string; slug: string }>(
-    `SELECT blog_id, author_id, type, status, slug FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+  const { rows } = await db.query<{ blog_id: string; author_id: string; type: string; status: string; slug: string; content_format: string }>(
+    `SELECT blog_id, author_id, type, status, slug, content_format FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [postId]
   );
   const post = rows[0];
@@ -364,14 +373,17 @@ export async function updatePost(postId: string, callerId: string, callerPlan: s
   if (input.categoryId !== undefined) push("category_id", input.categoryId || null);
   if (input.sortOrder !== undefined) push("sort_order", input.sortOrder);
 
+  if (input.contentFormat !== undefined) push("content_format", input.contentFormat);
+
   if (input.bodyMarkdown !== undefined) {
     const maxWords = await getMaxWordsForPlan(callerPlan);
     const words = wordCount(input.bodyMarkdown);
     if (post.type === "article" && words > maxWords) {
       throw new ApiError(400, "BLOG_WORD_LIMIT_EXCEEDED", `Your plan allows articles up to ${maxWords} words. This article is ${words} words.`, undefined, undefined, { maxWords, words });
     }
+    const contentFormat: BlogPostContentFormat = (input.contentFormat ?? (post.content_format as BlogPostContentFormat)) === "plaintext" ? "plaintext" : "markdown";
     push("body_markdown", input.bodyMarkdown);
-    push("body_html", sanitizeBlogPostHtml(input.bodyMarkdown));
+    push("body_html", renderBodyHtml(input.bodyMarkdown, contentFormat));
     push("word_count", words);
   }
 
@@ -527,6 +539,14 @@ export async function addComment(input: AddCommentInput): Promise<{ id: string; 
     return rows[0].id;
   });
 
+  // Best-effort: reward pot claim never blocks the comment itself. Product
+  // decision — a comment counts toward the pot as soon as it's posted (not
+  // only once approved by moderation), since the qualifying action is the
+  // act of commenting, not its later visibility.
+  await claimTreasuryReward(input.postId, input.authorId, "comment").catch((err) => {
+    logger.error({ err, postId: input.postId, userId: input.authorId }, "[blogs/service] failed to claim treasury reward for comment");
+  });
+
   return { id: commentId, status };
 }
 
@@ -552,6 +572,18 @@ export async function moderateComment(commentId: string, callerId: string, calle
     await db.query(`UPDATE blog_post_comments SET status = 'removed', deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [commentId]);
     if (wasVisible) await db.query(`UPDATE blog_posts SET comment_count = GREATEST(comment_count - 1, 0) WHERE id = $1`, [row.post_id]);
   }
+}
+
+/**
+ * Owner (or moderator) CRUD delete of any comment on their blog, regardless
+ * of its current status — moderateComment's "remove" action already sets
+ * status='removed' + deleted_at, so this is a thin, explicitly-named alias
+ * for the dashboard's "delete any comment" affordance (distinct from the
+ * pending-queue's approve/remove actions, which read as moderation rather
+ * than ordinary content management).
+ */
+export async function deleteComment(commentId: string, callerId: string, callerIsModerator: boolean): Promise<void> {
+  await moderateComment(commentId, callerId, callerIsModerator, "remove");
 }
 
 // ---------------------------------------------------------------------------
@@ -726,4 +758,139 @@ export async function transferBlogOwnership(blogId: string, moderatorId: string,
 
   await db.query(`UPDATE blog_posts SET author_id = $2 WHERE blog_id = $1 AND author_id != $2`, [blogId, newOwnerId]);
   await logBlogModeration(moderatorId, blogId, null, newOwnerId, "transfer_ownership", null, { previousOwnerId: rows[0].owner_id });
+}
+
+// ---------------------------------------------------------------------------
+// Per-post credit treasury/pot — the first `maxClaimants` people to comment
+// on or share a post split `fundedAmount` Credits evenly (Credits only per
+// product spec). See db/migrations/0020_blog_post_treasury.sql.
+// ---------------------------------------------------------------------------
+
+export interface TreasuryState {
+  id: string;
+  fundedAmount: number;
+  remainingAmount: number;
+  maxClaimants: number;
+  claimantCount: number;
+  status: string;
+  rewardPerClaimant: number;
+}
+
+function toTreasuryState(row: { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }): TreasuryState {
+  return {
+    id: row.id,
+    fundedAmount: row.funded_amount,
+    remainingAmount: row.remaining_amount,
+    maxClaimants: row.max_claimants,
+    claimantCount: row.claimant_count,
+    status: row.status,
+    rewardPerClaimant: row.max_claimants > 0 ? Math.floor(row.funded_amount / row.max_claimants) : 0,
+  };
+}
+
+export async function getPostTreasury(postId: string): Promise<TreasuryState | null> {
+  const { rows } = await db.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
+    `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status FROM blog_post_treasuries WHERE post_id = $1 LIMIT 1`,
+    [postId]
+  );
+  return rows[0] ? toTreasuryState(rows[0]) : null;
+}
+
+/**
+ * Fund (or top up) a post's reward pot. Only the post's author may fund it.
+ * A top-up adds to funded_amount/remaining_amount and, if maxClaimants is
+ * given, replaces it going forward — existing claimants already paid keep
+ * what they got; the per-claim reward for remaining slots is always
+ * recomputed from the current funded_amount/max_claimants at claim time.
+ */
+export async function fundPostTreasury(ownerId: string, postId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
+  await requireFeatureEnabled("blogs");
+  if (!Number.isInteger(amount) || amount <= 0) throw badRequest("Amount must be a positive integer.", "BLOG_TREASURY_INVALID_AMOUNT");
+  if (!Number.isInteger(maxClaimants) || maxClaimants <= 0) throw badRequest("Max claimants must be a positive integer.", "BLOG_TREASURY_INVALID_MAX_CLAIMANTS");
+
+  const { rows: postRows } = await db.query<{ author_id: string }>(`SELECT author_id FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [postId]);
+  const post = postRows[0];
+  if (!post) throw notFound("Post not found");
+  if (post.author_id !== ownerId) throw forbidden("Only the post's author can fund its reward pot.");
+
+  const referenceId = `blog_treasury_fund:${postId}:${Date.now()}`;
+  const result = await db.transaction(async (tx: TransactionClient) => {
+    await checkAndDebit(ownerId, amount, "blog_treasury_fund", referenceId, "Funded a blog post reward pot", { postId }, tx);
+    const { rows } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
+      `INSERT INTO blog_post_treasuries (post_id, owner_id, funded_amount, remaining_amount, max_claimants)
+       VALUES ($1, $2, $3, $3, $4)
+       ON CONFLICT (post_id) DO UPDATE SET
+         funded_amount = blog_post_treasuries.funded_amount + $3,
+         remaining_amount = blog_post_treasuries.remaining_amount + $3,
+         max_claimants = $4,
+         status = CASE WHEN blog_post_treasuries.status = 'closed' THEN 'closed' ELSE 'active' END,
+         updated_at = NOW()
+       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
+      [postId, ownerId, amount, maxClaimants]
+    );
+    return rows[0];
+  });
+
+  return toTreasuryState(result);
+}
+
+/**
+ * Records that `userId` performed `claimType` on `postId`, and pays out the
+ * pot's per-claimant reward if a treasury is active and slots remain. No-op
+ * (returns null) when there's no active treasury, the claimant slots are
+ * full, or this user already claimed — callers invoke this best-effort from
+ * addComment()/recordShare() and never surface its absence as an error.
+ */
+export async function claimTreasuryReward(postId: string, userId: string, claimType: "comment" | "share"): Promise<{ amount: number } | null> {
+  return db.transaction(async (tx: TransactionClient) => {
+    const { rows: treasuryRows } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string; owner_id: string }>(
+      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id FROM blog_post_treasuries WHERE post_id = $1 FOR UPDATE`,
+      [postId]
+    );
+    const treasury = treasuryRows[0];
+    if (!treasury || treasury.status !== "active") return null;
+    if (treasury.claimant_count >= treasury.max_claimants) return null;
+    if (treasury.owner_id === userId) return null; // the author can't claim their own pot
+
+    const rewardPerClaimant = Math.floor(treasury.funded_amount / treasury.max_claimants);
+    if (rewardPerClaimant <= 0 || treasury.remaining_amount < rewardPerClaimant) return null;
+
+    const { rowCount } = await tx.query(
+      `INSERT INTO blog_post_treasury_claims (treasury_id, user_id, claim_type, amount) VALUES ($1, $2, $3, $4) ON CONFLICT (treasury_id, user_id) DO NOTHING`,
+      [treasury.id, userId, claimType, rewardPerClaimant]
+    );
+    if (!rowCount || rowCount === 0) return null; // already claimed
+
+    const newClaimantCount = treasury.claimant_count + 1;
+    const newRemaining = treasury.remaining_amount - rewardPerClaimant;
+    const newStatus = newClaimantCount >= treasury.max_claimants || newRemaining < rewardPerClaimant ? "exhausted" : "active";
+    await tx.query(
+      `UPDATE blog_post_treasuries SET claimant_count = $2, remaining_amount = $3, status = $4, updated_at = NOW() WHERE id = $1`,
+      [treasury.id, newClaimantCount, newRemaining, newStatus]
+    );
+
+    await creditCoins(userId, rewardPerClaimant, "blog_treasury_claim", `blog_treasury_claim:${treasury.id}:${userId}`, "Reward pot claim", { postId, claimType }, tx);
+
+    return { amount: rewardPerClaimant };
+  });
+}
+
+/** Records a share event (idempotent per user/post) and attempts a treasury claim. */
+export async function recordShare(postId: string, userId: string): Promise<{ shareCount: number; rewardClaimed: number | null }> {
+  await requireFeatureEnabled("blogs");
+  const { rows: postRows } = await db.query<{ id: string }>(`SELECT id FROM blog_posts WHERE id = $1 AND deleted_at IS NULL AND status = 'published' LIMIT 1`, [postId]);
+  if (!postRows[0]) throw notFound("Post not found");
+
+  const { rowCount } = await db.query(`INSERT INTO blog_post_shares (post_id, user_id) VALUES ($1, $2) ON CONFLICT (post_id, user_id) DO NOTHING`, [postId, userId]);
+  if (rowCount && rowCount > 0) {
+    await db.query(`UPDATE blog_posts SET share_count = share_count + 1 WHERE id = $1`, [postId]);
+  }
+
+  const claim = await claimTreasuryReward(postId, userId, "share").catch((err) => {
+    logger.error({ err, postId, userId }, "[blogs/service] failed to claim treasury reward for share");
+    return null;
+  });
+
+  const { rows: countRows } = await db.query<{ share_count: number }>(`SELECT share_count FROM blog_posts WHERE id = $1`, [postId]);
+  return { shareCount: countRows[0]?.share_count ?? 0, rewardClaimed: claim?.amount ?? null };
 }

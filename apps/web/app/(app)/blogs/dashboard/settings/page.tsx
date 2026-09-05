@@ -9,7 +9,7 @@
  */
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 
 interface BlogRow {
@@ -51,6 +51,8 @@ function ToggleRow({ label, checked, onChange }: { label: string; checked: boole
 export default function BlogSettingsPage() {
   const { t } = useTranslation();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const blogParam = searchParams.get("blog");
   const [blog, setBlog] = useState<BlogRow | null>(null);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [newCategory, setNewCategory] = useState("");
@@ -61,8 +63,10 @@ export default function BlogSettingsPage() {
     (async () => {
       const meRes = await fetch("/api/blogs/me", { credentials: "include" });
       const meJson = await meRes.json().catch(() => null);
-      const b = meJson?.data?.blog;
-      if (!b) { router.replace("/blogs/new"); return; }
+      const blogs: BlogRow[] = meJson?.data?.blogs ?? [];
+      if (blogs.length === 0) { router.replace("/blogs/new"); return; }
+      const b = blogs.length === 1 ? blogs[0] : blogs.find((x) => x.slug === blogParam);
+      if (!b) { router.replace("/blogs/dashboard"); return; }
       setBlog(b);
 
       const catRes = await fetch(`/api/blogs/${b.slug}/categories`, { credentials: "include" });
@@ -73,7 +77,7 @@ export default function BlogSettingsPage() {
       const themeJson = await themeRes.json().catch(() => null);
       setThemes((themeJson?.cosmetics ?? []).filter((c: { cosmetic_type: string }) => c.cosmetic_type === "blog_theme"));
     })();
-  }, [router]);
+  }, [router, blogParam]);
 
   async function saveSetting(patch: Partial<BlogRow>) {
     if (!blog) return;
@@ -138,7 +142,12 @@ export default function BlogSettingsPage() {
       <div className="space-y-2">
         <ToggleRow label={t("blogs.settings.commentsEnabled", "Allow comments")} checked={blog.comments_enabled} onChange={(v) => saveSetting({ comments_enabled: v })} />
         {blog.comments_enabled && (
-          <ToggleRow label={t("blogs.settings.commentsModeration", "Moderate comments before they're visible")} checked={blog.comments_moderation_enabled} onChange={(v) => saveSetting({ comments_moderation_enabled: v })} />
+          <div>
+            <ToggleRow label={t("blogs.settings.commentsModeration", "Moderate comments before they're visible")} checked={blog.comments_moderation_enabled} onChange={(v) => saveSetting({ comments_moderation_enabled: v })} />
+            <p className="mt-1.5 px-1 text-xs text-muted-foreground">
+              {t("blogs.settings.commentsModerationHint", "When enabled, new comments won't appear publicly until you approve them in Comments.")}
+            </p>
+          </div>
         )}
         <ToggleRow label={t("blogs.settings.hideAuthorInfo", "Hide author info box on articles")} checked={blog.hide_author_info} onChange={(v) => saveSetting({ hide_author_info: v })} />
         <ToggleRow label={t("blogs.settings.showSubscriberCount", "Show subscriber count publicly")} checked={blog.show_subscriber_count} onChange={(v) => saveSetting({ show_subscriber_count: v })} />
