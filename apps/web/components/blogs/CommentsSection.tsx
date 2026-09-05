@@ -115,6 +115,14 @@ export function CommentsSection({ blogSlug, postSlug, commentsEnabled }: { blogS
                     {t("blogs.gifts.vipBadge", "VIP")}
                   </span>
                 )}
+                {c.status === "pending" && (
+                  <span
+                    title={t("blogs.post.commentPendingModeratorHint", "Only visible to you until approved.")}
+                    className="inline-flex items-center rounded-full bg-neutral-700/60 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-neutral-300"
+                  >
+                    {t("blogs.dashboard.commentPending", "pending")}
+                  </span>
+                )}
               </div>
               <p className="text-sm text-foreground mt-1">{c.body}</p>
             </div>

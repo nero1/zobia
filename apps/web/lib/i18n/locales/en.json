@@ -1164,6 +1164,7 @@
   "blogs.new.titlePlaceholder": "e.g. Muna's World",
   "blogs.post.anonymous": "Anonymous",
   "blogs.post.commentPending": "Your comment is awaiting approval.",
+  "blogs.post.commentPendingModeratorHint": "Only visible to you until approved.",
   "blogs.post.commentPlaceholder": "Add a comment…",
   "blogs.post.comments": "Comments",
   "blogs.post.like": "Like",
