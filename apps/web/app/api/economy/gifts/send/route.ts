@@ -178,7 +178,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(senderId, "user", RATE_LIMITS.giftSend);
 
     if (body.recipientId === senderId) {
-      throw badRequest("Cannot send a gift to yourself");
+      throw badRequest("Cannot send a gift to yourself", "SELF_GIFT_NOT_ALLOWED");
     }
 
     // ZB-18: Derive the idempotency key server-side so it is always bound to the

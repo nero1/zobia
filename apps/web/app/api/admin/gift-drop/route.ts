@@ -158,6 +158,11 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
       const gift = await createGiftItem(body.newGift, db);
       giftItemId = gift.id;
     } else {
+      // The Zod refinement above guarantees giftItemId is set when newGift is not.
+      if (!body.giftItemId) {
+        throw badRequest("giftItemId is required when newGift is not provided");
+      }
+
       // Validate gift item exists and is not retired
       const { rows: itemRows } = await db.query<{
         id: string;

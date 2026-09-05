@@ -1684,6 +1684,7 @@
   "errors.restore_token_invalid": "Invalid or expired restore token.",
   "errors.reward_already_claimed": "New Member Quest reward has already been claimed",
   "errors.season_ended": "This seasonal item is only available during its Season",
+  "errors.self_gift_not_allowed": "You cannot send a gift to yourself.",
   "errors.self_referral": "You cannot refer yourself.",
   "errors.ssrf_blocked": "URL hostname is not allowed",
   "errors.star_purchase_disabled": "Star purchases are currently unavailable. Check back soon.",
