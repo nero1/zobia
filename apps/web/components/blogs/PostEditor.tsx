@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { TreasuryPanel } from "@/components/blogs/TreasuryPanel";
+import { ArticleQuotaNotice } from "@/components/blogs/ArticleQuotaNotice";
 
 export interface BlogCategoryOption {
   id: string;
@@ -115,6 +116,8 @@ export function PostEditor({
       <h1 className="text-2xl font-bold text-foreground mb-4">
         {postSlug ? t("blogs.editor.editTitle", "Edit {{type}}", { type: form.type }) : t("blogs.editor.newTitle", "New {{type}}", { type: form.type })}
       </h1>
+
+      {!postSlug && <ArticleQuotaNotice blogSlug={blogSlug} />}
 
       <div className="space-y-4">
         <input

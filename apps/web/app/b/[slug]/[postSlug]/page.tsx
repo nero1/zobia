@@ -19,6 +19,10 @@ import { getPostTreasury } from "@/lib/blogs/service";
 import { PostBody } from "@/components/blogs/PostBody";
 import { PostActions } from "@/components/blogs/PostActions";
 import { CommentsSection } from "@/components/blogs/CommentsSection";
+import { BlogNavBar } from "@/components/blogs/BlogNavBar";
+import { getOptionalServerUser } from "@/lib/auth/serverUser";
+
+const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string; postSlug: string }> }): Promise<Metadata> {
   const { slug, postSlug } = await params;
@@ -29,25 +33,44 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
 
   const title = `${post.title} — ${resolved.blog.title}`;
   const description = post.excerpt ?? `Read "${post.title}" on ${resolved.blog.title}.`;
+  const image = post.featured_image_url || resolved.blog.cover_image_url || DEFAULT_OG_IMAGE;
+  const ogType = post.type === "page" ? "website" : "article";
 
   return {
     title,
     description,
-    openGraph: { title, description, images: post.featured_image_url ? [{ url: post.featured_image_url }] : [], type: "article" },
-    twitter: { card: "summary_large_image", title, description, images: post.featured_image_url ? [post.featured_image_url] : [] },
+    openGraph: { title, description, images: [{ url: image }], type: ogType, siteName: "Zobia Social" },
+    twitter: { card: "summary_large_image", title, description, images: [image] },
     alternates: { canonical: `/b/${slug}/${postSlug}` },
   };
 }
 
-export default async function PublicBlogPostPage({ params }: { params: Promise<{ slug: string; postSlug: string }> }) {
+export default async function PublicBlogPostPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string; postSlug: string }>;
+  searchParams: Promise<{ preview?: string }>;
+}) {
   const { slug, postSlug } = await params;
+  const { preview } = await searchParams;
   const resolved = await resolvePublicBlog(slug).catch(() => null);
   if (!resolved) notFound();
-  const post = await resolvePublicBlogPost(resolved.blog.id, postSlug).catch(() => null);
+  const { blog } = resolved;
+
+  const viewer = await getOptionalServerUser();
+  const showOwnerToolbar = !!viewer && (viewer.userId === blog.owner_id || viewer.isAdmin || viewer.isModerator);
+  // ?preview=1 lets the owner/staff view a draft post as it would appear
+  // published — gated server-side, never trusted from the query string
+  // alone (a regular visitor requesting ?preview=1 on someone else's blog
+  // still gets the normal published-only lookup, i.e. a 404 for a draft).
+  const wantsPreview = preview === "1" && showOwnerToolbar;
+
+  const post = await resolvePublicBlogPost(blog.id, postSlug, { allowUnpublished: wantsPreview }).catch(() => null);
   if (!post) notFound();
 
-  const { blog } = resolved;
   const isPage = post.type === "page";
+  const isDraft = post.status !== "published";
   const treasury = !isPage ? await getPostTreasury(post.id).catch(() => null) : null;
   const treasuryActive = treasury && treasury.status === "active" && treasury.claimantCount < treasury.maxClaimants;
 
@@ -56,8 +79,9 @@ export default async function PublicBlogPostPage({ params }: { params: Promise<{
         title: post.title,
         description: post.excerpt ?? post.title,
         url: `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/b/${slug}/${postSlug}`,
-        image: post.featured_image_url ?? undefined,
+        image: post.featured_image_url ?? blog.cover_image_url ?? undefined,
         datePublished: post.published_at ?? new Date().toISOString(),
+        dateModified: post.updated_at ?? post.published_at ?? new Date().toISOString(),
         authorName: post.author_display_name ?? post.author_username ?? undefined,
       })
     : null;
@@ -69,6 +93,18 @@ export default async function PublicBlogPostPage({ params }: { params: Promise<{
         <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: schema }} />
       )}
       <div className="mx-auto max-w-2xl px-4 py-8">
+        <BlogNavBar
+          blogSlug={blog.slug}
+          menuConfig={blog.menu_config}
+          showOwnerToolbar={showOwnerToolbar}
+          previewHref={isDraft ? `/b/${blog.slug}/${post.slug}${wantsPreview ? "" : "?preview=1"}` : null}
+          previewActive={wantsPreview}
+        />
+        {isDraft && wantsPreview && (
+          <div className="mb-4 rounded-lg border border-dashed border-amber-500/40 bg-amber-950/10 px-3 py-2 text-xs text-amber-400">
+            This post is a draft — you&apos;re previewing it as it will appear once published. Visitors can&apos;t see it yet.
+          </div>
+        )}
         <Link href={`/b/${blog.slug}`} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
           ← {blog.title}
         </Link>

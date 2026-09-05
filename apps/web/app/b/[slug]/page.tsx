@@ -20,6 +20,11 @@ import { listBlogCategories } from "@/lib/blogs/repo";
 import { formatShortDate } from "@/lib/format/date";
 import { NOT_FOUND_METADATA } from "@/lib/public/roomMetadata";
 import { SubscribeButton } from "@/components/blogs/SubscribeButton";
+import { BlogNavBar } from "@/components/blogs/BlogNavBar";
+import { getOptionalServerUser } from "@/lib/auth/serverUser";
+import { generateBlogSchema } from "@/lib/seo/metadata";
+
+const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 
 export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
   const { slug } = await params;
@@ -29,12 +34,13 @@ export async function generateMetadata({ params }: { params: Promise<{ slug: str
   const { blog } = resolved;
   const title = `${blog.title} — Zobia Social`;
   const description = blog.tagline ?? blog.description?.slice(0, 155) ?? `Read ${blog.title} on Zobia Social.`;
+  const image = blog.cover_image_url || DEFAULT_OG_IMAGE;
 
   return {
     title,
     description,
-    openGraph: { title, description, images: blog.cover_image_url ? [{ url: blog.cover_image_url }] : [], type: "website" },
-    twitter: { card: "summary_large_image", title, description, images: blog.cover_image_url ? [blog.cover_image_url] : [] },
+    openGraph: { title, description, images: [{ url: image }], type: "website", siteName: "Zobia Social" },
+    twitter: { card: "summary_large_image", title, description, images: [image] },
     alternates: { canonical: `/b/${blog.slug}` },
   };
 }
@@ -48,16 +54,29 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
   }
 
   const { blog } = resolved;
-  const [articles, pages, popular, categories] = await Promise.all([
+  const [articles, pages, popular, categories, viewer] = await Promise.all([
     listPublicBlogPosts(blog.id, "article", 20),
     listPublicBlogPosts(blog.id, "page", 20),
     listPopularBlogPosts(blog.id, 5),
     listBlogCategories(blog.id),
+    getOptionalServerUser(),
   ]);
+  const showOwnerToolbar = !!viewer && (viewer.userId === blog.owner_id || viewer.isAdmin || viewer.isModerator);
+
+  const websiteSchema = generateBlogSchema({
+    name: blog.title,
+    description: blog.tagline ?? blog.description ?? undefined,
+    url: `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/b/${blog.slug}`,
+    image: blog.cover_image_url ?? undefined,
+    authorName: blog.owner_display_name || blog.owner_username,
+  });
 
   return (
     <main className="min-h-screen bg-background">
+      {/* eslint-disable-next-line react/no-danger */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: websiteSchema }} />
       <div className="mx-auto max-w-5xl px-4 py-8">
+        <BlogNavBar blogSlug={blog.slug} menuConfig={blog.menu_config} showOwnerToolbar={showOwnerToolbar} />
         <header className="mb-6">
           {blog.cover_image_url && (
             // eslint-disable-next-line @next/next/no-img-element
@@ -69,7 +88,9 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
               {blog.tagline && <p className="mt-1 text-muted-foreground">{blog.tagline}</p>}
               <p className="mt-1 text-sm text-muted-foreground">by @{blog.owner_username}</p>
             </div>
-            <SubscribeButton blogSlug={blog.slug} showCount={blog.show_subscriber_count} initialCount={blog.subscriber_count} />
+            <span id="subscribe">
+              <SubscribeButton blogSlug={blog.slug} showCount={blog.show_subscriber_count} initialCount={blog.subscriber_count} />
+            </span>
           </div>
 
           {pages.length > 0 && (
@@ -116,7 +137,7 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
 
           <aside className="space-y-6">
             {categories.length > 0 && (
-              <div className="rounded-2xl border border-border bg-card p-4">
+              <div id="categories" className="rounded-2xl border border-border bg-card p-4">
                 <h3 className="mb-2 text-sm font-semibold text-foreground">Categories</h3>
                 <div className="flex flex-wrap gap-1.5">
                   {categories.map((c) => (
