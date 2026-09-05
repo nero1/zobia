@@ -4,24 +4,25 @@ export const dynamic = "force-dynamic";
  * app/api/admin/ai-settings/route.ts
  *
  * GET  /api/admin/ai-settings
- *   Returns current status for DeepSeek and Gemini: active key source,
- *   masked key preview, and DeepSeek circuit breaker state.
+ *   Returns current status for every configured AI provider (DeepSeek,
+ *   Gemini, Groq — see lib/ai/config.ts AI_PROVIDERS): active key source,
+ *   masked key preview, selected model, and circuit breaker state.
  *
  * PUT  /api/admin/ai-settings
  *   Save or clear an API key override for a provider.
- *   Stored in x_manifest under ai_deepseek_api_key_override or
- *   ai_gemini_api_key_override. Empty string clears the override (env var used).
+ *   Stored in x_manifest under `<provider>.apiKeyManifestKey`. Empty string
+ *   clears the override (env var used).
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getManifestValue, invalidateManifestCache } from "@/lib/manifest";
-import { getDeepSeekCircuitState, getGeminiCircuitState } from "@/lib/ai/client";
+import { getProviderCircuitState } from "@/lib/ai/client";
+import { AI_PROVIDERS, CIRCUIT_BREAKER, type AiProviderId } from "@/lib/ai/config";
 import { env } from "@/lib/env";
 import { withAdminAuth, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { CIRCUIT_BREAKER } from "@/lib/ai/config";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,6 +33,12 @@ function maskKey(key: string | null | undefined): string | null {
   return `...${key.slice(-4)}`;
 }
 
+const PROVIDER_ENV_KEYS: Record<AiProviderId, string | undefined> = {
+  deepseek: env.DEEPSEEK_API_KEY,
+  gemini: env.GEMINI_API_KEY,
+  groq: env.GROQ_API_KEY,
+};
+
 // ---------------------------------------------------------------------------
 // GET /api/admin/ai-settings
 // ---------------------------------------------------------------------------
@@ -39,53 +46,44 @@ function maskKey(key: string | null | undefined): string | null {
 export const GET = withAdminAuth(
   async (_req: NextRequest, _ctx: { params: Record<string, string>; auth: AdminContext }) => {
     try {
-      const [deepseekOverride, geminiOverride] = await Promise.all([
-        getManifestValue("ai_deepseek_api_key_override"),
-        getManifestValue("ai_gemini_api_key_override"),
-      ]);
-
-      const deepseekKeySource: "env" | "override" =
-        deepseekOverride && deepseekOverride.length > 0 ? "override" : "env";
-      const geminiKeySource: "env" | "override" =
-        geminiOverride && geminiOverride.length > 0 ? "override" : "env";
-
-      const activeDeepSeekKey =
-        deepseekKeySource === "override" ? deepseekOverride : env.DEEPSEEK_API_KEY;
-      const activeGeminiKey =
-        geminiKeySource === "override" ? geminiOverride : env.GEMINI_API_KEY;
-
-      // Circuit breaker status for both providers
-      const [circuit, geminiCircuit] = await Promise.all([
-        getDeepSeekCircuitState(),
-        getGeminiCircuitState(),
-      ]);
       const toCircuitStatus = (openedAt: number | null): "closed" | "open" | "half-open" => {
         if (openedAt === null) return "closed";
         return Date.now() - openedAt >= CIRCUIT_BREAKER.recoveryTimeMs ? "half-open" : "open";
       };
 
-      return NextResponse.json({
-        success: true,
-        data: {
-          deepseek: {
-            keySource: deepseekKeySource,
-            keyMasked: maskKey(activeDeepSeekKey),
+      const providerIds = Object.keys(AI_PROVIDERS) as AiProviderId[];
+      const data: Record<string, unknown> = {};
+
+      await Promise.all(
+        providerIds.map(async (id) => {
+          const meta = AI_PROVIDERS[id];
+          const [override, modelOverride, circuit] = await Promise.all([
+            getManifestValue(meta.apiKeyManifestKey),
+            getManifestValue(meta.modelManifestKey),
+            getProviderCircuitState(id),
+          ]);
+          const keySource: "env" | "override" = override && override.length > 0 ? "override" : "env";
+          const activeKey = keySource === "override" ? override : PROVIDER_ENV_KEYS[id];
+
+          data[id] = {
+            keySource,
+            keyMasked: maskKey(activeKey),
+            selectedModel: modelOverride && modelOverride.length > 0 ? modelOverride : meta.defaultModel,
+            supportedModels: meta.supportedModels,
             circuit: {
               status: toCircuitStatus(circuit.openedAt),
               failures: circuit.failures,
               openedAt: circuit.openedAt,
             },
-          },
-          gemini: {
-            keySource: geminiKeySource,
-            keyMasked: maskKey(activeGeminiKey),
-            circuit: {
-              status: toCircuitStatus(geminiCircuit.openedAt),
-              failures: geminiCircuit.failures,
-              openedAt: geminiCircuit.openedAt,
-            },
-          },
-        },
+          };
+        })
+      );
+
+      const providerOrder = await getManifestValue("ai_provider_order");
+
+      return NextResponse.json({
+        success: true,
+        data: { ...data, providerOrder: providerOrder ?? "deepseek,gemini,groq" },
         error: null,
       });
     } catch (err) {
@@ -99,7 +97,7 @@ export const GET = withAdminAuth(
 // ---------------------------------------------------------------------------
 
 const updateKeySchema = z.object({
-  provider: z.enum(["deepseek", "gemini"]),
+  provider: z.enum(["deepseek", "gemini", "groq"]),
   apiKey: z.string().max(256),
 });
 
@@ -116,10 +114,7 @@ export const PUT = withAdminAuth(
       }
 
       const { provider, apiKey } = parsed.data;
-      const manifestKey =
-        provider === "deepseek"
-          ? "ai_deepseek_api_key_override"
-          : "ai_gemini_api_key_override";
+      const manifestKey = AI_PROVIDERS[provider].apiKeyManifestKey;
 
       // Read existing value for audit log
       const existing = await getManifestValue(manifestKey);

@@ -4,7 +4,7 @@
  * app/(admin)/admin/forum/page.tsx
  *
  * Answers (mini forum / Q&A) admin dashboard.
- * Accessible to admins and moderators (moderators are scoped to /gate44/forum/*
+ * Accessible to admins and moderators (moderators are scoped to /gate44/answers/*
  * only — see middleware.ts FORUM_MOD_PREFIXES).
  */
 
@@ -48,18 +48,6 @@ export default function AdminForumDashboardPage() {
     <div>
       <h1 className="mb-6 text-2xl font-bold text-neutral-900 dark:text-neutral-50">Answers</h1>
 
-      <div className="mb-6 flex flex-wrap gap-2">
-        <Link href="/gate44/forum/queue" className="rounded-lg bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900">
-          Moderation Queue
-        </Link>
-        <Link href="/gate44/forum/posts" className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
-          Manage Posts
-        </Link>
-        <Link href="/gate44/forum/settings" className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-300">
-          Settings
-        </Link>
-      </div>
-
       {error && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
           {error}
@@ -75,7 +63,7 @@ export default function AdminForumDashboardPage() {
       ) : stats ? (
         <>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-            <StatCard label="Pending Reports" value={stats.pendingReports} href="/gate44/forum/queue" />
+            <StatCard label="Pending Reports" value={stats.pendingReports} href="/gate44/answers/queue" />
             <StatCard label="Questions Today" value={stats.questionsToday} />
             <StatCard label="Answers Today" value={stats.answersToday} />
           </div>

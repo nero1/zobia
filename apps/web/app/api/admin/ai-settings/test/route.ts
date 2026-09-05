@@ -12,12 +12,12 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { testDeepSeekConnection, testGeminiConnection } from "@/lib/ai/client";
+import { testProviderConnection } from "@/lib/ai/client";
 import { withAdminAuth, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
 const testSchema = z.object({
-  provider: z.enum(["deepseek", "gemini"]),
+  provider: z.enum(["deepseek", "gemini", "groq"]),
   apiKey: z.string().max(256).optional(),
 });
 
@@ -37,10 +37,7 @@ export const POST = withAdminAuth(
       const start = Date.now();
 
       try {
-        const result =
-          provider === "deepseek"
-            ? await testDeepSeekConnection(apiKey)
-            : await testGeminiConnection(apiKey);
+        const result = await testProviderConnection(provider, apiKey);
 
         return NextResponse.json({
           success: true,

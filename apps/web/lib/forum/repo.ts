@@ -16,6 +16,7 @@ import type { SqlParam } from "@/lib/db/interface";
 import { MAX_ANSWER_DEPTH } from "@/lib/forum/service";
 
 export type ForumTab = "popular" | "trending" | "new" | "favorites";
+export type PublicCategoryTab = "latest" | "new" | "trending" | "popular";
 export type AnswerSort = "best" | "new";
 
 const AUTHOR_COLUMNS = `
@@ -183,6 +184,125 @@ export async function listQuestions(
   }
 
   return { questions: items.map(toQuestionSummary), nextCursor, hasMore };
+}
+
+// ---------------------------------------------------------------------------
+// Public (unauthenticated) category browsing — powers the SEO-indexable
+// /answers/category/<slug> page. No per-caller vote/favorite state (public,
+// anonymous-safe), unlike listQuestions above.
+// ---------------------------------------------------------------------------
+
+export interface PublicCategory {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  iconEmoji: string;
+  questionCount: number;
+}
+
+export async function getPublicCategory(slug: string): Promise<PublicCategory | null> {
+  const { rows } = await db.query<{ id: string; slug: string; name: string; description: string | null; icon_emoji: string; question_count: string }>(
+    `SELECT c.id, c.slug, c.name, c.description, c.icon_emoji,
+            COUNT(q.id) FILTER (WHERE q.status = 'visible' AND q.deleted_at IS NULL) AS question_count
+     FROM forum_categories c
+     LEFT JOIN forum_questions q ON q.category_id = c.id
+     WHERE c.slug = $1
+     GROUP BY c.id`,
+    [slug]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  return { id: row.id, slug: row.slug, name: row.name, description: row.description, iconEmoji: row.icon_emoji, questionCount: Number(row.question_count) };
+}
+
+export async function listAllCategoriesPublic(): Promise<PublicCategory[]> {
+  const { rows } = await db.query<{ id: string; slug: string; name: string; description: string | null; icon_emoji: string; question_count: string }>(
+    `SELECT c.id, c.slug, c.name, c.description, c.icon_emoji,
+            COUNT(q.id) FILTER (WHERE q.status = 'visible' AND q.deleted_at IS NULL) AS question_count
+     FROM forum_categories c
+     LEFT JOIN forum_questions q ON q.category_id = c.id
+     GROUP BY c.id
+     ORDER BY c.sort_order ASC, c.name ASC`
+  );
+  return rows.map((row) => ({ id: row.id, slug: row.slug, name: row.name, description: row.description, iconEmoji: row.icon_emoji, questionCount: Number(row.question_count) }));
+}
+
+export interface PublicQuestionCard {
+  id: string;
+  slug: string | null;
+  title: string;
+  voteScore: number;
+  answerCount: number;
+  createdAt: string;
+  authorUsername: string | null;
+}
+
+function publicOrderClause(tab: PublicCategoryTab): string {
+  if (tab === "new" || tab === "latest") return "q.created_at DESC";
+  if (tab === "popular") return "q.vote_score DESC, q.created_at DESC";
+  // trending: recency-windowed activity, same simple formula as listQuestions above
+  return `(
+    COALESCE((SELECT COUNT(*) FROM forum_votes v WHERE v.target_type = 'question' AND v.target_id = q.id AND v.created_at > NOW() - INTERVAL '48 hours'), 0) +
+    COALESCE((SELECT COUNT(*) FROM forum_answers a WHERE a.question_id = q.id AND a.created_at > NOW() - INTERVAL '48 hours' AND a.deleted_at IS NULL), 0)
+  ) DESC, q.last_activity_at DESC`;
+}
+
+/** Public, cursor-less (LIMIT only) question list scoped to one category — used by the SEO category page's tabs. */
+export async function listPublicQuestionsByCategory(categoryId: string, tab: PublicCategoryTab, limit = 15): Promise<PublicQuestionCard[]> {
+  const { rows } = await db.query<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(
+    `SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
+     FROM forum_questions q
+     JOIN users u ON u.id = q.author_id
+     WHERE q.category_id = $1 AND q.status = 'visible' AND q.deleted_at IS NULL
+     ORDER BY ${publicOrderClause(tab)}
+     LIMIT $2`,
+    [categoryId, Math.min(limit, 50)]
+  );
+  return rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, voteScore: r.vote_score, answerCount: r.answer_count, createdAt: r.created_at, authorUsername: r.author_username }));
+}
+
+/** Up to `limit` other visible questions in the same category (excludes `excludeQuestionId`). */
+export async function listRelatedQuestions(categoryId: string | null, excludeQuestionId: string, limit = 5): Promise<PublicQuestionCard[]> {
+  if (!categoryId) return [];
+  const { rows } = await db.query<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(
+    `SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
+     FROM forum_questions q
+     JOIN users u ON u.id = q.author_id
+     WHERE q.category_id = $1 AND q.id != $2 AND q.status = 'visible' AND q.deleted_at IS NULL
+     ORDER BY q.last_activity_at DESC
+     LIMIT $3`,
+    [categoryId, excludeQuestionId, limit]
+  );
+  return rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, voteScore: r.vote_score, answerCount: r.answer_count, createdAt: r.created_at, authorUsername: r.author_username }));
+}
+
+/** Most recently created questions platform-wide, for "New posts" mini-lists. */
+export async function listNewQuestions(limit = 3, excludeQuestionId?: string): Promise<PublicQuestionCard[]> {
+  const { rows } = await db.query<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(
+    `SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
+     FROM forum_questions q
+     JOIN users u ON u.id = q.author_id
+     WHERE q.status = 'visible' AND q.deleted_at IS NULL ${excludeQuestionId ? "AND q.id != $2" : ""}
+     ORDER BY q.created_at DESC
+     LIMIT $1`,
+    excludeQuestionId ? [limit, excludeQuestionId] : [limit]
+  );
+  return rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, voteScore: r.vote_score, answerCount: r.answer_count, createdAt: r.created_at, authorUsername: r.author_username }));
+}
+
+/** Most recently answered questions (an answer was posted, or best-answer marked), for "Recently answered" mini-lists. */
+export async function listRecentlyAnsweredQuestions(limit = 3, excludeQuestionId?: string): Promise<PublicQuestionCard[]> {
+  const { rows } = await db.query<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(
+    `SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
+     FROM forum_questions q
+     JOIN users u ON u.id = q.author_id
+     WHERE q.status = 'visible' AND q.deleted_at IS NULL AND q.answer_count > 0 ${excludeQuestionId ? "AND q.id != $2" : ""}
+     ORDER BY q.last_activity_at DESC
+     LIMIT $1`,
+    excludeQuestionId ? [limit, excludeQuestionId] : [limit]
+  );
+  return rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, voteScore: r.vote_score, answerCount: r.answer_count, createdAt: r.created_at, authorUsername: r.author_username }));
 }
 
 export interface ForumQuestionDetail extends ForumQuestionSummary {
@@ -359,6 +479,26 @@ export async function listAnswers(
      ORDER BY parent_answer_id, vote_score DESC, created_at ASC`,
     [topIds, callerId]
   );
+
+  // BUG FIX: `replyCounts` above only covers the TOP-level answers' direct
+  // (depth-1) reply counts. Without also counting each depth-1 reply's own
+  // children (depth-2, i.e. "3rd level" from the question), toAnswerSummary
+  // always fell back to replyCount=0 for depth-1 nodes — hiding the "view N
+  // more replies" affordance entirely, so 3rd-level-and-deeper replies were
+  // unreachable even though they existed in the DB (lib/forum/service.ts
+  // allows arbitrary reply depth). Fetch grandchild counts for the depth-1
+  // reply ids too and merge them into the same map.
+  const replyIds = replyRows.map((r) => r.id);
+  if (replyIds.length > 0) {
+    const { rows: grandchildCountRows } = await db.query<{ parent_answer_id: string; cnt: string }>(
+      `SELECT parent_answer_id, COUNT(*)::text AS cnt
+       FROM forum_answers
+       WHERE parent_answer_id = ANY($1::uuid[]) AND status = 'visible' AND deleted_at IS NULL
+       GROUP BY parent_answer_id`,
+      [replyIds]
+    );
+    for (const r of grandchildCountRows) replyCounts.set(r.parent_answer_id, parseInt(r.cnt, 10));
+  }
 
   const repliesByParent = new Map<string, ForumAnswerSummary[]>();
   for (const row of replyRows) {

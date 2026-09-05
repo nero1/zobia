@@ -50,6 +50,8 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
       reported_forum_answer_id: string | null;
       question_title: string | null;
       answer_body: string | null;
+      question_slug: string | null;
+      content_author_id: string | null;
       report_type: string;
       description: string | null;
       status: string;
@@ -71,6 +73,8 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
          r.reported_forum_answer_id,
          q.title AS question_title,
          a.body AS answer_body,
+         COALESCE(q.slug, aq.slug) AS question_slug,
+         COALESCE(q.author_id, a.author_id) AS content_author_id,
          r.report_type,
          r.description,
          r.status,
@@ -90,6 +94,7 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
        LEFT JOIN users resolver ON resolver.id = r.resolved_by
        LEFT JOIN forum_questions q ON q.id = r.reported_forum_question_id
        LEFT JOIN forum_answers a ON a.id = r.reported_forum_answer_id
+       LEFT JOIN forum_questions aq ON aq.id = a.question_id
        WHERE ${whereClause}
        ORDER BY r.ai_confidence DESC NULLS LAST, r.created_at DESC
        LIMIT $1`,

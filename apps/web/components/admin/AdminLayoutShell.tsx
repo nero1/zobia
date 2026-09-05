@@ -19,7 +19,7 @@ const adminNavItems = [
   { href: "/gate44/users",              label: "Users",              icon: "👥" },
   { href: "/gate44/moderation",         label: "Moderation",         icon: "🚩" },
   { href: "/moderation",               label: "Moderation Center",  icon: "🧭" },
-  { href: "/gate44/forum",              label: "Answers",            icon: "❓" },
+  { href: "/gate44/answers",            label: "Answers",            icon: "❓" },
   { href: "/gate44/community-notes",    label: "Community Notes",    icon: "📝" },
   { href: "/gate44/financial",          label: "Financial",          icon: "💳" },
   { href: "/gate44/payouts",            label: "Payouts",            icon: "💸" },

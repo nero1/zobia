@@ -111,7 +111,7 @@ function ScriptForm({ initial, onSave, onCancel }: ScriptFormProps) {
           />
           <p className="mt-1 text-xs text-neutral-400">
             Paste the snippet exactly as your provider gave it — a full <code>&lt;script&gt;</code> tag
-            (with a <code>src</code>, inline, or both), several tags, or bare JavaScript. It's
+            (with a <code>src</code>, inline, or both), several tags, or bare JavaScript. It&apos;s
             normalized into a plain script automatically and served on every page. Admin-only —
             this executes for every visitor, so only paste scripts you trust.
           </p>

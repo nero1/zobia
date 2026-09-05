@@ -4,12 +4,10 @@ export const dynamic = 'force-dynamic';
  * app/api/business/ads/campaigns/[campaignId]/fund/route.ts
  *
  * POST /api/business/ads/campaigns/:campaignId/fund — move Credits from the
- * caller's coin_balance into a campaign's ad budget. This is the "pay with
- * Zobia Credits" path (PRD §17 Pillar 3 — "pay with Zobia credits or cash").
- * The "pay with cash" path reuses the existing coin-purchase flow
- * (POST /api/economy/coins/purchase — Paystack/DodoPayments on web/PWA,
- * Google Play Billing on Android) to buy Credits first, then this endpoint
- * moves them into the campaign — no new payment integration needed.
+ * caller's Ad Wallet (lib/economy/adWallet.ts) into a campaign's ad budget.
+ * The Ad Wallet itself is funded via POST /api/business/ads/wallet/transfer
+ * (from the main Credits balance) or POST /api/business/ads/wallet/topup
+ * (direct purchase) — see those routes.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -17,9 +15,8 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
-import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
+import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { getOwnBusinessAccountId } from "@/lib/ads/limits";
 import { fundCampaign } from "@/lib/ads/repo";
 
 interface Ctx {
@@ -39,22 +36,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }: Ctx) => 
     const { campaignId } = await params;
     const body = await validateBody(req, bodySchema);
 
-    const businessAccountId = await getOwnBusinessAccountId(auth.user.sub);
-    if (!businessAccountId) throw notFound("Business account not found");
-
     try {
       const campaign = await fundCampaign(
         auth.user.sub,
         campaignId,
-        businessAccountId,
         body.amountCredits,
         body.idempotencyKey ?? `${campaignId}:fund:${randomUUID()}`
       );
       return NextResponse.json({ success: true, data: { campaign }, error: null });
     } catch (err) {
       const code = (err as NodeJS.ErrnoException)?.code;
-      if (code === "INSUFFICIENT_BALANCE") {
-        throw badRequest("Insufficient Credit balance. Top up Credits first.", "INSUFFICIENT_BALANCE");
+      if (code === "INSUFFICIENT_AD_WALLET_BALANCE") {
+        throw badRequest("Insufficient Ad Wallet balance. Fund your Ad Wallet first.", "INSUFFICIENT_AD_WALLET_BALANCE");
       }
       throw err;
     }

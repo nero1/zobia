@@ -17,23 +17,27 @@ interface QuestionRow {
   id: string;
   title: string;
   body: string;
+  slug: string | null;
   status: string;
   vote_score: number;
   answer_count: number;
   favorite_count: number;
   is_locked: boolean;
   created_at: string;
+  author_id: string;
   author_username: string | null;
 }
 
 interface AnswerRow {
   id: string;
   question_id: string;
+  question_slug: string | null;
   body: string;
   status: string;
   vote_score: number;
   depth: number;
   created_at: string;
+  author_id: string;
   author_username: string | null;
 }
 
@@ -116,6 +120,34 @@ function EditModal({ target, onSave, onClose, saving }: EditModalProps) {
   );
 }
 
+/** Small external-link icon that opens the live post or author profile in a new tab. */
+function ExternalLinkIcon({ href, title }: { href: string; title: string }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={title}
+      className="inline-flex shrink-0 items-center text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400"
+    >
+      🔗
+    </a>
+  );
+}
+
+function AuthorLink({ authorId, username }: { authorId: string; username: string | null }) {
+  return (
+    <a
+      href={`/profile/${authorId}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="hover:text-primary-600 hover:underline dark:hover:text-primary-400"
+    >
+      @{username ?? "unknown"}
+    </a>
+  );
+}
+
 function RowSkeleton({ cols }: { cols: number }) {
   return (
     <tr>
@@ -173,7 +205,9 @@ export default function AdminForumPostsPage() {
 
   useEffect(() => { void fetchPosts(type); }, [type, fetchPosts]);
 
-  async function handleAction(id: string, action: "remove" | "restore" | "lock" | "unlock") {
+  async function handleAction(id: string, action: "remove" | "restore" | "lock" | "unlock" | "hard_delete") {
+    if (action === "remove" && !window.confirm(`Remove this ${type}? It will be hidden but can be restored later.`)) return;
+    if (action === "hard_delete" && !window.confirm(`Permanently delete this ${type}? This cannot be undone.`)) return;
     setBusy(id);
     try {
       const res = await fetch(`/api/admin/forum/posts/${id}`, {
@@ -183,7 +217,7 @@ export default function AdminForumPostsPage() {
         body: JSON.stringify({ targetType: type, action }),
       });
       if (!res.ok) throw new Error("Action failed");
-      showToast("Action applied");
+      showToast(action === "hard_delete" ? "Deleted permanently" : "Action applied");
       await fetchPosts(type);
     } catch (e) {
       showToast(e instanceof Error ? e.message : "Action failed", "error");
@@ -266,8 +300,15 @@ export default function AdminForumPostsPage() {
                 <tr><td colSpan={7} className="px-4 py-10 text-center text-neutral-500">No questions.</td></tr>
               ) : questions.map((q) => (
                 <tr key={q.id}>
-                  <td className="max-w-xs truncate px-4 py-3 font-medium text-neutral-900 dark:text-neutral-50">{q.title}</td>
-                  <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400">@{q.author_username ?? "unknown"}</td>
+                  <td className="max-w-xs truncate px-4 py-3 font-medium text-neutral-900 dark:text-neutral-50">
+                    <span className="mr-1.5 inline-flex align-middle">
+                      <ExternalLinkIcon href={q.slug ? `/a/${q.slug}` : `/answers/${q.id}`} title="Open question" />
+                    </span>
+                    {q.title}
+                  </td>
+                  <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400">
+                    <AuthorLink authorId={q.author_id} username={q.author_username} />
+                  </td>
                   <td className="px-4 py-3">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${STATUS_BADGE[q.status] ?? ""}`}>{q.status.replace(/_/g, " ")}</span>
                     {q.is_locked && <span className="ml-1 rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">🔒 locked</span>}
@@ -297,6 +338,9 @@ export default function AdminForumPostsPage() {
                           <button disabled={busy === q.id} onClick={() => handleAction(q.id, "lock")} className="rounded-lg bg-neutral-100 px-2 py-1 text-xs font-semibold text-neutral-700 hover:bg-neutral-200 disabled:opacity-50 dark:bg-neutral-800 dark:text-neutral-300">Lock</button>
                         )
                       )}
+                      {isAdmin && (
+                        <button disabled={busy === q.id} onClick={() => handleAction(q.id, "hard_delete")} className="rounded-lg bg-red-100 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-200 disabled:opacity-50 dark:bg-red-950 dark:text-red-300">Delete</button>
+                      )}
                     </div>
                   </td>
                 </tr>
@@ -305,8 +349,15 @@ export default function AdminForumPostsPage() {
               <tr><td colSpan={6} className="px-4 py-10 text-center text-neutral-500">No answers.</td></tr>
             ) : answers.map((a) => (
               <tr key={a.id}>
-                <td className="max-w-xs truncate px-4 py-3 text-neutral-900 dark:text-neutral-50">{a.body}</td>
-                <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400">@{a.author_username ?? "unknown"}</td>
+                <td className="max-w-xs truncate px-4 py-3 text-neutral-900 dark:text-neutral-50">
+                  <span className="mr-1.5 inline-flex align-middle">
+                    <ExternalLinkIcon href={a.question_slug ? `/a/${a.question_slug}` : `/answers/${a.question_id}`} title="Open question thread" />
+                  </span>
+                  {a.body}
+                </td>
+                <td className="px-4 py-3 text-neutral-600 dark:text-neutral-400">
+                  <AuthorLink authorId={a.author_id} username={a.author_username} />
+                </td>
                 <td className="px-4 py-3">
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${STATUS_BADGE[a.status] ?? ""}`}>{a.status.replace(/_/g, " ")}</span>
                 </td>
@@ -327,6 +378,9 @@ export default function AdminForumPostsPage() {
                     ) : isAdmin ? (
                       <button disabled={busy === a.id} onClick={() => handleAction(a.id, "restore")} className="rounded-lg bg-teal-100 px-2 py-1 text-xs font-semibold text-teal-700 hover:bg-teal-200 disabled:opacity-50 dark:bg-teal-900 dark:text-teal-300">Restore</button>
                     ) : null}
+                    {isAdmin && (
+                      <button disabled={busy === a.id} onClick={() => handleAction(a.id, "hard_delete")} className="rounded-lg bg-red-100 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-200 disabled:opacity-50 dark:bg-red-950 dark:text-red-300">Delete</button>
+                    )}
                   </div>
                 </td>
               </tr>

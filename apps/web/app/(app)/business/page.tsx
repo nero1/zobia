@@ -32,7 +32,7 @@ const TIERS = [
     key: "starter",
     label: "Starter",
     price: "₦5,000/mo",
-    features: ["Verified business badge (on approval)", "Broadcast capability", "Basic analytics (totals)", "Up to 2 Business Pages"],
+    features: ["Verified business badge (on approval)", "Broadcast capability", "Run Ads (CPM campaigns)", "Basic analytics (totals)", "Up to 2 Business Pages"],
   },
   {
     key: "growth",
@@ -137,7 +137,7 @@ export default function BusinessHubPage() {
           >
             <div className="mb-2 text-2xl">📣</div>
             <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Advertising Panel</h2>
-            <p className="mt-1 text-sm text-neutral-500">Submit and track Sponsored Quests.</p>
+            <p className="mt-1 text-sm text-neutral-500">Run CPM ad campaigns and (Growth+) submit Sponsored Quests.</p>
           </Link>
           <Link
             href="/business/stats"

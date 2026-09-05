@@ -153,6 +153,12 @@ const PUBLIC_PREFIXES = [
   "/a/",
   "/b/",
   "/p/",
+  // BB-style forum (boards/threads) — publicly readable, indexable
+  "/forum",
+  "/f/",
+  "/api/forum",
+  // Answers category pages — publicly readable, indexable (SEO)
+  "/answers/category/",
   "/_next",
   "/favicon.ico",
   // App-link association files for Android (assetlinks.json) and iOS
@@ -192,7 +198,7 @@ const ADMIN_PREFIXES = ["/gate44"];
  * still re-verified against the DATABASE by the API layer
  * (withModeratorOrAdminAuth) — this is only the cheap edge pre-filter.
  */
-const FORUM_MOD_PREFIXES = ["/gate44/forum"];
+const FORUM_MOD_PREFIXES = ["/gate44/answers", "/gate44/forum"];
 
 // ---------------------------------------------------------------------------
 // Helpers

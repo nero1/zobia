@@ -16,7 +16,6 @@ import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { getOwnBusinessAccountId } from "@/lib/ads/limits";
 import { getOwnCampaign, addCreative } from "@/lib/ads/repo";
 
 interface Ctx {
@@ -42,10 +41,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }: Ctx) => 
     const { campaignId } = await params;
     const body = await validateBody(req, createSchema);
 
-    const businessAccountId = await getOwnBusinessAccountId(auth.user.sub);
-    if (!businessAccountId) throw notFound("Business account not found");
-
-    const campaign = await getOwnCampaign(campaignId, businessAccountId);
+    const campaign = await getOwnCampaign(campaignId, auth.user.sub);
     if (!campaign) throw notFound("Campaign not found");
     if (campaign.status !== "draft") throw badRequest("Creatives can only be added while the campaign is a draft.");
 

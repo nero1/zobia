@@ -23,6 +23,8 @@ import { resolvePublicForumQuestion } from "@/lib/public/resolveForumQuestion";
 import { buildForumQuestionMetadata, NOT_FOUND_METADATA } from "@/lib/public/forumMetadata";
 import { generateQAPageSchema } from "@/lib/seo/metadata";
 import { PublicForumQuestionView } from "@/components/public/PublicForumQuestionView";
+import { listRelatedQuestions, listNewQuestions, listRecentlyAnsweredQuestions } from "@/lib/forum/repo";
+import { QuestionMiniList } from "@/components/answers/QuestionMiniList";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
 
@@ -72,10 +74,21 @@ export default async function PublicForumQuestionPage({
     })),
   });
 
+  const [related, newPosts, recentlyAnswered] = await Promise.all([
+    listRelatedQuestions(question.category_id, question.id, 5),
+    listNewQuestions(3, question.id),
+    listRecentlyAnsweredQuestions(3, question.id),
+  ]);
+
   return (
     <>
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: jsonLd }} />
       <PublicForumQuestionView question={question} />
+      <div className="mx-auto grid max-w-3xl gap-3 px-4 pb-8 sm:grid-cols-3 sm:px-6">
+        <QuestionMiniList title="Related posts" items={related} seeMoreHref={question.category_slug ? `/answers/category/${question.category_slug}` : "/answers"} />
+        <QuestionMiniList title="New posts" items={newPosts} seeMoreHref="/answers" />
+        <QuestionMiniList title="Recently answered" items={recentlyAnswered} seeMoreHref="/answers" />
+      </div>
     </>
   );
 }

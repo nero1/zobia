@@ -35,8 +35,9 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
 
     if (type === "question") {
       const { rows } = await db.query(
-        `SELECT t.id, t.title, t.body, t.status, t.vote_score, t.answer_count,
-                t.favorite_count, t.is_locked, t.created_at, u.username AS author_username
+        `SELECT t.id, t.title, t.body, t.slug, t.status, t.vote_score, t.answer_count,
+                t.favorite_count, t.is_locked, t.created_at,
+                u.id AS author_id, u.username AS author_username
          FROM forum_questions t
          JOIN users u ON u.id = t.author_id
          WHERE ${whereClause}
@@ -55,8 +56,9 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
 
     const { rows } = await db.query(
       `SELECT t.id, t.question_id, t.body, t.status, t.vote_score, t.depth, t.created_at,
-              u.username AS author_username
+              u.id AS author_id, u.username AS author_username, q.slug AS question_slug
        FROM forum_answers t
+       JOIN forum_questions q ON q.id = t.question_id
        JOIN users u ON u.id = t.author_id
        WHERE ${whereClause}
        ORDER BY t.created_at DESC

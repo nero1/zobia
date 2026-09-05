@@ -21,13 +21,13 @@ import { deleteQuestion, deleteAnswer, setQuestionLocked } from "@/lib/forum/ser
 
 const bodySchema = z.object({
   targetType: z.enum(["question", "answer"]),
-  action: z.enum(["remove", "restore", "lock", "unlock", "edit"]),
+  action: z.enum(["remove", "restore", "lock", "unlock", "edit", "hard_delete"]),
   // Only used when action === "edit". Title is question-only.
   title: z.string().min(3).max(200).optional(),
   body: z.string().min(1).max(10000).optional(),
 });
 
-const ADMIN_ONLY_ACTIONS = new Set(["restore", "lock", "unlock"]);
+const ADMIN_ONLY_ACTIONS = new Set(["restore", "lock", "unlock", "hard_delete"]);
 
 export const PATCH = withModeratorOrAdminAuth<{ id: string }>(async (req: NextRequest, { params, auth }) => {
   try {
@@ -42,7 +42,24 @@ export const PATCH = withModeratorOrAdminAuth<{ id: string }>(async (req: NextRe
       throw forbidden("Only administrators can perform this action.", "ADMIN_ONLY_ACTION");
     }
 
-    if (body.action === "remove") {
+    if (body.action === "hard_delete") {
+      // Permanent, irreversible row deletion (distinct from "remove", which is a
+      // soft status flip). Admin-only, requires explicit confirmation client-side.
+      if (body.targetType === "question") {
+        const { rowCount } = await db.query(`DELETE FROM forum_questions WHERE id = $1`, [id]);
+        if (!rowCount) throw notFound("Not found");
+      } else {
+        const { rows } = await db.query<{ question_id: string }>(
+          `DELETE FROM forum_answers WHERE id = $1 RETURNING question_id`,
+          [id]
+        );
+        if (!rows[0]) throw notFound("Not found");
+        await db.query(
+          `UPDATE forum_questions SET answer_count = GREATEST(answer_count - 1, 0) WHERE id = $1`,
+          [rows[0].question_id]
+        );
+      }
+    } else if (body.action === "remove") {
       if (body.targetType === "question") await deleteQuestion(id, auth.user.sub, true);
       else await deleteAnswer(id, auth.user.sub, true);
     } else if (body.action === "restore") {
@@ -79,16 +96,26 @@ export const PATCH = withModeratorOrAdminAuth<{ id: string }>(async (req: NextRe
       }
     }
 
-    await db.query(
-      `INSERT INTO forum_moderation_log (moderator_id, question_id, answer_id, action, created_at)
-       VALUES ($1, $2, $3, $4, NOW())`,
-      [
-        auth.user.sub,
-        body.targetType === "question" ? id : null,
-        body.targetType === "answer" ? id : null,
-        body.action,
-      ]
-    );
+    // hard_delete removes the row this log would otherwise FK-reference (ON
+    // DELETE CASCADE), so keep the id in metadata instead of question_id/answer_id.
+    if (body.action === "hard_delete") {
+      await db.query(
+        `INSERT INTO forum_moderation_log (moderator_id, action, metadata, created_at)
+         VALUES ($1, $2, $3::jsonb, NOW())`,
+        [auth.user.sub, body.action, JSON.stringify({ targetType: body.targetType, targetId: id })]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO forum_moderation_log (moderator_id, question_id, answer_id, action, created_at)
+         VALUES ($1, $2, $3, $4, NOW())`,
+        [
+          auth.user.sub,
+          body.targetType === "question" ? id : null,
+          body.targetType === "answer" ? id : null,
+          body.action,
+        ]
+      );
+    }
 
     return NextResponse.json({ success: true, data: { id, action: body.action }, error: null });
   } catch (err) {

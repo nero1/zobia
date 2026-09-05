@@ -11,7 +11,7 @@
  *
  * Admin-only — the underlying config write endpoint is admin-only
  * (config changes are a platform-wide decision, unlike moderation actions
- * which moderators can also take on /gate44/forum/queue and /gate44/forum/posts).
+ * which moderators can also take on /gate44/answers/queue and /gate44/answers/posts).
  */
 
 import { useState, useEffect, useCallback } from "react";
@@ -52,6 +52,129 @@ function ToggleSwitch({ checked, onChange, disabled }: { checked: boolean; onCha
     >
       <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`} />
     </button>
+  );
+}
+
+interface CategoryRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  icon_emoji: string;
+  sort_order: number;
+  question_count: string;
+}
+
+function CategoriesManager({ showToast }: { showToast: (msg: string, type?: "success" | "error") => void }) {
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [name, setName] = useState("");
+  const [icon, setIcon] = useState("💬");
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const res = await fetch("/api/admin/forum/categories", { credentials: "include" });
+    const json = await res.json().catch(() => null);
+    if (json?.success) setCategories(json.data.categories);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { void load(); }, [load]);
+
+  async function handleCreate() {
+    if (!name.trim()) return;
+    try {
+      const res = await fetch("/api/admin/forum/categories", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim(), iconEmoji: icon || "💬" }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Failed to create category");
+      setName(""); setIcon("💬");
+      showToast("Category created");
+      await load();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to create category", "error");
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!window.confirm("Delete this category? This can't be undone.")) return;
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/admin/forum/categories/${id}`, { method: "DELETE", credentials: "include" });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Failed to delete category");
+      showToast("Category deleted");
+      await load();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to delete category", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function handleRename(id: string, currentName: string) {
+    const next = window.prompt("New category name:", currentName);
+    if (!next || next.trim() === currentName) return;
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/admin/forum/categories/${id}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: next.trim() }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Failed to rename category");
+      await load();
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : "Failed to rename category", "error");
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div className="mt-8">
+      <h2 className="mb-2 text-lg font-bold text-neutral-900 dark:text-neutral-50">Categories</h2>
+      <div className="mb-3 flex gap-2">
+        <input
+          value={icon}
+          onChange={(e) => setIcon(e.target.value)}
+          className="w-14 rounded-lg border border-neutral-300 bg-white px-2 py-1.5 text-center text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-50"
+          placeholder="🙏"
+        />
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="New category name"
+          className="flex-1 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-50"
+        />
+        <button onClick={handleCreate} className="rounded-lg bg-primary-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-700">Add</button>
+      </div>
+      {loading ? (
+        <div className="h-24 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />
+      ) : (
+        <div className="divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900">
+          {categories.map((c) => (
+            <div key={c.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
+              <div className="flex min-w-0 items-center gap-2">
+                <span>{c.icon_emoji}</span>
+                <span className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-50">{c.name}</span>
+                <span className="text-xs text-neutral-400">({c.question_count})</span>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button disabled={busyId === c.id} onClick={() => handleRename(c.id, c.name)} className="rounded-lg bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-200 disabled:opacity-50 dark:bg-blue-900 dark:text-blue-300">Rename</button>
+                <button disabled={busyId === c.id} onClick={() => handleDelete(c.id)} className="rounded-lg bg-red-100 px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-200 disabled:opacity-50 dark:bg-red-950 dark:text-red-300">Delete</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -158,6 +281,8 @@ export default function AdminForumSettingsPage() {
           })}
         </div>
       )}
+
+      <CategoriesManager showToast={showToast} />
     </div>
   );
 }

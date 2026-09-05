@@ -38,6 +38,7 @@ export interface PublicForumQuestion {
   updated_at: string;
   author_username: string | null;
   author_display_name: string | null;
+  category_id: string | null;
   category_slug: string | null;
   category_name: string | null;
   /** Up to 3 top-voted visible answers — enough for a rich SEO snippet without a full thread fetch. */
@@ -57,7 +58,7 @@ const SELECT = `
   SELECT q.id, q.slug, q.title, q.body, q.vote_score, q.answer_count, q.best_answer_id,
          q.created_at, q.updated_at,
          u.username AS author_username, u.display_name AS author_display_name,
-         c.slug AS category_slug, c.name AS category_name
+         q.category_id, c.slug AS category_slug, c.name AS category_name
   FROM forum_questions q
   JOIN users u ON u.id = q.author_id
   LEFT JOIN forum_categories c ON c.id = q.category_id
@@ -76,6 +77,7 @@ interface QuestionRow {
   updated_at: string;
   author_username: string | null;
   author_display_name: string | null;
+  category_id: string | null;
   category_slug: string | null;
   category_name: string | null;
 }

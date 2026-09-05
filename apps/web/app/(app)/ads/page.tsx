@@ -20,26 +20,70 @@ import { useTranslation } from "react-i18next";
 interface Eligibility {
   eligible: boolean;
   reason?: string;
+  canAdvertiseAsBusiness?: boolean;
+  needsBusinessAccount?: boolean;
+  needsKyc?: boolean;
+}
+
+interface TodoState {
+  kycTier: number;
+  hasBusinessAccount: boolean;
+  businessTier: string | null;
+}
+
+function TodoItem({ done, label, doneLabel, isLast }: { done: boolean; label: React.ReactNode; doneLabel?: string; isLast?: boolean }) {
+  return (
+    <div className="flex gap-3">
+      <div className="flex flex-col items-center">
+        <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] ${done ? "bg-teal-500 text-white" : "bg-amber-400 text-white"}`}>
+          {done ? "✓" : ""}
+        </span>
+        {!isLast && <span className="w-px flex-1 bg-neutral-200 dark:bg-neutral-700" />}
+      </div>
+      <div className="pb-5 text-sm">
+        <span className={done ? "text-neutral-500 dark:text-neutral-400" : "font-medium text-neutral-900 dark:text-neutral-100"}>{label}</span>
+        {done && doneLabel && (
+          <span className="ml-1.5 font-semibold text-teal-600 dark:text-teal-400">{doneLabel}</span>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function AdsHubPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
+  const [todo, setTodo] = useState<TodoState | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch("/api/business/ads/eligibility", { credentials: "include" });
-        if (res.ok) {
-          const json = await res.json();
-          const data: Eligibility = json.data;
+        const [eligRes, kycRes, bizRes] = await Promise.all([
+          fetch("/api/business/ads/eligibility", { credentials: "include" }),
+          fetch("/api/kyc/status", { credentials: "include" }),
+          fetch("/api/business", { credentials: "include" }),
+        ]);
+
+        let data: Eligibility | null = null;
+        if (eligRes.ok) {
+          const json = await eligRes.json();
+          data = json.data;
           setEligibility(data);
-          if (data.eligible) {
-            router.replace("/business/ads");
-            return;
-          }
+        }
+
+        const kycJson = kycRes.ok ? await kycRes.json() : null;
+        const bizJson = bizRes.ok ? await bizRes.json() : null;
+        setTodo({
+          kycTier: kycJson?.data?.kycTier ?? 0,
+          hasBusinessAccount: !!bizJson?.data?.business,
+          businessTier: bizJson?.data?.business?.tier ?? null,
+        });
+
+        if (data?.eligible) {
+          router.replace("/business/ads");
+          return;
         }
       } finally {
         setLoading(false);
@@ -68,16 +112,52 @@ export default function AdsHubPage() {
       <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
         <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">{t("ads.eligibilityTitle", "Getting started")}</h2>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          {eligibility?.reason ?? t("ads.eligibilityDefault", "You need a verified Business Account with identity verification to place ads.")}
+          {eligibility?.reason ?? t("ads.eligibilityDefault", "Complete the steps below to start advertising on Zobia.")}
         </p>
-        <div className="mt-4 flex flex-wrap gap-3">
-          <Link href="/business" className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white">
-            {t("ads.createBusinessAccount", "Create a Business Account")}
-          </Link>
-          <Link href="/kyc" className="rounded-xl border border-neutral-200 px-4 py-2.5 text-sm font-semibold text-neutral-700 dark:border-neutral-700 dark:text-neutral-200">
-            {t("ads.completeKyc", "Complete identity verification")}
-          </Link>
-        </div>
+
+        {todo && (() => {
+          const showKyc = eligibility?.needsKyc ?? true;
+          const showBusiness = eligibility?.needsBusinessAccount ?? true;
+          return (
+            <div className="mt-4">
+              {showKyc && (
+                <TodoItem
+                  isLast={!showBusiness}
+                  done={todo.kycTier > 0}
+                  label={
+                    <Link href="/kyc" className="hover:underline">
+                      {t("ads.completeKyc", "Complete identity verification")}
+                    </Link>
+                  }
+                  doneLabel={todo.kycTier > 0 ? t("ads.doneKycTier", "Done (Tier {{tier}})", { tier: todo.kycTier }) : undefined}
+                />
+              )}
+              {showBusiness && (
+                <TodoItem
+                  isLast
+                  done={todo.hasBusinessAccount}
+                  label={
+                    <Link href="/business" className="hover:underline">
+                      {t("ads.createBusinessAccount", "Create a Business Account")}
+                    </Link>
+                  }
+                  doneLabel={todo.hasBusinessAccount ? t("ads.doneBusinessTier", "Done ({{tier}})", { tier: todo.businessTier ?? "Starter" }) : undefined}
+                />
+              )}
+            </div>
+          );
+        })()}
+
+        {!todo && (
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link href="/business" className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white">
+              {t("ads.createBusinessAccount", "Create a Business Account")}
+            </Link>
+            <Link href="/kyc" className="rounded-xl border border-neutral-200 px-4 py-2.5 text-sm font-semibold text-neutral-700 dark:border-neutral-700 dark:text-neutral-200">
+              {t("ads.completeKyc", "Complete identity verification")}
+            </Link>
+          </div>
+        )}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2">

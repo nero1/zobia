@@ -222,5 +222,37 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Business pages table absent or unavailable — skip silently
   }
 
+  // BB-style forum boards + threads. Boards at /forum/<slug>, threads at
+  // the short canonical /f/<slug>. The tables may not exist on older DBs
+  // (pre-0016-bbforum migration) — skip silently.
+  try {
+    const { rows: boardRows } = await db.query<{ slug: string; updated_at: string }>(
+      `SELECT slug, updated_at FROM bb_boards WHERE is_active = TRUE ORDER BY sort_order ASC LIMIT 500`
+    );
+    entries.push({ url: `${BASE_URL}/forum`, lastModified: new Date(), changeFrequency: "daily", priority: 0.6 });
+    for (const b of boardRows) {
+      entries.push({
+        url: `${BASE_URL}/forum/${encodeURIComponent(b.slug)}`,
+        lastModified: new Date(b.updated_at),
+        changeFrequency: "daily",
+        priority: 0.5,
+      });
+    }
+
+    const { rows: threadRows } = await db.query<{ slug: string; updated_at: string }>(
+      `SELECT slug, updated_at FROM bb_threads WHERE deleted_at IS NULL AND status = 'visible' ORDER BY updated_at DESC NULLS LAST LIMIT 2000`
+    );
+    for (const t of threadRows) {
+      entries.push({
+        url: `${BASE_URL}/f/${encodeURIComponent(t.slug)}`,
+        lastModified: new Date(t.updated_at),
+        changeFrequency: "weekly",
+        priority: 0.5,
+      });
+    }
+  } catch {
+    // BB forum tables absent or unavailable — skip silently
+  }
+
   return entries;
 }

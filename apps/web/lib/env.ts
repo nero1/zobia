@@ -87,6 +87,11 @@ const envSchema = z.object({
     .url()
     .default("https://api.deepseek.com/v1"),
   GEMINI_API_KEY: z.string().optional(),
+  GROQ_API_KEY: z.string().optional(),
+  GROQ_API_ENDPOINT: z
+    .string()
+    .url()
+    .default("https://api.groq.com/openai/v1"),
 
   // ---- Email --------------------------------------------------------------
   MAILGUN_API_KEY: z.string().optional(),

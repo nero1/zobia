@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
-import { handleApiError, notFound } from "@/lib/api/errors";
+import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBusinessStatsTier } from "@/lib/business/limits";
 import { getCampaignTotals, getCampaignDailyStats } from "@/lib/ads/repo";
@@ -22,29 +22,28 @@ export const GET = withAuth(async (_req: NextRequest, { auth }: { auth: AuthCont
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
-    const { rows } = await db.query<{ id: string; tier: string }>(
-      `SELECT id, tier FROM business_accounts WHERE user_id = $1 LIMIT 1`,
+    // A personal advertiser (no Business Account) gets the same stats depth
+    // as a "starter" business tier — totals only, no per-campaign breakdown.
+    const { rows } = await db.query<{ tier: string | null }>(
+      `SELECT tier FROM business_accounts WHERE user_id = $1 LIMIT 1`,
       [auth.user.sub]
     );
-    const account = rows[0];
-    if (!account) throw notFound("Business account not found");
-
-    const tier = getBusinessStatsTier(account.tier);
-    const totals = await getCampaignTotals(account.id);
+    const tier = getBusinessStatsTier(rows[0]?.tier ?? "starter");
+    const totals = await getCampaignTotals(auth.user.sub);
     const data: Record<string, unknown> = { tier, totals };
 
     if (tier === "more" || tier === "detailed" || tier === "detailed_export") {
       const { rows: campaigns } = await db.query<{ id: string; name: string; status: string; spent_credits: string; total_budget_credits: string }>(
         `SELECT id, name, status, spent_credits, total_budget_credits FROM ad_campaigns
-         WHERE business_account_id = $1 AND deleted_at IS NULL ORDER BY created_at DESC`,
-        [account.id]
+         WHERE created_by = $1 AND deleted_at IS NULL ORDER BY created_at DESC`,
+        [auth.user.sub]
       );
       data.campaignBreakdown = campaigns;
     }
     if (tier === "detailed" || tier === "detailed_export") {
       const { rows: campaignIds } = await db.query<{ id: string }>(
-        `SELECT id FROM ad_campaigns WHERE business_account_id = $1 AND deleted_at IS NULL`,
-        [account.id]
+        `SELECT id FROM ad_campaigns WHERE created_by = $1 AND deleted_at IS NULL`,
+        [auth.user.sub]
       );
       const dailyByCampaign: Record<string, unknown> = {};
       for (const c of campaignIds) {

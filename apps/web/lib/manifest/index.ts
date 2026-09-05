@@ -60,6 +60,8 @@ export interface ZobiaManifest {
     physicalGoodsPartnerFulfillment: boolean;
     moments: boolean;
     forum: boolean;
+    /** Old-school BB-style forum (boards/threads at /forum, /f/<slug>) — separate from the Answers Q&A feature above. */
+    bbforum: boolean;
     blogs: boolean;
     kyc: boolean;
     adsSystem: boolean;
@@ -121,7 +123,7 @@ export interface ZobiaManifest {
     /** Minimum account level (main rank number, 1 = Beginner) required to post a Moment. */
     minLevel: number;
   };
-  // Answers — mini forum / Q&A (admin-editable at /gate44/config and /gate44/forum/settings)
+  // Answers — mini forum / Q&A (admin-editable at /gate44/config and /gate44/answers/settings)
   forum: {
     /** Minimum account level required to post a question. */
     minLevelToPost: number;
@@ -305,6 +307,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     physicalGoodsPartnerFulfillment: false,
     moments: true,
     forum: true,
+    bbforum: true,
     blogs: true,
     kyc: true,
     adsSystem: true,
@@ -570,6 +573,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       physicalGoodsPartnerFulfillment: parseBool(kv["physical_goods_fulfillment_partner"],            DEFAULT_MANIFEST.features.physicalGoodsPartnerFulfillment),
       moments:                    parseBool(kv["feature_moments"]                   ?? "true",  DEFAULT_MANIFEST.features.moments),
       forum:                      parseBool(kv["feature_forum"]                     ?? "true",  DEFAULT_MANIFEST.features.forum),
+      bbforum:                    parseBool(kv["feature_bbforum"]                   ?? "true",  DEFAULT_MANIFEST.features.bbforum),
       blogs:                      parseBool(kv["feature_blogs"]                     ?? "true",  DEFAULT_MANIFEST.features.blogs),
       kyc:                        parseBool(kv["feature_kyc"]                       ?? "true",  DEFAULT_MANIFEST.features.kyc),
       adsSystem:                  parseBool(kv["feature_ads_system"]                ?? "true",  DEFAULT_MANIFEST.features.adsSystem),

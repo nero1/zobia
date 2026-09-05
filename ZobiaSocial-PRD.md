@@ -5281,6 +5281,122 @@ bare list — admins commonly take several actions on one user in a row.
 
 ---
 
-*ZobiaSocial PRD v2.12*
+## Appendix: Version 2.13 Change Log
+
+### v2.13 — Changelog
+
+**Answers admin area renamed** `/gate44/forum` → `/gate44/answers` (301
+redirects kept for old links), with a persistent tab bar across
+Overview/Queue/Posts/Settings so navigating between tabs no longer strands
+you without a way back to the others. Posts-management and moderation-queue
+tables now show an icon link to the live post and a link to the author's
+profile, both opening in a new tab. Admins can hard-delete a post (distinct
+from the existing soft "remove"), gated behind a confirmation dialog; soft
+removal now also confirms before acting.
+
+**Generalised feature-flag gating pattern** — `useFeatureFlags`/
+`useFeatureEnabled` (`lib/hooks/useFeatureFlags.ts`) plus a `NotFoundGate`
+component (`components/shared/NotFoundGate.tsx`): when an admin turns a
+feature off, its nav entry disappears for regular users while admins still
+see it with a warning icon, and the page itself shows a not-found view to
+non-admins with an explanatory banner for admins. Wired up for Answers as
+the reference consumer; other optional features should adopt the same
+pattern as they're touched.
+
+**Ads: prepaid Ad Wallet, advertiser identity, granular admin eligibility.**
+A new Ad Wallet (`users.ad_wallet_balance` + `ad_wallet_ledger`, mirroring
+the main Credits ledger's idempotent pattern) is a distinct prepaid balance
+for running ads — campaign funding now draws from it instead of the main
+Credits balance. Fundable by transferring from the main wallet or buying
+Credits directly (the existing purchase flow gained a `destination` flag
+routing the webhook credit into the Ad Wallet). Campaigns can be created,
+previewed, and submitted for moderation with an empty Ad Wallet — they
+simply won't serve impressions until funded, with a notification on
+activation if still unfunded. Admin can now configure, from a new Settings
+tab on `/gate44/ads`: whether personal (non-business) accounts may
+advertise, whether KYC is required at all, a level gate for free-plan
+advertisers, and an optional level floor for paid/business advertisers too.
+Advertisers choose which identity is shown as the advertiser — their
+personal profile, their Business Account, or one of their Business Pages —
+and campaign ownership is now keyed on `created_by` (the user) rather than
+`business_account_id`, so a personal-advertiser campaign works the same as
+a business one. When a campaign's business account/page stops qualifying
+(subscription lapses, verification pulled), its ads keep running under the
+stale advertiser identity for an admin-configurable grace period (default
+14 days) instead of stopping immediately, swept from the existing
+daily-economy cron. The `/ads` hub now shows KYC verification and Business
+Account setup as a connected two-step todo list with checkmarks, showing
+only whichever steps the admin config actually requires. "Run Ads" added to
+Business Account (Starter) benefits.
+
+**AI: Groq added as a 3rd fallback tier; generic provider registry; 48-hour
+call-monitoring log.** The hand-rolled, duplicated-per-provider DeepSeek/
+Gemini circuit breaker in `lib/ai/client.ts` is now a generic factory
+(`lib/ai/circuit.ts`) driven by a provider registry (`lib/ai/config.ts`
+`AI_PROVIDERS`) — adding a new provider or model is a config entry plus one
+adapter function, not a copy-pasted block. Fallback chain is now DeepSeek →
+Gemini → Groq (default model GPT-OSS-120B, Llama 3.1 8B Instant selectable),
+with the chain order and each provider's model admin-configurable from
+`/gate44/ai-settings`. New `ai_call_log` table (rotated by an external-cron
+`rotate-ai-call-log` route — Vercel Hobby only allows daily crons) records
+every AI-backed feature call (report moderation, Sponsored Quest review, ad
+creative review, KYC name matching, KYC document analysis) with provider,
+model, confidence, latency, and outcome, surfaced in a "Recent AI Calls"
+panel on the AI Settings page. Ad image creatives now always route through
+an image-capable model (Gemini Vision) rather than the text classifier,
+which cannot see images; admin can set text and image ad auto-approval
+independently.
+
+**Answers: hidden 3rd-level replies fixed; tabs reordered; category pages;
+related posts.** Real bug: `listAnswers()` only computed reply counts for
+top-level questions' direct (depth-1) replies, so every depth-1 reply
+always got `replyCount=0` — the "view N more replies" affordance (which
+already existed in the UI, backed by an already-correct recursive-CTE
+thread-expand endpoint) could never fire, making 3rd-level-and-deeper
+replies unreachable. Fixed by also counting each depth-1 reply's own
+children. Homepage tabs reordered to Trending, Popular, New, Faves with
+Trending as the default (the "trending" sort already existed server-side).
+Added a "Religion and Spirituality" category and split "School & Career"
+into "Schools and Education" (renamed in place, keeping existing
+questions' category) and "Career and Jobs"; admin can now create, rename,
+and delete categories (with icon) from `/gate44/answers/settings` — deleting
+a category that still has questions is blocked rather than orphaning them.
+New reusable `CategoryList` component (horizontal/vertical, with question
+counts) on the Answers homepage and on new public, indexable
+`/answers/category/<slug>` pages (Latest/New/Trending/Popular tabs scoped
+to one category, `CollectionPage` JSON-LD). Related posts (5), new posts
+(3), and recently-answered posts (3) mini-lists added below the answers
+list on both the public SEO page (`/a/<slug>`) and the authenticated
+question detail page. The "write an answer" composer now starts minimized
+and expands into the full form on click, matching the existing reply-box
+pattern.
+
+**New: old-school BB-style forum stub** at `/forum` (boards/sub-boards) with
+short, SEO-friendly canonical thread URLs at `/f/<title-slug>` — distinct
+from the Answers Q&A feature. New tables (`bb_boards`, `bb_threads`,
+`bb_posts`); all three page types are public SSR with metadata/OG tags and
+`DiscussionForumPosting` JSON-LD on thread pages, added to the sitemap and
+to `middleware.ts`'s public-route allowlist. Starting a thread or replying
+requires sign-in and an admin-configurable minimum account level (default
+1). Gated by a new `bbforum` feature flag, with its own "Forum" nav entry
+distinct from "Answers". This is a functional stub — real schema, working
+navigation and posting, seeded with 3 starter boards — moderation tooling,
+reactions, and rich text are left for a follow-up iteration.
+
+**New migrations to run (in order):** `db/migrations/0014_ads_advertiser_wallet.sql`,
+`db/migrations/0015_ai_fallback_and_monitoring.sql`,
+`db/migrations/0016_bbforum.sql`, `db/migrations/0017_answers_categories.sql`.
+
+**Not done in this pass** (flagged rather than silently skipped): forum
+auto-moderation remains rules-based (profanity/duplicate detection) and was
+not wired to the AI classifier — investigate as a separate follow-up if
+AI-assisted forum moderation is wanted; the Answers homepage's "sitewide
+notices/highlights" banner and a platform-wide "newly answered" digest were
+not built (no existing sitewide-notices system was found to hook into, and
+building a parallel one was judged out of scope for this pass).
+
+---
+
+*ZobiaSocial PRD v2.13*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

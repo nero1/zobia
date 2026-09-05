@@ -405,10 +405,11 @@ Once enrolled, future revenue from the in-room AdMob/ad network is shared with t
 
 Self-service, CPM-billed ad system layered on existing infrastructure — no parallel payment, moderation, or config system was built for it.
 
-- **Eligibility.** `checkAdvertiserEligibility()` (`lib/ads/limits.ts`) requires a `verified` Business Account whose owner's `users.kyc_tier` is at least `ad_min_kyc_tier_to_advertise` (x_manifest, default 1). Checked on every campaign create/list route — never trusted from a client claim.
-- **Schema** (`db/migrations/0006_ads.sql`): `ad_placements` (admin slot catalogue + base CPM), `ad_campaigns` (business- or admin-owned), `ad_creatives` (per-placement creative, format html/text/image/native/third_party — `third_party` is admin-only), `ad_events` (append-only impression/click log, idempotent per `client_event_id`), `ad_campaign_daily_stats` (rollup written in the same transaction as each event), `ad_coupons`/`ad_coupon_redemptions`.
-- **Moderation** (`lib/ads/repo.ts` `submitCampaignForModeration`) mirrors the Sponsored Quest flow exactly: `ad_moderation_mode` manual → admin queue at `/gate44/ads` (approve/reject, `admin_audit_log`, notification to submitter); `ai` → `classifyAdCreative()` (`lib/moderation/aiClassifier.ts`, DeepSeek primary/Gemini fallback, user content only ever in the user turn) auto-approves at or above `ad_ai_auto_approve_threshold`, else falls back to manual.
-- **Billing.** Funding a campaign (`POST /business/ads/campaigns/:id/fund`) debits the advertiser's `coin_balance` through the existing `coin_ledger` (atomic, idempotent, `SELECT FOR UPDATE`) — the "pay with cash" path is just the existing Credit Pack purchase flow (Paystack/DodoPayments/Play Billing) run first. Per-impression CPM spend (`lib/ads/serve.ts` `recordAdEvents`) then draws down `ad_campaigns.spent_credits` directly, **not** one `coin_ledger` row per impression — that would balloon the ledger under normal ad traffic; `ad_events` is the impression-level audit trail instead. A campaign auto-completes once `spent_credits >= total_budget_credits`.
+- **Eligibility.** `checkAdvertiserEligibility()` (`lib/ads/limits.ts`) is fully admin-configurable via `getAdsAdminConfig()`: by default it still requires a `verified` Business Account whose owner's `users.kyc_tier` is at least `ad_min_kyc_tier_to_advertise` (default 1), but an admin can turn on `ad_allow_personal_accounts` to let personal accounts advertise too (subject to `ad_allow_free_accounts` + `ad_min_level_free_accounts` for free-plan users, and an optional `ad_enforce_min_level_paid_business` + `ad_min_level_paid_business` floor even for paid/business advertisers), or turn off `ad_require_kyc` entirely. Checked on every campaign create/list route — never trusted from a client claim. The `/ads` hub renders its "Complete KYC"/"Create Business Account" getting-started checklist based on which of these gates actually apply.
+- **Advertiser identity.** A campaign's `advertiser_type` (`personal` | `business_account` | `business_page`) picks which identity is shown to viewers — the advertiser's own profile, their Business Account, or one of their Business Pages — independent of who actually owns/controls the campaign (`created_by`, always the authenticated user). When the underlying business account/page stops qualifying (subscription lapses, verification pulled), `advertiser_grace_until` (swept daily from `daily-economy`) keeps an already-running campaign serving under its stale identity for `ad_advertiser_grace_days` (default 14) before stopping it.
+- **Schema** (`db/migrations/0006_ads.sql`, extended by `0014_ads_advertiser_wallet.sql`): `ad_placements` (admin slot catalogue + base CPM), `ad_campaigns` (business-, personal-, or admin-owned; `advertiser_type`/`advertiser_user_id`/`advertiser_grace_until`), `ad_creatives` (per-placement creative, format html/text/image/native/third_party — `third_party` is admin-only), `ad_events` (append-only impression/click log, idempotent per `client_event_id`), `ad_campaign_daily_stats` (rollup written in the same transaction as each event), `ad_coupons`/`ad_coupon_redemptions`, `ad_wallet_ledger` (see Billing below).
+- **Moderation** (`lib/ads/repo.ts` `submitCampaignForModeration`) mirrors the Sponsored Quest flow exactly, now split by creative type: `ad_moderation_mode_text`/`ad_moderation_mode_image` each independently manual (admin queue at `/gate44/ads`) or `ai`. Text creatives go through `classifyAdCreative()` (`lib/moderation/aiClassifier.ts`, DeepSeek → Gemini → Groq fallback); image creatives always go through `classifyAdCreativeImage()`, which is hardcoded to Gemini Vision regardless of `ai_provider_order` since text models can't see images. Both auto-approve at or above `ad_ai_auto_approve_threshold`, else fall back to manual.
+- **Billing — prepaid Ad Wallet.** Ads are prepaid from a dedicated **Ad Wallet** (`users.ad_wallet_balance` + `ad_wallet_ledger`, `lib/economy/adWallet.ts`), a distinct balance from the main Credits `coin_balance` — same idempotent `SELECT FOR UPDATE` + append-only-ledger pattern as `lib/economy/coins.ts`. Fund the Ad Wallet either by transferring from the main Credits balance (`POST /api/business/ads/wallet/transfer`, no fee) or by buying Credits directly into it (the existing coin-purchase flow gained a `destination: "ad_wallet"` flag that both webhook handlers honor). Funding a campaign (`POST /business/ads/campaigns/:id/fund`) then debits the Ad Wallet, not `coin_balance`. A campaign can be created, previewed, and submitted for moderation with an empty Ad Wallet — it just won't serve impressions (`total_budget_credits` stays 0) until funded; activating an unfunded campaign fires a notification rather than blocking. Per-impression CPM spend (`lib/ads/serve.ts` `recordAdEvents`) draws down `ad_campaigns.spent_credits` directly, **not** one ledger row per impression — that would balloon the ledger under normal ad traffic; `ad_events` is the impression-level audit trail instead. A campaign auto-completes once `spent_credits >= total_budget_credits`.
 - **Serving** (`GET /api/ads/serve?placement=<key>`, `lib/ads/serve.ts` `serveAd`) picks a random active/approved/in-budget/plan-eligible creative for a placement — no per-user Redis frequency tracking; the client (`components/ads/AdSlot.tsx`) does offline-friendly frequency/queueing in `localStorage` instead (`adEventQueue.ts`), batching impression/click reports and flushing via `sendBeacon` on unload/visibility-change, so ad tracking costs at most a couple of requests per session, not one per impression.
 - **In-stream Room ads.** `app/(app)/rooms/[roomId]/page.tsx` interleaves `<InStreamAd />` after every `roomInstreamInterval` messages (x_manifest `ad_room_instream_interval`, default 10) — **`free_open` Rooms only**, gated client-side via `useAdsConfig()` (rides the same cached `GET /api/manifest` as `useMomentsConfig`/`useCurrency`).
 - **Plan-based exposure.** `ad_plan_<plan>_ads_level` (full/reduced/none) per plan; `serveAd()` returns `null` for `none` plans server-side, so no client-side bypass is possible.
@@ -729,10 +730,46 @@ When a user who has reached the Generosity Track L40 Philanthropist milestone pu
 1. A user report is submitted → record created in `reports` with status `pending`.
 2. DeepSeek classifier is called with the reported content (sandboxed from system instructions — user content is passed as a separate `user` role message, never interpolated into the system prompt).
 3. DeepSeek returns: category (spam / hate / nsfw / misinformation / harassment / ok) + confidence score.
-4. If DeepSeek fails 3 consecutive times (HTTP error or timeout) → circuit breaker trips → Gemini fallback is called.
-5. If both fail → report remains `pending`, admin alerted via `system_alerts`.
+4. If DeepSeek fails 3 consecutive times (HTTP error or timeout) → circuit breaker trips → Gemini is tried next, then Groq if Gemini also fails/its circuit is open (see AI Provider Fallback Chain below).
+5. If all three fail → report remains `pending`, admin alerted via `system_alerts`.
 6. AI result stored on the report record. Human moderators review high-confidence cases flagged for action.
 7. Low-confidence cases (below the `x_manifest` threshold) are always routed to human review.
+
+### AI Provider Fallback Chain (`lib/ai/client.ts`, `lib/ai/config.ts`)
+
+The fallback chain, previously a hardcoded DeepSeek→Gemini `if`/`else` with
+duplicated circuit-breaker code per provider, is now a generic loop over an
+admin-configurable provider list. `lib/ai/config.ts` `AI_PROVIDERS` is the
+single registry of providers and the models an admin may pick between for
+each; `lib/ai/circuit.ts` `createProviderCircuit(id)` is a factory that
+replaces the old copy-pasted per-provider Redis circuit-breaker block.
+
+- **Default chain:** DeepSeek → Gemini → **Groq** (new 3rd tier — an
+  OpenAI-compatible REST API, no SDK dependency, matching the existing
+  raw-`fetch` adapters). Groq defaults to `openai/gpt-oss-120b`; an admin can
+  switch it to `llama-3.1-8b-instant` from `/gate44/ai-settings`, along with
+  reordering the whole chain (`ai_provider_order`, comma-separated) and
+  picking a model for any provider (`ai_<provider>_model`), all via the
+  generic `/api/admin/config/[key]` endpoint.
+- **Circuit breaker per provider**, unchanged logic (3 consecutive failures
+  → open for `CIRCUIT_BREAKER.recoveryTimeMs`, then half-open probe via
+  Redis `SET NX`) — just parameterized instead of duplicated.
+- **Adding a 4th provider:** add its config + model list to `AI_PROVIDERS`,
+  write one adapter function matching the existing `ProviderAdapter`
+  signature, register it in `PROVIDER_ADAPTERS`. No changes needed to the
+  fallback loop, the admin UI, or the circuit breaker.
+- **48-hour call-monitoring log** (`ai_call_log` table, `lib/ai/monitoring.ts`
+  `logAiCall()`): report moderation, Sponsored Quest review, ad creative
+  review (text and image), KYC name matching, and KYC document analysis
+  each log their own call with provider/model, confidence, latency,
+  success/failure, and a truncated result preview — shown in a "Recent AI
+  Calls" panel on `/gate44/ai-settings`. Rotated by
+  `app/api/cron/rotate-ai-call-log/route.ts`, an **external-cron** route
+  (not in `vercel.json` — see CRON Architecture below) that deletes rows
+  older than 48 hours.
+- **Image-capable routing.** Ad image creatives never go through the text
+  fallback chain — `classifyAdCreativeImage()` (`lib/moderation/aiClassifier.ts`)
+  calls Gemini Vision directly, since DeepSeek/Groq have no vision endpoint.
 
 ### CRON Architecture
 
@@ -743,6 +780,7 @@ When a user who has reached the Generosity Track L40 Philanthropist milestone pu
 **cron-jobs.org (sub-daily jobs)**
 - `/api/cron/guild-wars` — every 1 hour: Final Hour transitions, war resolution.
 - `/api/cron/leaderboards` — every 15 minutes: snapshot upserts, rank-change notifications.
+- `/api/cron/rotate-ai-call-log` — once or twice a day is enough: deletes `ai_call_log` rows older than 48 hours (see AI Provider Fallback Chain above). Not yet wired to an external scheduler as of this writing — set it up alongside the others.
 
 All CRON handlers:
 1. Require `Authorization: Bearer <CRON_SECRET>` — return 401 otherwise.
@@ -1385,7 +1423,13 @@ that can be bypassed by spending Credits (`forum_comment_bypass_cost_credits`).
    eagerly loads only 3 replies per top-level answer; deeper/further replies
    are lazy-loaded via `GET /api/answers/questions/[id]/answers/[answerId]/thread`
    (a small recursive CTE bounded by the depth cap) when the user clicks
-   "View N more replies."
+   "View N more replies." Fixed bug: `listAnswers()`'s reply-count map only
+   covered top-level questions' direct replies, so every depth-1 reply
+   always reported `replyCount=0` — the "view N more replies" button could
+   never appear for a depth-1 reply's own children, making 3rd-level-and-deeper
+   replies effectively unreachable even though the thread-expand endpoint
+   above already supported them. Fixed by also counting each depth-1 reply's
+   children.
 3. Voting toggles: voting the same direction again removes the vote; voting
    the other direction flips it. One row per `(target_type, target_id, user_id)`
    in `forum_votes`, enforced by a unique index — no JSONB voter-array hacks.
@@ -1401,16 +1445,36 @@ that can be bypassed by spending Credits (`forum_comment_bypass_cost_credits`).
    (`reported_forum_question_id`, `reported_forum_answer_id`) were added to
    both `reports` and `moderation_reports`.
 
+### Categories, Tabs, SEO
+
+Categories (`forum_categories`) are admin-manageable (create/rename/delete
+with an icon emoji) from `/gate44/answers/settings` — deleting a category
+still holding questions is blocked rather than orphaning them. Homepage
+tabs are Trending (default), Popular, New, Faves — `listQuestions()`'s
+"trending" sort (recency-windowed vote+answer activity) already existed
+server-side, it just wasn't the default. Each category also has its own
+public, indexable page at `/answers/category/<slug>` (same four tabs,
+scoped to one category, `CollectionPage` JSON-LD) — reuse `CategoryList`
+(`components/answers/CategoryList.tsx`) for the horizontal/vertical category
+chip lists shown on the Answers homepage and category pages. Related (5),
+new (3), and recently-answered (3) posts are shown below the answers list
+on both the public `/a/<slug>` SEO page and the authenticated question
+detail page (`components/answers/QuestionMiniList.tsx`).
+
 ### Feature Flag
 
 Controlled by `feature_forum` in x_manifest / `/gate44/config` (or
-`/gate44/forum/settings`, which edits the same rows). Default: enabled. When
-disabled, `/api/answers/**` routes return 503.
+`/gate44/answers/settings`, which edits the same rows). Default: enabled. When
+disabled, `/api/answers/**` routes return 503, the "Answers" nav entry
+disappears for regular users (admins still see it with a warning icon), and
+the `/answers` page itself shows a not-found view to non-admins (see
+"Feature-Flag Gating Pattern" below).
 
 ### Moderator Access Is Scoped
 
-Unlike the rest of `/gate44/*` (admin-only), `/gate44/forum/*` accepts either
-`is_admin` **or** `is_moderator`. This required adding `is_moderator` to the
+Unlike the rest of `/gate44/*` (admin-only), `/gate44/answers/*` accepts either
+`is_admin` **or** `is_moderator` (renamed from `/gate44/forum/*` — old links
+301-redirect). This required adding `is_moderator` to the
 signed JWT access-token payload (previously only carried in the Redis
 session record, not the token itself — see `lib/auth/session.ts`) so the
 edge middleware pre-filter (`FORUM_MOD_PREFIXES` in `middleware.ts`) can
@@ -1435,10 +1499,66 @@ restoring removed content, locking/unlocking a question) remain admin-only.
 | POST | `/api/answers/questions/[id]/vote` , `.../answers/[answerId]/vote` | Upvote/downvote (toggle) |
 | POST/DELETE | `/api/answers/questions/[id]/favorite` | Favorite / unfavorite |
 | POST | `/api/answers/questions/[id]/best-answer` | Mark an answer as best |
-| GET | `/api/answers/categories` | List forum categories (for the ask-question picker) |
+| GET | `/api/answers/categories` | List forum categories with question counts (ask-question picker + `CategoryList`) |
+| GET | `/api/answers/questions/[id]/related` | Related/new/recently-answered mini-lists for the question detail page |
 | GET | `/api/admin/forum/stats`, `/queue`, `/posts` | Admin/moderator dashboard, moderation queue, post management |
+| GET/POST/PATCH/DELETE | `/api/admin/forum/categories`, `/categories/[id]` | Category CRUD (admin-only) |
 
-**SEO (v1.97):** `/a/<slug>` (`app/a/[slug]/page.tsx`) is a public, unauthenticated, SSR preview of a question — title/description/OpenGraph/Twitter metadata, `QAPage` JSON-LD, canonical tag, listed in `app/sitemap.ts`. It resolves via `lib/public/resolveForumQuestion.ts` (slug → legacy UUID → `slug_redirects`, same 3-case pattern as rooms) and renders `components/public/PublicForumQuestionView.tsx`. This is separate from the authenticated `/answers/[id]` page (voting/answering); the public page's CTA sends unauthenticated visitors to `/auth/login`.
+**SEO (v1.97, extended v2.13):** `/a/<slug>` (`app/a/[slug]/page.tsx`) is a public, unauthenticated, SSR preview of a question — title/description/OpenGraph/Twitter metadata, `QAPage` JSON-LD, canonical tag, listed in `app/sitemap.ts`, plus related/new/recently-answered mini-lists. It resolves via `lib/public/resolveForumQuestion.ts` (slug → legacy UUID → `slug_redirects`, same 3-case pattern as rooms) and renders `components/public/PublicForumQuestionView.tsx`. This is separate from the authenticated `/answers/[id]` page (voting/answering); the public page's CTA sends unauthenticated visitors to `/auth/login`. `/answers/category/<slug>` (v2.13) is the equivalent public, indexable page per category.
+
+### Feature-Flag Gating Pattern (`lib/hooks/useFeatureFlags.ts`, `components/shared/NotFoundGate.tsx`)
+
+Generic pattern any optional feature can adopt (Answers is the first
+consumer as of v2.13): `useFeatureFlags()`/`useFeatureEnabled(key)` read the
+public `features` section of `GET /api/manifest` (same cached fetch as
+`useForumConfig`/`useMomentsConfig`/`useCurrency` — no extra Redis cost).
+Nav components (`Navbar.tsx`, `Sidebar.tsx`) hide a flagged entry for
+regular users when its flag is off, but still show it to admins with a
+`⚠️` indicator. `<NotFoundGate enabled={...} isAdmin={...} featureLabel={...}>`
+wraps a page's content: when the flag is on, renders children normally;
+when off and the viewer is an admin, renders children with a banner
+explaining the feature is off for everyone else; when off and the viewer
+is not an admin, renders a 404-style block instead. This is a client-side
+visual gate, not a real HTTP 404 — pair it with a server-side
+`requireFeatureEnabled()` check on the underlying API routes (already the
+case for every feature that uses this pattern) so the content is never
+actually reachable, just not visually presented.
+
+---
+
+## Old-School Forum (BB-style, v2.13)
+
+A classic vBulletin/SMF-style forum — boards → sub-boards → threads → posts
+— distinct from the Answers Q&A feature above. Home page is `/forum`;
+individual threads get short, SEO-friendly canonical URLs at
+`/f/<title-slug>` (not nested under the board, so links stay short and
+stable even if a thread is moved between boards).
+
+- **Schema** (`db/migrations/0016_bbforum.sql`): `bb_boards` (self-referencing
+  `parent_id` for sub-boards), `bb_threads` (first post is the OP, `is_pinned`/
+  `is_locked`, denormalized `reply_count`/`view_count`/`last_reply_at`),
+  `bb_posts`. Repo layer: `lib/bbforum/repo.ts`.
+- **Public, SSR, crawlable.** All three page types (`/forum`, `/forum/[boardSlug]`,
+  `/f/[slug]`) are server components with metadata/OG tags; thread pages
+  carry `DiscussionForumPosting` JSON-LD. Added to `app/sitemap.ts` and to
+  `middleware.ts`'s `PUBLIC_PREFIXES` so crawlers aren't redirected to login
+  — reading is fully anonymous.
+- **Posting requires sign-in.** Starting a thread (`POST /api/forum/boards/[boardSlug]/threads`)
+  or replying (`POST /api/forum/threads/[slug]/posts`) redirects an
+  anonymous visitor to `/auth/login` client-side, and 401s server-side if
+  bypassed. Also gated by an admin-configurable minimum account level
+  (`bbforum_min_level_to_post`, default 1) — same pattern as Answers'
+  `forum_min_level_to_post`.
+- **Feature flag:** `feature_bbforum` in x_manifest (default enabled), using
+  the same Feature-Flag Gating Pattern as Answers — a distinct "Forum" nav
+  entry (🗨️) alongside "Answers" (❓).
+- **Functional stub, not feature-complete.** Real schema, working
+  navigation and posting, 3 seeded starter boards (General Discussion,
+  Help & Support, Off-Topic). Not yet built: moderation tooling (no admin
+  queue/lock-and-remove UI yet — DB columns for status/locking exist),
+  reactions, rich text/attachments. Extend `lib/bbforum/repo.ts` and mirror
+  the Answers admin area's patterns (`/gate44/answers/*`) when building
+  those out.
 
 ---
 

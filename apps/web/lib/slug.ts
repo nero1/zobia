@@ -26,7 +26,7 @@ interface Queryable {
 }
 
 /** Identifier types that own a slug namespace. */
-export type SlugEntity = "room" | "game" | "forum_question" | "blog" | "business_page";
+export type SlugEntity = "room" | "game" | "forum_question" | "blog" | "business_page" | "bb_thread";
 
 /**
  * The column + table each entity uses. Slugs are unique *within* an entity
@@ -38,6 +38,7 @@ const SLUG_SOURCES: Record<SlugEntity, { table: string }> = {
   forum_question: { table: "forum_questions" },
   blog: { table: "blogs" },
   business_page: { table: "business_pages" },
+  bb_thread: { table: "bb_threads" },
 };
 
 /**

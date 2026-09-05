@@ -1,13 +1,22 @@
 /**
  * lib/ai/client.ts
  *
- * AI client with circuit breaker pattern.
+ * AI client with a generic per-provider circuit breaker (lib/ai/circuit.ts)
+ * and an admin-configurable fallback chain (lib/ai/config.ts AI_PROVIDERS).
  *
  * Request flow:
- *   1. Try DeepSeek (primary).
- *   2. If DeepSeek fails or circuit is open → fall back to Gemini.
- *   3. Circuit opens after CIRCUIT_BREAKER.failureThreshold consecutive failures.
- *   4. Circuit resets after CIRCUIT_BREAKER.recoveryTimeMs.
+ *   1. Walk the provider order (default DeepSeek → Gemini → Groq, or the
+ *      admin's `ai_provider_order` override).
+ *   2. Skip any provider whose circuit is open.
+ *   3. On success, record it and return. On failure, record it and try the
+ *      next provider.
+ *   4. If every provider is skipped or fails, throw an aggregated error.
+ *
+ * Adding a 4th provider: add its config to lib/ai/config.ts AI_PROVIDERS,
+ * write an adapter function below matching the `ProviderAdapter` signature,
+ * and register it in `PROVIDER_ADAPTERS`. Nothing else needs to change —
+ * the loop, the admin AI Settings page, and the circuit breakers are all
+ * generic over the provider registry.
  *
  * @example
  * ```ts
@@ -18,12 +27,14 @@
 
 import { env } from "@/lib/env";
 import { getManifestValue } from "@/lib/manifest";
-import { redis } from "@/lib/redis";
-import { atomicIncrWithTtl } from "@/lib/redis/helpers";
+import { createProviderCircuit, type ProviderCircuit } from "./circuit";
 import {
   DEEPSEEK_CONFIG,
   GEMINI_CONFIG,
-  CIRCUIT_BREAKER,
+  GROQ_CONFIG,
+  AI_PROVIDERS,
+  DEFAULT_PROVIDER_ORDER,
+  type AiProviderId,
   type ChatMessage,
   type CompletionOptions,
   type CompletionResponse,
@@ -67,162 +78,55 @@ function sanitizeSystemPrompt(prompt: string): string {
   return SAFETY_PREAMBLE + sanitized;
 }
 
-// ---------------------------------------------------------------------------
-// Circuit breaker — persisted in Redis so it works across Vercel lambda instances (#22)
-// ---------------------------------------------------------------------------
-
-const CB_FAILURES_KEY = "ai:circuit:deepseek:failures";
-const CB_OPENED_AT_KEY = "ai:circuit:deepseek:opened_at";
-
-// In-memory L1 cache to avoid a Redis round-trip on every hot path
-interface CircuitCache {
-  open: boolean;
-  checkedAt: number;
-}
-let _circuitCache: CircuitCache | null = null;
-const CACHE_TTL_MS = 5_000; // refresh cache every 5 s
-
-/** Read-only snapshot of the DeepSeek circuit breaker state for admin inspection. */
-export async function getDeepSeekCircuitState(): Promise<{ failures: number; openedAt: number | null }> {
-  const [failures, openedAt] = await Promise.all([
-    redis.get(CB_FAILURES_KEY),
-    redis.get(CB_OPENED_AT_KEY),
-  ]);
-  return {
-    failures: parseInt(failures ?? "0", 10),
-    openedAt: openedAt ? parseInt(openedAt, 10) : null,
-  };
-}
-
-async function isCircuitOpen(): Promise<boolean> {
-  // Fast path: use in-memory cache to avoid Redis on every request
-  if (_circuitCache && Date.now() - _circuitCache.checkedAt < CACHE_TTL_MS) {
-    return _circuitCache.open;
-  }
-
-  try {
-    const openedAtRaw = await redis.get(CB_OPENED_AT_KEY);
-    if (!openedAtRaw) {
-      _circuitCache = { open: false, checkedAt: Date.now() };
-      return false;
-    }
-
-    const openedAt = parseInt(openedAtRaw, 10);
-    const elapsed = Date.now() - openedAt;
-
-    if (elapsed >= CIRCUIT_BREAKER.recoveryTimeMs) {
-      // Half-open: only one caller gets the probe slot (SET NX prevents thundering herd).
-      // The probe key expires after half the recovery window so a second probe is
-      // allowed if the first one times out without recording success or failure.
-      const probeKey = "ai:circuit:deepseek:probe";
-      const probeTtl = Math.ceil(CIRCUIT_BREAKER.recoveryTimeMs / 2000);
-      const gotProbe = await redis.set(probeKey, "1", "EX", probeTtl, "NX");
-      if (!gotProbe) {
-        // Another instance is already probing — keep circuit open for this caller
-        _circuitCache = { open: true, checkedAt: Date.now() };
-        return true;
-      }
-      _circuitCache = { open: false, checkedAt: Date.now() };
-      return false;
-    }
-
-    _circuitCache = { open: true, checkedAt: Date.now() };
-    return true;
-  } catch {
-    // On Redis error, default to allowing the request (fail open for availability)
-    return false;
-  }
-}
-
-async function recordFailure(): Promise<void> {
-  try {
-    const ttl = Math.ceil(CIRCUIT_BREAKER.recoveryTimeMs / 1000) + 60;
-    const failures = await atomicIncrWithTtl(redis, CB_FAILURES_KEY, ttl);
-
-    if (failures >= CIRCUIT_BREAKER.failureThreshold) {
-      const now = Date.now();
-      await redis.set(CB_OPENED_AT_KEY, String(now), "EX", Math.ceil(CIRCUIT_BREAKER.recoveryTimeMs / 1000) + 60);
-      _circuitCache = { open: true, checkedAt: Date.now() };
-      console.warn(`[ai:circuit-breaker] DeepSeek circuit OPEN after ${failures} failures (global)`);
-    } else {
-      _circuitCache = null; // invalidate cache
-    }
-  } catch {
-    // Redis failure — don't block the AI path
-  }
-}
-
-async function recordSuccess(): Promise<void> {
-  try {
-    await redis.del(CB_FAILURES_KEY, CB_OPENED_AT_KEY, "ai:circuit:deepseek:probe");
-    _circuitCache = { open: false, checkedAt: Date.now() };
-  } catch {
-    // Redis failure — ignore
-  }
+/** Strip accidental JSON-quoting from keys saved via the legacy admin config route. */
+function unquote(raw: string | null | undefined): string | undefined {
+  if (!raw) return undefined;
+  return raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
 }
 
 // ---------------------------------------------------------------------------
-// Gemini circuit breaker — same pattern as DeepSeek but separate Redis keys
+// Circuit breakers — one per provider, generic (lib/ai/circuit.ts)
 // ---------------------------------------------------------------------------
 
-const GCB_FAILURES_KEY = "ai:circuit:gemini:failures";
-const GCB_OPENED_AT_KEY = "ai:circuit:gemini:opened_at";
-let _geminiCircuitCache: CircuitCache | null = null;
+const CIRCUITS: Record<AiProviderId, ProviderCircuit> = {
+  deepseek: createProviderCircuit("deepseek"),
+  gemini: createProviderCircuit("gemini"),
+  groq: createProviderCircuit("groq"),
+};
 
-export async function getGeminiCircuitState(): Promise<{ failures: number; openedAt: number | null }> {
-  const [failures, openedAt] = await Promise.all([
-    redis.get(GCB_FAILURES_KEY),
-    redis.get(GCB_OPENED_AT_KEY),
-  ]);
-  return {
-    failures: parseInt(failures ?? "0", 10),
-    openedAt: openedAt ? parseInt(openedAt, 10) : null,
-  };
+/** Read-only snapshot of a provider's circuit breaker state for admin inspection. */
+export async function getProviderCircuitState(providerId: AiProviderId) {
+  return CIRCUITS[providerId].getState();
 }
 
-async function isGeminiCircuitOpen(): Promise<boolean> {
-  if (_geminiCircuitCache && Date.now() - _geminiCircuitCache.checkedAt < CACHE_TTL_MS) {
-    return _geminiCircuitCache.open;
-  }
-  try {
-    const openedAtRaw = await redis.get(GCB_OPENED_AT_KEY);
-    if (!openedAtRaw) { _geminiCircuitCache = { open: false, checkedAt: Date.now() }; return false; }
-    const elapsed = Date.now() - parseInt(openedAtRaw, 10);
-    if (elapsed >= CIRCUIT_BREAKER.recoveryTimeMs) {
-      const probeKey = "ai:circuit:gemini:probe";
-      const probeTtl = Math.ceil(CIRCUIT_BREAKER.recoveryTimeMs / 2000);
-      const gotProbe = await redis.set(probeKey, "1", "EX", probeTtl, "NX");
-      if (!gotProbe) {
-        _geminiCircuitCache = { open: true, checkedAt: Date.now() };
-        return true;
-      }
-      _geminiCircuitCache = { open: false, checkedAt: Date.now() };
-      return false;
-    }
-    _geminiCircuitCache = { open: true, checkedAt: Date.now() };
-    return true;
-  } catch { return false; }
+// Back-compat named exports (used by existing admin UI code before the
+// generic registry existed) — thin wrappers over the generic circuits.
+export const getDeepSeekCircuitState = () => getProviderCircuitState("deepseek");
+export const getGeminiCircuitState = () => getProviderCircuitState("gemini");
+export const getGroqCircuitState = () => getProviderCircuitState("groq");
+
+/** Resolve the model an admin has configured for a provider, falling back to its default. */
+async function resolveModel(providerId: AiProviderId, explicit?: string): Promise<string> {
+  if (explicit) return explicit;
+  const meta = AI_PROVIDERS[providerId];
+  const override = await getManifestValue(meta.modelManifestKey);
+  return override && override.length > 0 ? override : meta.defaultModel;
 }
 
-async function recordGeminiFailure(): Promise<void> {
-  try {
-    const ttl = Math.ceil(CIRCUIT_BREAKER.recoveryTimeMs / 1000) + 60;
-    const failures = await atomicIncrWithTtl(redis, GCB_FAILURES_KEY, ttl);
-    if (failures >= CIRCUIT_BREAKER.failureThreshold) {
-      await redis.set(GCB_OPENED_AT_KEY, String(Date.now()), "EX", ttl);
-      _geminiCircuitCache = { open: true, checkedAt: Date.now() };
-      console.warn(`[ai:circuit-breaker] Gemini circuit OPEN after ${failures} failures (global)`);
-    } else {
-      _geminiCircuitCache = null;
-    }
-  } catch { /* Redis failure — don't block */ }
+/** Resolve the effective API key for a provider: explicit > manifest override > env var. */
+async function resolveApiKey(providerId: AiProviderId, explicit: string | undefined, envValue: string | undefined): Promise<string | undefined> {
+  if (explicit) return explicit;
+  const meta = AI_PROVIDERS[providerId];
+  const override = unquote(await getManifestValue(meta.apiKeyManifestKey));
+  return override && override.length > 0 ? override : envValue;
 }
 
-async function recordGeminiSuccess(): Promise<void> {
-  try {
-    await redis.del(GCB_FAILURES_KEY, GCB_OPENED_AT_KEY, "ai:circuit:gemini:probe");
-    _geminiCircuitCache = { open: false, checkedAt: Date.now() };
-  } catch { /* ignore */ }
+/** Admin-configurable provider fallback order, e.g. "deepseek,gemini,groq". Falls back to the built-in default. */
+async function resolveProviderOrder(): Promise<AiProviderId[]> {
+  const raw = await getManifestValue("ai_provider_order");
+  if (!raw) return DEFAULT_PROVIDER_ORDER;
+  const ids = raw.split(",").map((s) => s.trim()).filter((s): s is AiProviderId => s in AI_PROVIDERS);
+  return ids.length > 0 ? ids : DEFAULT_PROVIDER_ORDER;
 }
 
 // ---------------------------------------------------------------------------
@@ -248,16 +152,10 @@ async function callDeepSeek(
   options: CompletionOptions,
   apiKeyOverride?: string
 ): Promise<CompletionResponse> {
-  const model = options.model ?? DEEPSEEK_CONFIG.defaultModel;
+  const model = await resolveModel("deepseek", options.model);
   const endpoint = `${env.DEEPSEEK_API_ENDPOINT}/chat/completions`;
 
-  const manifestOverride = await getManifestValue("ai_deepseek_api_key_override");
-  const rawKey = apiKeyOverride ??
-    (manifestOverride && manifestOverride.length > 0 ? manifestOverride : env.DEEPSEEK_API_KEY);
-  // Strip accidental JSON-quoting from keys saved via old admin config route
-  const effectiveKey = rawKey && rawKey.length >= 2 && rawKey.startsWith('"') && rawKey.endsWith('"')
-    ? rawKey.slice(1, -1)
-    : rawKey;
+  const effectiveKey = await resolveApiKey("deepseek", apiKeyOverride, env.DEEPSEEK_API_KEY);
   if (!effectiveKey) {
     throw new Error("DeepSeek API key is not configured. Set DEEPSEEK_API_KEY or add an override in AI Settings.");
   }
@@ -355,15 +253,9 @@ async function callGemini(
   options: CompletionOptions,
   apiKeyOverride?: string
 ): Promise<CompletionResponse> {
-  const model = options.model ?? GEMINI_CONFIG.defaultModel;
+  const model = await resolveModel("gemini", options.model);
 
-  const manifestOverride = await getManifestValue("ai_gemini_api_key_override");
-  const rawKey = apiKeyOverride ??
-    (manifestOverride && manifestOverride.length > 0 ? manifestOverride : env.GEMINI_API_KEY);
-  // Strip accidental JSON-quoting from keys saved via old admin config route
-  const effectiveKey = rawKey && rawKey.length >= 2 && rawKey.startsWith('"') && rawKey.endsWith('"')
-    ? rawKey.slice(1, -1)
-    : rawKey;
+  const effectiveKey = await resolveApiKey("gemini", apiKeyOverride, env.GEMINI_API_KEY);
   if (!effectiveKey) {
     throw new Error("Gemini API key is not configured. Set GEMINI_API_KEY or add an override in AI Settings.");
   }
@@ -424,12 +316,93 @@ async function callGemini(
 }
 
 // ---------------------------------------------------------------------------
+// Groq adapter — OpenAI-compatible REST API (same shape as DeepSeek's).
+// ---------------------------------------------------------------------------
+
+async function callGroq(
+  messages: ChatMessage[],
+  options: CompletionOptions,
+  apiKeyOverride?: string
+): Promise<CompletionResponse> {
+  const model = await resolveModel("groq", options.model);
+  const endpoint = `${env.GROQ_API_ENDPOINT}/chat/completions`;
+
+  const effectiveKey = await resolveApiKey("groq", apiKeyOverride, env.GROQ_API_KEY);
+  if (!effectiveKey) {
+    throw new Error("Groq API key is not configured. Set GROQ_API_KEY or add an override in AI Settings.");
+  }
+  if (!effectiveKey.startsWith("gsk_")) {
+    throw new Error("Groq API key has an unexpected format (expected prefix 'gsk_'). Check GROQ_API_KEY.");
+  }
+
+  const safeSystemPrompt = options.systemPrompt ? sanitizeSystemPrompt(options.systemPrompt) : undefined;
+  const body = {
+    model,
+    messages: safeSystemPrompt
+      ? [{ role: "system", content: safeSystemPrompt }, ...messages]
+      : messages,
+    max_tokens: options.maxTokens ?? GROQ_CONFIG.maxTokens,
+    temperature: options.temperature ?? GROQ_CONFIG.temperature,
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GROQ_CONFIG.timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${effectiveKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Groq API error ${res.status}: ${text}`);
+  }
+
+  const data = (await res.json()) as DeepSeekResponse; // identical OpenAI-style shape
+
+  return {
+    content: data.choices[0]?.message?.content ?? "",
+    provider: "groq",
+    model: data.model ?? model,
+    usage: data.usage
+      ? {
+          promptTokens: data.usage.prompt_tokens,
+          completionTokens: data.usage.completion_tokens,
+          totalTokens: data.usage.total_tokens,
+        }
+      : undefined,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Provider adapter registry — the fallback loop below is generic over this.
+// ---------------------------------------------------------------------------
+
+type ProviderAdapter = (messages: ChatMessage[], options: CompletionOptions, apiKeyOverride?: string) => Promise<CompletionResponse>;
+
+const PROVIDER_ADAPTERS: Record<AiProviderId, ProviderAdapter> = {
+  deepseek: callDeepSeek,
+  gemini: callGemini,
+  groq: callGroq,
+};
+
+// ---------------------------------------------------------------------------
 // Public client
 // ---------------------------------------------------------------------------
 
 /**
- * Send a chat completion request.
- * Tries DeepSeek first; falls back to Gemini if DeepSeek is down.
+ * Send a chat completion request. Walks the (admin-configurable) provider
+ * fallback order, skipping any provider whose circuit is open, and falling
+ * through to the next on failure.
  *
  * @param messages - Conversation history
  * @param options  - Optional model / generation overrides
@@ -439,32 +412,29 @@ async function chat(
   messages: ChatMessage[],
   options: CompletionOptions = {}
 ): Promise<CompletionResponse> {
-  // Primary: DeepSeek — check global Redis circuit breaker
-  if (!await isCircuitOpen()) {
+  const order = await resolveProviderOrder();
+  const errors: string[] = [];
+
+  for (const providerId of order) {
+    const circuit = CIRCUITS[providerId];
+    if (await circuit.isOpen()) {
+      console.warn(`[ai:circuit-breaker] ${providerId} circuit is OPEN (global), skipping`);
+      errors.push(`${providerId}: circuit open`);
+      continue;
+    }
     try {
-      const response = await callDeepSeek(messages, options);
-      await recordSuccess();
+      const response = await PROVIDER_ADAPTERS[providerId](messages, options);
+      await circuit.recordSuccess();
       return response;
     } catch (err) {
-      await recordFailure();
-      console.error("[ai:deepseek] request failed, falling back to Gemini", err);
+      await circuit.recordFailure();
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`[ai:${providerId}] request failed`, err);
+      errors.push(`${providerId}: ${message}`);
     }
-  } else {
-    console.warn("[ai:circuit-breaker] DeepSeek circuit is OPEN (global), using Gemini");
   }
 
-  // Fallback: Gemini — also protected by its own circuit breaker
-  if (await isGeminiCircuitOpen()) {
-    throw new Error("[ai] Both DeepSeek and Gemini circuits are open — AI unavailable");
-  }
-  try {
-    const response = await callGemini(messages, options);
-    await recordGeminiSuccess();
-    return response;
-  } catch (err) {
-    await recordGeminiFailure();
-    throw err;
-  }
+  throw new Error(`[ai] All configured providers unavailable — ${errors.join("; ")}`);
 }
 
 /**
@@ -495,26 +465,12 @@ export const aiClient = {
 // Admin test helpers — bypass circuit breaker, used by /api/admin/ai-settings/test
 // ---------------------------------------------------------------------------
 
-/**
- * Send a minimal ping to DeepSeek to verify the key and reachability.
- * Bypasses the circuit breaker — intended for admin connection testing only.
- */
-export async function testDeepSeekConnection(apiKey?: string): Promise<CompletionResponse> {
-  return callDeepSeek(
-    [{ role: "user", content: "ping" }],
-    { maxTokens: 1, temperature: 0 },
-    apiKey
-  );
+/** Send a minimal ping to a provider to verify the key and reachability. Bypasses the circuit breaker. */
+export async function testProviderConnection(providerId: AiProviderId, apiKey?: string): Promise<CompletionResponse> {
+  return PROVIDER_ADAPTERS[providerId]([{ role: "user", content: "ping" }], { maxTokens: 1, temperature: 0 }, apiKey);
 }
 
-/**
- * Send a minimal ping to Gemini to verify the key and reachability.
- * Intended for admin connection testing only.
- */
-export async function testGeminiConnection(apiKey?: string): Promise<CompletionResponse> {
-  return callGemini(
-    [{ role: "user", content: "ping" }],
-    { maxTokens: 1, temperature: 0 },
-    apiKey
-  );
-}
+// Back-compat named exports.
+export const testDeepSeekConnection = (apiKey?: string) => testProviderConnection("deepseek", apiKey);
+export const testGeminiConnection = (apiKey?: string) => testProviderConnection("gemini", apiKey);
+export const testGroqConnection = (apiKey?: string) => testProviderConnection("groq", apiKey);

@@ -640,6 +640,10 @@ function WalletContent() {
   const router = useRouter();
   const { t } = useTranslation();
   const transferRecipientId = searchParams.get("transfer");
+  // "?destination=ad_wallet" (linked from the Ads Wallet panel's "Buy Credits
+  // directly" button) routes the purchase into the Ad Wallet instead of the
+  // main balance — see lib/economy/adWallet.ts.
+  const purchaseDestination = searchParams.get("destination") === "ad_wallet" ? "ad_wallet" : "main_wallet";
   const currency = useCurrency();
 
   const [data, setData] = useState<StoreData>({
@@ -827,7 +831,7 @@ function WalletContent() {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ packId, provider: "paystack" }),
+        body: JSON.stringify({ packId, provider: "paystack", destination: purchaseDestination }),
       });
       if (!res.ok) {
         const d = (await res.json()) as { message?: string; error?: string | { code?: string; message?: string } };
@@ -902,6 +906,12 @@ function WalletContent() {
           onClose={dismissTransfer}
           currency={currency}
         />
+      )}
+
+      {purchaseDestination === "ad_wallet" && (
+        <div className="rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-800 dark:border-primary-800 dark:bg-primary-950 dark:text-primary-300">
+          Buying Credits here will go straight into your <strong>Ad Wallet</strong>, not your main balance.
+        </div>
       )}
 
       <CoinPacks packs={data.coinPacks} onPurchase={handlePurchase} purchasing={purchasing} currency={currency} />

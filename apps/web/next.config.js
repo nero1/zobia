@@ -65,6 +65,13 @@ const nextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      // /gate44/forum was renamed to /gate44/answers. Keep old bookmarks/links working.
+      { source: "/gate44/forum", destination: "/gate44/answers", permanent: true },
+      { source: "/gate44/forum/:path*", destination: "/gate44/answers/:path*", permanent: true },
+    ];
+  },
   images: {
     remotePatterns: [
       // Use a single-level wildcard (*) instead of double-wildcard (**) to avoid

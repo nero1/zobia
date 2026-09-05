@@ -16,6 +16,7 @@
 import { env } from "@/lib/env";
 import { getManifestValue } from "@/lib/manifest";
 import { GEMINI_CONFIG, GEMINI_MODELS } from "@/lib/ai/config";
+import { logAiCall } from "@/lib/ai/monitoring";
 import { logger } from "@/lib/logger";
 
 export interface DocumentAnalysisResult {
@@ -89,6 +90,7 @@ export async function analyzeDocument(
   const url = `${GEMINI_CONFIG.apiBaseUrl}/models/${model}:generateContent?key=${apiKey}`;
   const base64 = imageBuffer.toString("base64");
   const prompt = promptHint ? `${DOCUMENT_PROMPT}\n\nContext: ${promptHint}` : DOCUMENT_PROMPT;
+  const startedAt = Date.now();
 
   try {
     const controller = new AbortController();
@@ -113,6 +115,7 @@ export async function analyzeDocument(
 
     if (!res.ok) {
       logger.warn({ status: res.status }, "[kyc/geminiVision] Gemini API error");
+      await logAiCall({ provider: "gemini", model, feature: "kyc:document_analysis", success: false, latencyMs: Date.now() - startedAt, errorMessage: `HTTP ${res.status}` });
       return null;
     }
 
@@ -120,11 +123,26 @@ export async function analyzeDocument(
       candidates?: { content?: { parts?: { text?: string }[] } }[];
     };
     const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) return null;
+    if (!text) {
+      await logAiCall({ provider: "gemini", model, feature: "kyc:document_analysis", success: false, latencyMs: Date.now() - startedAt, errorMessage: "Empty response" });
+      return null;
+    }
 
-    return parseJsonResponse(text);
+    const result = parseJsonResponse(text);
+    await logAiCall({
+      provider: "gemini",
+      model,
+      feature: "kyc:document_analysis",
+      success: result !== null,
+      latencyMs: Date.now() - startedAt,
+      confidence: result?.confidence ?? null,
+      resultPreview: result ? `${result.documentType ?? "unknown"} tampering=${result.tamperingSuspected}` : null,
+      errorMessage: result ? null : "Unparseable AI response",
+    });
+    return result;
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : String(err) }, "[kyc/geminiVision] Document analysis failed");
+    await logAiCall({ provider: "gemini", model, feature: "kyc:document_analysis", success: false, latencyMs: Date.now() - startedAt, errorMessage: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }

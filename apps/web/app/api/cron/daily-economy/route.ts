@@ -323,6 +323,17 @@ export const GET = async (req: NextRequest) => {
     errors.push(`businessDowngradeSweep: ${String(err)}`);
   }
 
+  // 8. Ad advertiser grace period: stamp a deadline on ads whose business
+  // account/page just lapsed, then stop any whose deadline has now passed.
+  try {
+    const { stampLapsedAdvertiserGrace, stopExpiredGraceCampaigns } = await import("@/lib/ads/repo");
+    const stamped = await stampLapsedAdvertiserGrace();
+    const stopped = await stopExpiredGraceCampaigns();
+    results.adAdvertiserGraceSweep = { stamped, stopped };
+  } catch (err) {
+    errors.push(`adAdvertiserGraceSweep: ${String(err)}`);
+  }
+
   return NextResponse.json({
     success: errors.length === 0,
     results,
