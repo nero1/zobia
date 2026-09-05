@@ -410,7 +410,7 @@
   "admin.giftDrop.upcoming": "Okuzayo",
   "admin.gifts.animationUrl": "I-URL Yesipopayi (kungakhethwa)",
   "admin.gifts.coinCost": "Izindleko Ze-Coin",
-  "admin.gifts.coins": "ama-coin",
+  "admin.gifts.coins": "{{currency}}",
   "admin.gifts.create": "Dala Isipho",
   "admin.gifts.created": "Isipho sidaliwe",
   "admin.gifts.edit": "Hlela",

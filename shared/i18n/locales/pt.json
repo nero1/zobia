@@ -410,7 +410,7 @@
   "admin.giftDrop.upcoming": "Próximo",
   "admin.gifts.animationUrl": "URL de animação (opcional)",
   "admin.gifts.coinCost": "Custo em Coins",
-  "admin.gifts.coins": "coins",
+  "admin.gifts.coins": "{{currency}}",
   "admin.gifts.create": "Criar Presente",
   "admin.gifts.created": "Presente criado",
   "admin.gifts.edit": "Editar",

@@ -11,6 +11,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 import {
   AdminCard,
   AdminCardSkeleton,
@@ -57,6 +58,7 @@ async function fetchGifts(showRetired: boolean): Promise<GiftItem[]> {
 
 function AdminGiftsPage() {
   const { t } = useTranslation();
+  const currency = useCurrency();
   const qc = useQueryClient();
   const [showRetired, setShowRetired] = useState(false);
   const [showForm, setShowForm] = useState(false);
@@ -152,7 +154,7 @@ function AdminGiftsPage() {
                     <AdminBadge label={`T${g.tier}`} color={TIER_COLOR[g.tier] ?? 'neutral'} />
                     {!g.isActive && <AdminBadge label={t('admin.gifts.retiredBadge', 'Retired')} color="red" />}
                   </div>
-                  <p className="text-xs text-neutral-500">{fmtNumber(g.coinCost)} {t('admin.gifts.coins', 'coins')}</p>
+                  <p className="text-xs text-neutral-500">{fmtNumber(g.coinCost)} {t('admin.gifts.coins', { defaultValue: '{{currency}}', currency: currency.softPlural.toLowerCase() })}</p>
                 </div>
                 <div className="flex shrink-0 gap-1.5">
                   <button type="button" onClick={() => openEdit(g)} className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">

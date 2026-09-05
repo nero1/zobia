@@ -411,7 +411,7 @@
   "admin.giftDrop.upcoming": "Upcoming",
   "admin.gifts.animationUrl": "Animation URL (optional)",
   "admin.gifts.coinCost": "Coin Cost",
-  "admin.gifts.coins": "coins",
+  "admin.gifts.coins": "{{currency}}",
   "admin.gifts.create": "Create Gift",
   "admin.gifts.created": "Gift created",
   "admin.gifts.edit": "Edit",

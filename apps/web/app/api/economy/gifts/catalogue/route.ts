@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
+import { GIFT_TIER_LABELS } from "@zobia/shared/utils";
 
 // ---------------------------------------------------------------------------
 // DB row type
@@ -61,14 +62,6 @@ interface GiftCatalogue {
 // Tier labels
 // ---------------------------------------------------------------------------
 
-const TIER_LABELS: Record<number, string> = {
-  1: "Friendly",
-  2: "Warm",
-  3: "Grand",
-  4: "Epic",
-  5: "Legendary",
-};
-
 // ---------------------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------------------
@@ -109,7 +102,7 @@ export const GET = withAuth(async (_req: NextRequest, _ctx) => {
       .sort(([a], [b]) => a - b)
       .map(([tier, gifts]) => ({
         tier,
-        label: TIER_LABELS[tier] ?? `Tier ${tier}`,
+        label: GIFT_TIER_LABELS[tier] ?? `Tier ${tier}`,
         gifts,
       }));
 

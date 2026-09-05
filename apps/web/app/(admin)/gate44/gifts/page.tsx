@@ -8,6 +8,8 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { GIFT_TIER_LABELS } from "@zobia/shared/utils";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -43,14 +45,6 @@ const EMPTY_FORM: GiftForm = {
   spectacleThresholdCoins: "",
 };
 
-const TIER_LABELS: Record<number, string> = {
-  1: "Friendly",
-  2: "Warm",
-  3: "Grand",
-  4: "Epic",
-  5: "Legendary",
-};
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -66,7 +60,7 @@ function tierBadge(tier: number) {
   ];
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${colours[tier] ?? colours[1]}`}>
-      T{tier} {TIER_LABELS[tier]}
+      T{tier} {GIFT_TIER_LABELS[tier]}
     </span>
   );
 }
@@ -76,6 +70,7 @@ function tierBadge(tier: number) {
 // ---------------------------------------------------------------------------
 
 export default function AdminGiftsPage() {
+  const currency = useCurrency();
   const [gifts, setGifts] = useState<GiftItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -255,7 +250,7 @@ export default function AdminGiftsPage() {
                       <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">Retired</span>
                     )}
                   </div>
-                  <p className="text-xs text-neutral-500">{gift.coinCost.toLocaleString()} coins</p>
+                  <p className="text-xs text-neutral-500">{gift.coinCost.toLocaleString()} {currency.softPlural.toLowerCase()}</p>
                 </div>
                 <div className="flex gap-1.5 shrink-0">
                   <button
@@ -322,7 +317,7 @@ export default function AdminGiftsPage() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Coin Cost</label>
+                  <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">{currency.softSingular} Cost</label>
                   <input
                     type="number"
                     min="1"
@@ -339,7 +334,7 @@ export default function AdminGiftsPage() {
                     className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
                   >
                     {[1, 2, 3, 4, 5].map((t) => (
-                      <option key={t} value={t}>T{t} — {TIER_LABELS[t]}</option>
+                      <option key={t} value={t}>T{t} — {GIFT_TIER_LABELS[t]}</option>
                     ))}
                   </select>
                 </div>
@@ -354,7 +349,7 @@ export default function AdminGiftsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Spectacle threshold coins (optional)</label>
+                <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Spectacle threshold {currency.softPlural.toLowerCase()} (optional)</label>
                 <input
                   type="number"
                   min="1"
