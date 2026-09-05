@@ -70,6 +70,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/home",         labelKey: "nav.home",         icon: "🏠" },
   { href: "/moments",      labelKey: "nav.moments",      icon: "⚡" },
   { href: "/answers",      labelKey: "nav.answers",      icon: "❓", flagKey: "forum" },
+  { href: "/forum",        labelKey: "nav.bbforum",      icon: "🗨️", flagKey: "bbforum" },
   { href: "/quests",       labelKey: "nav.quests",       icon: "🎯" },
   { href: "/games",        labelKey: "nav.games",        icon: "🎮" },
   { href: "/blogs",        labelKey: "nav.blogs",        icon: "📝" },

@@ -153,6 +153,10 @@ const PUBLIC_PREFIXES = [
   "/a/",
   "/b/",
   "/p/",
+  // BB-style forum (boards/threads) — publicly readable, indexable
+  "/forum",
+  "/f/",
+  "/api/forum",
   "/_next",
   "/favicon.ico",
   // App-link association files for Android (assetlinks.json) and iOS

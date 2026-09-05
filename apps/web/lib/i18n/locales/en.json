@@ -2098,6 +2098,7 @@
   "moments.title": "Moments",
   "nav.ads": "Ads",
   "nav.answers": "Answers",
+  "nav.bbforum": "Forum",
   "notFoundGate.adminNotice": "is turned off for regular users. You can see this page because you're an admin — everyone else gets a not-found page until you re-enable it in admin settings.",
   "notFoundGate.title": "Page not found",
   "notFoundGate.body": "This page isn't available right now.",
