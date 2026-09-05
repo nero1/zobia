@@ -410,7 +410,7 @@
   "admin.giftDrop.upcoming": "Mai zuwa",
   "admin.gifts.animationUrl": "URL na Rayarwa (na zaɓi)",
   "admin.gifts.coinCost": "Kudin Tsabar Kuɗi",
-  "admin.gifts.coins": "tsabar kuɗi",
+  "admin.gifts.coins": "{{currency}}",
   "admin.gifts.create": "Ƙirƙiri Kyauta",
   "admin.gifts.created": "An ƙirƙiri kyauta",
   "admin.gifts.edit": "Gyara",

@@ -191,6 +191,7 @@ export async function retireGiftDrop(
     await tx.query(
       `UPDATE gift_items
        SET is_retired = TRUE,
+           is_active = FALSE,
            is_limited_edition = TRUE,
            updated_at = NOW()
        WHERE id = $1`,
@@ -219,16 +220,55 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
   let announced = 0;
 
   // 1. Announce upcoming drops (within next 24 hours, not yet announced)
-  const { rows: toAnnounce } = await db.query<{ id: string }>(
+  const { rows: toAnnounce } = await db.query<{
+    id: string;
+    gift_item_id: string;
+    available_from: string;
+    available_until: string;
+  }>(
     `UPDATE monthly_gift_drops
      SET announced_at = NOW()
      WHERE is_active = FALSE
        AND announced_at IS NULL
        AND available_from <= NOW() + INTERVAL '24 hours'
        AND available_from > NOW()
-     RETURNING id`
+     RETURNING id, gift_item_id, available_from, available_until`
   );
   announced = toAnnounce.length;
+
+  // Create a FOMO announcement banner for each newly-announced drop, reusing
+  // the existing sitewide announcement-banner mechanism (surfaces on /gifts
+  // and everywhere else banners render since there is no narrower,
+  // page-specific targeting available). The banner's ends_at is pinned to
+  // the drop's available_until so it disappears on its own once the drop's
+  // 48-hour window (and thus the gift) is retired — no separate retire-time
+  // banner cleanup is needed.
+  for (const drop of toAnnounce) {
+    try {
+      const { rows: giftRows } = await db.query<{ name: string; emoji: string }>(
+        `SELECT name, emoji FROM gift_items WHERE id = $1 LIMIT 1`,
+        [drop.gift_item_id]
+      );
+      const gift = giftRows[0];
+      if (!gift) continue;
+
+      await db.query(
+        `INSERT INTO announcement_banners
+           (title, content, content_type, link_url, is_active,
+            target_plans, target_roles, display_order,
+            starts_at, ends_at, created_by, created_at, updated_at)
+         VALUES ($1, $2, 'text', $3, TRUE, '{}', '{}', 0, NOW(), $4, 'cron:monthly_gift_drop', NOW(), NOW())`,
+        [
+          `Limited-Time Gift Drop: ${gift.name}`,
+          `⚡ ${gift.emoji} ${gift.name} is dropping soon — available for 48 hours only, then gone for good. Don't miss it!`,
+          "/gifts",
+          drop.available_until,
+        ]
+      );
+    } catch (err) {
+      logger.error({ err }, `[monthlyGiftDrop] Failed to create announcement banner for drop ${drop.id}:`);
+    }
+  }
 
   // Notify all active users about newly announced drops — paginated in batches
   // of 10,000 to avoid loading the full user table into memory (IMP-SCALE-01).

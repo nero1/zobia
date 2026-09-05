@@ -33,6 +33,7 @@ export default function RoomGiftPage() {
   const [balance, setBalance] = useState<number | null>(null);
   const [creatorId, setCreatorId] = useState<string | null>(null);
   const [creatorUsername, setCreatorUsername] = useState<string>("");
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [selected, setSelected] = useState<GiftItem | null>(null);
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
@@ -50,6 +51,20 @@ export default function RoomGiftPage() {
       })
       .catch(() => {});
   }, [roomId]);
+
+  // Fetch the current user's id so we can block the room owner from
+  // sending a gift to themselves before they even reach the 400 (ZBS: self
+  // gift is disallowed server-side too, see /api/economy/gifts/send).
+  useEffect(() => {
+    fetch("/api/users/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { user?: { id?: string } } | null) => {
+        if (data?.user?.id) setCurrentUserId(data.user.id);
+      })
+      .catch(() => {});
+  }, []);
+
+  const isOwnRoom = Boolean(currentUserId && creatorId && currentUserId === creatorId);
 
   // Fetch gift catalogue
   useEffect(() => {
@@ -125,6 +140,17 @@ export default function RoomGiftPage() {
         <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">Send a Gift</h1>
       </div>
 
+      {/* Owner guard: block sending a gift to your own room rather than
+          letting the form submit and hit the server's 400. */}
+      {isOwnRoom ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-center dark:border-amber-800 dark:bg-amber-950/40">
+          <span className="text-3xl">🚫</span>
+          <p className="mt-2 text-sm font-medium text-amber-800 dark:text-amber-300">
+            You can&apos;t send a gift to yourself as the room owner.
+          </p>
+        </div>
+      ) : (
+        <>
       {/* Recipient */}
       {creatorUsername && (
         <div className="mb-4 rounded-xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm text-neutral-600 dark:border-neutral-800 dark:bg-neutral-900 dark:text-neutral-400">
@@ -178,10 +204,10 @@ export default function RoomGiftPage() {
                     }`}
                   >
                     <span className="text-2xl">{gift.emoji}</span>
-                    <span className="mt-1 text-center text-[10px] leading-tight text-neutral-500 dark:text-neutral-400">
+                    <span className="mt-1 w-full truncate text-center text-xs leading-tight text-neutral-500 dark:text-neutral-400">
                       {gift.name}
                     </span>
-                    <span className="mt-0.5 text-[10px] font-bold text-amber-600">
+                    <span className="mt-0.5 text-[11px] font-bold text-amber-600">
                       🪙{gift.coinCost.toLocaleString()}
                     </span>
                   </button>
@@ -211,6 +237,8 @@ export default function RoomGiftPage() {
             {sending ? "Sending…" : `Send ${selected.emoji} ${selected.name}`}
           </button>
         </div>
+      )}
+        </>
       )}
     </div>
   );

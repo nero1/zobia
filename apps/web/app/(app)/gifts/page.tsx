@@ -13,6 +13,7 @@ import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { GIFT_TIER_LABELS } from "@zobia/shared/utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -34,6 +35,7 @@ interface GiftRecord {
   sender: GiftUser;
   recipient: GiftUser;
   giftItem: { name: string; emoji: string; tier: number };
+  reward: { label: string; description: string | null; customText: string | null; benefitType: string | null } | null;
 }
 
 interface GiftItem {
@@ -43,6 +45,9 @@ interface GiftItem {
   coinCost: number;
   starCost: number | null;
   tier: number;
+  isRewarded?: boolean;
+  rewardLabel?: string | null;
+  rewardDescription?: string | null;
 }
 
 interface GiftTier {
@@ -104,10 +109,12 @@ function SendGiftModal({
   onClose,
   prefilledRecipientId,
   prefilledUsername,
+  prefilledGiftId,
 }: {
   onClose: () => void;
   prefilledRecipientId?: string;
   prefilledUsername?: string;
+  prefilledGiftId?: string;
 }) {
   const currency = useCurrency();
   const { t } = useTranslation();
@@ -136,6 +143,16 @@ function SendGiftModal({
       .then((data) => {
         if (data) {
           setCatalogue(data);
+          if (prefilledGiftId) {
+            for (const tierEntry of data.tiers as GiftTier[]) {
+              const match = tierEntry.gifts.find((g: GiftItem) => g.id === prefilledGiftId);
+              if (match) {
+                setActiveTier(match.tier);
+                setSelectedGift(match);
+                return;
+              }
+            }
+          }
           setActiveTier(data.tiers[0]?.tier ?? 1);
         }
       })
@@ -412,7 +429,7 @@ function SendGiftModal({
                   onClick={() => canAfford && setSelectedGift(isSelected ? null : gift)}
                   disabled={!canAfford}
                   className={clsx(
-                    "flex flex-col items-center gap-1 rounded-xl border-2 p-2.5 text-center transition-colors",
+                    "relative flex flex-col items-center gap-1 rounded-xl border-2 p-2.5 text-center transition-colors",
                     isSelected
                       ? "border-primary-500 bg-primary-50 dark:border-primary-400 dark:bg-primary-950"
                       : canAfford
@@ -420,9 +437,18 @@ function SendGiftModal({
                       : "cursor-not-allowed border-neutral-100 bg-neutral-50 opacity-40 dark:border-neutral-800 dark:bg-neutral-900"
                   )}
                 >
+                  {gift.isRewarded && (
+                    <span
+                      className="absolute -top-1.5 -right-1.5 text-[13px]"
+                      title={gift.rewardLabel ? `Unlocks: ${gift.rewardLabel}` : "Unlocks a reward"}
+                      aria-hidden="true"
+                    >
+                      ✨
+                    </span>
+                  )}
                   <span className="text-2xl leading-none" aria-hidden="true">{gift.emoji}</span>
-                  <span className="text-[10px] font-medium leading-tight text-neutral-700 dark:text-neutral-300">{gift.name}</span>
-                  <span className={clsx("rounded-full px-1.5 py-0.5 text-[9px] font-semibold", tierColour(gift.tier))}>
+                  <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700 dark:text-neutral-300">{gift.name}</span>
+                  <span className={clsx("rounded-full px-1.5 py-0.5 text-[11px] font-semibold", tierColour(gift.tier))}>
                     🪙 {gift.coinCost.toLocaleString()}
                   </span>
                 </button>
@@ -466,26 +492,48 @@ function GiftRow({ gift, currentUserId }: { gift: GiftRecord; currentUserId: str
   const isSent = gift.direction === "sent";
   const other = isSent ? gift.recipient : gift.sender;
   const displayName = other.displayName ?? other.username ?? "Unknown";
+  const [expanded, setExpanded] = useState(false);
+  const hasReward = isSent && !!gift.reward;
 
   return (
-    <div className="flex items-center gap-3 rounded-xl px-3 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
-      <span className="text-2xl leading-none" aria-hidden="true">{gift.giftItem.emoji}</span>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-50">
-          {gift.giftItem.name}
-        </p>
-        <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
-          {isSent ? "To" : "From"} @{other.username ?? "unknown"}
-        </p>
-      </div>
-      <div className="flex flex-col items-end gap-0.5">
-        <span className={clsx("rounded-full px-2 py-0.5 text-[10px] font-semibold", tierColour(gift.giftItem.tier))}>
-          Tier {gift.giftItem.tier}
-        </span>
-        <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
-          {relativeTime(gift.createdAt)}
-        </span>
-      </div>
+    <div className="rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
+      <button
+        type="button"
+        onClick={() => hasReward && setExpanded((v) => !v)}
+        disabled={!hasReward}
+        className="flex w-full items-center gap-3 px-3 py-3 text-left disabled:cursor-default"
+      >
+        <span className="text-2xl leading-none" aria-hidden="true">{gift.giftItem.emoji}</span>
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-50">
+            {gift.giftItem.name}
+          </p>
+          <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
+            {isSent ? "To" : "From"} @{other.username ?? "unknown"}
+          </p>
+          {hasReward && (
+            <p className="mt-0.5 truncate text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+              ✨ Unlocked: {gift.reward!.label} {expanded ? "▲" : "▼"}
+            </p>
+          )}
+        </div>
+        <div className="flex flex-col items-end gap-0.5">
+          <span className={clsx("rounded-full px-2 py-0.5 text-[10px] font-semibold", tierColour(gift.giftItem.tier))}>
+            Tier {gift.giftItem.tier}
+          </span>
+          <span className="text-[10px] text-neutral-400 dark:text-neutral-500">
+            {relativeTime(gift.createdAt)}
+          </span>
+        </div>
+      </button>
+      {hasReward && expanded && (
+        <div className="mx-3 mb-3 -mt-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          {gift.reward!.description && <p className="mb-1">{gift.reward!.description}</p>}
+          {gift.reward!.customText && (
+            <p className="whitespace-pre-wrap border-t border-amber-200/60 pt-1 dark:border-amber-800/60">{gift.reward!.customText}</p>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -505,12 +553,33 @@ function GiftsPageContent() {
     tRef.current = t;
   }, [t]);
 
-  const [tab, setTab] = useState<"received" | "sent">("received");
+  const [tab, setTab] = useState<"catalog" | "received" | "sent">("catalog");
   const [gifts, setGifts] = useState<GiftRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showModal, setShowModal] = useState(!!prefilledId);
   const [currentUserId, setCurrentUserId] = useState<string>("");
+  const [catalogue, setCatalogue] = useState<Catalogue | null>(null);
+  const [catalogueLoading, setCatalogueLoading] = useState(true);
+  const [catalogueError, setCatalogueError] = useState<string | null>(null);
+  const [selectedCatalogGiftId, setSelectedCatalogGiftId] = useState<string | undefined>(undefined);
+
+  // Load the full gift catalogue once (Catalog tab is the default view).
+  useEffect(() => {
+    setCatalogueLoading(true);
+    fetch("/api/economy/gifts/catalogue", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("Load failed"))))
+      .then((data) => setCatalogue(data))
+      .catch(() => setCatalogueError("Couldn't load the gift catalog."))
+      .finally(() => setCatalogueLoading(false));
+  }, []);
+
+  const allCatalogueGifts: GiftItem[] = (catalogue?.tiers ?? []).flatMap((tierEntry) => tierEntry.gifts);
+
+  const openCatalogGift = (gift: GiftItem) => {
+    setSelectedCatalogGiftId(gift.id);
+    setShowModal(true);
+  };
 
   // Get current user
   useEffect(() => {
@@ -544,6 +613,7 @@ function GiftsPageContent() {
   }, []);
 
   useEffect(() => {
+    if (tab === "catalog") return;
     loadGifts(tab);
   }, [tab, loadGifts]);
 
@@ -560,41 +630,86 @@ function GiftsPageContent() {
         <div className="flex shrink-0 flex-col items-end gap-2">
           <button
             type="button"
-            onClick={() => setShowModal(true)}
+            onClick={() => { setSelectedCatalogGiftId(undefined); setShowModal(true); }}
             className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-primary-700 active:bg-primary-800"
           >
             🎁 Send a Gift
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowModal(true)}
-            className="rounded-xl border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          >
-            🗂️ Browse gift catalog
           </button>
         </div>
       </div>
 
       {/* Tabs */}
       <div className="mb-4 flex gap-1 rounded-xl border border-neutral-200 bg-neutral-100 p-1 dark:border-neutral-700 dark:bg-neutral-800">
-        {(["received", "sent"] as const).map((t) => (
+        {(["catalog", "received", "sent"] as const).map((tabKey) => (
           <button
-            key={t}
+            key={tabKey}
             type="button"
-            onClick={() => setTab(t)}
+            onClick={() => setTab(tabKey)}
             className={clsx(
               "flex-1 rounded-lg py-2 text-sm font-medium transition-colors capitalize",
-              tab === t
+              tab === tabKey
                 ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-50"
                 : "text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
             )}
           >
-            {t === "received" ? "📥 Received" : "📤 Sent"}
+            {tabKey === "catalog" ? t("gifts.tabs.catalog", { defaultValue: "🗂️ Catalog" }) : tabKey === "received" ? "📥 Received" : "📤 Sent"}
           </button>
         ))}
       </div>
 
+      {/* Catalog tab: browse the full gift catalogue as one continuous grid */}
+      {tab === "catalog" && (
+        <div className="rounded-2xl border border-neutral-200 bg-white p-3 dark:border-neutral-800 dark:bg-neutral-900">
+          {catalogueLoading ? (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="aspect-square animate-pulse rounded-xl bg-neutral-200 dark:bg-neutral-700" />
+              ))}
+            </div>
+          ) : catalogueError ? (
+            <div className="flex flex-col items-center gap-3 py-10">
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">{catalogueError}</p>
+            </div>
+          ) : allCatalogueGifts.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <span className="text-4xl" aria-hidden="true">🎁</span>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">No gifts available right now.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+              {allCatalogueGifts.map((gift) => (
+                <button
+                  key={gift.id}
+                  type="button"
+                  onClick={() => openCatalogGift(gift)}
+                  className="relative flex flex-col items-center gap-1 rounded-xl border-2 border-neutral-200 bg-neutral-50 p-2.5 text-center transition-colors hover:border-neutral-300 dark:border-neutral-700 dark:bg-neutral-800"
+                >
+                  {gift.isRewarded && (
+                    <span
+                      className="absolute -top-1.5 -right-1.5 text-[13px]"
+                      title={gift.rewardLabel ? `Unlocks: ${gift.rewardLabel}` : "Unlocks a reward"}
+                      aria-hidden="true"
+                    >
+                      ✨
+                    </span>
+                  )}
+                  <span className="text-2xl leading-none" aria-hidden="true">{gift.emoji}</span>
+                  <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700 dark:text-neutral-300">{gift.name}</span>
+                  <span className={clsx("rounded-full px-1.5 py-0.5 text-[10px] font-semibold", tierColour(gift.tier))}>
+                    {GIFT_TIER_LABELS[gift.tier] ?? `Tier ${gift.tier}`}
+                  </span>
+                  <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400">
+                    🪙 {gift.coinCost.toLocaleString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Gift list */}
+      {tab !== "catalog" && (
       <div className="rounded-2xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
         {loading ? (
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -650,6 +765,7 @@ function GiftsPageContent() {
           </div>
         )}
       </div>
+      )}
 
       {/* Send gift modal */}
       {showModal && (
@@ -681,10 +797,12 @@ function GiftsPageContent() {
               <SendGiftModal
                 onClose={() => {
                   setShowModal(false);
-                  loadGifts(tab);
+                  setSelectedCatalogGiftId(undefined);
+                  if (tab !== "catalog") loadGifts(tab);
                 }}
                 prefilledRecipientId={prefilledId}
                 prefilledUsername={prefilledUsername}
+                prefilledGiftId={selectedCatalogGiftId}
               />
             </div>
           </div>

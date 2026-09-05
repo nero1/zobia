@@ -18,14 +18,14 @@ import { useMomentsConfig } from '@/lib/hooks/useMomentsConfig';
 import { useAdsConfig } from '@/lib/hooks/useAdsConfig';
 import { LiveRoomPulseBar } from '@/components/ui/LiveRoomPulseBar';
 import InStreamAd from '@/components/ads/InStreamAd';
-import { UserBadgeRow } from '@/components/shared/UserBadges';
+import { UserBadgeRow, RewardBadge } from '@/components/shared/UserBadges';
 
 interface Message {
   id: string;
   senderId: string;
   content: string;
   messageType?: string;
-  sender: { username: string; avatarEmoji: string; isVerified?: boolean; prestigeCount?: number; xpTotal?: string | number };
+  sender: { username: string; avatarEmoji: string; isVerified?: boolean; prestigeCount?: number; xpTotal?: string | number; rewardLabel?: string | null };
 }
 
 // Raw row shape returned by GET /api/rooms/:id/messages and the realtime
@@ -38,6 +38,8 @@ interface RoomMessageRow {
   senderIsVerified?: boolean;
   senderPrestigeCount?: number;
   senderXpTotal?: string | number;
+  /** Rewarded Gifts (migration 0026): active reward grant label for this sender in this room, if any. */
+  senderRewardLabel?: string | null;
   content: string | null;
   message_type?: string;
 }
@@ -54,6 +56,7 @@ function mapMessage(row: RoomMessageRow): Message {
       isVerified: row.senderIsVerified,
       prestigeCount: row.senderPrestigeCount,
       xpTotal: row.senderXpTotal,
+      rewardLabel: row.senderRewardLabel,
     },
   };
 }
@@ -230,6 +233,7 @@ function RoomChatPage() {
                     <p className="flex items-center gap-1 text-xs text-neutral-400 mb-0.5 ml-1">
                       <span>@{msg.sender.username}</span>
                       <UserBadgeRow totalXp={msg.sender.xpTotal} prestige={msg.sender.prestigeCount} verified={msg.sender.isVerified} />
+                      <RewardBadge label={msg.sender.rewardLabel} />
                     </p>
                   )}
                   <div

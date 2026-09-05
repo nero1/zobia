@@ -8,10 +8,22 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { GIFT_TIER_LABELS } from "@zobia/shared/utils";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+type GiftBenefitType = "sender_badge" | "room_privilege" | "blog_privilege" | "custom_text";
+
+interface RewardConfig {
+  benefitType: GiftBenefitType;
+  label: string;
+  description?: string;
+  durationDays?: number | null;
+  customText?: string;
+}
 
 interface GiftItem {
   id: string;
@@ -22,6 +34,8 @@ interface GiftItem {
   animationUrl: string | null;
   spectacleThresholdCoins: number | null;
   isActive: boolean;
+  isRewarded?: boolean;
+  rewardConfig?: RewardConfig | null;
   createdAt: string;
 }
 
@@ -32,7 +46,20 @@ interface GiftForm {
   tier: string;
   animationUrl: string;
   spectacleThresholdCoins: string;
+  isRewarded: boolean;
+  benefitType: GiftBenefitType;
+  rewardLabel: string;
+  rewardDescription: string;
+  durationDays: string;
+  customText: string;
 }
+
+const BENEFIT_TYPE_LABELS: Record<GiftBenefitType, string> = {
+  sender_badge: "Sender badge",
+  room_privilege: "Room privilege",
+  blog_privilege: "Blog privilege",
+  custom_text: "Custom text reward",
+};
 
 const EMPTY_FORM: GiftForm = {
   name: "",
@@ -41,14 +68,12 @@ const EMPTY_FORM: GiftForm = {
   tier: "1",
   animationUrl: "",
   spectacleThresholdCoins: "",
-};
-
-const TIER_LABELS: Record<number, string> = {
-  1: "Friendly",
-  2: "Warm",
-  3: "Grand",
-  4: "Epic",
-  5: "Legendary",
+  isRewarded: false,
+  benefitType: "sender_badge",
+  rewardLabel: "",
+  rewardDescription: "",
+  durationDays: "",
+  customText: "",
 };
 
 // ---------------------------------------------------------------------------
@@ -66,7 +91,7 @@ function tierBadge(tier: number) {
   ];
   return (
     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${colours[tier] ?? colours[1]}`}>
-      T{tier} {TIER_LABELS[tier]}
+      T{tier} {GIFT_TIER_LABELS[tier]}
     </span>
   );
 }
@@ -76,6 +101,7 @@ function tierBadge(tier: number) {
 // ---------------------------------------------------------------------------
 
 export default function AdminGiftsPage() {
+  const currency = useCurrency();
   const [gifts, setGifts] = useState<GiftItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [cursor, setCursor] = useState<string | null>(null);
@@ -136,23 +162,48 @@ export default function AdminGiftsPage() {
       tier: String(gift.tier),
       animationUrl: gift.animationUrl ?? "",
       spectacleThresholdCoins: gift.spectacleThresholdCoins != null ? String(gift.spectacleThresholdCoins) : "",
+      isRewarded: gift.isRewarded ?? false,
+      benefitType: gift.rewardConfig?.benefitType ?? "sender_badge",
+      rewardLabel: gift.rewardConfig?.label ?? "",
+      rewardDescription: gift.rewardConfig?.description ?? "",
+      durationDays: gift.rewardConfig?.durationDays != null ? String(gift.rewardConfig.durationDays) : "",
+      customText: gift.rewardConfig?.customText ?? "",
     });
     setShowForm(true);
   }
 
   async function submitForm() {
-    const body = {
+    const body: Record<string, unknown> = {
       name: form.name.trim(),
       emoji: form.emoji.trim(),
       coinCost: parseInt(form.coinCost, 10),
       tier: parseInt(form.tier, 10),
       animationUrl: form.animationUrl.trim() || null,
       spectacleThresholdCoins: form.spectacleThresholdCoins ? parseInt(form.spectacleThresholdCoins, 10) : null,
+      isRewarded: form.isRewarded,
     };
 
-    if (!body.name || !body.emoji || isNaN(body.coinCost) || isNaN(body.tier)) {
+    if (!body.name || !body.emoji || isNaN(body.coinCost as number) || isNaN(body.tier as number)) {
       showToast("Name, emoji, coin cost, and tier are required", "error");
       return;
+    }
+
+    if (form.isRewarded) {
+      if (!form.rewardLabel.trim()) {
+        showToast("Reward label is required for a rewarded gift", "error");
+        return;
+      }
+      if (form.benefitType === "custom_text" && !form.customText.trim()) {
+        showToast("Custom text is required when the benefit type is 'Custom text reward'", "error");
+        return;
+      }
+      body.rewardConfig = {
+        benefitType: form.benefitType,
+        label: form.rewardLabel.trim(),
+        description: form.rewardDescription.trim() || undefined,
+        durationDays: form.durationDays ? parseInt(form.durationDays, 10) : null,
+        customText: form.benefitType === "custom_text" ? form.customText.trim() : undefined,
+      };
     }
 
     setBusy("form");
@@ -251,11 +302,19 @@ export default function AdminGiftsPage() {
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="font-semibold text-neutral-900 dark:text-white">{gift.name}</span>
                     {tierBadge(gift.tier)}
+                    {gift.isRewarded && (
+                      <span
+                        className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700"
+                        title={gift.rewardConfig?.label ? `Unlocks: ${gift.rewardConfig.label}` : undefined}
+                      >
+                        ✨ Rewarded{gift.rewardConfig?.label ? `: ${gift.rewardConfig.label}` : ""}
+                      </span>
+                    )}
                     {!gift.isActive && (
                       <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">Retired</span>
                     )}
                   </div>
-                  <p className="text-xs text-neutral-500">{gift.coinCost.toLocaleString()} coins</p>
+                  <p className="text-xs text-neutral-500">{gift.coinCost.toLocaleString()} {currency.softPlural.toLowerCase()}</p>
                 </div>
                 <div className="flex gap-1.5 shrink-0">
                   <button
@@ -322,7 +381,7 @@ export default function AdminGiftsPage() {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Coin Cost</label>
+                  <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">{currency.softSingular} Cost</label>
                   <input
                     type="number"
                     min="1"
@@ -339,7 +398,7 @@ export default function AdminGiftsPage() {
                     className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
                   >
                     {[1, 2, 3, 4, 5].map((t) => (
-                      <option key={t} value={t}>T{t} — {TIER_LABELS[t]}</option>
+                      <option key={t} value={t}>T{t} — {GIFT_TIER_LABELS[t]}</option>
                     ))}
                   </select>
                 </div>
@@ -354,7 +413,7 @@ export default function AdminGiftsPage() {
                 />
               </div>
               <div>
-                <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Spectacle threshold coins (optional)</label>
+                <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Spectacle threshold {currency.softPlural.toLowerCase()} (optional)</label>
                 <input
                   type="number"
                   min="1"
@@ -362,6 +421,81 @@ export default function AdminGiftsPage() {
                   onChange={(e) => setForm((f) => ({ ...f, spectacleThresholdCoins: e.target.value }))}
                   className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
                 />
+              </div>
+
+              {/* Rewarded Gifts (migration 0026) — sending this gift to the actual
+                  owner/admin/creator of a room or blog unlocks the reward below. */}
+              <div className="rounded-lg border border-amber-200 bg-amber-50/50 p-3 dark:border-amber-900 dark:bg-amber-950/20">
+                <label className="flex cursor-pointer items-center gap-2 text-sm font-semibold text-amber-800 dark:text-amber-300">
+                  <input
+                    type="checkbox"
+                    checked={form.isRewarded}
+                    onChange={(e) => setForm((f) => ({ ...f, isRewarded: e.target.checked }))}
+                    className="h-4 w-4 rounded"
+                  />
+                  ✨ Rewarded gift
+                </label>
+                <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-400/80">
+                  Sending this to a room or blog owner unlocks a reward for the sender.
+                </p>
+
+                {form.isRewarded && (
+                  <div className="mt-3 space-y-3 border-t border-amber-200 pt-3 dark:border-amber-900">
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Benefit type</label>
+                      <select
+                        value={form.benefitType}
+                        onChange={(e) => setForm((f) => ({ ...f, benefitType: e.target.value as GiftBenefitType }))}
+                        className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                      >
+                        {(Object.keys(BENEFIT_TYPE_LABELS) as GiftBenefitType[]).map((bt) => (
+                          <option key={bt} value={bt}>{BENEFIT_TYPE_LABELS[bt]}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Label (e.g. &quot;VIP Supporter&quot;)</label>
+                      <input
+                        value={form.rewardLabel}
+                        onChange={(e) => setForm((f) => ({ ...f, rewardLabel: e.target.value }))}
+                        maxLength={80}
+                        className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Description (shown to the sender before they send)</label>
+                      <textarea
+                        value={form.rewardDescription}
+                        onChange={(e) => setForm((f) => ({ ...f, rewardDescription: e.target.value }))}
+                        rows={2}
+                        maxLength={500}
+                        className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                      />
+                    </div>
+                    <div>
+                      <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Duration (days) — blank = permanent</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={form.durationDays}
+                        onChange={(e) => setForm((f) => ({ ...f, durationDays: e.target.value }))}
+                        className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                      />
+                    </div>
+                    {form.benefitType === "custom_text" && (
+                      <div>
+                        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">Custom text (e.g. claim instructions)</label>
+                        <textarea
+                          value={form.customText}
+                          onChange={(e) => setForm((f) => ({ ...f, customText: e.target.value }))}
+                          rows={3}
+                          maxLength={2000}
+                          className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
             <div className="mt-4 flex gap-2">

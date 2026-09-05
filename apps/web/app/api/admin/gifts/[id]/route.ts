@@ -12,16 +12,23 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
+import { rewardConfigSchema, refineRewardFields } from "@/lib/economy/giftItems";
 
-const updateGiftSchema = z.object({
-  name: z.string().min(1).max(100).optional(),
-  emoji: z.string().min(1).max(10).optional(),
-  coinCost: z.number().int().positive().optional(),
-  tier: z.number().int().min(1).max(5).optional(),
-  animationUrl: z.string().url().nullable().optional(),
-  spectacleThresholdCoins: z.number().int().positive().nullable().optional(),
-  isActive: z.boolean().optional(),
-});
+const updateGiftSchema = z
+  .object({
+    name: z.string().min(1).max(100).optional(),
+    emoji: z.string().min(1).max(10).optional(),
+    coinCost: z.number().int().positive().optional(),
+    tier: z.number().int().min(1).max(5).optional(),
+    animationUrl: z.string().url().nullable().optional(),
+    spectacleThresholdCoins: z.number().int().positive().nullable().optional(),
+    isActive: z.boolean().optional(),
+    // Rewarded Gifts (migration 0026). Omitted entirely -> unchanged; isRewarded
+    // explicitly false -> reward_config is cleared.
+    isRewarded: z.boolean().optional(),
+    rewardConfig: rewardConfigSchema.nullable().optional(),
+  })
+  .superRefine(refineRewardFields);
 
 export const PATCH = withAdminAuth(async (req: NextRequest, ctx) => {
   try {
@@ -42,6 +49,13 @@ export const PATCH = withAdminAuth(async (req: NextRequest, ctx) => {
     if (body.animationUrl !== undefined)              { sets.push(`animation_url = $${i++}`);               values.push(body.animationUrl ?? null); }
     if (body.spectacleThresholdCoins !== undefined)   { sets.push(`spectacle_threshold_coins = $${i++}`);   values.push(body.spectacleThresholdCoins ?? null); }
     if (body.isActive !== undefined)                  { sets.push(`is_active = $${i++}`);                   values.push(body.isActive); }
+    if (body.isRewarded !== undefined)                { sets.push(`is_rewarded = $${i++}`);                 values.push(body.isRewarded); }
+    if (body.rewardConfig !== undefined)              { sets.push(`reward_config = $${i++}::jsonb`);        values.push(body.rewardConfig ? JSON.stringify(body.rewardConfig) : null); }
+    // Turning rewarded off clears any stale reward_config unless the caller
+    // explicitly also sent a new one in this same request.
+    if (body.isRewarded === false && body.rewardConfig === undefined) {
+      sets.push(`reward_config = NULL`);
+    }
 
     if (sets.length === 0) {
       return NextResponse.json({ success: true, data: null, error: null });

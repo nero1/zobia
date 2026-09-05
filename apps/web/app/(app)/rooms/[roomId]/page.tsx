@@ -29,7 +29,7 @@ import { useAdsConfig } from "@/lib/hooks/useAdsConfig";
 import InStreamAd from "@/components/ads/InStreamAd";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
-import { UserBadgeRow } from "@/components/shared/UserBadges";
+import { UserBadgeRow, RewardBadge } from "@/components/shared/UserBadges";
 
 // Resolved at build time. When undefined there is no push provider configured
 // and the 3-second baseline poll is the sole live channel.
@@ -100,6 +100,8 @@ interface Message {
   senderIsVerified?: boolean;
   senderPrestigeCount?: number;
   senderXpTotal?: string | number;
+  /** Rewarded Gifts (migration 0026): label of an active reward grant the sender holds in this room, if any. */
+  senderRewardLabel?: string | null;
   content: string;
   createdAt: string;
   giftEmoji?: string;
@@ -347,6 +349,7 @@ function MessageBubble({ msg, isOwn }: MessageBubbleProps) {
             <Link href={`/profile/${msg.userId}`} className="inline-flex min-w-0 max-w-[40vw] items-center gap-1 text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400">
               <span className="truncate">@{msg.username}</span>
               <UserBadgeRow totalXp={msg.senderXpTotal} prestige={msg.senderPrestigeCount} verified={msg.senderIsVerified} />
+              <RewardBadge label={msg.senderRewardLabel} />
             </Link>
           )}
           <span className="shrink-0 text-xs text-neutral-400">{timeAgo(msg.createdAt)}</span>
@@ -745,6 +748,7 @@ interface RoomInputBarProps {
   sending: boolean;
   canAccess: boolean;
   currentUserId: string | null;
+  isOwner: boolean;
   lastOwnMessageId: string | null;
   isMoment: boolean;
   onMomentToggle: () => void;
@@ -763,6 +767,7 @@ function RoomInputBar({
   sending,
   canAccess,
   currentUserId,
+  isOwner,
   lastOwnMessageId,
   isMoment,
   onMomentToggle,
@@ -906,9 +911,11 @@ function RoomInputBar({
           <button type="button" onClick={() => { onMomentToggle(); setShowMobileExtras(false); }}
             className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${isMoment ? "bg-purple-100 text-purple-700 dark:bg-purple-900" : "text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"}`}
             title="Moment (24h)" aria-label="Toggle Moment mode" disabled={!canAccess}>🌟</button>
-          <a href={`/rooms/${roomId}/gift`}
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-500 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30"
-            title="Send a gift" aria-label="Send a gift" onClick={() => setShowMobileExtras(false)}>🎁</a>
+          {!isOwner && (
+            <a href={`/rooms/${roomId}/gift`}
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-500 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30"
+              title="Send a gift" aria-label="Send a gift" onClick={() => setShowMobileExtras(false)}>🎁</a>
+          )}
           <button type="button" onClick={() => { toggle("powers"); setShowMobileExtras(false); }}
             className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${showPowers ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900" : "text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"}`}
             aria-label="Room Powers" title="Room Powers" disabled={!canAccess}>⚡</button>
@@ -963,12 +970,14 @@ function RoomInputBar({
           🌟
         </button>
 
-        {/* Desktop: Gift */}
-        <a href={`/rooms/${roomId}/gift`}
-          className="hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-400 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30"
-          title="Send a gift" aria-label="Send a gift">
-          🎁
-        </a>
+        {/* Desktop: Gift (hidden for the room owner — can't gift yourself) */}
+        {!isOwner && (
+          <a href={`/rooms/${roomId}/gift`}
+            className="hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-400 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30"
+            title="Send a gift" aria-label="Send a gift">
+            🎁
+          </a>
+        )}
 
         {/* Desktop: Room Powers */}
         <button type="button" onClick={() => toggle("powers")}
@@ -1793,6 +1802,7 @@ export default function RoomPage() {
               sending={sending}
               canAccess={canAccess && presenceAdmitted}
               currentUserId={currentUserId}
+              isOwner={Boolean(currentUserId && room.creatorId === currentUserId)}
               lastOwnMessageId={
                 messages.filter((m) => m.userId === currentUserId).at(-1)?.id ?? null
               }

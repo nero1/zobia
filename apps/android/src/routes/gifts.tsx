@@ -12,6 +12,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { GIFT_TIER_LABELS } from '@zobia/shared/utils';
 
 interface GiftUser {
   id: string;
@@ -58,7 +59,7 @@ interface WalletBalance {
   coins: number;
 }
 
-type Tab = 'received' | 'sent';
+type Tab = 'catalog' | 'received' | 'sent';
 
 const TIER_COLOUR: Record<number, string> = {
   1: 'bg-neutral-100 text-neutral-600',
@@ -139,7 +140,17 @@ async function searchUsers(q: string): Promise<UserSuggestion[]> {
 // Send Gift panel
 // ---------------------------------------------------------------------------
 
-function SendGiftPanel({ onClose, onSent, preselectedRecipient }: { onClose: () => void; onSent: () => void; preselectedRecipient?: UserSuggestion | null }) {
+function SendGiftPanel({
+  onClose,
+  onSent,
+  preselectedRecipient,
+  preselectedGiftId,
+}: {
+  onClose: () => void;
+  onSent: () => void;
+  preselectedRecipient?: UserSuggestion | null;
+  preselectedGiftId?: string;
+}) {
   const { t } = useTranslation();
   const [search, setSearch] = useState('');
   const [suggestions, setSuggestions] = useState<UserSuggestion[]>([]);
@@ -160,8 +171,19 @@ function SendGiftPanel({ onClose, onSent, preselectedRecipient }: { onClose: () 
   const { data: wallet } = useQuery({ queryKey: ['gifts', 'wallet'], queryFn: fetchWallet });
 
   useEffect(() => {
-    if (catalogue && activeTier === null) setActiveTier(catalogue.tiers[0]?.tier ?? 1);
-  }, [catalogue, activeTier]);
+    if (!catalogue || activeTier !== null) return;
+    if (preselectedGiftId) {
+      for (const tierEntry of catalogue.tiers) {
+        const match = tierEntry.gifts.find((g) => g.id === preselectedGiftId);
+        if (match) {
+          setActiveTier(match.tier);
+          setSelectedGift(match);
+          return;
+        }
+      }
+    }
+    setActiveTier(catalogue.tiers[0]?.tier ?? 1);
+  }, [catalogue, activeTier, preselectedGiftId]);
 
   useEffect(() => {
     if (recipient) return;
@@ -352,8 +374,8 @@ function SendGiftPanel({ onClose, onSent, preselectedRecipient }: { onClose: () 
                   }`}
                 >
                   <span className="text-2xl leading-none">{gift.emoji}</span>
-                  <span className="text-[10px] font-medium leading-tight text-neutral-700">{gift.name}</span>
-                  <span className={`rounded-full px-1.5 py-0.5 text-[9px] font-semibold ${tierColour(gift.tier)}`}>
+                  <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700">{gift.name}</span>
+                  <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${tierColour(gift.tier)}`}>
                     🪙 {gift.coinCost.toLocaleString()}
                   </span>
                 </button>
@@ -420,18 +442,35 @@ function GiftsPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { recipientId, username } = Route.useSearch();
-  const [tab, setTab] = useState<Tab>('received');
+  const [tab, setTab] = useState<Tab>('catalog');
   const [showModal, setShowModal] = useState(!!recipientId);
+  const [selectedCatalogGiftId, setSelectedCatalogGiftId] = useState<string | undefined>(undefined);
 
-  const { data: gifts, status, refetch } = useQuery({ queryKey: ['gifts', 'history', tab], queryFn: () => fetchGifts(tab) });
+  const { data: gifts, status, refetch } = useQuery({
+    queryKey: ['gifts', 'history', tab],
+    queryFn: () => fetchGifts(tab as 'received' | 'sent'),
+    enabled: tab !== 'catalog',
+  });
+  const { data: catalogue, status: catalogueStatus } = useQuery({
+    queryKey: ['gifts', 'catalogue'],
+    queryFn: fetchCatalogue,
+    staleTime: 5 * 60_000,
+  });
+  const allCatalogueGifts: GiftItem[] = (catalogue?.tiers ?? []).flatMap((tierEntry) => tierEntry.gifts);
 
   const preselectedRecipient: UserSuggestion | null = recipientId
     ? { id: recipientId, username: username ?? recipientId, displayName: username ?? null, avatarEmoji: null }
     : null;
 
+  const openCatalogGift = (gift: GiftItem) => {
+    setSelectedCatalogGiftId(gift.id);
+    setShowModal(true);
+  };
+
   const closeModal = () => {
     setShowModal(false);
-    refetch();
+    setSelectedCatalogGiftId(undefined);
+    if (tab !== 'catalog') refetch();
     qc.invalidateQueries({ queryKey: ['gifts', 'wallet'] });
     // ZSB-11 fix: sending a gift spends coins server-side, but this never
     // invalidated the shared balance query the Wallet screen (and anywhere
@@ -449,7 +488,7 @@ function GiftsPage() {
           <p className="mt-0.5 text-sm text-neutral-500">{t('gifts.subtitle')}</p>
         </div>
         <button
-          onClick={() => setShowModal(true)}
+          onClick={() => { setSelectedCatalogGiftId(undefined); setShowModal(true); }}
           className="shrink-0 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white"
         >
           {t('gifts.sendBtn')}
@@ -457,7 +496,7 @@ function GiftsPage() {
       </div>
 
       <div className="flex gap-1 rounded-xl border border-neutral-200 bg-white p-1 mx-4 mb-3">
-        {(['received', 'sent'] as const).map((tb) => (
+        {(['catalog', 'received', 'sent'] as const).map((tb) => (
           <button
             key={tb}
             onClick={() => setTab(tb)}
@@ -468,6 +507,47 @@ function GiftsPage() {
         ))}
       </div>
 
+      {tab === 'catalog' && (
+        <div className="bg-white mx-4 rounded-2xl border border-neutral-200 mb-6 p-3">
+          {catalogueStatus === 'pending' ? (
+            <div className="grid grid-cols-3 gap-2">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="aspect-square animate-pulse rounded-xl bg-neutral-200" />
+              ))}
+            </div>
+          ) : catalogueStatus === 'error' ? (
+            <div className="flex flex-col items-center gap-3 py-10">
+              <p className="text-sm text-neutral-500">{t('error.generic')}</p>
+            </div>
+          ) : allCatalogueGifts.length === 0 ? (
+            <div className="flex flex-col items-center gap-3 py-10 text-center">
+              <span className="text-4xl">🎁</span>
+              <p className="text-sm text-neutral-500">{t('error.generic')}</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2">
+              {allCatalogueGifts.map((gift) => (
+                <button
+                  key={gift.id}
+                  onClick={() => openCatalogGift(gift)}
+                  className="flex flex-col items-center gap-1 rounded-xl border-2 border-neutral-200 bg-neutral-50 p-2.5 text-center"
+                >
+                  <span className="text-2xl leading-none">{gift.emoji}</span>
+                  <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700">{gift.name}</span>
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${tierColour(gift.tier)}`}>
+                    {GIFT_TIER_LABELS[gift.tier] ?? `Tier ${gift.tier}`}
+                  </span>
+                  <span className="text-[11px] font-semibold text-neutral-600">
+                    🪙 {gift.coinCost.toLocaleString()}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {tab !== 'catalog' && (
       <div className="bg-white mx-4 rounded-2xl border border-neutral-200 mb-6">
         {status === 'pending' ? (
           <div className="divide-y divide-neutral-100">
@@ -509,6 +589,7 @@ function GiftsPage() {
           </div>
         )}
       </div>
+      )}
 
       {showModal && (
         <>
@@ -521,10 +602,11 @@ function GiftsPage() {
               </button>
             </div>
             <SendGiftPanel
-              key={preselectedRecipient?.id ?? 'none'}
-              onClose={() => setShowModal(false)}
+              key={`${preselectedRecipient?.id ?? 'none'}-${selectedCatalogGiftId ?? 'none'}`}
+              onClose={() => { setShowModal(false); setSelectedCatalogGiftId(undefined); }}
               onSent={closeModal}
               preselectedRecipient={preselectedRecipient}
+              preselectedGiftId={selectedCatalogGiftId}
             />
           </div>
         </>

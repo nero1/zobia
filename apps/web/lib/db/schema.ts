@@ -2071,6 +2071,12 @@ export const giftItems = pgTable("gift_items", {
   isRetired: boolean("is_retired").default(false),
   // Migration 009 (lib): added is_active
   isActive: boolean("is_active").notNull().default(true),
+  // Migration 0026: Rewarded Gifts — admin flags a gift item as unlocking a
+  // reward when sent to a room owner or blog owner. See gift_reward_grants
+  // below for the durable "unlocked this" ledger. Not the same feature as
+  // the unrelated per-blog blog_gift_tiers system (migration 0024).
+  isRewarded: boolean("is_rewarded").notNull().default(false),
+  rewardConfig: jsonb("reward_config"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -2114,6 +2120,34 @@ export const gifts = pgTable("gifts", {
   }),
   status: text("status").notNull().default("delivered"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
+
+// Migration 0026: durable record of a Rewarded Gift unlock — written
+// atomically alongside the `gifts` ledger row that triggered it, when that
+// gift's gift_items row has is_rewarded = true and the send was made to the
+// actual room owner or blog owner (not just any room member/reader).
+export const giftRewardGrants = pgTable("gift_reward_grants", {
+  id: uuidPk(),
+  giftId: uuid("gift_id")
+    .notNull()
+    .references(() => gifts.id, { onDelete: "cascade" }),
+  senderId: uuid("sender_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  recipientId: uuid("recipient_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  // 'room' | 'blog'
+  contextType: text("context_type").notNull(),
+  contextId: uuid("context_id").notNull(),
+  // 'sender_badge' | 'room_privilege' | 'blog_privilege' | 'custom_text'
+  benefitType: text("benefit_type").notNull(),
+  label: text("label").notNull(),
+  description: text("description"),
+  customText: text("custom_text"),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
 });
 
 export const storeItems = pgTable("store_items", {

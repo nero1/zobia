@@ -69,9 +69,9 @@ export function GiftTiersSection({ blogSlug, tiers }: { blogSlug: string; tiers:
 
   return (
     <div className="mt-8 rounded-2xl border border-border bg-card p-4">
-      <h2 className="mb-1 text-lg font-bold text-foreground">{t("blogs.gifts.sectionTitle", "Send a Gift")}</h2>
+      <h2 className="mb-1 text-lg font-bold text-foreground">{t("blogs.gifts.sectionTitle", "Blog Reward Tiers")}</h2>
       <p className="mb-3 text-sm text-muted-foreground">
-        {t("blogs.gifts.sectionHint", "Support this blog and unlock a benefit.")}
+        {t("blogs.gifts.sectionHint", "Support this blog directly and unlock a benefit this blog's owner set up. (Looking to send a site gift instead? Use the gift button near the top of the page.)")}
       </p>
       {error && <p className="mb-2 text-xs text-red-400">{error}</p>}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

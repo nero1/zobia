@@ -31,8 +31,10 @@ import { calculateFinalXP, PLAN_XP_MULTIPLIERS_BP } from "@/lib/xp/engine";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 import { advanceNewMemberQuestStep } from "@/lib/quests/newMemberQuestEngine";
+import { insertNotificationBatch } from "@/lib/notifications/insert";
 import { logger } from "@/lib/logger";
 import type { Plan } from "@zobia/types";
+import type { RewardConfig } from "@/lib/economy/giftItems";
 
 // Platform takes 20% of gifts received by creators (PRD §14)
 const CREATOR_GIFT_FEE_PERCENT = 20;
@@ -50,8 +52,18 @@ const SendGiftSchema = z.object({
   recipientId: z.string().uuid("recipientId must be a valid UUID"),
   /** Optional Room UUID — if provided, the gift appears in the room feed. */
   roomId: z.string().uuid().optional(),
+  /**
+   * Optional Blog UUID — an alternative gift context to roomId, for sending a
+   * sitewide gift to a blog's owner (see app/(app)/blogs/gift/[slug]/page.tsx).
+   * Mutually exclusive with roomId.
+   */
+  blogId: z.string().uuid().optional(),
   /** Optional idempotency key — prevents double-send on client retry. */
   idempotencyKey: z.string().uuid("idempotencyKey must be a valid UUID").optional(),
+}).superRefine((val, ctx) => {
+  if (val.roomId && val.blogId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["blogId"], message: "roomId and blogId cannot both be set" });
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -66,6 +78,8 @@ interface GiftItemRow {
   tier: number;
   spectacle_threshold_coins: number | null;
   gift_type_id: string | null;
+  is_rewarded: boolean;
+  reward_config: RewardConfig | null;
 }
 
 interface UserRow {
@@ -178,7 +192,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(senderId, "user", RATE_LIMITS.giftSend);
 
     if (body.recipientId === senderId) {
-      throw badRequest("Cannot send a gift to yourself");
+      throw badRequest("Cannot send a gift to yourself", "SELF_GIFT_NOT_ALLOWED");
     }
 
     // ZB-18: Derive the idempotency key server-side so it is always bound to the
@@ -203,6 +217,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // FIX-C5 (BUG-18): If a roomId is provided, ensure the sender is an active member
+    let roomCreatorId: string | null = null;
     if (body.roomId) {
       const { rows: memberRows } = await db.query(
         `SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
@@ -210,6 +225,30 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
       if (memberRows.length === 0) {
         return NextResponse.json({ error: 'NOT_ROOM_MEMBER' }, { status: 403 });
+      }
+      const { rows: roomOwnerRows } = await db.query<{ creator_id: string }>(
+        `SELECT creator_id FROM rooms WHERE id = $1 LIMIT 1`,
+        [body.roomId]
+      );
+      roomCreatorId = roomOwnerRows[0]?.creator_id ?? null;
+    }
+
+    // Blog gift context (app/(app)/blogs/gift/[slug]/page.tsx): resolve the
+    // blog and its owner. The blog's own owner-defined Rewarded Gifts system
+    // (blog_gift_tiers) is unrelated — this is the sitewide gift economy
+    // sending to that blog's owner, in the same way rooms/[roomId]/gift does.
+    let blogOwnerId: string | null = null;
+    if (body.blogId) {
+      const { rows: blogRows } = await db.query<{ owner_id: string }>(
+        `SELECT owner_id FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [body.blogId]
+      );
+      if (!blogRows[0]) {
+        throw notFound("Blog not found");
+      }
+      blogOwnerId = blogRows[0].owner_id;
+      if (body.recipientId !== blogOwnerId) {
+        throw badRequest("recipientId must be the blog's owner", "BLOG_RECIPIENT_MISMATCH");
       }
     }
 
@@ -222,10 +261,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // 1. Load gift item and resolve matching gift_type (if one exists by name)
     const { rows: giftRows } = await db.query<GiftItemRow>(
       `SELECT gi.id, gi.name, gi.emoji, gi.coin_cost, gi.tier,
-              gi.spectacle_threshold_coins, gt.id AS gift_type_id
+              gi.spectacle_threshold_coins, gt.id AS gift_type_id,
+              gi.is_rewarded, gi.reward_config
        FROM gift_items gi
        LEFT JOIN gift_types gt ON gt.name = gi.name AND gt.is_active = TRUE
-       WHERE gi.id = $1 AND gi.is_active = TRUE
+       WHERE gi.id = $1 AND gi.is_active = TRUE AND gi.is_retired = FALSE
        LIMIT 1`,
       [body.giftItemId]
     );
@@ -266,6 +306,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // 3. Atomic: debit coins and create gift record
     let giftId = "";
     let spectacleTriggered = false;
+    // Holder object (rather than a plain `let`) so TS doesn't try to narrow
+    // this across the async transaction closure below.
+    const rewardState: { granted: { label: string; contextType: "room" | "blog" } | null } = { granted: null };
 
     // Compute fee split — Icon creators get 85% (15% fee), other creators 80% (20% fee), users 95% (5% fee)
     const creatorFeePercent = recipient.creator_tier === 'icon' ? 15 : CREATOR_GIFT_FEE_PERCENT;
@@ -430,6 +473,57 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           ]
         );
       }
+
+      // Rewarded Gifts fulfillment (migration 0026): only when this gift item
+      // is marked rewarded AND it was sent to the actual owner/admin/creator
+      // of the room or blog context it was sent in — not just any member/
+      // recipient. Written in the same transaction as the debit/ledger insert
+      // above so a crash can never leave a gift sent without its reward
+      // granted (or vice versa).
+      if (giftItem.is_rewarded && giftItem.reward_config) {
+        const config = giftItem.reward_config;
+        let contextType: "room" | "blog" | null = null;
+        let contextId: string | null = null;
+        if (body.roomId && roomCreatorId && body.recipientId === roomCreatorId) {
+          contextType = "room";
+          contextId = body.roomId;
+        } else if (body.blogId && blogOwnerId && body.recipientId === blogOwnerId) {
+          contextType = "blog";
+          contextId = body.blogId;
+        }
+
+        if (contextType && contextId) {
+          const expiresAt = config.durationDays
+            ? new Date(Date.now() + config.durationDays * 24 * 60 * 60 * 1000)
+            : null;
+
+          await tx.query(
+            `INSERT INTO gift_reward_grants
+               (gift_id, sender_id, recipient_id, context_type, context_id, benefit_type, label, description, custom_text, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [
+              giftId,
+              senderId,
+              body.recipientId,
+              contextType,
+              contextId,
+              config.benefitType,
+              config.label,
+              config.description ?? null,
+              config.benefitType === "custom_text" ? config.customText ?? null : null,
+              expiresAt,
+            ]
+          );
+
+          rewardState.granted = { label: config.label, contextType };
+
+          // room_privilege: if room_members already carries a lightweight
+          // per-member "tag" column we could extend, we'd set it here too —
+          // but role is used for real permissions (member/admin/moderator),
+          // so overloading it would be unsafe. The grant row above is the
+          // complete, correct scope for this phase; see report for follow-up.
+        }
+      }
     });
 
     // Commit the idempotency key to Redis now that the DB transaction succeeded.
@@ -463,6 +557,23 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     void triggerActivityQuestProgress(senderId, 'gift', db);
     void advanceNewMemberQuestStep(db, senderId, 'gift_someone');
 
+    // Notify the sender that they unlocked a Rewarded Gift benefit. Best-effort,
+    // fired after commit (mirrors lib/blogs/service.ts's sendGift notification
+    // pattern) — the grant row itself is already durably committed above.
+    const granted = rewardState.granted;
+    if (granted) {
+      await insertNotificationBatch(
+        db,
+        [senderId],
+        "gift_reward_unlocked",
+        `You unlocked "${granted.label}"!`,
+        `Sending ${giftItem.emoji} ${giftItem.name} unlocked "${granted.label}" ${granted.contextType === "room" ? "in this room" : "on this blog"}.`,
+        { giftId, giftItemId: giftItem.id, contextType: granted.contextType }
+      ).catch((err) => {
+        logger.error({ err }, '[gifts:POST] failed to notify sender of reward unlock');
+      });
+    }
+
     return NextResponse.json({
       success: true,
       giftId,
@@ -478,6 +589,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         username: recipient.username,
       },
       spectacleTriggered,
+      rewardGranted: granted,
     });
   } catch (err) {
     // The Redis idempotency key is only written after a successful DB commit, so

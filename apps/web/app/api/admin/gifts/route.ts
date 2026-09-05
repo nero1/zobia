@@ -12,6 +12,8 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
+import { createGiftItem, rewardConfigSchema, refineRewardFields } from "@/lib/economy/giftItems";
+import type { RewardConfig } from "@/lib/economy/giftItems";
 
 interface GiftItemRow {
   id: string;
@@ -22,17 +24,25 @@ interface GiftItemRow {
   animation_url: string | null;
   spectacle_threshold_coins: number | null;
   is_active: boolean;
+  is_rewarded: boolean;
+  reward_config: RewardConfig | null;
   created_at: string;
 }
 
-const createGiftSchema = z.object({
-  name: z.string().min(1).max(100),
-  emoji: z.string().min(1).max(10),
-  coinCost: z.number().int().positive(),
-  tier: z.number().int().min(1).max(5),
-  animationUrl: z.string().url().nullable().optional(),
-  spectacleThresholdCoins: z.number().int().positive().nullable().optional(),
-});
+const createGiftSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    emoji: z.string().min(1).max(10),
+    coinCost: z.number().int().positive(),
+    tier: z.number().int().min(1).max(5),
+    animationUrl: z.string().url().nullable().optional(),
+    spectacleThresholdCoins: z.number().int().positive().nullable().optional(),
+    // Rewarded Gifts (migration 0026) — both optional so existing Android/web
+    // callers creating a plain (non-rewarded) gift are unaffected.
+    isRewarded: z.boolean().optional(),
+    rewardConfig: rewardConfigSchema.optional(),
+  })
+  .superRefine(refineRewardFields);
 
 export const GET = withAdminAuth(async (req: NextRequest) => {
   try {
@@ -60,7 +70,7 @@ export const GET = withAdminAuth(async (req: NextRequest) => {
 
     const { rows } = await db.query<GiftItemRow>(
       `SELECT id, name, emoji, coin_cost, tier, animation_url,
-              spectacle_threshold_coins, is_active, created_at
+              spectacle_threshold_coins, is_active, is_rewarded, reward_config, created_at
        FROM gift_items
        ${where}
        ORDER BY tier ASC, coin_cost ASC, created_at DESC, id DESC
@@ -87,6 +97,8 @@ export const GET = withAdminAuth(async (req: NextRequest) => {
           animationUrl: r.animation_url,
           spectacleThresholdCoins: r.spectacle_threshold_coins,
           isActive: r.is_active,
+          isRewarded: r.is_rewarded,
+          rewardConfig: r.reward_config,
           createdAt: r.created_at,
         })),
         nextCursor,
@@ -102,21 +114,9 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
   try {
     const body = await validateBody(req, createGiftSchema);
 
-    const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO gift_items (name, emoji, coin_cost, tier, animation_url, spectacle_threshold_coins, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE)
-       RETURNING id`,
-      [
-        body.name,
-        body.emoji,
-        body.coinCost,
-        body.tier,
-        body.animationUrl ?? null,
-        body.spectacleThresholdCoins ?? null,
-      ]
-    );
+    const gift = await createGiftItem(body, db);
 
-    return NextResponse.json({ success: true, data: { id: rows[0].id }, error: null }, { status: 201 });
+    return NextResponse.json({ success: true, data: { id: gift.id }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

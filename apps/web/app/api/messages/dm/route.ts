@@ -141,7 +141,7 @@ async function handleDMGift(
   const { rows: giftRows } = await db.query<{
     id: string; name: string; emoji: string; coin_cost: number; tier: number;
   }>(
-    `SELECT id, name, emoji, coin_cost, tier FROM gift_items WHERE id = $1 AND is_active = TRUE LIMIT 1`,
+    `SELECT id, name, emoji, coin_cost, tier FROM gift_items WHERE id = $1 AND is_active = TRUE AND is_retired = FALSE LIMIT 1`,
     [giftItemId]
   );
   if (!giftRows[0]) throw badRequest("Gift item not found or unavailable");

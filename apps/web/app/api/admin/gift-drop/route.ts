@@ -12,7 +12,10 @@ export const dynamic = 'force-dynamic';
  * POST /api/admin/gift-drop
  *   Schedule a new gift drop.
  *   Body: { giftItemId: string, startAt: string (ISO 8601) }
+ *      OR { newGift: {name, emoji, coinCost, tier, animationUrl?, spectacleThresholdCoins?}, startAt }
  *   - Admin only.
+ *   - Exactly one of giftItemId (use an existing gift) or newGift (create a
+ *     new gift item inline, then use it) must be provided.
  *   - Validates that the gift item exists and is not already retired.
  *   - Validates that startAt is in the future.
  */
@@ -26,15 +29,33 @@ import {
   scheduleMonthlyGiftDrop,
   type MonthlyGiftDrop,
 } from "@/lib/events/monthlyGiftDrop";
+import { createGiftItem } from "@/lib/economy/giftItems";
 
 // ---------------------------------------------------------------------------
 // Schemas
 // ---------------------------------------------------------------------------
 
-const scheduleDropSchema = z.object({
-  giftItemId: z.string().uuid("giftItemId must be a valid UUID"),
-  startAt: z.string().datetime("startAt must be a valid ISO 8601 datetime"),
+const newGiftSchema = z.object({
+  name: z.string().min(1).max(100),
+  emoji: z.string().min(1).max(10),
+  coinCost: z.number().int().positive(),
+  tier: z.number().int().min(1).max(5),
+  animationUrl: z.string().url().nullable().optional(),
+  spectacleThresholdCoins: z.number().int().positive().nullable().optional(),
 });
+
+// Exactly one of `giftItemId` (use an existing gift) or `newGift` (create a
+// new gift_items row and use it) must be provided.
+const scheduleDropSchema = z
+  .object({
+    giftItemId: z.string().uuid("giftItemId must be a valid UUID").optional(),
+    newGift: newGiftSchema.optional(),
+    startAt: z.string().datetime("startAt must be a valid ISO 8601 datetime"),
+  })
+  .refine((body) => Boolean(body.giftItemId) !== Boolean(body.newGift), {
+    message: "Provide exactly one of giftItemId or newGift",
+    path: ["giftItemId"],
+  });
 
 // ---------------------------------------------------------------------------
 // DB row type for list
@@ -129,21 +150,36 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
       throw badRequest("startAt must be in the future");
     }
 
-    // Validate gift item exists and is not retired
-    const { rows: itemRows } = await db.query<{
-      id: string;
-      name: string;
-      is_retired: boolean;
-    }>(
-      `SELECT id, name, is_retired FROM gift_items WHERE id = $1 LIMIT 1`,
-      [body.giftItemId]
-    );
+    let giftItemId: string;
 
-    if (!itemRows[0]) {
-      throw badRequest(`Gift item ${body.giftItemId} does not exist`);
-    }
-    if (itemRows[0].is_retired) {
-      throw badRequest("Cannot schedule a drop for a retired gift item");
+    if (body.newGift) {
+      // Create the gift item inline, reusing the same insert logic as
+      // POST /api/admin/gifts, then schedule the drop against it.
+      const gift = await createGiftItem(body.newGift, db);
+      giftItemId = gift.id;
+    } else {
+      // The Zod refinement above guarantees giftItemId is set when newGift is not.
+      if (!body.giftItemId) {
+        throw badRequest("giftItemId is required when newGift is not provided");
+      }
+
+      // Validate gift item exists and is not retired
+      const { rows: itemRows } = await db.query<{
+        id: string;
+        name: string;
+        is_retired: boolean;
+      }>(
+        `SELECT id, name, is_retired FROM gift_items WHERE id = $1 LIMIT 1`,
+        [body.giftItemId]
+      );
+
+      if (!itemRows[0]) {
+        throw badRequest(`Gift item ${body.giftItemId} does not exist`);
+      }
+      if (itemRows[0].is_retired) {
+        throw badRequest("Cannot schedule a drop for a retired gift item");
+      }
+      giftItemId = itemRows[0].id;
     }
 
     // Check for overlapping active drops
@@ -162,7 +198,7 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
     }
 
     const drop: MonthlyGiftDrop = await scheduleMonthlyGiftDrop(
-      body.giftItemId,
+      giftItemId,
       startAt,
       db
     );

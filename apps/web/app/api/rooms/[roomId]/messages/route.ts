@@ -98,6 +98,8 @@ interface Message {
   isPinned?: boolean;
   pinnedAt?: string | null;
   pinExpiresAt?: string | null;
+  /** Rewarded Gifts (migration 0026): label of the sender's active reward grant in this room, if any. */
+  senderRewardLabel?: string | null;
 }
 
 function rowToMessage(row: MessageRow): Message {
@@ -120,6 +122,7 @@ function rowToMessage(row: MessageRow): Message {
     isPinned: row.is_pinned && (!row.pin_expires_at || new Date(row.pin_expires_at) > new Date()),
     pinnedAt: row.pinned_at ?? null,
     pinExpiresAt: row.pin_expires_at ?? null,
+    senderRewardLabel: row.sender_reward_label ?? null,
   };
 }
 
@@ -143,6 +146,7 @@ interface MessageRow {
   is_pinned: boolean;
   pinned_at: string | null;
   pin_expires_at: string | null;
+  sender_reward_label: string | null;
 }
 
 interface MemberRow {
@@ -340,9 +344,18 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          COALESCE(m.is_pinned AND (m.pin_expires_at IS NULL OR m.pin_expires_at > NOW()), false) AS is_pinned,
          m.pinned_at,
          m.pin_expires_at,
-         m.created_at
+         m.created_at,
+         rg.label AS sender_reward_label
        FROM room_messages m
        JOIN users u ON u.id = m.sender_id
+       LEFT JOIN LATERAL (
+         SELECT label FROM gift_reward_grants
+         WHERE context_type = 'room' AND context_id = m.room_id AND sender_id = m.sender_id
+           AND benefit_type IN ('sender_badge', 'room_privilege')
+           AND revoked_at IS NULL AND (expires_at IS NULL OR expires_at > NOW())
+         ORDER BY created_at DESC
+         LIMIT 1
+       ) rg ON TRUE
        WHERE ${conditions.join(" AND ")}
        ORDER BY ${orderClause}
        LIMIT $${limitParam}`,
