@@ -26,8 +26,9 @@ import { z } from "zod";
 import { db, SqlParam } from "@/lib/db";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
-import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
+import { isCaptchaSurfaceEnabled, verifyCaptcha } from "@/lib/security/captcha";
 import { resolveRoomCap } from "@/lib/rooms/capacity";
 import { getRoomPresenceCount } from "@/lib/presence/room";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
@@ -116,6 +117,7 @@ const createRoomSchema = z.object({
    * they own/administer, resolved server-side.
    */
   guildId: z.string().uuid().optional(),
+  captchaToken: z.string().max(4000).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -431,6 +433,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const body = await validateBody(req, createRoomSchema);
+
+    if (await isCaptchaSurfaceEnabled("create_room")) {
+      const ip = getClientIp(req);
+      if (!body.captchaToken || !(await verifyCaptcha(body.captchaToken, ip, "create_room"))) {
+        throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
+      }
+    }
 
     // Verify creator eligibility. is_admin is re-checked against the database
     // (never trusted from the JWT alone) since it grants a bypass of every

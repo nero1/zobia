@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { isAxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { useCaptchaWidget } from '@/lib/hooks/useCaptchaWidget';
 import { env } from '@/lib/env';
 
 interface Author {
@@ -180,9 +181,20 @@ function QuestionDetailPage() {
     },
   });
 
+  // A new top-level answer and a reply to an existing answer are distinct
+  // admin-toggleable surfaces sharing this one endpoint (see the matching
+  // comment on the web page + API route) — each gets its own widget/token.
+  const { enabled: answerCaptchaEnabled, getToken: getAnswerCaptchaToken, WidgetSlot: AnswerWidgetSlot } = useCaptchaWidget('submit_answer');
+  const { enabled: replyCaptchaEnabled, getToken: getReplyCaptchaToken, WidgetSlot: ReplyWidgetSlot } = useCaptchaWidget('reply_answer_comment');
+
   const submitAnswer = useMutation({
-    mutationFn: ({ body, parentAnswerId, payBypass }: { body: string; parentAnswerId: string | null; payBypass?: boolean }) =>
-      apiClient.post('/answers/questions/' + questionId + '/answers', { body, parentAnswerId, payBypass }),
+    mutationFn: async ({ body, parentAnswerId, payBypass }: { body: string; parentAnswerId: string | null; payBypass?: boolean }) => {
+      const isReply = parentAnswerId !== null;
+      const captchaEnabled = isReply ? replyCaptchaEnabled : answerCaptchaEnabled;
+      const captchaToken = isReply ? await getReplyCaptchaToken() : await getAnswerCaptchaToken();
+      if (captchaEnabled && !captchaToken) throw new Error('captcha_incomplete');
+      return apiClient.post('/answers/questions/' + questionId + '/answers', { body, parentAnswerId, payBypass, captchaToken: captchaToken ?? undefined });
+    },
     onSuccess: () => {
       setNewAnswerBody('');
       setReplyBody('');
@@ -255,6 +267,7 @@ function QuestionDetailPage() {
                 placeholder={t('answers.replyPlaceholder')}
                 className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
               />
+              <ReplyWidgetSlot />
               <div className="flex gap-2">
                 <button onClick={() => setReplyingTo(null)} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-600">{t('answers.ask.cancel')}</button>
                 <button
@@ -332,6 +345,7 @@ function QuestionDetailPage() {
             placeholder={t('answers.answerPlaceholder')}
             className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           />
+          <AnswerWidgetSlot />
           <div className="mt-2 flex justify-end">
             <button
               disabled={!newAnswerBody.trim() || submitAnswer.isPending}

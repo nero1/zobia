@@ -9,6 +9,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useCaptchaWidget } from '@/lib/hooks/useCaptchaWidget';
 
 function NewBlogPage() {
   const { t } = useTranslation();
@@ -17,12 +18,17 @@ function NewBlogPage() {
   const [title, setTitle] = useState('');
   const [tagline, setTagline] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const { enabled: captchaEnabled, getToken: getCaptchaToken, WidgetSlot } = useCaptchaWidget('create_blog');
 
   const createBlog = useMutation({
     // apiClient's response interceptor already unwraps { success, data, error }
     // down to `data`, so `res.data` IS { id, slug } already — `res.data.data.slug`
     // was always undefined and crashed the success handler after creating the blog.
-    mutationFn: () => apiClient.post<{ slug: string }>('/blogs', { title, tagline: tagline || undefined }),
+    mutationFn: async () => {
+      const captchaToken = await getCaptchaToken();
+      if (captchaEnabled && !captchaToken) throw new Error('captcha_incomplete');
+      return apiClient.post<{ slug: string }>('/blogs', { title, tagline: tagline || undefined, captchaToken: captchaToken ?? undefined });
+    },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['blogs', 'me'] });
       navigate({ to: '/blogs/$slug', params: { slug: res.data.slug } });
@@ -48,6 +54,7 @@ function NewBlogPage() {
           placeholder={t('blogs.new.taglineLabel', 'Tagline (optional)')}
           className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
         />
+        <WidgetSlot />
         {error && <p className="text-sm text-red-600">{error}</p>}
         <button
           disabled={!title.trim() || createBlog.isPending}

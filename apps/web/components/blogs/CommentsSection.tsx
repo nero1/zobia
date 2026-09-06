@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { RewardBadge } from "@/components/shared/UserBadges";
+import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
 
 interface CommentRow {
   id: string;
@@ -35,6 +36,8 @@ export function CommentsSection({ blogSlug, postSlug, commentsEnabled }: { blogS
   const [text, setText] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
+  const { enabled: captchaEnabled, getToken: getCaptchaToken, WidgetSlot, ScriptTags } =
+    useCaptchaWidget("blog_comments", !commentsEnabled);
 
   useEffect(() => {
     if (!commentsEnabled) { setLoading(false); return; }
@@ -50,11 +53,15 @@ export function CommentsSection({ blogSlug, postSlug, commentsEnabled }: { blogS
     setSubmitting(true);
     setNotice(null);
     try {
+      const captchaToken = await getCaptchaToken();
+      if (captchaEnabled && !captchaToken) {
+        throw new Error(t("blogs.post.captchaIncomplete", "Please complete the verification widget."));
+      }
       const res = await fetch(`/api/blogs/${blogSlug}/posts/${postSlug}/comments`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: text.trim() }),
+        body: JSON.stringify({ body: text.trim(), captchaToken: captchaToken ?? undefined }),
       });
       if (res.status === 401) { router.push("/auth/login"); return; }
       const json = await res.json();
@@ -87,6 +94,7 @@ export function CommentsSection({ blogSlug, postSlug, commentsEnabled }: { blogS
           placeholder={t("blogs.post.commentPlaceholder", "Add a comment…")}
           className="w-full rounded-xl border border-border bg-card px-4 py-2.5 text-sm text-foreground focus:border-primary focus:outline-none focus:ring-1 focus:ring-primary"
         />
+        <WidgetSlot />
         <div className="flex items-center justify-between">
           {notice && <span className="text-xs text-muted-foreground">{notice}</span>}
           <button
@@ -98,6 +106,7 @@ export function CommentsSection({ blogSlug, postSlug, commentsEnabled }: { blogS
             {submitting ? t("blogs.post.posting", "Posting…") : t("blogs.post.postComment", "Post")}
           </button>
         </div>
+        <ScriptTags />
       </div>
 
       {loading ? (

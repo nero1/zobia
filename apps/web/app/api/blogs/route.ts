@@ -17,10 +17,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
-import { handleApiError } from "@/lib/api/errors";
-import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { handleApiError, badRequest } from "@/lib/api/errors";
+import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { listBlogs } from "@/lib/blogs/repo";
 import { createBlog } from "@/lib/blogs/service";
+import { isCaptchaSurfaceEnabled, verifyCaptcha } from "@/lib/security/captcha";
 
 const listQuerySchema = z.object({
   tab: z.enum(["popular", "trending", "new", "random", "subscribed"]).default("popular"),
@@ -37,6 +38,7 @@ const createBlogSchema = z.object({
   businessAccountId: z.string().uuid().optional(),
   /** Currency to pay with if this blog is beyond the scope's included quota. Defaults to the first admin-accepted currency. */
   paymentCurrency: z.enum(["credits", "stars"]).optional(),
+  captchaToken: z.string().max(4000).optional(),
 });
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
@@ -54,6 +56,14 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.blogWrite);
     const body = await validateBody(req, createBlogSchema);
+
+    if (await isCaptchaSurfaceEnabled("create_blog")) {
+      const ip = getClientIp(req);
+      if (!body.captchaToken || !(await verifyCaptcha(body.captchaToken, ip, "create_blog"))) {
+        throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
+      }
+    }
+
     const result = await createBlog({
       userId: auth.user.sub,
       title: body.title,

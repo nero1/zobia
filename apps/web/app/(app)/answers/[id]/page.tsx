@@ -17,6 +17,7 @@ import { Avatar } from "@/components/ui/Avatar";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { QuestionMiniList, type QuestionMiniListItem } from "@/components/answers/QuestionMiniList";
+import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -118,6 +119,23 @@ export default function QuestionDetailPage() {
   const [reportTarget, setReportTarget] = useState<{ type: "question" | "answer"; id: string } | null>(null);
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+
+  // Two distinct surfaces share this one composer/endpoint — a new top-level
+  // answer uses "submit_answer", a reply to an existing answer uses
+  // "reply_answer_comment" — so each gets its own admin toggle and its own
+  // reCAPTCHA v3 `action` (matched server-side against parentAnswerId).
+  const {
+    enabled: answerCaptchaEnabled,
+    getToken: getAnswerCaptchaToken,
+    WidgetSlot: AnswerWidgetSlot,
+    ScriptTags: AnswerScriptTags,
+  } = useCaptchaWidget("submit_answer");
+  const {
+    enabled: replyCaptchaEnabled,
+    getToken: getReplyCaptchaToken,
+    WidgetSlot: ReplyWidgetSlot,
+    ScriptTags: ReplyScriptTags,
+  } = useCaptchaWidget("reply_answer_comment");
 
   const fetchQuestion = useCallback(async () => {
     const res = await fetch(`/api/answers/questions/${questionId}`, { credentials: "include" });
@@ -254,11 +272,19 @@ export default function QuestionDetailPage() {
   async function submitAnswer(body: string, parentAnswerId: string | null, payBypass = false) {
     setSubmitting(true);
     try {
+      const isReply = parentAnswerId !== null;
+      const captchaEnabled = isReply ? replyCaptchaEnabled : answerCaptchaEnabled;
+      const captchaToken = isReply ? await getReplyCaptchaToken() : await getAnswerCaptchaToken();
+      if (captchaEnabled && !captchaToken) {
+        setError(t("answers.captchaIncomplete", "Please complete the verification widget."));
+        setSubmitting(false);
+        return;
+      }
       const res = await fetch(`/api/answers/questions/${questionId}/answers`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body, parentAnswerId, payBypass }),
+        body: JSON.stringify({ body, parentAnswerId, payBypass, captchaToken: captchaToken ?? undefined }),
       });
       if (res.status === 401) { router.push("/auth/login"); return; }
       if (!res.ok) {
@@ -383,6 +409,7 @@ export default function QuestionDetailPage() {
                 placeholder={t("answers.replyPlaceholder", "Write a reply…")}
                 className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
               />
+              <ReplyWidgetSlot />
               <div className="flex gap-2">
                 <button onClick={() => setReplyingTo(null)} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800">
                   {t("answers.ask.cancel", "Cancel")}
@@ -395,6 +422,7 @@ export default function QuestionDetailPage() {
                   {t("answers.postReply", "Post Reply")}
                 </button>
               </div>
+              <ReplyScriptTags />
             </div>
           )}
         </div>
@@ -487,6 +515,7 @@ export default function QuestionDetailPage() {
                   placeholder={t("answers.answerPlaceholder", "Write an answer…")}
                   className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 />
+                <AnswerWidgetSlot />
                 <div className="mt-2 flex justify-end gap-2">
                   <button
                     onClick={() => { setAnswerFormExpanded(false); setNewAnswerBody(""); }}
@@ -502,6 +531,7 @@ export default function QuestionDetailPage() {
                     {submitting ? t("answers.ask.posting", "Posting…") : t("answers.postAnswer", "Post Answer")}
                   </button>
                 </div>
+                <AnswerScriptTags />
               </div>
             )
           )}

@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useForumConfig } from "@/lib/hooks/useForumConfig";
+import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
 
 const MAX_TITLE = 200;
 const MAX_BODY = 5000;
@@ -36,6 +37,8 @@ export default function AskQuestionPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [levelTooLow, setLevelTooLow] = useState<{ minLevel: number; currentLevel: number } | null>(null);
+  const { enabled: captchaEnabled, getToken: getCaptchaToken, WidgetSlot, ScriptTags } =
+    useCaptchaWidget("create_question");
 
   useEffect(() => {
     fetch("/api/answers/categories", { credentials: "include" })
@@ -50,11 +53,17 @@ export default function AskQuestionPage() {
     setSubmitting(true);
     setError(null);
     try {
+      const captchaToken = await getCaptchaToken();
+      if (captchaEnabled && !captchaToken) {
+        setError(t("answers.ask.captchaIncomplete", "Please complete the verification widget."));
+        setSubmitting(false);
+        return;
+      }
       const res = await fetch("/api/answers/questions", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: title.trim(), body: body.trim(), categoryId: categoryId || undefined }),
+        body: JSON.stringify({ title: title.trim(), body: body.trim(), categoryId: categoryId || undefined, captchaToken: captchaToken ?? undefined }),
       });
       if (res.status === 401) { router.push("/auth/login"); return; }
       if (!res.ok) {
@@ -164,6 +173,8 @@ export default function AskQuestionPage() {
           </div>
         </div>
 
+        <WidgetSlot />
+
         <div className="flex gap-3">
           <Link href="/answers" className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-center text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800">
             {t("answers.ask.cancel", "Cancel")}
@@ -176,6 +187,7 @@ export default function AskQuestionPage() {
             {submitting ? t("answers.ask.posting", "Posting…") : t("answers.ask.post", "Post Question")}
           </button>
         </div>
+        <ScriptTags />
       </form>
     </div>
   );

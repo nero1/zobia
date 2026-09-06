@@ -59,3 +59,32 @@ export async function submitSiteContactMessage(
 
   return { id: rows[0].id };
 }
+
+// ---------------------------------------------------------------------------
+// Admin inbox — /gate44/contact-messages
+// ---------------------------------------------------------------------------
+
+export interface SiteContactMessageRow {
+  id: string;
+  sender_name: string | null;
+  sender_email: string | null;
+  sender_username: string | null;
+  subject: string | null;
+  message: string;
+  is_read: boolean;
+  created_at: string;
+}
+
+/** Platform-level inbox — every admin can read it, mirroring lib/blogs/service.ts's listContactMessages shape (no per-owner scoping needed here). */
+export async function listSiteContactMessages(): Promise<SiteContactMessageRow[]> {
+  const { rows } = await db.query<SiteContactMessageRow>(
+    `SELECT m.id, m.sender_name, m.sender_email, u.username AS sender_username, m.subject, m.message, m.is_read, m.created_at
+     FROM site_contact_messages m LEFT JOIN users u ON u.id = m.sender_user_id
+     ORDER BY m.created_at DESC LIMIT 200`
+  );
+  return rows;
+}
+
+export async function markSiteContactMessageRead(messageId: string): Promise<void> {
+  await db.query(`UPDATE site_contact_messages SET is_read = TRUE WHERE id = $1`, [messageId]);
+}
