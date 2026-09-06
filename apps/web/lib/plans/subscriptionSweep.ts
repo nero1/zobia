@@ -120,17 +120,19 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
   }
 
   // -------------------------------------------------------------------
-  // Business: active -> grace (mirrors the personal flow above, keyed off
-  // business_accounts.subscription_id once that linkage is populated).
+  // Business: active -> grace, keyed off business_accounts.current_period_ends_at
+  // (0028_business_period_tracking.sql — a business owner's checkout is a
+  // one-off charge, so this is tracked directly on business_accounts rather
+  // than the personal `subscriptions` table, which is unique-per-user and
+  // would collide with a business owner's own personal plan row).
   // -------------------------------------------------------------------
   for (const tier of BUSINESS_GRACE_TIERS) {
     const days = await getGracePeriodDays("business", tier);
     const { rowCount } = await db.query(
-      `UPDATE business_accounts ba
+      `UPDATE business_accounts
        SET status = 'grace', grace_period_ends_at = NOW() + ($1 || ' days')::interval, updated_at = NOW()
-       FROM subscriptions s
-       WHERE ba.subscription_id = s.id AND ba.tier = $2 AND ba.status = 'active'
-         AND s.status = 'active' AND s.ends_at < NOW()`,
+       WHERE tier = $2 AND status = 'active'
+         AND current_period_ends_at IS NOT NULL AND current_period_ends_at < NOW()`,
       [String(days), tier]
     );
     result.businessLapsedToGrace += rowCount ?? 0;

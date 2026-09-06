@@ -9,8 +9,9 @@ export const dynamic = 'force-dynamic';
  *   Get the caller's business account.
  *
  * POST /api/business
- *   Initiate a Business Starter account purchase (PRD §17 — Business Starter
- *   is a paid tier, admin-configurable price, default ₦5,000/month). Returns
+ *   Initiate a Business account purchase on the caller's chosen tier (PRD
+ *   §17 — starter/growth/enterprise are all paid tiers, admin-configurable
+ *   price, defaulting to starter when no tier is given). Returns
  *   { paymentUrl } — the client redirects to checkout. The business_accounts
  *   row is only created once the payment webhook fires (see
  *   lib/payments/paystackWebhookHandler.ts / dodoWebhookHandler.ts,
@@ -25,18 +26,16 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
+import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, conflict, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { initializePayment as paystackInit } from "@/lib/payments/paystack";
 import { createPaymentSession as dodoCreateSession } from "@/lib/payments/dodopayments";
+import { getBusinessTierPriceKobo } from "@/lib/business/limits";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/** Default Business Starter price in kobo (admin can override via x_manifest). PRD §17. */
-const DEFAULT_STARTER_PRICE_KOBO = 500_000; // ₦5,000
 
 /**
  * How long a pending business-signup payment session is considered "still in
@@ -55,6 +54,8 @@ const createBusinessSchema = z.object({
   business_name: z.string().min(2).max(120),
   business_type: z.string().max(80).optional(),
   paymentProvider: z.enum(["paystack", "dodopayments"]).optional(),
+  /** Tier to sign up on directly (PRD §17 — all three tiers are choosable at signup, not just Starter). */
+  tier: z.enum(["starter", "growth", "enterprise"]).optional().default("starter"),
 });
 
 const updateBusinessSchema = z.object({
@@ -81,6 +82,7 @@ interface BusinessAccountRow {
   subscription_id: string | null;
   downgrade_to_tier: string | null;
   downgrade_effective_at: string | null;
+  current_period_ends_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -88,7 +90,7 @@ interface BusinessAccountRow {
 const BUSINESS_SELECT_COLUMNS = `id, user_id, business_name, business_type, tier, verified, status,
               verification_status, verification_requested_at, verification_reviewed_at,
               verification_reject_reason, subscription_id, downgrade_to_tier, downgrade_effective_at,
-              created_at, updated_at`;
+              current_period_ends_at, created_at, updated_at`;
 
 // ---------------------------------------------------------------------------
 // GET /api/business
@@ -146,17 +148,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     if (!userRows[0]) throw notFound("User not found");
     const userEmail = userRows[0].email ?? `${userRows[0].username}@zobia.placeholder`;
 
-    // Resolve Business Starter price from x_manifest (admin-configurable)
-    let priceKobo = DEFAULT_STARTER_PRICE_KOBO;
-    try {
-      const manifest = await loadManifest();
-      const manifestPrice = (manifest as unknown as Record<string, unknown>)["business_starter_price_kobo"];
-      if (typeof manifestPrice === "number" && manifestPrice > 0) {
-        priceKobo = manifestPrice;
-      }
-    } catch {
-      // Fall back to default
-    }
+    // Resolve the chosen tier's price from x_manifest (admin-configurable)
+    const tier = body.tier ?? "starter";
+    const priceKobo = await getBusinessTierPriceKobo(tier);
 
     if (priceKobo <= 0) {
       throw badRequest("Invalid tier price configuration");
@@ -169,6 +163,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       userId,
       businessName: body.business_name,
       businessType: body.business_type ?? null,
+      tier,
       type: "business_signup",
       itemType: "business_signup",
     };
@@ -199,20 +194,32 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       [userId, priceKobo, provider, reference, JSON.stringify(metadata)]
     );
     if (!reservedRows[0]) {
+      const { rows: pendingRows } = await db.query<{ created_at: string }>(
+        `SELECT created_at FROM payments
+         WHERE user_id = $1 AND payment_type = 'business_upgrade' AND status = 'pending'
+           AND metadata->>'itemType' = 'business_signup'
+           AND created_at > NOW() - INTERVAL '${PENDING_PAYMENT_TTL_MINUTES} minutes'
+         ORDER BY created_at DESC LIMIT 1`,
+        [userId]
+      );
+      const expiresAt = pendingRows[0]
+        ? new Date(new Date(pendingRows[0].created_at).getTime() + PENDING_PAYMENT_TTL_MINUTES * 60_000).toISOString()
+        : null;
       throw conflict(
-        "You already have a business account signup payment in progress. Complete or wait for it to expire before starting a new one.",
-        "SIGNUP_ALREADY_PENDING"
+        `You already have a business account signup payment in progress. Complete it, cancel it, or wait for it to expire (expires after ${PENDING_PAYMENT_TTL_MINUTES} minutes) before starting a new one.`,
+        "SIGNUP_ALREADY_PENDING",
+        { expiresAt, ttlMinutes: PENDING_PAYMENT_TTL_MINUTES }
       );
     }
 
     let paymentUrl: string;
     let providerReference: string = reference;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
     if (provider === "paystack") {
-      const ps = await paystackInit(priceKobo, userEmail, reference, metadata);
+      const ps = await paystackInit(priceKobo, userEmail, reference, metadata, `${appUrl}/settings/business/callback`);
       paymentUrl = ps.authorization_url;
       providerReference = ps.reference ?? reference;
     } else {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
       const dd = await dodoCreateSession(priceKobo, "NGN", `${appUrl}/settings/business?created=1`, {
         ...metadata,
         reference,
@@ -236,9 +243,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         data: {
           paymentUrl,
           reference,
-          tier: "starter",
+          tier,
           priceKobo,
-          message: "Complete payment to activate your business account",
+          message: `Complete payment to activate your ${tier} business account`,
         },
         error: null,
       },

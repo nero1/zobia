@@ -38,10 +38,9 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { loadManifest } from "@/lib/manifest";
 import { initializePayment as paystackInit } from "@/lib/payments/paystack";
 import { createPaymentSession as dodoCreateSession } from "@/lib/payments/dodopayments";
-import { getBusinessDowngradeGraceDays } from "@/lib/business/limits";
+import { getBusinessDowngradeGraceDays, getBusinessTierPriceKobo } from "@/lib/business/limits";
 import { requireFeatureEnabled } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
@@ -52,12 +51,6 @@ const TIER_ORDER: Record<string, number> = {
   starter: 1,
   growth: 2,
   enterprise: 3,
-};
-
-/** Default tier prices in kobo (admin can override via x_manifest). */
-const DEFAULT_TIER_PRICE_KOBO: Record<string, number> = {
-  growth: 1_500_000,     // ₦15,000
-  enterprise: 5_000_000, // ₦50,000
 };
 
 /**
@@ -159,8 +152,8 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     // webhook's activation UPDATE (keyed on the now-stale ref) matches zero
     // rows and the tier is never actually activated.
     if (rows[0].pending_tier && rows[0].pending_payment_ref) {
-      const { rows: pendingPaymentRows } = await db.query<{ id: string }>(
-        `SELECT id FROM payments
+      const { rows: pendingPaymentRows } = await db.query<{ id: string; created_at: string }>(
+        `SELECT id, created_at FROM payments
          WHERE idempotency_key = $1
            AND status = 'pending'
            AND created_at > NOW() - INTERVAL '${PENDING_PAYMENT_TTL_MINUTES} minutes'
@@ -168,25 +161,19 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
         [rows[0].pending_payment_ref]
       );
       if (pendingPaymentRows[0]) {
+        const expiresAt = new Date(
+          new Date(pendingPaymentRows[0].created_at).getTime() + PENDING_PAYMENT_TTL_MINUTES * 60_000
+        ).toISOString();
         throw conflict(
-          "You already have a business upgrade payment in progress. Complete or wait for it to expire before starting a new one.",
-          "UPGRADE_ALREADY_PENDING"
+          `You already have a business upgrade payment in progress. Complete it, cancel it, or wait for it to expire (expires after ${PENDING_PAYMENT_TTL_MINUTES} minutes) before starting a new one.`,
+          "UPGRADE_ALREADY_PENDING",
+          { expiresAt, ttlMinutes: PENDING_PAYMENT_TTL_MINUTES }
         );
       }
     }
 
     // Resolve tier price from x_manifest (admin-configurable)
-    let priceKobo = DEFAULT_TIER_PRICE_KOBO[newTier] ?? 0;
-    try {
-      const manifest = await loadManifest();
-      const manifestKey = `business_${newTier}_price_kobo` as keyof typeof manifest;
-      const manifestPrice = (manifest as unknown as Record<string, unknown>)[manifestKey];
-      if (typeof manifestPrice === "number" && manifestPrice > 0) {
-        priceKobo = manifestPrice;
-      }
-    } catch {
-      // Fall back to defaults
-    }
+    const priceKobo = await getBusinessTierPriceKobo(newTier);
 
     if (priceKobo <= 0) {
       throw badRequest("Invalid tier price configuration");
@@ -211,18 +198,24 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     // Initiate payment
     let paymentUrl: string;
     let providerReference: string = reference;
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
     if (provider === "paystack") {
-      const ps = await paystackInit(priceKobo, userEmail, reference, {
-        userId,
-        type: "business_upgrade",
-        businessAccountId: rows[0].id,
-        newTier,
-        itemType: "business_upgrade",
-      });
+      const ps = await paystackInit(
+        priceKobo,
+        userEmail,
+        reference,
+        {
+          userId,
+          type: "business_upgrade",
+          businessAccountId: rows[0].id,
+          newTier,
+          itemType: "business_upgrade",
+        },
+        `${appUrl}/settings/business/callback`
+      );
       paymentUrl = ps.authorization_url;
       providerReference = ps.reference ?? reference;
     } else {
-      const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
       const dd = await dodoCreateSession(priceKobo, "NGN", `${appUrl}/settings/business?upgraded=1`, {
         userId,
         type: "business_upgrade",
