@@ -717,6 +717,12 @@ A Guild is a persistent team of up to 50 users who share a collective identity, 
 
 Creating a Guild costs 500 Credits. The founding user becomes the Guild Captain. They choose a Guild name, crest emoji, description (max 150 characters), city affiliation, and recruitment settings (open, approval required, or invite-only).
 
+To create a Guild, a user must also: hold account rank level 4 (Baller) or above — admin-configurable via the `guilds.minLevelToCreate` manifest key, default 4 — and meet the minimum trust-score gate (30+, same mechanism used for Classroom creation). Both requirements are visible to every user before they attempt to create a Guild: the Guilds page shows a Create Guild button to everyone, and if the viewer doesn't yet qualify, it explains exactly which requirement (level, trust score, or Credit balance) they're short on rather than hiding the button outright.
+
+### Guild Discovery & Access
+
+The Guilds menu is visible to every user, not just Guild members — Browse Guilds (`/guilds`) is an open directory anyone can search, independent of whether they belong to a Guild.
+
 ### Guild Roles
 
 **Captain** — Full admin rights: treasury control, war declaration, member management, role assignment. One Captain per Guild.
@@ -736,6 +742,20 @@ Creating a Guild costs 500 Credits. The founding user becomes the Guild Captain.
 | Gold I–III | 80,000–200,000 | 15–20 | +20% | Sponsor Quest eligibility, Treasury coin vault (50,000 coin cap) |
 | Platinum I–III | 200,000–500,000 | 20–25 | +30% | Alliance System, Private Guild Room, national leaderboard rank |
 | Legend | 500,000+ | 25+ (all Baller+ rank) | +50% | RIZE co-marketing, custom animated crest, Guild Room revenue share (5%) |
+
+### Guild Administration
+
+Site admins (and, for the same scope, moderators) can fully administer any Guild from `/gate44/guilds` (Capacitor app: `/admin/guilds`):
+
+- **Disable / Enable** — toggles a Guild's `is_active` flag, an indefinite reversible on/off switch.
+- **Suspend / Unsuspend** — a temporary, reason-tracked state (who suspended it, when, and why), distinct from disable.
+- **Ban / Unban** — a permanent moderation action (admin-only).
+- **Edit details** — name, crest, description, city/country, recruitment type.
+- **Transfer Captaincy** — reassign the Captain role to any other member; the previous Captain is demoted to Veteran (admin-only — this is the only way to change a Guild's Captain outside of the Captain doing it themselves, since there is no self-service "transfer ownership" flow yet).
+- **Remove any member** — including the current Captain (removing the Captain requires a captaincy transfer first). This is a deliberate admin/mod override of the normal rule that Guild member removal is always a Captain's own decision — admins and mods bypass creator-level rules here the same way they already bypass Guild-tier gates elsewhere.
+- **Delete** — soft-deletes the Guild and releases all members back to guildless (admin-only).
+
+All destructive/identity-changing actions (ban, unban, admin notes, captaincy transfer) require full admin; moderators can disable/enable, suspend/unsuspend, edit details, and remove members.
 
 Guild XP does not decay. The only way to lose tier is dropping below minimum member count for 7 consecutive days without recovery.
 

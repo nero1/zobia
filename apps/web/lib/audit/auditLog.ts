@@ -30,7 +30,16 @@ export type AuditAction =
   | "account_reactivated"
   // Read-path admin access auditing (BUG-45)
   | "financial_read"
-  | "user_profile_read";
+  | "user_profile_read"
+  // Admin guild management (/gate44/guilds)
+  | "admin_suspend_guild"
+  | "admin_unsuspend_guild"
+  | "admin_ban_guild"
+  | "admin_disable_guild"
+  | "admin_enable_guild"
+  | "admin_delete_guild"
+  | "admin_transfer_guild_captain"
+  | "admin_remove_guild_member";
 
 export interface AuditLogParams {
   actorId?: string | null;

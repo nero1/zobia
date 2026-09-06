@@ -371,6 +371,14 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    > `db/migrations/0006_ads.sql` (picked up automatically by `npm run
    > migrate`, or `psql "$DIRECT_URL" < db/migrations/0006_ads.sql`).
 
+   > **Guild admin moderation columns (v2.xx):** the `/gate44/guilds` admin
+   > panel's suspend/ban state (`guilds.is_suspended`, `suspended_at`,
+   > `suspended_by`, `suspension_reason`, `is_banned`, `banned_at`,
+   > `banned_by`, `admin_notes`) ships in
+   > `db/migrations/0031_guild_admin_moderation.sql` (picked up automatically
+   > by `npm run migrate`, or
+   > `psql "$DIRECT_URL" < db/migrations/0031_guild_admin_moderation.sql`).
+
 ### Option B: Railway PostgreSQL
 
 1. Go to [railway.app](https://railway.app) and create a new project.

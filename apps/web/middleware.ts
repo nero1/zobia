@@ -197,8 +197,10 @@ const ADMIN_PREFIXES = ["/gate44"];
  * /gate44/* page still requires is_admin. Per-page/action authorization is
  * still re-verified against the DATABASE by the API layer
  * (withModeratorOrAdminAuth) — this is only the cheap edge pre-filter.
+ * Name is legacy ("forum") but this list is no longer forum-specific —
+ * /gate44/guilds was added so mods can administer guilds too.
  */
-const FORUM_MOD_PREFIXES = ["/gate44/answers", "/gate44/forum"];
+const FORUM_MOD_PREFIXES = ["/gate44/answers", "/gate44/forum", "/gate44/guilds"];
 
 // ---------------------------------------------------------------------------
 // Helpers
