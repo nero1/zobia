@@ -4426,6 +4426,147 @@ any fresh database. Added slugs (`welcome-to-zobia`, `lagos-vibes`,
 
 ---
 
+## 33. Old-School Forum — Boards & Threads (v2.16)
+
+A classic bulletin-board/SMF/vBulletin-style forum: boards → sub-boards →
+threads → posts, distinct from **Answers** (§31, the Reddit-style Q&A mini
+forum). Home page is `/forum`; individual threads get short, SEO-friendly
+canonical URLs at `/f/<thread-title-slug>`. Reuses the platform's existing
+economy, progression, moderation, storage, and admin infrastructure rather
+than introducing a parallel system — mirrors Answers' own architecture
+(`lib/bbforum/*` mirrors `lib/forum/*`) wherever the two features share a
+concept.
+
+### 33.1 Structure & navigation
+
+- **Boards** (`bb_boards`) can nest one level deep (a board with sub-boards).
+  Each board tracks a denormalized `thread_count`/`post_count`/`last_post_at`
+  for fast list rendering — no COUNT(*) queries on the hot path.
+- **Threads** (`bb_threads`) belong to one board, and **posts** (`bb_posts`)
+  belong to one thread; the thread's first post is flagged `is_op = true`.
+- Public routes: `/forum` (board list), `/forum/<board-slug>` (thread list),
+  `/f/<thread-slug>` (canonical thread page — SSR, crawlable, `DiscussionForumPosting`
+  JSON-LD, listed in `app/sitemap.ts`). Admin: `/gate44/forum` (boards),
+  `/gate44/forum/queue` (moderation), `/gate44/forum/settings`.
+
+### 33.2 Who can post
+
+- Site admin sets one minimum account level (main rank number) required to
+  **both** start a thread and post a reply — `x_manifest.bbforum_min_level_to_post`
+  (default **Level 2**), editable at `/gate44/forum/settings` and
+  `/gate44/config`. Unlike Answers, there is no separate lower "comment"
+  level or pay-to-bypass tier — posting and replying share one gate.
+
+### 33.3 Post editor — plain text or Markdown
+
+- The composer has two tabs, **Plain Text** and **Markdown** — the choice is
+  stored per-post as `content_format` so replies within one thread can mix
+  formats freely.
+  - **Plain text** is rendered as-is: line breaks are preserved, paragraph
+    (blank-line) spacing is preserved, but runs of 2+ consecutive blank
+    lines collapse to a single paragraph break.
+  - **Markdown** is parsed and sanitized the same way as blog posts.
+- Both formats are rendered server-side via
+  `lib/security/htmlSanitizer.sanitizeForumPostContent(body, format)` (a thin
+  dispatcher over the existing `plainTextToBlogPostHtml`/`sanitizeBlogPostHtml`
+  functions — no new sanitizer surface). The raw source is what's stored in
+  `bb_posts.body`/the thread's OP post, so editing re-opens the original
+  source rather than a lossy rendered copy.
+
+### 33.4 Images
+
+- A thread or post may carry one optional image, uploaded via
+  `POST /api/forum/uploads/image` (reuses `lib/storage` + `lib/storage/compress`'s
+  `message` compression profile — no new storage/CDN plumbing).
+- Attaching an image costs an admin-configured amount of **Credits and/or
+  Stars** (`bbforum_image_cost_credits` / `bbforum_image_cost_stars`, both
+  default 0/free), charged atomically with the thread/post write so a
+  charge can never succeed without the content being saved (or vice versa).
+
+### 33.5 Quote system
+
+- Any post can be quoted into a reply (`bb_posts.quoted_post_id`) — the
+  reply composer shows a "Quoting <author>" preview banner with a snippet of
+  the original, and the rendered reply shows the same preview above the new
+  content, mirroring the familiar vBulletin/SMF quote block.
+
+### 33.6 Reactions
+
+- One emoji reaction per user per post (👍 ❤️ 😂 🎉 🤔), toggled on/off —
+  posting the same emoji again removes it, posting a different one switches
+  it. Tracked in `bb_post_reactions` with a denormalized `reaction_count` on
+  the post for fast rendering.
+
+### 33.7 XP & Credit rewards
+
+- Starting a thread or posting a reply awards admin-configured XP and
+  Credits (`bbforum_reward_xp_per_thread` / `bbforum_reward_credits_per_thread`
+  / `bbforum_reward_xp_per_reply` / `bbforum_reward_credits_per_reply`) —
+  **default 1 XP / 0 Credits** for both actions. Rewards are awarded
+  best-effort *after* the write transaction commits (`safeAwardXPFireAndForget`
+  + a daily-capped `creditCoins` call, `bbforum_daily_reward_cap_credits`,
+  default 50/24h) — identical anti-farming discipline to Answers (§31).
+
+### 33.8 Reply pot / treasury
+
+- A thread's original poster can optionally fund a **reply pot**: a fixed
+  Credits amount paid to each of the first *N* people who reply (configured
+  at thread-creation time as "pay X Credits to the first N repliers"). The
+  full pot (`X × N`) is debited from the OP's Credit balance atomically with
+  thread creation — funding a pot you can't afford is rejected up front.
+- Each qualifying reply claims one pot slot (idempotent per user per
+  thread — replying twice never double-pays), credited immediately after
+  the reply is saved. The OP cannot claim their own pot.
+- **Sharing does not count toward pot eligibility** — only replying does.
+  A "share to earn" mechanic was considered and deliberately dropped: there
+  is no reliable way to verify an external share happened, and a
+  self-reported claim would be trivially gameable.
+- **Unclaimed balance refund**: if a pot still has unclaimed slots after
+  `bbforum_pot_expiry_days` (default 14) of thread inactivity, the remaining
+  balance is refunded to the OP automatically. This runs as a new step in
+  the existing `/api/cron/daily-economy` aggregator (no new Vercel Cron
+  entry — Hobby plan is limited to one cron trigger per day per job, so new
+  scheduled work is always folded into an existing daily aggregator rather
+  than requesting a new cron slot).
+
+### 33.9 Moderation
+
+- `lib/bbforum/moderation.ts` mirrors `lib/forum/moderation.ts`: duplicate-
+  post detection (same author, same normalized text, within 60s) and a
+  profanity filter, both reusing `lib/moderation/contentFilter` — extended
+  with `bb_thread`/`bb_post` as detection targets rather than duplicating
+  the filter logic. Toggleable via `bbforum_auto_moderation_enabled`
+  (default on).
+- Reports go through the shared `moderation_reports` pipeline (new
+  `reported_bb_thread_id`/`reported_bb_post_id` columns, following the exact
+  convention `reported_forum_question_id`/`reported_forum_answer_id`
+  already established for Answers) and appear in the
+  `/gate44/forum/queue` moderator queue (dismiss/warn/remove content/
+  suspend/ban — `ban_user` is admin-only, same as every other moderation
+  queue on the platform).
+- Authors and moderators can edit or delete any post; deleting a thread's OP
+  post soft-deletes the whole thread (mirrors `deleteQuestion` in Answers).
+- Moderators can lock (no new replies) or pin a thread.
+
+### 33.10 Capacitor Android
+
+- Mirrored at `/forum`, `/forum/<boardSlug>`, `/forum/thread/<slug>` in the
+  Capacitor app (`apps/android/src/routes/forum/*`), calling the exact same
+  `/api/forum/*` REST endpoints as web/PWA — plain text/Markdown tabs,
+  image attachment, quoting, reactions, edit/delete/report, and the pot
+  banner are all present. The Android view renders post bodies as raw
+  `whitespace-pre-wrap` text (no in-app Markdown renderer) rather than the
+  sanitized-HTML render used on web/PWA — the same simplification already
+  used by the Answers detail route in this app.
+
+**New migration to run:** `db/migrations/0032_bbforum_full.sql` (adds
+content-format/image/edit/pot columns to `bb_boards`/`bb_threads`/`bb_posts`,
+`bb_post_reactions`, `bb_pot_claims`, and the `moderation_reports`
+report-linkage columns; resets `bbforum_min_level_to_post` to the Level 2
+default and seeds the new reward/image-cost/pot-expiry `x_manifest` keys).
+
+---
+
 ## Appendix: Version 2.04 Change Log
 
 ### v2.04 — Changelog
@@ -5874,6 +6015,59 @@ feature and was intentionally left alone here rather than rushed.
 
 ---
 
-*ZobiaSocial PRD v2.15*
+---
+
+## Appendix: Version 2.16 Change Log
+
+- **New: Old-School Forum, fully built out (§33).** The `/forum` and `/f/<slug>`
+  BB-style forum introduced as a minimal stub in v2.14 (boards/threads/posts
+  CRUD only) is now feature-complete:
+  - Plain text/Markdown post editor with paragraph-preserving plain-text
+    rendering (blank-line runs collapse to one), sanitized server-side via
+    a new `sanitizeForumPostContent()` dispatcher in `lib/security/htmlSanitizer.ts`
+    that reuses the existing blog-post sanitization pipeline rather than
+    adding a new one.
+  - Optional image attachments (`POST /api/forum/uploads/image`), costing
+    admin-configurable Credits and/or Stars, charged atomically with the
+    thread/post write.
+  - A quote system (`bb_posts.quoted_post_id`) and toggleable emoji
+    reactions (`bb_post_reactions`).
+  - XP/Credit rewards for posting and replying (default 1 XP / 0 Credits),
+    daily-capped and awarded post-commit — mirrors Answers' reward pipeline.
+  - A reply "pot"/treasury: the OP can fund a fixed Credits payout to the
+    first N repliers, debited up front and paid out per qualifying reply;
+    unclaimed balances auto-refund after 14 days of thread inactivity via a
+    new step folded into the existing `/api/cron/daily-economy` aggregator
+    (no new Vercel Cron entry).
+  - Full admin surface: `/gate44/forum` (board CRUD), `/gate44/forum/queue`
+    (moderation, wired into the shared `moderation_reports` pipeline via new
+    `reported_bb_thread_id`/`reported_bb_post_id` columns), `/gate44/forum/settings`.
+  - Auto-moderation (duplicate-post + profanity filtering) reusing
+    `lib/moderation/contentFilter`, extended with `bb_thread`/`bb_post`
+    targets rather than duplicated.
+  - Edit/delete for post authors and moderators, thread lock/pin for
+    moderators.
+  - Mirrored in the Capacitor Android app at `/forum`, `/forum/<boardSlug>`,
+    `/forum/thread/<slug>`, calling the same REST API as web/PWA.
+  - ~40 new `bbforum.*` English i18n keys registered in both
+    `apps/web/lib/i18n/locales/en.json` and `shared/i18n/locales/en.json`
+    (the Android app's translation source) plus a `nav.bbforum` entry that
+    was previously only defined on the web side.
+
+**New migration to run:** `db/migrations/0032_bbforum_full.sql`.
+
+**Not done in this pass**: full Drizzle ORM typings for the `bb_*` tables in
+`lib/db/schema.ts` (the raw-SQL migrations remain the source of truth, as
+they already were for the v2.14 stub — this is a typing-convenience gap,
+not a functional one); in-app Markdown rendering on the Capacitor Android
+client (bodies render as plain `whitespace-pre-wrap` text there, matching
+the existing Answers detail route's own simplification); translating the
+new `bbforum.*` keys into the platform's other supported locales (only
+English was added — the existing locale files already lag this way for
+several other recent features).
+
+---
+
+*ZobiaSocial PRD v2.16*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

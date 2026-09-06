@@ -93,6 +93,16 @@ export function plainTextToBlogPostHtml(text: string): string {
   return sanitizeHtmlLib(html, BLOG_SANITIZE_OPTIONS);
 }
 
+/**
+ * Forum thread/post body (plain text or Markdown, /forum board posts) →
+ * sanitized HTML. Reuses the same paragraph-preserving plain-text renderer
+ * and Markdown pipeline as blog posts (same UX requirement: blank lines
+ * become paragraph breaks, runs of 2+ blank lines collapse to one).
+ */
+export function sanitizeForumPostContent(content: string, format: "plaintext" | "markdown"): string {
+  return format === "markdown" ? sanitizeBlogPostHtml(content) : plainTextToBlogPostHtml(content);
+}
+
 export function sanitizeAnnouncementContent(content: string, contentType: string): string {
   if (contentType === 'html') {
     return sanitizeHtml(content);

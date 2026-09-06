@@ -334,6 +334,15 @@ export const GET = async (req: NextRequest) => {
     errors.push(`adAdvertiserGraceSweep: ${String(err)}`);
   }
 
+  // 9. Forum reply-pot expiry: refund unclaimed treasury balances on threads
+  // that have gone quiet for x_manifest.bbforum_pot_expiry_days (default 14).
+  try {
+    const { sweepExpiredPots } = await import("@/lib/bbforum/service");
+    results.bbforumPotExpirySweep = await sweepExpiredPots();
+  } catch (err) {
+    errors.push(`bbforumPotExpirySweep: ${String(err)}`);
+  }
+
   return NextResponse.json({
     success: errors.length === 0,
     results,

@@ -4,18 +4,37 @@
  * components/bbforum/ReplyForm.tsx
  *
  * Minimized-by-default reply box for a thread (app/f/[slug]/page.tsx),
- * matching the Answers "write an answer" expand-on-click pattern.
+ * matching the Answers "write an answer" expand-on-click pattern. Supports
+ * quoting a specific post (set via the "Quote" button on ThreadPostCard,
+ * which calls `onQuote`/scrolls this form into view and expands it).
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+import { PostEditor, type QuotedPreview } from "@/components/bbforum/PostEditor";
 
-export function ReplyForm({ threadSlug, locked }: { threadSlug: string; locked: boolean }) {
+export function ReplyForm({
+  threadSlug,
+  locked,
+  quoted,
+  onQuoteHandled,
+}: {
+  threadSlug: string;
+  locked: boolean;
+  quoted?: QuotedPreview | null;
+  onQuoteHandled?: () => void;
+}) {
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
   const [body, setBody] = useState("");
+  const [contentFormat, setContentFormat] = useState<"plaintext" | "markdown">("plaintext");
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (quoted) setExpanded(true);
+  }, [quoted]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -27,13 +46,15 @@ export function ReplyForm({ threadSlug, locked }: { threadSlug: string; locked: 
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ body: body.trim() }),
+        body: JSON.stringify({ body: body.trim(), contentFormat, imageUrl: imageUrl ?? undefined, quotedPostId: quoted?.id }),
       });
       if (res.status === 401) { router.push("/auth/login"); return; }
       const json = await res.json();
       if (!json.success) throw new Error(json.error?.message ?? "Failed to post reply");
       setBody("");
+      setImageUrl(null);
       setExpanded(false);
+      onQuoteHandled?.();
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to post reply");
@@ -60,17 +81,19 @@ export function ReplyForm({ threadSlug, locked }: { threadSlug: string; locked: 
   return (
     <form onSubmit={handleSubmit} className="mt-4 space-y-2 rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
       {error && <p className="text-xs text-red-600">{error}</p>}
-      <textarea
-        autoFocus
-        value={body}
-        onChange={(e) => setBody(e.target.value)}
+      <PostEditor
+        body={body}
+        onBodyChange={setBody}
+        contentFormat={contentFormat}
+        onContentFormatChange={setContentFormat}
+        imageUrl={imageUrl}
+        onImageUrlChange={setImageUrl}
+        quoted={quoted}
+        onClearQuote={onQuoteHandled}
         placeholder="Write your reply…"
-        rows={4}
-        maxLength={20000}
-        className="w-full rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100"
       />
       <div className="flex gap-2">
-        <button type="button" onClick={() => setExpanded(false)} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-semibold text-neutral-700 dark:border-neutral-700 dark:text-neutral-200">
+        <button type="button" onClick={() => { setExpanded(false); onQuoteHandled?.(); }} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-semibold text-neutral-700 dark:border-neutral-700 dark:text-neutral-200">
           Cancel
         </button>
         <button type="submit" disabled={submitting} className="rounded-lg bg-primary-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50">

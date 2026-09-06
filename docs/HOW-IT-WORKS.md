@@ -374,6 +374,42 @@ business logic lives in `lib/blogs/repo.ts` + `lib/blogs/service.ts` +
   full tab bar (same "no Popular/Trending/New/Random tabs on mobile"
   convention as the rest of this page).
 
+### Forum — Boards & Threads (PRD §33)
+
+- Old-school BB-style forum (SMF/vBulletin pattern): boards → sub-boards →
+  threads → posts. Distinct from **Answers** above (the Q&A mini forum) —
+  home page `/forum`, threads at `/f/<slug>`. Data layer: `lib/bbforum/repo.ts`;
+  business logic (eligibility, moderation, rewards, pot payouts): `lib/bbforum/service.ts`.
+- **Posting**: one admin-configured minimum account level
+  (`bbforum_min_level_to_post`, default Level 2) gates both starting a
+  thread and posting a reply.
+- **Editor**: Plain Text/Markdown tabs per post (`content_format`), rendered
+  server-side via `sanitizeForumPostContent()` in `lib/security/htmlSanitizer.ts`
+  (reuses the blog-post sanitization pipeline). Plain text preserves line/
+  paragraph spacing but collapses runs of 2+ blank lines to one.
+  Optional image attachment (`POST /api/forum/uploads/image`, reuses
+  `lib/storage` + the `message` compression profile), costing
+  admin-configurable Credits/Stars.
+- **Quote system**: any post can be quoted into a reply (`quoted_post_id`).
+  **Reactions**: one toggleable emoji per user per post.
+- **Rewards**: posting a thread or reply awards admin-configured XP/Credits
+  (default 1 XP / 0 Credits), daily-capped, awarded post-commit — same
+  anti-farming pattern as Answers.
+- **Reply pot/treasury**: the OP can fund a fixed Credits payout to the
+  first N repliers (debited up front, paid per qualifying reply, one claim
+  per user per thread). Unclaimed balances auto-refund after
+  `bbforum_pot_expiry_days` (default 14) of inactivity via a step folded
+  into the existing `/api/cron/daily-economy` job — no new cron slot.
+- **Moderation**: duplicate-post + profanity auto-moderation
+  (`lib/bbforum/moderation.ts`, reuses `lib/moderation/contentFilter`);
+  reports flow through the shared `moderation_reports` table
+  (`reported_bb_thread_id`/`reported_bb_post_id`) into `/gate44/forum/queue`.
+  Authors/moderators can edit/delete posts; moderators can lock/pin threads.
+- **Android**: mirrored at `/forum`, `/forum/<boardSlug>`, `/forum/thread/<slug>`
+  in the Capacitor app, calling the same `/api/forum/*` endpoints. Renders
+  post bodies as plain `whitespace-pre-wrap` text (no in-app Markdown
+  renderer), matching the existing Answers detail route's simplification.
+
 ### Social Graph
 
 - **Friends**: Bilateral friendship requests. Stored in `friendships`. Friend list visible on profile.
@@ -640,6 +676,14 @@ View AI-classified reports queue. Accept or reject AI decisions. Bulk-action com
 
 ### Automated Actions Log
 All automated moderation actions (auto-hide, auto-suspend triggered by trust score drop) logged with AI confidence score and DeepSeek/Gemini classification category.
+
+### Forum Admin (`/gate44/forum`)
+Board CRUD (create/rename/reorder/activate/deactivate/re-parent boards and
+sub-boards) at `/gate44/forum`; moderation queue at `/gate44/forum/queue`
+(dismiss/warn/remove content/suspend/ban, scoped to `moderation_reports`
+rows with `reported_bb_thread_id`/`reported_bb_post_id` set); settings
+(min level, XP/Credit rewards, auto-moderation, image cost, pot expiry) at
+`/gate44/forum/settings`, also editable at `/gate44/config`.
 
 ### Feature Flags (`/api/admin/feature-flags`)
 Feature flags are stored as boolean values in the `x_manifest` table (key `feature_*` convention) and augmented with metadata in the `feature_flags` table (keys match `x_manifest`). The dedicated endpoint `GET/PUT /api/admin/feature-flags` returns enriched flag objects:
