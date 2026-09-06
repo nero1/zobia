@@ -254,5 +254,33 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // BB forum tables absent or unavailable — skip silently
   }
 
+  // Help Center categories + docs. Served at /help/<category>[/<doc>]. The
+  // tables may not exist on older DBs (pre-0009 migration) — skip silently.
+  try {
+    const { rows: helpCategories } = await db.query<{ slug: string; updated_at: string }>(
+      `SELECT slug, updated_at FROM help_categories WHERE published = true ORDER BY updated_at DESC NULLS LAST LIMIT 500`
+    );
+    for (const c of helpCategories) {
+      entries.push({ url: `${BASE_URL}/help/${encodeURIComponent(c.slug)}`, lastModified: new Date(c.updated_at), changeFrequency: "weekly", priority: 0.5 });
+    }
+
+    const { rows: helpDocs } = await db.query<{ category_slug: string; doc_slug: string; updated_at: string }>(
+      `SELECT c.slug AS category_slug, d.slug AS doc_slug, d.updated_at
+       FROM help_docs d JOIN help_categories c ON c.id = d.category_id
+       WHERE d.published = true AND c.published = true AND d.deleted_at IS NULL
+       ORDER BY d.updated_at DESC NULLS LAST LIMIT 2000`
+    );
+    for (const d of helpDocs) {
+      entries.push({
+        url: `${BASE_URL}/help/${encodeURIComponent(d.category_slug)}/${encodeURIComponent(d.doc_slug)}`,
+        lastModified: new Date(d.updated_at),
+        changeFrequency: "monthly",
+        priority: 0.55,
+      });
+    }
+  } catch {
+    // Help Center tables absent or unavailable — skip silently
+  }
+
   return entries;
 }

@@ -3055,6 +3055,224 @@ a "Send a Gift" section on the blog's public home page.
 
 ---
 
+## 33. Support Ticket System (v2.10)
+
+A full staff-worked support ticket queue with admin-configurable eligibility,
+per-message charging, AI-first triage, and a support/senior-support/admin
+escalation path — reusing the platform's existing economy, AI client,
+notifications and admin-panel infrastructure rather than introducing a
+parallel system (same design principle as §31 Answers and §32 Blogs).
+
+### 33.0 Admin on/off switch and eligibility
+
+- **Master toggle**: `feature_support_tickets` in `x_manifest`
+  (`ZobiaManifest.features.supportTickets`), default **off**. When off,
+  every `/api/support/*` route returns 503 and the "My Tickets"/"New
+  Ticket" UI shows a fallback pointing at the Help Center instead.
+- **Who can open a ticket for free**: admin-configurable plan/prestige
+  allow-list (`support_eligible_plans`, JSON array), evaluated with the
+  same `lib/plans/eligibility.ts` helper (`isPlanEligible`/`getAllowedPlans`)
+  already used for Profile Stats tiers and privacy toggles — plan slugs
+  (`"plus"`, `"pro"`, `"max"`) and/or prestige-tier entries
+  (`"prestige_1"`) are both supported.
+- **Paying for access otherwise**: a user outside the allow-list can still
+  open a ticket by paying a one-time, admin-set cost in Credits and/or
+  Stars (`support_ticket_cost_credits` / `support_ticket_cost_stars` — 0
+  means "not payable in that currency"). If neither currency has a cost
+  configured, ticket creation is blocked for ineligible users with a clear
+  `SUPPORT_ACCESS_DENIED` error, never a silent failure.
+
+### 33.1 Charging model
+
+The admin picks one of four message-charging strategies
+(`support_charging_model`, an enum) plus a numeric `support_charging_x`
+parameter, applied per-message-index (message 1 is the ticket-opening
+message):
+
+- `first_message_only` — the ticket-creation charge covers the first
+  message; every reply after that is free.
+- `every_message` — every message the user sends is charged.
+- `every_x_messages` — every Xth message is charged (X, 2X, 3X, ...).
+- `first_x_messages` — only the first X messages are charged; the rest are
+  free.
+
+The decision is a pure function (`shouldChargeMessage` in
+`lib/support/service.ts`, unit-tested independently of the DB) so the rule
+is auditable and safe to change without touching the charging plumbing.
+Charging reuses `lib/economy/coins.ts#debitCoins` and
+`lib/economy/stars.ts#debitStars` (new `support_ticket_cost` ledger
+transaction type on both) with an idempotency reference keyed by
+`ticket:message-index`, so a retried request can never double-charge.
+**Insufficient balance blocks the message** with a clear client-facing
+error — it never silently succeeds uncharged. Free-access users (per
+§33.0) are never charged regardless of the model.
+
+### 33.2 Staff roles and senior-support escalation
+
+- **New sitewide role**: `users.is_support` (boolean), grantable/revocable
+  exactly like `is_moderator` is today, via the same
+  `POST /api/admin/users/[userId]/actions` endpoint
+  (`upgrade_support`/`downgrade_support` actions) and the same admin Users
+  page UI (`/admin/users`).
+- **Senior support**: a second boolean, `users.is_senior_support`, that can
+  additionally be set on any support, moderator, or admin account
+  (`upgrade_senior_support`/`downgrade_senior_support` actions — the only
+  actions in that endpoint explicitly allowed to target an admin account,
+  since an admin can also be flagged senior support).
+- **Who can see the queue**: an admin-configurable allow-list
+  (`support_staff_roles`, JSON array of `"support"`/`"moderator"`/
+  `"admin"`) — checked fresh from the database on every request
+  (`lib/support/staffAuth.ts#requireSupportStaff`), never trusted from a
+  JWT claim, matching the platform's existing `isAdminOrModerator`
+  fail-closed convention.
+- **Escalation path** (`lib/support/service.ts#canEscalate`, a pure,
+  unit-tested function): plain support can escalate to a senior-support
+  member or directly to an admin; senior support who is not also a
+  moderator/admin can escalate further only to an admin; moderators/admins
+  can escalate to any eligible staff member. Escalating assigns the ticket
+  (`assigned_to`) and flips its status to `escalated`, and notifies the
+  target via the existing `insertNotificationBatch` helper.
+
+### 33.3 AI triage
+
+When `support_ai_triage_enabled` is on (independent of the master
+Support Tickets toggle), a newly created ticket's first response is
+AI-generated via the platform's existing DeepSeek→Gemini fallback client
+(`lib/ai/client.ts`) using the ticket subject + first message as context.
+The thread view offers **"This didn't help — talk to a real person"**,
+which routes the ticket into the human queue
+(`POST /api/support/tickets/:id/ai-reject`). When AI triage is off,
+tickets go straight to the human queue with no AI involvement.
+
+### 33.4 Data model
+
+- **`support_tickets`**: `id`, `user_id`, `subject`, `status`
+  (`open`/`pending`/`escalated`/`resolved`/`closed`), `priority`,
+  `assigned_to`, `is_ai_handled`, `ai_resolved`, `source`
+  (`ticket`/`help_center_ai`, linking back to a Help Center doc — see
+  §34.5), running `charged_credits`/`charged_stars`/`message_count`
+  totals, timestamps.
+- **`support_ticket_messages`**: `ticket_id`, `sender_id` (null for AI
+  messages), `sender_type` (`user`/`staff`/`ai`), `body`, and per-message
+  `charged`/`charged_credits`/`charged_stars` so a user can see exactly
+  which of their messages cost them something.
+- **`support_ticket_events`**: a lightweight append-only audit log
+  (`created`/`status_changed`/`assigned`/`escalated`/`ai_response`/
+  `ai_rejected`/`message_added`/`charged`) — escalation/assignment history
+  lives here instead of a separate table, per the platform's
+  no-table-sprawl convention.
+- New migration: `db/migrations/0033_support_tickets.sql` (adds
+  `users.is_support`/`is_senior_support`, the three tables above, and
+  seeds the `x_manifest` defaults in §33.0-33.2).
+
+### 33.5 Surfaces
+
+- **Web/PWA**: `/support` (My Tickets), `/support/new` (create, shows the
+  eligibility/cost up front), `/support/:id` (thread + "talk to a real
+  person"). Fully responsive, works standalone-installed.
+- **Capacitor Android**: mirrored 1:1 against the same API
+  (`apps/android/src/routes/support/**`), per the platform's
+  android-mirrors-web/PWA rule.
+- **Admin**: `/gate44/support/queue` (filterable by status/assignee, reachable
+  by support/moderator/admin per §33.2, not admin-only),
+  `/gate44/support/tickets/:id` (reply, assign, escalate, change status),
+  `/gate44/support/settings` (every toggle/cost/model above, same
+  `x_manifest`-key-editing pattern as `/admin/forum/settings`).
+
+---
+
+## 34. Help Center Expansion (v2.10)
+
+The static `/help` FAQ page becomes a real, database-backed Help Center
+with SEO-friendly doc URLs, difficulty-tiered content, full-text search,
+and an "Ask AI" block that hands off to a Support Ticket (§33) when a
+human is needed — built on the same content-editing (markdown → sanitized
+HTML, mirroring `blog_posts`) and AI client infrastructure as the rest of
+the platform.
+
+### 34.0 Public URLs & SEO
+
+- **Homepage**: `/help` — category grid + search box. Falls back to the
+  original static FAQ automatically if the `feature_help_center` flag is
+  off or no categories are published yet, so the page is never empty.
+- **Category page**: `/help/<category-slug>` — published docs in that
+  category, grouped by difficulty tier.
+- **Doc page**: `/help/<category-slug>/<doc-slug>` — the canonical,
+  crawlable, no-auth-wall URL for a single doc, with per-doc SEO title/
+  description metadata and a canonical tag.
+- **Search**: `/help/search?q=...` — Postgres full-text search
+  (`tsvector`/`ts_headline`, weighted title > body) over doc title/body,
+  no new search infrastructure.
+- Slugs are generated from the title (`generateUniqueSlug`, `help_doc`/
+  `help_category` entity types added to `lib/slug.ts`) but stay stable
+  once published — an admin title/slug edit records the old slug in the
+  existing `slug_redirects` table (widened to accept `help_doc`/
+  `help_category`) so old links 301 instead of 404ing, exactly like
+  rooms/games/forum-questions.
+- Listed in `app/sitemap.ts` (categories + docs) and allowed in
+  `middleware.ts`/`robots.ts`.
+
+### 34.1 Categories, difficulty tiers, and search
+
+Each doc belongs to one category and is tagged with a difficulty tier —
+**First Time**, **Beginner**, **Intermediate**, or **Advanced** — shown as
+a badge and used to group the category page. The homepage search box posts
+to `/help/search`; results link straight to the doc.
+
+### 34.2 Data model
+
+- **`help_categories`**: `slug`, `name`, `description`, `sort_order`,
+  `published`.
+- **`help_docs`**: `slug` (unique per category), `category_id`, `title`,
+  `body_markdown`/`body_html` (same markdown-authored/sanitized-HTML pair
+  as `blog_posts`, reusing `lib/security/htmlSanitizer.ts#sanitizeBlogPostHtml`),
+  `difficulty`, `seo_title`/`seo_description`, `published`, `view_count`,
+  a generated/maintained `search_vector` (trigger-updated on
+  title/body change).
+- New migration: `db/migrations/0034_help_center.sql` (both tables, the
+  search trigger, the `slug_redirects` check-constraint widening, and the
+  `x_manifest` seed defaults in §34.3).
+
+### 34.3 Admin CRUD
+
+`/gate44/help-center` — category list (create/publish-toggle/delete) and doc
+list; `/gate44/help-center/docs/new` and `/gate44/help-center/docs/:id` for
+the markdown editor, mirroring the Blogs/Answers admin CRUD shape.
+
+### 34.4 "Ask AI"
+
+Every doc page ends with an "Ask AI" block: *"Can't find what you're
+looking for? Try asking the AI."* Uses the same DeepSeek→Gemini client as
+Support AI triage (§33.3), with the current doc's content as context.
+Gated by its own toggle (`feature_help_center_ai`), independent of the
+Support Ticket master toggle.
+
+### 34.5 From an AI answer to a human, by viewer state
+
+After the AI answers, the block branches:
+
+- **Logged in, ticket-eligible** (§33.0): "Contact a real person" creates a
+  Support Ticket prefilled with the AI Q&A transcript
+  (`source = 'help_center_ai'`), with a "usually 24-48 hours or less"
+  expectation set.
+- **Logged in, not otherwise eligible**: the same button is gated by the
+  §33.0 cost — unless `help_center_ai_free_for_all` is on, in which case
+  the Help Center's "Contact a real person" is always free (bypassing
+  §33.0/§33.1 entirely for tickets created with
+  `source = 'help_center_ai'`) and all cost messaging is hidden.
+- **Logged out**: no AI call is made at all — gated both client-side (the
+  block renders a "log in or sign up" prompt instead of the question box)
+  and server-side (`POST /api/help/ask-ai` requires a valid access token),
+  so an anonymous visitor cannot generate AI spend.
+
+### 34.6 Surfaces
+
+Mirrored in the Capacitor Android app for browsing (categories, docs,
+search, Ask AI) at `apps/android/src/routes/help/**`; the admin CRUD stays
+web-only, matching how Blogs/Answers admin tooling is web-only today.
+
+---
+
 ## Appendix A: The Anti-Dead-App Checklist
 
 Every feature decision on Zobia is tested against this checklist. If any answer is "no," the feature needs revision.
@@ -6076,6 +6294,46 @@ several other recent features).
 
 ---
 
-*ZobiaSocial PRD v2.16*
+## Appendix: Version 2.17 Change Log
+
+### v2.17 — Changelog
+
+#### New Feature: Support Ticket System (§33)
+
+A full staff-worked support ticket queue: admin-configurable eligibility
+(plan/prestige allow-list, reusing `lib/plans/eligibility.ts`) with a
+paid-access fallback (one-time Credits/Stars cost), four selectable
+message-charging models, a new sitewide `is_support` role (grantable
+exactly like `is_moderator`) plus a `is_senior_support` flag, a
+support→senior-support→admin escalation path, and optional AI-first
+triage via the platform's existing DeepSeek→Gemini client with a "talk to
+a real person" hand-off. Ships on web/PWA (`/support/*`) and the Capacitor
+Android app (`apps/android/src/routes/support/**`). New tables:
+`support_tickets`, `support_ticket_messages`, `support_ticket_events`
+(audit log — no separate escalation table); two new boolean columns on
+`users`. New admin panel at `/gate44/support/{queue,settings}` and
+`/gate44/support/tickets/:id`, reachable by support/moderator/admin per an
+admin-configurable role allow-list, not admin-only. New migration:
+`db/migrations/0033_support_tickets.sql`.
+
+#### New Feature: Help Center Expansion (§34)
+
+The static `/help` FAQ became a database-backed Help Center: SEO-friendly
+`/help/<category>/<doc>` URLs with stable slugs (retired slugs 301 via the
+existing `slug_redirects` mechanism, widened to cover `help_doc`/
+`help_category`), difficulty tiers (First Time/Beginner/Intermediate/
+Advanced), Postgres full-text search (`/help/search`), and an "Ask AI"
+block on every doc page that hands off to a Support Ticket (prefilled with
+the AI transcript) gated by the same eligibility/cost rules as §33 — with
+an admin override to make the Help Center's human hand-off always free.
+No AI call is made for logged-out visitors, client- or server-side. New
+admin CRUD at `/gate44/help-center`; browsing (not the CRUD) mirrored on
+Android at `apps/android/src/routes/help/**`. New tables:
+`help_categories`, `help_docs` (with a trigger-maintained `tsvector`
+search column). New migration: `db/migrations/0034_help_center.sql`.
+
+---
+
+*ZobiaSocial PRD v2.17*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

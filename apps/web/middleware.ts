@@ -170,6 +170,9 @@ const PUBLIC_PREFIXES = [
   "/workbox-",
   "/terms",
   "/privacy",
+  // Help Center — public, no auth wall (SEO-crawlable doc pages + search).
+  "/help",
+  "/api/help",
   "/onboarding",
   "/auth/error",
   // Static images served from /public — must be reachable by crawlers/OG scrapers
@@ -201,6 +204,19 @@ const ADMIN_PREFIXES = ["/gate44"];
  * /gate44/guilds was added so mods can administer guilds too.
  */
 const FORUM_MOD_PREFIXES = ["/gate44/answers", "/gate44/forum", "/gate44/guilds"];
+
+/**
+ * Scoped exception within /admin/*: moderators may also pass the edge
+ * pre-filter for the support ticket queue (not /admin/support/settings,
+ * which stays admin-only like every other config surface). The API layer
+ * (requireSupportStaff) is the real authorization boundary and additionally
+ * allows the is_support role — the access token does not carry an
+ * is_support claim (unlike is_moderator), so a support-only (non-moderator,
+ * non-admin) staff member currently cannot load these admin pages directly
+ * and must be granted is_moderator too, or use the API directly. See
+ * lib/support/staffAuth.ts.
+ */
+const SUPPORT_MOD_PREFIXES = ["/gate44/support/queue", "/gate44/support/tickets"];
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -494,7 +510,8 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     }
 
     const isForumModRoute = FORUM_MOD_PREFIXES.some((prefix) => pathname.startsWith(prefix));
-    const isAllowedModerator = isForumModRoute && !!payload.is_moderator;
+    const isSupportModRoute = SUPPORT_MOD_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+    const isAllowedModerator = (isForumModRoute || isSupportModRoute) && !!payload.is_moderator;
 
     if (!payload.is_admin && !isAllowedModerator) {
       // Valid token but not admin (and not a moderator on a scoped /gate44/forum/* route) – redirect to app

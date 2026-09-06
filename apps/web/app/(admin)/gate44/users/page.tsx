@@ -21,7 +21,19 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 type Plan = "free" | "plus" | "pro" | "max";
 type UserStatus = "active" | "suspended" | "banned";
 type SuspendDuration = "1h" | "24h" | "7d" | "30d";
-type ActionType = "suspend" | "ban" | "restore" | "upgrade_moderator" | "downgrade_moderator" | "reset_password" | "force_2fa" | "verify_account";
+type ActionType =
+  | "suspend"
+  | "ban"
+  | "restore"
+  | "upgrade_moderator"
+  | "downgrade_moderator"
+  | "upgrade_support"
+  | "downgrade_support"
+  | "upgrade_senior_support"
+  | "downgrade_senior_support"
+  | "reset_password"
+  | "force_2fa"
+  | "verify_account";
 
 interface AdminUser {
   id: string;
@@ -34,6 +46,8 @@ interface AdminUser {
   lastActiveAt: string;
   status: UserStatus;
   isModerator: boolean;
+  isSupport: boolean;
+  isSeniorSupport: boolean;
   reportHistoryCount: number;
   paymentHistoryCount: number;
   messageCount: number;
@@ -278,6 +292,18 @@ function DetailPanel({ user, onClose, onAction, onImpersonate }: DetailPanelProp
             onClick={() => setConfirmAction(user.isModerator ? "downgrade_moderator" : "upgrade_moderator")}
             loading={loading === "upgrade_moderator" || loading === "downgrade_moderator"}
             className="bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900 dark:text-blue-300"
+          />
+          <ActionButton
+            label={user.isSupport ? "Revoke Support" : "Make Support"}
+            onClick={() => handleAction(user.isSupport ? "downgrade_support" : "upgrade_support")}
+            loading={loading === "upgrade_support" || loading === "downgrade_support"}
+            className="bg-teal-100 text-teal-700 hover:bg-teal-200 dark:bg-teal-900 dark:text-teal-300"
+          />
+          <ActionButton
+            label={user.isSeniorSupport ? "Revoke Senior Support" : "Make Senior Support"}
+            onClick={() => handleAction(user.isSeniorSupport ? "downgrade_senior_support" : "upgrade_senior_support")}
+            loading={loading === "upgrade_senior_support" || loading === "downgrade_senior_support"}
+            className="bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900 dark:text-purple-300"
           />
         </div>
 

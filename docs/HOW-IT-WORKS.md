@@ -2320,6 +2320,7 @@ These must run more frequently than once per day and cannot use Vercel's native 
 | `/api/cron/guild-wars` | Every 1 hour | Final Hour transitions, war resolution, Flash XP lifecycle, Drop room auto-close |
 | `/api/cron/leaderboards` | Every 15 minutes | Batch snapshot upserts (all users × 8 tracks incl. gaming in 1 query), rank-change notifications |
 | `/api/cron/games` | Every 1 hour | Expire stale game challenges and refund any escrowed wager credits |
+| `/api/cron/support-tickets` | Every 6-24 hours (owner's choice — no user-facing urgency) | Auto-close `resolved` support tickets with no activity for 7+ days |
 | `/api/cron/payouts` | Every 30 minutes | Paystack transfer initiation + retry |
 | `/api/cron/reconcile-balances` | Nightly (06:00 UTC) | Batch XP + coin ledger vs. wallet reconciliation; batch unnest() corrections |
 
@@ -2565,3 +2566,103 @@ Tapping Play on a game previously opened a Custom Tab (`openAuthenticatedWebLink
 ## i18n Key Parity (Web/PWA vs. Capacitor)
 
 `shared/i18n/locales/*` (used by the Capacitor app) and `apps/web/lib/i18n/locales/*` (used by web/PWA) had drifted apart — 1071 keys existed only in `shared`, 61 only in `web` — so raw keys like `nav.wallet`/`admin.link` rendered literally on whichever platform was missing them. Merged per-locale in both directions (never cross-language, so no locale's text comes from a different language's file); both trees now carry the same 2902 keys. `apps/expo` was left untouched since it's frozen and being retired.
+## Support Ticket System (PRD §33)
+
+### Roles
+
+Two new boolean columns on `users`: `is_support` and `is_senior_support`,
+granted/revoked exactly like `is_moderator` via
+`POST /api/admin/users/[userId]/actions` (`upgrade_support` /
+`downgrade_support` / `upgrade_senior_support` / `downgrade_senior_support`)
+from the same `/admin/users` page. `is_senior_support` can be set on a
+support, moderator, or admin account — it's the only case where that
+endpoint's normal "no actions on admin accounts" guard is bypassed.
+
+Who can actually see and work the queue is a separate, admin-configurable
+allow-list — `x_manifest` key `support_staff_roles`, a JSON array of any of
+`"support"`, `"moderator"`, `"admin"` — checked fresh from the database on
+every request via `lib/support/staffAuth.ts#requireSupportStaff` (never
+trusted from a JWT claim). Escalation rules (`lib/support/service.ts#canEscalate`)
+are a pure, independently unit-tested function — see
+`lib/support/__tests__/escalation.test.ts`.
+
+**Known gap:** the access-token JWT carries `is_admin`/`is_moderator` claims
+(used by `middleware.ts` as a cheap edge pre-filter before the API layer's
+real DB-backed check) but does not carry `is_support`. A user who is
+`is_support` but *not* also `is_moderator`/`is_admin` will be redirected
+away from `/gate44/support/queue` and `/gate44/support/tickets/:id` at the
+edge, even though the API layer would authorize them. Until an
+`is_support` JWT claim is added (mirroring `is_moderator` through
+`lib/auth/jwt.ts`, `lib/auth/session.ts`, `lib/auth/restore.ts` — a
+larger, higher-risk change to live session plumbing that was out of scope
+for this pass), grant `is_moderator` alongside `is_support` for anyone who
+needs to load the admin queue pages directly, or have them work tickets
+via the API/a client that doesn't go through the browser edge check.
+
+### Config keys (`x_manifest`)
+
+| Key | Controls | Default |
+|---|---|---|
+| `feature_support_tickets` | Master on/off switch | `false` |
+| `support_ai_triage_enabled` | AI-first response on new tickets | `true` |
+| `support_eligible_plans` | JSON array — plans/prestige tiers that get free ticket access | `["plus","pro","max"]` |
+| `support_ticket_cost_credits` | One-time credits to open a ticket outside the allow-list (0 = not payable in credits) | `0` |
+| `support_ticket_cost_stars` | Same, in stars | `0` |
+| `support_charging_model` | `first_message_only` \| `every_message` \| `every_x_messages` \| `first_x_messages` | `first_message_only` |
+| `support_charging_x` | The X parameter for the two `_x_` models | `1` |
+| `support_staff_roles` | JSON array — which roles can access the queue | `["support","moderator","admin"]` |
+
+### Charging
+
+`lib/support/service.ts#shouldChargeMessage` is a pure function mapping
+`(model, x, messageIndex) → boolean`; the actual debit goes through the
+existing `debitCoins`/`debitStars` ledger helpers with a
+`support_ticket:<id>:msg:<n>` idempotency reference, so a retried request
+can never double-charge. A failed debit (`INSUFFICIENT_BALANCE`) throws
+before the message is written — it never posts uncharged.
+
+### Data model
+
+`support_tickets`, `support_ticket_messages`, `support_ticket_events`
+(append-only audit log covering status changes, assignment, escalation, AI
+hand-off — no separate escalation table). See
+`db/migrations/0033_support_tickets.sql`.
+
+## Help Center (PRD §34)
+
+Database-backed replacement/superset of the old static `/help` FAQ:
+`help_categories` + `help_docs` (`db/migrations/0034_help_center.sql`),
+with a `tsvector` column kept in sync by a `BEFORE INSERT OR UPDATE`
+trigger for `/help/search`. Slugs are generated once
+(`generateUniqueSlug`, new `help_category`/`help_doc` entity types in
+`lib/slug.ts`) and stay stable after that — an admin slug/title edit
+records the old slug via `recordSlugRedirect` into the existing
+`slug_redirects` table (its `entity_type` check constraint was widened to
+accept `help_doc`/`help_category`), so retired links 301 instead of
+404ing, exactly like rooms/games/forum-questions.
+
+### Config keys (`x_manifest`)
+
+| Key | Controls | Default |
+|---|---|---|
+| `feature_help_center` | Master on/off switch for the DB-backed Help Center (`/help` falls back to the static FAQ when off) | `true` |
+| `feature_help_center_ai` | The "Ask AI" block on doc pages | `true` |
+| `help_center_ai_free_for_all` | When true, "Contact a real person" from a Help Center AI answer is always free (bypasses the Support Ticket cost/eligibility check entirely for `source = 'help_center_ai'` tickets) and all cost messaging is hidden | `false` |
+
+### Ask AI → ticket hand-off
+
+`app/help/[category]/[doc]/page.tsx` renders `AskAiBlock`
+(`components/help/AskAiBlock.tsx`), which calls
+`POST /api/help/ask-ai` (auth required — logged-out visitors see a
+"log in or sign up" prompt instead of a question box, and the endpoint
+itself 401s even if a client tried to call it directly, so there is no
+server-side path for an anonymous AI call). After an answer, "Contact a
+real person" navigates to `/support/new?prefillSubject=...&prefillBody=...&docId=...`,
+which creates a ticket with `source = 'help_center_ai'`.
+
+### Android
+
+Browsing (categories, docs, search, Ask AI) is mirrored at
+`apps/android/src/routes/help/**`; the admin CRUD
+(`/gate44/help-center/**`) is web-only, matching how Blogs/Answers admin
+tooling is web-only today.
