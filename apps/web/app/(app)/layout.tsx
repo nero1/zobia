@@ -15,7 +15,7 @@
 
 export const dynamic = 'force-dynamic';
 
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { Navbar } from "@/components/layout/Navbar";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AppContentShell } from "@/components/layout/AppContentShell";
@@ -27,9 +27,11 @@ import { AnnouncementModal, type AnnouncementData } from "@/components/announcem
 import { ActiveEventStrip } from "@/components/events/ActiveEventStrip";
 import { PWAInstallPrompt } from "@/components/shared/PWAInstallPrompt";
 import { MaintenancePage } from "@/components/maintenance/MaintenancePage";
+import { NotFoundBody } from "@/components/system/NotFoundBody";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { env } from "@/lib/env";
 import { loadManifest } from "@/lib/manifest";
+import { resolveFeatureGate, isFeatureAccessible } from "@/lib/manifest/featureAccess";
 import {
   getActiveBannerForUser,
   getActiveModalForUser,
@@ -53,19 +55,23 @@ async function resolveAnnouncements(): Promise<{
   modal: AnnouncementData | null;
   hasEmail: boolean;
   isStaff: boolean;
+  isAdmin: boolean;
+  isModerator: boolean;
 }> {
   if (!env.DATABASE_PROVIDER) {
-    return { banner: null, modal: null, hasEmail: true, isStaff: false };
+    return { banner: null, modal: null, hasEmail: true, isStaff: false, isAdmin: false, isModerator: false };
   }
   try {
     const cookieStore = await cookies();
     const accessToken = cookieStore.get("zobia_at")?.value;
-    if (!accessToken) return { banner: null, modal: null, hasEmail: true, isStaff: false };
+    if (!accessToken) return { banner: null, modal: null, hasEmail: true, isStaff: false, isAdmin: false, isModerator: false };
 
     const payload = await verifyAccessToken(accessToken);
     const userId = payload.sub;
     const hasEmail = !!payload.email;
-    const isStaff = !!payload.is_admin || !!payload.is_moderator;
+    const isAdmin = !!payload.is_admin;
+    const isModerator = !!payload.is_moderator;
+    const isStaff = isAdmin || isModerator;
     const announcementUser = {
       id: userId,
       plan_id: null as string | null,
@@ -95,9 +101,9 @@ async function resolveAnnouncements(): Promise<{
         }
       : null;
 
-    return { banner, modal, hasEmail, isStaff };
+    return { banner, modal, hasEmail, isStaff, isAdmin, isModerator };
   } catch {
-    return { banner: null, modal: null, hasEmail: true, isStaff: false };
+    return { banner: null, modal: null, hasEmail: true, isStaff: false, isAdmin: false, isModerator: false };
   }
 }
 
@@ -105,7 +111,7 @@ async function resolveAnnouncements(): Promise<{
  * Authenticated app shell layout.
  */
 export default async function AppLayout({ children }: AppLayoutProps) {
-  const [{ banner, modal, hasEmail, isStaff }, manifest] = await Promise.all([
+  const [{ banner, modal, hasEmail, isStaff, isAdmin, isModerator }, manifest] = await Promise.all([
     resolveAnnouncements(),
     loadManifest(),
   ]);
@@ -116,6 +122,27 @@ export default async function AppLayout({ children }: AppLayoutProps) {
   // (AdminLayoutShell) so they don't forget it's on.
   if (manifest.maintenance.enabled && !isStaff) {
     return <MaintenancePage message={manifest.maintenance.message} />;
+  }
+
+  // Feature-flag page gate: a disabled feature's URL visited directly (nav
+  // links already hide themselves) renders a plain 404 — no mention that a
+  // feature is disabled, no admin-only exception disclosed. Admins always
+  // pass; moderators pass only when the flag is on the admin-managed
+  // mod-visibility allow-list (/gate44/feature-flags).
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  const segments = pathname.split("/").filter(Boolean);
+  const gateKey = resolveFeatureGate(segments);
+  if (gateKey) {
+    const enabled = manifest.features[gateKey] as boolean | undefined;
+    const modVisible = manifest.featureModVisibility.includes(gateKey);
+    if (enabled === false && !isFeatureAccessible(false, modVisible, { isAdmin, isModerator })) {
+      return (
+        <div className="flex min-h-screen flex-col bg-neutral-50 dark:bg-neutral-950">
+          <Navbar />
+          <NotFoundBody />
+        </div>
+      );
+    }
   }
 
   return (

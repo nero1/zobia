@@ -14,7 +14,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useState, useEffect, useCallback } from "react";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
-import { useFeatureFlags, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
 
 interface SidebarUser {
   display_name: string | null;
@@ -22,6 +22,7 @@ interface SidebarUser {
   avatar_emoji: string | null;
   plan?: string | null;
   is_admin?: boolean;
+  is_moderator?: boolean;
 }
 
 function useSidebarUser() {
@@ -48,27 +49,27 @@ interface PrimaryNavItem {
 
 const primaryNavItems: PrimaryNavItem[] = [
   { href: "/home", label: "Home" },
-  { href: "/moments", label: "Moments" },
+  { href: "/moments", label: "Moments", flagKey: "moments" },
   { href: "/answers", label: "Answers", flagKey: "forum" },
   { href: "/forum", label: "Forum", flagKey: "bbforum" },
   { href: "/quests", label: "Quests" },
-  { href: "/games", label: "Games" },
-  { href: "/blogs", label: "Blogs" },
-  { href: "/business", label: "Business" },
-  { href: "/ads", label: "Ads" },
-  { href: "/rooms", label: "Rooms" },
+  { href: "/games", label: "Games", flagKey: "games" },
+  { href: "/blogs", label: "Blogs", flagKey: "blogs" },
+  { href: "/business", label: "Business", flagKey: "businessAccounts" },
+  { href: "/ads", label: "Ads", flagKey: "adsSystem" },
+  { href: "/rooms", label: "Rooms", flagKey: "rooms" },
   { href: "/guilds", label: "Guilds" },
   { href: "/messages", label: "Messages" },
   { href: "/friends", label: "Friends" },
-  { href: "/gifts", label: "Gifts" },
+  { href: "/gifts", label: "Gifts", flagKey: "gifts" },
   { href: "/wallet", label: "Wallet" },
   { href: "/notifications", label: "Notifications" },
   { href: "/events", label: "Events" },
   { href: "/inbox", label: "Inbox" },
   { href: "/elder", label: "Elder" },
   { href: "/referrals", label: "Referrals" },
-  { href: "/classroom", label: "Classroom" },
-  { href: "/leaderboards", label: "Leaderboards" },
+  { href: "/classroom", label: "Classroom", flagKey: "classrooms" },
+  { href: "/leaderboards", label: "Leaderboards", flagKey: "rankings" },
 ];
 
 const secondaryNavItems = [
@@ -159,9 +160,15 @@ export function Sidebar() {
   const router = useRouter();
   const user = useSidebarUser();
   const featureFlags = useFeatureFlags();
+  const modVisibleKeys = useFeatureModVisibility();
   const visibleNavItems = primaryNavItems.filter((item) => {
-    if (item.flagKey && featureFlags[item.flagKey] === false) return !!user?.is_admin;
-    return true;
+    if (!item.flagKey) return true;
+    const access = resolveFeatureAccess(
+      featureFlags[item.flagKey] !== false,
+      modVisibleKeys.includes(item.flagKey as string),
+      { isAdmin: !!user?.is_admin, isModerator: !!user?.is_moderator }
+    );
+    return access.accessible;
   });
 
   const handleLogout = useCallback(async () => {

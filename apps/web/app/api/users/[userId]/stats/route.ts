@@ -24,9 +24,10 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { isFeatureEnabled } from "@/lib/manifest";
+import { loadManifest } from "@/lib/manifest";
+import { isFeatureAccessible } from "@/lib/manifest/featureAccess";
 import { getAllowedPlans, isPlanEligible, allEligibilityOptionsExcept } from "@/lib/plans/eligibility";
-import { isAdminOrModerator } from "@/lib/auth/roles";
+import { getStaffRoles } from "@/lib/auth/roles";
 import { getRankForXP } from "@/lib/xp/engine";
 import { getUserRank, type LeaderboardTrack } from "@/lib/leaderboards/engine";
 
@@ -76,18 +77,24 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     const { userId } = params;
     if (!UUID_RE.test(userId)) throw badRequest("userId must be a valid UUID");
 
-    if (!(await isFeatureEnabled("feature_profile_stats"))) {
+    const callerId = auth.user.sub;
+    const [manifest, callerRoles] = await Promise.all([loadManifest(), getStaffRoles(callerId)]);
+    const statsFeatureAccessible = isFeatureAccessible(
+      manifest.features.profileStats,
+      manifest.featureModVisibility.includes("profileStats"),
+      callerRoles
+    );
+    if (!statsFeatureAccessible) {
       const err = new Error("The Stats page is currently unavailable.") as Error & { code: string; statusCode: number };
       err.code = "FEATURE_DISABLED";
       err.statusCode = 503;
       throw err;
     }
 
-    const callerId = auth.user.sub;
     const isOwnStats = callerId === userId;
 
     // Only the owner or a moderator/admin may view a user's stats.
-    if (!isOwnStats && !(await isAdminOrModerator(callerId))) {
+    if (!isOwnStats && !(callerRoles.isAdmin || callerRoles.isModerator)) {
       throw forbidden("You do not have permission to view this user's stats.");
     }
 

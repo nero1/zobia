@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { useCurrency, type CurrencyNames } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { RANK_COLORS } from "@/lib/xp/rankColors";
+import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
 import RewardedAdButton from "@/components/ads/RewardedAdButton";
 
 // ---------------------------------------------------------------------------
@@ -645,6 +646,7 @@ function WalletContent() {
   // main balance — see lib/economy/adWallet.ts.
   const purchaseDestination = searchParams.get("destination") === "ad_wallet" ? "ad_wallet" : "main_wallet";
   const currency = useCurrency();
+  const statsEnabled = useFeatureEnabled("profileStats");
 
   const [data, setData] = useState<StoreData>({
     balance: { coins: 0, stars: 0, xp: 0 },
@@ -886,7 +888,7 @@ function WalletContent() {
 
       <BalanceCard balance={data.balance} activePlan={data.activePlan} currency={currency} />
 
-      {rank && <RankBadgesSummary rank={rank} />}
+      {rank && statsEnabled && <RankBadgesSummary rank={rank} />}
 
       {data.earnings && <EarningsSection earnings={data.earnings} />}
 

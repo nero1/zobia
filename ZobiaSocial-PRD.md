@@ -925,10 +925,15 @@ as part of the profile page itself, keeping the profile page light.
 A dismissible "Unlock Full Stats" banner is shown to Basic-tier viewers on
 their own Stats page, linking to Settings → Subscription.
 
-**Admin control** (Admin ▸ Profile Stats, `/admin/settings/profile-stats`):
+**Admin control** (Admin ▸ Profile Stats, `/gate44/settings/profile-stats`):
 - Master on/off toggle lives on the existing Feature Flags panel
   (`feature_profile_stats` — it is picked up automatically since it matches
-  the `feature_*` convention).
+  the `feature_*` convention). Follows the standard feature-flag visibility
+  rules (see "Feature Flags" above): when off, every Stats button/link
+  disappears from every profile/settings/wallet surface across web, PWA,
+  and the Capacitor Android app — including a user's own profile — except
+  for admins (and moderators, if the flag is added to the mods-visibility
+  allow-list). A hidden link's page still 404s if visited directly.
 - A separate settings page controls which plans/prestige tiers get the
   Full view via the `profile_stats_full_plans` manifest key (JSON array of
   plan slugs and/or `prestige_N` entries), default `["plus","pro","max"]`.
@@ -1495,7 +1500,10 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 
 **Feature Flags**
 - Admin can toggle most non-core features on or off without a deployment. Feature flags are stored in the database and read at runtime.
-- Examples of flaggable features: Community Notes, Star direct purchase, Nemesis system, Guild Wars, ClassRooms, Business Accounts, AdMob ads, Rewarded ads, Ad Campaigns (self-service), In-stream Room ads, Boosted Posts, Ad Coupons, Creator Merch Store, Platform Council, Alliance System.
+- Examples of flaggable features: Community Notes, Star direct purchase, Nemesis system, Guild Wars, ClassRooms, Business Accounts, AdMob ads, Rewarded ads, Ad Campaigns (self-service), In-stream Room ads, Boosted Posts, Ad Coupons, Creator Merch Store, Platform Council, Alliance System, Profile Stats page (`feature_profile_stats`).
+- **Visibility rules when a flag is off** (web, PWA, and the Capacitor Android app all follow the same rule): the nav link/card/button for that feature disappears from menus for regular users and moderators. Admins always keep seeing the entry, marked with a small "disabled for users" indicator, so they can still fully use and manage the feature. Visiting the feature's URL directly while logged out of that access renders a plain, generic 404 page — it never hints that a feature exists there or that it's specifically disabled.
+- **Mods-can-access-while-disabled allow-list** — per flag, admin can additionally grant moderators the same access as admins (nav link with the disabled indicator + normal page access) while the master flag stays off for everyone else. Configured at `/gate44/feature-flags` → a flag's "Advanced settings" → "Mods can access while disabled". Leaving the master flag off and turning this on for a flag is also how a feature is soft-launched to moderators only, before a wider release.
+- **Two-week early access preview** — per flag, admin can set a future general-release date plus a list of subscription plans (e.g. Max) that get the feature during the 14 days immediately before that date. Configured in the same "Advanced settings" panel. Platform Council members also get early access automatically during that window. This is independent of the on/off master switch and of the mods-visibility allow-list — it schedules *when* a feature turns on for early-access plans vs. everyone else, rather than gating visibility of an already-shipped feature.
 
 **Configuration (x_manifest / Admin Settings)**
 - Minimum age requirement.

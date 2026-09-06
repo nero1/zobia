@@ -52,6 +52,8 @@ export interface ZobiaManifest {
     platformCouncil: boolean;
     allianceSystem: boolean;
     pinAuth: boolean;
+    /** User Profile Stats page (/profile/&lt;id&gt;/stats). Configure Basic vs Full view eligibility at /gate44/settings/profile-stats. */
+    profileStats: boolean;
     twoFaEnabled: boolean;
     twoFaRequiredForMods: boolean;
     warEventActive: boolean;
@@ -76,6 +78,16 @@ export interface ZobiaManifest {
     adCoupons: boolean;
     vipRoomPricing?: { minNgn: number; maxNgn: number };
   };
+  /**
+   * Feature keys (matching `features.*` property names above) for which
+   * moderators may still see the nav link and access the page while the
+   * master flag is off. Regular users never get this exception; admins
+   * always can access every feature regardless of this list. Admin-editable
+   * per-flag at /gate44/feature-flags ("Mods can access while disabled").
+   * Also doubles as a "staff/mods-only" release mode: leave the master flag
+   * off and add the key here to soft-launch a feature to mods only.
+   */
+  featureModVisibility: string[];
   warEventCooldownHours: number;
   // Maintenance mode (admin-editable at /gate44/config)
   maintenance: {
@@ -353,7 +365,9 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     instreamAds: true,
     boostedPosts: true,
     adCoupons: true,
+    profileStats: true,
   },
+  featureModVisibility: [],
   currency: {
     softNameSingular: "Credit",
     softNamePlural: "Credits",
@@ -554,6 +568,71 @@ function parseFloat10(value: string | undefined, fallback: number): number {
 }
 
 /**
+ * Maps every `feature_*` x_manifest key (canonical + legacy aliases) to the
+ * matching camelCase property name on `ZobiaManifest['features']`. Used to
+ * translate the admin-managed "mods can access while disabled" list (stored
+ * as raw x_manifest keys, same as every other admin/feature-flags row) into
+ * the camelCase keys client code checks (`useFeatureFlags()[key]`).
+ * Exported so the admin API can reuse it instead of duplicating the table.
+ */
+export const FEATURE_FLAG_KEY_MAP: Record<string, keyof ZobiaManifest["features"]> = {
+  feature_rooms: "rooms",
+  feature_direct_messages: "directMessages",
+  feature_gifts: "gifts",
+  feature_rankings: "rankings",
+  feature_community_notes: "communityNotes",
+  feature_star_purchase: "starPurchase",
+  feature_star_direct_purchase: "starPurchase",
+  feature_nemesis_system: "nemesisSystem",
+  feature_nemesis: "nemesisSystem",
+  feature_guild_wars: "guildWars",
+  feature_classrooms: "classrooms",
+  feature_business_accounts: "businessAccounts",
+  feature_admob_ads: "admobAds",
+  feature_rewarded_ads: "rewardedAds",
+  feature_games: "games",
+  feature_merch_store: "merchStore",
+  feature_creator_merch: "merchStore",
+  feature_platform_council: "platformCouncil",
+  feature_alliance_system: "allianceSystem",
+  feature_pin_auth: "pinAuth",
+  feature_profile_stats: "profileStats",
+  feature_war_event_active: "warEventActive",
+  feature_pidgin_autocomplete: "pidginAutocomplete",
+  feature_moments: "moments",
+  feature_forum: "forum",
+  feature_bbforum: "bbforum",
+  feature_blogs: "blogs",
+  feature_blog_gifts: "blogGifts",
+  feature_kyc: "kyc",
+  feature_ads_system: "adsSystem",
+  feature_native_ads: "nativeAds",
+  feature_instream_ads: "instreamAds",
+  feature_boosted_posts: "boostedPosts",
+  feature_ad_coupons: "adCoupons",
+};
+
+/**
+ * Parse the `feature_flags_mod_visible` x_manifest row: a JSON array of raw
+ * x_manifest feature keys (e.g. `["feature_rooms","feature_kyc"]`) that
+ * moderators may still see/access while disabled. Translates to the
+ * camelCase `features.*` keys client code consumes.
+ */
+function parseModVisibleList(raw: string | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(unquote(raw));
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((v): v is string => typeof v === "string")
+      .map((key) => FEATURE_FLAG_KEY_MAP[key] ?? key)
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
  * Strip surrounding JSON double-quotes from a string value if present.
  *
  * The x_manifest seed (and some legacy admin writes) stored enum/string values
@@ -653,6 +732,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       instreamAds:                parseBool(kv["feature_instream_ads"]              ?? "true",  DEFAULT_MANIFEST.features.instreamAds),
       boostedPosts:               parseBool(kv["feature_boosted_posts"]             ?? "true",  DEFAULT_MANIFEST.features.boostedPosts),
       adCoupons:                  parseBool(kv["feature_ad_coupons"]                ?? "true",  DEFAULT_MANIFEST.features.adCoupons),
+      profileStats:               parseBool(kv["feature_profile_stats"]             ?? "true",  DEFAULT_MANIFEST.features.profileStats),
       // BUG-MANIFEST-01: populate vipRoomPricing from x_manifest keys
       vipRoomPricing: kv["vip_room_pricing_min_ngn"] && kv["vip_room_pricing_max_ngn"]
         ? {
@@ -661,6 +741,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
           }
         : undefined,
     },
+    featureModVisibility: parseModVisibleList(kv["feature_flags_mod_visible"]),
     currency: {
       softNameSingular:    unquote(kv["currency_soft_name_singular"])    ?? DEFAULT_MANIFEST.currency.softNameSingular,
       softNamePlural:      unquote(kv["currency_soft_name_plural"])      ?? DEFAULT_MANIFEST.currency.softNamePlural,

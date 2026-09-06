@@ -19,7 +19,7 @@ import { clsx } from "clsx";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/Avatar";
 import { useUnreadNotificationsCount } from "@/lib/notifications/useUnreadCount";
-import { useFeatureFlags, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
 
 interface NavUser {
   display_name: string | null;
@@ -68,27 +68,27 @@ interface PrimaryNavItem {
 // Full nav for desktop + drawer
 const primaryNavItems: PrimaryNavItem[] = [
   { href: "/home",         labelKey: "nav.home",         icon: "🏠" },
-  { href: "/moments",      labelKey: "nav.moments",      icon: "⚡" },
+  { href: "/moments",      labelKey: "nav.moments",      icon: "⚡", flagKey: "moments" },
   { href: "/answers",      labelKey: "nav.answers",      icon: "❓", flagKey: "forum" },
   { href: "/forum",        labelKey: "nav.bbforum",      icon: "🗨️", flagKey: "bbforum" },
   { href: "/quests",       labelKey: "nav.quests",       icon: "🎯" },
-  { href: "/games",        labelKey: "nav.games",        icon: "🎮" },
-  { href: "/blogs",        labelKey: "nav.blogs",        icon: "📝" },
-  { href: "/business",     labelKey: "nav.business",     icon: "🏢" },
-  { href: "/ads",          labelKey: "nav.ads",          icon: "📢" },
-  { href: "/rooms",        labelKey: "nav.rooms",        icon: "🚪" },
+  { href: "/games",        labelKey: "nav.games",        icon: "🎮", flagKey: "games" },
+  { href: "/blogs",        labelKey: "nav.blogs",        icon: "📝", flagKey: "blogs" },
+  { href: "/business",     labelKey: "nav.business",     icon: "🏢", flagKey: "businessAccounts" },
+  { href: "/ads",          labelKey: "nav.ads",          icon: "📢", flagKey: "adsSystem" },
+  { href: "/rooms",        labelKey: "nav.rooms",        icon: "🚪", flagKey: "rooms" },
   { href: "/guilds",       labelKey: "nav.guilds",       icon: "🏰" },
   { href: "/messages",     labelKey: "nav.messages",     icon: "💬" },
   { href: "/friends",      labelKey: "nav.friends",      icon: "👥" },
-  { href: "/gifts",        labelKey: "nav.gifts",        icon: "🎁" },
+  { href: "/gifts",        labelKey: "nav.gifts",        icon: "🎁", flagKey: "gifts" },
   { href: "/wallet",       labelKey: "nav.wallet",       icon: "🪙" },
   { href: "/notifications",labelKey: "nav.notifications",icon: "🔔" },
   { href: "/events",       labelKey: "nav.events",       icon: "📅" },
   { href: "/inbox",        labelKey: "nav.inbox",        icon: "📬" },
   { href: "/elder",        labelKey: "nav.elder",        icon: "🎓" },
   { href: "/referrals",    labelKey: "nav.referrals",    icon: "🔗" },
-  { href: "/classroom",    labelKey: "nav.classroom",    icon: "🏫" },
-  { href: "/leaderboards", labelKey: "nav.leaderboards", icon: "🏆" },
+  { href: "/classroom",    labelKey: "nav.classroom",    icon: "🏫", flagKey: "classrooms" },
+  { href: "/leaderboards", labelKey: "nav.leaderboards", icon: "🏆", flagKey: "rankings" },
   { href: "/seasons",      labelKey: "nav.seasons",      icon: "🗓️" },
 ];
 
@@ -199,6 +199,7 @@ function MobileDrawer({
 }) {
   const { t } = useTranslation();
   const featureFlags = useFeatureFlags();
+  const modVisibleKeys = useFeatureModVisibility();
 
   // Close on Escape
   useEffect(() => {
@@ -208,11 +209,17 @@ function MobileDrawer({
     return () => window.removeEventListener("keydown", handler);
   }, [open, onClose]);
 
-  // Hide nav entries for features an admin turned off. Admins still see the
-  // entry but with a small "off" indicator, since they can also manage it.
+  // Hide nav entries for features an admin turned off. Admins always still
+  // see the entry (with a small "off" indicator); moderators do too, but
+  // only when the flag is on the admin-managed mod-visibility allow-list.
   const visibleNavItems = primaryNavItems.filter((item) => {
-    if (item.flagKey && featureFlags[item.flagKey] === false) return isAdmin;
-    return true;
+    if (!item.flagKey) return true;
+    const access = resolveFeatureAccess(
+      featureFlags[item.flagKey] !== false,
+      modVisibleKeys.includes(item.flagKey as string),
+      { isAdmin, isModerator }
+    );
+    return access.accessible;
   });
 
   return (

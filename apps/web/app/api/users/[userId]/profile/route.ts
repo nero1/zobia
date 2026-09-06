@@ -21,8 +21,10 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { isAdminOrModerator } from "@/lib/auth/roles";
+import { getStaffRoles } from "@/lib/auth/roles";
 import { getRankForXP } from "@/lib/xp/engine";
+import { loadManifest } from "@/lib/manifest";
+import { isFeatureAccessible } from "@/lib/manifest/featureAccess";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -267,8 +269,19 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     }
 
     // Stats page visibility (PRD §15): only the profile owner or a
-    // moderator/admin viewer may open this user's Stats page.
-    const canViewStats = isOwnProfile || (await isAdminOrModerator(callerId));
+    // moderator/admin viewer may open this user's Stats page — and only
+    // when the feature_profile_stats flag is on, or the viewer is staff
+    // with the flag on the mod-visibility allow-list when it's off.
+    const [{ isAdmin: viewerIsAdmin, isModerator: viewerIsModerator }, manifest] = await Promise.all([
+      getStaffRoles(callerId),
+      loadManifest(),
+    ]);
+    const statsFeatureAccessible = isFeatureAccessible(
+      manifest.features.profileStats,
+      manifest.featureModVisibility.includes("profileStats"),
+      { isAdmin: viewerIsAdmin, isModerator: viewerIsModerator }
+    );
+    const canViewStats = statsFeatureAccessible && (isOwnProfile || viewerIsAdmin || viewerIsModerator);
 
     // 5. Creator card — top rooms + subscriber count (PRD §15)
     let creatorRoom: { id: string; name: string; coverEmoji: string } | null = null;

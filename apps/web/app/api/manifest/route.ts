@@ -34,6 +34,7 @@ type PublicManifestSection = (typeof PUBLIC_MANIFEST_SECTIONS)[number];
 type PublicManifest = {
   [K in PublicManifestSection]: Awaited<ReturnType<typeof loadManifest>>[K];
 } & {
+  featureModVisibility: string[];
   auth: { telegramEnabled: boolean };
   captchaProvider: "recaptcha" | "turnstile" | "none";
   captchaEnabledSurfaces: string[];
@@ -91,6 +92,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // Strip non-public keys
     const publicManifest: PublicManifest = {
       features: manifest.features,
+      // Safe to expose publicly: only lists which already-public feature
+      // keys moderators may access while disabled — no secrets involved.
+      featureModVisibility: manifest.featureModVisibility,
       auth: {
         telegramEnabled: manifest.auth.telegramEnabled,
       },

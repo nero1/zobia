@@ -26,6 +26,8 @@ export interface ManifestCurrency {
 export interface Manifest {
   features?: ManifestFeatureFlags;
   currency?: ManifestCurrency;
+  /** Feature keys moderators may still see/access while their master flag is off. */
+  featureModVisibility?: string[];
   [key: string]: unknown;
 }
 
@@ -52,4 +54,34 @@ export function useManifest(): Manifest | undefined {
 export function useFeatureFlags(): ManifestFeatureFlags | undefined {
   const manifest = useManifest();
   return manifest?.features;
+}
+
+export function useFeatureModVisibility(): string[] {
+  const manifest = useManifest();
+  return manifest?.featureModVisibility ?? [];
+}
+
+export interface FeatureAccessRole {
+  isAdmin?: boolean;
+  isModerator?: boolean;
+}
+
+export interface FeatureAccessResult {
+  accessible: boolean;
+  showDisabledMarker: boolean;
+}
+
+/**
+ * Mirrors apps/web/lib/hooks/useFeatureFlags.ts's resolveFeatureAccess() —
+ * kept in sync manually since this app has its own bundle/build.
+ */
+export function resolveFeatureAccess(
+  enabled: boolean,
+  modVisible: boolean,
+  role: FeatureAccessRole
+): FeatureAccessResult {
+  if (enabled) return { accessible: true, showDisabledMarker: false };
+  if (role.isAdmin) return { accessible: true, showDisabledMarker: true };
+  if (role.isModerator && modVisible) return { accessible: true, showDisabledMarker: true };
+  return { accessible: false, showDisabledMarker: false };
 }
