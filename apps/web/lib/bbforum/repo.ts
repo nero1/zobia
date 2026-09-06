@@ -16,7 +16,7 @@
  */
 
 import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import type { TransactionClient, SqlParam } from "@/lib/db/interface";
 import { generateUniqueSlug } from "@/lib/slug";
 import { notFound, forbidden } from "@/lib/api/errors";
 
@@ -146,7 +146,7 @@ export async function updateBoard(
   patch: Partial<{ name: string; description: string | null; iconEmoji: string; sortOrder: number; isActive: boolean; parentId: string | null }>
 ): Promise<BoardRow> {
   const sets: string[] = [];
-  const params: unknown[] = [];
+  const params: SqlParam[] = [];
   let i = 1;
   if (patch.name !== undefined) { sets.push(`name = $${i++}`); params.push(patch.name.trim()); }
   if (patch.description !== undefined) { sets.push(`description = $${i++}`); params.push(patch.description); }
@@ -482,8 +482,16 @@ export async function tryClaimPot(
 }
 
 /** Threads whose pot has unclaimed credits and has gone quiet — candidates for auto-refund. */
-export async function listExpiredUnclaimedPots(inactivityDays: number): Promise<{ id: string; author_id: string; pot_total_credits: number; pot_per_claim_credits: number; pot_claims_count: number }[]> {
-  const { rows } = await db.query(
+export interface ExpiredPotRow {
+  id: string;
+  author_id: string;
+  pot_total_credits: number;
+  pot_per_claim_credits: number;
+  pot_claims_count: number;
+}
+
+export async function listExpiredUnclaimedPots(inactivityDays: number): Promise<ExpiredPotRow[]> {
+  const { rows } = await db.query<ExpiredPotRow>(
     `SELECT id, author_id, pot_total_credits, pot_per_claim_credits, pot_claims_count
      FROM bb_threads
      WHERE deleted_at IS NULL AND pot_refunded_at IS NULL
