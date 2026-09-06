@@ -56,7 +56,7 @@ const adminNavItems = [
   { href: "/gate44/sponsored-quests",   label: "Sponsored Quests",   icon: "🎯" },
   { href: "/gate44/ads",                label: "Ads",                icon: "🖼️" },
   { href: "/gate44/games",              label: "Games",              icon: "🎮" },
-  { href: "/gate44/blogs",              label: "Blogs",              icon: "📝" },
+  { href: "/gate44/blogs",              label: "Blogs",              icon: "✍️" },
 ] as const;
 
 // ---------------------------------------------------------------------------
