@@ -37,6 +37,7 @@ const adminNavItems = [
   { href: "/gate44/business",            label: "Business Accounts",  icon: "🏢" },
   { href: "/gate44/kyc",                 label: "Identity KYC",       icon: "🪪" },
   { href: "/gate44/rooms",               label: "Rooms",              icon: "🏛" },
+  { href: "/gate44/guilds",             label: "Guilds",             icon: "🏰" },
   { href: "/gate44/branded-rooms",      label: "Branded Rooms",      icon: "🏠" },
   { href: "/gate44/leaderboards",       label: "Leaderboards",       icon: "📊" },
   { href: "/gate44/leaderboard-banners",label: "Leaderboard Banners",icon: "🏆" },

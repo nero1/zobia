@@ -12,11 +12,23 @@
  * renders that list instead of bouncing back.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+
+interface Eligibility {
+  canCreate: boolean;
+  minLevel: number;
+  currentLevel: number;
+  minTrustScore: number;
+  currentTrustScore: number;
+  costCoins: number;
+  currentCoinBalance: number;
+  alreadyInGuild: boolean;
+}
 
 interface GuildRow {
   id: string;
@@ -46,6 +58,183 @@ async function fetchGuilds({ pageParam, city }: { pageParam?: string; city: stri
   if (!res.ok) throw new Error("Failed to load guilds");
   const json = (await res.json()) as { data: GuildsPage };
   return json.data;
+}
+
+async function fetchEligibility(): Promise<Eligibility> {
+  const res = await fetch(`/api/guilds?eligibility=true`, { credentials: "include" });
+  if (!res.ok) throw new Error("Failed to load eligibility");
+  const json = (await res.json()) as { data: Eligibility };
+  return json.data;
+}
+
+function CreateGuildButton() {
+  const { t } = useTranslation();
+  const router = useRouter();
+  const qc = useQueryClient();
+  const [open, setOpen] = useState(false);
+  const [eligibility, setEligibility] = useState<Eligibility | null>(null);
+  const [loadingEligibility, setLoadingEligibility] = useState(false);
+  const [name, setName] = useState("");
+  const [crestEmoji, setCrestEmoji] = useState("🛡️");
+  const [description, setDescription] = useState("");
+  const [city, setCity] = useState("");
+  const [country, setCountry] = useState("");
+  const [recruitmentType, setRecruitmentType] = useState<"open" | "approval" | "invite_only">("open");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch("/api/users/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json) => {
+        const user = json?.user ?? json;
+        if (user?.country) setCountry(String(user.country).toUpperCase());
+      })
+      .catch(() => {});
+  }, []);
+
+  async function handleOpen() {
+    setOpen(true);
+    setError(null);
+    if (!eligibility) {
+      setLoadingEligibility(true);
+      try {
+        setEligibility(await fetchEligibility());
+      } catch {
+        setEligibility(null);
+      } finally {
+        setLoadingEligibility(false);
+      }
+    }
+  }
+
+  async function handleSubmit() {
+    setSubmitting(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/guilds", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: name.trim(),
+          crestEmoji: crestEmoji.trim() || "🛡️",
+          description: description.trim() || undefined,
+          city: city.trim() || undefined,
+          country: country.trim().toUpperCase() || "NG",
+          recruitmentType,
+        }),
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        const code = typeof body.error === "object" ? body.error?.code : undefined;
+        const msg = typeof body.error === "string" ? body.error : body.error?.message;
+        throw new Error(translateApiError(t, code, msg ?? "Failed to create guild"));
+      }
+      void qc.invalidateQueries({ queryKey: ["guilds"] });
+      void qc.invalidateQueries({ queryKey: ["guild"] });
+      setOpen(false);
+      router.push(`/guilds/${body.data.guildId}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create guild");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => void handleOpen()}
+        className="shrink-0 rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-primary-700"
+      >
+        {t("guild.create.button", "Create Guild")}
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setOpen(false)}>
+          <div
+            className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 dark:bg-neutral-900"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="mb-3 text-lg font-bold text-neutral-900 dark:text-neutral-50">
+              {t("guild.create.title", "Create a Guild")}
+            </h3>
+
+            {loadingEligibility ? (
+              <p className="text-sm text-neutral-500">{t("guild.create.checking", "Checking eligibility…")}</p>
+            ) : eligibility && !eligibility.canCreate ? (
+              <div className="mb-4 space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                <p className="font-semibold">{t("guild.create.notEligible", "You're not eligible to create a guild yet")}</p>
+                {eligibility.alreadyInGuild && <p>{t("guild.create.alreadyInGuild", "You already belong to a guild.")}</p>}
+                {eligibility.currentLevel < eligibility.minLevel && (
+                  <p>{t("guild.create.levelRequirement", "Reach level {{minLevel}} to found a guild (you're level {{currentLevel}}).", { minLevel: eligibility.minLevel, currentLevel: eligibility.currentLevel })}</p>
+                )}
+                {eligibility.currentTrustScore < eligibility.minTrustScore && (
+                  <p>{t("guild.create.trustRequirement", "Build your trust score to {{minTrustScore}}+ first (yours is {{currentTrustScore}}).", { minTrustScore: eligibility.minTrustScore, currentTrustScore: eligibility.currentTrustScore })}</p>
+                )}
+                {eligibility.currentCoinBalance < eligibility.costCoins && (
+                  <p>{t("guild.create.coinsRequirement", "Guild creation costs {{costCoins}} coins (you have {{currentCoinBalance}}).", { costCoins: eligibility.costCoins, currentCoinBalance: eligibility.currentCoinBalance })}</p>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">{t("guild.create.name", "Guild Name")}</label>
+                  <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">{t("guild.create.crest", "Crest Emoji")}</label>
+                  <input value={crestEmoji} onChange={(e) => setCrestEmoji(e.target.value)} maxLength={4} className="w-20 rounded-lg border border-neutral-300 px-3 py-2 text-center text-lg dark:border-neutral-700 dark:bg-neutral-800" />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">{t("guild.create.description", "Description")}</label>
+                  <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800" />
+                </div>
+                <div className="flex gap-3">
+                  <div className="flex-1">
+                    <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">{t("guild.create.city", "City")}</label>
+                    <input value={city} onChange={(e) => setCity(e.target.value)} maxLength={80} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800" />
+                  </div>
+                  <div className="w-24">
+                    <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">{t("guild.create.country", "Country")}</label>
+                    <input value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} maxLength={2} placeholder="NG" className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm uppercase dark:border-neutral-700 dark:bg-neutral-800" />
+                  </div>
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">{t("guild.create.recruitment", "Recruitment")}</label>
+                  <select value={recruitmentType} onChange={(e) => setRecruitmentType(e.target.value as typeof recruitmentType)} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800">
+                    <option value="open">{t("guild.create.recruitmentOpen", "Open — anyone can join")}</option>
+                    <option value="approval">{t("guild.create.recruitmentApproval", "Approval required")}</option>
+                    <option value="invite_only">{t("guild.create.recruitmentInviteOnly", "Invite only")}</option>
+                  </select>
+                </div>
+                <p className="text-xs text-neutral-500">{t("guild.create.costNote", "Creating a guild costs {{cost}} coins.", { cost: 500 })}</p>
+              </div>
+            )}
+
+            {error && <p className="mt-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
+
+            <div className="mt-4 flex gap-2">
+              <button onClick={() => setOpen(false)} className="flex-1 rounded-lg border border-neutral-300 py-2 text-sm font-medium dark:border-neutral-700">
+                {t("common.cancel", "Cancel")}
+              </button>
+              {(!eligibility || eligibility.canCreate) && (
+                <button
+                  onClick={() => void handleSubmit()}
+                  disabled={submitting || !name.trim() || !country.trim() || loadingEligibility}
+                  className="flex-1 rounded-lg bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
+                >
+                  {submitting ? t("guild.create.creating", "Creating…") : t("guild.create.submit", "Create Guild")}
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
 }
 
 function tierBase(tier: string): string {
@@ -96,15 +285,18 @@ export default function BrowseGuildsPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4 sm:p-6">
-      <div>
-        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Browse Guilds</h1>
-        <p className="mt-1 text-sm text-neutral-500">
-          Search every active Guild — or{" "}
-          <Link href="/guild-discovery" className="text-blue-600 hover:underline dark:text-blue-400">
-            see recommendations near you
-          </Link>
-          .
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Browse Guilds</h1>
+          <p className="mt-1 text-sm text-neutral-500">
+            Search every active Guild — or{" "}
+            <Link href="/guild-discovery" className="text-blue-600 hover:underline dark:text-blue-400">
+              see recommendations near you
+            </Link>
+            .
+          </p>
+        </div>
+        <CreateGuildButton />
       </div>
 
       <input

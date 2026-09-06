@@ -35,6 +35,7 @@ export const adminNavItems: AdminNavItem[] = [
   { href: '/admin/business', labelKey: 'admin.nav.business', labelDefault: 'Business Accounts', icon: '🏢' },
   { href: '/admin/kyc', labelKey: 'admin.nav.kyc', labelDefault: 'Identity KYC', icon: '🪪' },
   { href: '/admin/rooms', labelKey: 'admin.nav.rooms', labelDefault: 'Rooms', icon: '🏛' },
+  { href: '/admin/guilds', labelKey: 'admin.nav.guilds', labelDefault: 'Guilds', icon: '🏰' },
   { href: '/admin/branded-rooms', labelKey: 'admin.nav.brandedRooms', labelDefault: 'Branded Rooms', icon: '🏠' },
   { href: '/admin/leaderboards', labelKey: 'admin.nav.leaderboards', labelDefault: 'Leaderboards', icon: '📊' },
   { href: '/admin/leaderboard-banners', labelKey: 'admin.nav.leaderboardBanners', labelDefault: 'Leaderboard Banners', icon: '🏆' },

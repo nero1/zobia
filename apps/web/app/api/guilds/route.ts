@@ -21,6 +21,7 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
+import { loadManifest } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -69,9 +70,60 @@ interface GuildRow {
  * Browse guilds with optional filters.
  * Supports city, tier, and open_only query params.
  */
+interface EligibilityRow {
+  rank_level: number;
+  trust_score: number;
+  coin_balance: number;
+  guild_id: string | null;
+}
+
+/**
+ * Whether the current user can create a guild right now, and why not if not —
+ * surfaced on the Browse Guilds page so the Create Guild button can show the
+ * exact gate (level / trust / coins / already-in-a-guild) before they click,
+ * not just on a failed POST.
+ */
+async function getCreateEligibility(userId: string) {
+  const manifest = await loadManifest();
+  const minLevel = manifest.guilds.minLevelToCreate;
+
+  const { rows } = await db.query<EligibilityRow>(
+    `SELECT COALESCE(rank_level, 1) AS rank_level, COALESCE(trust_score, 50) AS trust_score,
+            COALESCE(coin_balance, 0) AS coin_balance, guild_id
+     FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    [userId]
+  );
+  const row = rows[0];
+  if (!row) {
+    return { canCreate: false, minLevel, currentLevel: 1, minTrustScore: 30, currentTrustScore: 0, costCoins: GUILD_CREATION_COST_COINS, currentCoinBalance: 0, alreadyInGuild: false };
+  }
+
+  const trusted = await meetsMinimumTrust(userId, "guild_creation", db);
+  const alreadyInGuild = row.guild_id !== null;
+  const hasLevel = row.rank_level >= minLevel;
+  const hasCoins = row.coin_balance >= GUILD_CREATION_COST_COINS;
+
+  return {
+    canCreate: !alreadyInGuild && hasLevel && trusted && hasCoins,
+    minLevel,
+    currentLevel: row.rank_level,
+    minTrustScore: 30,
+    currentTrustScore: row.trust_score,
+    costCoins: GUILD_CREATION_COST_COINS,
+    currentCoinBalance: row.coin_balance,
+    alreadyInGuild,
+  };
+}
+
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const { searchParams } = new URL(req.url);
+
+    if (searchParams.get("eligibility") === "true") {
+      const eligibility = await getCreateEligibility(auth.user.sub);
+      return NextResponse.json({ success: true, data: eligibility, error: null });
+    }
+
     const city = searchParams.get("city");
     const tier = searchParams.get("tier");
     const openOnly = searchParams.get("open_only") === "true";
@@ -166,10 +218,26 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, createGuildSchema);
     const userId = auth.user.sub;
 
+    // Level gate: minimum account level required to found a guild (admin-configurable)
+    const manifest = await loadManifest();
+    const minLevel = manifest.guilds.minLevelToCreate;
+    const levelRow = await db.query<{ rank_level: number }>(
+      `SELECT COALESCE(rank_level, 1) AS rank_level FROM users WHERE id = $1 AND deleted_at IS NULL`,
+      [userId]
+    );
+    const currentLevel = levelRow.rows[0]?.rank_level ?? 1;
+    if (currentLevel < minLevel) {
+      throw forbidden(
+        `Reach level ${minLevel} to found a guild. You are level ${currentLevel}.`,
+        "GUILD_LEVEL_TOO_LOW",
+        { minLevel, currentLevel }
+      );
+    }
+
     // Trust gate: guild_creation requires minimum trust score of 30
     const trusted = await meetsMinimumTrust(userId, "guild_creation", db);
     if (!trusted) {
-      throw forbidden("Your account trust score is too low to create a guild. Build your reputation first.", "TRUST_SCORE_TOO_LOW");
+      throw forbidden("Your account trust score is too low to create a guild. Build your reputation first.", "GUILD_CREATION_TRUST_TOO_LOW");
     }
 
     const result = await db.transaction(async (client) => {
@@ -191,7 +259,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       const { coin_balance } = userRow.rows[0];
       if (coin_balance < GUILD_CREATION_COST_COINS) {
-        throw forbidden(`Insufficient coins. Guild creation costs ${GUILD_CREATION_COST_COINS} coins.`);
+        throw forbidden(
+          `Insufficient coins. Guild creation costs ${GUILD_CREATION_COST_COINS} coins.`,
+          "INSUFFICIENT_COINS",
+          { cost: GUILD_CREATION_COST_COINS, balance: coin_balance }
+        );
       }
 
       // 3. Deduct coins from user

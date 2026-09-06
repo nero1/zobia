@@ -159,6 +159,11 @@ export interface ZobiaManifest {
     /** Run profanity/duplicate auto-moderation on new questions and answers. */
     autoModerationEnabled: boolean;
   };
+  // Guilds (PRD §13) — admin-editable at /gate44/guilds
+  guilds: {
+    /** Minimum account level (main rank number, 1 = Beginner) required to found a Guild. */
+    minLevelToCreate: number;
+  };
   // Platform Advertising (PRD §17, Pillar 3) — admin-editable at /gate44/ads
   ads: {
     /** How self-service business-submitted ad campaigns are reviewed. */
@@ -350,6 +355,9 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     rewardCreditsBestAnswer: 10,
     dailyRewardCapCredits: 50,
     autoModerationEnabled: true,
+  },
+  guilds: {
+    minLevelToCreate: 4,
   },
   ads: {
     moderationMode: "manual",
@@ -642,6 +650,9 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       rewardCreditsBestAnswer:        parseInt10(kv["forum_reward_credits_best_answer"],      DEFAULT_MANIFEST.forum.rewardCreditsBestAnswer),
       dailyRewardCapCredits:          parseInt10(kv["forum_daily_reward_cap_credits"],        DEFAULT_MANIFEST.forum.dailyRewardCapCredits),
       autoModerationEnabled:          parseBool(kv["forum_auto_moderation_enabled"] ?? "true", DEFAULT_MANIFEST.forum.autoModerationEnabled),
+    },
+    guilds: {
+      minLevelToCreate: parseInt10(kv["guilds_min_level_to_create"], DEFAULT_MANIFEST.guilds.minLevelToCreate),
     },
     ads: {
       moderationMode: kv["ad_moderation_mode"] === "ai" ? "ai" : "manual",

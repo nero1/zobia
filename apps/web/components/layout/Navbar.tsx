@@ -77,6 +77,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/business",     labelKey: "nav.business",     icon: "🏢" },
   { href: "/ads",          labelKey: "nav.ads",          icon: "📢" },
   { href: "/rooms",        labelKey: "nav.rooms",        icon: "🚪" },
+  { href: "/guilds",       labelKey: "nav.guilds",       icon: "🏰" },
   { href: "/messages",     labelKey: "nav.messages",     icon: "💬" },
   { href: "/friends",      labelKey: "nav.friends",      icon: "👥" },
   { href: "/gifts",        labelKey: "nav.gifts",        icon: "🎁" },
