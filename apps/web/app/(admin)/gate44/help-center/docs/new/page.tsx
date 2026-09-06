@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * app/(admin)/admin/help-center/docs/new/page.tsx
+ * app/(admin)/gate44/help-center/docs/new/page.tsx
  *
  * Create a Help Center doc. POST /api/admin/help-center/docs.
  */
@@ -49,7 +49,7 @@ export default function NewHelpDocPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json?.error?.message ?? "Failed to save");
-      router.push(`/admin/help-center/docs/${json.data.id}`);
+      router.push(`/gate44/help-center/docs/${json.data.id}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save");
     } finally {

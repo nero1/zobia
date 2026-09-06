@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * app/(admin)/admin/support/tickets/[id]/page.tsx
+ * app/(admin)/gate44/support/tickets/[id]/page.tsx
  *
  * Staff ticket detail — thread view, reply box, assign/escalate/status controls.
  */
@@ -109,7 +109,7 @@ export default function AdminTicketDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div className="mx-auto max-w-3xl">
-      <Link href="/admin/support/queue" className="text-sm text-primary-600 hover:underline">&larr; Back to queue</Link>
+      <Link href="/gate44/support/queue" className="text-sm text-primary-600 hover:underline">&larr; Back to queue</Link>
       <h1 className="mt-2 mb-1 text-xl font-bold text-neutral-900 dark:text-neutral-50">{ticket.subject}</h1>
       <p className="mb-4 text-sm text-neutral-500">Status: {ticket.status} {ticket.is_ai_handled ? "· AI-triaged" : ""}</p>
 

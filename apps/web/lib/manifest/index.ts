@@ -327,7 +327,7 @@ export interface ZobiaManifest {
       business:   { tier2Kobo: number; tier2UsdCents: number; tier3Kobo: number; tier3UsdCents: number };
     };
   };
-  // Support Ticket System (admin-editable at /admin/support/settings)
+  // Support Ticket System (admin-editable at /gate44/support/settings)
   support: {
     /** When true, a new ticket first gets an AI-generated response before the human queue. */
     aiTriageEnabled: boolean;
@@ -344,7 +344,7 @@ export interface ZobiaManifest {
     /** Roles ("support"|"moderator"|"admin") permitted to view/respond to the ticket queue. */
     staffRoles: string[];
   };
-  // Help Center (admin-editable at /admin/help-center)
+  // Help Center (admin-editable at /gate44/help-center)
   helpCenterSettings: {
     /** When true, "Contact a real person" from an AI answer is always free and cost messaging is hidden. */
     aiFreeForAll: boolean;

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * app/(admin)/admin/support/settings/page.tsx
+ * app/(admin)/gate44/support/settings/page.tsx
  *
  * Support Ticket System config — mirrors app/(admin)/admin/forum/settings/page.tsx's
  * shape exactly (same generic x_manifest read/write endpoints). Admin-only.
@@ -114,10 +114,10 @@ export default function AdminSupportSettingsPage() {
           <p className="mt-1 text-sm text-neutral-500">Also editable at /admin/config — both write the same values.</p>
         </div>
         <div className="flex gap-2">
-          <Link href="/admin/support/queue" className="rounded-lg bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-700">
+          <Link href="/gate44/support/queue" className="rounded-lg bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-700">
             Ticket Queue
           </Link>
-          <Link href="/admin/users" className="rounded-lg bg-neutral-100 px-3 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300">
+          <Link href="/gate44/users" className="rounded-lg bg-neutral-100 px-3 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300">
             Grant Support Roles
           </Link>
         </div>

@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * app/(admin)/admin/help-center/page.tsx
+ * app/(admin)/gate44/help-center/page.tsx
  *
  * Help Center admin — category CRUD + doc list, mirroring the queue/detail
- * shape used elsewhere (list here, editor at /admin/help-center/docs/[id]).
+ * shape used elsewhere (list here, editor at /gate44/help-center/docs/[id]).
  * Admin-only.
  */
 
@@ -117,11 +117,11 @@ export default function AdminHelpCenterPage() {
       <section>
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-sm font-semibold uppercase text-neutral-500">Docs</h2>
-          <Link href="/admin/help-center/docs/new" className="rounded-lg bg-primary-600 px-3 py-1.5 text-sm font-semibold text-white">New Doc</Link>
+          <Link href="/gate44/help-center/docs/new" className="rounded-lg bg-primary-600 px-3 py-1.5 text-sm font-semibold text-white">New Doc</Link>
         </div>
         <div className="divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900">
           {docs.map((doc) => (
-            <Link key={doc.id} href={`/admin/help-center/docs/${doc.id}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
+            <Link key={doc.id} href={`/gate44/help-center/docs/${doc.id}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
               <div>
                 <p className="text-sm font-medium text-neutral-900 dark:text-neutral-50">{doc.title}</p>
                 <p className="text-xs text-neutral-500">{doc.category_name} · {doc.difficulty}</p>

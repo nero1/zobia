@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * app/(admin)/admin/support/queue/page.tsx
+ * app/(admin)/gate44/support/queue/page.tsx
  *
  * Staff ticket queue — filterable by status. Access is enforced server-side
  * by /api/admin/support/tickets (requireSupportStaff), so a non-staff visitor
@@ -103,7 +103,7 @@ export default function AdminSupportQueuePage() {
           {tickets.map((t) => (
             <Link
               key={t.id}
-              href={`/admin/support/tickets/${t.id}`}
+              href={`/gate44/support/tickets/${t.id}`}
               className="flex items-center justify-between gap-4 px-4 py-3.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
             >
               <div className="min-w-0">

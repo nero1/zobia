@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * app/(admin)/admin/help-center/docs/[id]/page.tsx
+ * app/(admin)/gate44/help-center/docs/[id]/page.tsx
  *
  * Edit a Help Center doc. PUT /api/admin/help-center/docs/[id].
  */
