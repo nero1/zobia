@@ -694,11 +694,19 @@ Feature flags are stored as boolean values in the `x_manifest` table (key `featu
   "enabled": true,
   "description": "Enable Guild Wars feature",
   "availableFrom": null,
-  "earlyAccessPlans": null
+  "earlyAccessPlans": null,
+  "modsVisible": false
 }
 ```
 
-`availableFrom` and `earlyAccessPlans` can be set via `PUT /api/admin/feature-flags` to schedule flags for a future date or gate them to specific subscription plans. All changes are logged to `admin_audit_log`.
+`availableFrom` and `earlyAccessPlans` can be set via `PUT /api/admin/feature-flags` (body: `available_from`, `early_access_plans`) to schedule flags for a future date or gate them to specific subscription plans (typically Max) for a 14-day early-access window before general release — see `isFeatureAvailableForUser()` in `lib/manifest/index.ts`. All changes are logged to `admin_audit_log`.
+
+`modsVisible` (PUT body: `mods_visible`, stored as a single JSON array at the `feature_flags_mod_visible` x_manifest key rather than a new column, to keep this on the same Redis-cached read as everything else) controls whether moderators keep nav access to a disabled feature. Client-side visibility rules (`lib/hooks/useFeatureFlags.ts` on web, `lib/hooks/useManifest.ts` on the Capacitor app, both via `resolveFeatureAccess()`):
+- Flag on → visible/accessible to everyone.
+- Flag off → hidden from regular users and moderators; admins still see the nav entry with a small "disabled for users" ⚠️ marker and can use the feature normally.
+- Flag off + the key added to `modsVisible` → moderators get the same treatment as admins for that one flag.
+
+Page-level enforcement mirrors this server-side so a disabled feature's URL can't just be typed in: `app/(app)/layout.tsx` reads `x-pathname` (set by `middleware.ts`, since Server Components can't call the client-only `useSelectedLayoutSegments()` hook) and looks it up in `resolveFeatureGate()` (`lib/manifest/featureAccess.ts`). A blocked visitor gets the same generic `<NotFoundBody>` as a real 404 — no wording ever hints a feature exists there.
 
 ### Configuration (`/api/admin/config`)
 All other `x_manifest` keys are editable from the admin panel. Changes take effect within seconds via Redis cache invalidation. Feature flags include: rooms enabled, DMs enabled, live streaming, AI assistant, marketplace, gifts, rankings.

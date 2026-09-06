@@ -29,7 +29,33 @@ const toggleSchema = z.object({
   enabled: z.boolean(),
   available_from: z.string().datetime({ offset: true }).nullable().optional(),
   early_access_plans: z.array(z.string()).nullable().optional(),
+  /** Whether moderators may still see/access this feature while `enabled` is false. */
+  mods_visible: z.boolean().optional(),
 });
+
+const MOD_VISIBLE_KEY = "feature_flags_mod_visible";
+
+async function readModVisibleSet(): Promise<Set<string>> {
+  const { rows } = await db.query<{ value: string }>(
+    `SELECT value FROM x_manifest WHERE key = $1 LIMIT 1`,
+    [MOD_VISIBLE_KEY]
+  );
+  try {
+    const parsed = JSON.parse(rows[0]?.value ?? "[]");
+    return new Set(Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+
+async function writeModVisibleSet(set: Set<string>): Promise<void> {
+  await db.query(
+    `INSERT INTO x_manifest (key, value, updated_at)
+     VALUES ($1, $2, NOW())
+     ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
+    [MOD_VISIBLE_KEY, JSON.stringify(Array.from(set))]
+  );
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +78,8 @@ interface FeatureFlag {
   updatedAt: string;
   availableFrom: string | null;
   earlyAccessPlans: string[] | null;
+  /** Whether moderators may still see/access this feature while disabled. */
+  modsVisible: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,7 +92,7 @@ function parseAudience(key: string): string {
   return "all";
 }
 
-function rowToFlag(row: FeatureFlagRow): FeatureFlag {
+function rowToFlag(row: FeatureFlagRow, modVisibleSet: Set<string>): FeatureFlag {
   return {
     key: row.key,
     enabled: row.value === "true" || row.value === "1",
@@ -73,6 +101,7 @@ function rowToFlag(row: FeatureFlagRow): FeatureFlag {
     updatedAt: row.updated_at,
     availableFrom: row.available_from ?? null,
     earlyAccessPlans: row.early_access_plans ?? null,
+    modsVisible: modVisibleSet.has(row.key),
   };
 }
 
@@ -93,7 +122,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
          NULL::timestamptz AS available_from,
          NULL::text[]      AS early_access_plans
        FROM x_manifest m
-       WHERE m.key LIKE 'feature_%'
+       WHERE m.key LIKE 'feature_%' AND m.key != '${MOD_VISIBLE_KEY}'
        ORDER BY m.key ASC`,
       []
     ).catch(async () => {
@@ -101,7 +130,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
       const fallback = await db.query<FeatureFlagRow>(
         `SELECT key, value, description, updated_at,
                 NULL::timestamptz AS available_from, NULL::text[] AS early_access_plans
-         FROM x_manifest WHERE key LIKE 'feature_%' ORDER BY key ASC`
+         FROM x_manifest WHERE key LIKE 'feature_%' AND key != '${MOD_VISIBLE_KEY}' ORDER BY key ASC`
       );
       return fallback;
     }).then(async (base) => {
@@ -123,9 +152,11 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
       }
     });
 
+    const modVisibleSet = await readModVisibleSet().catch(() => new Set<string>());
+
     return NextResponse.json({
       success: true,
-      items: rows.map(rowToFlag),
+      items: rows.map((r) => rowToFlag(r, modVisibleSet)),
       total: rows.length,
     });
   } catch (err) {
@@ -176,6 +207,17 @@ export const PUT = withAdminAuth(async (req: NextRequest, { params, auth }) => {
       ).catch(() => {}); // Non-fatal if feature_flags table doesn't yet have these columns
     }
 
+    // Update the mods-visible allow-list when provided
+    if (body.mods_visible !== undefined) {
+      const modVisibleSet = await readModVisibleSet();
+      if (body.mods_visible) {
+        modVisibleSet.add(body.key);
+      } else {
+        modVisibleSet.delete(body.key);
+      }
+      await writeModVisibleSet(modVisibleSet);
+    }
+
     // Audit log — use canonical column names from admin_audit_log schema
     await db.query(
       `INSERT INTO admin_audit_log
@@ -196,6 +238,7 @@ export const PUT = withAdminAuth(async (req: NextRequest, { params, auth }) => {
         enabled: body.enabled,
         availableFrom: body.available_from ?? null,
         earlyAccessPlans: body.early_access_plans ?? null,
+        modsVisible: body.mods_visible ?? null,
       },
     });
   } catch (err) {

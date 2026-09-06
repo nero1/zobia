@@ -585,6 +585,10 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     requestHeaders.delete("x-user-id");
     requestHeaders.delete("x-is-admin");
     requestHeaders.delete("x-session-id");
+    // Server Components (app/(app)/layout.tsx) can't call the client-only
+    // useSelectedLayoutSegments() hook, so the current pathname is forwarded
+    // here for feature-flag page gating (see lib/manifest/featureAccess.ts).
+    requestHeaders.set("x-pathname", pathname);
     return withCsp(requestHeaders);
   }
 

@@ -10,6 +10,7 @@ import { Link, useRouter, useRouterState } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
 import { useUnreadNotificationsCount } from '@/lib/notifications/queries';
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
 
 interface TopBarProps {
   title: string;
@@ -24,35 +25,43 @@ interface TopBarProps {
 // Labels are i18n keys (not literal strings) — resolved via t() at render
 // time so a non-English device language sees a translated drawer, not the
 // key names below (ZB-AND-01 fix).
-const primaryNavItems = [
+interface PrimaryNavItem {
+  href: string;
+  labelKey: string;
+  icon: string;
+  /** When set, hides this entry from non-staff if the flag is off (see useFeatureFlags). */
+  flagKey?: string;
+}
+
+const primaryNavItems: PrimaryNavItem[] = [
   { href: '/home', labelKey: 'nav.home', icon: '🏠' },
-  { href: '/moments', labelKey: 'nav.moments', icon: '🎬' },
-  { href: '/answers', labelKey: 'nav.answers', icon: '❓' },
-  { href: '/forum', labelKey: 'nav.bbforum', icon: '🗂️' },
+  { href: '/moments', labelKey: 'nav.moments', icon: '🎬', flagKey: 'moments' },
+  { href: '/answers', labelKey: 'nav.answers', icon: '❓', flagKey: 'forum' },
+  { href: '/forum', labelKey: 'nav.bbforum', icon: '🗂️', flagKey: 'bbforum' },
   { href: '/quests', labelKey: 'nav.quests', icon: '🎯' },
-  { href: '/games', labelKey: 'nav.games', icon: '🎮' },
-  { href: '/blogs', labelKey: 'nav.blogs', icon: '📝' },
-  { href: '/business', labelKey: 'nav.business', icon: '🏢' },
-  { href: '/ads', labelKey: 'nav.ads', icon: '📢' },
-  { href: '/rooms', labelKey: 'nav.rooms', icon: '🚪' },
+  { href: '/games', labelKey: 'nav.games', icon: '🎮', flagKey: 'games' },
+  { href: '/blogs', labelKey: 'nav.blogs', icon: '📝', flagKey: 'blogs' },
+  { href: '/business', labelKey: 'nav.business', icon: '🏢', flagKey: 'businessAccounts' },
+  { href: '/ads', labelKey: 'nav.ads', icon: '📢', flagKey: 'adsSystem' },
+  { href: '/rooms', labelKey: 'nav.rooms', icon: '🚪', flagKey: 'rooms' },
   { href: '/messages', labelKey: 'nav.messages', icon: '💬' },
   { href: '/friends', labelKey: 'nav.friends', icon: '👥' },
-  { href: '/gifts', labelKey: 'nav.gifts', icon: '🎁' },
+  { href: '/gifts', labelKey: 'nav.gifts', icon: '🎁', flagKey: 'gifts' },
   { href: '/wallet', labelKey: 'nav.wallet', icon: '🪙' },
   { href: '/notifications', labelKey: 'nav.notifications', icon: '🔔' },
   { href: '/events', labelKey: 'nav.events', icon: '📅' },
   { href: '/inbox', labelKey: 'nav.inbox', icon: '📬' },
   { href: '/elder', labelKey: 'nav.elder', icon: '🎓' },
   { href: '/referrals', labelKey: 'nav.referrals', icon: '🔗' },
-  { href: '/classroom', labelKey: 'nav.classroom', icon: '🏫' },
-  { href: '/leaderboards', labelKey: 'nav.leaderboards', icon: '🏆' },
+  { href: '/classroom', labelKey: 'nav.classroom', icon: '🏫', flagKey: 'classrooms' },
+  { href: '/leaderboards', labelKey: 'nav.leaderboards', icon: '🏆', flagKey: 'rankings' },
   { href: '/seasons', labelKey: 'nav.seasons', icon: '🗓️' },
   { href: '/guild', labelKey: 'nav.guild', icon: '🛡️' },
   { href: '/guilds', labelKey: 'nav.guilds', icon: '🏰' },
-  { href: '/council', labelKey: 'nav.council', icon: '⚖️' },
-  { href: '/community-notes', labelKey: 'nav.communityNotes', icon: '📝' },
-  { href: '/nemesis', labelKey: 'nav.nemesis', icon: '👻' },
-] as const;
+  { href: '/council', labelKey: 'nav.council', icon: '⚖️', flagKey: 'platformCouncil' },
+  { href: '/community-notes', labelKey: 'nav.communityNotes', icon: '📝', flagKey: 'communityNotes' },
+  { href: '/nemesis', labelKey: 'nav.nemesis', icon: '👻', flagKey: 'nemesisSystem' },
+];
 
 const secondaryNavItems = [
   { href: '/profile', labelKey: 'nav.profile', icon: '👤' },
@@ -66,8 +75,23 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
   const unreadCount = useUnreadNotificationsCount();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const featureFlags = useFeatureFlags();
+  const modVisibleKeys = useFeatureModVisibility();
 
   const closeDrawer = () => setDrawerOpen(false);
+
+  // Hide nav entries for features an admin turned off. Admins always still
+  // see the entry (with a small "off" indicator); moderators do too, but
+  // only when the flag is on the admin-managed mod-visibility allow-list.
+  const visibleNavItems = primaryNavItems.filter((item) => {
+    if (!item.flagKey) return true;
+    const enabled = featureFlags?.[item.flagKey] !== false;
+    const access = resolveFeatureAccess(enabled, modVisibleKeys.includes(item.flagKey), {
+      isAdmin: user?.is_admin,
+      isModerator: user?.is_moderator,
+    });
+    return access.accessible;
+  });
 
   const handleLogout = async () => {
     closeDrawer();
@@ -194,17 +218,23 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                 {t('moderation.title', 'Moderation Center')}
               </Link>
             )}
-            {primaryNavItems.map((item) => (
-              <Link
-                key={item.href}
-                to={item.href}
-                onClick={closeDrawer}
-                className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
-              >
-                <span className="w-5 text-center text-base leading-none" aria-hidden="true">{item.icon}</span>
-                {t(item.labelKey)}
-              </Link>
-            ))}
+            {visibleNavItems.map((item) => {
+              const isOffForUsers = !!item.flagKey && featureFlags?.[item.flagKey] === false;
+              return (
+                <Link
+                  key={item.href}
+                  to={item.href}
+                  onClick={closeDrawer}
+                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
+                >
+                  <span className="w-5 text-center text-base leading-none" aria-hidden="true">{item.icon}</span>
+                  {t(item.labelKey)}
+                  {isOffForUsers && (
+                    <span title="Disabled for regular users" className="ml-auto text-xs text-amber-500">⚠️</span>
+                  )}
+                </Link>
+              );
+            })}
           </nav>
 
           <div className="my-3 border-t border-neutral-200" />

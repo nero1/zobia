@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { OnlineRing } from "@/components/ui/OnlineRing";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { useFeatureAccess } from "@/lib/hooks/useFeatureFlags";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -56,6 +57,8 @@ interface MeData {
   prestige_count: number;
   is_creator: boolean;
   is_verified: boolean;
+  is_admin?: boolean;
+  is_moderator?: boolean;
   created_at: string;
   // Track XP
   xp_social: number;
@@ -174,6 +177,7 @@ export default function MyProfilePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const currency = useCurrency();
+  const statsAccess = useFeatureAccess("profileStats", { isAdmin: me?.is_admin, isModerator: me?.is_moderator });
 
   const load = useCallback(async () => {
     try {
@@ -425,7 +429,7 @@ export default function MyProfilePage() {
       {/* ── Quick actions ────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
-          { href: `/profile/${me.id}/stats`, label: "Stats", emoji: "📊" },
+          ...(statsAccess.accessible ? [{ href: `/profile/${me.id}/stats`, label: "Stats", emoji: "📊" }] : []),
           { href: "/quests", label: "Daily Quests", emoji: "📋" },
           { href: "/seasons", label: "Season Pass", emoji: "🏆" },
           { href: "/prestige", label: "Prestige", emoji: "🔥" },

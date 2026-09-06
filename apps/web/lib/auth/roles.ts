@@ -16,13 +16,24 @@ import { db } from "@/lib/db";
  * never silently grants elevated visibility.
  */
 export async function isAdminOrModerator(userId: string): Promise<boolean> {
+  const roles = await getStaffRoles(userId);
+  return roles.isAdmin || roles.isModerator;
+}
+
+/**
+ * Returns the current `is_admin`/`is_moderator` flags for a user, re-checked
+ * against the database. Fails closed (both false) on a DB error. Use this
+ * instead of isAdminOrModerator() when a caller needs to distinguish the two
+ * (e.g. feature-flag mod-visibility gating, which only extends to moderators).
+ */
+export async function getStaffRoles(userId: string): Promise<{ isAdmin: boolean; isModerator: boolean }> {
   try {
     const { rows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
       `SELECT is_admin, is_moderator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
     );
-    return Boolean(rows[0]?.is_admin || rows[0]?.is_moderator);
+    return { isAdmin: Boolean(rows[0]?.is_admin), isModerator: Boolean(rows[0]?.is_moderator) };
   } catch {
-    return false;
+    return { isAdmin: false, isModerator: false };
   }
 }
