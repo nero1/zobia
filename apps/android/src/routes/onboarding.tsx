@@ -33,6 +33,7 @@ const CURRENT_YEAR = new Date().getFullYear();
 
 interface ManifestPublic {
   captchaProvider: 'recaptcha' | 'turnstile' | 'none';
+  captchaEnabledSurfaces?: string[];
   recaptchaSiteKey?: string;
   turnstileSiteKey?: string;
   minimumAge: number;
@@ -91,9 +92,16 @@ function OnboardingPage() {
     getPendingReferralCode().then((code) => { if (code) setReferralCode(code); });
   }, []);
 
+  // Per-surface CAPTCHA toggle: only active when a provider is selected AND
+  // "signup" is in the admin-enabled surfaces list.
+  const signupCaptchaEnabled =
+    !!manifest &&
+    manifest.captchaProvider !== 'none' &&
+    (manifest.captchaEnabledSurfaces?.includes('signup') ?? true);
+
   // Load + render the CAPTCHA widget once manifest resolves.
   useEffect(() => {
-    if (!manifest) return;
+    if (!manifest || !signupCaptchaEnabled) return;
     if (manifest.captchaProvider === 'recaptcha' && manifest.recaptchaSiteKey) {
       void loadScriptOnce(`https://www.google.com/recaptcha/api.js?render=${manifest.recaptchaSiteKey}`);
     } else if (manifest.captchaProvider === 'turnstile' && manifest.turnstileSiteKey) {
@@ -105,7 +113,7 @@ function OnboardingPage() {
         }
       }).catch(() => {});
     }
-  }, [manifest]);
+  }, [manifest, signupCaptchaEnabled]);
 
   // Debounced username availability check.
   useEffect(() => {
@@ -121,7 +129,7 @@ function OnboardingPage() {
   }, [username]);
 
   async function getCaptchaToken(): Promise<string | null> {
-    if (!manifest || manifest.captchaProvider === 'none') return null;
+    if (!manifest || !signupCaptchaEnabled) return null;
     if (manifest.captchaProvider === 'recaptcha' && manifest.recaptchaSiteKey) {
       const recaptchaPromise = new Promise<string | null>((resolve) => {
         // ZSB-20 fix: if window.grecaptcha is still undefined (the script tag
@@ -136,7 +144,7 @@ function OnboardingPage() {
         }
         window.grecaptcha.ready(async () => {
           try {
-            resolve(await window.grecaptcha!.execute(manifest.recaptchaSiteKey!, { action: 'onboarding' }));
+            resolve(await window.grecaptcha!.execute(manifest.recaptchaSiteKey!, { action: 'signup' }));
           } catch {
             resolve(null);
           }
@@ -326,7 +334,7 @@ function OnboardingPage() {
           />
         </div>
 
-        {manifest?.captchaProvider === 'turnstile' && <div ref={captchaContainerRef} />}
+        {signupCaptchaEnabled && manifest?.captchaProvider === 'turnstile' && <div ref={captchaContainerRef} />}
 
         <button
           type="button"

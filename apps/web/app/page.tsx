@@ -167,6 +167,9 @@ export default async function LandingPage() {
             <Link href="/privacy" className="hover:underline hover:text-neutral-700 dark:hover:text-neutral-300">
               Privacy Policy
             </Link>
+            <Link href="/contact" className="hover:underline hover:text-neutral-700 dark:hover:text-neutral-300">
+              Contact Us
+            </Link>
           </div>
           &copy; {new Date().getFullYear()} Zobia Social. All rights reserved.
         </div>

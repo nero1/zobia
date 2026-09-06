@@ -69,6 +69,25 @@ const GRACE_FEATURE_OPTIONS: ConfigOption[] = [
   { value: 'galleries', labelDefault: 'Image Galleries' },
 ];
 
+// Mirrors apps/web/lib/security/captchaSurfaces.ts CAPTCHA_SURFACE_REGISTRY.
+// No shared import path exists between the web and Android admin config
+// pages (each duplicates its own CONFIG_META-equivalent registry — see
+// GRACE_FEATURE_OPTIONS above for the existing precedent), so this list is
+// duplicated here rather than imported.
+const CAPTCHA_SURFACE_OPTIONS: ConfigOption[] = [
+  { value: 'login', labelDefault: 'Login' },
+  { value: 'admin_login', labelDefault: 'Admin Login' },
+  { value: 'signup', labelDefault: 'Signup' },
+  { value: 'create_blog', labelDefault: 'Create Blog' },
+  { value: 'create_room', labelDefault: 'Create Room' },
+  { value: 'contact_us', labelDefault: 'Contact Us Page' },
+  { value: 'blog_comments', labelDefault: 'Blog Comments' },
+  { value: 'create_question', labelDefault: 'Create Question' },
+  { value: 'submit_answer', labelDefault: 'Submit Answer' },
+  { value: 'reply_answer_comment', labelDefault: 'Reply to Answer/Comment' },
+  { value: 'blog_contact_form', labelDefault: 'Blog Contact Form' },
+];
+
 function meta(
   key: string,
   labelDefault: string,
@@ -105,6 +124,7 @@ const CONFIG_META: Record<string, ConfigMeta> = Object.fromEntries([
     { value: 'turnstile', labelDefault: 'Cloudflare Turnstile' },
     { value: 'none', labelDefault: 'None (disable CAPTCHA)' },
   ]),
+  meta('captcha_active_surfaces', 'CAPTCHA — Enabled Surfaces', 'Which individual forms/flows require CAPTCHA. Only applies when a CAPTCHA provider is selected above — this has no effect while the provider is set to None.', 'multiselect', 'CAPTCHA', CAPTCHA_SURFACE_OPTIONS),
 
   // GIF
   meta('gif_provider', 'GIF Search Provider', 'Third-party service used to power the GIF picker in chat.', 'select', 'GIF', [

@@ -36,6 +36,7 @@ type PublicManifest = {
 } & {
   auth: { telegramEnabled: boolean };
   captchaProvider: "recaptcha" | "turnstile" | "none";
+  captchaEnabledSurfaces: string[];
   recaptchaSiteKey?: string;
   turnstileSiteKey?: string;
   minimumAge: number;
@@ -97,6 +98,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       },
       // CAPTCHA config: expose provider + site key only (never secret keys)
       captchaProvider: manifest.captchaProvider,
+      captchaEnabledSurfaces: manifest.captchaEnabledSurfaces,
       ...(manifest.captchaProvider === "recaptcha" && env.RECAPTCHA_SITE_KEY
         ? { recaptchaSiteKey: env.RECAPTCHA_SITE_KEY }
         : {}),

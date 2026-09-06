@@ -37,6 +37,7 @@ declare global {
 
 interface CaptchaManifest {
   captchaProvider: "recaptcha" | "turnstile" | "none";
+  captchaEnabledSurfaces?: string[];
   recaptchaSiteKey?: string;
   turnstileSiteKey?: string;
   auth?: { telegramEnabled: boolean };
@@ -75,9 +76,17 @@ function LoginContent() {
       .catch(() => setCaptchaManifest({ captchaProvider: "none" }));
   }, []);
 
+  // Per-surface CAPTCHA toggle: only active when a provider is selected AND
+  // "login" is in the admin-enabled surfaces list.
+  const loginCaptchaEnabled =
+    !!captchaManifest &&
+    captchaManifest.captchaProvider !== "none" &&
+    (captchaManifest.captchaEnabledSurfaces?.includes("login") ?? true);
+
   // Init Turnstile when manifest + script are ready
   const initTurnstile = useCallback(() => {
     if (
+      !loginCaptchaEnabled ||
       captchaManifest?.captchaProvider !== "turnstile" ||
       !captchaManifest.turnstileSiteKey ||
       !turnstileContainerRef.current ||
@@ -87,11 +96,11 @@ function LoginContent() {
       turnstileContainerRef.current,
       { sitekey: captchaManifest.turnstileSiteKey }
     ) ?? null;
-  }, [captchaManifest]);
+  }, [captchaManifest, loginCaptchaEnabled]);
 
   // Collect CAPTCHA token before redirecting to Google OAuth
   const getCaptchaToken = useCallback(async (): Promise<string | null> => {
-    if (!captchaManifest || captchaManifest.captchaProvider === "none") return null;
+    if (!loginCaptchaEnabled || !captchaManifest) return null;
     if (captchaManifest.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey) {
       return new Promise((resolve) => {
         window.grecaptcha?.ready(async () => {
@@ -111,7 +120,7 @@ function LoginContent() {
       return window.turnstile?.getResponse(turnstileWidgetId.current) ?? null;
     }
     return null;
-  }, [captchaManifest]);
+  }, [captchaManifest, loginCaptchaEnabled]);
 
   // Handle Google OAuth redirect
   const handleGoogleLogin = async () => {
@@ -127,6 +136,7 @@ function LoginContent() {
       // fetch() whose Set-Cookie may be dropped if a ServiceWorker intercepts
       // the request and its handler fails.
       const params = new URLSearchParams();
+      params.set("flow", "login");
       if (captchaToken) params.set("captcha_token", captchaToken);
       if (redirectParam) params.set("web_redirect", redirectParam);
       const qs = params.toString();
@@ -237,7 +247,7 @@ function LoginContent() {
             </button>
 
             {/* Turnstile widget (visible only when configured) */}
-            {captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
+            {loginCaptchaEnabled && captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
               <div ref={turnstileContainerRef} className="flex justify-center" />
             )}
 
@@ -285,7 +295,7 @@ function LoginContent() {
       </div>
 
       {/* reCAPTCHA v3 script (invisible) */}
-      {captchaManifest?.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey && (
+      {loginCaptchaEnabled && captchaManifest?.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey && (
         <Script
           src={`https://www.google.com/recaptcha/api.js?render=${captchaManifest.recaptchaSiteKey}`}
           strategy="afterInteractive"
@@ -293,7 +303,7 @@ function LoginContent() {
       )}
 
       {/* Turnstile script */}
-      {captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
+      {loginCaptchaEnabled && captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
         <Script
           src="https://challenges.cloudflare.com/turnstile/v0/api.js"
           strategy="afterInteractive"

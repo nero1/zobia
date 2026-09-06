@@ -716,13 +716,31 @@ actually active is the `captcha_provider` key in `x_manifest`
 (`recaptcha` | `turnstile` | `none`, admin-editable at `/gate44/config`;
 defaults to `none` until an admin turns it on). `lib/security/captcha.ts`
 is the single verification helper every CAPTCHA-gated flow calls, each
-passing its own `expectedAction` string (e.g. password reset uses
-`password_reset`; the blog Contact page's public form, §32.11 of the PRD,
-uses `blog_contact`, required only for a logged-out sender) so a token
-solved for one form can't be replayed against another. There's nothing
-blog-specific to configure: set the site/secret keys above and pick a
-provider in `/gate44/config` once, and every CAPTCHA-gated flow —
-including new ones — picks it up automatically.
+passing its own `expectedAction` string (matching its surface key below,
+e.g. `signup`, `login`, `blog_contact_form`) so a token solved for one
+form can't be replayed against another.
+
+**Per-surface toggles.** On top of the master provider switch, a second
+`x_manifest` key — `captcha_active_surfaces` — controls which individual
+forms actually require a token, independently of each other. It's a
+JSON-stringified array of surface keys (same convention as the
+`grace_period_features_*` keys), admin-editable at `/gate44/config` right
+below the provider selector as a checkbox group. The full registry lives
+in `apps/web/lib/security/captchaSurfaces.ts`:
+
+`login`, `admin_login`, `signup`, `create_blog`, `create_room`,
+`contact_us`, `blog_comments`, `create_question`, `submit_answer`,
+`reply_answer_comment`, `blog_contact_form`.
+
+A surface is enforced only when BOTH `captcha_provider != "none"` AND its
+key is present in `captcha_active_surfaces` — call
+`isCaptchaSurfaceEnabled(surface)` from a server route rather than
+checking the provider alone. All 11 surfaces ship enabled by default (see
+migration `0029_captcha_active_surfaces.sql`), so nothing changes for an
+existing deployment until an admin unchecks one. There's nothing
+blog-specific to configure beyond that: set the site/secret keys above,
+pick a provider, and leave every surface checked (or uncheck the ones you
+don't want gated) in `/gate44/config`.
 
 ### Why reCAPTCHA applies to Google sign-in but not Telegram
 
