@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
+import { useFeatureFlags } from '@/lib/hooks/useManifest';
 
 interface Eligibility {
   eligible: boolean;
@@ -38,6 +39,8 @@ const FEATURES = [
 function AdsHubPage() {
   const { t } = useTranslation();
   const router = useRouter();
+  const featureFlags = useFeatureFlags();
+  const kycEnabled = featureFlags?.kyc !== false;
   const { data, status } = useQuery({ queryKey: ['ads', 'eligibility'], queryFn: fetchEligibility });
 
   useEffect(() => {
@@ -61,12 +64,14 @@ function AdsHubPage() {
         <p className="text-sm text-neutral-600">{data?.reason ?? t('ads.eligibilityDefault', 'You need a verified Business Account with identity verification to place ads.')}</p>
         <div className="mt-3 flex gap-2">
           <Link to="/business" className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white">{t('ads.createBusinessAccount', 'Create a Business Account')}</Link>
-          <button
-            onClick={() => void openAuthenticatedWebLink('/kyc')}
-            className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700"
-          >
-            {t('ads.completeKyc', 'Complete identity verification')}
-          </button>
+          {kycEnabled && (
+            <button
+              onClick={() => void openAuthenticatedWebLink('/kyc')}
+              className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700"
+            >
+              {t('ads.completeKyc', 'Complete identity verification')}
+            </button>
+          )}
         </div>
       </div>
 

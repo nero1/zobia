@@ -21,6 +21,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
+import { FeatureNotFound } from '@/components/shared/FeatureNotFound';
 
 interface CouncilMember {
   userId: string;
@@ -150,6 +152,13 @@ function IdeaCard({ idea, canVote, onVote, voting }: { idea: CouncilIdea; canVot
 function CouncilPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const featureFlags = useFeatureFlags();
+  const modVisibleKeys = useFeatureModVisibility();
+  const access = resolveFeatureAccess(
+    featureFlags?.platformCouncil !== false,
+    modVisibleKeys.includes('platformCouncil'),
+    { isAdmin: user?.is_admin, isModerator: user?.is_moderator }
+  );
   const qc = useQueryClient();
   const [votingId, setVotingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
@@ -157,8 +166,8 @@ function CouncilPage() {
   const [description, setDescription] = useState('');
   const [formError, setFormError] = useState<string | null>(null);
 
-  const { data: members, status: membersStatus } = useQuery({ queryKey: ['council', 'members'], queryFn: fetchMembers });
-  const { data: ideas, status: ideasStatus } = useQuery({ queryKey: ['council', 'ideas'], queryFn: fetchIdeas });
+  const { data: members, status: membersStatus } = useQuery({ queryKey: ['council', 'members'], queryFn: fetchMembers, enabled: access.accessible });
+  const { data: ideas, status: ideasStatus } = useQuery({ queryKey: ['council', 'ideas'], queryFn: fetchIdeas, enabled: access.accessible });
 
   const isCouncilMember = !!user?.id && (members ?? []).some((m) => m.userId === user.id);
 
@@ -184,6 +193,10 @@ function CouncilPage() {
     },
     onError: () => setFormError(t('error.generic')),
   });
+
+  if (!access.accessible) {
+    return <FeatureNotFound />;
+  }
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6 space-y-6">

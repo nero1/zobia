@@ -17,6 +17,9 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/store';
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
+import { FeatureNotFound } from '@/components/shared/FeatureNotFound';
 
 interface MerchStore {
   creatorId: string;
@@ -37,10 +40,22 @@ async function fetchStores(): Promise<MerchStore[]> {
 
 function MerchDirectoryPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const featureFlags = useFeatureFlags();
+  const modVisibleKeys = useFeatureModVisibility();
+  const access = resolveFeatureAccess(
+    featureFlags?.merchStore !== false,
+    modVisibleKeys.includes('merchStore'),
+    { isAdmin: user?.is_admin, isModerator: user?.is_moderator }
+  );
   const [search, setSearch] = useState('');
-  const { data: stores, status } = useQuery({ queryKey: ['merch', 'stores'], queryFn: fetchStores });
+  const { data: stores, status } = useQuery({ queryKey: ['merch', 'stores'], queryFn: fetchStores, enabled: access.accessible });
 
   const filtered = (stores ?? []).filter((s) => s.storeName.toLowerCase().includes(search.toLowerCase()));
+
+  if (!access.accessible) {
+    return <FeatureNotFound />;
+  }
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 space-y-3 px-4 py-4">

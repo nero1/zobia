@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/hooks';
+import { useFeatureAccess } from '@/lib/hooks/useFeatureFlags';
+import { NotFoundBody } from '@/components/system/NotFoundBody';
 
 interface MerchProduct {
   id: string;
@@ -34,6 +36,7 @@ interface CreateProductForm {
 
 export default function MerchStoreManager() {
   const { user } = useAuth();
+  const merchAccess = useFeatureAccess('merchStore', { isAdmin: user?.is_admin });
   const queryClient = useQueryClient();
   const [showForm, setShowForm] = useState(false);
   const [formData, setFormData] = useState<CreateProductForm>({
@@ -90,6 +93,10 @@ export default function MerchStoreManager() {
 
   if (!user) {
     return <div className="p-6 text-center">Please sign in</div>;
+  }
+
+  if (!merchAccess.accessible) {
+    return <NotFoundBody />;
   }
 
   return (

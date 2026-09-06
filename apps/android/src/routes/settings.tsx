@@ -14,6 +14,7 @@ import { apiClient } from '@/lib/api/client';
 import { restorePurchases } from '@/lib/payments/googlePlay';
 import { LOCALE_LABELS, SUPPORTED_LOCALES, type SupportedLocale } from '@zobia/shared/i18n';
 import i18n from '@/lib/i18n';
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
 
 // ZB-AND-09 fix: restorePurchases() was fully implemented in
 // lib/payments/googlePlay.ts but had no UI entry point anywhere in the app —
@@ -182,6 +183,13 @@ function SettingsPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const [appVersion, setAppVersion] = useState(FALLBACK_APP_VERSION);
+  const featureFlags = useFeatureFlags();
+  const modVisibleKeys = useFeatureModVisibility();
+  const statsAccess = resolveFeatureAccess(
+    featureFlags?.profileStats !== false,
+    modVisibleKeys.includes('profileStats'),
+    { isAdmin: user?.is_admin, isModerator: user?.is_moderator }
+  );
 
   useEffect(() => {
     App.getInfo()
@@ -220,10 +228,12 @@ function SettingsPage() {
           <span className="text-sm text-neutral-700">🪙 {t('wallet.title')}</span>
           <span className="text-neutral-400">→</span>
         </Link>
-        <Link to="/stats" className="flex items-center justify-between py-2.5">
-          <span className="text-sm text-neutral-700">📊 {t('profile.actions.stats')}</span>
-          <span className="text-neutral-400">→</span>
-        </Link>
+        {statsAccess.accessible && (
+          <Link to="/stats" className="flex items-center justify-between py-2.5">
+            <span className="text-sm text-neutral-700">📊 {t('profile.actions.stats')}</span>
+            <span className="text-neutral-400">→</span>
+          </Link>
+        )}
       </div>
 
       {/* Privacy, Security & Help (BUG-CAP-07) */}

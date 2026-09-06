@@ -13,6 +13,9 @@ import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/hooks';
+import { useFeatureAccess } from '@/lib/hooks/useFeatureFlags';
+import { NotFoundBody } from '@/components/system/NotFoundBody';
 
 interface MerchProduct {
   id: string;
@@ -32,11 +35,14 @@ interface CartItem {
 export default function RoomMerchStore() {
   const params = useParams();
   const roomId = params.roomId as string;
+  const { user } = useAuth();
+  const merchAccess = useFeatureAccess('merchStore', { isAdmin: user?.is_admin });
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
 
   const { data: products = [], isLoading } = useQuery({
     queryKey: ['room-merch', roomId],
+    enabled: merchAccess.accessible,
     queryFn: async () => {
       const { data } = await apiClient.get(`/api/rooms/${roomId}/merch`);
       return data.products as MerchProduct[];
@@ -77,6 +83,10 @@ export default function RoomMerchStore() {
   };
 
   const cartTotal = cart.reduce((sum, item) => sum + item.product.price * item.quantity, 0);
+
+  if (!merchAccess.accessible) {
+    return <NotFoundBody />;
+  }
 
   if (isLoading) {
     return <div className="p-6 text-center">Loading merch store...</div>;

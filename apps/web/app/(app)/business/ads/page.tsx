@@ -15,6 +15,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -135,6 +136,7 @@ function AdWalletPanel() {
 }
 
 function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
+  const kycEnabled = useFeatureEnabled("kyc");
   const [eligible, setEligible] = useState<boolean | null>(null);
   const [reason, setReason] = useState<string | null>(null);
   const [canPersonal, setCanPersonal] = useState(false);
@@ -293,9 +295,11 @@ function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
           <Link href="/settings/business" className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
             Manage Business Account
           </Link>
-          <Link href="/kyc" className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 dark:border-neutral-600 dark:text-neutral-200">
-            Verify Identity
-          </Link>
+          {kycEnabled && (
+            <Link href="/kyc" className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 dark:border-neutral-600 dark:text-neutral-200">
+              Verify Identity
+            </Link>
+          )}
         </div>
       </div>
     );

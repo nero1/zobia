@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
 
 interface Eligibility {
   eligible: boolean;
@@ -56,6 +57,7 @@ export default function AdsHubPage() {
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
   const [todo, setTodo] = useState<TodoState | null>(null);
   const [loading, setLoading] = useState(true);
+  const kycEnabled = useFeatureEnabled("kyc");
 
   useEffect(() => {
     (async () => {
@@ -116,7 +118,7 @@ export default function AdsHubPage() {
         </p>
 
         {todo && (() => {
-          const showKyc = eligibility?.needsKyc ?? true;
+          const showKyc = kycEnabled && (eligibility?.needsKyc ?? true);
           const showBusiness = eligibility?.needsBusinessAccount ?? true;
           return (
             <div className="mt-4">
@@ -153,9 +155,11 @@ export default function AdsHubPage() {
             <Link href="/business" className="rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white">
               {t("ads.createBusinessAccount", "Create a Business Account")}
             </Link>
-            <Link href="/kyc" className="rounded-xl border border-neutral-200 px-4 py-2.5 text-sm font-semibold text-neutral-700 dark:border-neutral-700 dark:text-neutral-200">
-              {t("ads.completeKyc", "Complete identity verification")}
-            </Link>
+            {kycEnabled && (
+              <Link href="/kyc" className="rounded-xl border border-neutral-200 px-4 py-2.5 text-sm font-semibold text-neutral-700 dark:border-neutral-700 dark:text-neutral-200">
+                {t("ads.completeKyc", "Complete identity verification")}
+              </Link>
+            )}
           </div>
         )}
       </div>

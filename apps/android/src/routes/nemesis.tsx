@@ -12,6 +12,9 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/store';
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
+import { FeatureNotFound } from '@/components/shared/FeatureNotFound';
 
 interface NemesisParty {
   userId: string;
@@ -150,9 +153,17 @@ function NemesisSkeleton() {
 
 function NemesisPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const featureFlags = useFeatureFlags();
+  const modVisibleKeys = useFeatureModVisibility();
+  const access = resolveFeatureAccess(
+    featureFlags?.nemesisSystem !== false,
+    modVisibleKeys.includes('nemesisSystem'),
+    { isAdmin: user?.is_admin, isModerator: user?.is_moderator }
+  );
   const [timeLeft, setTimeLeft] = useState('');
 
-  const { data, status, refetch } = useQuery({ queryKey: ['nemesis'], queryFn: fetchNemesis });
+  const { data, status, refetch } = useQuery({ queryKey: ['nemesis'], queryFn: fetchNemesis, enabled: access.accessible });
   const challengeMutation = useMutation({
     mutationFn: sendChallenge,
     onSuccess: () => refetch(),
@@ -165,6 +176,10 @@ function NemesisPage() {
     const id = setInterval(tick, 60_000);
     return () => clearInterval(id);
   }, []);
+
+  if (!access.accessible) {
+    return <FeatureNotFound />;
+  }
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6">
