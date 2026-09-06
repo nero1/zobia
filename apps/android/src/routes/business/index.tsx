@@ -14,6 +14,36 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { BUSINESS_TIER_PRODUCTS, purchaseBusinessTier } from '@/lib/payments/googlePlay';
 
+/**
+ * Business plan expiry reminder — mirrors the PlanExpiryBanner on web
+ * (apps/web/components/PlanExpiryBanner.tsx) but scoped to the business
+ * plan only, since this hub only cares about the business account's own
+ * expiry (personal plan expiry is not shown here on Android, same as it
+ * isn't on the Android home feed today).
+ */
+const PLAN_EXPIRY_WARNING_DAYS = 14;
+const PLAN_EXPIRY_URGENT_DAYS = 7;
+
+function daysUntil(iso: string): number {
+  return Math.ceil((new Date(iso).getTime() - Date.now()) / (24 * 60 * 60 * 1000));
+}
+
+function BusinessPlanExpiryBanner({ endsAt }: { endsAt: string }) {
+  const { t } = useTranslation();
+  const daysRemaining = daysUntil(endsAt);
+  if (daysRemaining > PLAN_EXPIRY_WARNING_DAYS) return null;
+  const urgent = daysRemaining <= PLAN_EXPIRY_URGENT_DAYS;
+  const message =
+    daysRemaining <= 0
+      ? t('home.planExpiry.businessExpired', 'Your business plan has expired.')
+      : t('home.planExpiry.businessEndsIn', { count: daysRemaining, defaultValue: `Your business plan ends in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}.` });
+  return (
+    <div className={`mb-3 rounded-xl border px-3 py-2 text-xs font-medium ${urgent ? 'border-red-300 bg-red-50 text-red-800' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>
+      {message}
+    </div>
+  );
+}
+
 interface BusinessAccount {
   id: string;
   business_name: string;
@@ -35,10 +65,16 @@ async function fetchBusiness(): Promise<BusinessAccount | null> {
   }
 }
 
+async function fetchBusinessPlanEndsAt(): Promise<string | null> {
+  const { data } = await apiClient.get<{ user: { business_plan_ends_at?: string | null } }>('/users/me');
+  return data.user?.business_plan_ends_at ?? null;
+}
+
 function BusinessPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const { data: account, status } = useQuery({ queryKey: ['business', 'me'], queryFn: fetchBusiness, staleTime: 60_000 });
+  const { data: businessPlanEndsAt } = useQuery({ queryKey: ['business', 'planEndsAt'], queryFn: fetchBusinessPlanEndsAt, staleTime: 60_000, enabled: !!account });
   const [businessName, setBusinessName] = useState('');
   const [purchasingId, setPurchasingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -107,6 +143,7 @@ function BusinessPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6">
+      {businessPlanEndsAt && <BusinessPlanExpiryBanner endsAt={businessPlanEndsAt} />}
       <h1 className="text-lg font-bold text-neutral-900">{account.business_name}</h1>
       <div className="mt-1 flex flex-wrap gap-2">
         <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold capitalize text-blue-700">{account.tier} tier</span>
@@ -129,6 +166,14 @@ function BusinessPage() {
         <Link to="/business/ads" className="block bg-white rounded-xl p-4 shadow-card">
           <p className="font-semibold text-sm text-neutral-900">📣 Advertising Panel</p>
           <p className="text-xs text-neutral-500 mt-0.5">Submit and track Sponsored Quests.</p>
+        </Link>
+        <Link to="/business/stats" className="block bg-white rounded-xl p-4 shadow-card">
+          <p className="font-semibold text-sm text-neutral-900">📊 Stats</p>
+          <p className="text-xs text-neutral-500 mt-0.5">Page and advert stats — depth grows with tier.</p>
+        </Link>
+        <Link to="/business/broadcasts" className="block bg-white rounded-xl p-4 shadow-card">
+          <p className="font-semibold text-sm text-neutral-900">📢 Broadcasts</p>
+          <p className="text-xs text-neutral-500 mt-0.5">Message your followers — quota grows with tier.</p>
         </Link>
       </div>
 

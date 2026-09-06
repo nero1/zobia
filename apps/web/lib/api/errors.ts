@@ -97,9 +97,10 @@ export function notFound(message = "Not found"): ApiError {
  * 409 Conflict – state conflict (e.g. duplicate username).
  * @param message - Human-readable description
  * @param code    - Optional machine-readable code (default "CONFLICT")
+ * @param params  - Optional i18n interpolation params / extra client-usable data (e.g. { expiresAt })
  */
-export function conflict(message = "Conflict", code = "CONFLICT"): ApiError {
-  return new ApiError(409, code, message);
+export function conflict(message = "Conflict", code = "CONFLICT", params?: Record<string, unknown>): ApiError {
+  return new ApiError(409, code, message, undefined, undefined, params);
 }
 
 /**

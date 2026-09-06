@@ -173,7 +173,7 @@ Each user is algorithmically assigned a Nemesis — another user within 10% of t
 
 ### Plan Expiry Reminders
 
-When a user has an active Plus/Pro/Max subscription or a Business plan that is due to expire within 14 days, the Home page shows a dismissible alert immediately on login: *"Your plan ends in N days time. [Resubscribe]"*, linking to Settings → Subscription (or Settings → Business for a business plan). The alert can be dismissed with an × while more than 7 days remain; dismissal is remembered per expiry date (a renewal resets it). Once 7 days or fewer remain, the alert reappears **without** the × and cannot be dismissed until the user resubscribes or the plan lapses. If both a personal and a business plan are expiring, whichever is soonest is shown.
+When a user has an active Plus/Pro/Max subscription or a Business plan that is due to expire within 14 days, the Home page — and the Business hub (`/business`) for a business plan — shows a dismissible alert immediately on login: *"Your plan ends in N days time. [Resubscribe]"*, linking to Settings → Subscription (or Settings → Business for a business plan). The alert can be dismissed with an × while more than 7 days remain; dismissal is remembered per expiry date (a renewal resets it). Once 7 days or fewer remain, the alert reappears **without** the × and cannot be dismissed until the user resubscribes or the plan lapses. If both a personal and a business plan are expiring, whichever is soonest is shown. (Shared as `components/PlanExpiryBanner.tsx`; for a business plan, "ends" is backed by `business_accounts.current_period_ends_at` — see §17.)
 
 ### Subscription Grace Period
 
@@ -1187,8 +1187,13 @@ top of their personal account (reusing the platform's existing payment,
 verification, and moderation infrastructure rather than a parallel system).
 A non-business-account user who opens the sidebar's **Business** link sees
 an explainer of the feature, the three tiers with their pricing and feature
-comparison, and a **Create Business Account** call to action — no sales
-pitch is required elsewhere.
+comparison, and **a separate "Get Started" button per tier** (Starter/Growth
+self-serve checkout; Enterprise is "Contact Us", since its price is
+negotiated) — signup is not limited to Starter. Web/PWA checkout is
+Paystack/DodoPayments (one-off charge, redirecting back to
+`/settings/business/callback` on completion); Android/Capacitor signup and
+tier changes go through Google Play Billing instead (§18), which handles
+its own recurring renewal natively.
 
 - **Business Starter:** Admin-configurable price (default ₦5,000/month).
   Verified business badge (on approval), broadcast capability, basic
@@ -1255,6 +1260,55 @@ time before it takes effect. Once the grace period elapses: pages beyond
 the new tier's slot limit are deactivated (oldest pages kept first), and
 all currently-running sponsored quests are stopped. Reactivating a
 deactivated page or resuming quests requires upgrading again.
+
+**Billing period & renewal (web/PWA).** Paystack/DodoPayments checkout is a
+one-off charge, not a native recurring subscription — so
+`business_accounts.current_period_ends_at` is set to now + 30 days on
+signup, upgrade, and renewal, and is the source of the "business plan
+nearing expiry" reminder (§3) via `business_plan_ends_at` on
+`GET /api/users/me`. The daily-economy CRON sweep
+(`lib/plans/subscriptionSweep.ts`) moves an account whose period has lapsed
+into `status = 'grace'` for the same admin-configurable grace-period length
+used elsewhere, then to `status = 'lapsed'` once the grace period itself
+elapses — distinct from `status = 'suspended'`, which remains an admin
+moderation action, not a billing state. A user can renew at any time —
+proactively within 14 days of expiry, or after lapsing into grace/lapsed —
+via **Renew Now** / **Renew Early** on `/settings/business`
+(`POST /api/business/renew`, charges the account's current tier price
+again and extends `current_period_ends_at`). Android/Capacitor accounts
+don't need this — Google Play Billing renews them natively.
+
+**Business plan expiry reminder** (§3) and the pending-payment guard below
+both apply on the Business hub (`/business`) as well as Home, per §3.
+
+**Business Broadcasts.** A Business Account can message its own followers
+(opt-in audience — not "all site users", which remains an admin-only bulk
+tool, §20) from `/business/broadcasts`, metered per calendar month by tier
+with no pay-per-send overage (the account already pays a subscription):
+Starter 3/month, Growth 10/month, Enterprise unlimited. Sends are recorded
+in `creator_broadcasts` tagged with `business_account_id`, kept separate
+from a user's own personal creator-tier broadcast quota (§14) so the two
+never bleed into each other when the same person is both a Business Account
+owner and a personal Creator.
+
+**Business Panel** (`/business`, "has an account" view). A control-panel
+hub: quick status header (tier/verified/status badges, downgrade notice),
+link cards to Account & Billing, Business Pages, Advertising Panel, Stats,
+and Broadcasts, a quick preview of up to 3 Business Pages with slot usage
+(full CRUD at `/business/pages`), and a "More Features" row surfacing
+tier-gated capabilities (Sponsored Quests, Custom Room Theming, API Access)
+— shown enabled and linked when the account's tier qualifies, or dimmed
+with a "`<tier>`+ only" chip linking to the upgrade flow otherwise. Settings
+→ Business Account → **Manage** links here (`/business`), not directly to
+the billing sub-page.
+
+**Payment edge cases (web/PWA).** Only one signup/upgrade/renewal payment
+may be pending at a time (`SIGNUP_ALREADY_PENDING` / `UPGRADE_ALREADY_PENDING`
+/ `RENEWAL_ALREADY_PENDING`, 30-minute TTL) — the error names when it
+expires, and the UI offers a **Cancel Pending Transaction** button
+(`DELETE /api/business/pending`) so an abandoned Paystack checkout (e.g. the
+user closed the tab mid-payment) doesn't force a 30-minute wait before
+retrying.
 
 ---
 
@@ -5731,6 +5785,73 @@ to verification/bugfixing of what already shipped.
 
 ---
 
-*ZobiaSocial PRD v2.14*
+## Appendix: Version 2.15 Change Log
+
+### v2.15 — Changelog
+
+**Business Accounts: payment redirect fix, per-tier signup, working plan
+expiry, renewal flow, broadcasts, and a real control-panel hub.** See §17
+for full detail; summary:
+
+- **Fixed**: business signup/upgrade Paystack checkout never passed a
+  `callback_url`, so a successful payment left the user stranded on
+  Paystack's own success page instead of returning to Zobia. Now redirects
+  to `/settings/business/callback`, mirroring the existing subscription
+  flow.
+- **Fixed**: the Business hub and settings page only ever offered a single
+  "Create Business Account" button, which always signed up on Starter.
+  Both now show a separate button per tier (Starter/Growth self-serve,
+  Enterprise "Contact Us"); `POST /api/business` accepts a `tier` field.
+- **Fixed a deeper bug this surfaced**: `business_plan_ends_at` was always
+  `NULL` — nothing ever populated `business_accounts.subscription_id`
+  (and the personal `subscriptions` table is unique-per-user, so reusing it
+  for a concurrent business subscription would have collided with a
+  business owner's own personal plan). The "business plan nearing expiry"
+  reminder could never fire, and the grace-period sweep for business tiers
+  was dead code that would have thrown a CHECK-constraint violation the
+  first time it ran (`status = 'grace'`/`'lapsed'` weren't valid values).
+  Added `business_accounts.current_period_ends_at`, set on signup/upgrade/
+  renewal; fixed the status constraint; the sweep and the expiry reminder
+  now both actually work.
+- Added a manual **renewal** flow (`POST /api/business/renew`,
+  "Renew Now"/"Renew Early" on `/settings/business`) since Paystack/
+  DodoPayments checkout is a one-off charge with no native recurring
+  billing — closes the loop the expiry reminder opens. Android/Capacitor
+  is unaffected (Google Play Billing renews natively there).
+- Added a **Cancel Pending Transaction** action
+  (`DELETE /api/business/pending`) for the existing "you already have a
+  payment in progress" guard, and the error now states when it expires —
+  addresses the abandoned-checkout edge case where a user closes the
+  Paystack tab mid-payment and previously had to wait out the 30-minute
+  TTL to retry.
+- Added **Business Broadcasts** (`/business/broadcasts`,
+  `/api/business/broadcasts`) — opt-in followers only, metered per month by
+  tier (Starter 3, Growth 10, Enterprise unlimited), tagged with
+  `business_account_id` in `creator_broadcasts` so it can never bleed into
+  a user's separate personal creator-tier broadcast quota.
+- Expanded the Business hub (`/business`) into a fuller control panel: a
+  Business Pages preview (top 3 + slot usage), a Broadcasts link, and a
+  tier-gated "More Features" row (Sponsored Quests, Custom Room Theming,
+  API Access) shown dimmed with an upgrade chip when the account's tier
+  doesn't qualify. Settings → Business Account → **Manage** now links to
+  `/business` (the hub) instead of straight to the billing sub-page.
+- Android/Capacitor business hub mirrored: added Stats and Broadcasts
+  links (Stats didn't exist there before) and the business plan expiry
+  banner.
+
+**New migrations to run (in order):**
+`db/migrations/0027_business_broadcasts_and_pending_cancel.sql`,
+`db/migrations/0028_business_period_tracking.sql`.
+
+**Not done in this pass**: full Paystack/DodoPayments *native* recurring
+billing for Business Accounts (a Plans/subscription-object integration
+mirroring the personal Plus/Pro/Max flow) — the manual renew action above
+closes the immediate gap (the expiry reminder now has something to link
+to), but an auto-charge-on-renewal flow is a larger, separate payments
+feature and was intentionally left alone here rather than rushed.
+
+---
+
+*ZobiaSocial PRD v2.15*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

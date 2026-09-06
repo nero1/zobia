@@ -1060,7 +1060,7 @@ export default function SettingsPage() {
             <p className="text-xs text-neutral-500">Verified badge, broadcasts, analytics and more.</p>
           </div>
           <Link
-            href="/settings/business"
+            href="/business"
             className="shrink-0 rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
             Manage →

@@ -12,6 +12,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 
@@ -56,6 +57,8 @@ function BusinessTierCard({
   const { t } = useTranslation();
   const [upgrading, setUpgrading] = useState<TierKey | null>(null);
   const [upgradeError, setUpgradeError] = useState<string | null>(null);
+  const [pendingConflict, setPendingConflict] = useState<{ expiresAt: string | null } | null>(null);
+  const [cancellingPending, setCancellingPending] = useState(false);
 
   const current = (currentTier.toLowerCase() as TierKey) in TIER_ORDER
     ? (currentTier.toLowerCase() as TierKey)
@@ -64,6 +67,7 @@ function BusinessTierCard({
   async function changeTier(tier: TierKey) {
     setUpgrading(tier);
     setUpgradeError(null);
+    setPendingConflict(null);
     try {
       const res = await fetch("/api/business/tier", {
         method: "PATCH",
@@ -74,11 +78,14 @@ function BusinessTierCard({
       const body = await res.json() as {
         success?: boolean;
         data?: { paymentUrl?: string; downgradeToTier?: string; downgradeEffectiveAt?: string; downgradeCancelled?: boolean };
-        error?: { message?: string; code?: string };
+        error?: { message?: string; code?: string; params?: { expiresAt?: string | null } };
       };
       if (!res.ok) {
         const err = new Error(body.error?.message ?? "Update failed") as Error & { code?: string | null };
         err.code = body.error?.code ?? null;
+        if (err.code === "UPGRADE_ALREADY_PENDING") {
+          setPendingConflict({ expiresAt: body.error?.params?.expiresAt ?? null });
+        }
         throw err;
       }
       if (body.data?.paymentUrl) {
@@ -95,6 +102,19 @@ function BusinessTierCard({
       setUpgradeError(e instanceof Error ? translateApiError(t, err.code, err.message || "Update failed") : "Update failed");
     } finally {
       setUpgrading(null);
+    }
+  }
+
+  async function cancelPending() {
+    setCancellingPending(true);
+    try {
+      const res = await fetch("/api/business/pending", { method: "DELETE", credentials: "include" });
+      if (res.ok) {
+        setPendingConflict(null);
+        setUpgradeError(null);
+      }
+    } finally {
+      setCancellingPending(false);
     }
   }
 
@@ -122,7 +142,23 @@ function BusinessTierCard({
 
       {upgradeError && (
         <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-          {upgradeError}
+          <p>{upgradeError}</p>
+          {pendingConflict && (
+            <>
+              {pendingConflict.expiresAt && (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                  Expires at {new Date(pendingConflict.expiresAt).toLocaleTimeString()}.
+                </p>
+              )}
+              <button
+                onClick={cancelPending}
+                disabled={cancellingPending}
+                className="mt-2 rounded-full border border-red-400 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-900/40"
+              >
+                {cancellingPending ? "Cancelling…" : "Cancel Pending Transaction"}
+              </button>
+            </>
+          )}
         </div>
       )}
 
@@ -227,6 +263,7 @@ interface BusinessAccount {
   verification_status: VerificationStatus;
   downgrade_to_tier: string | null;
   downgrade_effective_at: string | null;
+  current_period_ends_at: string | null;
   created_at: string;
 }
 
@@ -268,6 +305,8 @@ function fmtKobo(kobo: number) {
 
 export default function BusinessSettingsPage() {
   const { t } = useTranslation();
+  const searchParams = useSearchParams();
+  const preselectedTier = searchParams.get("tier");
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;
@@ -283,6 +322,9 @@ export default function BusinessSettingsPage() {
   const [businessName, setBusinessName] = useState("");
   const [businessType, setBusinessType] = useState<BusinessType>("retail");
   const [editing, setEditing] = useState(false);
+  const [pendingConflict, setPendingConflict] = useState<{ expiresAt: string | null } | null>(null);
+  const [cancellingPending, setCancellingPending] = useState(false);
+  const [renewing, setRenewing] = useState(false);
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
     setToast({ msg, type });
@@ -340,38 +382,92 @@ export default function BusinessSettingsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (!business) return; // create path uses the per-tier buttons below (handleCreate)
     setSubmitting(true);
     setError(null);
     try {
-      const method = business ? "PATCH" : "POST";
       const res = await fetch("/api/business", {
-        method,
+        method: "PATCH",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ business_name: businessName.trim(), business_type: businessType }),
       });
-      const json = await res.json() as { success: boolean; data?: { business: BusinessAccount; paymentUrl?: string }; error?: { message?: string; code?: string } };
+      const json = await res.json() as { success: boolean; data?: { business: BusinessAccount }; error?: { message?: string; code?: string } };
       if (!res.ok) {
         const err = new Error(json.error?.message ?? "Failed to save") as Error & { code?: string | null };
         err.code = json.error?.code ?? null;
         throw err;
       }
-      // Creating a new Business Starter account is a paid tier (PRD §17) —
-      // redirect to checkout instead of assuming the account already exists.
-      if (!business && json.data?.paymentUrl) {
-        window.location.href = json.data.paymentUrl;
-        return;
-      }
       if (json.data?.business) {
         setBusiness(json.data.business);
       }
       setEditing(false);
-      showToast(business ? "Business info updated!" : "Business account created!");
+      showToast("Business info updated!");
     } catch (e) {
       const err = e as Error & { code?: string | null };
       setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Save failed") : "Save failed");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  /** Create a new Business account on the chosen tier (PRD §17 — every tier is choosable at signup, not just Starter). */
+  async function handleCreate(tier: TierKey) {
+    if (!businessName.trim()) {
+      setError("Enter a business name to continue.");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    setPendingConflict(null);
+    try {
+      const res = await fetch("/api/business", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ business_name: businessName.trim(), business_type: businessType, tier }),
+      });
+      const json = await res.json() as {
+        success: boolean;
+        data?: { paymentUrl?: string };
+        error?: { message?: string; code?: string; params?: { expiresAt?: string | null } };
+      };
+      if (!res.ok) {
+        const err = new Error(json.error?.message ?? "Failed to start signup") as Error & { code?: string | null };
+        err.code = json.error?.code ?? null;
+        if (err.code === "SIGNUP_ALREADY_PENDING") {
+          setPendingConflict({ expiresAt: json.error?.params?.expiresAt ?? null });
+        }
+        throw err;
+      }
+      // Business account creation is a paid tier (PRD §17) — redirect to checkout.
+      // The business_accounts row is only created once the webhook fires.
+      if (json.data?.paymentUrl) {
+        window.location.href = json.data.paymentUrl;
+        return;
+      }
+    } catch (e) {
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to start signup") : "Failed to start signup");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  /** Cancel an abandoned signup/upgrade payment so the user can retry immediately (payment edge case). */
+  async function handleCancelPending() {
+    setCancellingPending(true);
+    try {
+      const res = await fetch("/api/business/pending", { method: "DELETE", credentials: "include" });
+      if (res.ok) {
+        setPendingConflict(null);
+        setError(null);
+        showToast("Pending transaction cancelled. You can try again now.");
+      } else {
+        showToast("Could not cancel the pending transaction. Try again.", "error");
+      }
+    } finally {
+      setCancellingPending(false);
     }
   }
 
@@ -421,6 +517,42 @@ export default function BusinessSettingsPage() {
     }
   }
 
+  async function handleRenew() {
+    setRenewing(true);
+    setError(null);
+    setPendingConflict(null);
+    try {
+      const res = await fetch("/api/business/renew", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json() as {
+        success: boolean;
+        data?: { paymentUrl?: string };
+        error?: { message?: string; code?: string; params?: { expiresAt?: string | null } };
+      };
+      if (!res.ok) {
+        const err = new Error(json.error?.message ?? "Failed to start renewal") as Error & { code?: string | null };
+        err.code = json.error?.code ?? null;
+        if (err.code === "RENEWAL_ALREADY_PENDING") {
+          setPendingConflict({ expiresAt: json.error?.params?.expiresAt ?? null });
+        }
+        throw err;
+      }
+      if (json.data?.paymentUrl) {
+        window.location.href = json.data.paymentUrl;
+        return;
+      }
+    } catch (e) {
+      const err = e as Error & { code?: string | null };
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to start renewal") : "Failed to start renewal");
+    } finally {
+      setRenewing(false);
+    }
+  }
+
   if (loading) {
     return (
       <div className="mx-auto max-w-lg space-y-5 p-4 sm:p-6">
@@ -453,10 +585,28 @@ export default function BusinessSettingsPage() {
         </div>
       )}
 
-      {/* Suspended notice */}
+      {/* Suspended notice (admin moderation action) */}
       {business && business.status === "suspended" && (
         <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
           Your business account is suspended. Contact support for more information.
+        </div>
+      )}
+
+      {/* Billing lapsed / in grace period — renewal is a manual action since checkout is a one-off charge, not a recurring subscription. */}
+      {business && (business.status === "grace" || business.status === "lapsed") && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-300">
+          <span>
+            {business.status === "lapsed"
+              ? "Your business account's billing period has lapsed. Renew to restore full access."
+              : "Your business account's billing period has ended and is now in its grace period. Renew to avoid losing access."}
+          </span>
+          <button
+            onClick={handleRenew}
+            disabled={renewing}
+            className="flex-shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-50"
+          >
+            {renewing ? "Redirecting…" : "Renew Now"}
+          </button>
         </div>
       )}
 
@@ -476,9 +626,26 @@ export default function BusinessSettingsPage() {
           </div>
 
           {/* Tier */}
-          <div className="mb-4 rounded-xl border border-neutral-100 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-800/50">
-            <p className="text-xs font-semibold text-neutral-500">Tier</p>
-            <p className="mt-0.5 font-semibold capitalize text-neutral-900 dark:text-neutral-100">{business.tier}</p>
+          <div className="mb-4 flex items-center justify-between gap-3 rounded-xl border border-neutral-100 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-800/50">
+            <div>
+              <p className="text-xs font-semibold text-neutral-500">Tier</p>
+              <p className="mt-0.5 font-semibold capitalize text-neutral-900 dark:text-neutral-100">{business.tier}</p>
+              {business.current_period_ends_at && business.status === "active" && (
+                <p className="mt-0.5 text-xs text-neutral-400">
+                  Renews/ends {new Date(business.current_period_ends_at).toLocaleDateString()}
+                </p>
+              )}
+            </div>
+            {business.status === "active" && business.current_period_ends_at &&
+              Math.ceil((new Date(business.current_period_ends_at).getTime() - Date.now()) / (24 * 60 * 60 * 1000)) <= 14 && (
+                <button
+                  onClick={handleRenew}
+                  disabled={renewing}
+                  className="flex-shrink-0 rounded-lg border border-blue-400 px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 disabled:opacity-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
+                >
+                  {renewing ? "Redirecting…" : "Renew Early"}
+                </button>
+              )}
           </div>
 
           {/* Analytics */}
@@ -560,13 +727,29 @@ export default function BusinessSettingsPage() {
           </h2>
           {!business && (
             <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
-              Business Starter is ₦5,000/month — you&apos;ll be redirected to checkout to complete payment.
+              Fill in your business details, then pick a plan below — you&apos;ll be redirected to checkout to complete payment.
             </p>
           )}
 
           {error && (
             <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-800 dark:bg-red-950 dark:text-red-300">
-              {error}
+              <p>{error}</p>
+              {pendingConflict && (
+                <>
+                  {pendingConflict.expiresAt && (
+                    <p className="mt-1 text-xs text-red-600 dark:text-red-400">
+                      Expires at {new Date(pendingConflict.expiresAt).toLocaleTimeString()}.
+                    </p>
+                  )}
+                  <button
+                    onClick={handleCancelPending}
+                    disabled={cancellingPending}
+                    className="mt-2 rounded-full border border-red-400 px-3 py-1 text-xs font-semibold text-red-700 hover:bg-red-100 disabled:opacity-50 dark:text-red-300 dark:hover:bg-red-900/40"
+                  >
+                    {cancellingPending ? "Cancelling…" : "Cancel Pending Transaction"}
+                  </button>
+                </>
+              )}
             </div>
           )}
 
@@ -602,8 +785,8 @@ export default function BusinessSettingsPage() {
               </select>
             </div>
 
-            <div className="flex gap-3 pt-2">
-              {business && (
+            {business ? (
+              <div className="flex gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setEditing(false)}
@@ -611,16 +794,51 @@ export default function BusinessSettingsPage() {
                 >
                   Cancel
                 </button>
-              )}
-              <button
-                type="submit"
-                disabled={submitting || !businessName.trim()}
-                className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-              >
-                {submitting ? "Saving…" : business ? "Save Changes" : "Continue to Payment"}
-              </button>
-            </div>
+                <button
+                  type="submit"
+                  disabled={submitting || !businessName.trim()}
+                  className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {submitting ? "Saving…" : "Save Changes"}
+                </button>
+              </div>
+            ) : null}
           </form>
+
+          {/* Plan picker — one button per tier (not just Starter). PRD §17. */}
+          {!business && (
+            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {TIERS.map(({ key, label, price }) => (
+                <div
+                  key={key}
+                  className={`flex flex-col rounded-xl border p-3 ${
+                    preselectedTier === key
+                      ? "border-blue-500 bg-blue-50 dark:bg-blue-950/30"
+                      : "border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-800/50"
+                  }`}
+                >
+                  <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{label}</p>
+                  <p className="mb-3 mt-0.5 text-xs font-semibold text-neutral-500">{price}</p>
+                  {key === "enterprise" ? (
+                    <a
+                      href="mailto:sales@zobia.app?subject=Enterprise%20Plan%20Enquiry"
+                      className="mt-auto block rounded-xl bg-neutral-900 py-2 text-center text-xs font-semibold text-white hover:bg-neutral-700 dark:bg-neutral-100 dark:text-neutral-900 dark:hover:bg-neutral-200"
+                    >
+                      Contact Us
+                    </a>
+                  ) : (
+                    <button
+                      onClick={() => handleCreate(key)}
+                      disabled={submitting || !businessName.trim()}
+                      className="mt-auto rounded-xl bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {submitting ? "Redirecting…" : `Get Started — ${label}`}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>

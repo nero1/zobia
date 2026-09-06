@@ -49,6 +49,38 @@ export function getBusinessStatsTier(tier: string): "basic" | "more" | "detailed
   return BUSINESS_STATS_TIER[normalizeBusinessTier(tier)];
 }
 
+/** Default monthly price per tier, in kobo (admin can override via x_manifest `business_<tier>_price_kobo`). */
+const DEFAULT_TIER_PRICE_KOBO: Record<BusinessTier, number> = {
+  starter: 500_000,     // ₦5,000
+  growth: 1_500_000,    // ₦15,000
+  enterprise: 5_000_000, // ₦50,000
+};
+
+/**
+ * Resolve a business tier's monthly price in kobo. Shared by account
+ * creation (app/api/business/route.ts) and tier upgrades
+ * (app/api/business/tier/route.ts) so the two paths can never disagree on
+ * price. Uses the single-key manifest cache (getManifestValue) rather than
+ * loading the whole manifest, to keep Redis calls minimal.
+ */
+export async function getBusinessTierPriceKobo(tier: string): Promise<number> {
+  const key = normalizeBusinessTier(tier);
+  const raw = await getManifestValue(`business_${key}_price_kobo`);
+  const parsed = raw != null ? parseInt(raw, 10) : NaN;
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  return DEFAULT_TIER_PRICE_KOBO[key];
+}
+
+/**
+ * Length of one Business Account billing period. Paystack/DodoPayments
+ * checkout here is a one-off charge (no native recurring subscription like
+ * the personal Plus/Pro/Max flow), so business_accounts.current_period_ends_at
+ * is set to now + this many days on signup/upgrade/renewal, and the daily
+ * sweep (lib/plans/subscriptionSweep.ts) moves the account to 'grace' once
+ * it passes without a renewal payment.
+ */
+export const BUSINESS_BILLING_PERIOD_DAYS = 30;
+
 /** Minimum tier required to submit a Sponsored Quest for moderation (PRD §17 — Growth+ gets Quest Marketplace access). */
 const SPONSORED_QUEST_MIN_TIER: BusinessTier = "growth";
 

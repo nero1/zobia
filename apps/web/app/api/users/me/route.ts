@@ -165,9 +165,8 @@ const SELECT_COLUMNS = `
   (SELECT s.ends_at FROM subscriptions s
      WHERE s.user_id = users.id AND s.status = 'active'
      ORDER BY s.created_at DESC LIMIT 1) AS plan_ends_at,
-  (SELECT s2.ends_at FROM business_accounts ba
-     JOIN subscriptions s2 ON s2.id = ba.subscription_id
-     WHERE ba.user_id = users.id AND ba.status = 'active'
+  (SELECT ba.current_period_ends_at FROM business_accounts ba
+     WHERE ba.user_id = users.id AND ba.status IN ('active', 'grace', 'lapsed')
      LIMIT 1) AS business_plan_ends_at,
   xp_total, legacy_score, rank_name, rank_level, rank_sublevel, prestige_count,
   (SELECT COUNT(*) FROM user_badges WHERE user_badges.user_id = users.id) AS badge_count,

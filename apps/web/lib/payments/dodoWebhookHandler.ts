@@ -14,6 +14,7 @@ import { awardReferralCommissions, recordFailedCommission } from "@/lib/referral
 import { moveToDeadLetterQueue, getCreatorFeeRate } from "@/lib/payments/payouts";
 import { logger } from "@/lib/logger";
 import { contributeToCreatorFund } from "@/lib/creator/fundContribution";
+import { BUSINESS_BILLING_PERIOD_DAYS } from "@/lib/business/limits";
 
 // ---------------------------------------------------------------------------
 // DodoPayments webhook event types
@@ -31,7 +32,7 @@ export interface DodoPaymentSucceededEvent {
       packId?: string;
       coinsGranted?: number;
       starsGranted?: number;
-      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "business_upgrade" | "business_signup";
+      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "business_upgrade" | "business_signup" | "business_renewal";
       // BUG-DODO-01: itemSlug used for server-authoritative grant amount resolution
       itemSlug?: string;
       packName?: string;
@@ -39,6 +40,7 @@ export interface DodoPaymentSucceededEvent {
       newTier?: string;
       businessName?: string;
       businessType?: string | null;
+      tier?: string;
       idempotencyKey: string;
       planId?: string;
       planName?: string;
@@ -152,21 +154,26 @@ export async function processPaymentSucceeded(
     // Business Starter signup — create the business_accounts row now that
     // payment has cleared (PRD §17: Starter is a paid tier, not free).
     if (itemType === "business_signup") {
-      const { businessName, businessType } = metadata;
+      const { businessName, businessType, tier: signupTier } = metadata as unknown as {
+        businessName?: string;
+        businessType?: string | null;
+        tier?: string;
+      };
       if (!businessName) {
         logger.error({ providerReference, metadata }, "[webhook/dodopayments] business_signup missing businessName in metadata");
         return;
       }
+      const tier = ["starter", "growth", "enterprise"].includes(signupTier as string) ? (signupTier as string) : "starter";
 
       // Idempotent: business_accounts.user_id is UNIQUE, so a replayed webhook
       // (or a race with a second signup attempt) simply no-ops here.
       const { rows: createdRows } = await tx.query<{ id: string }>(
         `INSERT INTO business_accounts
-           (user_id, business_name, business_type, tier, verified, status, created_at, updated_at)
-         VALUES ($1, $2, $3, 'starter', FALSE, 'active', NOW(), NOW())
+           (user_id, business_name, business_type, tier, verified, status, current_period_ends_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, FALSE, 'active', NOW() + ($5 || ' days')::interval, NOW(), NOW())
          ON CONFLICT (user_id) DO NOTHING
          RETURNING id`,
-        [userId, businessName, businessType ?? null]
+        [userId, businessName, businessType ?? null, tier, String(BUSINESS_BILLING_PERIOD_DAYS)]
       );
 
       if (!createdRows[0]) {
@@ -191,8 +198,12 @@ export async function processPaymentSucceeded(
         `INSERT INTO notifications
            (user_id, type, title, body, metadata, is_read, created_at)
          VALUES ($1, 'business_tier_activated', 'Business Account Created',
-                 'Your Business Starter account is now active.', $2::jsonb, false, NOW())`,
-        [userId, JSON.stringify({ businessAccountId: createdRows[0].id, tier: "starter", reference: providerReference })]
+                 $2, $3::jsonb, false, NOW())`,
+        [
+          userId,
+          `Your Business ${tier.charAt(0).toUpperCase()}${tier.slice(1)} account is now active.`,
+          JSON.stringify({ businessAccountId: createdRows[0].id, tier, reference: providerReference }),
+        ]
       );
       return;
     }
@@ -217,9 +228,12 @@ export async function processPaymentSucceeded(
              pending_tier = NULL,
              pending_payment_ref = NULL,
              tier_updated_at = NOW(),
+             status = 'active',
+             grace_period_ends_at = NULL,
+             current_period_ends_at = NOW() + ($4 || ' days')::interval,
              updated_at = NOW()
          WHERE id = $2 AND pending_payment_ref = $3`,
-        [newTier, businessAccountId, paymentRef]
+        [newTier, businessAccountId, paymentRef, String(BUSINESS_BILLING_PERIOD_DAYS)]
       );
 
       // BIZ-TIER-RACE: zero rows matched means pending_payment_ref was stale
@@ -255,6 +269,38 @@ export async function processPaymentSucceeded(
           JSON.stringify({ businessAccountId, tier: newTier, reference: paymentRef }),
           businessAccountId,
         ]
+      );
+      return;
+    }
+
+    // Business Account renewal — manual "pay for another period" (checkout
+    // doesn't auto-renew), extends current_period_ends_at and recovers the
+    // account out of 'grace'/'suspended' back to 'active'. Mirrors the
+    // paystack handler — see app/api/business/renew/route.ts.
+    if (itemType === "business_renewal") {
+      const { businessAccountId } = metadata as unknown as { businessAccountId?: string };
+      if (!businessAccountId) {
+        logger.error({ providerReference, metadata }, "[webhook/dodopayments] business_renewal missing businessAccountId");
+        return;
+      }
+
+      await tx.query(
+        `UPDATE business_accounts
+         SET status = 'active',
+             grace_period_ends_at = NULL,
+             current_period_ends_at = GREATEST(COALESCE(current_period_ends_at, NOW()), NOW()) + ($2 || ' days')::interval,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [businessAccountId, String(BUSINESS_BILLING_PERIOD_DAYS)]
+      );
+
+      await tx.query(
+        `INSERT INTO notifications
+           (user_id, type, title, body, metadata, is_read, created_at)
+         SELECT user_id, 'business_tier_activated', 'Business Account Renewed',
+                'Your business account subscription has been renewed.', $1::jsonb, false, NOW()
+         FROM business_accounts WHERE id = $2`,
+        [JSON.stringify({ businessAccountId, reference: providerReference }), businessAccountId]
       );
       return;
     }
