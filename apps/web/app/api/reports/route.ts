@@ -40,6 +40,10 @@ const ReportBodySchema = z.object({
   reportedForumQuestionId: z.string().uuid().optional(),
   /** UUID of the forum answer being reported. */
   reportedForumAnswerId: z.string().uuid().optional(),
+  /** UUID of the old-school BB-forum thread being reported. */
+  reportedBbThreadId: z.string().uuid().optional(),
+  /** UUID of the old-school BB-forum post being reported. */
+  reportedBbPostId: z.string().uuid().optional(),
   /** Category selected by the reporter. */
   reportType: z.enum([
     "spam",
@@ -90,7 +94,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       !data.reportedRoomId &&
       !data.reportedGuildId &&
       !data.reportedForumQuestionId &&
-      !data.reportedForumAnswerId
+      !data.reportedForumAnswerId &&
+      !data.reportedBbThreadId &&
+      !data.reportedBbPostId
     ) {
       return NextResponse.json({ ok: true }, { status: 200 });
     }
@@ -113,8 +119,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       `INSERT INTO moderation_reports
          (reporter_id, reported_user_id, reported_message_id,
           reported_room_id, reported_guild_id, reported_forum_question_id,
-          reported_forum_answer_id, report_type, description, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'pending', NOW())
+          reported_forum_answer_id, reported_bb_thread_id, reported_bb_post_id,
+          report_type, description, status, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', NOW())
        RETURNING id`,
       [
         auth.user.sub,
@@ -124,6 +131,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         data.reportedGuildId ?? null,
         data.reportedForumQuestionId ?? null,
         data.reportedForumAnswerId ?? null,
+        data.reportedBbThreadId ?? null,
+        data.reportedBbPostId ?? null,
         data.reportType,
         data.description ?? null,
       ]

@@ -155,6 +155,8 @@ export function filterProfanity(text: string): { filtered: string; found: boolea
 const CONTENT_TABLE_AUTHOR_COLUMN: Record<string, string> = {
   forum_questions: "author_id",
   forum_answers: "author_id",
+  bb_threads: "author_id",
+  bb_posts: "author_id",
 };
 
 /** Whether a content table has an `is_deleted` column to filter on (message tables do; forum tables use `status`/`deleted_at` instead). */
@@ -165,7 +167,7 @@ export async function detectDuplicateMessage(
   content: string,
   windowMs: number = 60_000,
   db: DatabaseAdapter,
-  messageContext: "room" | "dm" | "forum_question" | "forum_answer" = "room"
+  messageContext: "room" | "dm" | "forum_question" | "forum_answer" | "bb_thread" | "bb_post" = "room"
 ): Promise<boolean> {
   const normalise = (s: string) =>
     s.normalize("NFKD").toLowerCase().replace(/[^a-z0-9\s]/g, "").replace(/\s+/g, " ").trim();
@@ -173,18 +175,23 @@ export async function detectDuplicateMessage(
   const normContent = normalise(content);
   const windowSeconds = Math.ceil(windowMs / 1000);
 
-  const ALLOWED_CONTENT_TABLES = new Set(['messages', 'room_messages', 'forum_questions', 'forum_answers']);
+  const ALLOWED_CONTENT_TABLES = new Set(['messages', 'room_messages', 'forum_questions', 'forum_answers', 'bb_posts']);
   const table =
     messageContext === "dm" ? "messages"
     : messageContext === "forum_question" ? "forum_questions"
     : messageContext === "forum_answer" ? "forum_answers"
+    // bb_threads has no body column of its own (the OP body lives in the
+    // thread's first bb_posts row) — both new threads and replies are
+    // deduplicated against bb_posts.
+    : messageContext === "bb_thread" ? "bb_posts"
+    : messageContext === "bb_post" ? "bb_posts"
     : "room_messages";
   if (!ALLOWED_CONTENT_TABLES.has(table)) {
     throw new Error(`contentFilter: unknown table '${table}'`);
   }
 
   const authorColumn = CONTENT_TABLE_AUTHOR_COLUMN[table] ?? "sender_id";
-  const bodyColumn = table === "forum_questions" ? "body" : table === "forum_answers" ? "body" : "content";
+  const bodyColumn = table === "forum_questions" || table === "forum_answers" || table === "bb_posts" ? "body" : "content";
   const deletedClause = CONTENT_TABLE_HAS_IS_DELETED.has(table)
     ? "AND is_deleted = FALSE"
     : "AND status = 'visible'";

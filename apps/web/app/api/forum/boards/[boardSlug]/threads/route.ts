@@ -4,21 +4,26 @@ export const dynamic = "force-dynamic";
  * app/api/forum/boards/[boardSlug]/threads/route.ts
  *
  * GET  — paginated thread list for a board (public, cursor pagination).
- * POST — start a new thread (auth required).
+ * POST — start a new thread (auth required). Delegates eligibility, content
+ * moderation, image-cost charging, and pot funding to lib/bbforum/service.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { requireFeatureEnabled, getManifestValue } from "@/lib/manifest";
-import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
+import { requireFeatureEnabled } from "@/lib/manifest";
+import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { getBoardBySlug, listThreadsInBoard, createThread } from "@/lib/bbforum/repo";
-import { db } from "@/lib/db";
+import { getBoardBySlug, listThreadsInBoard } from "@/lib/bbforum/repo";
+import { createThread } from "@/lib/bbforum/service";
 
 const createSchema = z.object({
   title: z.string().min(5).max(200),
   body: z.string().min(10).max(20000),
+  contentFormat: z.enum(["plaintext", "markdown"]).default("plaintext"),
+  imageUrl: z.string().url().max(1000).optional(),
+  potPerClaimCredits: z.number().int().min(0).max(100_000).optional(),
+  potMaxClaims: z.number().int().min(0).max(1000).optional(),
 });
 
 export const GET = async (req: NextRequest, { params }: { params: Promise<{ boardSlug: string }> }) => {
@@ -42,20 +47,20 @@ export const GET = async (req: NextRequest, { params }: { params: Promise<{ boar
 export const POST = withAuth(async (req: NextRequest, { params, auth }: { params: Promise<{ boardSlug: string }>; auth: { user: { sub: string } } }) => {
   try {
     await requireFeatureEnabled("bbforum");
-    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.forumWrite);
     const { boardSlug } = await params;
-    const board = await getBoardBySlug(boardSlug);
-    if (!board) throw notFound("Board not found");
-
-    const { rows } = await db.query<{ rank_level: number }>(`SELECT COALESCE(rank_level, 1) AS rank_level FROM users WHERE id = $1`, [auth.user.sub]);
-    const minLevelRaw = await getManifestValue("bbforum_min_level_to_post");
-    const minLevel = minLevelRaw ? parseInt(minLevelRaw, 10) : 1;
-    if ((rows[0]?.rank_level ?? 1) < minLevel) {
-      throw forbidden(`Reach level ${minLevel} to start a thread.`, "BBFORUM_LEVEL_TOO_LOW");
-    }
 
     const body = await validateBody(req, createSchema);
-    const thread = await createThread({ boardId: board.id, authorId: auth.user.sub, title: body.title, body: body.body });
+    const { thread } = await createThread({
+      userId: auth.user.sub,
+      boardSlug,
+      title: body.title,
+      body: body.body,
+      contentFormat: body.contentFormat,
+      imageUrl: body.imageUrl ?? null,
+      potPerClaimCredits: body.potPerClaimCredits,
+      potMaxClaims: body.potMaxClaims,
+    });
     return NextResponse.json({ success: true, data: { thread }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

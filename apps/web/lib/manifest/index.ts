@@ -164,6 +164,30 @@ export interface ZobiaManifest {
     /** Minimum account level (main rank number, 1 = Beginner) required to found a Guild. */
     minLevelToCreate: number;
   };
+  // Old-school BB-style forum (boards/threads/posts) — admin-editable at
+  // /gate44/forum/settings. Distinct from the `forum` block above (Answers Q&A).
+  bbforum: {
+    /** Minimum account level required to start a thread OR post a reply. */
+    minLevelToPost: number;
+    /** XP awarded for starting a new thread. */
+    rewardXpPerThread: number;
+    /** Credits awarded for starting a new thread. */
+    rewardCreditsPerThread: number;
+    /** XP awarded for posting a reply. */
+    rewardXpPerReply: number;
+    /** Credits awarded for posting a reply. */
+    rewardCreditsPerReply: number;
+    /** Ceiling on total bbforum-sourced credit rewards a user can earn per rolling 24h. */
+    dailyRewardCapCredits: number;
+    /** Run profanity/duplicate auto-moderation on new threads and posts. */
+    autoModerationEnabled: boolean;
+    /** Credits charged to attach an image to a thread/post. 0 = free. */
+    imageCostCredits: number;
+    /** Stars charged to attach an image to a thread/post. 0 = free. */
+    imageCostStars: number;
+    /** Days of pot inactivity before an unclaimed balance auto-refunds to the OP. */
+    potExpiryDays: number;
+  };
   // Platform Advertising (PRD §17, Pillar 3) — admin-editable at /gate44/ads
   ads: {
     /** How self-service business-submitted ad campaigns are reviewed. */
@@ -358,6 +382,18 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
   },
   guilds: {
     minLevelToCreate: 4,
+  },
+  bbforum: {
+    minLevelToPost: 2,
+    rewardXpPerThread: 1,
+    rewardCreditsPerThread: 0,
+    rewardXpPerReply: 1,
+    rewardCreditsPerReply: 0,
+    dailyRewardCapCredits: 50,
+    autoModerationEnabled: true,
+    imageCostCredits: 0,
+    imageCostStars: 0,
+    potExpiryDays: 14,
   },
   ads: {
     moderationMode: "manual",
@@ -653,6 +689,18 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
     },
     guilds: {
       minLevelToCreate: parseInt10(kv["guilds_min_level_to_create"], DEFAULT_MANIFEST.guilds.minLevelToCreate),
+    },
+    bbforum: {
+      minLevelToPost:          parseInt10(kv["bbforum_min_level_to_post"],          DEFAULT_MANIFEST.bbforum.minLevelToPost),
+      rewardXpPerThread:       parseInt10(kv["bbforum_reward_xp_per_thread"],       DEFAULT_MANIFEST.bbforum.rewardXpPerThread),
+      rewardCreditsPerThread:  parseInt10(kv["bbforum_reward_credits_per_thread"],  DEFAULT_MANIFEST.bbforum.rewardCreditsPerThread),
+      rewardXpPerReply:        parseInt10(kv["bbforum_reward_xp_per_reply"],        DEFAULT_MANIFEST.bbforum.rewardXpPerReply),
+      rewardCreditsPerReply:   parseInt10(kv["bbforum_reward_credits_per_reply"],   DEFAULT_MANIFEST.bbforum.rewardCreditsPerReply),
+      dailyRewardCapCredits:   parseInt10(kv["bbforum_daily_reward_cap_credits"],   DEFAULT_MANIFEST.bbforum.dailyRewardCapCredits),
+      autoModerationEnabled:   parseBool(kv["bbforum_auto_moderation_enabled"] ?? "true", DEFAULT_MANIFEST.bbforum.autoModerationEnabled),
+      imageCostCredits:        parseInt10(kv["bbforum_image_cost_credits"],         DEFAULT_MANIFEST.bbforum.imageCostCredits),
+      imageCostStars:          parseInt10(kv["bbforum_image_cost_stars"],           DEFAULT_MANIFEST.bbforum.imageCostStars),
+      potExpiryDays:           parseInt10(kv["bbforum_pot_expiry_days"],            DEFAULT_MANIFEST.bbforum.potExpiryDays),
     },
     ads: {
       moderationMode: kv["ad_moderation_mode"] === "ai" ? "ai" : "manual",

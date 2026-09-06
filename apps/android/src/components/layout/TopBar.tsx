@@ -28,6 +28,7 @@ const primaryNavItems = [
   { href: '/home', labelKey: 'nav.home', icon: '🏠' },
   { href: '/moments', labelKey: 'nav.moments', icon: '🎬' },
   { href: '/answers', labelKey: 'nav.answers', icon: '❓' },
+  { href: '/forum', labelKey: 'nav.bbforum', icon: '🗂️' },
   { href: '/quests', labelKey: 'nav.quests', icon: '🎯' },
   { href: '/games', labelKey: 'nav.games', icon: '🎮' },
   { href: '/blogs', labelKey: 'nav.blogs', icon: '📝' },

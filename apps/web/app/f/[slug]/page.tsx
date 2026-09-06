@@ -3,7 +3,11 @@
  *
  * Public, SSR, crawlable forum thread page — the canonical short URL
  * (zobia.org/f/<thread-title-slug>) for the old-school BB-style forum.
- * Publicly readable; posting a reply requires sign-in (see ReplyForm).
+ * Publicly readable; posting a reply/reacting/editing requires sign-in.
+ *
+ * Post bodies are stored as raw source (plain text or Markdown) and
+ * sanitized to HTML here at render time via sanitizeForumPostContent —
+ * never rendered from unsanitized client input.
  */
 
 import type { Metadata } from "next";
@@ -11,7 +15,10 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getThreadBySlug, listPostsInThread, incrementThreadViewCount } from "@/lib/bbforum/repo";
 import { db } from "@/lib/db";
-import { ReplyForm } from "@/components/bbforum/ReplyForm";
+import { getOptionalServerUser } from "@/lib/auth/serverUser";
+import { sanitizeForumPostContent } from "@/lib/security/htmlSanitizer";
+import { ThreadPostsSection } from "@/components/bbforum/ThreadPostsSection";
+import type { PostCardData } from "@/components/bbforum/PostCard";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
 
@@ -43,13 +50,36 @@ export default async function ThreadPage({ params }: { params: Promise<{ slug: s
   const thread = await getThreadBySlug(slug);
   if (!thread) notFound();
 
+  const viewer = await getOptionalServerUser();
+
   const [posts, boardRows] = await Promise.all([
-    listPostsInThread(thread.id),
+    listPostsInThread(thread.id, viewer?.userId ?? null),
     db.query<{ slug: string; name: string }>(`SELECT slug, name FROM bb_boards WHERE id = $1`, [thread.board_id]),
   ]);
   const board = boardRows.rows[0] ?? null;
 
   void incrementThreadViewCount(thread.id).catch(() => {});
+
+  const postCards: PostCardData[] = posts.map((p) => ({
+    id: p.id,
+    bodyHtml: sanitizeForumPostContent(p.body, p.content_format),
+    rawBody: p.body,
+    contentFormat: p.content_format,
+    imageUrl: p.image_url,
+    isOp: p.is_op,
+    authorId: p.author_id,
+    authorName: p.author_display_name ?? p.author_username ?? "Unknown",
+    authorAvatarEmoji: p.author_avatar_emoji ?? "👤",
+    createdAt: p.created_at,
+    editedAt: p.edited_at,
+    reactionCount: p.reaction_count,
+    myReaction: p.my_reaction,
+    quotedAuthorName: p.quoted_author_display_name ?? p.quoted_author_username ?? null,
+    quotedBodySnippet: p.quoted_body ? p.quoted_body.slice(0, 140) : null,
+  }));
+
+  const potRemaining = thread.pot_max_claims - thread.pot_claims_count;
+  const showPotBanner = thread.pot_max_claims > 0 && !thread.pot_refunded_at;
 
   const jsonLd = JSON.stringify({
     "@context": "https://schema.org",
@@ -87,24 +117,26 @@ export default async function ThreadPage({ params }: { params: Promise<{ slug: s
         {thread.is_locked && <span className="mr-1.5 text-neutral-400">🔒</span>}
         {thread.title}
       </h1>
-      <p className="mb-6 text-xs text-neutral-400">{thread.view_count} views · {thread.reply_count} replies</p>
+      <p className="mb-3 text-xs text-neutral-400">
+        {thread.view_count} views · {thread.reply_count} replies
+        {thread.edited_at && <span className="italic"> · edited {timeAgo(thread.edited_at)}</span>}
+      </p>
 
-      <div className="space-y-3">
-        {posts.map((post, i) => (
-          <div key={post.id} className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-            <div className="mb-2 flex items-center gap-2 text-xs text-neutral-500">
-              <span className="text-base">{post.author_avatar_emoji ?? "👤"}</span>
-              <span className="font-semibold text-neutral-800 dark:text-neutral-200">{post.author_display_name ?? post.author_username ?? "Unknown"}</span>
-              {i === 0 && <span className="rounded-full bg-primary-100 px-2 py-0.5 text-[10px] font-semibold text-primary-700 dark:bg-primary-950 dark:text-primary-300">OP</span>}
-              <span>·</span>
-              <span>{timeAgo(post.created_at)}</span>
-            </div>
-            <p className="whitespace-pre-wrap text-sm text-neutral-800 dark:text-neutral-200">{post.body}</p>
-          </div>
-        ))}
-      </div>
+      {showPotBanner && (
+        <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+          💰 This thread is paying <strong>{thread.pot_per_claim_credits} Credits</strong> to each of the first{" "}
+          <strong>{thread.pot_max_claims}</strong> repliers.{" "}
+          {potRemaining > 0 ? `${potRemaining} spot${potRemaining === 1 ? "" : "s"} left — reply to claim yours!` : "All spots claimed."}
+        </div>
+      )}
 
-      <ReplyForm threadSlug={thread.slug} locked={thread.is_locked} />
+      <ThreadPostsSection
+        threadSlug={thread.slug}
+        locked={thread.is_locked}
+        posts={postCards}
+        viewerId={viewer?.userId ?? null}
+        isModerator={!!(viewer?.isAdmin || viewer?.isModerator)}
+      />
     </div>
   );
 }

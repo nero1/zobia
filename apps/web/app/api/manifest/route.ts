@@ -57,6 +57,11 @@ type PublicManifest = {
     minLevelToComment: number;
     commentBypassCostCredits: number;
   };
+  bbforum: {
+    minLevelToPost: number;
+    imageCostCredits: number;
+    imageCostStars: number;
+  };
   ads: {
     roomInstreamInterval: number;
     planAdsLevel: Awaited<ReturnType<typeof loadManifest>>["ads"]["planAdsLevel"];
@@ -122,6 +127,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         minLevelToPost: manifest.forum.minLevelToPost,
         minLevelToComment: manifest.forum.minLevelToComment,
         commentBypassCostCredits: manifest.forum.commentBypassCostCredits,
+      },
+      bbforum: {
+        minLevelToPost: manifest.bbforum.minLevelToPost,
+        imageCostCredits: manifest.bbforum.imageCostCredits,
+        imageCostStars: manifest.bbforum.imageCostStars,
       },
       ads: {
         roomInstreamInterval: manifest.ads.roomInstreamInterval,
