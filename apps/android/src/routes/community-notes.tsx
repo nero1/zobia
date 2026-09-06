@@ -23,6 +23,9 @@ import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/store';
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
+import { FeatureNotFound } from '@/components/shared/FeatureNotFound';
 
 type NoteStatus = 'needs_review' | 'shown' | 'hidden';
 
@@ -82,6 +85,14 @@ async function voteNote(input: { noteId: string; helpful: boolean }) {
 
 function CommunityNotesPage() {
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const featureFlags = useFeatureFlags();
+  const modVisibleKeys = useFeatureModVisibility();
+  const access = resolveFeatureAccess(
+    featureFlags?.communityNotes !== false,
+    modVisibleKeys.includes('communityNotes'),
+    { isAdmin: user?.is_admin, isModerator: user?.is_moderator }
+  );
   const qc = useQueryClient();
   const [filter, setFilter] = useState<FilterStatus>('all');
   const [votingId, setVotingId] = useState<string | null>(null);
@@ -91,6 +102,7 @@ function CommunityNotesPage() {
     queryFn: ({ pageParam }) => fetchNotes({ pageParam, status: filter }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: access.accessible,
   });
 
   const notes = data?.pages.flatMap((p) => p.items) ?? [];
@@ -127,6 +139,10 @@ function CommunityNotesPage() {
     { label: t('communityNotes.filterVisible'), value: 'shown' },
     { label: t('communityNotes.filterRemoved'), value: 'hidden' },
   ];
+
+  if (!access.accessible) {
+    return <FeatureNotFound />;
+  }
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6 space-y-4">

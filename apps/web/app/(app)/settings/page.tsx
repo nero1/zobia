@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { QRCodeSVG } from "qrcode.react";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { subscribeToWebPush, unsubscribeFromWebPush, getWebPushPermission, isWebPushSupported } from "@/lib/push/webPush";
+import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -195,6 +196,7 @@ export default function SettingsPage() {
   }, [t]);
   const [settings, setSettings] = useState<UserSettings | null>(null);
   const [loading, setLoading] = useState(true);
+  const kycEnabled = useFeatureEnabled("kyc");
   const [error, setError] = useState<string | null>(null);
 
   // Form state (initialized from settings)
@@ -1037,20 +1039,22 @@ export default function SettingsPage() {
       </Section>
 
       {/* Identity Verification (KYC) */}
-      <Section title="Identity Verification">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Get the blue checkmark</p>
-            <p className="text-xs text-neutral-500">Verify your identity to unlock the verified badge and higher selling limits.</p>
+      {kycEnabled && (
+        <Section title="Identity Verification">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Get the blue checkmark</p>
+              <p className="text-xs text-neutral-500">Verify your identity to unlock the verified badge and higher selling limits.</p>
+            </div>
+            <Link
+              href="/kyc"
+              className="shrink-0 rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              Manage →
+            </Link>
           </div>
-          <Link
-            href="/kyc"
-            className="shrink-0 rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          >
-            Manage →
-          </Link>
-        </div>
-      </Section>
+        </Section>
+      )}
 
       {/* Business Account */}
       <Section title="Business Account">

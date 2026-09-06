@@ -17,6 +17,9 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/store';
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
+import { FeatureNotFound } from '@/components/shared/FeatureNotFound';
 
 interface Product {
   id: string;
@@ -61,6 +64,14 @@ async function fetchStore(creatorId: string): Promise<MerchStore> {
 function CreatorMerchStorePage() {
   const { creatorId } = Route.useParams();
   const { t } = useTranslation();
+  const { user } = useAuth();
+  const featureFlags = useFeatureFlags();
+  const modVisibleKeys = useFeatureModVisibility();
+  const access = resolveFeatureAccess(
+    featureFlags?.merchStore !== false,
+    modVisibleKeys.includes('merchStore'),
+    { isAdmin: user?.is_admin, isModerator: user?.is_moderator }
+  );
   const qc = useQueryClient();
   const [confirmProduct, setConfirmProduct] = useState<Product | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -72,7 +83,7 @@ function CreatorMerchStorePage() {
   const isPhysical = confirmProduct?.productType === 'physical';
   const shippingComplete = !isPhysical || (shippingName.trim() && shippingAddress.trim() && shippingCity.trim() && shippingCountry.trim());
 
-  const { data: store, status } = useQuery({ queryKey: ['merch', 'store', creatorId], queryFn: () => fetchStore(creatorId) });
+  const { data: store, status } = useQuery({ queryKey: ['merch', 'store', creatorId], queryFn: () => fetchStore(creatorId), enabled: access.accessible });
 
   function showToast(msg: string, type: 'success' | 'error' = 'success') {
     setToast({ msg, type });
@@ -103,6 +114,10 @@ function CreatorMerchStorePage() {
       showToast(e.response?.data?.error ?? t('merch.purchaseFailed', 'Purchase failed'), 'error');
     },
   });
+
+  if (!access.accessible) {
+    return <FeatureNotFound />;
+  }
 
   if (status === 'pending') {
     return (

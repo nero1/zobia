@@ -1507,6 +1507,7 @@
   "common.close": "Close",
   "common.confirm": "Confirm",
   "common.loading": "Loading…",
+  "common.notFound": "Page not found",
   "communityNotes.addNote": "+ Add Note",
   "communityNotes.filterAll": "All Notes",
   "communityNotes.filterPending": "Pending",

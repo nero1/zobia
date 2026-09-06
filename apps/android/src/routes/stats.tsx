@@ -13,6 +13,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
 
 interface TrackStat { track: string; label: string; emoji: string; level: number; xp: number }
 interface BadgeStat { key: string; label: string; grantedAt: string }
@@ -77,12 +78,29 @@ function CountTile({ label, value, emoji }: { label: string; value: number; emoj
 function StatsPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const featureFlags = useFeatureFlags();
+  const modVisibleKeys = useFeatureModVisibility();
+  const statsAccess = resolveFeatureAccess(
+    featureFlags?.profileStats !== false,
+    modVisibleKeys.includes('profileStats'),
+    { isAdmin: user?.is_admin, isModerator: user?.is_moderator }
+  );
 
   const { data: stats, status } = useQuery({
     queryKey: ['stats', user?.id],
     queryFn: () => fetchStats(user!.id),
-    enabled: Boolean(user?.id),
+    enabled: Boolean(user?.id) && statsAccess.accessible,
   });
+
+  // Mirrors the web page-level 404 gate (app/(app)/layout.tsx): no wording
+  // here should hint that a feature exists and is disabled.
+  if (!statsAccess.accessible) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full gap-2 px-6 text-center">
+        <p className="text-neutral-500 text-sm">{t('profile.stats.notFound')}</p>
+      </div>
+    );
+  }
 
   if (status === 'pending') {
     return (

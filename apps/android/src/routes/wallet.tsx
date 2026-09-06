@@ -14,6 +14,8 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { COIN_PRODUCTS, STAR_PRODUCTS, purchaseCoins, purchaseStars } from '@/lib/payments/googlePlay';
 import RewardedAdButton from '@/components/ads/RewardedAdButton';
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
+import { useAuth } from '@/lib/auth/store';
 
 const TX_PAGE_SIZE = 10;
 
@@ -162,7 +164,15 @@ function BuyCurrencyPanel({ onPurchased }: { onPurchased: () => void }) {
 function WalletPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const { user } = useAuth();
   const [tab, setTab] = useState<'coins' | 'stars'>('coins');
+  const featureFlags = useFeatureFlags();
+  const modVisibleKeys = useFeatureModVisibility();
+  const statsAccess = resolveFeatureAccess(
+    featureFlags?.profileStats !== false,
+    modVisibleKeys.includes('profileStats'),
+    { isAdmin: user?.is_admin, isModerator: user?.is_moderator }
+  );
 
   const { data: me, status: meStatus } = useQuery({ queryKey: ['users', 'me'], queryFn: fetchMe });
 
@@ -200,7 +210,7 @@ function WalletPage() {
         </div>
       </div>
 
-      {meStatus === 'success' && <RankBadgesSummary me={me} />}
+      {meStatus === 'success' && statsAccess.accessible && <RankBadgesSummary me={me} />}
 
       {meStatus === 'success' && (me.plan === 'free' || me.plan === 'plus') && (
         <div className="px-6 mb-3">
