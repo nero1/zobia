@@ -12,10 +12,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
-import { handleApiError } from "@/lib/api/errors";
-import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { handleApiError, badRequest } from "@/lib/api/errors";
+import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { listAnswers } from "@/lib/forum/repo";
 import { createAnswer } from "@/lib/forum/service";
+import { isCaptchaSurfaceEnabled, verifyCaptcha } from "@/lib/security/captcha";
 
 const listQuerySchema = z.object({
   sort: z.enum(["best", "new"]).default("best"),
@@ -27,6 +28,7 @@ const createAnswerSchema = z.object({
   body: z.string().trim().min(2, "Answer can't be empty").max(5000),
   parentAnswerId: z.string().uuid().optional().nullable(),
   payBypass: z.boolean().optional(),
+  captchaToken: z.string().max(4000).optional(),
 });
 
 export const GET = withAuth<{ id: string }>(async (req: NextRequest, { params, auth }) => {
@@ -46,6 +48,20 @@ export const POST = withAuth<{ id: string }>(async (req: NextRequest, { params, 
     const { id } = await params;
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.forumWrite);
     const body = await validateBody(req, createAnswerSchema);
+
+    // A new top-level answer and a reply to an existing answer are distinct
+    // admin-toggleable surfaces sharing this one endpoint, distinguished by
+    // whether parentAnswerId is set — see components/security/useCaptchaWidget
+    // callers in app/(app)/answers/[id]/page.tsx.
+    const isReply = !!body.parentAnswerId;
+    const surface = isReply ? "reply_answer_comment" : "submit_answer";
+    if (await isCaptchaSurfaceEnabled(surface)) {
+      const ip = getClientIp(req);
+      if (!body.captchaToken || !(await verifyCaptcha(body.captchaToken, ip, surface))) {
+        throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
+      }
+    }
+
     const result = await createAnswer({
       userId: auth.user.sub,
       questionId: id,

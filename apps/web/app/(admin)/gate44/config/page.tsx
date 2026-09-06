@@ -23,6 +23,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { GRACE_FEATURE_REGISTRY } from "@/lib/plans/graceFeatures";
+import { CAPTCHA_SURFACE_REGISTRY } from "@/lib/security/captchaSurfaces";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -119,6 +120,14 @@ const CONFIG_META: Record<string, ConfigMeta> = {
       { value: "turnstile", label: "Cloudflare Turnstile" },
       { value: "none", label: "None (disable CAPTCHA)" },
     ],
+  },
+  captcha_active_surfaces: {
+    label: "CAPTCHA — Enabled Surfaces",
+    description:
+      "Which individual forms/flows require CAPTCHA. Only applies when a CAPTCHA provider is selected above — this has no effect while the provider is set to None.",
+    type: "multiselect",
+    group: "CAPTCHA",
+    options: CAPTCHA_SURFACE_REGISTRY.map((s) => ({ value: s.key, label: s.label })),
   },
 
   // GIF

@@ -24,6 +24,7 @@ import { Suspense, useState, type FormEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Input } from "@/components/ui/Input";
 import { Button } from "@/components/ui/Button";
+import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
 
 type Step = "credentials" | "totp" | "locked";
 
@@ -40,6 +41,8 @@ function LoginContent() {
   const [magicWord, setMagicWord] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const { enabled: captchaEnabled, getToken: getCaptchaToken, WidgetSlot, ScriptTags } =
+    useCaptchaWidget("admin_login");
 
   // Step 1: verify credentials — always proceed to TOTP step
   const handleCredentialsSubmit = async (e: FormEvent) => {
@@ -48,10 +51,16 @@ function LoginContent() {
     setIsLoading(true);
 
     try {
+      const captchaToken = await getCaptchaToken();
+      if (captchaEnabled && !captchaToken) {
+        setError("Please complete the verification widget.");
+        setIsLoading(false);
+        return;
+      }
       const res = await fetch("/api/admin/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, captchaToken: captchaToken ?? undefined }),
       });
 
       const data = (await res.json()) as {
@@ -215,9 +224,11 @@ function LoginContent() {
                 required
                 placeholder="••••••••"
               />
+              <WidgetSlot />
               <Button type="submit" variant="primary" size="lg" fullWidth isLoading={isLoading}>
                 Continue
               </Button>
+              <ScriptTags />
             </form>
           )}
 

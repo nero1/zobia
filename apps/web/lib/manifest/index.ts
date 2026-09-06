@@ -25,6 +25,7 @@ import { redis } from "@/lib/redis";
 import { env } from "@/lib/env";
 import { memGet, memSet, memDel } from "@/lib/cache/memory";
 import { logger } from "@/lib/logger";
+import { DEFAULT_CAPTCHA_ENABLED_SURFACES } from "@/lib/security/captchaSurfaces";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,6 +89,8 @@ export interface ZobiaManifest {
   };
   // CAPTCHA
   captchaProvider: "recaptcha" | "turnstile" | "none";
+  /** Per-surface CAPTCHA toggle. Only effective when captchaProvider != "none". */
+  captchaEnabledSurfaces: string[];
   // GIF
   gifProvider: "giphy" | "tenor";
   // PWA
@@ -370,6 +373,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     telegramEnabled: true,
   },
   captchaProvider: "none",
+  captchaEnabledSurfaces: DEFAULT_CAPTCHA_ENABLED_SURFACES,
   gifProvider: "giphy",
   pwa: {
     webEnabled: true,
@@ -541,6 +545,22 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
   const gifProvider: ZobiaManifest["gifProvider"] =
     rawGif === "tenor" ? "tenor" : "giphy";
 
+  // Resolve captchaEnabledSurfaces — JSON array of surface keys, same
+  // serialization convention as grace_period_features_*. Falls back to all
+  // surfaces enabled if the key is missing or malformed (pre-migration).
+  let captchaEnabledSurfaces: string[] = DEFAULT_CAPTCHA_ENABLED_SURFACES;
+  const rawCaptchaSurfaces = kv["captcha_active_surfaces"];
+  if (rawCaptchaSurfaces) {
+    try {
+      const parsed = JSON.parse(rawCaptchaSurfaces);
+      if (Array.isArray(parsed) && parsed.every((v) => typeof v === "string")) {
+        captchaEnabledSurfaces = parsed;
+      }
+    } catch {
+      // malformed — keep default
+    }
+  }
+
   // Resolve payment primaryProvider
   const rawProvider = unquote(kv["payment_primary_provider"]);
   const primaryProvider: ZobiaManifest["payment"]["primaryProvider"] =
@@ -656,6 +676,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       telegramEnabled: parseBool(kv["auth_telegram_enabled"], DEFAULT_MANIFEST.auth.telegramEnabled),
     },
     captchaProvider,
+    captchaEnabledSurfaces,
     gifProvider,
     pwa: {
       webEnabled:     parseBool(kv["pwa_web_enabled"],     DEFAULT_MANIFEST.pwa.webEnabled),

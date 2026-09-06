@@ -13,6 +13,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { Preferences } from '@capacitor/preferences';
 import { apiClient } from '@/lib/api/client';
+import { useCaptchaWidget } from '@/lib/hooks/useCaptchaWidget';
 import { formatShortDate } from '@/lib/format/date';
 import { BlogOwnerToolbar } from '@/components/blogs/BlogOwnerToolbar';
 import { BlogMenu } from '@/components/blogs/BlogMenu';
@@ -148,8 +149,14 @@ function PostViewPage() {
     onSuccess: () => { setContactSent(true); setContactMessage(''); },
   });
 
+  const { enabled: commentCaptchaEnabled, getToken: getCommentCaptchaToken, WidgetSlot: CommentWidgetSlot } = useCaptchaWidget('blog_comments');
+
   const postComment = useMutation({
-    mutationFn: () => apiClient.post(`/blogs/${slug}/posts/${postSlug}/comments`, { body: commentText.trim() }),
+    mutationFn: async () => {
+      const captchaToken = await getCommentCaptchaToken();
+      if (commentCaptchaEnabled && !captchaToken) throw new Error('captcha_incomplete');
+      return apiClient.post(`/blogs/${slug}/posts/${postSlug}/comments`, { body: commentText.trim(), captchaToken: captchaToken ?? undefined });
+    },
     onSuccess: () => {
       setCommentText('');
       qc.invalidateQueries({ queryKey: ['blogs', 'comments', slug, postSlug] });
@@ -262,6 +269,7 @@ function PostViewPage() {
             placeholder={t('blogs.post.commentPlaceholder', 'Add a comment…')}
             className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           />
+          <CommentWidgetSlot />
           <div className="mt-2 flex justify-end">
             <button
               disabled={!commentText.trim() || postComment.isPending}

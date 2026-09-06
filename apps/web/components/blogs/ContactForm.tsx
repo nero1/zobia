@@ -14,28 +14,9 @@
  *     isn't blocked.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import Script from "next/script";
-
-declare global {
-  interface Window {
-    grecaptcha?: {
-      ready: (cb: () => void) => void;
-      execute: (siteKey: string, opts: { action: string }) => Promise<string>;
-    };
-    turnstile?: {
-      render: (container: string | HTMLElement, opts: object) => string;
-      getResponse: (widgetId: string) => string | undefined;
-    };
-  }
-}
-
-interface CaptchaManifest {
-  captchaProvider: "recaptcha" | "turnstile" | "none";
-  recaptchaSiteKey?: string;
-  turnstileSiteKey?: string;
-}
+import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
 
 interface Viewer {
   username: string;
@@ -46,49 +27,12 @@ export function ContactForm({ blogSlug, viewer }: { blogSlug: string; viewer: Vi
   const [message, setMessage] = useState("");
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [captchaManifest, setCaptchaManifest] = useState<CaptchaManifest | null>(null);
-  const turnstileContainerRef = useRef<HTMLDivElement>(null);
-  const turnstileWidgetId = useRef<string | null>(null);
+  // captcha only ever applies to logged-out senders — skip fetching/rendering for a logged-in viewer
+  const { enabled: captchaEnabled, getToken: getCaptchaToken, WidgetSlot, ScriptTags } =
+    useCaptchaWidget("blog_contact_form", !!viewer);
   const [submitting, setSubmitting] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (viewer) return; // captcha only ever applies to logged-out senders
-    fetch("/api/manifest")
-      .then((r) => r.json())
-      .then((m: CaptchaManifest) => setCaptchaManifest(m))
-      .catch(() => setCaptchaManifest({ captchaProvider: "none" }));
-  }, [viewer]);
-
-  const initTurnstile = useCallback(() => {
-    if (
-      captchaManifest?.captchaProvider !== "turnstile" ||
-      !captchaManifest.turnstileSiteKey ||
-      !turnstileContainerRef.current ||
-      turnstileWidgetId.current
-    ) return;
-    turnstileWidgetId.current = window.turnstile?.render(turnstileContainerRef.current, { sitekey: captchaManifest.turnstileSiteKey }) ?? null;
-  }, [captchaManifest]);
-
-  const getCaptchaToken = useCallback(async (): Promise<string | null> => {
-    if (!captchaManifest || captchaManifest.captchaProvider === "none") return null;
-    if (captchaManifest.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey) {
-      return new Promise((resolve) => {
-        window.grecaptcha?.ready(async () => {
-          try {
-            resolve(await window.grecaptcha!.execute(captchaManifest.recaptchaSiteKey!, { action: "blog_contact" }));
-          } catch {
-            resolve(null);
-          }
-        });
-      });
-    }
-    if (captchaManifest.captchaProvider === "turnstile" && turnstileWidgetId.current) {
-      return window.turnstile?.getResponse(turnstileWidgetId.current) ?? null;
-    }
-    return null;
-  }, [captchaManifest]);
 
   async function submit() {
     if (!message.trim() || submitting) return;
@@ -96,7 +40,7 @@ export function ContactForm({ blogSlug, viewer }: { blogSlug: string; viewer: Vi
     setError(null);
     try {
       const captchaToken = viewer ? null : await getCaptchaToken();
-      if (!viewer && captchaManifest && captchaManifest.captchaProvider !== "none" && !captchaToken) {
+      if (!viewer && captchaEnabled && !captchaToken) {
         throw new Error(t("blogs.contact.captchaIncomplete", "Please complete the verification widget."));
       }
       const res = await fetch(`/api/blogs/${blogSlug}/contact`, {
@@ -161,9 +105,7 @@ export function ContactForm({ blogSlug, viewer }: { blogSlug: string; viewer: Vi
         />
       </div>
 
-      {!viewer && captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
-        <div ref={turnstileContainerRef} />
-      )}
+      {!viewer && <WidgetSlot />}
 
       {error && <p className="text-xs text-red-400">{error}</p>}
 
@@ -176,12 +118,7 @@ export function ContactForm({ blogSlug, viewer }: { blogSlug: string; viewer: Vi
         {submitting ? t("blogs.contact.sending", "Sending…") : t("blogs.contact.send", "Send message")}
       </button>
 
-      {!viewer && captchaManifest?.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey && (
-        <Script src={`https://www.google.com/recaptcha/api.js?render=${captchaManifest.recaptchaSiteKey}`} strategy="afterInteractive" />
-      )}
-      {!viewer && captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
-        <Script src="https://challenges.cloudflare.com/turnstile/v0/api.js" strategy="afterInteractive" onLoad={initTurnstile} />
-      )}
+      {!viewer && <ScriptTags />}
     </div>
   );
 }

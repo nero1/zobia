@@ -18,7 +18,7 @@ import { buildGoogleAuthUrl } from "@/lib/auth/google";
 import { generateCsrfToken, buildCsrfCookie } from "@/lib/security/csrf";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { verifyCaptcha, getCaptchaProvider } from "@/lib/security/captcha";
+import { verifyCaptcha, isCaptchaSurfaceEnabled } from "@/lib/security/captcha";
 import { env } from "@/lib/env";
 
 // Only these schemes/hosts may be stored as the post-OAuth deep-link redirect target.
@@ -81,11 +81,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
 
     // CAPTCHA verification — token passed as query param ?captcha_token=...
+    // `flow` distinguishes which surface initiated Google OAuth (this single
+    // route serves both the Login and Signup pages' "Continue with Google"
+    // buttons), so the per-surface toggle applies to the correct one.
     const captchaToken = req.nextUrl.searchParams.get("captcha_token");
-    const captchaProvider = await getCaptchaProvider();
-    if (captchaProvider !== "none") {
+    const flow = req.nextUrl.searchParams.get("flow") === "signup" ? "signup" : "login";
+    if (await isCaptchaSurfaceEnabled(flow)) {
       if (captchaToken) {
-        const captchaOk = await verifyCaptcha(captchaToken, ip ?? undefined);
+        const captchaOk = await verifyCaptcha(captchaToken, ip ?? undefined, flow);
         if (!captchaOk) {
           throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
         }

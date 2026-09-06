@@ -321,8 +321,12 @@ business logic lives in `lib/blogs/repo.ts` + `lib/blogs/service.ts` +
   entry. The Contact page is special — instead of showing static text, it
   shows a live contact form (with a captcha challenge for anonymous
   senders, so support can point an owner confused about spam at the
-  captcha setting in `/gate44/config`); messages land in that blog's own
-  inbox at `/blogs/dashboard/messages`.
+  captcha setting in `/gate44/config` — this form's own per-surface toggle
+  is `blog_contact_form`, independent of the other 10 CAPTCHA surfaces);
+  messages land in that blog's own inbox at `/blogs/dashboard/messages`.
+  A separate, site-wide Contact Us page also exists at `/contact` (surface
+  key `contact_us`) for messages that go to platform admins rather than a
+  blog owner — see `apps/web/app/contact/page.tsx`.
 - **Plain-text or Markdown editor:** an author picks per-post whether to
   write in Markdown (the original behaviour) or plain text (no special
   formatting characters — a blank line just starts a new paragraph). Good

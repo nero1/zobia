@@ -252,8 +252,10 @@ The user is shown a panel: "Crews near you are recruiting." Three local guilds a
 
 - Google reCAPTCHA is the default CAPTCHA provider.
 - Cloudflare Turnstile is supported as an alternative.
-- Admin can toggle which provider is active in the admin panel without a deployment.
-- CAPTCHA is applied on web and PWA at registration and on suspicious activity signals. On Android, bot protection is handled at the API level via rate limiting, velocity checks, and trust signals rather than a UI CAPTCHA.
+- Admin can toggle which provider is active in the admin panel without a deployment (`captcha_provider` manifest key).
+- Android (Capacitor WebView) renders the same CAPTCHA widget as web/PWA for any surface it shares a screen with (e.g. Signup) — it is not API-only rate limiting; the widget loading code is duplicated per-app (no shared React runtime between web and Android) but talks to the same `/api/manifest` and verification backend.
+- **Per-surface toggles:** on top of the master provider switch, admins can independently enable/disable CAPTCHA on 11 distinct surfaces via the `captcha_active_surfaces` manifest key (JSON array of surface keys, admin panel renders it as a checkbox group next to the provider selector): Login, Admin Login, Signup, Create Blog, Create Room, Contact Us page, Blog Comments, Create Question, Submit Answer, Reply to Answer/Comment, and Blog Contact Form. A surface only requires/verifies a CAPTCHA token when BOTH the master provider is not "None" AND that surface's key is present in the enabled-surfaces list — see `apps/web/lib/security/captchaSurfaces.ts` (registry) and `apps/web/lib/security/captcha.ts` (`isCaptchaSurfaceEnabled`). All 11 surfaces are enabled by default so behavior is unchanged for existing deployments once a provider is selected.
+- **Contact Us page:** a new site-wide `/contact` page (distinct from the pre-existing per-blog Contact form) lets any visitor — logged in or not — send a message to platform admins; submissions are stored in `site_contact_messages` and notify all admins in-app.
 
 ### Seed Content
 

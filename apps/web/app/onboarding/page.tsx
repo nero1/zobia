@@ -65,6 +65,7 @@ interface NewMemberQuest {
 
 interface ManifestPublic {
   captchaProvider: "recaptcha" | "turnstile" | "none";
+  captchaEnabledSurfaces?: string[];
   recaptchaSiteKey?: string;
   turnstileSiteKey?: string;
   minimumAge: number;
@@ -116,6 +117,13 @@ export default function OnboardingPage() {
 
   // Manifest (loaded once)
   const [manifest, setManifest] = useState<ManifestPublic | null>(null);
+
+  // Per-surface CAPTCHA toggle: only active when a provider is selected AND
+  // "signup" is in the admin-enabled surfaces list.
+  const signupCaptchaEnabled =
+    !!manifest &&
+    manifest.captchaProvider !== "none" &&
+    (manifest.captchaEnabledSurfaces?.includes("signup") ?? true);
 
   // Form state — Step 1
   const [username, setUsername] = useState("");
@@ -195,6 +203,7 @@ export default function OnboardingPage() {
   // ---------------------------------------------------------------------------
   const initTurnstile = useCallback(() => {
     if (
+      !signupCaptchaEnabled ||
       manifest?.captchaProvider !== "turnstile" ||
       !manifest.turnstileSiteKey ||
       !captchaContainerRef.current ||
@@ -205,7 +214,7 @@ export default function OnboardingPage() {
       captchaContainerRef.current,
       { sitekey: manifest.turnstileSiteKey }
     ) ?? null;
-  }, [manifest]);
+  }, [manifest, signupCaptchaEnabled]);
 
   // ---------------------------------------------------------------------------
   // Username availability check (debounced)
@@ -298,7 +307,7 @@ export default function OnboardingPage() {
   // Get CAPTCHA token
   // ---------------------------------------------------------------------------
   async function getCaptchaToken(): Promise<string | null> {
-    if (!manifest || manifest.captchaProvider === "none") return null;
+    if (!signupCaptchaEnabled || !manifest) return null;
     if (manifest.captchaProvider === "recaptcha" && manifest.recaptchaSiteKey) {
       const recaptchaPromise = new Promise<string | null>((resolve) => {
         // ZSB-20 fix: if window.grecaptcha is still undefined (the script tag
@@ -315,7 +324,7 @@ export default function OnboardingPage() {
           try {
             const token = await window.grecaptcha!.execute(
               manifest.recaptchaSiteKey!,
-              { action: "onboarding" }
+              { action: "signup" }
             );
             resolve(token);
           } catch {
@@ -469,7 +478,7 @@ export default function OnboardingPage() {
   return (
     <>
       {/* reCAPTCHA v3 */}
-      {manifest?.captchaProvider === "recaptcha" && manifest.recaptchaSiteKey && (
+      {signupCaptchaEnabled && manifest?.captchaProvider === "recaptcha" && manifest.recaptchaSiteKey && (
         <Script
           src={`https://www.google.com/recaptcha/api.js?render=${manifest.recaptchaSiteKey}`}
           strategy="lazyOnload"
@@ -477,7 +486,7 @@ export default function OnboardingPage() {
       )}
 
       {/* Turnstile */}
-      {manifest?.captchaProvider === "turnstile" && manifest.turnstileSiteKey && (
+      {signupCaptchaEnabled && manifest?.captchaProvider === "turnstile" && manifest.turnstileSiteKey && (
         <Script
           src="https://challenges.cloudflare.com/turnstile/v0/api.js"
           strategy="lazyOnload"
@@ -657,7 +666,7 @@ export default function OnboardingPage() {
               </div>
 
               {/* Turnstile widget mount point */}
-              {manifest?.captchaProvider === "turnstile" && (
+              {signupCaptchaEnabled && manifest?.captchaProvider === "turnstile" && (
                 <div ref={captchaContainerRef} />
               )}
 

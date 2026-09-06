@@ -16,6 +16,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,6 +45,7 @@ interface CreateRoomPayload {
   classEndDate?: string;
   enrolmentFeeNgn?: number;
   guildId?: string;
+  captchaToken?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -221,6 +223,9 @@ export default function CreateRoomPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const { enabled: captchaEnabled, getToken: getCaptchaToken, WidgetSlot, ScriptTags } =
+    useCaptchaWidget("create_room");
+
   // Eligibility — hides room-type buttons the caller isn't allowed to create
   // instead of letting them pick one and hit a 403 on submit (BUG-ROOMS-03).
   // Admins are eligible for every type, including Guild Rooms for any guild.
@@ -289,6 +294,14 @@ export default function CreateRoomPage() {
     }
 
     try {
+      const captchaToken = await getCaptchaToken();
+      if (captchaEnabled && !captchaToken) {
+        setError("Please complete the verification widget.");
+        setSubmitting(false);
+        return;
+      }
+      if (captchaToken) payload.captchaToken = captchaToken;
+
       const res = await fetch("/api/rooms", {
         method: "POST",
         credentials: "include",
@@ -726,6 +739,8 @@ export default function CreateRoomPage() {
             )}
           </div>
 
+          <WidgetSlot />
+
           <div className="flex gap-3">
             <button
               type="button"
@@ -743,6 +758,7 @@ export default function CreateRoomPage() {
               {submitting ? "Creating…" : "🚀 Create Room"}
             </button>
           </div>
+          <ScriptTags />
         </div>
       )}
     </div>

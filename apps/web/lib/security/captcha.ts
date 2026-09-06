@@ -18,7 +18,8 @@
  */
 
 import { env } from "@/lib/env";
-import { getManifestValue } from "@/lib/manifest";
+import { getManifestValue, loadManifest } from "@/lib/manifest";
+import type { CaptchaSurface } from "@/lib/security/captchaSurfaces";
 // BUG-018 FIX: use safeFetch instead of bare fetch() for CAPTCHA verification
 // endpoints. CAPTCHA tokens are server-side verified against Google / Cloudflare;
 // using the global fetch() leaves those calls unprotected against SSRF attacks
@@ -269,4 +270,33 @@ export async function verifyCaptcha(
  */
 export async function getCaptchaProvider(): Promise<CaptchaProvider> {
   return resolveProvider();
+}
+
+/**
+ * Check whether CAPTCHA should be required for a given surface.
+ *
+ * true only when BOTH:
+ *   - a real provider is configured (captcha_provider != "none"), AND
+ *   - the surface key is present in the manifest's captchaEnabledSurfaces list.
+ *
+ * Server routes should call this instead of just checking the provider, so
+ * admins can disable CAPTCHA on individual forms without turning it off
+ * globally. If disabled, callers should skip requiring/verifying a token
+ * entirely (the client was never told to render a widget for it).
+ *
+ * @param surface - The CAPTCHA surface key (see lib/security/captchaSurfaces.ts)
+ * @returns true if CAPTCHA verification should be enforced for this surface
+ */
+export async function isCaptchaSurfaceEnabled(surface: CaptchaSurface): Promise<boolean> {
+  const provider = await resolveProvider();
+  if (provider === "none") return false;
+
+  try {
+    const manifest = await loadManifest();
+    return manifest.captchaEnabledSurfaces.includes(surface);
+  } catch {
+    // Manifest unavailable — fail open to the pre-existing (provider-only)
+    // behavior rather than silently disabling CAPTCHA platform-wide.
+    return true;
+  }
 }

@@ -11,6 +11,7 @@ import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { isAxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
+import { useCaptchaWidget } from '@/lib/hooks/useCaptchaWidget';
 
 const MAX_TITLE = 200;
 const MAX_BODY = 5000;
@@ -28,12 +29,17 @@ function AskQuestionPage() {
   const [body, setBody] = useState('');
   const [levelTooLow, setLevelTooLow] = useState<{ minLevel: number; currentLevel: number } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const { enabled: captchaEnabled, getToken: getCaptchaToken, WidgetSlot } = useCaptchaWidget('create_question');
 
   const createQuestion = useMutation({
     // apiClient's response interceptor already unwraps { success, data, error }
     // down to `data`, so `res.data` IS { id, ... } already — `res.data.data.id`
     // was always undefined, so posting a question never navigated to it.
-    mutationFn: () => apiClient.post<{ id: string }>('/answers/questions', { title: title.trim(), body: body.trim() }),
+    mutationFn: async () => {
+      const captchaToken = await getCaptchaToken();
+      if (captchaEnabled && !captchaToken) throw new Error('captcha_incomplete');
+      return apiClient.post<{ id: string }>('/answers/questions', { title: title.trim(), body: body.trim(), captchaToken: captchaToken ?? undefined });
+    },
     onSuccess: (res) => {
       qc.invalidateQueries({ queryKey: ['answers', 'questions'] });
       const id = res.data?.id;
@@ -99,6 +105,8 @@ function AskQuestionPage() {
           />
         </div>
       </div>
+
+      <WidgetSlot />
 
       <div className="flex gap-3">
         <Link to="/answers" className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-center text-sm font-semibold text-neutral-700">

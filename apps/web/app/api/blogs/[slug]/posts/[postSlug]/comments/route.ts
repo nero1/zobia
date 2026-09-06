@@ -11,14 +11,16 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { handleApiError, notFound } from "@/lib/api/errors";
-import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
+import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug, getBlogPostBySlug, listBlogComments } from "@/lib/blogs/repo";
 import { addComment, isUserModeratorOrAdmin } from "@/lib/blogs/service";
+import { isCaptchaSurfaceEnabled, verifyCaptcha } from "@/lib/security/captcha";
 
 const createSchema = z.object({
   body: z.string().trim().min(1).max(2000),
   parentCommentId: z.string().uuid().optional().nullable(),
+  captchaToken: z.string().max(4000).optional(),
 });
 
 export const GET = withAuth<{ slug: string; postSlug: string }>(async (_req: NextRequest, { params, auth }) => {
@@ -47,6 +49,14 @@ export const POST = withAuth<{ slug: string; postSlug: string }>(async (req: Nex
     if (!post) throw notFound("Post not found");
 
     const body = await validateBody(req, createSchema);
+
+    if (await isCaptchaSurfaceEnabled("blog_comments")) {
+      const ip = getClientIp(req);
+      if (!body.captchaToken || !(await verifyCaptcha(body.captchaToken, ip, "blog_comments"))) {
+        throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
+      }
+    }
+
     const result = await addComment({ postId: post.id, authorId: auth.user.sub, parentCommentId: body.parentCommentId, body: body.body });
     return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });
   } catch (err) {

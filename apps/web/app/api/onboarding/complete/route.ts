@@ -23,7 +23,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, conflict, ApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
-import { verifyCaptcha } from "@/lib/security/captcha";
+import { verifyCaptcha, isCaptchaSurfaceEnabled } from "@/lib/security/captcha";
 import { randomBytes } from "crypto";
 import { creditCoins } from "@/lib/economy/coins";
 import { logger } from "@/lib/logger";
@@ -135,16 +135,20 @@ export const POST = withAuth(async (req, { params, auth }) => {
     const manifest = await loadManifest();
     const minimumAge: number = manifest.minimumAge;
 
-    // CAPTCHA verification — skip in development if no token provided
+    // CAPTCHA verification — skip in development if no token provided, and
+    // skip entirely when the "signup" surface is disabled (admin per-surface toggle).
     const isDev = process.env.NODE_ENV !== "production";
-    if (body.captcha_token) {
-      const clientIp = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? undefined;
-      const captchaOk = await verifyCaptcha(body.captcha_token, clientIp ?? undefined, "onboarding");
-      if (!captchaOk) {
-        throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
+    const signupCaptchaRequired = await isCaptchaSurfaceEnabled("signup");
+    if (signupCaptchaRequired) {
+      if (body.captcha_token) {
+        const clientIp = req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? undefined;
+        const captchaOk = await verifyCaptcha(body.captcha_token, clientIp ?? undefined, "signup");
+        if (!captchaOk) {
+          throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
+        }
+      } else if (!isDev) {
+        throw badRequest("CAPTCHA token is required.", "CAPTCHA_REQUIRED");
       }
-    } else if (!isDev && manifest.captchaProvider !== "none") {
-      throw badRequest("CAPTCHA token is required.", "CAPTCHA_REQUIRED");
     }
 
     const age = calculateAge(body.birth_year, body.birth_month, body.birth_day);

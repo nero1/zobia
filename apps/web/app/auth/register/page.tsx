@@ -35,6 +35,7 @@ declare global {
 
 interface CaptchaManifest {
   captchaProvider: "recaptcha" | "turnstile" | "none";
+  captchaEnabledSurfaces?: string[];
   recaptchaSiteKey?: string;
   turnstileSiteKey?: string;
   auth?: { telegramEnabled: boolean };
@@ -63,9 +64,17 @@ function RegisterContent() {
       .catch(() => setCaptchaManifest({ captchaProvider: "none" }));
   }, []);
 
+  // Per-surface CAPTCHA toggle: only active when a provider is selected AND
+  // "signup" is in the admin-enabled surfaces list.
+  const signupCaptchaEnabled =
+    !!captchaManifest &&
+    captchaManifest.captchaProvider !== "none" &&
+    (captchaManifest.captchaEnabledSurfaces?.includes("signup") ?? true);
+
   // Init Turnstile when manifest + script are ready
   const initTurnstile = useCallback(() => {
     if (
+      !signupCaptchaEnabled ||
       captchaManifest?.captchaProvider !== "turnstile" ||
       !captchaManifest.turnstileSiteKey ||
       !turnstileContainerRef.current ||
@@ -75,18 +84,18 @@ function RegisterContent() {
       turnstileContainerRef.current,
       { sitekey: captchaManifest.turnstileSiteKey }
     ) ?? null;
-  }, [captchaManifest]);
+  }, [captchaManifest, signupCaptchaEnabled]);
 
   // Collect CAPTCHA token before redirecting to Google OAuth
   const getCaptchaToken = useCallback(async (): Promise<string | null> => {
-    if (!captchaManifest || captchaManifest.captchaProvider === "none") return null;
+    if (!signupCaptchaEnabled || !captchaManifest) return null;
     if (captchaManifest.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey) {
       return new Promise((resolve) => {
         window.grecaptcha?.ready(async () => {
           try {
             const token = await window.grecaptcha!.execute(
               captchaManifest.recaptchaSiteKey!,
-              { action: "register" }
+              { action: "signup" }
             );
             resolve(token);
           } catch {
@@ -99,7 +108,7 @@ function RegisterContent() {
       return window.turnstile?.getResponse(turnstileWidgetId.current) ?? null;
     }
     return null;
-  }, [captchaManifest]);
+  }, [captchaManifest, signupCaptchaEnabled]);
 
   const handleGoogleLogin = async () => {
     setIsLoading("google");
@@ -114,6 +123,7 @@ function RegisterContent() {
       // fetch() whose Set-Cookie may be dropped if a ServiceWorker intercepts
       // the request and its handler fails.
       const params = new URLSearchParams();
+      params.set("flow", "signup");
       if (captchaToken) params.set("captcha_token", captchaToken);
       const qs = params.toString();
       window.location.href = `/api/auth/google${qs ? `?${qs}` : ""}`;
@@ -210,7 +220,7 @@ function RegisterContent() {
             </button>
 
             {/* Turnstile widget (visible only when configured) */}
-            {captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
+            {signupCaptchaEnabled && captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
               <div ref={turnstileContainerRef} className="flex justify-center" />
             )}
 
@@ -263,7 +273,7 @@ function RegisterContent() {
       </div>
 
       {/* reCAPTCHA v3 script (invisible) */}
-      {captchaManifest?.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey && (
+      {signupCaptchaEnabled && captchaManifest?.captchaProvider === "recaptcha" && captchaManifest.recaptchaSiteKey && (
         <Script
           src={`https://www.google.com/recaptcha/api.js?render=${captchaManifest.recaptchaSiteKey}`}
           strategy="afterInteractive"
@@ -271,7 +281,7 @@ function RegisterContent() {
       )}
 
       {/* Turnstile script */}
-      {captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
+      {signupCaptchaEnabled && captchaManifest?.captchaProvider === "turnstile" && captchaManifest.turnstileSiteKey && (
         <Script
           src="https://challenges.cloudflare.com/turnstile/v0/api.js"
           strategy="afterInteractive"

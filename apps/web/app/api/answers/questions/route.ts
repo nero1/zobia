@@ -11,10 +11,11 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
-import { handleApiError } from "@/lib/api/errors";
-import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { handleApiError, badRequest } from "@/lib/api/errors";
+import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { listQuestions } from "@/lib/forum/repo";
 import { createQuestion } from "@/lib/forum/service";
+import { isCaptchaSurfaceEnabled, verifyCaptcha } from "@/lib/security/captcha";
 
 const listQuerySchema = z.object({
   tab: z.enum(["popular", "trending", "new", "favorites"]).default("new"),
@@ -26,6 +27,7 @@ const createQuestionSchema = z.object({
   title: z.string().trim().min(10, "Title must be at least 10 characters").max(200),
   body: z.string().trim().min(20, "Question body must be at least 20 characters").max(5000),
   categoryId: z.string().uuid().optional().nullable(),
+  captchaToken: z.string().max(4000).optional(),
 });
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
@@ -43,6 +45,14 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.forumWrite);
     const body = await validateBody(req, createQuestionSchema);
+
+    if (await isCaptchaSurfaceEnabled("create_question")) {
+      const ip = getClientIp(req);
+      if (!body.captchaToken || !(await verifyCaptcha(body.captchaToken, ip, "create_question"))) {
+        throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
+      }
+    }
+
     const result = await createQuestion({ userId: auth.user.sub, title: body.title, body: body.body, categoryId: body.categoryId });
     return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });
   } catch (err) {

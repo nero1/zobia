@@ -17,6 +17,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
 
 type BlogScope = "personal" | "business";
 type SlotCurrency = "credits" | "stars";
@@ -70,6 +71,9 @@ export default function NewBlogPage() {
   const [scope, setScope] = useState<BlogScope>("personal");
   const [payCurrency, setPayCurrency] = useState<SlotCurrency | null>(null);
 
+  const { enabled: captchaEnabled, getToken: getCaptchaToken, WidgetSlot, ScriptTags } =
+    useCaptchaWidget("create_blog");
+
   useEffect(() => {
     let cancelled = false;
     Promise.all([
@@ -101,6 +105,10 @@ export default function NewBlogPage() {
     setBusy(true);
     setError(null);
     try {
+      const captchaToken = await getCaptchaToken();
+      if (captchaEnabled && !captchaToken) {
+        throw new Error(t("blogs.new.errors.captchaIncomplete", "Please complete the verification widget."));
+      }
       const res = await fetch("/api/blogs", {
         method: "POST",
         credentials: "include",
@@ -111,6 +119,7 @@ export default function NewBlogPage() {
           description: description || undefined,
           businessAccountId: scope === "business" ? quota?.business?.id : undefined,
           paymentCurrency: needsPayment && payCurrency ? payCurrency : undefined,
+          captchaToken: captchaToken ?? undefined,
         }),
       });
       const json = await res.json();
@@ -267,6 +276,8 @@ export default function NewBlogPage() {
           />
         </div>
 
+        <WidgetSlot />
+
         {error && <p className="text-sm text-red-500">{error}</p>}
 
         <button
@@ -280,6 +291,7 @@ export default function NewBlogPage() {
             ? t("blogs.new.createAndPay", "Create blog & unlock slot")
             : t("blogs.new.create", "Create blog")}
         </button>
+        <ScriptTags />
       </form>
     </div>
   );

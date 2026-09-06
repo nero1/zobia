@@ -24,10 +24,11 @@ import { compare, hash } from "bcryptjs"; // BUG-PERF-03: static import avoids p
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
-import { handleApiError, unauthorized, ApiError } from "@/lib/api/errors";
+import { handleApiError, unauthorized, badRequest, ApiError } from "@/lib/api/errors";
 import { validateBody } from "@/lib/api/middleware";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { isAdminLockedOut, recordAdminLoginFailure } from "@/lib/auth/adminLockout";
+import { isCaptchaSurfaceEnabled, verifyCaptcha } from "@/lib/security/captcha";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -36,6 +37,7 @@ import { isAdminLockedOut, recordAdminLoginFailure } from "@/lib/auth/adminLocko
 const loginSchema = z.object({
   email: z.string().email("Valid email required"),
   password: z.string().min(1, "Password required"),
+  captchaToken: z.string().max(4000).optional(),
 });
 
 // Module-level dummy hash (async) for constant-time comparison when user is not found.
@@ -68,6 +70,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await enforceRateLimit(ip, "ip", RATE_LIMITS.auth);
 
     const body = await validateBody(req, loginSchema);
+
+    // CAPTCHA — per-surface admin toggle (independent of the public login form's).
+    if (await isCaptchaSurfaceEnabled("admin_login")) {
+      if (!body.captchaToken || !(await verifyCaptcha(body.captchaToken, ip, "admin_login"))) {
+        throw badRequest("CAPTCHA verification failed. Please try again.", "CAPTCHA_FAILED");
+      }
+    }
 
     // Anti-brute-force: reject before touching the DB/bcrypt if this email is
     // already locked out from 3 prior failed attempts (see lib/auth/adminLockout.ts).
