@@ -1,15 +1,20 @@
-export const dynamic = "force-static";
-export const revalidate = 3600;
+export const dynamic = "force-dynamic";
+export const revalidate = 300;
 
 /**
  * app/help/page.tsx
  *
- * Static FAQ / Help page — pre-rendered at build time, revalidated hourly.
- * Listed in robots.ts allow list and sitemap.ts static pages.
+ * Help Center homepage — database-backed categories (Feature 2). No auth
+ * wall (added to PUBLIC_PREFIXES in middleware.ts). Falls back to the
+ * original static FAQ below when the `helpCenter` feature flag is off or no
+ * categories are published yet, so the page is never empty.
  */
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import { loadManifest } from "@/lib/manifest";
+import { listCategories } from "@/lib/help/service";
+import { HelpSearchBox } from "@/components/help/HelpSearchBox";
 
 export const metadata: Metadata = {
   title: "Help & FAQ — Zobia Social",
@@ -163,7 +168,7 @@ const FAQ_SECTIONS: FAQSection[] = [
   },
 ];
 
-export default function HelpPage() {
+function FaqFallback() {
   return (
     <main id="main-content" className="min-h-screen bg-background">
       <div className="max-w-3xl mx-auto px-4 py-12">
@@ -220,6 +225,64 @@ export default function HelpPage() {
             or visit our{" "}
             <Link href="/" className="text-primary underline">
               home page
+            </Link>
+            .
+          </p>
+        </div>
+      </div>
+    </main>
+  );
+}
+
+const DIFFICULTY_LABEL: Record<string, string> = {
+  first_time: "First Time",
+  beginner: "Beginner",
+  intermediate: "Intermediate",
+  advanced: "Advanced",
+};
+
+export default async function HelpPage() {
+  const manifest = await loadManifest();
+  if (!manifest.features.helpCenter) return <FaqFallback />;
+
+  const categories = await listCategories().catch(() => []);
+  if (categories.length === 0) return <FaqFallback />;
+
+  return (
+    <main id="main-content" className="min-h-screen bg-background">
+      <div className="max-w-4xl mx-auto px-4 py-12">
+        <h1 className="text-3xl font-bold mb-2">Help Center</h1>
+        <p className="text-muted-foreground mb-6">
+          Browse by category, or search for what you need.
+        </p>
+
+        <HelpSearchBox />
+
+        <div className="mt-4 mb-10 flex flex-wrap gap-2 text-xs text-muted-foreground">
+          {Object.entries(DIFFICULTY_LABEL).map(([key, label]) => (
+            <span key={key} className="rounded-full border border-border px-2.5 py-1">{label}</span>
+          ))}
+          <span>— every doc is tagged with a difficulty tier so you can find guides at your level.</span>
+        </div>
+
+        <div className="grid gap-4 sm:grid-cols-2">
+          {categories.map((cat) => (
+            <Link
+              key={cat.id}
+              href={`/help/${cat.slug}`}
+              className="rounded-xl border border-border p-5 transition hover:border-primary hover:bg-muted/50"
+            >
+              <h2 className="text-lg font-semibold">{cat.name}</h2>
+              {cat.description && <p className="mt-1 text-sm text-muted-foreground">{cat.description}</p>}
+            </Link>
+          ))}
+        </div>
+
+        <div className="mt-12 pt-8 border-t border-border text-center text-sm text-muted-foreground">
+          <p>
+            Still need help?{" "}
+            <Link href="/support/new" className="text-primary underline">
+              Open a support ticket
             </Link>
             .
           </p>

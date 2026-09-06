@@ -49,6 +49,8 @@ interface TargetUser {
   is_suspended: boolean;
   is_banned: boolean;
   is_moderator: boolean;
+  is_support: boolean;
+  is_senior_support: boolean;
   email_verified: boolean;
   require_2fa_setup: boolean;
 }
@@ -64,6 +66,10 @@ const actionSchema = z.object({
     "restore",
     "upgrade_moderator",
     "downgrade_moderator",
+    "upgrade_support",
+    "downgrade_support",
+    "upgrade_senior_support",
+    "downgrade_senior_support",
     "reset_password",
     "force_2fa",
     "verify_account",
@@ -117,6 +123,8 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
       // Fetch target user (locked for update)
       const { rows } = await client.query<TargetUser>(
         `SELECT id, email, username, is_admin, is_suspended, is_banned, is_moderator,
+                COALESCE(is_support, false) AS is_support,
+                COALESCE(is_senior_support, false) AS is_senior_support,
                 COALESCE(is_email_verified, false) AS email_verified,
                 COALESCE(require_2fa_setup, false) AS require_2fa_setup
          FROM users
@@ -128,8 +136,11 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
       const target = rows[0];
       if (!target) throw notFound("User not found");
 
-      // Prevent actioning another admin
-      if (target.is_admin) {
+      // Prevent actioning another admin — except flagging/unflagging senior
+      // support, which is explicitly allowed on admin accounts (an admin can
+      // be a senior-support escalation target too).
+      const seniorSupportActions = ["upgrade_senior_support", "downgrade_senior_support"];
+      if (target.is_admin && !seniorSupportActions.includes(body.action)) {
         throw badRequest("Cannot perform moderation actions on admin accounts");
       }
 
@@ -189,6 +200,47 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
             throw conflict("User is not a moderator");
           }
           updateSql = `UPDATE users SET is_moderator = false, updated_at = NOW() WHERE id = $1`;
+          updateParams = [userId];
+          break;
+        }
+
+        case "upgrade_support": {
+          if (target.is_support) {
+            throw conflict("User is already support staff");
+          }
+          updateSql = `UPDATE users SET is_support = true, updated_at = NOW() WHERE id = $1`;
+          updateParams = [userId];
+          break;
+        }
+
+        case "downgrade_support": {
+          if (!target.is_support) {
+            throw conflict("User is not support staff");
+          }
+          // Also strips senior_support — a user cannot be senior support
+          // without base support/moderator/admin standing.
+          updateSql = `UPDATE users SET is_support = false, is_senior_support = false, updated_at = NOW() WHERE id = $1`;
+          updateParams = [userId];
+          break;
+        }
+
+        case "upgrade_senior_support": {
+          if (!target.is_support && !target.is_moderator && !target.is_admin) {
+            throw badRequest("User must be support, moderator, or admin before being flagged senior support");
+          }
+          if (target.is_senior_support) {
+            throw conflict("User is already senior support");
+          }
+          updateSql = `UPDATE users SET is_senior_support = true, updated_at = NOW() WHERE id = $1`;
+          updateParams = [userId];
+          break;
+        }
+
+        case "downgrade_senior_support": {
+          if (!target.is_senior_support) {
+            throw conflict("User is not senior support");
+          }
+          updateSql = `UPDATE users SET is_senior_support = false, updated_at = NOW() WHERE id = $1`;
           updateParams = [userId];
           break;
         }

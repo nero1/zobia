@@ -26,7 +26,7 @@ interface Queryable {
 }
 
 /** Identifier types that own a slug namespace. */
-export type SlugEntity = "room" | "game" | "forum_question" | "blog" | "business_page" | "bb_thread" | "bb_board";
+export type SlugEntity = "room" | "game" | "forum_question" | "blog" | "business_page" | "bb_thread" | "bb_board" | "help_category" | "help_doc";
 
 /**
  * The column + table each entity uses. Slugs are unique *within* an entity
@@ -40,6 +40,11 @@ const SLUG_SOURCES: Record<SlugEntity, { table: string }> = {
   business_page: { table: "business_pages" },
   bb_thread: { table: "bb_threads" },
   bb_board: { table: "bb_boards" },
+  // Global uniqueness (stricter than the per-category unique constraint on
+  // help_docs.slug) — a simplification that avoids a bespoke per-namespace
+  // probe just for this feature.
+  help_category: { table: "help_categories" },
+  help_doc: { table: "help_docs" },
 };
 
 /**

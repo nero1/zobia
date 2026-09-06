@@ -34,6 +34,8 @@ interface AdminUserRow {
   trust_score: number | null;
   is_admin: boolean;
   is_moderator: boolean;
+  is_support: boolean;
+  is_senior_support: boolean;
   is_suspended: boolean;
   is_banned: boolean;
   onboarding_completed: boolean;
@@ -58,6 +60,8 @@ export interface AdminUser {
   lastActiveAt: string | null;
   status: "active" | "suspended" | "banned";
   isModerator: boolean;
+  isSupport: boolean;
+  isSeniorSupport: boolean;
   city: string;
   reportHistoryCount: number;
   paymentHistoryCount: number;
@@ -95,6 +99,8 @@ function toAdminUser(row: AdminUserRow): AdminUser {
     lastActiveAt: row.last_active_at ?? null,
     status: row.is_banned ? "banned" : row.is_suspended ? "suspended" : "active",
     isModerator: row.is_moderator,
+    isSupport: row.is_support,
+    isSeniorSupport: row.is_senior_support,
     city: row.city ?? "",
     reportHistoryCount: row.report_count,
     paymentHistoryCount: row.payment_history_count,
@@ -175,6 +181,7 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
       `SELECT
          u.id, u.email, u.username, u.display_name, u.avatar_url,
          u.avatar_emoji, u.plan, u.trust_score, u.is_admin, u.is_moderator,
+         COALESCE(u.is_support, false) AS is_support, COALESCE(u.is_senior_support, false) AS is_senior_support,
          u.is_suspended, u.is_banned, u.onboarding_completed,
          u.created_at, u.updated_at, u.last_active_at, u.city,
          (SELECT COUNT(*)::int FROM reports       WHERE reported_user_id = u.id)  AS report_count,

@@ -30,6 +30,14 @@ export const ROUTES = {
   // appUrlOpen listener, which does the same resolve-then-navigate-to-/gifts?recipientId=
   // &username= that the web redirect does.
   GIFT: (userId: string) => `/gift/${encodeURIComponent(userId)}`,
+  // Support Tickets — mirrors apps/web/lib/deeplinks/routes.ts.
+  SUPPORT: '/support',
+  SUPPORT_NEW: '/support/new',
+  SUPPORT_TICKET: (ticketId: string) => `/support/${encodeURIComponent(ticketId)}`,
+  // Help Center — public browsing, no auth wall (mirrors web's /help/*).
+  HELP: '/help',
+  HELP_CATEGORY: (categorySlug: string) => `/help/${encodeURIComponent(categorySlug)}`,
+  HELP_DOC: (categorySlug: string, docSlug: string) => `/help/${encodeURIComponent(categorySlug)}/${encodeURIComponent(docSlug)}`,
 } as const;
 
 export const PUBLIC_PATHS = {
@@ -37,6 +45,10 @@ export const PUBLIC_PATHS = {
   room: (slug: string) => `/r/${encodeURIComponent(slug)}`,
   course: (slug: string) => `/c/${encodeURIComponent(slug)}`,
   game: (slug: string) => `/g/${encodeURIComponent(slug)}`,
+  // Help Center doc/category pages are public on web too — included here so
+  // the inbound zobia://help/... universal link resolves without an auth check.
+  help: (categorySlug: string) => `/help/${encodeURIComponent(categorySlug)}`,
+  helpDoc: (categorySlug: string, docSlug: string) => `/help/${encodeURIComponent(categorySlug)}/${encodeURIComponent(docSlug)}`,
 } as const;
 
 export function deepLink(path: string): string {

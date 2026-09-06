@@ -379,6 +379,22 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    > by `npm run migrate`, or
    > `psql "$DIRECT_URL" < db/migrations/0031_guild_admin_moderation.sql`).
 
+   > **Support Ticket System (PRD §33):** the `is_support`/`is_senior_support`
+   > columns on `users`, `support_tickets`/`support_ticket_messages`/
+   > `support_ticket_events`, and the `x_manifest` defaults (master toggle
+   > off by default) ship in `db/migrations/0033_support_tickets.sql`
+   > (picked up automatically by `npm run migrate`, or
+   > `psql "$DIRECT_URL" < db/migrations/0033_support_tickets.sql`). No new
+   > env vars — reuses the existing AI provider config
+   > (`DEEPSEEK_API_KEY`/`GEMINI_API_KEY`) for AI triage.
+
+   > **Help Center Expansion (PRD §34):** `help_categories`/`help_docs`
+   > (with a full-text-search trigger) and the `x_manifest` defaults ship in
+   > `db/migrations/0034_help_center.sql` (picked up automatically by
+   > `npm run migrate`, or `psql "$DIRECT_URL" < db/migrations/0034_help_center.sql`).
+   > Also widens the pre-existing `slug_redirects` table's `entity_type`
+   > check constraint to accept `help_doc`/`help_category`. No new env vars.
+
 ### Option B: Railway PostgreSQL
 
 1. Go to [railway.app](https://railway.app) and create a new project.

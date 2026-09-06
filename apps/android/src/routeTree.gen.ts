@@ -25,7 +25,6 @@ import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
 import { Route as KycRouteImport } from './routes/kyc'
 import { Route as InboxRouteImport } from './routes/inbox'
 import { Route as HomeRouteImport } from './routes/home'
-import { Route as HelpRouteImport } from './routes/help'
 import { Route as GuildRouteImport } from './routes/guild'
 import { Route as GiftsRouteImport } from './routes/gifts'
 import { Route as FriendsRouteImport } from './routes/friends'
@@ -35,19 +34,24 @@ import { Route as CouncilRouteImport } from './routes/council'
 import { Route as CommunityNotesRouteImport } from './routes/community-notes'
 import { Route as ClassroomRouteImport } from './routes/classroom'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as SupportIndexRouteImport } from './routes/support/index'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as ProfileIndexRouteImport } from './routes/profile/index'
 import { Route as MomentsIndexRouteImport } from './routes/moments/index'
 import { Route as MessagesIndexRouteImport } from './routes/messages/index'
 import { Route as MerchIndexRouteImport } from './routes/merch/index'
+import { Route as HelpIndexRouteImport } from './routes/help/index'
 import { Route as GuildsIndexRouteImport } from './routes/guilds/index'
 import { Route as GamesIndexRouteImport } from './routes/games/index'
+import { Route as ForumIndexRouteImport } from './routes/forum/index'
 import { Route as CreatorIndexRouteImport } from './routes/creator/index'
 import { Route as BusinessIndexRouteImport } from './routes/business/index'
 import { Route as BlogsIndexRouteImport } from './routes/blogs/index'
 import { Route as AnswersIndexRouteImport } from './routes/answers/index'
 import { Route as AdsIndexRouteImport } from './routes/ads/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as SupportNewRouteImport } from './routes/support/new'
+import { Route as SupportTicketIdRouteImport } from './routes/support/$ticketId'
 import { Route as SettingsSecurityRouteImport } from './routes/settings/security'
 import { Route as SettingsPrivacyRouteImport } from './routes/settings/privacy'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
@@ -55,8 +59,10 @@ import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
 import { Route as MessagesConversationIdRouteImport } from './routes/messages/$conversationId'
 import { Route as MerchCreatorIdRouteImport } from './routes/merch/$creatorId'
+import { Route as HelpSearchRouteImport } from './routes/help/search'
 import { Route as GuildsGuildIdRouteImport } from './routes/guilds/$guildId'
 import { Route as GamesSavedRouteImport } from './routes/games/saved'
+import { Route as ForumBoardSlugRouteImport } from './routes/forum/$boardSlug'
 import { Route as CreatorWalletRouteImport } from './routes/creator/wallet'
 import { Route as CreatorMarketplaceRouteImport } from './routes/creator/marketplace'
 import { Route as CreatorBroadcastsRouteImport } from './routes/creator/broadcasts'
@@ -77,6 +83,7 @@ import { Route as AdminMessagesRouteImport } from './routes/admin/messages'
 import { Route as AdminLeaderboardsRouteImport } from './routes/admin/leaderboards'
 import { Route as AdminLeaderboardBannersRouteImport } from './routes/admin/leaderboard-banners'
 import { Route as AdminKycRouteImport } from './routes/admin/kyc'
+import { Route as AdminGuildsRouteImport } from './routes/admin/guilds'
 import { Route as AdminGiftsRouteImport } from './routes/admin/gifts'
 import { Route as AdminGiftDropRouteImport } from './routes/admin/gift-drop'
 import { Route as AdminGamesRouteImport } from './routes/admin/games'
@@ -98,12 +105,17 @@ import { Route as AdminAlertsRouteImport } from './routes/admin/alerts'
 import { Route as AdminAiSettingsRouteImport } from './routes/admin/ai-settings'
 import { Route as AdminAdsRouteImport } from './routes/admin/ads'
 import { Route as AdminActionsLogRouteImport } from './routes/admin/actions-log'
+import { Route as HelpCategoryIndexRouteImport } from './routes/help/$category/index'
 import { Route as GamesSlugIndexRouteImport } from './routes/games/$slug/index'
+import { Route as BusinessStatsIndexRouteImport } from './routes/business/stats/index'
 import { Route as BusinessPagesIndexRouteImport } from './routes/business/pages/index'
+import { Route as BusinessBroadcastsIndexRouteImport } from './routes/business/broadcasts/index'
 import { Route as BusinessAdsIndexRouteImport } from './routes/business/ads/index'
 import { Route as BlogsSlugIndexRouteImport } from './routes/blogs/$slug/index'
 import { Route as AdminPayoutsIndexRouteImport } from './routes/admin/payouts/index'
+import { Route as HelpCategoryDocRouteImport } from './routes/help/$category/$doc'
 import { Route as GamesSlugPlayRouteImport } from './routes/games/$slug/play'
+import { Route as ForumThreadSlugRouteImport } from './routes/forum/thread/$slug'
 import { Route as BusinessPagesPageIdRouteImport } from './routes/business/pages/$pageId'
 import { Route as BlogsSlugManageRouteImport } from './routes/blogs/$slug/manage'
 import { Route as BlogsSlugPostSlugRouteImport } from './routes/blogs/$slug/$postSlug'
@@ -191,11 +203,6 @@ const HomeRoute = HomeRouteImport.update({
   path: '/home',
   getParentRoute: () => rootRouteImport,
 } as any)
-const HelpRoute = HelpRouteImport.update({
-  id: '/help',
-  path: '/help',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const GuildRoute = GuildRouteImport.update({
   id: '/guild',
   path: '/guild',
@@ -241,6 +248,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SupportIndexRoute = SupportIndexRouteImport.update({
+  id: '/support/',
+  path: '/support/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RoomsIndexRoute = RoomsIndexRouteImport.update({
   id: '/rooms/',
   path: '/rooms/',
@@ -266,6 +278,11 @@ const MerchIndexRoute = MerchIndexRouteImport.update({
   path: '/merch/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HelpIndexRoute = HelpIndexRouteImport.update({
+  id: '/help/',
+  path: '/help/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GuildsIndexRoute = GuildsIndexRouteImport.update({
   id: '/guilds/',
   path: '/guilds/',
@@ -274,6 +291,11 @@ const GuildsIndexRoute = GuildsIndexRouteImport.update({
 const GamesIndexRoute = GamesIndexRouteImport.update({
   id: '/games/',
   path: '/games/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForumIndexRoute = ForumIndexRouteImport.update({
+  id: '/forum/',
+  path: '/forum/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CreatorIndexRoute = CreatorIndexRouteImport.update({
@@ -304,6 +326,16 @@ const AdsIndexRoute = AdsIndexRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/admin/',
   path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupportNewRoute = SupportNewRouteImport.update({
+  id: '/support/new',
+  path: '/support/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SupportTicketIdRoute = SupportTicketIdRouteImport.update({
+  id: '/support/$ticketId',
+  path: '/support/$ticketId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
@@ -341,6 +373,11 @@ const MerchCreatorIdRoute = MerchCreatorIdRouteImport.update({
   path: '/merch/$creatorId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HelpSearchRoute = HelpSearchRouteImport.update({
+  id: '/help/search',
+  path: '/help/search',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GuildsGuildIdRoute = GuildsGuildIdRouteImport.update({
   id: '/guilds/$guildId',
   path: '/guilds/$guildId',
@@ -349,6 +386,11 @@ const GuildsGuildIdRoute = GuildsGuildIdRouteImport.update({
 const GamesSavedRoute = GamesSavedRouteImport.update({
   id: '/games/saved',
   path: '/games/saved',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForumBoardSlugRoute = ForumBoardSlugRouteImport.update({
+  id: '/forum/$boardSlug',
+  path: '/forum/$boardSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CreatorWalletRoute = CreatorWalletRouteImport.update({
@@ -449,6 +491,11 @@ const AdminLeaderboardBannersRoute = AdminLeaderboardBannersRouteImport.update({
 const AdminKycRoute = AdminKycRouteImport.update({
   id: '/admin/kyc',
   path: '/admin/kyc',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminGuildsRoute = AdminGuildsRouteImport.update({
+  id: '/admin/guilds',
+  path: '/admin/guilds',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminGiftsRoute = AdminGiftsRouteImport.update({
@@ -556,14 +603,29 @@ const AdminActionsLogRoute = AdminActionsLogRouteImport.update({
   path: '/admin/actions-log',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HelpCategoryIndexRoute = HelpCategoryIndexRouteImport.update({
+  id: '/help/$category/',
+  path: '/help/$category/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GamesSlugIndexRoute = GamesSlugIndexRouteImport.update({
   id: '/games/$slug/',
   path: '/games/$slug/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BusinessStatsIndexRoute = BusinessStatsIndexRouteImport.update({
+  id: '/business/stats/',
+  path: '/business/stats/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BusinessPagesIndexRoute = BusinessPagesIndexRouteImport.update({
   id: '/business/pages/',
   path: '/business/pages/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BusinessBroadcastsIndexRoute = BusinessBroadcastsIndexRouteImport.update({
+  id: '/business/broadcasts/',
+  path: '/business/broadcasts/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BusinessAdsIndexRoute = BusinessAdsIndexRouteImport.update({
@@ -581,9 +643,19 @@ const AdminPayoutsIndexRoute = AdminPayoutsIndexRouteImport.update({
   path: '/admin/payouts/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HelpCategoryDocRoute = HelpCategoryDocRouteImport.update({
+  id: '/help/$category/$doc',
+  path: '/help/$category/$doc',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GamesSlugPlayRoute = GamesSlugPlayRouteImport.update({
   id: '/games/$slug/play',
   path: '/games/$slug/play',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ForumThreadSlugRoute = ForumThreadSlugRouteImport.update({
+  id: '/forum/thread/$slug',
+  path: '/forum/thread/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BusinessPagesPageIdRoute = BusinessPagesPageIdRouteImport.update({
@@ -628,7 +700,6 @@ export interface FileRoutesByFullPath {
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
-  '/help': typeof HelpRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/kyc': typeof KycRoute
@@ -666,6 +737,7 @@ export interface FileRoutesByFullPath {
   '/admin/games': typeof AdminGamesRoute
   '/admin/gift-drop': typeof AdminGiftDropRoute
   '/admin/gifts': typeof AdminGiftsRoute
+  '/admin/guilds': typeof AdminGuildsRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/leaderboard-banners': typeof AdminLeaderboardBannersRoute
   '/admin/leaderboards': typeof AdminLeaderboardsRoute
@@ -686,8 +758,10 @@ export interface FileRoutesByFullPath {
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
   '/creator/wallet': typeof CreatorWalletRoute
+  '/forum/$boardSlug': typeof ForumBoardSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
+  '/help/search': typeof HelpSearchRoute
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
@@ -695,31 +769,41 @@ export interface FileRoutesByFullPath {
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/privacy': typeof SettingsPrivacyRoute
   '/settings/security': typeof SettingsSecurityRoute
+  '/support/$ticketId': typeof SupportTicketIdRoute
+  '/support/new': typeof SupportNewRoute
   '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
   '/business/': typeof BusinessIndexRoute
   '/creator/': typeof CreatorIndexRoute
+  '/forum/': typeof ForumIndexRoute
   '/games/': typeof GamesIndexRoute
   '/guilds/': typeof GuildsIndexRoute
+  '/help/': typeof HelpIndexRoute
   '/merch/': typeof MerchIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
   '/profile/': typeof ProfileIndexRoute
   '/rooms/': typeof RoomsIndexRoute
+  '/support/': typeof SupportIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
   '/admin/settings/privacy': typeof AdminSettingsPrivacyRoute
   '/admin/settings/profile-stats': typeof AdminSettingsProfileStatsRoute
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/blogs/$slug/manage': typeof BlogsSlugManageRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/forum/thread/$slug': typeof ForumThreadSlugRoute
   '/games/$slug/play': typeof GamesSlugPlayRoute
+  '/help/$category/$doc': typeof HelpCategoryDocRoute
   '/admin/payouts/': typeof AdminPayoutsIndexRoute
   '/blogs/$slug/': typeof BlogsSlugIndexRoute
   '/business/ads/': typeof BusinessAdsIndexRoute
+  '/business/broadcasts/': typeof BusinessBroadcastsIndexRoute
   '/business/pages/': typeof BusinessPagesIndexRoute
+  '/business/stats/': typeof BusinessStatsIndexRoute
   '/games/$slug/': typeof GamesSlugIndexRoute
+  '/help/$category/': typeof HelpCategoryIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -731,7 +815,6 @@ export interface FileRoutesByTo {
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
-  '/help': typeof HelpRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/kyc': typeof KycRoute
@@ -769,6 +852,7 @@ export interface FileRoutesByTo {
   '/admin/games': typeof AdminGamesRoute
   '/admin/gift-drop': typeof AdminGiftDropRoute
   '/admin/gifts': typeof AdminGiftsRoute
+  '/admin/guilds': typeof AdminGuildsRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/leaderboard-banners': typeof AdminLeaderboardBannersRoute
   '/admin/leaderboards': typeof AdminLeaderboardsRoute
@@ -789,8 +873,10 @@ export interface FileRoutesByTo {
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
   '/creator/wallet': typeof CreatorWalletRoute
+  '/forum/$boardSlug': typeof ForumBoardSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
+  '/help/search': typeof HelpSearchRoute
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
@@ -798,31 +884,41 @@ export interface FileRoutesByTo {
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/privacy': typeof SettingsPrivacyRoute
   '/settings/security': typeof SettingsSecurityRoute
+  '/support/$ticketId': typeof SupportTicketIdRoute
+  '/support/new': typeof SupportNewRoute
   '/admin': typeof AdminIndexRoute
   '/ads': typeof AdsIndexRoute
   '/answers': typeof AnswersIndexRoute
   '/blogs': typeof BlogsIndexRoute
   '/business': typeof BusinessIndexRoute
   '/creator': typeof CreatorIndexRoute
+  '/forum': typeof ForumIndexRoute
   '/games': typeof GamesIndexRoute
   '/guilds': typeof GuildsIndexRoute
+  '/help': typeof HelpIndexRoute
   '/merch': typeof MerchIndexRoute
   '/messages': typeof MessagesIndexRoute
   '/moments': typeof MomentsIndexRoute
   '/profile': typeof ProfileIndexRoute
   '/rooms': typeof RoomsIndexRoute
+  '/support': typeof SupportIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
   '/admin/settings/privacy': typeof AdminSettingsPrivacyRoute
   '/admin/settings/profile-stats': typeof AdminSettingsProfileStatsRoute
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/blogs/$slug/manage': typeof BlogsSlugManageRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/forum/thread/$slug': typeof ForumThreadSlugRoute
   '/games/$slug/play': typeof GamesSlugPlayRoute
+  '/help/$category/$doc': typeof HelpCategoryDocRoute
   '/admin/payouts': typeof AdminPayoutsIndexRoute
   '/blogs/$slug': typeof BlogsSlugIndexRoute
   '/business/ads': typeof BusinessAdsIndexRoute
+  '/business/broadcasts': typeof BusinessBroadcastsIndexRoute
   '/business/pages': typeof BusinessPagesIndexRoute
+  '/business/stats': typeof BusinessStatsIndexRoute
   '/games/$slug': typeof GamesSlugIndexRoute
+  '/help/$category': typeof HelpCategoryIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -835,7 +931,6 @@ export interface FileRoutesById {
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
-  '/help': typeof HelpRoute
   '/home': typeof HomeRoute
   '/inbox': typeof InboxRoute
   '/kyc': typeof KycRoute
@@ -873,6 +968,7 @@ export interface FileRoutesById {
   '/admin/games': typeof AdminGamesRoute
   '/admin/gift-drop': typeof AdminGiftDropRoute
   '/admin/gifts': typeof AdminGiftsRoute
+  '/admin/guilds': typeof AdminGuildsRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/leaderboard-banners': typeof AdminLeaderboardBannersRoute
   '/admin/leaderboards': typeof AdminLeaderboardsRoute
@@ -893,8 +989,10 @@ export interface FileRoutesById {
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
   '/creator/wallet': typeof CreatorWalletRoute
+  '/forum/$boardSlug': typeof ForumBoardSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
+  '/help/search': typeof HelpSearchRoute
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
@@ -902,31 +1000,41 @@ export interface FileRoutesById {
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/privacy': typeof SettingsPrivacyRoute
   '/settings/security': typeof SettingsSecurityRoute
+  '/support/$ticketId': typeof SupportTicketIdRoute
+  '/support/new': typeof SupportNewRoute
   '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
   '/business/': typeof BusinessIndexRoute
   '/creator/': typeof CreatorIndexRoute
+  '/forum/': typeof ForumIndexRoute
   '/games/': typeof GamesIndexRoute
   '/guilds/': typeof GuildsIndexRoute
+  '/help/': typeof HelpIndexRoute
   '/merch/': typeof MerchIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
   '/profile/': typeof ProfileIndexRoute
   '/rooms/': typeof RoomsIndexRoute
+  '/support/': typeof SupportIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
   '/admin/settings/privacy': typeof AdminSettingsPrivacyRoute
   '/admin/settings/profile-stats': typeof AdminSettingsProfileStatsRoute
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/blogs/$slug/manage': typeof BlogsSlugManageRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/forum/thread/$slug': typeof ForumThreadSlugRoute
   '/games/$slug/play': typeof GamesSlugPlayRoute
+  '/help/$category/$doc': typeof HelpCategoryDocRoute
   '/admin/payouts/': typeof AdminPayoutsIndexRoute
   '/blogs/$slug/': typeof BlogsSlugIndexRoute
   '/business/ads/': typeof BusinessAdsIndexRoute
+  '/business/broadcasts/': typeof BusinessBroadcastsIndexRoute
   '/business/pages/': typeof BusinessPagesIndexRoute
+  '/business/stats/': typeof BusinessStatsIndexRoute
   '/games/$slug/': typeof GamesSlugIndexRoute
+  '/help/$category/': typeof HelpCategoryIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -940,7 +1048,6 @@ export interface FileRouteTypes {
     | '/friends'
     | '/gifts'
     | '/guild'
-    | '/help'
     | '/home'
     | '/inbox'
     | '/kyc'
@@ -978,6 +1085,7 @@ export interface FileRouteTypes {
     | '/admin/games'
     | '/admin/gift-drop'
     | '/admin/gifts'
+    | '/admin/guilds'
     | '/admin/kyc'
     | '/admin/leaderboard-banners'
     | '/admin/leaderboards'
@@ -998,8 +1106,10 @@ export interface FileRouteTypes {
     | '/creator/broadcasts'
     | '/creator/marketplace'
     | '/creator/wallet'
+    | '/forum/$boardSlug'
     | '/games/saved'
     | '/guilds/$guildId'
+    | '/help/search'
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
@@ -1007,31 +1117,41 @@ export interface FileRouteTypes {
     | '/rooms/$roomId'
     | '/settings/privacy'
     | '/settings/security'
+    | '/support/$ticketId'
+    | '/support/new'
     | '/admin/'
     | '/ads/'
     | '/answers/'
     | '/blogs/'
     | '/business/'
     | '/creator/'
+    | '/forum/'
     | '/games/'
     | '/guilds/'
+    | '/help/'
     | '/merch/'
     | '/messages/'
     | '/moments/'
     | '/profile/'
     | '/rooms/'
+    | '/support/'
     | '/admin/payouts/appeals'
     | '/admin/settings/privacy'
     | '/admin/settings/profile-stats'
     | '/blogs/$slug/$postSlug'
     | '/blogs/$slug/manage'
     | '/business/pages/$pageId'
+    | '/forum/thread/$slug'
     | '/games/$slug/play'
+    | '/help/$category/$doc'
     | '/admin/payouts/'
     | '/blogs/$slug/'
     | '/business/ads/'
+    | '/business/broadcasts/'
     | '/business/pages/'
+    | '/business/stats/'
     | '/games/$slug/'
+    | '/help/$category/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -1043,7 +1163,6 @@ export interface FileRouteTypes {
     | '/friends'
     | '/gifts'
     | '/guild'
-    | '/help'
     | '/home'
     | '/inbox'
     | '/kyc'
@@ -1081,6 +1200,7 @@ export interface FileRouteTypes {
     | '/admin/games'
     | '/admin/gift-drop'
     | '/admin/gifts'
+    | '/admin/guilds'
     | '/admin/kyc'
     | '/admin/leaderboard-banners'
     | '/admin/leaderboards'
@@ -1101,8 +1221,10 @@ export interface FileRouteTypes {
     | '/creator/broadcasts'
     | '/creator/marketplace'
     | '/creator/wallet'
+    | '/forum/$boardSlug'
     | '/games/saved'
     | '/guilds/$guildId'
+    | '/help/search'
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
@@ -1110,31 +1232,41 @@ export interface FileRouteTypes {
     | '/rooms/$roomId'
     | '/settings/privacy'
     | '/settings/security'
+    | '/support/$ticketId'
+    | '/support/new'
     | '/admin'
     | '/ads'
     | '/answers'
     | '/blogs'
     | '/business'
     | '/creator'
+    | '/forum'
     | '/games'
     | '/guilds'
+    | '/help'
     | '/merch'
     | '/messages'
     | '/moments'
     | '/profile'
     | '/rooms'
+    | '/support'
     | '/admin/payouts/appeals'
     | '/admin/settings/privacy'
     | '/admin/settings/profile-stats'
     | '/blogs/$slug/$postSlug'
     | '/blogs/$slug/manage'
     | '/business/pages/$pageId'
+    | '/forum/thread/$slug'
     | '/games/$slug/play'
+    | '/help/$category/$doc'
     | '/admin/payouts'
     | '/blogs/$slug'
     | '/business/ads'
+    | '/business/broadcasts'
     | '/business/pages'
+    | '/business/stats'
     | '/games/$slug'
+    | '/help/$category'
   id:
     | '__root__'
     | '/'
@@ -1146,7 +1278,6 @@ export interface FileRouteTypes {
     | '/friends'
     | '/gifts'
     | '/guild'
-    | '/help'
     | '/home'
     | '/inbox'
     | '/kyc'
@@ -1184,6 +1315,7 @@ export interface FileRouteTypes {
     | '/admin/games'
     | '/admin/gift-drop'
     | '/admin/gifts'
+    | '/admin/guilds'
     | '/admin/kyc'
     | '/admin/leaderboard-banners'
     | '/admin/leaderboards'
@@ -1204,8 +1336,10 @@ export interface FileRouteTypes {
     | '/creator/broadcasts'
     | '/creator/marketplace'
     | '/creator/wallet'
+    | '/forum/$boardSlug'
     | '/games/saved'
     | '/guilds/$guildId'
+    | '/help/search'
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
@@ -1213,31 +1347,41 @@ export interface FileRouteTypes {
     | '/rooms/$roomId'
     | '/settings/privacy'
     | '/settings/security'
+    | '/support/$ticketId'
+    | '/support/new'
     | '/admin/'
     | '/ads/'
     | '/answers/'
     | '/blogs/'
     | '/business/'
     | '/creator/'
+    | '/forum/'
     | '/games/'
     | '/guilds/'
+    | '/help/'
     | '/merch/'
     | '/messages/'
     | '/moments/'
     | '/profile/'
     | '/rooms/'
+    | '/support/'
     | '/admin/payouts/appeals'
     | '/admin/settings/privacy'
     | '/admin/settings/profile-stats'
     | '/blogs/$slug/$postSlug'
     | '/blogs/$slug/manage'
     | '/business/pages/$pageId'
+    | '/forum/thread/$slug'
     | '/games/$slug/play'
+    | '/help/$category/$doc'
     | '/admin/payouts/'
     | '/blogs/$slug/'
     | '/business/ads/'
+    | '/business/broadcasts/'
     | '/business/pages/'
+    | '/business/stats/'
     | '/games/$slug/'
+    | '/help/$category/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1250,7 +1394,6 @@ export interface RootRouteChildren {
   FriendsRoute: typeof FriendsRoute
   GiftsRoute: typeof GiftsRoute
   GuildRoute: typeof GuildRoute
-  HelpRoute: typeof HelpRoute
   HomeRoute: typeof HomeRoute
   InboxRoute: typeof InboxRoute
   KycRoute: typeof KycRoute
@@ -1288,6 +1431,7 @@ export interface RootRouteChildren {
   AdminGamesRoute: typeof AdminGamesRoute
   AdminGiftDropRoute: typeof AdminGiftDropRoute
   AdminGiftsRoute: typeof AdminGiftsRoute
+  AdminGuildsRoute: typeof AdminGuildsRoute
   AdminKycRoute: typeof AdminKycRoute
   AdminLeaderboardBannersRoute: typeof AdminLeaderboardBannersRoute
   AdminLeaderboardsRoute: typeof AdminLeaderboardsRoute
@@ -1308,38 +1452,50 @@ export interface RootRouteChildren {
   CreatorBroadcastsRoute: typeof CreatorBroadcastsRoute
   CreatorMarketplaceRoute: typeof CreatorMarketplaceRoute
   CreatorWalletRoute: typeof CreatorWalletRoute
+  ForumBoardSlugRoute: typeof ForumBoardSlugRoute
   GamesSavedRoute: typeof GamesSavedRoute
   GuildsGuildIdRoute: typeof GuildsGuildIdRoute
+  HelpSearchRoute: typeof HelpSearchRoute
   MerchCreatorIdRoute: typeof MerchCreatorIdRoute
   MessagesConversationIdRoute: typeof MessagesConversationIdRoute
   MomentsCreateRoute: typeof MomentsCreateRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
+  SupportTicketIdRoute: typeof SupportTicketIdRoute
+  SupportNewRoute: typeof SupportNewRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdsIndexRoute: typeof AdsIndexRoute
   AnswersIndexRoute: typeof AnswersIndexRoute
   BlogsIndexRoute: typeof BlogsIndexRoute
   BusinessIndexRoute: typeof BusinessIndexRoute
   CreatorIndexRoute: typeof CreatorIndexRoute
+  ForumIndexRoute: typeof ForumIndexRoute
   GamesIndexRoute: typeof GamesIndexRoute
   GuildsIndexRoute: typeof GuildsIndexRoute
+  HelpIndexRoute: typeof HelpIndexRoute
   MerchIndexRoute: typeof MerchIndexRoute
   MessagesIndexRoute: typeof MessagesIndexRoute
   MomentsIndexRoute: typeof MomentsIndexRoute
   ProfileIndexRoute: typeof ProfileIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
+  SupportIndexRoute: typeof SupportIndexRoute
   AdminPayoutsAppealsRoute: typeof AdminPayoutsAppealsRoute
   AdminSettingsPrivacyRoute: typeof AdminSettingsPrivacyRoute
   AdminSettingsProfileStatsRoute: typeof AdminSettingsProfileStatsRoute
   BlogsSlugPostSlugRoute: typeof BlogsSlugPostSlugRoute
   BlogsSlugManageRoute: typeof BlogsSlugManageRoute
   BusinessPagesPageIdRoute: typeof BusinessPagesPageIdRoute
+  ForumThreadSlugRoute: typeof ForumThreadSlugRoute
   GamesSlugPlayRoute: typeof GamesSlugPlayRoute
+  HelpCategoryDocRoute: typeof HelpCategoryDocRoute
   AdminPayoutsIndexRoute: typeof AdminPayoutsIndexRoute
   BlogsSlugIndexRoute: typeof BlogsSlugIndexRoute
   BusinessAdsIndexRoute: typeof BusinessAdsIndexRoute
+  BusinessBroadcastsIndexRoute: typeof BusinessBroadcastsIndexRoute
   BusinessPagesIndexRoute: typeof BusinessPagesIndexRoute
+  BusinessStatsIndexRoute: typeof BusinessStatsIndexRoute
   GamesSlugIndexRoute: typeof GamesSlugIndexRoute
+  HelpCategoryIndexRoute: typeof HelpCategoryIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -1456,13 +1612,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HomeRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/help': {
-      id: '/help'
-      path: '/help'
-      fullPath: '/help'
-      preLoaderRoute: typeof HelpRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/guild': {
       id: '/guild'
       path: '/guild'
@@ -1526,6 +1675,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/support/': {
+      id: '/support/'
+      path: '/support'
+      fullPath: '/support/'
+      preLoaderRoute: typeof SupportIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/rooms/': {
       id: '/rooms/'
       path: '/rooms'
@@ -1561,6 +1717,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MerchIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/help/': {
+      id: '/help/'
+      path: '/help'
+      fullPath: '/help/'
+      preLoaderRoute: typeof HelpIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/guilds/': {
       id: '/guilds/'
       path: '/guilds'
@@ -1573,6 +1736,13 @@ declare module '@tanstack/react-router' {
       path: '/games'
       fullPath: '/games/'
       preLoaderRoute: typeof GamesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forum/': {
+      id: '/forum/'
+      path: '/forum'
+      fullPath: '/forum/'
+      preLoaderRoute: typeof ForumIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/creator/': {
@@ -1615,6 +1785,20 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support/new': {
+      id: '/support/new'
+      path: '/support/new'
+      fullPath: '/support/new'
+      preLoaderRoute: typeof SupportNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/support/$ticketId': {
+      id: '/support/$ticketId'
+      path: '/support/$ticketId'
+      fullPath: '/support/$ticketId'
+      preLoaderRoute: typeof SupportTicketIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings/security': {
@@ -1666,6 +1850,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MerchCreatorIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/help/search': {
+      id: '/help/search'
+      path: '/help/search'
+      fullPath: '/help/search'
+      preLoaderRoute: typeof HelpSearchRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/guilds/$guildId': {
       id: '/guilds/$guildId'
       path: '/guilds/$guildId'
@@ -1678,6 +1869,13 @@ declare module '@tanstack/react-router' {
       path: '/games/saved'
       fullPath: '/games/saved'
       preLoaderRoute: typeof GamesSavedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forum/$boardSlug': {
+      id: '/forum/$boardSlug'
+      path: '/forum/$boardSlug'
+      fullPath: '/forum/$boardSlug'
+      preLoaderRoute: typeof ForumBoardSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/creator/wallet': {
@@ -1818,6 +2016,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/kyc'
       fullPath: '/admin/kyc'
       preLoaderRoute: typeof AdminKycRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/guilds': {
+      id: '/admin/guilds'
+      path: '/admin/guilds'
+      fullPath: '/admin/guilds'
+      preLoaderRoute: typeof AdminGuildsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/gifts': {
@@ -1967,6 +2172,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminActionsLogRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/help/$category/': {
+      id: '/help/$category/'
+      path: '/help/$category'
+      fullPath: '/help/$category/'
+      preLoaderRoute: typeof HelpCategoryIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/games/$slug/': {
       id: '/games/$slug/'
       path: '/games/$slug'
@@ -1974,11 +2186,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GamesSlugIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/business/stats/': {
+      id: '/business/stats/'
+      path: '/business/stats'
+      fullPath: '/business/stats/'
+      preLoaderRoute: typeof BusinessStatsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/business/pages/': {
       id: '/business/pages/'
       path: '/business/pages'
       fullPath: '/business/pages/'
       preLoaderRoute: typeof BusinessPagesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/business/broadcasts/': {
+      id: '/business/broadcasts/'
+      path: '/business/broadcasts'
+      fullPath: '/business/broadcasts/'
+      preLoaderRoute: typeof BusinessBroadcastsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/business/ads/': {
@@ -2002,11 +2228,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminPayoutsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/help/$category/$doc': {
+      id: '/help/$category/$doc'
+      path: '/help/$category/$doc'
+      fullPath: '/help/$category/$doc'
+      preLoaderRoute: typeof HelpCategoryDocRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/games/$slug/play': {
       id: '/games/$slug/play'
       path: '/games/$slug/play'
       fullPath: '/games/$slug/play'
       preLoaderRoute: typeof GamesSlugPlayRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/forum/thread/$slug': {
+      id: '/forum/thread/$slug'
+      path: '/forum/thread/$slug'
+      fullPath: '/forum/thread/$slug'
+      preLoaderRoute: typeof ForumThreadSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/business/pages/$pageId': {
@@ -2078,7 +2318,6 @@ const rootRouteChildren: RootRouteChildren = {
   FriendsRoute: FriendsRoute,
   GiftsRoute: GiftsRoute,
   GuildRoute: GuildRoute,
-  HelpRoute: HelpRoute,
   HomeRoute: HomeRoute,
   InboxRoute: InboxRoute,
   KycRoute: KycRoute,
@@ -2116,6 +2355,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminGamesRoute: AdminGamesRoute,
   AdminGiftDropRoute: AdminGiftDropRoute,
   AdminGiftsRoute: AdminGiftsRoute,
+  AdminGuildsRoute: AdminGuildsRoute,
   AdminKycRoute: AdminKycRoute,
   AdminLeaderboardBannersRoute: AdminLeaderboardBannersRoute,
   AdminLeaderboardsRoute: AdminLeaderboardsRoute,
@@ -2136,38 +2376,50 @@ const rootRouteChildren: RootRouteChildren = {
   CreatorBroadcastsRoute: CreatorBroadcastsRoute,
   CreatorMarketplaceRoute: CreatorMarketplaceRoute,
   CreatorWalletRoute: CreatorWalletRoute,
+  ForumBoardSlugRoute: ForumBoardSlugRoute,
   GamesSavedRoute: GamesSavedRoute,
   GuildsGuildIdRoute: GuildsGuildIdRoute,
+  HelpSearchRoute: HelpSearchRoute,
   MerchCreatorIdRoute: MerchCreatorIdRoute,
   MessagesConversationIdRoute: MessagesConversationIdRoute,
   MomentsCreateRoute: MomentsCreateRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
+  SupportTicketIdRoute: SupportTicketIdRoute,
+  SupportNewRoute: SupportNewRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdsIndexRoute: AdsIndexRoute,
   AnswersIndexRoute: AnswersIndexRoute,
   BlogsIndexRoute: BlogsIndexRoute,
   BusinessIndexRoute: BusinessIndexRoute,
   CreatorIndexRoute: CreatorIndexRoute,
+  ForumIndexRoute: ForumIndexRoute,
   GamesIndexRoute: GamesIndexRoute,
   GuildsIndexRoute: GuildsIndexRoute,
+  HelpIndexRoute: HelpIndexRoute,
   MerchIndexRoute: MerchIndexRoute,
   MessagesIndexRoute: MessagesIndexRoute,
   MomentsIndexRoute: MomentsIndexRoute,
   ProfileIndexRoute: ProfileIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
+  SupportIndexRoute: SupportIndexRoute,
   AdminPayoutsAppealsRoute: AdminPayoutsAppealsRoute,
   AdminSettingsPrivacyRoute: AdminSettingsPrivacyRoute,
   AdminSettingsProfileStatsRoute: AdminSettingsProfileStatsRoute,
   BlogsSlugPostSlugRoute: BlogsSlugPostSlugRoute,
   BlogsSlugManageRoute: BlogsSlugManageRoute,
   BusinessPagesPageIdRoute: BusinessPagesPageIdRoute,
+  ForumThreadSlugRoute: ForumThreadSlugRoute,
   GamesSlugPlayRoute: GamesSlugPlayRoute,
+  HelpCategoryDocRoute: HelpCategoryDocRoute,
   AdminPayoutsIndexRoute: AdminPayoutsIndexRoute,
   BlogsSlugIndexRoute: BlogsSlugIndexRoute,
   BusinessAdsIndexRoute: BusinessAdsIndexRoute,
+  BusinessBroadcastsIndexRoute: BusinessBroadcastsIndexRoute,
   BusinessPagesIndexRoute: BusinessPagesIndexRoute,
+  BusinessStatsIndexRoute: BusinessStatsIndexRoute,
   GamesSlugIndexRoute: GamesSlugIndexRoute,
+  HelpCategoryIndexRoute: HelpCategoryIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

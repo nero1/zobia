@@ -20,20 +20,63 @@ export async function isAdminOrModerator(userId: string): Promise<boolean> {
   return roles.isAdmin || roles.isModerator;
 }
 
+/** A user's confirmed (DB-verified) staff roles. */
+export interface StaffRoles {
+  isAdmin: boolean;
+  isModerator: boolean;
+  /** Sitewide "support" role — grantable like moderator (0033_support_tickets.sql). */
+  isSupport: boolean;
+  /** Any support/moderator/admin user additionally flagged senior support. */
+  isSeniorSupport: boolean;
+}
+
+const EMPTY_STAFF_ROLES: StaffRoles = {
+  isAdmin: false,
+  isModerator: false,
+  isSupport: false,
+  isSeniorSupport: false,
+};
+
 /**
- * Returns the current `is_admin`/`is_moderator` flags for a user, re-checked
- * against the database. Fails closed (both false) on a DB error. Use this
- * instead of isAdminOrModerator() when a caller needs to distinguish the two
- * (e.g. feature-flag mod-visibility gating, which only extends to moderators).
+ * Returns a user's confirmed staff roles, always re-read from the database.
+ * Fails closed (all false) on any DB error — never trust a cached/JWT claim
+ * for role-gated access.
  */
-export async function getStaffRoles(userId: string): Promise<{ isAdmin: boolean; isModerator: boolean }> {
+export async function getStaffRoles(userId: string): Promise<StaffRoles> {
   try {
-    const { rows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-      `SELECT is_admin, is_moderator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    const { rows } = await db.query<{
+      is_admin: boolean;
+      is_moderator: boolean;
+      is_support: boolean;
+      is_senior_support: boolean;
+    }>(
+      `SELECT is_admin, is_moderator, is_support, is_senior_support
+       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
     );
-    return { isAdmin: Boolean(rows[0]?.is_admin), isModerator: Boolean(rows[0]?.is_moderator) };
+    const row = rows[0];
+    if (!row) return EMPTY_STAFF_ROLES;
+    return {
+      isAdmin: Boolean(row.is_admin),
+      isModerator: Boolean(row.is_moderator),
+      isSupport: Boolean(row.is_support),
+      isSeniorSupport: Boolean(row.is_senior_support),
+    };
   } catch {
-    return { isAdmin: false, isModerator: false };
+    return EMPTY_STAFF_ROLES;
   }
+}
+
+/**
+ * Checks a user's confirmed roles against an admin-configured allow-list of
+ * role names (e.g. x_manifest `support_staff_roles`: `["support","moderator","admin"]`).
+ * An admin always passes regardless of the list (admins can always reach any
+ * staff-gated surface).
+ */
+export function hasAnyRole(roles: StaffRoles, allowed: string[]): boolean {
+  if (roles.isAdmin) return true;
+  if (allowed.includes("admin") && roles.isAdmin) return true;
+  if (allowed.includes("moderator") && roles.isModerator) return true;
+  if (allowed.includes("support") && roles.isSupport) return true;
+  return false;
 }

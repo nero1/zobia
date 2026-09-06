@@ -45,6 +45,17 @@ export const ROUTES = {
   settingsNotifications: "/settings/notifications",
   settingsSecurity: "/settings/security",
 
+  // ---- Support Tickets -----------------------------------------------------
+  supportTickets: "/support",
+  supportTicketNew: "/support/new",
+  supportTicketDetail: (ticketId: string) => `/support/${ticketId}`,
+
+  // ---- Help Center ---------------------------------------------------------
+  help: "/help",
+  helpCategory: (categorySlug: string) => `/help/${categorySlug}`,
+  helpDoc: (categorySlug: string, docSlug: string) => `/help/${categorySlug}/${docSlug}`,
+  helpSearch: (q: string) => `/help/search?q=${encodeURIComponent(q)}`,
+
   // ---- API routes ---------------------------------------------------------
   api: {
     authRefresh: "/api/auth/refresh",

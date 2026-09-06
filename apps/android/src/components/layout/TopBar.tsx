@@ -40,7 +40,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: '/forum', labelKey: 'nav.bbforum', icon: '🗂️', flagKey: 'bbforum' },
   { href: '/quests', labelKey: 'nav.quests', icon: '🎯' },
   { href: '/games', labelKey: 'nav.games', icon: '🎮', flagKey: 'games' },
-  { href: '/blogs', labelKey: 'nav.blogs', icon: '📝', flagKey: 'blogs' },
+  { href: '/blogs', labelKey: 'nav.blogs', icon: '✍️', flagKey: 'blogs' },
   { href: '/business', labelKey: 'nav.business', icon: '🏢', flagKey: 'businessAccounts' },
   { href: '/ads', labelKey: 'nav.ads', icon: '📢', flagKey: 'adsSystem' },
   { href: '/rooms', labelKey: 'nav.rooms', icon: '🚪', flagKey: 'rooms' },

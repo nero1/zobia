@@ -77,6 +77,12 @@ export interface ZobiaManifest {
     boostedPosts: boolean;
     adCoupons: boolean;
     vipRoomPricing?: { minNgn: number; maxNgn: number };
+    /** Master on/off switch for the Support Ticket System (PRD Support Tickets). */
+    supportTickets: boolean;
+    /** Database-backed Help Center at /help. When false, the static FAQ page is shown. */
+    helpCenter: boolean;
+    /** "Ask AI" block on Help Center doc pages. Independent of supportTickets. */
+    helpCenterAi: boolean;
   };
   /**
    * Feature keys (matching `features.*` property names above) for which
@@ -321,6 +327,28 @@ export interface ZobiaManifest {
       business:   { tier2Kobo: number; tier2UsdCents: number; tier3Kobo: number; tier3UsdCents: number };
     };
   };
+  // Support Ticket System (admin-editable at /gate44/support/settings)
+  support: {
+    /** When true, a new ticket first gets an AI-generated response before the human queue. */
+    aiTriageEnabled: boolean;
+    /** Plan slugs (and/or prestige_N entries) that can create tickets for free — see lib/plans/eligibility.ts. */
+    eligiblePlans: string[];
+    /** One-time credits charged to create a ticket outside eligiblePlans. 0 = not chargeable in credits. */
+    ticketCostCredits: number;
+    /** One-time stars charged to create a ticket outside eligiblePlans. 0 = not chargeable in stars. */
+    ticketCostStars: number;
+    /** How messages are charged after ticket creation. */
+    chargingModel: "first_message_only" | "every_message" | "every_x_messages" | "first_x_messages";
+    /** The X parameter for every_x_messages / first_x_messages. */
+    chargingX: number;
+    /** Roles ("support"|"moderator"|"admin") permitted to view/respond to the ticket queue. */
+    staffRoles: string[];
+  };
+  // Help Center (admin-editable at /gate44/help-center)
+  helpCenterSettings: {
+    /** When true, "Contact a real person" from an AI answer is always free and cost messaging is hidden. */
+    aiFreeForAll: boolean;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -366,6 +394,9 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     boostedPosts: true,
     adCoupons: true,
     profileStats: true,
+    supportTickets: false,
+    helpCenter: true,
+    helpCenterAi: true,
   },
   featureModVisibility: [],
   currency: {
@@ -516,6 +547,18 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
       business: { tier2Kobo: 50_000_000, tier2UsdCents: 500_000, tier3Kobo: 1_000_000_000, tier3UsdCents: 500_000 },
     },
   },
+  support: {
+    aiTriageEnabled: true,
+    eligiblePlans: ["plus", "pro", "max"],
+    ticketCostCredits: 0,
+    ticketCostStars: 0,
+    chargingModel: "first_message_only",
+    chargingX: 1,
+    staffRoles: ["support", "moderator", "admin"],
+  },
+  helpCenterSettings: {
+    aiFreeForAll: false,
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -565,6 +608,17 @@ function parseFloat10(value: string | undefined, fallback: number): number {
   if (value === undefined) return fallback;
   const n = parseFloat(value);
   return isNaN(n) ? fallback : n;
+}
+
+/** Parse a string value as a JSON array of strings. Returns fallback on any failure. */
+function parseStringArray(value: string | undefined, fallback: string[]): string[] {
+  if (value === undefined) return fallback;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    return Array.isArray(parsed) ? (parsed as string[]) : fallback;
+  } catch {
+    return fallback;
+  }
 }
 
 /**
@@ -733,6 +787,9 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       boostedPosts:               parseBool(kv["feature_boosted_posts"]             ?? "true",  DEFAULT_MANIFEST.features.boostedPosts),
       adCoupons:                  parseBool(kv["feature_ad_coupons"]                ?? "true",  DEFAULT_MANIFEST.features.adCoupons),
       profileStats:               parseBool(kv["feature_profile_stats"]             ?? "true",  DEFAULT_MANIFEST.features.profileStats),
+      supportTickets:             parseBool(kv["feature_support_tickets"],                      DEFAULT_MANIFEST.features.supportTickets),
+      helpCenter:                 parseBool(kv["feature_help_center"]               ?? "true",  DEFAULT_MANIFEST.features.helpCenter),
+      helpCenterAi:               parseBool(kv["feature_help_center_ai"]            ?? "true",  DEFAULT_MANIFEST.features.helpCenterAi),
       // BUG-MANIFEST-01: populate vipRoomPricing from x_manifest keys
       vipRoomPricing: kv["vip_room_pricing_min_ngn"] && kv["vip_room_pricing_max_ngn"]
         ? {
@@ -926,6 +983,22 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
           tier3UsdCents: parseInt10(kv["kyc_business_tier3_threshold_usd_cents"], DEFAULT_MANIFEST.kyc.thresholds.business.tier3UsdCents),
         },
       },
+    },
+    support: {
+      aiTriageEnabled: parseBool(kv["support_ai_triage_enabled"] ?? "true", DEFAULT_MANIFEST.support.aiTriageEnabled),
+      eligiblePlans:    parseStringArray(kv["support_eligible_plans"],        DEFAULT_MANIFEST.support.eligiblePlans),
+      ticketCostCredits: parseInt10(kv["support_ticket_cost_credits"],       DEFAULT_MANIFEST.support.ticketCostCredits),
+      ticketCostStars:   parseInt10(kv["support_ticket_cost_stars"],         DEFAULT_MANIFEST.support.ticketCostStars),
+      chargingModel: (() => {
+        const raw = unquote(kv["support_charging_model"]);
+        const valid = ["first_message_only", "every_message", "every_x_messages", "first_x_messages"];
+        return (valid.includes(raw ?? "") ? raw : DEFAULT_MANIFEST.support.chargingModel) as ZobiaManifest["support"]["chargingModel"];
+      })(),
+      chargingX:   parseInt10(kv["support_charging_x"], DEFAULT_MANIFEST.support.chargingX),
+      staffRoles:  parseStringArray(kv["support_staff_roles"], DEFAULT_MANIFEST.support.staffRoles),
+    },
+    helpCenterSettings: {
+      aiFreeForAll: parseBool(kv["help_center_ai_free_for_all"], DEFAULT_MANIFEST.helpCenterSettings.aiFreeForAll),
     },
   };
 }

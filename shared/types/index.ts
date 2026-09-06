@@ -504,7 +504,8 @@ export type CoinTransactionType =
   | 'ad_spend'
   | 'ad_campaign_refund'
   | 'ad_coupon_credit'
-  | 'ad_wallet_transfer';
+  | 'ad_wallet_transfer'
+  | 'support_ticket_cost';
 
 export interface CoinLedgerEntry {
   id: string;

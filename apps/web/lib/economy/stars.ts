@@ -37,7 +37,8 @@ export type StarTransactionType =
   | "blog_theme_purchase"
   | "blog_gift_purchase"
   | "blog_gift_earnings"
-  | "bbforum_image_upload";
+  | "bbforum_image_upload"
+  | "support_ticket_cost";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
