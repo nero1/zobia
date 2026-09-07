@@ -303,10 +303,27 @@ The messaging layer is fast, lightweight, and culturally expressive. It rewards 
 
 ### Group Chats
 
-- Standard group chats support up to 300 members (scaling by plan as per Section 3).
-- Group chats earn all members XP for activity.
-- Group admins can assign tags — "Study Group", "Crew", "Business" — which affect Room discovery signals.
+- Standard group chats support up to 300 total members (scaling by plan as per Section 3) — this is the hard membership cap, distinct from the concurrent cap below.
+- **Concurrent capacity (v2.18):** in addition to the total-membership cap, each group has a soft cap on how many members can be *actively present* in the chat at once — default 20, admin-configurable. Members over the cap see "chat is full, try again later"; the group creator can pay coins to raise the cap (admin sets the cost per step and the hard ceiling), mirroring the Room capacity-upgrade mechanic in Section 10. This does not affect total membership — everyone stays a member.
+- **Who can create group chats (v2.18, admin-configurable):** Free and Plus members cannot create group chats by default. Pro can create up to 3 concurrently-active groups, Max up to 10. Business Starter accounts can create up to 5, Business Growth up to 10, Business Enterprise up to 20. Guild creators (the guild's founder/captain) may always create at least one group chat regardless of their personal plan.
+- Posting in a group chat is free for everyone. Group chats earn **no XP, no quest progress, and no guild-war contribution** for posting — this was previously "all members earn XP for activity" and has been superseded (v2.18). The one exception: a Business account's group creator may configure members to receive credits when they join for the first time (rejoins after leaving earn nothing) and/or when they send their first X messages.
+- No ads are shown inline/instream inside a Business account's group chats.
+- Group admins can assign tags — "Personal", "General", "Study Group", "Crew", "Business", "Other" — which affect Room discovery signals.
 - Anti-spam rules (no links, phone numbers, or email addresses) apply in group chats unless the posting user is a group admin.
+- **Group deactivation & reactivation (v2.18):** if the group creator's plan lapses and its grace period fully elapses without renewal, their group chats are deactivated (admin can configure "group_chats" as a preserved grace feature per plan/tier to skip this). When the creator later renews, they are asked, per group, whether to reactivate it (select/deselect each one separately) — reactivating a group counts against the creator's current active-group limit again.
+
+#### Group Chat Moderation
+
+- The group admin can suspend ("mute") any member from posting for a fixed duration — 30 minutes, 1 hour, 3 hours, 1 day, 3 days, 7 days, or 30 days — and can lift the suspension early at any time.
+- The group admin can remove any member from the group.
+- A member can remove themselves from a group at any time.
+- A user can block a group entirely: they no longer see it, and neither the group nor its admin (inviting on the group's behalf) can invite them back while blocked.
+
+#### Group Invitations
+
+- By default, only the group admin — and any participant the admin has explicitly granted invite permission — may invite people to the group. The admin can instead allow any member to invite (subject to the invitee's own privacy setting below and to the group not being blocked by the invitee).
+- Users control who can invite them to groups via a privacy setting (Settings → Privacy → "Who can invite me to groups?"): **Anybody**, **Only friends**, or **Nobody** (default: Only friends).
+- If an inviter tries to invite someone they are not allowed to invite, they see: "You are not allowed to invite this user." with mini-text explaining why — "This user has opted not to receive group invitations from anybody." / "...from non-friends." — unless the invitee has blocked the group (or its admin) directly, in which case the mini-text is omitted and the message is simply "You are not allowed to invite this user to {group name}."
 
 ### 1-on-1 DMs
 
@@ -1541,7 +1558,7 @@ Admin can initiate messages directly to users from the admin panel. These are on
 - **Telegram cross-delivery:** When an admin message is sent to a user, if that user logged in via Telegram or has connected a Telegram account, they also receive the same message as a Telegram DM/direct message via the platform's Telegram bot. This is automatic and requires no additional admin action.
 - **Message format:** Rich text or plain text. Admin can compose a subject line (used as the notification title) and a body.
 - **Delivery tracking:** Admin can view send status per broadcast (total recipients, delivered, failed). For direct messages to specific users, admin can see whether the message has been read.
-- **Inbox on user side:** In-app admin messages appear in a dedicated "Notifications" or "Inbox" section in the user's app, visually distinct from user-to-user DMs (e.g., labelled "From Zobia" or with an admin badge). Users cannot reply to admin broadcast messages.
+- **Announcements on user side:** In-app admin messages appear in a dedicated "Announcements" section in the user's app (`/announcements` — renamed from "Inbox" to avoid confusion with two-way Messages), visually distinct from user-to-user DMs (e.g., labelled "From Zobia" or with an admin badge). Users cannot reply to admin broadcast messages.
 
 **Announcement Modal / Popup**
 
@@ -5062,7 +5079,8 @@ i18n keys from `shared/i18n/locales/en.json`).
 Ported the first batch of the pages listed above to the Capacitor app:
 Quests (`routes/quests.tsx`), Friends (`routes/friends.tsx`), Gifts
 (`routes/gifts.tsx`), Events (`routes/events.tsx`), Inbox
-(`routes/inbox.tsx`), Elder (`routes/elder.tsx`), Referrals
+(`routes/inbox.tsx`, later renamed to `routes/announcements.tsx` — see
+v2.18 changelog), Elder (`routes/elder.tsx`), Referrals
 (`routes/referrals.tsx`), Classroom (`routes/classroom.tsx`),
 Leaderboards (`routes/leaderboards.tsx`), and an own-profile redirect
 (`routes/profile/index.tsx`, resolves the logged-in user to
@@ -6334,6 +6352,93 @@ search column). New migration: `db/migrations/0034_help_center.sql`.
 
 ---
 
-*ZobiaSocial PRD v2.17*
+## Appendix: Version 2.18 Change Log
+
+### v2.18 — Changelog
+
+#### Bug fix: DM "new conversation" flow
+
+Clicking a user in the "New Message" search dialog navigated to
+`/messages/<userId>` and treated the recipient's user id as a
+`dm_conversations` id — which never matched, so the page always showed
+"Conversation not found". Fixed with a "draft mode": the client now
+navigates to `/messages/<userId>?draft=1`, loads the recipient's public
+profile directly instead of a (nonexistent) conversation, and the first
+send goes through `POST /api/messages/dm` (which atomically creates the
+conversation and now returns its real `conversation_id`), after which the
+client swaps the URL to the real conversation id. Mirrored on the
+Capacitor Android app, which previously had no "New Message" flow at all
+(added one). Also fixed along the way: the DM gift picker was calling
+`POST /api/economy/gifts/send` without the required `recipientId` field
+(sent `context`/`conversationId` instead, which the endpoint doesn't
+accept), so sending a gift from an open DM was completely broken; and the
+group-create page rendered a server error object directly as a React
+child (`{error}`) instead of its `.message`, which would crash the page
+on any validation error.
+
+#### Bug fix: Inbox unread state reverting on refresh
+
+`POST /api/inbox/[messageId]/read` updated `admin_message_receipts` using
+columns (`message_id`, `recipient_id`) that don't exist on that table (the
+real columns are the receipt's own `id` and `user_id`), so the read
+timestamp was never actually persisted — the optimistic UI showed "read"
+until the next page load reverted it. Fixed to match the receipt's real
+primary key.
+
+#### Rename: Inbox → Announcements
+
+`/inbox` is now `/announcements` (route, API routes, nav entry, i18n
+namespace) on web/PWA and Android, with a permanent redirect from the old
+path/API routes for existing bookmarks and already-sent push notification
+deep links. The name changed because "Inbox" was easily confused with the
+two-way Messages feature; this is a one-way admin-broadcast view.
+
+#### New Feature: Group Chat hardening (concurrent capacity, creation
+gating, moderation, invitations)
+
+- **Concurrent capacity cap** (default 20, admin-configurable, separate
+  from the existing 300–1000-member total-membership cap): mirrors the
+  Room presence-cap mechanic exactly, including a paid capacity upgrade
+  (creator spends Coins per step, admin sets cost/step and a hard
+  ceiling). New shared primitive `lib/presence/generic.ts`, used by both
+  `lib/presence/room.ts` (refactored, same public API) and the new
+  `lib/presence/group.ts`.
+- **Who can create group chats**, admin-configurable per plan/business
+  tier (`manifest.groupChatCreationLimits`): Free/Plus blocked by default,
+  Pro 3, Max 10, Business Starter/Growth/Enterprise 5/10/20 concurrently-
+  active groups; Guild owners (founders) always get at least one
+  regardless of plan.
+- **No rewards for posting** in a group chat (XP, quest progress, and
+  guild-war contribution were all removed from the send path) — the one
+  exception is a Business account group creator's configurable one-time
+  join credit (never on rejoin) and/or first-N-messages credit, both paid
+  via the existing Coins ledger with idempotent references.
+- **Moderation:** admin can suspend ("mute") a member for a fixed duration
+  (30m/1h/3h/1d/3d/7d/30d) or lift it early; admin can remove any member;
+  a member can leave; a user can block a group entirely (new
+  `group_chat_blocks` table, mirrors `user_blocks`).
+- **Invitations:** admin + admin-selected participants can invite by
+  default, or any member if the group/manifest allows; gated by a new
+  per-user privacy setting (`users.group_invite_privacy`: anybody/friends/
+  nobody, default friends) with the PRD-specified denial copy.
+- **Grace-period deactivation & reactivation:** "group_chats" joins the
+  grace-preservable feature registry — a creator's groups deactivate once
+  their subscription's grace period fully elapses (not immediately on
+  lapse), and on renewal they're prompted to reactivate each one
+  individually.
+- New admin config section at `/gate44/config` ("Group Chats") for all of
+  the above numeric/boolean settings, seeded with defaults by the
+  migration below.
+- New migration: `db/migrations/0035_group_chats_v2.sql` (new columns on
+  `users`, `group_chats`, `group_chat_members`; new tables
+  `group_chat_blocks`, `group_chat_reactivation_choices`; seeded
+  `x_manifest` rows for the new admin settings).
+- **Not ported to Android in this pass** — group chats have no Capacitor
+  screens at all yet (pre-existing gap, tracked in the "Not yet done"
+  list above); this hardening work is backend + web/PWA only.
+
+---
+
+*ZobiaSocial PRD v2.18*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

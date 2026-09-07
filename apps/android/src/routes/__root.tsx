@@ -225,7 +225,7 @@ function AppShell() {
     if (pathname.startsWith('/gifts')) return t('gifts.title');
     if (pathname.startsWith('/wallet')) return t('wallet.title');
     if (pathname.startsWith('/events')) return t('events.title');
-    if (pathname.startsWith('/inbox')) return t('inbox.title');
+    if (pathname.startsWith('/announcements')) return t('announcements.title');
     if (pathname.startsWith('/elder')) return t('elder.title');
     if (pathname.startsWith('/referrals')) return t('referrals.title');
     if (pathname.startsWith('/classroom')) return t('classroom.title');

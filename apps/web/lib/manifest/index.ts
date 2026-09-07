@@ -268,6 +268,41 @@ export interface ZobiaManifest {
     /** Absolute ceiling a room's cap can be raised to. */
     hardMax: number;
   };
+  /**
+   * Group chats: soft concurrent-participant cap (enforced against live
+   * presence, mirroring roomCaps/roomCapacityUpgrade above — NOT the hard
+   * total-membership cap enforced at creation/add time, see
+   * groupChatCreationLimits below).
+   */
+  groupChatCaps: {
+    /** Default concurrent cap for a new group (admin configurable). */
+    concurrentDefault: number;
+  };
+  /** Paid capacity upgrade — the group creator spends coins to raise the concurrent cap. */
+  groupChatCapacityUpgrade: {
+    stepSlots: number;
+    costCoinsPerStep: number;
+    hardMax: number;
+  };
+  /**
+   * How many *concurrently active* group chats each plan/business tier may
+   * create (0 = cannot create groups). Guild owners/founders may always
+   * create groups regardless of their personal plan.
+   */
+  groupChatCreationLimits: {
+    free: number;
+    plus: number;
+    pro: number;
+    max: number;
+    businessStarter: number;
+    businessGrowth: number;
+    businessEnterprise: number;
+  };
+  /** Group invitation defaults. */
+  groupChatInvite: {
+    /** When true, any member may invite others (subject to invitee privacy). Default: only the group admin and participants the admin selects. */
+    anyMemberCanInvite: boolean;
+  };
   deepLinkBaseUrl: string;
   updatedAt?: number;
   // Payment
@@ -504,6 +539,26 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     stepSlots: 25,
     costCoinsPerStep: 500,
     hardMax: 1000,
+  },
+  groupChatCaps: {
+    concurrentDefault: 20,
+  },
+  groupChatCapacityUpgrade: {
+    stepSlots: 10,
+    costCoinsPerStep: 300,
+    hardMax: 300,
+  },
+  groupChatCreationLimits: {
+    free: 0,
+    plus: 0,
+    pro: 3,
+    max: 10,
+    businessStarter: 5,
+    businessGrowth: 10,
+    businessEnterprise: 20,
+  },
+  groupChatInvite: {
+    anyMemberCanInvite: false,
   },
   deepLinkBaseUrl: "https://zobia.app",
   payment: {
@@ -917,6 +972,26 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       stepSlots:        parseInt10(kv["room_capacity_upgrade_step"],     DEFAULT_MANIFEST.roomCapacityUpgrade.stepSlots),
       costCoinsPerStep: parseInt10(kv["room_capacity_upgrade_cost"],     DEFAULT_MANIFEST.roomCapacityUpgrade.costCoinsPerStep),
       hardMax:          parseInt10(kv["room_capacity_hard_max"],         DEFAULT_MANIFEST.roomCapacityUpgrade.hardMax),
+    },
+    groupChatCaps: {
+      concurrentDefault: parseInt10(kv["group_chat_concurrent_cap"], DEFAULT_MANIFEST.groupChatCaps.concurrentDefault),
+    },
+    groupChatCapacityUpgrade: {
+      stepSlots:        parseInt10(kv["group_chat_capacity_upgrade_step"], DEFAULT_MANIFEST.groupChatCapacityUpgrade.stepSlots),
+      costCoinsPerStep: parseInt10(kv["group_chat_capacity_upgrade_cost"], DEFAULT_MANIFEST.groupChatCapacityUpgrade.costCoinsPerStep),
+      hardMax:          parseInt10(kv["group_chat_capacity_hard_max"],    DEFAULT_MANIFEST.groupChatCapacityUpgrade.hardMax),
+    },
+    groupChatCreationLimits: {
+      free:              parseInt10(kv["group_chat_limit_free"],              DEFAULT_MANIFEST.groupChatCreationLimits.free),
+      plus:              parseInt10(kv["group_chat_limit_plus"],              DEFAULT_MANIFEST.groupChatCreationLimits.plus),
+      pro:               parseInt10(kv["group_chat_limit_pro"],               DEFAULT_MANIFEST.groupChatCreationLimits.pro),
+      max:               parseInt10(kv["group_chat_limit_max"],               DEFAULT_MANIFEST.groupChatCreationLimits.max),
+      businessStarter:   parseInt10(kv["group_chat_limit_business_starter"],  DEFAULT_MANIFEST.groupChatCreationLimits.businessStarter),
+      businessGrowth:    parseInt10(kv["group_chat_limit_business_growth"],   DEFAULT_MANIFEST.groupChatCreationLimits.businessGrowth),
+      businessEnterprise:parseInt10(kv["group_chat_limit_business_enterprise"], DEFAULT_MANIFEST.groupChatCreationLimits.businessEnterprise),
+    },
+    groupChatInvite: {
+      anyMemberCanInvite: parseBool(kv["group_chat_any_member_can_invite"], DEFAULT_MANIFEST.groupChatInvite.anyMemberCanInvite),
     },
     deepLinkBaseUrl: unquote(kv["deep_link_base_url"]) ?? DEFAULT_MANIFEST.deepLinkBaseUrl,
     payment: {

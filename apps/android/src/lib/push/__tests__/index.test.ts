@@ -43,7 +43,7 @@ describe("isAllowedRoute", () => {
   });
 
   it("allows known static routes", () => {
-    for (const route of ["/home", "/wallet", "/notifications", "/friends", "/inbox", "/council"]) {
+    for (const route of ["/home", "/wallet", "/notifications", "/friends", "/announcements", "/council"]) {
       expect(isAllowedRoute(route)).toBe(true);
     }
   });

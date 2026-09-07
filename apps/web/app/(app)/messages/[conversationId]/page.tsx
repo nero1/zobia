@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useParams, useRouter } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { getPidginSuggestions, isPidginLocale } from "@/lib/i18n/pidgin";
@@ -291,6 +291,7 @@ function MessageBubble({
 // ---------------------------------------------------------------------------
 
 function GifPicker({ onSelect, onClose }: { onSelect: (url: string) => void; onClose: () => void }) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<GifResult[]>([]);
   const [loading, setLoading] = useState(false);
@@ -321,15 +322,15 @@ function GifPicker({ onSelect, onClose }: { onSelect: (url: string) => void; onC
   return (
     <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
-        <span className="text-xs font-semibold text-neutral-500">GIFs</span>
-        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close GIF picker">✕</button>
+        <span className="text-xs font-semibold text-neutral-500">{t("messages.gifPicker.title")}</span>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label={t("messages.gifPicker.close")}>✕</button>
       </div>
       <div className="p-2">
         <input
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search GIFs…"
+          placeholder={t("messages.gifPicker.searchPlaceholder")}
           className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-xs focus:border-blue-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
           autoFocus
         />
@@ -341,7 +342,7 @@ function GifPicker({ onSelect, onClose }: { onSelect: (url: string) => void; onC
           ))
         ) : results.length === 0 ? (
           <div className="col-span-3 py-6 text-center text-xs text-neutral-400">
-            {query ? "No GIFs found" : "Type to search GIFs"}
+            {query ? t("messages.gifPicker.noResults") : t("messages.gifPicker.typeToSearch")}
           </div>
         ) : (
           results.map((gif) => (
@@ -366,6 +367,7 @@ function GifPicker({ onSelect, onClose }: { onSelect: (url: string) => void; onC
 // ---------------------------------------------------------------------------
 
 function StickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) => void; onClose: () => void }) {
+  const { t } = useTranslation();
   const [packs, setPacks] = useState<StickerPack[]>([]);
   const [activePack, setActivePack] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -399,8 +401,8 @@ function StickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) => voi
   return (
     <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
-        <span className="text-xs font-semibold text-neutral-500">Stickers</span>
-        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close sticker picker">✕</button>
+        <span className="text-xs font-semibold text-neutral-500">{t("messages.stickerPicker.title")}</span>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label={t("messages.stickerPicker.close")}>✕</button>
       </div>
 
       {loading ? (
@@ -409,9 +411,9 @@ function StickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) => voi
         </div>
       ) : packs.length === 0 ? (
         <div className="p-4 text-center">
-          <p className="text-xs text-neutral-500">No sticker packs unlocked yet.</p>
+          <p className="text-xs text-neutral-500">{t("messages.stickerPicker.noneUnlocked")}</p>
           <Link href="/stickers" className="mt-1 block text-xs font-semibold text-blue-600 hover:underline">
-            Browse Stickers →
+            {t("messages.stickerPicker.browse")}
           </Link>
         </div>
       ) : (
@@ -457,12 +459,12 @@ function StickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) => voi
 // ---------------------------------------------------------------------------
 
 function GiftPicker({
-  conversationId,
+  recipientUserId,
   recipientUsername,
   onSent,
   onClose,
 }: {
-  conversationId: string;
+  recipientUserId: string;
   recipientUsername: string;
   onSent: (giftName: string, giftEmoji: string, coinValue: number) => void;
   onClose: () => void;
@@ -496,8 +498,7 @@ function GiftPicker({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           giftItemId: gift.id,
-          context: "dm",
-          conversationId,
+          recipientId: recipientUserId,
         }),
       });
       if (!res.ok) {
@@ -520,8 +521,10 @@ function GiftPicker({
   return (
     <div className="absolute bottom-full right-0 z-20 mb-2 w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
-        <span className="text-xs font-semibold text-neutral-500">Send a Gift to @{recipientUsername}</span>
-        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close gift picker">✕</button>
+        <span className="text-xs font-semibold text-neutral-500">
+          {t("messages.giftPicker.title", { username: recipientUsername })}
+        </span>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label={t("messages.giftPicker.close")}>✕</button>
       </div>
 
       {error && (
@@ -563,7 +566,12 @@ function GiftPicker({
 export default function DMConversationPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const conversationId = params.conversationId as string;
+  // "Draft" mode: the route param is actually the recipient's user id, not a
+  // real dm_conversations row yet. Set by the "New Message" flow — no
+  // conversation exists until the first message is successfully sent.
+  const [isDraft, setIsDraft] = useState(() => searchParams.get("draft") === "1");
   const currency = useCurrency();
   const { t } = useTranslation();
 
@@ -631,12 +639,44 @@ export default function DMConversationPage() {
   }, []);
 
   useEffect(() => {
+    if (isDraft) {
+      // Draft mode: `conversationId` is the intended recipient's user id.
+      // Load their public profile directly — no dm_conversations row exists
+      // until the first message is sent.
+      (async () => {
+        try {
+          const res = await fetch(`/api/users/${conversationId}`, { credentials: "include" });
+          if (res.status === 401) { router.push("/auth/login"); return; }
+          if (!res.ok) throw new Error(t("messages.conversation.userNotFound"));
+          const data = (await res.json()) as {
+            user?: { id: string; username: string | null; display_name: string | null; avatar_emoji: string | null };
+          };
+          if (!data.user) throw new Error(t("messages.conversation.userNotFound"));
+          setConversation({
+            conversationId,
+            participantUserId: data.user.id,
+            participantUsername: data.user.username ?? "",
+            participantDisplayName: data.user.display_name ?? data.user.username ?? "",
+            participantAvatarEmoji: data.user.avatar_emoji ?? "👤",
+            dmCoinCost: null,
+          });
+          setOtherUserId(data.user.id);
+          setMessages([]);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : t("messages.conversation.loadError"));
+        } finally {
+          setLoadingConversation(false);
+          setLoadingMessages(false);
+        }
+      })();
+      return;
+    }
     // The messages endpoint now returns conversation metadata too — one fetch does both
     (async () => {
       try {
         const res = await fetch(`/api/messages/dm/${conversationId}`, { credentials: "include" });
         if (res.status === 401) { router.push("/auth/login"); return; }
-        if (!res.ok) throw new Error("Conversation not found");
+        if (!res.ok) throw new Error(t("messages.conversation.notFound"));
         const data = (await res.json()) as {
           conversation?: ConversationInfo & { score?: number };
           items?: Record<string, unknown>[];
@@ -654,15 +694,16 @@ export default function DMConversationPage() {
         // PRD §5: gate link previews until recipient has replied ≥2 times
         if (typeof data.linkPreviewsEnabled === "boolean") setLinkPreviewsEnabled(data.linkPreviewsEnabled);
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Error loading conversation");
+        setError(e instanceof Error ? e.message : t("messages.conversation.loadError"));
       } finally {
         setLoadingConversation(false);
         setLoadingMessages(false);
       }
     })();
-  }, [conversationId, router]);
+  }, [conversationId, router, isDraft]);
 
   const fetchConnectionBadge = useCallback(async () => {
+    if (isDraft) return;
     try {
       const res = await fetch(`/api/messages/dm/${conversationId}/connection-badge`, { credentials: "include" });
       if (!res.ok) return;
@@ -674,11 +715,11 @@ export default function DMConversationPage() {
       }
       if (typeof data.score === "number") setConvScore(data.score);
     } catch { /* non-fatal */ }
-  }, [conversationId]);
+  }, [conversationId, isDraft]);
 
   // Fetch conversation score separately (in case not included in conversation payload)
   const fetchConvScore = useCallback(async () => {
-    if (!conversation) return;
+    if (!conversation || isDraft) return;
     try {
       const res = await fetch(
         `/api/messages/dm?other=${conversation.participantUserId}&score=true`,
@@ -689,7 +730,7 @@ export default function DMConversationPage() {
       const s = data.score ?? data.convScore ?? 0;
       if (typeof s === "number" && s > 0) setConvScore(s);
     } catch { /* non-fatal */ }
-  }, [conversation]);
+  }, [conversation, isDraft]);
 
   useEffect(() => { void fetchConnectionBadge(); }, [fetchConnectionBadge]);
   useEffect(() => { void fetchConvScore(); }, [fetchConvScore]);
@@ -714,6 +755,8 @@ export default function DMConversationPage() {
   }, []);
 
   const fetchMessages = useCallback(async (): Promise<boolean> => {
+    // Draft mode has no real conversation to poll yet.
+    if (isDraft) return false;
     try {
       // Delta fetch after the first load — only messages newer than the latest.
       // The conversation-level GET still returns recipientCanReply/otherUserId/meta.
@@ -746,12 +789,14 @@ export default function DMConversationPage() {
     } catch { /* ignore */ return false; } finally {
       setLoadingMessages(false);
     }
-  }, [conversationId, mergeIncoming]);
+  }, [conversationId, mergeIncoming, isDraft]);
 
   // Realtime push — delivers new messages instantly via Ably / Pusher /
   // Supabase Realtime. Supplements the baseline poll; doesn't replace it.
+  // Skipped in draft mode: `conversationId` is a recipient user id, not a
+  // real conversation channel, until the first message is sent.
   const realtimeConnected = useRealtimeChannel(
-    conversationId ? `dm:conversation:${conversationId}` : null,
+    conversationId && !isDraft ? `dm:conversation:${conversationId}` : null,
     useCallback((event: string, data: unknown) => {
       if (event === "new_message") {
         const { message } = (data as { message?: Record<string, unknown> }) ?? {};
@@ -766,7 +811,7 @@ export default function DMConversationPage() {
   const { pokePoll } = useAdaptiveChatPoll({
     poll: fetchMessages,
     connected: realtimeConnected,
-    enabled: !!conversationId,
+    enabled: !!conversationId && !isDraft,
   });
 
   // Close pickers when clicking outside
@@ -801,11 +846,20 @@ export default function DMConversationPage() {
     setMessages((prev) => [...prev, optimisticMsg]);
     setInput("");
     try {
-      const res = await authFetch(`/api/messages/dm/${conversationId}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ content: content.trim(), messageType }),
-      });
+      // Draft mode: no dm_conversations row exists yet, so this first send goes
+      // through the top-level "start a DM" endpoint (which atomically creates
+      // the conversation) instead of the existing-conversation endpoint.
+      const res = isDraft
+        ? await authFetch(`/api/messages/dm`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ recipientId: conversationId, content: content.trim(), messageType }),
+          })
+        : await authFetch(`/api/messages/dm/${conversationId}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: content.trim(), messageType }),
+          });
       if (!res.ok) {
         // Roll back optimistic message on error
         setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
@@ -813,17 +867,21 @@ export default function DMConversationPage() {
         const code = d.error?.code;
         if (code === "INSUFFICIENT_COINS") {
           setCoinError({
-            message: `You need ${d.error?.coinCost ?? "?"} ${currency.softPlural.toLowerCase()} to send this message. You currently have ${d.error?.coinBalance ?? "?"} ${currency.softPlural.toLowerCase()}.`,
+            message: t("messages.coinError.notEnoughCoins", {
+              required: d.error?.coinCost ?? "?",
+              balance: d.error?.coinBalance ?? "?",
+              currency: currency.softPlural.toLowerCase(),
+            }),
             balance: d.error?.coinBalance,
             required: d.error?.coinCost,
           });
           return;
         }
         if (code === "PLAN_RESTRICTION") {
-          setCoinError({ message: "Upgrade to Pro to start new conversations." });
+          setCoinError({ message: t("messages.coinError.cannotInitiate") });
           return;
         }
-        const err = new Error(d.message ?? "Failed to send") as Error & { code?: string | null };
+        const err = new Error(d.message ?? t("messages.conversation.failedToSend")) as Error & { code?: string | null };
         err.code = code ?? null;
         throw err;
       }
@@ -834,19 +892,30 @@ export default function DMConversationPage() {
         setMessages((prev) =>
           prev.map((m) => (m.id === optimisticId ? real : m))
         );
-      } else {
+      } else if (!isDraft) {
         // Server didn't return the message — remove optimistic and refetch
         setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
         await fetchMessages();
       }
-      void fetchConnectionBadge();
-      // Snap the poll back to fast cadence so a reply is picked up promptly.
-      pokePoll();
+      if (isDraft) {
+        // The send just created the real conversation — swap the URL from the
+        // recipient-id placeholder to the real conversationId so refresh,
+        // polling, and realtime all target the persisted conversation.
+        const realConversationId = responseData.message?.conversation_id as string | undefined;
+        if (realConversationId) {
+          setIsDraft(false);
+          router.replace(`/messages/${realConversationId}`);
+        }
+      } else {
+        void fetchConnectionBadge();
+        // Snap the poll back to fast cadence so a reply is picked up promptly.
+        pokePoll();
+      }
     } catch (e) {
       // Roll back optimistic message on error
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       const err = e as Error & { code?: string | null };
-      setError(e instanceof Error ? translateApiError(t, err.code, err.message || "Failed to send") : "Failed to send");
+      setError(e instanceof Error ? translateApiError(t, err.code, err.message || t("messages.conversation.failedToSend")) : t("messages.conversation.failedToSend"));
       setTimeout(() => setError(null), 3000);
     } finally {
       setSending(false);
@@ -917,7 +986,7 @@ export default function DMConversationPage() {
       <div className="flex h-full flex-col items-center justify-center gap-4">
         <p className="text-neutral-500">{error}</p>
         <Link href="/messages" className="text-sm text-blue-600 hover:underline">
-          Back to Messages
+          {t("messages.conversation.backToMessages")}
         </Link>
       </div>
     );
@@ -930,7 +999,7 @@ export default function DMConversationPage() {
         <Link
           href="/messages"
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-          aria-label="Back to messages"
+          aria-label={t("messages.conversation.backToMessages")}
         >
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
@@ -958,7 +1027,7 @@ export default function DMConversationPage() {
                         ? "bg-neutral-200 text-neutral-700 dark:bg-neutral-700 dark:text-neutral-200"
                         : "bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-200"
                     }`}
-                    title={`Connection score: ${connectionBadge.score} · ${connectionBadge.streakDays}-day streak`}
+                    title={t("messages.conversation.connectionScoreTitle", { score: connectionBadge.score, days: connectionBadge.streakDays })}
                   >
                     🔗 {connectionBadge.badgeLabel}
                   </span>
@@ -967,10 +1036,10 @@ export default function DMConversationPage() {
                 {convScore > 0 && (
                   <div
                     className="flex items-center gap-1 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:bg-blue-950/40 dark:text-blue-300"
-                    title="Conversation Score — builds as you message daily"
+                    title={t("messages.conversation.scoreTitle")}
                   >
                     <span>💬</span>
-                    <span>{convScore} pts</span>
+                    <span>{t("messages.conversation.points", { count: convScore })}</span>
                     {convScore >= 250 && <span className="ml-1">🏆</span>}
                     {convScore >= 100 && convScore < 250 && <span className="ml-1">⭐</span>}
                     {convScore >= 50 && convScore < 100 && <span className="ml-1">🔵</span>}
@@ -980,7 +1049,7 @@ export default function DMConversationPage() {
               <p className="text-xs text-neutral-400">
                 @{conversation.participantUsername}
                 {connectionBadge && connectionBadge.streakDays > 0 && (
-                  <span className="ml-2 text-teal-500">{connectionBadge.streakDays}-day streak</span>
+                  <span className="ml-2 text-teal-500">{t("messages.conversation.streakDays", { count: connectionBadge.streakDays })}</span>
                 )}
               </p>
             </div>
@@ -992,7 +1061,7 @@ export default function DMConversationPage() {
       {conversation?.dmCoinCost && conversation.dmCoinCost > 0 && (
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800 dark:bg-amber-950/30">
           <p className="text-xs text-amber-700 dark:text-amber-300">
-            Sending a message costs <span className="font-semibold">{conversation.dmCoinCost} {currency.softPlural.toLowerCase()}</span> per message.
+            {t("messages.conversation.coinCostNotice", { cost: conversation.dmCoinCost, currency: currency.softPlural.toLowerCase() })}
           </p>
         </div>
       )}
@@ -1014,7 +1083,7 @@ export default function DMConversationPage() {
               onClick={() => setCoinError(null)}
               className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
             >
-              Buy {currency.softPlural}
+              {t("messages.coinError.buyCoins", { currency: currency.softPlural })}
             </Link>
             <button onClick={() => setCoinError(null)} className="text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400">✕</button>
           </div>
@@ -1025,13 +1094,13 @@ export default function DMConversationPage() {
       {!recipientCanReply && otherUserId && (
         <div className="flex items-center justify-between border-b border-amber-200 bg-amber-50 px-4 py-2.5 dark:border-amber-800 dark:bg-amber-950/40">
           <p className="text-xs text-amber-700 dark:text-amber-300">
-            This person cannot reply right now — they may not have enough {currency.softPlural.toLowerCase()}.
+            {t("messages.conversation.recipientCannotReply", { currency: currency.softPlural.toLowerCase() })}
           </p>
           <Link
             href={`/wallet?transfer=${otherUserId}`}
             className="ml-3 shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
           >
-            🪙 Gift them {currency.softPlural.toLowerCase()}
+            {t("messages.conversation.giftThemCurrency", { currency: currency.softPlural.toLowerCase() })}
           </Link>
         </div>
       )}
@@ -1041,14 +1110,14 @@ export default function DMConversationPage() {
         ref={feedRef}
         className="min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain p-4"
         aria-live="polite"
-        aria-label="Direct messages"
+        aria-label={t("messages.conversation.ariaLabel")}
       >
         {loadingMessages ? (
           <MessageSkeleton />
         ) : messages.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-neutral-400">
             <span className="text-4xl">💬</span>
-            <p className="mt-2 text-sm">No messages yet. Say hello!</p>
+            <p className="mt-2 text-sm">{t("messages.conversation.sayHello")}</p>
           </div>
         ) : (
           messages.map((msg) => (
@@ -1091,7 +1160,7 @@ export default function DMConversationPage() {
         {showGiftPicker && conversation && (
           <div data-picker="gift">
             <GiftPicker
-              conversationId={conversationId}
+              recipientUserId={conversation.participantUserId}
               recipientUsername={conversation.participantUsername}
               onSent={handleGiftSent}
               onClose={() => setShowGiftPicker(false)}
@@ -1114,10 +1183,10 @@ export default function DMConversationPage() {
                 ? "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200"
                 : "text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
             }`}
-            aria-label="Search GIFs"
-            title="GIF"
+            aria-label={t("messages.gifPicker.searchAriaLabel")}
+            title={t("messages.gifPicker.buttonLabel")}
           >
-            GIF
+            {t("messages.gifPicker.buttonLabel")}
           </button>
 
           {/* Sticker button */}
@@ -1134,8 +1203,8 @@ export default function DMConversationPage() {
                 ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200"
                 : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
             }`}
-            aria-label="Stickers"
-            title="Stickers"
+            aria-label={t("messages.stickerPicker.title")}
+            title={t("messages.stickerPicker.title")}
           >
             😊
           </button>
@@ -1161,7 +1230,7 @@ export default function DMConversationPage() {
             type="text"
             value={input}
             onChange={(e) => handleInputChange(e.target.value)}
-            placeholder="Type a message…"
+            placeholder={t("messages.typeHere")}
             maxLength={1000}
             className="flex-1 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-base focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500"
           />
@@ -1180,8 +1249,8 @@ export default function DMConversationPage() {
                 ? "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-200"
                 : "text-neutral-400 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30"
             }`}
-            aria-label="Send a gift"
-            title="Send Gift"
+            aria-label={t("messages.giftPicker.sendAriaLabel")}
+            title={t("messages.giftPicker.sendAriaLabel")}
           >
             🎁
           </button>
@@ -1192,7 +1261,7 @@ export default function DMConversationPage() {
             disabled={!input.trim() || sending}
             className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {sending ? "…" : "Send"}
+            {sending ? "…" : t("messages.send")}
           </button>
         </form>
       </div>

@@ -1,9 +1,9 @@
 export const dynamic = 'force-dynamic';
 
 /**
- * app/api/inbox/[messageId]/read/route.ts
+ * app/api/announcements/[messageId]/read/route.ts
  *
- * POST /api/inbox/[messageId]/read — Mark an admin message as read.
+ * POST /api/announcements/[messageId]/read — Mark an admin message as read.
  *
  * Idempotent — calling this on an already-read message returns 200.
  */
@@ -15,7 +15,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
-// POST /api/inbox/[messageId]/read
+// POST /api/announcements/[messageId]/read
 // ---------------------------------------------------------------------------
 
 /**
@@ -39,14 +39,19 @@ export const POST = withAuth(
 
       const { messageId } = params;
 
+      // NOTE: `messageId` here is the admin_message_receipts row's own `id`
+      // (what GET /api/announcements returns as `id` and the client tracks per-item),
+      // not `admin_message_id` — each user has their own receipt row per
+      // broadcast message, so scoping by receipt id + user_id is both
+      // correct and redundant-safe (a receipt can only belong to one user).
       const { rows } = await db.query<{
         read_at: string;
       }>(
         `UPDATE admin_message_receipts
          SET read_at = COALESCE(read_at, NOW()),
              delivered_at = COALESCE(delivered_at, NOW())
-         WHERE message_id = $1
-           AND recipient_id = $2
+         WHERE id = $1
+           AND user_id = $2
          RETURNING read_at`,
         [messageId, auth.user.sub]
       );

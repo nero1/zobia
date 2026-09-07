@@ -82,6 +82,7 @@ interface NewMessageDialogProps {
 }
 
 function NewMessageDialog({ onClose, onOpen }: NewMessageDialogProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<UserSearchResult[]>([]);
   const [searching, setSearching] = useState(false);
@@ -108,17 +109,17 @@ function NewMessageDialog({ onClose, onOpen }: NewMessageDialogProps) {
       className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4 sm:items-center"
       role="dialog"
       aria-modal="true"
-      aria-label="New message"
+      aria-label={t("messages.dialog.title")}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
       <div className="w-full max-w-md overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-4 dark:border-neutral-800">
-          <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-50">New Message</h2>
+          <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-50">{t("messages.dialog.title")}</h2>
           <button
             onClick={onClose}
             className="flex h-7 w-7 items-center justify-center rounded-full text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            aria-label="Close dialog"
+            aria-label={t("action.close")}
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -133,7 +134,7 @@ function NewMessageDialog({ onClose, onOpen }: NewMessageDialogProps) {
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by username…"
+            placeholder={t("messages.dialog.searchPlaceholder")}
             className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500"
           />
         </div>
@@ -146,7 +147,9 @@ function NewMessageDialog({ onClose, onOpen }: NewMessageDialogProps) {
             </div>
           )}
           {!searching && query.trim() && results.length === 0 && (
-            <p className="px-4 py-6 text-center text-sm text-neutral-400">No users found for &quot;{query.trim()}&quot;</p>
+            <p className="px-4 py-6 text-center text-sm text-neutral-400">
+              {t("messages.dialog.noResults", { query: query.trim() })}
+            </p>
           )}
           {results.map((u) => (
             <button
@@ -249,9 +252,12 @@ export default function MessagesPage() {
   }, [conversations, searchQuery]);
 
   function handleOpenUser(userId: string) {
-    // Navigate to DM conversation — use userId as conversationId until resolved
+    // No dm_conversations row exists yet for a brand-new recipient. Navigate
+    // in "draft" mode — the conversation page treats `userId` as the intended
+    // recipient and only creates the real conversation once the first
+    // message is actually sent (see DMConversationPage `isDraft` handling).
     setShowNewMessage(false);
-    router.push(`/messages/${userId}`);
+    router.push(`/messages/${userId}?draft=1`);
   }
 
   return (
@@ -259,19 +265,19 @@ export default function MessagesPage() {
       <div className="mx-auto w-full max-w-2xl">
         {/* Header */}
         <div className="mb-4 flex items-center justify-between px-1">
-          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Messages</h1>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("messages.title")}</h1>
           <div className="flex items-center gap-2">
             <Link
               href="/messages/groups"
               className="rounded-xl border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
-              👥 Groups
+              {t("messages.groups")}
             </Link>
             <button
               onClick={() => setShowNewMessage(true)}
               className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
             >
-              + New Message
+              {t("messages.newMessage")}
             </button>
           </div>
         </div>
@@ -286,7 +292,7 @@ export default function MessagesPage() {
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search conversations…"
+              placeholder={t("messages.search.placeholder")}
               className="w-full rounded-xl border border-neutral-300 bg-white py-2.5 pl-9 pr-4 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-100 dark:placeholder-neutral-500"
             />
           </div>
@@ -307,12 +313,12 @@ export default function MessagesPage() {
             <div className="px-6 py-16 text-center">
               <span className="text-4xl">💬</span>
               <p className="mt-3 text-base font-semibold text-neutral-700 dark:text-neutral-300">
-                {searchQuery.trim() ? "No conversations match your search" : "No messages yet"}
+                {searchQuery.trim() ? t("messages.noSearchResults") : t("messages.noConversations")}
               </p>
               <p className="mt-1 text-sm text-neutral-400">
                 {searchQuery.trim()
-                  ? "Try a different name or keyword"
-                  : "Start a conversation by clicking \"New Message\""}
+                  ? t("messages.noSearchResultsHint")
+                  : t("messages.noConversationsHint")}
               </p>
             </div>
           ) : (
@@ -344,7 +350,7 @@ export default function MessagesPage() {
                       <span className="shrink-0 text-xs text-neutral-400">{timeAgo(c.lastMessageAt)}</span>
                     </div>
                     <p className={`truncate text-sm ${c.unreadCount > 0 ? "font-medium text-neutral-700 dark:text-neutral-300" : "text-neutral-500"}`}>
-                      {c.lastMessage || "No messages yet"}
+                      {c.lastMessage || t("messages.noMessagesYet")}
                     </p>
                   </div>
                 </Link>
@@ -360,7 +366,7 @@ export default function MessagesPage() {
               disabled={loadingMore}
               className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
-              {loadingMore ? "Loading…" : "Load more"}
+              {loadingMore ? t("action.loading") : t("messages.loadMore")}
             </button>
           </div>
         )}

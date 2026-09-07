@@ -7,7 +7,10 @@ export const dynamic = 'force-dynamic';
  *
  * POST /api/messages/group — Create a new group chat
  *   - Creator becomes the first admin member
- *   - Enforces max 1,000 members (Max plan)
+ *   - Enforces max total-membership size (plan-based, PRD §3/§5)
+ *   - Enforces how many *concurrently active* groups the creator's plan/
+ *     business tier/guild-ownership allows them to create (admin
+ *     configurable via manifest.groupChatCreationLimits)
  *
  * GET /api/messages/group — List group chats the current user belongs to
  */
@@ -16,14 +19,17 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
-import { handleApiError, badRequest } from "@/lib/api/errors";
+import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { resolveGroupCreationEligibility } from "@/lib/groupChats/eligibility";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Plan-based group chat member limits (PRD §3). */
+/** Plan-based group chat TOTAL MEMBERSHIP limits (PRD §3/§5) — distinct from
+ *  the concurrent-presence cap (manifest.groupChatCaps) and the
+ *  how-many-groups-can-I-create limit (manifest.groupChatCreationLimits). */
 const PLAN_GROUP_LIMITS: Record<string, number> = {
   free:  300,
   plus:  400,
@@ -80,6 +86,7 @@ interface GroupChatRow {
   last_message_at: string;
 }
 
+
 // ---------------------------------------------------------------------------
 // POST /api/messages/group
 // ---------------------------------------------------------------------------
@@ -97,12 +104,30 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, createGroupSchema);
 
     // Fetch the creator's plan for group size enforcement
-    const { rows: planRows } = await db.query<{ plan: string }>(
-      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 LIMIT 1`,
+    const { rows: planRows } = await db.query<{ plan: string; is_admin: boolean }>(
+      `SELECT COALESCE(plan, 'free') AS plan, COALESCE(is_admin, false) AS is_admin FROM users WHERE id = $1 LIMIT 1`,
       [auth.user.sub]
     );
     const userPlan = planRows[0]?.plan ?? "free";
+    const isAdmin = planRows[0]?.is_admin ?? false;
     const maxGroupMembers = PLAN_GROUP_LIMITS[userPlan] ?? PLAN_GROUP_LIMITS.free;
+
+    // Who-can-create-groups gating (admin configurable via manifest.groupChatCreationLimits)
+    if (!isAdmin) {
+      const eligibility = await resolveGroupCreationEligibility(auth.user.sub);
+      if (eligibility.limit <= 0) {
+        throw forbidden(
+          "Your plan does not allow creating group chats. Upgrade to Pro, Max, a Business account, or found a Guild.",
+          "GROUP_CREATION_NOT_ALLOWED"
+        );
+      }
+      if (!eligibility.allowed) {
+        throw forbidden(
+          `You've reached your limit of ${eligibility.limit} active group chat(s) for your plan.`,
+          "GROUP_CREATION_LIMIT_REACHED"
+        );
+      }
+    }
 
     // Deduplicate and filter out the creator from memberIds
     const uniqueMembers = [
@@ -128,6 +153,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     }
 
+    // Business creator info (for ad suppression + join/message credit config eligibility)
+    const { rows: bizRows } = await db.query<{ tier: string | null }>(
+      `SELECT tier FROM business_accounts WHERE user_id = $1 AND status = 'active' LIMIT 1`,
+      [auth.user.sub]
+    );
+    const businessTier = bizRows[0]?.tier ?? null;
+
     const group = await db.transaction(async (tx) => {
       // Create group chat record
       const { rows: groupRows } = await tx.query<{
@@ -142,8 +174,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         created_at: string;
         updated_at: string;
       }>(
-        `INSERT INTO group_chats (name, creator_id, avatar_emoji, tag, member_count, max_members)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO group_chats
+           (name, creator_id, avatar_emoji, tag, member_count, max_members,
+            creator_plan_at_creation, creator_business_tier_at_creation, is_business)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          RETURNING id, name, creator_id, avatar_emoji, tag, member_count, max_members,
                    is_active, created_at, updated_at`,
         [
@@ -153,6 +187,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           body.tag ?? null,
           uniqueMembers.length + 1, // creator + initial members
           maxGroupMembers,
+          userPlan,
+          businessTier,
+          businessTier !== null,
         ]
       );
 
@@ -161,8 +198,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       // Add creator as admin
       await tx.query(
-        `INSERT INTO group_chat_members (group_chat_id, user_id, role)
-         VALUES ($1, $2, 'admin')`,
+        `INSERT INTO group_chat_members (group_chat_id, user_id, role, can_invite)
+         VALUES ($1, $2, 'admin', TRUE)`,
         [group.id, auth.user.sub]
       );
 
@@ -194,7 +231,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
 /**
  * Return the list of group chats the authenticated user belongs to.
- * Sorted by most recent activity descending.
+ * Sorted by most recent activity descending. Deactivated groups (grace
+ * period lapsed) are excluded — see lib/plans/groupChatSweep.ts.
  */
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
@@ -226,6 +264,11 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
        FROM group_chats gc
        JOIN group_chat_members gcm ON gcm.group_chat_id = gc.id AND gcm.user_id = $1
        WHERE gc.is_active = TRUE
+         AND gc.is_deactivated = FALSE
+         AND NOT EXISTS (
+           SELECT 1 FROM group_chat_blocks b
+           WHERE b.group_chat_id = gc.id AND b.user_id = $1
+         )
          ${cursorClause}
        ORDER BY gc.updated_at DESC
        LIMIT $2`,

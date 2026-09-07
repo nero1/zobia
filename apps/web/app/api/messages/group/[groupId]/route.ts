@@ -8,25 +8,24 @@ export const dynamic = 'force-dynamic';
  * (profanity, duplicate-message, bot-velocity) also runs for non-admins,
  * matching the room-messages route.
  *
- * XP: Awards 2 XP (social track) per message, capped at 50 messages/day,
- * via the shared safeAwardXP DLQ-backed helper.
+ * Rewards: posting in a group chat earns NO XP, quest progress, or guild-war
+ * contribution — group chats are plain utility chat. The one deliberate
+ * exception (PRD): a Business account group creator may configure a one-time
+ * credit on first join and/or a per-message credit for a member's first N
+ * messages in the group — see maybeAwardBusinessMessageCredit() below.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { withAuth, validateBody } from '@/lib/api/middleware';
-import { forbidden, badRequest } from '@/lib/api/errors';
+import { forbidden, badRequest, notFound } from '@/lib/api/errors';
 import { db } from '@/lib/db';
 import { filterPublicContent } from '@/lib/messaging/antispam';
 import { applyAutoModeration } from '@/lib/moderation/contentFilter';
-import { XP_VALUES, ROOM_MESSAGE_XP_DAILY_CAP } from '@/lib/xp/engine';
-import { safeAwardXP } from '@/lib/xp/safeAwardXP';
+import { creditCoins } from '@/lib/economy/coins';
 import { enforceRateLimit, RATE_LIMITS } from '@/lib/security/rateLimit';
-import { recordWarContribution } from '@/lib/guilds/recordWarContribution';
 import { publishRealtimeEvent } from '@/lib/realtime';
 import { notifyGroupMessage } from '@/lib/notifications/chatPush';
-import { triggerActivityQuestProgress } from '@/lib/quests/questEngine';
-import { advanceNewMemberQuestStep } from '@/lib/quests/newMemberQuestEngine';
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -53,46 +52,50 @@ interface GroupMessageRow {
   updated_at: string;
 }
 
+interface GroupRow {
+  name: string;
+  is_active: boolean;
+  is_deactivated: boolean;
+  is_business: boolean;
+  business_message_credit_enabled: boolean;
+  business_message_credit_amount: number | null;
+  business_message_credit_threshold: number | null;
+}
+
 /**
- * Award social XP for a group message, keyed on the message's own UUID so
- * each message gets a unique idempotency reference (GROUP-XP race fix).
- * Non-blocking, capped at 50 messages/day.
+ * Business-configured credit for a member's first N messages in a group
+ * (PRD: "business accounts, the group creator can configure group members
+ * to receive credits ... when they send their first x number of messages").
+ * Awards `business_message_credit_amount` per message until
+ * `credited_message_count` reaches `business_message_credit_threshold`,
+ * then stops — non-blocking, idempotent on the message's own UUID.
  */
-async function maybeAwardGroupMessageXP(groupId: string, messageId: string, userId: string): Promise<number> {
+async function maybeAwardBusinessMessageCredit(group: GroupRow, groupId: string, userId: string, messageId: string): Promise<void> {
+  if (!group.is_business || !group.business_message_credit_enabled) return;
+  const threshold = group.business_message_credit_threshold ?? 0;
+  const amount = group.business_message_credit_amount ?? 0;
+  if (threshold <= 0 || amount <= 0) return;
+
   try {
-    const { rows: countRows } = await db.query<{ cnt: string }>(
-      `SELECT COUNT(*) AS cnt
-       FROM messages
-       WHERE group_chat_id = $1
-         AND sender_id = $2
-         AND created_at >= CURRENT_DATE`,
-      [groupId, userId]
+    const { rows } = await db.query<{ credited_message_count: number }>(
+      `UPDATE group_chat_members
+       SET credited_message_count = credited_message_count + 1
+       WHERE group_chat_id = $1 AND user_id = $2 AND credited_message_count < $3
+       RETURNING credited_message_count`,
+      [groupId, userId, threshold],
     );
-    const todayCount = parseInt(countRows[0]?.cnt ?? '0', 10);
-    if (todayCount > ROOM_MESSAGE_XP_DAILY_CAP) return 0;
+    if (!rows[0]) return; // Already past the threshold — no more credits.
 
-    const xp = XP_VALUES.send_message_in_room; // 2 XP
-    await safeAwardXP(userId, xp, 'social', 'group_message', messageId);
-
-    // Award 1 XP to all other active members (active in last 7 days, PRD §10).
-    const { rows: activeMembers } = await db.query<{ user_id: string }>(
-      `SELECT gcm.user_id
-       FROM group_chat_members gcm
-       JOIN users u ON u.id = gcm.user_id
-       WHERE gcm.group_chat_id = $1
-         AND gcm.user_id != $2
-         AND u.last_active_at > NOW() - INTERVAL '7 days'
-         AND u.deleted_at IS NULL`,
-      [groupId, userId]
+    await creditCoins(
+      userId,
+      amount,
+      'group_message_credit',
+      `group_message_credit:${messageId}`,
+      `Message ${rows[0].credited_message_count}/${threshold} in "${group.name}"`,
+      { groupId },
     );
-    await Promise.all(
-      activeMembers.map((m) => safeAwardXP(m.user_id, 1, 'social', 'group_message_member', messageId))
-    );
-
-    return xp;
   } catch (err) {
-    logger.error({ err: err }, '[group:POST] XP award failed (non-fatal):');
-    return 0;
+    logger.error({ err }, '[group:POST] business message credit failed (non-fatal)');
   }
 }
 
@@ -166,12 +169,29 @@ export const POST = withAuth(async (
 
   const body = await validateBody(req, sendGroupMessageSchema);
 
-  // Check membership and role
-  const { rows: memberRows } = await db.query(
-    'SELECT role FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',
+  // Check membership, role, and mute status
+  const { rows: memberRows } = await db.query<{ role: string; muted_until: string | null }>(
+    'SELECT role, muted_until FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',
     [groupId, userId],
   );
   if (!memberRows[0]) throw forbidden('Not a member of this group');
+  if (memberRows[0].muted_until && new Date(memberRows[0].muted_until) > new Date()) {
+    throw forbidden(
+      `You have been suspended from posting in this group until ${new Date(memberRows[0].muted_until).toISOString()}.`,
+      'GROUP_MUTED',
+      { mutedUntil: memberRows[0].muted_until },
+    );
+  }
+
+  const { rows: groupRows } = await db.query<GroupRow>(
+    `SELECT name, is_active, is_deactivated, is_business,
+            business_message_credit_enabled, business_message_credit_amount, business_message_credit_threshold
+     FROM group_chats WHERE id = $1`,
+    [groupId],
+  );
+  const group = groupRows[0];
+  if (!group || !group.is_active) throw notFound('Group not found');
+  if (group.is_deactivated) throw forbidden('This group is deactivated', 'GROUP_DEACTIVATED');
 
   const isAdmin = memberRows[0].role === 'admin';
 
@@ -263,24 +283,9 @@ export const POST = withAuth(async (
     [groupId],
   );
 
-  // Award social XP (non-blocking), then publish reward notification + quest progress
-  maybeAwardGroupMessageXP(groupId, message.id, userId)
-    .then((xp) => {
-      if (xp > 0) {
-        return publishRealtimeEvent(`user:${userId}`, 'reward_earned', {
-          type: 'xp',
-          amount: xp,
-        });
-      }
-    })
-    .catch(() => {});
-  void triggerActivityQuestProgress(userId, 'messages', db);
-  void advanceNewMemberQuestStep(db, userId, 'send_message');
-
-  // Record guild war contribution (non-blocking)
-  recordWarContribution(userId, 'send_message', db).catch((err) => {
-    logger.error({ err: err }, '[group:POST] war contribution failed');
-    });
+  // The only reward posting in a group chat can earn: a Business creator's
+  // configured first-N-messages credit. No XP, quests, or war contribution.
+  void maybeAwardBusinessMessageCredit(group, groupId, userId, message.id);
 
   // Realtime broadcast — push to open clients so group members see new messages
   // instantly (the 3s poll remains the guaranteed-delivery fallback).
@@ -288,18 +293,15 @@ export const POST = withAuth(async (
 
   // Push notification to offline members (excludes the sender + online users).
   void (async () => {
-    const [{ rows: groupRows }, { rows: memberIdRows }] = await Promise.all([
-      db.query<{ name: string }>('SELECT name FROM group_chats WHERE id = $1', [groupId]),
-      db.query<{ user_id: string }>(
-        'SELECT user_id FROM group_chat_members WHERE group_chat_id = $1',
-        [groupId],
-      ),
-    ]);
+    const { rows: memberIdRows } = await db.query<{ user_id: string }>(
+      'SELECT user_id FROM group_chat_members WHERE group_chat_id = $1',
+      [groupId],
+    );
     await notifyGroupMessage({
       memberIds: memberIdRows.map((r) => r.user_id),
       senderId: userId,
       senderName: enriched.display_name || enriched.username || 'Someone',
-      groupName: groupRows[0]?.name ?? 'Group',
+      groupName: group.name,
       text: content,
       groupId,
     });

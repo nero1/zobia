@@ -33,6 +33,7 @@ import {
 } from "@/lib/plans/gracePeriod";
 import { reconcileSavesForUser } from "@/lib/games/saves";
 import { getSaveSlotLimit } from "@/lib/plans/saveSlots";
+import { deactivateGroupsForUser } from "@/lib/plans/groupChatSweep";
 
 export interface SubscriptionSweepResult {
   personalLapsedToGrace: number;
@@ -41,6 +42,7 @@ export interface SubscriptionSweepResult {
   personalSavesPurgedAfterGrace: number;
   businessLapsedToGrace: number;
   businessGraceExpired: number;
+  groupChatsDeactivated: number;
 }
 
 async function purgeUnpreservedSaves(userIds: string[]): Promise<number> {
@@ -64,6 +66,7 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
     personalSavesPurgedAfterGrace: 0,
     businessLapsedToGrace: 0,
     businessGraceExpired: 0,
+    groupChatsDeactivated: 0,
   };
 
   // -------------------------------------------------------------------
@@ -116,6 +119,15 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
       } catch (err) {
         logger.error({ err, userId: row.user_id }, "[subscriptionSweep] Failed to purge post-grace saves");
       }
+
+      try {
+        if (!(await isFeaturePreservedDuringGrace("personal", row.plan, "group_chats"))) {
+          const deactivated = await deactivateGroupsForUser(row.user_id);
+          if (deactivated > 0) result.groupChatsDeactivated += deactivated;
+        }
+      } catch (err) {
+        logger.error({ err, userId: row.user_id }, "[subscriptionSweep] Failed to deactivate group chats");
+      }
     }
   }
 
@@ -139,12 +151,24 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
   }
 
   {
-    const { rowCount } = await db.query(
+    const { rows } = await db.query<{ user_id: string; tier: string }>(
       `UPDATE business_accounts
        SET status = 'lapsed', updated_at = NOW()
-       WHERE status = 'grace' AND grace_period_ends_at < NOW()`
+       WHERE status = 'grace' AND grace_period_ends_at < NOW()
+       RETURNING user_id, tier`
     );
-    result.businessGraceExpired = rowCount ?? 0;
+    result.businessGraceExpired = rows.length;
+
+    for (const row of rows) {
+      try {
+        if (!(await isFeaturePreservedDuringGrace("business", row.tier, "group_chats"))) {
+          const deactivated = await deactivateGroupsForUser(row.user_id);
+          if (deactivated > 0) result.groupChatsDeactivated += deactivated;
+        }
+      } catch (err) {
+        logger.error({ err, userId: row.user_id }, "[subscriptionSweep] Failed to deactivate business group chats");
+      }
+    }
   }
 
   return result;

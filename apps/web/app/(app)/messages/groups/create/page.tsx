@@ -3,7 +3,8 @@
 /**
  * app/(app)/messages/groups/create/page.tsx
  *
- * Create a new group chat (PRD §5 — Group Chats up to 300 members).
+ * Create a new group chat (PRD §5 — Group Chats up to 300 total members,
+ * capacity/creation limits admin-configurable via /gate44/config).
  *
  * - Enter group name (required)
  * - Select a tag: Study Group / Crew / Business
@@ -15,6 +16,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
+import { translateApiError } from "@/lib/i18n/apiErrors";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -36,12 +39,18 @@ interface CreateGroupResponse {
   group: { id: string; name: string };
 }
 
+interface ApiErrorResponse {
+  error?: { code?: string; message?: string };
+  message?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
 
 export default function CreateGroupPage() {
   const router = useRouter();
+  const { t } = useTranslation();
 
   const [groupName, setGroupName] = useState("");
   const [tag, setTag] = useState<"Personal" | "General" | "Study Group" | "Crew" | "Business" | "Other" | "">("");
@@ -89,8 +98,8 @@ export default function CreateGroupPage() {
   // Submit
   // ---------------------------------------------------------------------------
   const handleCreate = useCallback(async () => {
-    if (!groupName.trim()) { setError("Group name is required."); return; }
-    if (selected.size === 0) { setError("Add at least one member."); return; }
+    if (!groupName.trim()) { setError(t("messages.groupCreate.nameRequired")); return; }
+    if (selected.size === 0) { setError(t("messages.groupCreate.memberRequired")); return; }
 
     setCreating(true);
     setError(null);
@@ -106,20 +115,24 @@ export default function CreateGroupPage() {
         }),
       });
 
-      const data = await res.json() as CreateGroupResponse & { error?: string };
+      const data = await res.json() as CreateGroupResponse & ApiErrorResponse;
 
       if (!res.ok) {
-        setError(data.error ?? "Failed to create group.");
+        // handleApiError() responses shape errors as { error: { code, message } },
+        // not a bare string — rendering the object directly crashed this page.
+        const code = data.error?.code ?? null;
+        const fallback = data.error?.message ?? data.message ?? t("messages.groupCreate.failed");
+        setError(translateApiError(t, code, fallback));
         return;
       }
 
       router.push(`/messages/groups/${data.group.id}`);
     } catch {
-      setError("Network error. Please try again.");
+      setError(t("error.networkError"));
     } finally {
       setCreating(false);
     }
-  }, [groupName, tag, selected, router]);
+  }, [groupName, tag, selected, router, t]);
 
   // ---------------------------------------------------------------------------
   // Render
@@ -134,7 +147,7 @@ export default function CreateGroupPage() {
         >
           ←
         </Link>
-        <h1 className="text-xl font-black text-neutral-900 dark:text-white">New Group Chat</h1>
+        <h1 className="text-xl font-black text-neutral-900 dark:text-white">{t("messages.groupCreate.title")}</h1>
       </div>
 
       {/* Error */}
@@ -147,13 +160,13 @@ export default function CreateGroupPage() {
       {/* Group name */}
       <div>
         <label className="mb-1.5 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-          Group name *
+          {t("messages.groupCreate.nameLabel")}
         </label>
         <input
           type="text"
           value={groupName}
           onChange={(e) => setGroupName(e.target.value)}
-          placeholder="Enter a name for this group"
+          placeholder={t("messages.groupCreate.namePlaceholder")}
           maxLength={100}
           className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-white"
         />
@@ -162,21 +175,21 @@ export default function CreateGroupPage() {
       {/* Tag */}
       <div>
         <label className="mb-1.5 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-          Group type
+          {t("messages.groupCreate.typeLabel")}
         </label>
-        <div className="flex gap-2">
-          {(["Personal", "General", "Crew", "Study Group", "Business", "Other"] as const).map((t) => (
+        <div className="flex flex-wrap gap-2">
+          {(["Personal", "General", "Crew", "Study Group", "Business", "Other"] as const).map((tagOption) => (
             <button
-              key={t}
+              key={tagOption}
               type="button"
-              onClick={() => setTag(t === tag ? "" : t)}
+              onClick={() => setTag(tagOption === tag ? "" : tagOption)}
               className={`rounded-full px-4 py-2 text-sm transition-all ${
-                tag === t
+                tag === tagOption
                   ? "bg-amber-400 font-semibold text-neutral-900"
                   : "border border-neutral-200 text-neutral-600 hover:border-amber-300 dark:border-neutral-700 dark:text-neutral-400"
               }`}
             >
-              {t}
+              {t(`messages.groupTypes.${tagOption.toLowerCase().replace(/\s+/g, "")}`, tagOption)}
             </button>
           ))}
         </div>
@@ -185,24 +198,24 @@ export default function CreateGroupPage() {
       {/* Member search */}
       <div>
         <label className="mb-1.5 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-          Add members {selected.size > 0 && <span className="text-amber-600">({selected.size} selected)</span>}
+          {t("messages.groupCreate.addMembers")} {selected.size > 0 && <span className="text-amber-600">({selected.size} {t("messages.groupCreate.selected")})</span>}
         </label>
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search friends…"
+          placeholder={t("messages.groupCreate.searchFriendsPlaceholder")}
           className="mb-2 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-white"
         />
 
         {loadingFriends ? (
-          <div className="py-8 text-center text-sm text-neutral-400">Loading friends…</div>
+          <div className="py-8 text-center text-sm text-neutral-400">{t("messages.groupCreate.loadingFriends")}</div>
         ) : friends.length === 0 ? (
           <div className="py-8 text-center text-sm text-neutral-400">
-            Add some friends first before creating a group.
+            {t("messages.groupCreate.noFriendsYet")}
           </div>
         ) : filteredFriends.length === 0 ? (
-          <div className="py-4 text-center text-sm text-neutral-400">No friends match &quot;{search}&quot;</div>
+          <div className="py-4 text-center text-sm text-neutral-400">{t("messages.groupCreate.noFriendsMatch", { query: search })}</div>
         ) : (
           <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-neutral-200 p-2 dark:border-neutral-700">
             {filteredFriends.map((f) => (
@@ -239,7 +252,7 @@ export default function CreateGroupPage() {
         disabled={creating || !groupName.trim() || selected.size === 0}
         className="w-full rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 hover:bg-amber-500 disabled:opacity-40 transition-colors"
       >
-        {creating ? "Creating group…" : "Create Group 🚀"}
+        {creating ? t("messages.groupCreate.creating") : t("messages.groupCreate.submit")}
       </button>
     </div>
   );

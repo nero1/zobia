@@ -4,7 +4,8 @@
  * Admin Messaging — mirrors apps/web/app/(admin)/admin/messages/page.tsx:
  * a broadcast-message composer (send to all users / by plan / by role / a
  * specific set of users) plus a history of sent messages with per-recipient
- * delivery status. This is the admin broadcast tool, not the user DM inbox.
+ * delivery status. This is the admin broadcast composer, not the recipient-facing
+ * Announcements view (routes/announcements.tsx).
  *
  * GET  /api/admin/messages              → { items, limit, offset } (no envelope)
  * GET  /api/admin/messages/:messageId    → { message, receipts, limit, offset } (no envelope)

@@ -70,6 +70,11 @@ const nextConfig = {
       // /gate44/forum was renamed to /gate44/answers. Keep old bookmarks/links working.
       { source: "/gate44/forum", destination: "/gate44/answers", permanent: true },
       { source: "/gate44/forum/:path*", destination: "/gate44/answers/:path*", permanent: true },
+      // /inbox was renamed to /announcements. Keep old bookmarks/push-notification
+      // deep links (and the matching API routes) working.
+      { source: "/inbox", destination: "/announcements", permanent: true },
+      { source: "/api/inbox", destination: "/api/announcements", permanent: true },
+      { source: "/api/inbox/:path*", destination: "/api/announcements/:path*", permanent: true },
     ];
   },
   images: {
