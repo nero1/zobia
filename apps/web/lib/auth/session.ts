@@ -43,6 +43,8 @@ export interface SessionRecord {
   is_admin: boolean;
   adminSession?: boolean;
   is_moderator?: boolean;
+  is_support?: boolean;
+  is_senior_support?: boolean;
   is_creator?: boolean;
   created_at: string;  // ISO-8601
   /** IP address at login time (for audit). */
@@ -137,6 +139,27 @@ export async function createSession(
 ): Promise<AuthTokens> {
   const sid = randomUUID();
   const manifest = await loadManifest();
+
+  // Always re-read is_support/is_senior_support fresh from the DB at issuance
+  // time, regardless of what (if anything) the caller passed in — this is
+  // the single choke point every login/rotate/restore path funnels through,
+  // so centralizing the lookup here means the claim can never be stale or
+  // client-influenced without touching every call site's own SELECT.
+  // Fails closed (both false) on a DB error, matching getStaffRoles().
+  let is_support = false;
+  let is_senior_support = false;
+  try {
+    const { rows: staffRows } = await db.query<{ is_support: boolean; is_senior_support: boolean }>(
+      `SELECT COALESCE(is_support, false) AS is_support, COALESCE(is_senior_support, false) AS is_senior_support
+       FROM users WHERE id = $1 LIMIT 1`,
+      [user.id]
+    );
+    is_support = Boolean(staffRows[0]?.is_support);
+    is_senior_support = Boolean(staffRows[0]?.is_senior_support);
+  } catch {
+    // fail closed — leave both false
+  }
+
   const ttlRole = (user.is_admin || options.adminSession) ? "admin"
     : user.is_moderator ? "moderator"
     : user.is_creator   ? "creator"
@@ -155,6 +178,8 @@ export async function createSession(
       username: user.username,
       is_admin: user.is_admin,
       is_moderator: user.is_moderator,
+      ...(is_support ? { is_support } : {}),
+      ...(is_senior_support ? { is_senior_support } : {}),
       sid,
       ...(typeof user.onboarding_completed === "boolean"
         ? { onboarding_completed: user.onboarding_completed }
@@ -173,6 +198,8 @@ export async function createSession(
     is_admin: user.is_admin,
     adminSession: options.adminSession,
     is_moderator: user.is_moderator,
+    is_support,
+    is_senior_support,
     is_creator: user.is_creator,
     created_at: new Date().toISOString(),
     ip: options.ip,
@@ -372,11 +399,29 @@ export async function refreshAccessToken(
   // BUG-010 FIX: fetch current email from DB (not from the session record) so
   // that access tokens issued during a refresh always carry the up-to-date email
   // address — even if the user changed it after the session was created.
-  const { rows: emailRows } = await db.query<{ email: string | null }>(
-    `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+  //
+  // Also re-read is_support/is_senior_support fresh here on every refresh
+  // (rather than trusting whatever the Redis session record has cached from
+  // login time). This is what lets a user who is granted `is_support` after
+  // they already have an active session start passing the /gate44/support/*
+  // edge pre-filter on their very next token refresh — no forced logout
+  // required — mirroring the precedent this fix follows (BUG-010's email
+  // freshness) rather than the is_admin/is_moderator pattern above, which
+  // instead relies on `downgrade_moderator` explicitly invalidating sessions
+  // (there is no equivalent forced-logout wired up for is_support yet, so a
+  // fresh-DB-read-on-refresh is the safer default for a newly-added claim).
+  const { rows: staffRows } = await db.query<{
+    email: string | null;
+    is_support: boolean;
+    is_senior_support: boolean;
+  }>(
+    `SELECT email, COALESCE(is_support, false) AS is_support, COALESCE(is_senior_support, false) AS is_senior_support
+     FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [session.uid]
   );
-  const currentEmail = emailRows[0]?.email ?? null;
+  const currentEmail = staffRows[0]?.email ?? null;
+  const currentIsSupport = Boolean(staffRows[0]?.is_support);
+  const currentIsSeniorSupport = Boolean(staffRows[0]?.is_senior_support);
 
   // ZB-24: Rotate refresh token — issue a new one and update the session record
   const [accessToken, newRefreshToken] = await Promise.all([
@@ -386,6 +431,8 @@ export async function refreshAccessToken(
       username: session.username,
       is_admin: session.is_admin,
       is_moderator: session.is_moderator,
+      ...(currentIsSupport ? { is_support: currentIsSupport } : {}),
+      ...(currentIsSeniorSupport ? { is_senior_support: currentIsSeniorSupport } : {}),
       sid: session.sid,
     }, accessTtl),
     signRefreshToken(session.uid, session.sid, refreshTtl),
@@ -395,6 +442,8 @@ export async function refreshAccessToken(
   const newHash = createHash("sha256").update(newRefreshToken).digest("hex");
   const updatedRecord: SessionRecord = {
     ...session,
+    is_support: currentIsSupport,
+    is_senior_support: currentIsSeniorSupport,
     refreshTokenHash: newHash,
     prevRefreshTokenHash: session.refreshTokenHash,
     prevRefreshValidUntil: Date.now() + 30_000,

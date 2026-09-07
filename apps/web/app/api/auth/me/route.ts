@@ -30,11 +30,14 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ user: null }, { status: 401 });
     }
 
-    // is_moderator isn't carried on the access token (unlike is_admin), so
-    // it's looked up fresh here — this is the lightweight identity endpoint
-    // client pages use for role-gated UI (e.g. the leaderboards Plan column).
-    const { rows } = await db.query<{ is_moderator: boolean }>(
-      `SELECT is_moderator FROM users WHERE id = $1`,
+    // is_moderator/is_support/is_senior_support are looked up fresh here
+    // (rather than trusted from the access token) — this is the lightweight
+    // identity endpoint client pages use for role-gated UI (e.g. the
+    // leaderboards Plan column, and the /gate44/support/* client-side
+    // "who am I" checks used alongside the middleware edge pre-filter).
+    const { rows } = await db.query<{ is_moderator: boolean; is_support: boolean; is_senior_support: boolean }>(
+      `SELECT is_moderator, COALESCE(is_support, false) AS is_support, COALESCE(is_senior_support, false) AS is_senior_support
+       FROM users WHERE id = $1`,
       [payload.sub]
     );
 
@@ -45,6 +48,8 @@ export async function GET(req: NextRequest) {
         username: payload.username,
         is_admin: payload.is_admin,
         is_moderator: rows[0]?.is_moderator ?? false,
+        is_support: rows[0]?.is_support ?? false,
+        is_senior_support: rows[0]?.is_senior_support ?? false,
         // Set only while an admin is impersonating this account — see
         // lib/auth/session.ts createSession() and components/admin/ImpersonationBanner.tsx.
         impersonatedBy: payload.impersonated_by ?? null,

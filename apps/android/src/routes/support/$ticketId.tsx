@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 
 interface Message {
@@ -25,6 +26,7 @@ interface Ticket {
 }
 
 function TicketDetailPage() {
+  const { t } = useTranslation();
   const { ticketId } = Route.useParams();
   const qc = useQueryClient();
   const [reply, setReply] = useState('');
@@ -54,7 +56,7 @@ function TicketDetailPage() {
   return (
     <div className="p-4">
       <h1 className="mb-1 text-lg font-bold text-white">{data.ticket.subject}</h1>
-      <p className="mb-4 text-sm text-neutral-500">Status: {data.ticket.status}</p>
+      <p className="mb-4 text-sm text-neutral-500">{t('support.statusLabel', 'Status: {{status}}', { status: t(`support.status.${data.ticket.status}`, data.ticket.status) })}</p>
 
       <div className="mb-4 space-y-3">
         {data.messages.map((m) => (
@@ -64,7 +66,7 @@ function TicketDetailPage() {
               m.sender_type === 'ai' ? 'bg-purple-900/40 text-purple-200' : m.sender_type === 'staff' ? 'bg-primary-900/40 text-primary-200' : 'bg-neutral-800 text-white'
             }`}
           >
-            <p className="mb-1 text-xs font-semibold uppercase opacity-70">{m.sender_type === 'ai' ? 'AI Assistant' : m.sender_type === 'staff' ? 'Support' : 'You'}</p>
+            <p className="mb-1 text-xs font-semibold uppercase opacity-70">{m.sender_type === 'ai' ? t('support.aiAssistant', 'Zobia AI Assistant') : m.sender_type === 'staff' ? t('support.staffReply', 'Support Team') : t('support.you', 'You')}</p>
             <p className="whitespace-pre-wrap">{m.body}</p>
           </div>
         ))}
@@ -72,15 +74,15 @@ function TicketDetailPage() {
 
       {lastIsAi && data.ticket.status !== 'closed' && (
         <button onClick={() => rejectAi.mutate()} className="mb-4 w-full rounded-xl border border-primary-600 px-4 py-2 text-sm font-semibold text-primary-400">
-          This didn&apos;t help — talk to a real person
+          {t('support.talkToHuman', "This didn't help — talk to a real person")}
         </button>
       )}
 
       {data.ticket.status !== 'closed' && (
         <div className="flex gap-2">
-          <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3} placeholder="Type a message…" className="flex-1 rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white" />
+          <textarea value={reply} onChange={(e) => setReply(e.target.value)} rows={3} placeholder={t('support.typeMessage', 'Type a message…')} className="flex-1 rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white" />
           <button onClick={() => sendReply.mutate()} disabled={sendReply.isPending || !reply.trim()} className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-            Send
+            {t('support.send', 'Send')}
           </button>
         </div>
       )}

@@ -16,6 +16,8 @@ export interface OptionalServerUser {
   userId: string;
   isAdmin: boolean;
   isModerator: boolean;
+  isSupport: boolean;
+  isSeniorSupport: boolean;
 }
 
 export async function getOptionalServerUser(): Promise<OptionalServerUser | null> {
@@ -24,7 +26,13 @@ export async function getOptionalServerUser(): Promise<OptionalServerUser | null
     const accessToken = cookieStore.get(ACCESS_TOKEN_COOKIE)?.value;
     if (!accessToken) return null;
     const payload = await verifyAccessToken(accessToken);
-    return { userId: payload.sub, isAdmin: !!payload.is_admin, isModerator: !!payload.is_moderator };
+    return {
+      userId: payload.sub,
+      isAdmin: !!payload.is_admin,
+      isModerator: !!payload.is_moderator,
+      isSupport: !!payload.is_support,
+      isSeniorSupport: !!payload.is_senior_support,
+    };
   } catch {
     return null;
   }

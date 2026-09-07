@@ -8,6 +8,7 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 
 interface Category {
@@ -18,6 +19,7 @@ interface Category {
 }
 
 function HelpHomePage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [q, setQ] = useState('');
   const { data } = useQuery({
@@ -27,14 +29,14 @@ function HelpHomePage() {
 
   return (
     <div className="p-4">
-      <h1 className="mb-4 text-xl font-bold text-white">Help Center</h1>
+      <h1 className="mb-4 text-xl font-bold text-white">{t('help.homeTitle', 'Help Center')}</h1>
 
       <form
         onSubmit={(e) => { e.preventDefault(); if (q.trim()) navigate({ to: '/help/search', search: { q: q.trim() } }); }}
         className="mb-6 flex gap-2"
       >
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the Help Center…" className="flex-1 rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white" />
-        <button type="submit" className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white">Search</button>
+        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={t('help.searchPlaceholder', 'Search the Help Center…')} className="flex-1 rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white" />
+        <button type="submit" className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white">{t('help.search', 'Search')}</button>
       </form>
 
       <div className="grid gap-3">

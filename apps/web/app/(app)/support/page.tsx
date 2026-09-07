@@ -9,6 +9,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 
 interface Ticket {
   id: string;
@@ -28,6 +29,7 @@ const STATUS_BADGE: Record<Ticket["status"], string> = {
 };
 
 export default function MyTicketsPage() {
+  const { t } = useTranslation();
   const [tickets, setTickets] = useState<Ticket[] | null>(null);
   const [disabled, setDisabled] = useState(false);
 
@@ -43,17 +45,17 @@ export default function MyTicketsPage() {
   return (
     <div className="mx-auto max-w-2xl p-4">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">My Tickets</h1>
+        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("support.myTickets", "My Tickets")}</h1>
         {!disabled && (
           <Link href="/support/new" className="rounded-lg bg-primary-600 px-3 py-2 text-sm font-semibold text-white hover:bg-primary-700">
-            New Ticket
+            {t("support.newTicket", "New Ticket")}
           </Link>
         )}
       </div>
 
       {disabled ? (
         <p className="rounded-xl border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          Support tickets aren&apos;t available right now. Try the <Link href="/help" className="text-primary-600 hover:underline">Help Center</Link> instead.
+          {t("support.unavailable", "Support tickets aren't available right now. Try the")} <Link href="/help" className="text-primary-600 hover:underline">{t("help.title", "Help Center")}</Link> {t("support.unavailableSuffix", "instead.")}
         </p>
       ) : tickets === null ? (
         <div className="space-y-2">
@@ -61,17 +63,17 @@ export default function MyTicketsPage() {
         </div>
       ) : tickets.length === 0 ? (
         <p className="rounded-xl border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          No tickets yet. Need help? <Link href="/support/new" className="text-primary-600 hover:underline">Open a ticket</Link>.
+          {t("support.noTicketsPrompt", "No tickets yet. Need help?")} <Link href="/support/new" className="text-primary-600 hover:underline">{t("help.openTicket", "Open a support ticket")}</Link>.
         </p>
       ) : (
         <div className="divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900">
-          {tickets.map((t) => (
-            <Link key={t.id} href={`/support/${t.id}`} className="flex items-center justify-between gap-4 px-4 py-3.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
+          {tickets.map((ticket) => (
+            <Link key={ticket.id} href={`/support/${ticket.id}`} className="flex items-center justify-between gap-4 px-4 py-3.5 hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-50">{t.subject}</p>
-                <p className="text-xs text-neutral-500">{t.message_count} message{t.message_count === 1 ? "" : "s"} · {new Date(t.last_activity_at).toLocaleString()}</p>
+                <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-50">{ticket.subject}</p>
+                <p className="text-xs text-neutral-500">{t("support.messageCount", "{{count}} message", { count: ticket.message_count })} · {new Date(ticket.last_activity_at).toLocaleString()}</p>
               </div>
-              <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_BADGE[t.status]}`}>{t.status}</span>
+              <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_BADGE[ticket.status]}`}>{t(`support.status.${ticket.status}`, ticket.status)}</span>
             </Link>
           ))}
         </div>

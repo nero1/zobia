@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { isAxiosError } from 'axios';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 
 interface Eligibility {
@@ -20,6 +21,7 @@ interface Eligibility {
 }
 
 function NewTicketPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const search = Route.useSearch();
@@ -46,33 +48,37 @@ function NewTicketPage() {
       if (id) navigate({ to: '/support/$ticketId', params: { ticketId: id } });
     },
     onError: (err) => {
-      setError(isAxiosError(err) ? err.response?.data?.error?.message ?? 'Failed to create ticket' : 'Failed to create ticket');
+      const fallback = t('support.createFailed', 'Failed to create ticket');
+      setError(isAxiosError(err) ? err.response?.data?.error?.message ?? fallback : fallback);
     },
   });
 
+  const costAmount = [
+    eligibility && eligibility.costCredits > 0 ? `${eligibility.costCredits} credits` : null,
+    eligibility && eligibility.costStars > 0 ? `${eligibility.costStars} stars` : null,
+  ].filter(Boolean).join(' or ');
+
   return (
     <div className="p-4">
-      <h1 className="mb-1 text-xl font-bold text-white">New Support Ticket</h1>
+      <h1 className="mb-1 text-xl font-bold text-white">{t('support.newTicketTitle', 'New Support Ticket')}</h1>
       {eligibility && !eligibility.freeAccess && !eligibility.blocked && (
         <p className="mb-3 text-sm text-neutral-400">
-          Costs {eligibility.costCredits > 0 && `${eligibility.costCredits} credits`}
-          {eligibility.costCredits > 0 && eligibility.costStars > 0 && ' or '}
-          {eligibility.costStars > 0 && `${eligibility.costStars} stars`}.
+          {t('support.costNotice', 'This will cost {{amount}}.', { amount: costAmount })}
         </p>
       )}
-      {eligibility?.blocked && <p className="mb-3 text-sm text-red-400">Support tickets aren&apos;t available on your current plan.</p>}
+      {eligibility?.blocked && <p className="mb-3 text-sm text-red-400">{t('support.blockedNotice', "Support tickets aren't available on your current plan.")}</p>}
 
       <div className="space-y-3">
         <input
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
-          placeholder="Subject"
+          placeholder={t('support.subject', 'Subject')}
           className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
         />
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder="Describe your issue…"
+          placeholder={t('support.describeIssue', 'Describe your issue…')}
           rows={6}
           className="w-full rounded-xl border border-neutral-700 bg-neutral-900 px-3 py-2 text-sm text-white"
         />
@@ -82,7 +88,7 @@ function NewTicketPage() {
           disabled={createTicket.isPending || !subject.trim() || !message.trim() || eligibility?.blocked}
           className="w-full rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
         >
-          {createTicket.isPending ? 'Submitting…' : 'Submit Ticket'}
+          {createTicket.isPending ? t('support.submitting', 'Submitting…') : t('support.submitTicket', 'Submit Ticket')}
         </button>
       </div>
     </div>

@@ -8,6 +8,7 @@
 
 import { useState, useEffect, useCallback, use } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 
 interface Message {
   id: string;
@@ -27,6 +28,7 @@ interface Ticket {
 }
 
 export default function AdminTicketDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { t } = useTranslation();
   const { id } = use(params);
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -61,11 +63,11 @@ export default function AdminTicketDetailPage({ params }: { params: Promise<{ id
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ body: reply }),
       });
-      if (!res.ok) throw new Error((await res.json())?.error?.message ?? "Failed to send reply");
+      if (!res.ok) throw new Error((await res.json())?.error?.message ?? t("support.admin.sendReplyFailed", "Failed to send reply"));
       setReply("");
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to send reply");
+      setError(e instanceof Error ? e.message : t("support.admin.sendReplyFailed", "Failed to send reply"));
     } finally {
       setSending(false);
     }
@@ -91,7 +93,7 @@ export default function AdminTicketDetailPage({ params }: { params: Promise<{ id
       body: JSON.stringify({ targetUserId: escalateTarget.trim() }),
     });
     if (!res.ok) {
-      setError((await res.json())?.error?.message ?? "Escalation failed");
+      setError((await res.json())?.error?.message ?? t("support.admin.escalationFailed", "Escalation failed"));
       return;
     }
     setEscalateTarget("");
@@ -101,7 +103,7 @@ export default function AdminTicketDetailPage({ params }: { params: Promise<{ id
   if (authorized === false) {
     return (
       <div className="rounded-xl border border-neutral-200 bg-white p-8 text-center dark:border-neutral-800 dark:bg-neutral-900">
-        <p className="text-lg font-semibold text-neutral-700 dark:text-neutral-300">Not authorized</p>
+        <p className="text-lg font-semibold text-neutral-700 dark:text-neutral-300">{t("support.admin.notAuthorized", "Not authorized")}</p>
       </div>
     );
   }
@@ -109,22 +111,22 @@ export default function AdminTicketDetailPage({ params }: { params: Promise<{ id
 
   return (
     <div className="mx-auto max-w-3xl">
-      <Link href="/gate44/support/queue" className="text-sm text-primary-600 hover:underline">&larr; Back to queue</Link>
+      <Link href="/gate44/support/queue" className="text-sm text-primary-600 hover:underline">&larr; {t("support.admin.backToQueue", "Back to queue")}</Link>
       <h1 className="mt-2 mb-1 text-xl font-bold text-neutral-900 dark:text-neutral-50">{ticket.subject}</h1>
-      <p className="mb-4 text-sm text-neutral-500">Status: {ticket.status} {ticket.is_ai_handled ? "· AI-triaged" : ""}</p>
+      <p className="mb-4 text-sm text-neutral-500">{t("support.statusLabel", "Status: {{status}}", { status: t(`support.status.${ticket.status}`, ticket.status) })} {ticket.is_ai_handled ? `· ${t("support.admin.aiTriaged", "AI-triaged")}` : ""}</p>
 
       <div className="mb-4 flex flex-wrap gap-2">
-        <button onClick={() => setStatus("pending")} className="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">Mark Pending</button>
-        <button onClick={() => setStatus("resolved")} className="rounded-lg bg-teal-100 px-3 py-1.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">Mark Resolved</button>
-        <button onClick={() => setStatus("closed")} className="rounded-lg bg-neutral-100 px-3 py-1.5 text-xs font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">Close</button>
+        <button onClick={() => setStatus("pending")} className="rounded-lg bg-amber-100 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">{t("support.admin.markPending", "Mark Pending")}</button>
+        <button onClick={() => setStatus("resolved")} className="rounded-lg bg-teal-100 px-3 py-1.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">{t("support.admin.markResolved", "Mark Resolved")}</button>
+        <button onClick={() => setStatus("closed")} className="rounded-lg bg-neutral-100 px-3 py-1.5 text-xs font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">{t("action.close", "Close")}</button>
         <input
           type="text"
-          placeholder="Escalate to user ID"
+          placeholder={t("support.admin.escalateToUserId", "Escalate to user ID")}
           value={escalateTarget}
           onChange={(e) => setEscalateTarget(e.target.value)}
           className="w-48 rounded-lg border border-neutral-300 bg-white px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800"
         />
-        <button onClick={escalate} className="rounded-lg bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-700 dark:bg-red-900 dark:text-red-300">Escalate</button>
+        <button onClick={escalate} className="rounded-lg bg-red-100 px-3 py-1.5 text-xs font-semibold text-red-700 dark:bg-red-900 dark:text-red-300">{t("support.admin.escalate", "Escalate")}</button>
       </div>
 
       {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
@@ -141,7 +143,7 @@ export default function AdminTicketDetailPage({ params }: { params: Promise<{ id
                 : "bg-neutral-100 text-neutral-900 dark:bg-neutral-800 dark:text-neutral-100"
             }`}
           >
-            <p className="mb-1 text-xs font-semibold uppercase opacity-70">{m.sender_type}</p>
+            <p className="mb-1 text-xs font-semibold uppercase opacity-70">{m.sender_type === "ai" ? t("support.aiAssistant", "Zobia AI Assistant") : m.sender_type === "staff" ? t("support.staffReply", "Support Team") : t("support.you", "You")}</p>
             <p className="whitespace-pre-wrap">{m.body}</p>
           </div>
         ))}
@@ -151,7 +153,7 @@ export default function AdminTicketDetailPage({ params }: { params: Promise<{ id
         <textarea
           value={reply}
           onChange={(e) => setReply(e.target.value)}
-          placeholder="Write a reply…"
+          placeholder={t("support.admin.writeReply", "Write a reply…")}
           rows={3}
           className="flex-1 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
         />
@@ -160,7 +162,7 @@ export default function AdminTicketDetailPage({ params }: { params: Promise<{ id
           disabled={sending || !reply.trim()}
           className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
-          Send
+          {t("support.send", "Send")}
         </button>
       </div>
     </div>

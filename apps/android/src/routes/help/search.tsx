@@ -7,6 +7,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 
 interface SearchResult {
@@ -18,6 +19,7 @@ interface SearchResult {
 }
 
 function HelpSearchPage() {
+  const { t } = useTranslation();
   const { q } = Route.useSearch();
   const { data } = useQuery({
     queryKey: ['help', 'search', q],
@@ -27,10 +29,10 @@ function HelpSearchPage() {
 
   return (
     <div className="p-4">
-      <Link to="/help" className="text-sm text-primary-400 underline">&larr; Help Center</Link>
-      <h1 className="mt-2 mb-4 text-lg font-bold text-white">Search results{q ? ` for "${q}"` : ''}</h1>
+      <Link to="/help" className="text-sm text-primary-400 underline">&larr; {t('help.homeTitle', 'Help Center')}</Link>
+      <h1 className="mt-2 mb-4 text-lg font-bold text-white">{t('help.searchResults', 'Search results')}{q ? ` for "${q}"` : ''}</h1>
 
-      {q && data && data.length === 0 && <p className="text-sm text-neutral-400">No results found.</p>}
+      {q && data && data.length === 0 && <p className="text-sm text-neutral-400">{t('help.noResults', 'No results found. Try a different search, or ask the AI on any doc page.')}</p>}
 
       <div className="space-y-2">
         {(data ?? []).map((r) => (

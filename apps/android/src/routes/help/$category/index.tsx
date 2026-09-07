@@ -6,6 +6,7 @@
 
 import { useQuery } from '@tanstack/react-query';
 import { createFileRoute, Link } from '@tanstack/react-router';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 
 interface Doc {
@@ -20,14 +21,8 @@ interface CategoryResponse {
   docs: Doc[];
 }
 
-const DIFFICULTY_LABEL: Record<Doc['difficulty'], string> = {
-  first_time: 'First Time',
-  beginner: 'Beginner',
-  intermediate: 'Intermediate',
-  advanced: 'Advanced',
-};
-
 function HelpCategoryPage() {
+  const { t } = useTranslation();
   const { category } = Route.useParams();
   const { data } = useQuery({
     queryKey: ['help', 'category', category],
@@ -38,7 +33,7 @@ function HelpCategoryPage() {
 
   return (
     <div className="p-4">
-      <Link to="/help" className="text-sm text-primary-400 underline">&larr; Help Center</Link>
+      <Link to="/help" className="text-sm text-primary-400 underline">&larr; {t('help.homeTitle', 'Help Center')}</Link>
       <h1 className="mt-2 mb-1 text-xl font-bold text-white">{data.category.name}</h1>
       {data.category.description && <p className="mb-4 text-sm text-neutral-400">{data.category.description}</p>}
 
@@ -46,7 +41,7 @@ function HelpCategoryPage() {
         {data.docs.map((doc) => (
           <Link key={doc.id} to="/help/$category/$doc" params={{ category: data.category.slug, doc: doc.slug }} className="block rounded-xl border border-neutral-800 bg-neutral-900 p-3">
             <p className="font-medium text-white">{doc.title}</p>
-            <p className="text-xs text-neutral-500">{DIFFICULTY_LABEL[doc.difficulty]}</p>
+            <p className="text-xs text-neutral-500">{t(`help.difficulty.${doc.difficulty}`, doc.difficulty)}</p>
           </Link>
         ))}
       </div>

@@ -175,6 +175,8 @@ export async function refreshAccessToken(): Promise<string | null> {
               plan: (me.plan ?? 'free') as string,
               is_admin: Boolean(me.is_admin ?? me.isAdmin ?? false),
               is_moderator: Boolean(me.is_moderator ?? me.isModerator ?? false),
+              is_support: Boolean(me.is_support ?? me.isSupport ?? false),
+              is_senior_support: Boolean(me.is_senior_support ?? me.isSeniorSupport ?? false),
               is_creator: Boolean(me.is_creator ?? me.isCreator ?? false),
               avatar_url: (me.avatar_url ?? null) as string | null,
             };

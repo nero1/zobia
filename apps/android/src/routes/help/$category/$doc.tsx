@@ -10,6 +10,7 @@ import { useState } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { isAxiosError } from 'axios';
+import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 
@@ -19,6 +20,7 @@ interface DocResponse {
 }
 
 function AskAi({ docId, docTitle }: { docId: string; docTitle: string }) {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { token } = useAuth();
   const isAuthenticated = !!token;
@@ -29,27 +31,30 @@ function AskAi({ docId, docTitle }: { docId: string; docTitle: string }) {
   const ask = useMutation({
     mutationFn: () => apiClient.post<{ answer: string }>('/help/ask-ai', { question, docId }),
     onSuccess: (res) => setAnswer(res.data.answer),
-    onError: (err) => setError(isAxiosError(err) ? err.response?.data?.error?.message ?? 'AI unavailable' : 'AI unavailable'),
+    onError: (err) => {
+      const fallback = t('help.askAi.unavailable', 'The AI assistant is unavailable right now.');
+      setError(isAxiosError(err) ? err.response?.data?.error?.message ?? fallback : fallback);
+    },
   });
 
   if (!isAuthenticated) {
     return (
       <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 text-center">
-        <p className="mb-3 text-sm text-neutral-400">Log in or sign up to ask the AI assistant or contact a support staff member.</p>
-        <Link to="/auth/login" className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white">Log in</Link>
+        <p className="mb-3 text-sm text-neutral-400">{t('help.askAi.loggedOutPrompt', "Can't find what you're looking for? Log in or sign up to ask the AI assistant or contact a support staff member.")}</p>
+        <Link to="/auth/login" className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white">{t('auth.login', 'Log in')}</Link>
       </div>
     );
   }
 
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
-      <p className="mb-1 text-sm font-semibold text-white">Ask AI</p>
-      <p className="mb-3 text-xs text-neutral-400">Can&apos;t find what you&apos;re looking for? Try asking the AI.</p>
+      <p className="mb-1 text-sm font-semibold text-white">{t('help.askAi.title', 'Ask AI')}</p>
+      <p className="mb-3 text-xs text-neutral-400">{t('help.askAi.subtext', "Can't find what you're looking for? Try asking the AI.")}</p>
       {!answer ? (
         <div className="flex gap-2">
-          <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder="Ask a question…" className="flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-white" />
+          <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={t('help.askAi.placeholder', 'Ask a question about this topic…')} className="flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-white" />
           <button onClick={() => ask.mutate()} disabled={ask.isPending || !question.trim()} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-            Ask
+            {t('help.askAi.ask', 'Ask')}
           </button>
         </div>
       ) : (
@@ -59,7 +64,7 @@ function AskAi({ docId, docTitle }: { docId: string; docTitle: string }) {
             onClick={() => navigate({ to: '/support/new', search: { prefillSubject: `Re: ${docTitle}`, prefillBody: `My question: ${question}\n\nAI answer: ${answer}`, docId } })}
             className="rounded-lg border border-primary-600 px-4 py-2 text-sm font-semibold text-primary-400"
           >
-            Contact a real person
+            {t('help.askAi.contactHuman', 'Contact a real person')}
           </button>
         </div>
       )}
