@@ -15,7 +15,7 @@ import Link from "next/link";
 import { loadManifest } from "@/lib/manifest";
 import { listCategories } from "@/lib/help/service";
 import { HelpSearchBox } from "@/components/help/HelpSearchBox";
-import { getServerTranslation } from "@/lib/i18n";
+import { getServerTranslation } from "@/lib/i18n/server";
 
 export const metadata: Metadata = {
   title: "Help & FAQ — Zobia Social",

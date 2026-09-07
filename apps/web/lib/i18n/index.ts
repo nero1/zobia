@@ -106,47 +106,13 @@ export async function initI18n(): Promise<void> {
 
 export default i18n;
 
-// ---------------------------------------------------------------------------
-// Server-side helper
-// ---------------------------------------------------------------------------
-
-/**
- * Minimal server-side translation helper for RSC / Route Handlers.
- * Loads the given locale's JSON directly (no browser detection).
- *
- * @param locale - Target locale (defaults to 'en')
- * @returns A `t(key)` function
- */
-export async function getServerTranslation(
-  locale: SupportedLocale = DEFAULT_LOCALE
-): Promise<(key: string, options?: Record<string, unknown>) => string> {
-  let messages: Record<string, unknown>;
-  try {
-    messages = (await import(`./locales/${locale}.json`)) as unknown as Record<string, unknown>;
-  } catch {
-    messages = (await import(`./locales/en.json`)) as unknown as Record<string, unknown>;
-  }
-
-  // BUG-I18N-02: support dot-notation nested keys (e.g. "errors.network")
-  // Falls back to flat lookup first so existing flat keys still work.
-  function resolve(key: string): string {
-    if (key in messages) return messages[key] as string;
-    const parts = key.split(".");
-    let node: unknown = messages;
-    for (const part of parts) {
-      if (node == null || typeof node !== "object") return key;
-      node = (node as Record<string, unknown>)[part];
-    }
-    return typeof node === "string" ? node : key;
-  }
-
-  return (key: string, options?: Record<string, unknown>) => {
-    let value = resolve(key);
-    if (options) {
-      for (const [k, v] of Object.entries(options)) {
-        value = value.replaceAll(`{{${k}}}`, String(v));
-      }
-    }
-    return value;
-  };
-}
+// NOTE: `getServerTranslation` used to live in this file. It has moved to
+// `@/lib/i18n/server`, which has zero dependency on 'react-i18next' — this
+// module initialises `initReactI18next` as a top-level side effect (so the
+// client-side singleton is ready on first render), and `initReactI18next`
+// calls `React.createContext(...)`, which React's "react-server" condition
+// does not provide. A Server Component importing `getServerTranslation` from
+// *this* file — even via a re-export — still runs that top-level side effect
+// and fails the build with "(0, d.createContext) is not a function" while
+// collecting page data. Import `getServerTranslation` from
+// `@/lib/i18n/server` directly instead.
