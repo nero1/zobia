@@ -27,8 +27,9 @@ import {
   createSession,
   rotateSession,
   buildCookieHeaders,
+  ACCESS_TOKEN_COOKIE,
 } from "@/lib/auth/session";
-import { signAccessToken } from "@/lib/auth/jwt";
+import { signAccessToken, verifyAccessToken } from "@/lib/auth/jwt";
 import { redis } from "@/lib/redis";
 import { db } from "@/lib/db";
 import { getManifestValue } from "@/lib/manifest";
@@ -293,6 +294,39 @@ function authErrorRedirect(
   return res;
 }
 
+/**
+ * If the incoming request already carries a valid, fully-authenticated
+ * session cookie, the browser has already completed this OAuth flow
+ * successfully — most likely a duplicate/prefetched GET to this one-time-use
+ * callback URL racing the real navigation (browsers may preload/re-fire a
+ * redirect target — e.g. Chrome's "preload pages", or a Custom Tab retry).
+ * The duplicate request finds the CSRF cookie already cleared (or the
+ * authorization code already consumed by the real request) and would
+ * otherwise show a false "session expired" error to a user who is, in
+ * fact, already signed in. Detect that and send them where they were
+ * headed instead of showing the error.
+ */
+async function alreadyAuthenticatedRedirect(
+  req: NextRequest,
+  origin: string
+): Promise<NextResponse | null> {
+  const token = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  if (!token) return null;
+  try {
+    const payload = await verifyAccessToken(token);
+    if (!payload?.sub || payload.type === "pre_auth") return null;
+    const SAFE_REDIRECT_RE = /^\/[a-zA-Z0-9/_-]*$/;
+    const webRedirectRaw = req.cookies.get("zobia_web_redirect")?.value;
+    const webRedirect = webRedirectRaw ? decodeURIComponent(webRedirectRaw) : null;
+    const destination = webRedirect && SAFE_REDIRECT_RE.test(webRedirect)
+      ? new URL(webRedirect, origin)
+      : new URL("/home", origin);
+    return NextResponse.redirect(destination, { status: 302 });
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(req: NextRequest): Promise<NextResponse> {
   const origin = new URL(req.url).origin;
   const secure = process.env.NODE_ENV === "production";
@@ -329,7 +363,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // Verify CSRF state — cookie may have expired (user paused on Google's page)
     const cookieHeader = req.headers.get("cookie");
     const csrfValid = validateCsrfState(cookieHeader, state);
-    if (!csrfValid) return authErrorRedirect(req, "session_expired");
+    if (!csrfValid) {
+      const already = await alreadyAuthenticatedRedirect(req, origin);
+      if (already) return already;
+      return authErrorRedirect(req, "session_expired");
+    }
 
     // Read the optional mobile deep-link redirect stored during auth initiation
     const mobileRedirectRaw = req.cookies.get("zobia_mobile_redirect")?.value;
@@ -542,6 +580,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     if (errCode === "EMAIL_NOT_VERIFIED") {
       return authErrorRedirect(req, "email_not_verified");
     }
+    // Any other error (e.g. a duplicate/prefetched request reusing an
+    // already-consumed Google authorization code): if the user already has a
+    // valid session from a concurrent successful request, send them onward
+    // instead of showing a scary error page.
+    const already = await alreadyAuthenticatedRedirect(req, origin);
+    if (already) return already;
     // Any other error: show a user-friendly error page (no raw JSON)
     return authErrorRedirect(req, "unexpected");
   }

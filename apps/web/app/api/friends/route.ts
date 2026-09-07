@@ -21,7 +21,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
   const { rows } = await db.query(
     `SELECT f.id, f.created_at,
-            u.id AS friend_id, u.username, u.display_name, u.avatar_emoji, u.rank_name,
+            u.id AS friend_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url, u.rank_name,
             u.is_creator, u.is_verified, u.plan
      FROM friendships f
      JOIN users u ON u.id = CASE WHEN f.requester_id = $1 THEN f.addressee_id ELSE f.requester_id END
@@ -43,6 +43,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     username: r.username,
     displayName: r.display_name ?? r.username,
     avatarEmoji: r.avatar_emoji ?? '🙂',
+    avatarUrl: r.avatar_url ?? null,
     rankName: r.rank_name ?? null,
     isCreator: r.is_creator ?? false,
     isVerified: r.is_verified ?? false,

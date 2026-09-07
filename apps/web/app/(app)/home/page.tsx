@@ -214,13 +214,19 @@ function QuestDeckSkeleton() {
 
 interface QuestDeckProps {
   quests: DailyQuest[];
+  loginStreak?: number;
 }
 
-function QuestDeck({ quests }: QuestDeckProps) {
+function QuestDeck({ quests, loginStreak = 0 }: QuestDeckProps) {
   return (
     <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-      <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
+      <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
         <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Daily Quests</h2>
+        {loginStreak > 0 && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700 dark:bg-orange-900/50 dark:text-orange-300">
+            🔥 {loginStreak}-day streak
+          </span>
+        )}
       </div>
       {quests.length === 0 ? (
         <div className="px-5 py-8 text-center text-sm text-neutral-500">No quests today. Check back soon!</div>
@@ -609,6 +615,7 @@ export default function HomePage() {
   const [quests, setQuests] = useState<DailyQuest[] | undefined>(undefined);
   const [friends, setFriends] = useState<Friend[] | undefined>(undefined);
   const [leaderboard, setLeaderboard] = useState<LeaderboardPosition | null | undefined>(undefined);
+  const [loginStreak, setLoginStreak] = useState(0);
   const [challenging, setChallenging] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -706,6 +713,7 @@ export default function HomePage() {
       const mainRank = ranks.find((r) => r.track === "main");
       const me = meData?.user ?? meData;
       const xp = me?.xp_total ?? 0;
+      setLoginStreak(me?.login_streak ?? 0);
       if (mainRank?.globalRank != null) {
         setLeaderboard({ rank: mainRank.globalRank, rankDelta: 0, xp });
       } else {
@@ -826,7 +834,7 @@ export default function HomePage() {
         {quests === undefined ? (
           <QuestDeckSkeleton />
         ) : (
-          <QuestDeck quests={quests} />
+          <QuestDeck quests={quests} loginStreak={loginStreak} />
         )}
 
         {/* Online Friends Row */}

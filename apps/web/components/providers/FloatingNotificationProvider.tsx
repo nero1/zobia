@@ -5,6 +5,7 @@ import { useTranslation } from "react-i18next";
 import { FloatingCurrencyNotification, type FloatingItem } from "@/components/ui/FloatingCurrencyNotification";
 import { ConfettiCanvas } from "@/components/ui/ConfettiCanvas";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
+import { LevelUpCelebration, type LevelUpCelebrationData } from "@/components/celebrations/LevelUpCelebration";
 
 // ---------------------------------------------------------------------------
 // Config type (from GET /api/config/rewards-ui)
@@ -36,6 +37,8 @@ export interface FloatingNotificationContextValue {
   fireGift: (amount?: number) => void;
   fireDeckComplete: (xpReward: number, coinReward: number, coinName?: string) => void;
   fireConfetti: () => void;
+  /** Full-screen "Level Up!" celebration — also used by the admin preview page. */
+  fireLevelUp: (data: LevelUpCelebrationData) => void;
   isEnabled: boolean;
   /** Increments whenever quest progress or deck completion events arrive via realtime. */
   questUpdateKey: number;
@@ -49,6 +52,7 @@ export const FloatingNotificationContext = createContext<FloatingNotificationCon
   fireGift: () => {},
   fireDeckComplete: () => {},
   fireConfetti: () => {},
+  fireLevelUp: () => {},
   isEnabled: false,
   questUpdateKey: 0,
 });
@@ -95,6 +99,7 @@ export function FloatingNotificationProvider({ children }: Props) {
   const [config, setConfig] = useState<FloatingNotifConfig>(DEFAULT_CONFIG);
   const [notifications, setNotifications] = useState<FloatingItem[]>([]);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [levelUp, setLevelUp] = useState<LevelUpCelebrationData | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [questUpdateKey, setQuestUpdateKey] = useState(0);
   const configRef = useRef(config);
@@ -150,6 +155,9 @@ export function FloatingNotificationProvider({ children }: Props) {
       amount?: number;
       xpAmount?: number;
       coinAmount?: number;
+      rankFrom?: string;
+      rankTo?: string;
+      sublevelTo?: number;
     };
 
     switch (payload.type) {
@@ -224,6 +232,12 @@ export function FloatingNotificationProvider({ children }: Props) {
           }, 400);
         }
         setQuestUpdateKey((k) => k + 1);
+        break;
+
+      case "rank_up":
+        if (payload.rankTo) {
+          setLevelUp({ rankFrom: payload.rankFrom ?? null, rankTo: payload.rankTo, sublevelTo: payload.sublevelTo ?? null });
+        }
         break;
 
       case "gift":
@@ -315,6 +329,10 @@ export function FloatingNotificationProvider({ children }: Props) {
     setShowConfetti(true);
   }, []);
 
+  const fireLevelUp = useCallback((data: LevelUpCelebrationData) => {
+    setLevelUp(data);
+  }, []);
+
   const removeNotification = useCallback((id: string) => {
     setNotifications((prev) => prev.filter((n) => n.id !== id));
   }, []);
@@ -327,6 +345,7 @@ export function FloatingNotificationProvider({ children }: Props) {
     fireGift,
     fireDeckComplete,
     fireConfetti,
+    fireLevelUp,
     isEnabled: config.enabled,
     questUpdateKey,
   };
@@ -346,6 +365,10 @@ export function FloatingNotificationProvider({ children }: Props) {
       {/* Confetti overlay */}
       {showConfetti && (
         <ConfettiCanvas onDone={() => setShowConfetti(false)} />
+      )}
+      {/* Full-screen level-up celebration */}
+      {levelUp && (
+        <LevelUpCelebration data={levelUp} onDone={() => setLevelUp(null)} />
       )}
     </FloatingNotificationContext.Provider>
   );

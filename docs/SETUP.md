@@ -395,6 +395,13 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    > Also widens the pre-existing `slug_redirects` table's `entity_type`
    > check constraint to accept `help_doc`/`help_category`. No new env vars.
 
+   > **Nemesis opt-out & challenge timeout:** the `users.nemesis_opt_out`
+   > column and the `nemesis_challenge_accept_days` `x_manifest` default
+   > (3 days) ship in `db/migrations/0036_nemesis_opt_out_and_challenge_timeout.sql`
+   > (picked up automatically by `npm run migrate`, or
+   > `psql "$DIRECT_URL" < db/migrations/0036_nemesis_opt_out_and_challenge_timeout.sql`).
+   > No new env vars.
+
 ### Option B: Railway PostgreSQL
 
 1. Go to [railway.app](https://railway.app) and create a new project.

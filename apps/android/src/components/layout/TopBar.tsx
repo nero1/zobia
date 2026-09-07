@@ -9,7 +9,7 @@ import { useState } from 'react';
 import { Link, useRouter, useRouterState } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
-import { useUnreadNotificationsCount } from '@/lib/notifications/queries';
+import { useUnreadNotificationsCount, useHasNewNotifications } from '@/lib/notifications/queries';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
 
 interface TopBarProps {
@@ -73,6 +73,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
   const router = useRouter();
   const { clearAuth, user } = useAuth();
   const unreadCount = useUnreadNotificationsCount();
+  const hasNewNotifications = useHasNewNotifications();
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const featureFlags = useFeatureFlags();
@@ -158,7 +159,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
               className="relative rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
             >
               <span aria-hidden="true" className="text-lg leading-none">🔔</span>
-              {unreadCount > 0 && (
+              {hasNewNotifications && (
                 <span
                   aria-hidden="true"
                   className="absolute top-1 right-1 flex h-2.5 w-2.5 items-center justify-center rounded-full bg-red-500 ring-2 ring-white"
@@ -227,7 +228,12 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                   onClick={closeDrawer}
                   className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
                 >
-                  <span className="w-5 text-center text-base leading-none" aria-hidden="true">{item.icon}</span>
+                  <span className="relative w-5 text-center text-base leading-none" aria-hidden="true">
+                    {item.icon}
+                    {item.href === '/notifications' && hasNewNotifications && (
+                      <span className="absolute -top-0.5 -right-0.5 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
+                    )}
+                  </span>
                   {t(item.labelKey)}
                   {isOffForUsers && (
                     <span title="Disabled for regular users" className="ml-auto text-xs text-amber-500">⚠️</span>

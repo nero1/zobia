@@ -16,6 +16,7 @@
 import { createHash, createHmac } from "node:crypto";
 import { env } from "@/lib/env";
 import type { RealtimeProvider } from "../interface";
+import { toPusherChannelName } from "../pusherChannelName";
 
 export class PusherProvider implements RealtimeProvider {
   async publish(channel: string, event: string, data: unknown): Promise<void> {
@@ -28,9 +29,11 @@ export class PusherProvider implements RealtimeProvider {
       );
     }
 
+    // Pusher rejects channel names containing ':' — map to the same
+    // "private-…-…" shape the client subscribes to and the auth route parses.
     const body = JSON.stringify({
       name: event,
-      channel,
+      channel: toPusherChannelName(channel),
       data: JSON.stringify(data),
     });
 

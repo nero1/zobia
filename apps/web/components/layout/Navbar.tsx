@@ -19,6 +19,7 @@ import { clsx } from "clsx";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/Avatar";
 import { useUnreadNotificationsCount } from "@/lib/notifications/useUnreadCount";
+import { useHasNewNotifications } from "@/lib/notifications/useHasNewNotifications";
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
 
 interface NavUser {
@@ -188,6 +189,7 @@ function MobileDrawer({
   onLogout,
   isAdmin,
   isModerator,
+  hasNewNotifications,
 }: {
   open: boolean;
   onClose: () => void;
@@ -196,6 +198,7 @@ function MobileDrawer({
   onLogout: () => void;
   isAdmin?: boolean;
   isModerator?: boolean;
+  hasNewNotifications?: boolean;
 }) {
   const { t } = useTranslation();
   const featureFlags = useFeatureFlags();
@@ -303,7 +306,12 @@ function MobileDrawer({
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
-                  <span className="w-5 text-center text-base leading-none" aria-hidden="true">{item.icon}</span>
+                  <span className="relative w-5 text-center text-base leading-none" aria-hidden="true">
+                    {item.icon}
+                    {item.href === "/notifications" && hasNewNotifications && (
+                      <span className="absolute -top-0.5 -right-0.5 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-neutral-900" />
+                    )}
+                  </span>
                   {t(item.labelKey)}
                   {isOffForUsers && (
                     <span title="Disabled for regular users" className="ml-auto text-xs text-amber-500">⚠️</span>
@@ -525,6 +533,7 @@ export function Navbar() {
   const navUser = useNavUser();
   const displayName = navUser?.display_name ?? navUser?.username ?? "User";
   const unreadCount = useUnreadNotificationsCount();
+  const hasNewNotifications = useHasNewNotifications();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Ref so touch handlers always see the latest open state without re-registering
@@ -682,7 +691,7 @@ export function Navbar() {
               className="relative rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
             >
               <span aria-hidden="true" className="text-lg leading-none">🔔</span>
-              {unreadCount > 0 && (
+              {hasNewNotifications && (
                 <span
                   aria-hidden="true"
                   className="absolute top-1 right-1 flex h-2.5 w-2.5 items-center justify-center rounded-full bg-red-500 ring-2 ring-white dark:ring-neutral-900"
@@ -703,6 +712,7 @@ export function Navbar() {
         onLogout={handleLogout}
         isAdmin={navUser?.is_admin}
         isModerator={navUser?.is_moderator}
+        hasNewNotifications={hasNewNotifications}
       />
 
       {/* Mobile bottom tab bar */}

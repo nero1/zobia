@@ -191,7 +191,17 @@ export default function QuestsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState("");
+  const [loginStreak, setLoginStreak] = useState(0);
   const currency = useCurrency();
+
+  useEffect(() => {
+    fetch("/api/users/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((body: { user?: { login_streak?: number } } | null) => {
+        setLoginStreak(body?.user?.login_streak ?? 0);
+      })
+      .catch(() => {});
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -270,6 +280,11 @@ export default function QuestsPage() {
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
             Complete quests to earn XP and {currency.softPlural}
           </p>
+          {loginStreak > 0 && (
+            <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700 dark:bg-orange-900/50 dark:text-orange-300">
+              🔥 {loginStreak}-day streak
+            </span>
+          )}
         </div>
         {data && (
           <div className="text-right">

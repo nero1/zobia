@@ -7,8 +7,10 @@
  * "minimize Redis/backend load" constraint (no dedicated badge-polling).
  */
 
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useEffect } from 'react';
 import { apiClient } from '@/lib/api/client';
+import { useAuth } from '@/lib/auth/store';
 
 export interface Notification {
   id: string;
@@ -56,4 +58,58 @@ export function useUnreadNotificationsCount(): number {
     staleTime: NOTIFICATIONS_STALE_TIME,
   });
   return data?.unreadCount ?? 0;
+}
+
+// ---------------------------------------------------------------------------
+// "New since last opened" dot — mirrors
+// apps/web/lib/notifications/useHasNewNotifications.ts.
+//
+// A distinct signal from unread count: true when a notification has arrived
+// since this device last opened the notifications screen, regardless of
+// read/unread state. Reuses the same cached payload above — no extra
+// network calls. Per-user via localStorage (Capacitor's WebView supports it
+// like a browser) so a shared device never leaks one account's "seen" state
+// into another's.
+// ---------------------------------------------------------------------------
+
+function seenAtStorageKey(userId: string): string {
+  return `zobia_notifications_seen_at:${userId}`;
+}
+
+function readSeenAt(userId: string): string | null {
+  try {
+    return window.localStorage.getItem(seenAtStorageKey(userId));
+  } catch {
+    return null;
+  }
+}
+
+export function useHasNewNotifications(): boolean {
+  const { user } = useAuth();
+  const { data } = useQuery({
+    queryKey: notificationsQueryKey,
+    queryFn: fetchNotificationsPayload,
+    staleTime: NOTIFICATIONS_STALE_TIME,
+  });
+
+  const latestCreatedAt = data?.notifications?.[0]?.createdAt;
+  if (!user?.id || !latestCreatedAt) return false;
+  const seenAt = readSeenAt(user.id);
+  if (!seenAt) return true;
+  return new Date(latestCreatedAt).getTime() > new Date(seenAt).getTime();
+}
+
+/** Call once when the notifications screen mounts to mark everything as seen. */
+export function useMarkNotificationsSeen(): void {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    if (!user?.id) return;
+    try {
+      window.localStorage.setItem(seenAtStorageKey(user.id), new Date().toISOString());
+    } catch {
+      // localStorage unavailable — the dot just won't clear on this device.
+    }
+    queryClient.invalidateQueries({ queryKey: notificationsQueryKey });
+  }, [user?.id, queryClient]);
 }

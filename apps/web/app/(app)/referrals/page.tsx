@@ -12,6 +12,7 @@
  */
 
 import { useRef, useState, useEffect } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
@@ -109,6 +110,14 @@ function ReferralLinkCard({ url }: { url: string }) {
       <p className="mt-2 text-xs text-neutral-500">
         Share this link to earn rewards when friends join and complete their first action.
       </p>
+
+      {/* QR code — lets people scan the link on your screen instead of typing it. */}
+      <div className="mt-4 flex flex-col items-center gap-2 border-t border-neutral-100 pt-4 dark:border-neutral-800">
+        <div className="rounded-xl bg-white p-3">
+          <QRCodeSVG value={url} size={160} level="M" />
+        </div>
+        <p className="text-xs text-neutral-500">Scan to open your referral link</p>
+      </div>
     </div>
   );
 }

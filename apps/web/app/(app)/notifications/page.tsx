@@ -16,6 +16,7 @@ import { useTranslation } from "react-i18next";
 import { useQueryClient } from "@tanstack/react-query";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { notificationsQueryKey } from "@/lib/notifications/useUnreadCount";
+import { useMarkNotificationsSeen } from "@/lib/notifications/useHasNewNotifications";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -285,6 +286,8 @@ const PAGE_SIZE = 20;
 export default function NotificationsPage() {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  // Clears the bell/menu-item "new" dot — this page load is what counts as "seen".
+  useMarkNotificationsSeen();
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;

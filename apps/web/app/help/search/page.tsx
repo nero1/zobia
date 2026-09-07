@@ -8,7 +8,7 @@ import Link from "next/link";
 import type { Metadata } from "next";
 import { searchDocs } from "@/lib/help/service";
 import { HelpSearchBox } from "@/components/help/HelpSearchBox";
-import { getServerTranslation } from "@/lib/i18n";
+import { getServerTranslation } from "@/lib/i18n/server";
 
 export async function generateMetadata({ searchParams }: { searchParams: Promise<{ q?: string }> }): Promise<Metadata> {
   const { q } = await searchParams;

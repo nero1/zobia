@@ -254,6 +254,7 @@ export default function SettingsPage() {
     canDisableFriendRequests: boolean;
     canShowOnlineStatus: boolean;
     hideableSections: string[];
+    nemesisEligible: boolean;
   }
   const [featureFlags, setFeatureFlags] = useState({ pinEnabled: true, twoFaEnabled: true });
   const [privacyCaps, setPrivacyCaps] = useState<PrivacyCapabilities>({
@@ -262,6 +263,7 @@ export default function SettingsPage() {
     canDisableFriendRequests: false,
     canShowOnlineStatus: false,
     hideableSections: [],
+    nemesisEligible: false,
   });
   const [privacySettings, setPrivacySettings] = useState({
     profile_private: false,
@@ -269,6 +271,7 @@ export default function SettingsPage() {
     disable_friend_requests: false,
     show_online_status: false,
     group_invite_privacy: "friends" as "anybody" | "friends" | "nobody",
+    nemesis_opt_out: false,
   });
   const [savingPrivacy, setSavingPrivacy] = useState(false);
 
@@ -982,6 +985,22 @@ export default function SettingsPage() {
                 <p className="text-xs text-neutral-500">Available on Pro plan and above</p>
               </div>
               <ToggleSwitch checked={false} onChange={() => {}} disabled />
+            </div>
+          )}
+
+          {/* Nemesis system opt-out — only shown once the system has engaged
+              with this user (they've been assigned a rival at least once). */}
+          {privacyCaps.nemesisEligible && (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Nemesis system</p>
+                <p className="text-xs text-neutral-500">Turn off Nemesis rival matchups and challenges</p>
+              </div>
+              <ToggleSwitch
+                checked={!privacySettings.nemesis_opt_out}
+                onChange={(v) => void savePrivacy({ nemesis_opt_out: !v })}
+                disabled={savingPrivacy}
+              />
             </div>
           )}
 

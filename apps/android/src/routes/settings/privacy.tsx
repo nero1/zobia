@@ -19,12 +19,14 @@ interface PrivacySettings {
   show_online_status: boolean;
   sitemap_opt_out: boolean;
   group_invite_privacy: 'anybody' | 'friends' | 'nobody';
+  nemesis_opt_out: boolean;
 }
 
 interface PrivacyCapabilities {
   canLockProfile: boolean;
   canDisableFriendRequests: boolean;
   canShowOnlineStatus: boolean;
+  nemesisEligible: boolean;
 }
 
 const DEFAULT_SETTINGS: PrivacySettings = {
@@ -33,12 +35,14 @@ const DEFAULT_SETTINGS: PrivacySettings = {
   show_online_status: false,
   sitemap_opt_out: false,
   group_invite_privacy: 'friends',
+  nemesis_opt_out: false,
 };
 
 const DEFAULT_CAPS: PrivacyCapabilities = {
   canLockProfile: false,
   canDisableFriendRequests: false,
   canShowOnlineStatus: false,
+  nemesisEligible: false,
 };
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
@@ -157,6 +161,15 @@ function PrivacyPage() {
           onChange={(v) => void save({ sitemap_opt_out: v })}
           disabled={saving}
         />
+        {caps.nemesisEligible && (
+          <PrivacyRow
+            title={t('settings.privacy.nemesisSystem', 'Nemesis system')}
+            description={t('settings.privacy.nemesisSystemDesc', 'Turn off Nemesis rival matchups and challenges')}
+            checked={!settings.nemesis_opt_out}
+            onChange={(v) => void save({ nemesis_opt_out: !v })}
+            disabled={saving}
+          />
+        )}
         <div className="flex items-center justify-between gap-3 py-3">
           <div className="min-w-0">
             <p className="text-sm font-medium text-neutral-900">{t('settings.privacy.groupInvite.label', 'Who can invite me to groups?')}</p>

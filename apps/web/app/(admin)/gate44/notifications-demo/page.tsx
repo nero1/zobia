@@ -36,7 +36,7 @@ function DemoButton({
 }
 
 export default function NotificationsDemoPage() {
-  const { fireXP, fireCredits, fireStars, fireReferral, fireGift, fireDeckComplete, fireConfetti, isEnabled } = useFloatingNotification();
+  const { fireXP, fireCredits, fireStars, fireReferral, fireGift, fireDeckComplete, fireConfetti, fireLevelUp, isEnabled } = useFloatingNotification();
 
   return (
     <div className="space-y-8">
@@ -168,6 +168,25 @@ export default function NotificationsDemoPage() {
             description="Simulates completing all daily quests — confetti + notifications sequence"
             onClick={() => fireDeckComplete(500, 100)}
             color="rose"
+          />
+        </div>
+      </section>
+
+      {/* Level Up Demo */}
+      <section>
+        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-neutral-500">Level Up Celebration</h2>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <DemoButton
+            label="Demo Level Up (Hustler)"
+            description="Full-screen confetti + fanfare celebration shown when a user's rank increases"
+            onClick={() => fireLevelUp({ rankFrom: "Rookie", rankTo: "Hustler", sublevelTo: 1 })}
+            color="blue"
+          />
+          <DemoButton
+            label="Demo Level Up (Sublevel only)"
+            description="Same celebration for a sublevel-up within the same rank"
+            onClick={() => fireLevelUp({ rankFrom: "Hustler", rankTo: "Hustler", sublevelTo: 2 })}
+            color="blue"
           />
         </div>
       </section>

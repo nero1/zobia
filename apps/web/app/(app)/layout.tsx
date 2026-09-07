@@ -22,6 +22,7 @@ import { AppContentShell } from "@/components/layout/AppContentShell";
 import { OfflineBanner } from "@/components/offline/OfflineBanner";
 import { OfflineSyncProvider } from "@/components/offline/OfflineSyncProvider";
 import { PresenceHeartbeatProvider } from "@/components/presence/PresenceHeartbeatProvider";
+import { LoginStreakProvider } from "@/components/streaks/LoginStreakProvider";
 import { AnnouncementBanner, type BannerData } from "@/components/announcements/AnnouncementBanner";
 import { AnnouncementModal, type AnnouncementData } from "@/components/announcements/AnnouncementModal";
 import { ActiveEventStrip } from "@/components/events/ActiveEventStrip";
@@ -152,6 +153,8 @@ export default async function AppLayout({ children }: AppLayoutProps) {
       <OfflineSyncProvider />
       {/* Presence heartbeat — keeps last_active_at / online status warm app-wide */}
       <PresenceHeartbeatProvider />
+      {/* Records today's login (streak, XP, quest progress) once per day */}
+      <LoginStreakProvider />
       {/* Session-expired notice is mounted globally in the root layout (app/layout.tsx)
           so it also covers standalone routes like /g/<slug>/play. */}
       {/* Announcement banner (admin-managed, fixed top) */}

@@ -12,6 +12,9 @@
  */
 
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
+import { useAuth } from '@/lib/auth/store';
+import { useRealtimeChannel } from '@/lib/realtime/useRealtimeChannel';
+import { LevelUpCelebration, type LevelUpCelebrationData } from './LevelUpCelebration';
 
 export interface RewardPayload {
   credits?: number;
@@ -21,10 +24,12 @@ export interface RewardPayload {
 
 interface FloatingRewardContextValue {
   fireReward: (reward: RewardPayload) => void;
+  fireLevelUp: (data: LevelUpCelebrationData) => void;
 }
 
 const FloatingRewardContext = createContext<FloatingRewardContextValue>({
   fireReward: () => {},
+  fireLevelUp: () => {},
 });
 
 interface QueuedToast extends RewardPayload {
@@ -34,7 +39,9 @@ interface QueuedToast extends RewardPayload {
 const DISPLAY_MS = 2600;
 
 export function FloatingRewardProvider({ children }: { children: ReactNode }) {
+  const { user } = useAuth();
   const [toasts, setToasts] = useState<QueuedToast[]>([]);
+  const [levelUp, setLevelUp] = useState<LevelUpCelebrationData | null>(null);
   const nextId = useRef(0);
 
   const fireReward = useCallback((reward: RewardPayload) => {
@@ -46,9 +53,26 @@ export function FloatingRewardProvider({ children }: { children: ReactNode }) {
     }, DISPLAY_MS);
   }, []);
 
+  const fireLevelUp = useCallback((data: LevelUpCelebrationData) => {
+    setLevelUp(data);
+  }, []);
+
+  // Mirrors apps/web/components/providers/FloatingNotificationProvider.tsx —
+  // subscribe to the user's personal channel for server-pushed reward_earned
+  // events, including "rank_up" (see lib/xp/safeAwardXP.ts on the server).
+  const onRealtimeEvent = useCallback((event: string, data: unknown) => {
+    if (event !== 'reward_earned') return;
+    const payload = data as { type?: string; rankFrom?: string; rankTo?: string; sublevelTo?: number };
+    if (payload.type === 'rank_up' && payload.rankTo) {
+      setLevelUp({ rankFrom: payload.rankFrom ?? null, rankTo: payload.rankTo, sublevelTo: payload.sublevelTo ?? null });
+    }
+  }, []);
+  useRealtimeChannel(user?.id ? `user:${user.id}` : null, onRealtimeEvent);
+
   return (
-    <FloatingRewardContext.Provider value={{ fireReward }}>
+    <FloatingRewardContext.Provider value={{ fireReward, fireLevelUp }}>
       {children}
+      {levelUp && <LevelUpCelebration data={levelUp} onDone={() => setLevelUp(null)} />}
       <div
         className="pointer-events-none fixed inset-x-0 top-16 z-[200] flex flex-col items-center gap-2"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}

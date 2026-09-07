@@ -16,7 +16,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
   const { rows } = await db.query(
     `SELECT f.id, f.created_at,
-            u.id AS addressee_id, u.username, u.display_name, u.avatar_emoji
+            u.id AS addressee_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url
      FROM friendships f
      JOIN users u ON u.id = f.addressee_id
      WHERE f.requester_id = $1

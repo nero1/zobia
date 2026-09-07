@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { QRCodeSVG } from 'qrcode.react';
 import { apiClient } from '@/lib/api/client';
 
 interface ReferralStats {
@@ -98,6 +99,14 @@ function ReferralLinkCard({ url }: { url: string }) {
         </button>
       </div>
       <p className="mt-2 text-xs text-neutral-500">{t('referrals.linkCard.hint')}</p>
+
+      {/* QR code — lets people scan the link on your screen instead of typing it. */}
+      <div className="mt-4 flex flex-col items-center gap-2 border-t border-neutral-100 pt-4">
+        <div className="rounded-xl bg-white p-3">
+          <QRCodeSVG value={url} size={160} level="M" />
+        </div>
+        <p className="text-xs text-neutral-500">{t('referrals.linkCard.scanHint', 'Scan to open your referral link')}</p>
+      </div>
     </div>
   );
 }

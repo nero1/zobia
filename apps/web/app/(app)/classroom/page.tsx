@@ -14,6 +14,7 @@
 import { useState, useRef, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { extractArray } from "@/lib/api/extractArray";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -488,26 +489,27 @@ export default function ClassroomPage() {
         if (browseRes.status === 401) { window.location.href = "/auth/login"; return; }
         if (!browseRes.ok) throw new Error("Failed to load classrooms");
 
+        // GET /api/rooms?type=classroom returns { items, nextCursor, hasMore }
+        // (see app/api/rooms/route.ts) — not `rooms` or `data`. Try every shape
+        // this endpoint (or a future variant) might use, and always fall back
+        // to an array so downstream .map() calls can never throw.
         const browseJson = (await browseRes.json()) as
           | ClassRoom[]
-          | { rooms?: ClassRoom[]; data?: ClassRoom[] };
-        const rooms: ClassRoom[] = Array.isArray(browseJson)
-          ? browseJson
-          : (browseJson as { rooms?: ClassRoom[] }).rooms ??
-            (browseJson as { data?: ClassRoom[] }).data ??
-            [];
+          | { items?: ClassRoom[]; rooms?: ClassRoom[]; data?: ClassRoom[] | { rooms?: ClassRoom[]; items?: ClassRoom[] } };
+        const rooms: ClassRoom[] = extractArray<ClassRoom>(browseJson, ["items", "rooms"]);
         setBrowseRooms(rooms);
 
         let enrolled: EnrolledClassRoom[] = [];
         if (enrolledRes?.ok) {
+          // GET /api/classroom/enrolled returns { success, data: { rooms }, error }
+          // (see app/api/classroom/enrolled/route.ts) — `data` is an object, not
+          // an array, so a bare `?? data` previously assigned that object to
+          // enrolledRooms and crashed the .map() below with "x.map is not a
+          // function". extractArray() unwraps the nested `data.rooms` too.
           const enrolledJson = (await enrolledRes.json()) as
             | EnrolledClassRoom[]
-            | { rooms?: EnrolledClassRoom[]; data?: EnrolledClassRoom[] };
-          enrolled = Array.isArray(enrolledJson)
-            ? enrolledJson
-            : (enrolledJson as { rooms?: EnrolledClassRoom[] }).rooms ??
-              (enrolledJson as { data?: EnrolledClassRoom[] }).data ??
-              [];
+            | { rooms?: EnrolledClassRoom[]; data?: EnrolledClassRoom[] | { rooms?: EnrolledClassRoom[] } };
+          enrolled = extractArray<EnrolledClassRoom>(enrolledJson, ["rooms"]);
         }
         setEnrolledRooms(enrolled);
 

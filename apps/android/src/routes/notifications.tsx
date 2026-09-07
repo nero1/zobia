@@ -10,7 +10,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
-import { notificationsQueryKey, useNotificationsQuery, type NotificationsPayload } from '@/lib/notifications/queries';
+import { notificationsQueryKey, useNotificationsQuery, useMarkNotificationsSeen, type NotificationsPayload } from '@/lib/notifications/queries';
 import { resolveNotificationRoute } from '@/lib/notifications/routing';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
 
@@ -21,6 +21,9 @@ function NotificationsPage() {
 
   const { data, status, refetch } = useNotificationsQuery();
   const notifications = data?.notifications ?? [];
+
+  // Clears the bell/menu-item "new" dot — this screen load is what counts as "seen".
+  useMarkNotificationsSeen();
 
   const markReadMutation = useMutation({
     mutationFn: (ids: string[]) => apiClient.post('/notifications/read', { ids }),

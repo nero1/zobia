@@ -21,6 +21,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { toPusherChannelName } from "./pusherChannelName";
 
 // Module-level Pusher singleton — one WebSocket connection shared across all
 // hook instances. Created lazily on first use; never disconnected until the
@@ -117,12 +118,9 @@ export function useRealtimeChannel(
       const pusherCluster = process.env.NEXT_PUBLIC_PUSHER_CLUSTER ?? "mt1";
       if (!pusherKey) return;
 
-      // Convert channel name to Pusher private channel format:
-      //   "dm:conversation:<uuid>" → "private-dm-conversation-<uuid>"
-      //   "room:<uuid>"            → "private-room-<uuid>"
-      const pusherChannel = channel
-        .replace(/^dm:conversation:/, "private-dm-conversation-")
-        .replace(/^room:/, "private-room-");
+      // Convert channel name to Pusher private channel format — must match
+      // the server publisher's mapping exactly (see pusherChannelName.ts).
+      const pusherChannel = toPusherChannelName(channel);
 
       (async () => {
         const PusherLib = ((await import("pusher-js")) as any).default;

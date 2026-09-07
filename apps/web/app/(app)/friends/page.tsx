@@ -20,23 +20,27 @@ import { Avatar } from "@/components/ui/Avatar";
 // ---------------------------------------------------------------------------
 
 interface Friend {
+  // GET /api/friends returns camelCase fields (shared contract with expo/PWA).
   id: string;
   username: string;
-  display_name: string | null;
-  avatar_emoji: string;
-  rank_name: string | null;
-  is_creator?: boolean;
-  is_verified?: boolean;
+  displayName: string;
+  avatarEmoji: string;
+  avatarUrl: string | null;
+  rankName: string | null;
+  isCreator?: boolean;
+  isVerified?: boolean;
   plan?: string | null;
 }
 
 interface FriendRequest {
+  // GET /api/friends/requests(/sent) returns raw (snake_case) DB rows.
   id: string;
   requester_id?: string;
   addressee_id?: string;
   username: string;
   display_name: string | null;
   avatar_emoji: string;
+  avatar_url: string | null;
   rank_name?: string | null;
   created_at: string;
 }
@@ -46,6 +50,7 @@ interface Suggestion {
   username: string;
   displayName: string;
   avatarEmoji: string;
+  avatarUrl: string | null;
   rankName: string | null;
   isVerified: boolean;
   mutualFriendCount: number;
@@ -72,17 +77,19 @@ function ProfileLink({
   name,
   username,
   emoji,
+  avatarUrl,
   children,
 }: {
   userId: string;
   name: string;
   username: string;
   emoji: string | null;
+  avatarUrl?: string | null;
   children?: React.ReactNode;
 }) {
   return (
     <Link href={`/profile/${userId}`} className="flex min-w-0 flex-1 items-center gap-3 hover:opacity-80">
-      <Avatar name={name} emoji={emoji ?? undefined} size="sm" rankTier="none" />
+      <Avatar src={avatarUrl} name={name} emoji={emoji ?? undefined} size="sm" rankTier="none" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
           {name}
@@ -138,9 +145,10 @@ function FriendsTab() {
         <li key={f.id} className="flex items-center gap-3 py-3">
           <ProfileLink
             userId={f.id}
-            name={f.display_name ?? f.username}
+            name={f.displayName ?? f.username}
             username={f.username}
-            emoji={f.avatar_emoji}
+            emoji={f.avatarEmoji}
+            avatarUrl={f.avatarUrl}
           />
           <button
             onClick={() => removeFriend(f.id)}
@@ -204,6 +212,7 @@ function ReceivedRequestsTab() {
             name={r.display_name ?? r.username}
             username={r.username}
             emoji={r.avatar_emoji}
+            avatarUrl={r.avatar_url}
           />
           <div className="flex gap-2">
             <button
@@ -271,6 +280,7 @@ function SentRequestsTab() {
             name={r.display_name ?? r.username}
             username={r.username}
             emoji={r.avatar_emoji}
+            avatarUrl={r.avatar_url}
           />
           <button
             onClick={() => withdraw(r.id)}
@@ -466,6 +476,7 @@ function DiscoverTab() {
             name={s.displayName}
             username={s.username}
             emoji={s.avatarEmoji}
+            avatarUrl={s.avatarUrl}
           >
             {s.mutualFriendCount > 0 && (
               <span className="ml-2 shrink-0 text-xs text-neutral-400">
