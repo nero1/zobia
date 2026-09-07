@@ -84,7 +84,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/wallet",       labelKey: "nav.wallet",       icon: "🪙" },
   { href: "/notifications",labelKey: "nav.notifications",icon: "🔔" },
   { href: "/events",       labelKey: "nav.events",       icon: "📅" },
-  { href: "/inbox",        labelKey: "nav.inbox",        icon: "📬" },
+  { href: "/announcements",labelKey: "nav.announcements",icon: "📬" },
   { href: "/elder",        labelKey: "nav.elder",        icon: "🎓" },
   { href: "/referrals",    labelKey: "nav.referrals",    icon: "🔗" },
   { href: "/classroom",    labelKey: "nav.classroom",    icon: "🏫", flagKey: "classrooms" },

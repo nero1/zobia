@@ -4,11 +4,110 @@
  * Conversation list. GET /api/messages/dm.
  */
 
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute, Link } from '@tanstack/react-router';
+import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
+
+interface UserSuggestion {
+  id: string;
+  username: string;
+  displayName: string;
+  avatarEmoji: string;
+}
+
+async function searchUsers(q: string): Promise<UserSuggestion[]> {
+  const { data } = await apiClient.get<{ users?: UserSuggestion[]; data?: { users: UserSuggestion[] } }>(
+    `/users/search?q=${encodeURIComponent(q)}&limit=10`
+  );
+  return data?.users ?? data?.data?.users ?? [];
+}
+
+/**
+ * "New Message" recipient picker — mirrors apps/web NewMessageDialog.
+ * Navigates in draft mode (no dm_conversations row exists yet); the chat
+ * screen creates the real conversation on the first send.
+ */
+function NewMessageDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation();
+  const navigate = useNavigate();
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<UserSuggestion[]>([]);
+  const [searching, setSearching] = useState(false);
+
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length < 2) { setResults([]); return; }
+    let cancelled = false;
+    setSearching(true);
+    const timer = setTimeout(() => {
+      searchUsers(trimmed)
+        .then((users) => { if (!cancelled) setResults(users); })
+        .catch(() => {})
+        .finally(() => { if (!cancelled) setSearching(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [query]);
+
+  function handleOpenUser(userId: string) {
+    onClose();
+    navigate({ to: '/messages/$conversationId', params: { conversationId: userId }, search: { draft: '1' } });
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end bg-black/50"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-h-[80vh] flex flex-col rounded-t-2xl bg-white">
+        <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-4">
+          <h2 className="text-base font-bold text-neutral-900">{t('messages.dialog.title')}</h2>
+          <button onClick={onClose} className="text-neutral-400" aria-label="Close">✕</button>
+        </div>
+        <div className="px-4 py-3">
+          <input
+            autoFocus
+            type="search"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t('messages.dialog.searchPlaceholder')}
+            className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:outline-none"
+            data-selectable
+          />
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {searching && (
+            <div className="flex items-center justify-center py-6">
+              <div className="h-5 w-5 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
+            </div>
+          )}
+          {!searching && query.trim().length >= 2 && results.length === 0 && (
+            <p className="px-4 py-6 text-center text-sm text-neutral-400">
+              {t('messages.dialog.noResults', { query: query.trim() })}
+            </p>
+          )}
+          {results.map((u) => (
+            <button
+              key={u.id}
+              onClick={() => handleOpenUser(u.id)}
+              className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-neutral-50"
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xl">
+                {u.avatarEmoji || '👤'}
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-neutral-900">{u.displayName}</p>
+                <p className="text-xs text-neutral-400">@{u.username}</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface Conversation {
   id: string;
@@ -63,6 +162,7 @@ async function fetchInbox() {
 
 function MessagesPage() {
   const { t } = useTranslation();
+  const [showNewMessage, setShowNewMessage] = useState(false);
   const { data: conversations, status, refetch } = useQuery({
     queryKey: ['inbox'],
     queryFn: fetchInbox,
@@ -70,7 +170,17 @@ function MessagesPage() {
   });
 
   return (
+    <>
     <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-white">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100">
+        <h1 className="text-lg font-bold text-neutral-900">{t('messages.title')}</h1>
+        <button
+          onClick={() => setShowNewMessage(true)}
+          className="rounded-full bg-primary-600 px-4 py-2 text-xs font-semibold text-white"
+        >
+          {t('messages.newMessage')}
+        </button>
+      </div>
       {status === 'pending' && (
         <div className="divide-y divide-neutral-100">
           {Array.from({ length: 5 }).map((_, i) => (
@@ -131,6 +241,8 @@ function MessagesPage() {
         </Link>
       ))}
     </PullToRefresh>
+    {showNewMessage && <NewMessageDialog onClose={() => setShowNewMessage(false)} />}
+    </>
   );
 }
 

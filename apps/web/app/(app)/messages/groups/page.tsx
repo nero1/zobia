@@ -29,6 +29,14 @@ interface GroupChat {
   user_role: string;
 }
 
+interface DeactivatedGroup {
+  id: string;
+  name: string;
+  avatar_emoji: string;
+  member_count: number;
+  deactivated_at: string;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -79,20 +87,59 @@ export default function GroupChatsPage() {
   const router = useRouter();
   const [groups, setGroups] = useState<GroupChat[] | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
+  const [deactivatedGroups, setDeactivatedGroups] = useState<DeactivatedGroup[]>([]);
+  const [reactivatingId, setReactivatingId] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
       try {
         const res = await fetch("/api/messages/group", { credentials: "include" });
         if (res.status === 401) { window.location.href = "/auth/login"; return; }
-        if (!res.ok) throw new Error("Failed to load group chats");
+        if (!res.ok) throw new Error(t("messages.groupsList.loadError"));
         const data = (await res.json()) as { items?: GroupChat[] };
         setGroups(data.items ?? []);
       } catch (e) {
         setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message || "Unknown error") : "Unknown error");
       }
     })();
+    // Renewal-time reactivation prompt: any groups this user created that
+    // were deactivated when their plan's grace period elapsed.
+    (async () => {
+      try {
+        const res = await fetch("/api/messages/group/deactivated", { credentials: "include" });
+        if (!res.ok) return;
+        const data = (await res.json()) as { data?: DeactivatedGroup[] };
+        setDeactivatedGroups(data.data ?? []);
+      } catch { /* non-fatal */ }
+    })();
   }, []);
+
+  async function handleReactivate(groupId: string) {
+    setReactivatingId(groupId);
+    try {
+      const res = await fetch(`/api/messages/group/${groupId}/reactivate`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (res.ok) {
+        setDeactivatedGroups((prev) => prev.filter((g) => g.id !== groupId));
+      }
+    } finally {
+      setReactivatingId(null);
+    }
+  }
+
+  async function dismissReactivation(groupId: string) {
+    setDeactivatedGroups((prev) => prev.filter((g) => g.id !== groupId));
+    try {
+      await fetch(`/api/messages/group/${groupId}/reactivate`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reactivate: false }),
+      });
+    } catch { /* non-fatal — worst case the prompt resurfaces next visit */ }
+  }
 
   return (
     <div className="mx-auto w-full max-w-2xl">
@@ -102,19 +149,19 @@ export default function GroupChatsPage() {
           <Link
             href="/messages"
             className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-            aria-label="Back to messages"
+            aria-label={t("messages.conversation.backToMessages")}
           >
             <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
             </svg>
           </Link>
-          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Group Chats</h1>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("messages.groupsList.title")}</h1>
         </div>
         <Link
           href="/messages/groups/create"
           className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
         >
-          + Create Group
+          {t("messages.groupsList.createGroup")}
         </Link>
       </div>
 
@@ -125,6 +172,39 @@ export default function GroupChatsPage() {
         </div>
       )}
 
+      {/* Renewal-time reactivation prompt — pick each deactivated group separately */}
+      {deactivatedGroups.length > 0 && (
+        <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
+          <p className="mb-3 text-sm font-semibold text-amber-800 dark:text-amber-300">
+            {t("messages.groupsList.reactivationPrompt")}
+          </p>
+          <div className="space-y-2">
+            {deactivatedGroups.map((g) => (
+              <div key={g.id} className="flex items-center gap-3 rounded-lg bg-white px-3 py-2 dark:bg-neutral-900">
+                <span className="text-xl">{g.avatar_emoji}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{g.name}</p>
+                  <p className="text-xs text-neutral-400">{t("messages.groupChat.memberCount", { count: g.member_count })}</p>
+                </div>
+                <button
+                  onClick={() => void handleReactivate(g.id)}
+                  disabled={reactivatingId === g.id}
+                  className="rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-50"
+                >
+                  {t("messages.groupsList.reactivate")}
+                </button>
+                <button
+                  onClick={() => void dismissReactivation(g.id)}
+                  className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
+                >
+                  {t("messages.groupsList.keepDeactivated")}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Group list */}
       <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
         {groups === undefined ? (
@@ -132,13 +212,13 @@ export default function GroupChatsPage() {
         ) : groups.length === 0 ? (
           <div className="px-6 py-16 text-center">
             <span className="text-4xl">👥</span>
-            <p className="mt-3 text-base font-semibold text-neutral-700 dark:text-neutral-300">No group chats yet</p>
-            <p className="mt-1 text-sm text-neutral-400">Create a group to chat with multiple people at once</p>
+            <p className="mt-3 text-base font-semibold text-neutral-700 dark:text-neutral-300">{t("messages.groupsList.empty")}</p>
+            <p className="mt-1 text-sm text-neutral-400">{t("messages.groupsList.emptyHint")}</p>
             <Link
               href="/messages/groups/create"
               className="mt-4 inline-block rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
             >
-              Create Group
+              {t("messages.groupsList.createGroup")}
             </Link>
           </div>
         ) : (
@@ -164,7 +244,7 @@ export default function GroupChatsPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <p className="text-xs text-neutral-500">
-                      {group.member_count} member{group.member_count !== 1 ? "s" : ""}
+                      {t("messages.groupChat.memberCount", { count: group.member_count })}
                     </p>
                     {group.tag && (
                       <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-xs font-medium text-blue-600 dark:bg-blue-950/40 dark:text-blue-400">
@@ -173,7 +253,7 @@ export default function GroupChatsPage() {
                     )}
                     {group.user_role === "admin" && (
                       <span className="rounded-full bg-amber-50 px-1.5 py-0.5 text-xs font-medium text-amber-600 dark:bg-amber-950/40 dark:text-amber-400">
-                        Admin
+                        {t("messages.groupChat.members.admin")}
                       </span>
                     )}
                   </div>

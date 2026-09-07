@@ -31,6 +31,11 @@ export const GRACE_FEATURE_REGISTRY: GraceFeatureDef[] = [
     label: "Image Galleries",
     description: "Extra photo gallery slots. Feature not yet built — reserved for future use.",
   },
+  {
+    key: "group_chats",
+    label: "Group Chats",
+    description: "Group chats the user created. Deactivated once the grace period elapses (not immediately on lapse) unless preserved here — see lib/plans/groupChatSweep.ts.",
+  },
 ];
 
 export const GRACE_FEATURE_KEYS = GRACE_FEATURE_REGISTRY.map((f) => f.key);

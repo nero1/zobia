@@ -6,7 +6,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { apiClient } from '@/lib/api/client';
@@ -24,6 +24,7 @@ interface Message {
 interface DmMessageRow {
   id: string;
   sender_id: string;
+  conversation_id?: string | null;
   content: string | null;
 }
 
@@ -43,10 +44,15 @@ async function fetchMessages(conversationId: string) {
 function DmChatPage() {
   const { t } = useTranslation();
   const { conversationId } = Route.useParams();
+  const { draft } = Route.useSearch();
   const { user } = useAuth();
   const qc = useQueryClient();
+  const navigate = useNavigate();
   const bottomRef = useRef<HTMLDivElement>(null);
   const [text, setText] = useState('');
+  // Draft mode: `conversationId` is actually the recipient's user id — no
+  // dm_conversations row exists yet. Mirrors apps/web's DMConversationPage.
+  const [isDraft, setIsDraft] = useState(draft === '1');
 
   const queryKey = ['messages', 'dm', conversationId];
 
@@ -54,10 +60,12 @@ function DmChatPage() {
     queryKey,
     queryFn: () => fetchMessages(conversationId),
     staleTime: 30_000,
+    enabled: !isDraft,
+    initialData: isDraft ? [] : undefined,
   });
 
   const connected = useRealtimeChannel(
-    `dm:conversation:${conversationId}`,
+    isDraft ? null : `dm:conversation:${conversationId}`,
     useCallback((event, data) => {
       if (event !== 'new_message') return;
       const raw = (data as { message?: DmMessageRow })?.message;
@@ -72,6 +80,7 @@ function DmChatPage() {
 
   const { pokePoll } = useAdaptiveChatPoll({
     poll: async () => {
+      if (isDraft) return false;
       const fresh = await fetchMessages(conversationId);
       const prev = qc.getQueryData<Message[]>(queryKey) ?? [];
       // ZB-AND-14 fix: see routes/rooms/$roomId.tsx — length-only compare
@@ -84,7 +93,7 @@ function DmChatPage() {
       return false;
     },
     connected,
-    enabled: true,
+    enabled: !isDraft,
   });
 
   // Auto-scroll to bottom
@@ -94,8 +103,13 @@ function DmChatPage() {
 
   const sendMutation = useMutation({
     mutationFn: async (content: string) => {
-      const { data } = await apiClient.post<{ message: DmMessageRow }>(`/messages/dm/${conversationId}`, { content });
-      return mapMessage(data.message);
+      // Draft mode: no dm_conversations row exists yet, so the first send goes
+      // through the top-level "start a DM" endpoint (creates the conversation
+      // atomically) instead of the existing-conversation endpoint.
+      const { data } = isDraft
+        ? await apiClient.post<{ message: DmMessageRow }>('/messages/dm', { recipientId: conversationId, content })
+        : await apiClient.post<{ message: DmMessageRow }>(`/messages/dm/${conversationId}`, { content });
+      return data.message;
     },
     onMutate: async (content) => {
       const optimistic: Message = {
@@ -106,11 +120,24 @@ function DmChatPage() {
       qc.setQueryData<Message[]>(queryKey, (prev = []) => [...prev, optimistic]);
       return { optimistic };
     },
-    onSuccess: (msg, _, ctx) => {
+    onSuccess: (raw, _, ctx) => {
+      const msg = mapMessage(raw);
       qc.setQueryData<Message[]>(queryKey, (prev = []) =>
         prev.map((m) => (m.id === ctx?.optimistic.id ? msg : m))
       );
-      pokePoll();
+      if (isDraft && raw.conversation_id) {
+        // Swap the URL from the recipient-id placeholder to the real
+        // conversationId so refresh, polling, and realtime all target it.
+        setIsDraft(false);
+        navigate({
+          to: '/messages/$conversationId',
+          params: { conversationId: raw.conversation_id },
+          search: {},
+          replace: true,
+        });
+      } else {
+        pokePoll();
+      }
     },
     onError: (_, __, ctx) => {
       qc.setQueryData<Message[]>(queryKey, (prev = []) =>
@@ -176,5 +203,8 @@ function DmChatPage() {
 }
 
 export const Route = createFileRoute('/messages/$conversationId')({
+  validateSearch: (search: Record<string, unknown>): { draft?: string } => ({
+    draft: typeof search.draft === 'string' ? search.draft : undefined,
+  }),
   component: DmChatPage,
 });

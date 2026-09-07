@@ -103,7 +103,7 @@ const REENGAGEMENT_BUCKETS: Array<{
       {
         title: "Your friends are active",
         body: "Someone might be waiting for you to reply. Don't leave them hanging!",
-        action: "/inbox",
+        action: "/announcements",
       },
     ],
   },

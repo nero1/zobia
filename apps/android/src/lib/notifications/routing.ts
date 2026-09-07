@@ -33,7 +33,7 @@ export const VALID_PUSH_ROUTES: RegExp[] = [
   /^\/nemesis$/i,
   /^\/friends$/i,
   /^\/guilds$/i,
-  /^\/inbox$/i,
+  /^\/announcements$/i,
   /^\/seasons$/i,
   /^\/council$/i,
   // ZSB-16 additions: routes deriveNotificationActionUrl (web) can produce

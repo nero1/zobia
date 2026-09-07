@@ -99,6 +99,7 @@ interface MessageRow {
   id: string;
   sender_id: string;
   recipient_id: string;
+  conversation_id: string | null;
   message_type: string;
   content: string | null;
   media_url: string | null;
@@ -392,7 +393,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     if (isInitiating && !canInitiateDM(sender.plan) && !sender.is_admin) {
       throw forbidden(
         "Your current plan does not allow initiating new DM conversations. " +
-          "Upgrade to Pro or Max to start conversations."
+          "Upgrade to Pro or Max to start conversations.",
+        "PLAN_RESTRICTION"
       );
     }
 
@@ -408,7 +410,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       if (dupRows[0]) {
         // Return the existing message — do not charge again
         const { rows: existingMsgRows } = await db.query<MessageRow>(
-          `SELECT id, sender_id, recipient_id, message_type, content, media_url,
+          `SELECT id, sender_id, recipient_id, conversation_id, message_type, content, media_url,
                   coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at
            FROM messages WHERE id = $1 LIMIT 1`,
           [dupRows[0].id]
@@ -468,6 +470,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             id: `blocked-${Date.now()}`,
             sender_id: auth.user.sub,
             recipient_id: body.recipientId,
+            conversation_id: null,
             message_type: body.messageType,
             content: messageContent,
             media_url: body.mediaUrl ?? null,
@@ -533,7 +536,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          ON CONFLICT (sender_id, idempotency_key) WHERE idempotency_key IS NOT NULL
          DO NOTHING
-         RETURNING id, sender_id, recipient_id, message_type, content, media_url,
+         RETURNING id, sender_id, recipient_id, conversation_id, message_type, content, media_url,
                    coin_cost, reply_count_from_recipient, is_deleted,
                    created_at, updated_at`,
         [
@@ -560,7 +563,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // same idempotency key already inserted this message. Fetch and return it.
       if (body.idempotencyKey) {
         const { rows: existingRows } = await db.query<MessageRow>(
-          `SELECT id, sender_id, recipient_id, message_type, content, media_url,
+          `SELECT id, sender_id, recipient_id, conversation_id, message_type, content, media_url,
                   coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at
            FROM messages WHERE sender_id = $1 AND idempotency_key = $2 LIMIT 1`,
           [auth.user.sub, body.idempotencyKey]

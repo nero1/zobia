@@ -18,6 +18,7 @@ interface PrivacySettings {
   disable_friend_requests: boolean;
   show_online_status: boolean;
   sitemap_opt_out: boolean;
+  group_invite_privacy: 'anybody' | 'friends' | 'nobody';
 }
 
 interface PrivacyCapabilities {
@@ -31,6 +32,7 @@ const DEFAULT_SETTINGS: PrivacySettings = {
   disable_friend_requests: false,
   show_online_status: false,
   sitemap_opt_out: false,
+  group_invite_privacy: 'friends',
 };
 
 const DEFAULT_CAPS: PrivacyCapabilities = {
@@ -155,6 +157,22 @@ function PrivacyPage() {
           onChange={(v) => void save({ sitemap_opt_out: v })}
           disabled={saving}
         />
+        <div className="flex items-center justify-between gap-3 py-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-neutral-900">{t('settings.privacy.groupInvite.label', 'Who can invite me to groups?')}</p>
+            <p className="text-xs text-neutral-500">{t('settings.privacy.groupInvite.hint', 'Controls who can add you to a group chat')}</p>
+          </div>
+          <select
+            value={settings.group_invite_privacy}
+            onChange={(e) => void save({ group_invite_privacy: e.target.value as PrivacySettings['group_invite_privacy'] })}
+            disabled={saving}
+            className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm"
+          >
+            <option value="anybody">{t('settings.privacy.groupInvite.anybody', 'Anybody')}</option>
+            <option value="friends">{t('settings.privacy.groupInvite.friends', 'Only friends')}</option>
+            <option value="nobody">{t('settings.privacy.groupInvite.nobody', 'Nobody')}</option>
+          </select>
+        </div>
       </div>
     </div>
   );

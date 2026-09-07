@@ -12,15 +12,16 @@
  * This is what soft participant caps are enforced against — "who is here right
  * now", not DB membership (which persists). Admission is atomic via a Lua
  * script so concurrent joiners can never both slip past a full room.
+ *
+ * The actual admit/count/leave mechanics live in lib/presence/generic.ts,
+ * shared with Group Chats (lib/presence/group.ts) under a different key
+ * prefix — this module just supplies the `room:presence:` scoping.
  */
 
-import { redis } from "@/lib/redis";
-import { logger } from "@/lib/logger";
+import { admitPresence, getPresenceCount, leavePresence, PRESENCE_TTL_MS as GENERIC_PRESENCE_TTL_MS } from "@/lib/presence/generic";
 
 /** A presence entry is stale once it has not been refreshed for this long. */
-export const PRESENCE_TTL_MS = 70_000; // ~1.5× a 45s client heartbeat
-/** Redis key TTL — a little beyond the entry TTL so empty rooms expire cleanly. */
-const KEY_TTL_SECONDS = 120;
+export const PRESENCE_TTL_MS = GENERIC_PRESENCE_TTL_MS;
 
 function roomPresenceKey(roomId: string): string {
   return `room:presence:${roomId}`;
@@ -42,42 +43,7 @@ export async function admitRoomPresence(
   cap: number,
   privileged: boolean,
 ): Promise<{ admitted: boolean; count: number }> {
-  const now = Date.now();
-  const cutoff = now - PRESENCE_TTL_MS;
-
-  // KEYS[1] = sorted set; ARGV = now, cutoff, userId, ttlSeconds, cap, privileged
-  const script = `
-    redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[2])
-    local already = redis.call('ZSCORE', KEYS[1], ARGV[3])
-    local count = redis.call('ZCARD', KEYS[1])
-    local admitted = 0
-    if already or ARGV[6] == '1' or count < tonumber(ARGV[5]) then
-      redis.call('ZADD', KEYS[1], ARGV[1], ARGV[3])
-      redis.call('EXPIRE', KEYS[1], ARGV[4])
-      admitted = 1
-      if not already then count = count + 1 end
-    end
-    return {admitted, count}
-  `;
-
-  try {
-    const res = (await redis.eval(
-      script,
-      1,
-      roomPresenceKey(roomId),
-      now,
-      cutoff,
-      userId,
-      KEY_TTL_SECONDS,
-      cap,
-      privileged ? "1" : "0",
-    )) as [number, number];
-    return { admitted: res[0] === 1, count: res[1] ?? 0 };
-  } catch (err) {
-    // Fail open: if Redis is unavailable, never lock users out of rooms.
-    logger.error({ err: err }, "[presence:room] admit failed (failing open)");
-    return { admitted: true, count: 0 };
-  }
+  return admitPresence(roomPresenceKey(roomId), userId, cap, privileged, "presence:room");
 }
 
 /**
@@ -85,25 +51,10 @@ export async function admitRoomPresence(
  * Read-only with respect to membership (does not add the caller).
  */
 export async function getRoomPresenceCount(roomId: string): Promise<number> {
-  const cutoff = Date.now() - PRESENCE_TTL_MS;
-  const script = `
-    redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', ARGV[1])
-    return redis.call('ZCARD', KEYS[1])
-  `;
-  try {
-    const count = (await redis.eval(script, 1, roomPresenceKey(roomId), cutoff)) as number;
-    return typeof count === "number" ? count : 0;
-  } catch (err) {
-    logger.error({ err: err }, "[presence:room] count failed");
-    return 0;
-  }
+  return getPresenceCount(roomPresenceKey(roomId), "presence:room");
 }
 
 /** Remove a user from a room's live presence (explicit leave / navigate away). */
 export async function leaveRoomPresence(roomId: string, userId: string): Promise<void> {
-  try {
-    await redis.zrem(roomPresenceKey(roomId), userId);
-  } catch (err) {
-    logger.error({ err: err }, "[presence:room] leave failed");
-  }
+  return leavePresence(roomPresenceKey(roomId), userId, "presence:room");
 }

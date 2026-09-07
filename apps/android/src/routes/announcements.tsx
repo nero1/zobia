@@ -1,9 +1,11 @@
 /**
- * apps/android/src/routes/inbox.tsx
+ * apps/android/src/routes/announcements.tsx
  *
- * Inbox — mirrors apps/web/app/(app)/inbox/page.tsx: system messages "From
- * Zobia" (GET /api/inbox), mark-as-read on tap (POST /api/inbox/:id/read,
- * optimistic), unread messages highlighted.
+ * Announcements — mirrors apps/web/app/(app)/announcements/page.tsx: system
+ * messages "From Zobia" (GET /api/announcements), mark-as-read on tap
+ * (POST /api/announcements/:id/read, optimistic), unread messages highlighted.
+ *
+ * Renamed from "Inbox" (route was /inbox) — see apps/web equivalent for why.
  */
 
 import { createFileRoute } from '@tanstack/react-router';
@@ -11,7 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 
-interface InboxMessage {
+interface AnnouncementMessage {
   id: string;
   subject: string;
   body: string;
@@ -20,10 +22,10 @@ interface InboxMessage {
   readAt: string | null;
 }
 
-async function fetchInbox(): Promise<InboxMessage[]> {
+async function fetchAnnouncements(): Promise<AnnouncementMessage[]> {
   const { data } = await apiClient.get<
     { items?: Record<string, unknown>[]; messages?: Record<string, unknown>[] } | Record<string, unknown>[]
-  >('/inbox');
+  >('/announcements');
   const rows: Record<string, unknown>[] = Array.isArray(data) ? data : (data?.items ?? data?.messages ?? []);
   return rows.map((m) => ({
     id: String(m.id ?? ''),
@@ -36,10 +38,10 @@ async function fetchInbox(): Promise<InboxMessage[]> {
 }
 
 async function markRead(id: string) {
-  await apiClient.post(`/inbox/${id}/read`);
+  await apiClient.post(`/announcements/${id}/read`);
 }
 
-function MessageCard({ message, onRead }: { message: InboxMessage; onRead: (id: string) => void }) {
+function MessageCard({ message, onRead }: { message: AnnouncementMessage; onRead: (id: string) => void }) {
   const { t } = useTranslation();
   const unread = !message.readAt;
 
@@ -58,7 +60,7 @@ function MessageCard({ message, onRead }: { message: InboxMessage; onRead: (id: 
               {message.subject}
             </h3>
             <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
-              {t('inbox.fromZobia')}
+              {t('announcements.fromZobia')}
             </span>
           </div>
           <p className="mt-1.5 line-clamp-2 text-sm text-neutral-600">{message.body}</p>
@@ -71,20 +73,20 @@ function MessageCard({ message, onRead }: { message: InboxMessage; onRead: (id: 
   );
 }
 
-function InboxPage() {
+function AnnouncementsPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
 
   const { data: messages, status, refetch } = useQuery({
-    queryKey: ['inbox'],
-    queryFn: fetchInbox,
+    queryKey: ['announcements'],
+    queryFn: fetchAnnouncements,
     staleTime: 30_000,
   });
 
   const readMutation = useMutation({
     mutationFn: markRead,
     onMutate: async (id) => {
-      qc.setQueryData<InboxMessage[]>(['inbox'], (prev = []) =>
+      qc.setQueryData<AnnouncementMessage[]>(['announcements'], (prev = []) =>
         prev.map((m) => (m.id === id ? { ...m, readAt: new Date().toISOString() } : m))
       );
     },
@@ -93,7 +95,7 @@ function InboxPage() {
   if (status === 'pending') {
     return (
       <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6">
-        <h1 className="text-xl font-bold text-neutral-900 mb-4">{t('inbox.title')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 mb-4">{t('announcements.title')}</h1>
         {Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="rounded-xl border border-neutral-200 bg-white p-4 mb-3 animate-pulse">
             <div className="h-4 bg-neutral-200 rounded w-40 mb-2" />
@@ -121,10 +123,10 @@ function InboxPage() {
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6">
       <div className="flex items-center gap-3 mb-4">
-        <h1 className="text-xl font-bold text-neutral-900">{t('inbox.title')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900">{t('announcements.title')}</h1>
         {unreadCount > 0 && (
           <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
-            {t('inbox.unread', { count: unreadCount })}
+            {t('announcements.unread', { count: unreadCount })}
           </span>
         )}
       </div>
@@ -132,8 +134,8 @@ function InboxPage() {
       {(messages?.length ?? 0) === 0 ? (
         <div className="flex flex-col items-center py-16 text-center">
           <span className="text-5xl">📭</span>
-          <h2 className="mt-4 text-lg font-semibold text-neutral-900">{t('inbox.noMessages')}</h2>
-          <p className="mt-1 text-sm text-neutral-500">{t('inbox.noMessagesHint')}</p>
+          <h2 className="mt-4 text-lg font-semibold text-neutral-900">{t('announcements.noMessages')}</h2>
+          <p className="mt-1 text-sm text-neutral-500">{t('announcements.noMessagesHint')}</p>
         </div>
       ) : (
         messages!.map((msg) => (
@@ -144,6 +146,6 @@ function InboxPage() {
   );
 }
 
-export const Route = createFileRoute('/inbox')({
-  component: InboxPage,
+export const Route = createFileRoute('/announcements')({
+  component: AnnouncementsPage,
 });

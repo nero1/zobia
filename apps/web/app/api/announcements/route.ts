@@ -1,9 +1,11 @@
 export const dynamic = 'force-dynamic';
 
 /**
- * app/api/inbox/route.ts
+ * app/api/announcements/route.ts
  *
- * GET /api/inbox — User's admin message inbox.
+ * GET /api/announcements — User's announcements from the Zobia team
+ * (formerly "Inbox" — renamed for clarity, this is one-way admin
+ * broadcasts, not two-way messaging).
  *
  * Returns admin messages addressed to the current user, ordered newest
  * first. Marks returned messages as delivered (sets delivered_at if not
@@ -19,7 +21,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 
 // ---------------------------------------------------------------------------
-// GET /api/inbox
+// GET /api/announcements
 // ---------------------------------------------------------------------------
 
 /**

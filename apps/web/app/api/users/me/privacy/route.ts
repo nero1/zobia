@@ -31,6 +31,7 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       disable_friend_requests?: boolean;
       sitemap_opt_out?: boolean;
       show_online_status?: boolean;
+      group_invite_privacy?: 'anybody' | 'friends' | 'nobody';
     };
 
     // Fetch current user plan + prestige + role + business tier (business
@@ -104,6 +105,13 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       updates.show_online_status = Boolean(body.show_online_status);
     }
 
+    if (body.group_invite_privacy !== undefined) {
+      if (!['anybody', 'friends', 'nobody'].includes(body.group_invite_privacy)) {
+        throw badRequest('group_invite_privacy must be one of: anybody, friends, nobody');
+      }
+      updates.group_invite_privacy = body.group_invite_privacy;
+    }
+
     if (Object.keys(updates).length === 0) {
       throw badRequest('No valid fields to update');
     }
@@ -136,6 +144,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       disable_friend_requests: boolean;
       sitemap_opt_out: boolean;
       show_online_status: boolean;
+      group_invite_privacy: string;
     }>(
       `SELECT COALESCE(u.plan, 'free') AS plan,
               COALESCE(u.prestige_count, 0) AS prestige_count,
@@ -146,7 +155,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
               COALESCE(u.profile_hidden_sections, '[]'::jsonb) AS profile_hidden_sections,
               COALESCE(u.disable_friend_requests, false) AS disable_friend_requests,
               COALESCE(u.sitemap_opt_out, false) AS sitemap_opt_out,
-              COALESCE(u.show_online_status, false) AS show_online_status
+              COALESCE(u.show_online_status, false) AS show_online_status,
+              COALESCE(u.group_invite_privacy, 'friends') AS group_invite_privacy
        FROM users u
        LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
        WHERE u.id = $1 LIMIT 1`,
@@ -177,6 +187,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         disable_friend_requests: user.disable_friend_requests,
         sitemap_opt_out: user.sitemap_opt_out,
         show_online_status: user.show_online_status,
+        group_invite_privacy: user.group_invite_privacy,
       },
       capabilities: {
         canLockProfile: userEligible(user.plan, user.prestige_count, lockAllowed, eligibilityContext),

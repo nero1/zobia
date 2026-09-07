@@ -505,7 +505,10 @@ export type CoinTransactionType =
   | 'ad_campaign_refund'
   | 'ad_coupon_credit'
   | 'ad_wallet_transfer'
-  | 'support_ticket_cost';
+  | 'support_ticket_cost'
+  | 'group_chat_capacity_upgrade'
+  | 'group_join_credit'
+  | 'group_message_credit';
 
 export interface CoinLedgerEntry {
   id: string;

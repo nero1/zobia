@@ -76,6 +76,79 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     type: "string",
     group: "Maintenance Mode",
   },
+  // Group Chats
+  group_chat_concurrent_cap: {
+    label: "Default Concurrent Cap",
+    description: "Default soft cap on concurrently-active users per group chat (mirrors Room presence caps). A group's creator can raise this via a paid capacity upgrade.",
+    type: "number",
+    group: "Group Chats",
+  },
+  group_chat_capacity_upgrade_step: {
+    label: "Capacity Upgrade — Slots per Step",
+    description: "How many extra concurrent slots one paid capacity-upgrade step adds.",
+    type: "number",
+    group: "Group Chats",
+  },
+  group_chat_capacity_upgrade_cost: {
+    label: "Capacity Upgrade — Cost per Step (Coins)",
+    description: "Coin cost the group creator pays per capacity-upgrade step.",
+    type: "number",
+    group: "Group Chats",
+  },
+  group_chat_capacity_hard_max: {
+    label: "Capacity Upgrade — Hard Ceiling",
+    description: "Absolute ceiling a group's concurrent cap can be raised to, regardless of upgrades purchased.",
+    type: "number",
+    group: "Group Chats",
+  },
+  group_chat_limit_free: {
+    label: "Groups Free Plan Can Create",
+    description: "How many concurrently-active group chats a Free plan user may create (0 = cannot create groups).",
+    type: "number",
+    group: "Group Chats",
+  },
+  group_chat_limit_plus: {
+    label: "Groups Plus Plan Can Create",
+    description: "How many concurrently-active group chats a Plus plan user may create (0 = cannot create groups).",
+    type: "number",
+    group: "Group Chats",
+  },
+  group_chat_limit_pro: {
+    label: "Groups Pro Plan Can Create",
+    description: "How many concurrently-active group chats a Pro plan user may create.",
+    type: "number",
+    group: "Group Chats",
+  },
+  group_chat_limit_max: {
+    label: "Groups Max Plan Can Create",
+    description: "How many concurrently-active group chats a Max plan user may create.",
+    type: "number",
+    group: "Group Chats",
+  },
+  group_chat_limit_business_starter: {
+    label: "Groups Business Starter Can Create",
+    description: "How many concurrently-active group chats a Business Starter account may create.",
+    type: "number",
+    group: "Group Chats",
+  },
+  group_chat_limit_business_growth: {
+    label: "Groups Business Growth Can Create",
+    description: "How many concurrently-active group chats a Business Growth account may create.",
+    type: "number",
+    group: "Group Chats",
+  },
+  group_chat_limit_business_enterprise: {
+    label: "Groups Business Enterprise Can Create",
+    description: "How many concurrently-active group chats a Business Enterprise account may create.",
+    type: "number",
+    group: "Group Chats",
+  },
+  group_chat_any_member_can_invite: {
+    label: "Any Member Can Invite (default)",
+    description: "When on, any group member may invite others by default (subject to the invitee's own privacy setting). Individual groups can still override this. When off (default), only the group admin and participants the admin selects may invite.",
+    type: "boolean",
+    group: "Group Chats",
+  },
   // Auth
   auth_google_enabled: {
     label: "Google OAuth",

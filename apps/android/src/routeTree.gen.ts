@@ -23,7 +23,7 @@ import { Route as NemesisRouteImport } from './routes/nemesis'
 import { Route as ModerationRouteImport } from './routes/moderation'
 import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
 import { Route as KycRouteImport } from './routes/kyc'
-import { Route as InboxRouteImport } from './routes/inbox'
+import { Route as AnnouncementsRouteImport } from './routes/announcements'
 import { Route as HomeRouteImport } from './routes/home'
 import { Route as GuildRouteImport } from './routes/guild'
 import { Route as GiftsRouteImport } from './routes/gifts'
@@ -193,9 +193,9 @@ const KycRoute = KycRouteImport.update({
   path: '/kyc',
   getParentRoute: () => rootRouteImport,
 } as any)
-const InboxRoute = InboxRouteImport.update({
-  id: '/inbox',
-  path: '/inbox',
+const AnnouncementsRoute = AnnouncementsRouteImport.update({
+  id: '/announcements',
+  path: '/announcements',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HomeRoute = HomeRouteImport.update({
@@ -701,7 +701,7 @@ export interface FileRoutesByFullPath {
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
   '/home': typeof HomeRoute
-  '/inbox': typeof InboxRoute
+  '/announcements': typeof AnnouncementsRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/moderation': typeof ModerationRoute
@@ -816,7 +816,7 @@ export interface FileRoutesByTo {
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
   '/home': typeof HomeRoute
-  '/inbox': typeof InboxRoute
+  '/announcements': typeof AnnouncementsRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/moderation': typeof ModerationRoute
@@ -932,7 +932,7 @@ export interface FileRoutesById {
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
   '/home': typeof HomeRoute
-  '/inbox': typeof InboxRoute
+  '/announcements': typeof AnnouncementsRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
   '/moderation': typeof ModerationRoute
@@ -1049,7 +1049,7 @@ export interface FileRouteTypes {
     | '/gifts'
     | '/guild'
     | '/home'
-    | '/inbox'
+    | '/announcements'
     | '/kyc'
     | '/leaderboards'
     | '/moderation'
@@ -1164,7 +1164,7 @@ export interface FileRouteTypes {
     | '/gifts'
     | '/guild'
     | '/home'
-    | '/inbox'
+    | '/announcements'
     | '/kyc'
     | '/leaderboards'
     | '/moderation'
@@ -1279,7 +1279,7 @@ export interface FileRouteTypes {
     | '/gifts'
     | '/guild'
     | '/home'
-    | '/inbox'
+    | '/announcements'
     | '/kyc'
     | '/leaderboards'
     | '/moderation'
@@ -1395,7 +1395,7 @@ export interface RootRouteChildren {
   GiftsRoute: typeof GiftsRoute
   GuildRoute: typeof GuildRoute
   HomeRoute: typeof HomeRoute
-  InboxRoute: typeof InboxRoute
+  AnnouncementsRoute: typeof AnnouncementsRoute
   KycRoute: typeof KycRoute
   LeaderboardsRoute: typeof LeaderboardsRoute
   ModerationRoute: typeof ModerationRoute
@@ -1598,11 +1598,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof KycRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/inbox': {
-      id: '/inbox'
-      path: '/inbox'
-      fullPath: '/inbox'
-      preLoaderRoute: typeof InboxRouteImport
+    '/announcements': {
+      id: '/announcements'
+      path: '/announcements'
+      fullPath: '/announcements'
+      preLoaderRoute: typeof AnnouncementsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/home': {
@@ -2319,7 +2319,7 @@ const rootRouteChildren: RootRouteChildren = {
   GiftsRoute: GiftsRoute,
   GuildRoute: GuildRoute,
   HomeRoute: HomeRoute,
-  InboxRoute: InboxRoute,
+  AnnouncementsRoute: AnnouncementsRoute,
   KycRoute: KycRoute,
   LeaderboardsRoute: LeaderboardsRoute,
   ModerationRoute: ModerationRoute,
