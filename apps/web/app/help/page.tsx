@@ -15,6 +15,7 @@ import Link from "next/link";
 import { loadManifest } from "@/lib/manifest";
 import { listCategories } from "@/lib/help/service";
 import { HelpSearchBox } from "@/components/help/HelpSearchBox";
+import { getServerTranslation } from "@/lib/i18n";
 
 export const metadata: Metadata = {
   title: "Help & FAQ — Zobia Social",
@@ -234,14 +235,10 @@ function FaqFallback() {
   );
 }
 
-const DIFFICULTY_LABEL: Record<string, string> = {
-  first_time: "First Time",
-  beginner: "Beginner",
-  intermediate: "Intermediate",
-  advanced: "Advanced",
-};
+const DIFFICULTY_KEYS = ["first_time", "beginner", "intermediate", "advanced"] as const;
 
 export default async function HelpPage() {
+  const t = await getServerTranslation();
   const manifest = await loadManifest();
   if (!manifest.features.helpCenter) return <FaqFallback />;
 
@@ -251,18 +248,18 @@ export default async function HelpPage() {
   return (
     <main id="main-content" className="min-h-screen bg-background">
       <div className="max-w-4xl mx-auto px-4 py-12">
-        <h1 className="text-3xl font-bold mb-2">Help Center</h1>
+        <h1 className="text-3xl font-bold mb-2">{t("help.homeTitle")}</h1>
         <p className="text-muted-foreground mb-6">
-          Browse by category, or search for what you need.
+          {t("help.browseOrSearch")}
         </p>
 
         <HelpSearchBox />
 
         <div className="mt-4 mb-10 flex flex-wrap gap-2 text-xs text-muted-foreground">
-          {Object.entries(DIFFICULTY_LABEL).map(([key, label]) => (
-            <span key={key} className="rounded-full border border-border px-2.5 py-1">{label}</span>
+          {DIFFICULTY_KEYS.map((key) => (
+            <span key={key} className="rounded-full border border-border px-2.5 py-1">{t(`help.difficulty.${key}`)}</span>
           ))}
-          <span>— every doc is tagged with a difficulty tier so you can find guides at your level.</span>
+          <span>{t("help.difficultyHint")}</span>
         </div>
 
         <div className="grid gap-4 sm:grid-cols-2">
@@ -280,9 +277,9 @@ export default async function HelpPage() {
 
         <div className="mt-12 pt-8 border-t border-border text-center text-sm text-muted-foreground">
           <p>
-            Still need help?{" "}
+            {t("help.stillNeedHelp")}{" "}
             <Link href="/support/new" className="text-primary underline">
-              Open a support ticket
+              {t("help.openTicket")}
             </Link>
             .
           </p>

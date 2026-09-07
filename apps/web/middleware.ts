@@ -206,15 +206,16 @@ const ADMIN_PREFIXES = ["/gate44"];
 const FORUM_MOD_PREFIXES = ["/gate44/answers", "/gate44/forum", "/gate44/guilds"];
 
 /**
- * Scoped exception within /admin/*: moderators may also pass the edge
- * pre-filter for the support ticket queue (not /admin/support/settings,
- * which stays admin-only like every other config surface). The API layer
- * (requireSupportStaff) is the real authorization boundary and additionally
- * allows the is_support role — the access token does not carry an
- * is_support claim (unlike is_moderator), so a support-only (non-moderator,
- * non-admin) staff member currently cannot load these admin pages directly
- * and must be granted is_moderator too, or use the API directly. See
- * lib/support/staffAuth.ts.
+ * Scoped exception within /gate44/*: moderators AND plain support staff may
+ * also pass the edge pre-filter for the support ticket queue (not
+ * /gate44/support/settings, which stays admin-only like every other config
+ * surface). The API layer (requireSupportStaff) is the real authorization
+ * boundary and additionally allows the is_support role, checked fresh from
+ * the DATABASE on every request — this is only the cheap edge pre-filter.
+ * The access token now also carries an `is_support`/`is_senior_support`
+ * claim (see lib/auth/jwt.ts, lib/auth/session.ts) so a support-only
+ * (non-moderator, non-admin) staff member can reach these pages directly
+ * without also needing is_moderator. See lib/support/staffAuth.ts.
  */
 const SUPPORT_MOD_PREFIXES = ["/gate44/support/queue", "/gate44/support/tickets"];
 
@@ -226,6 +227,8 @@ interface TokenPayload {
   sub?: string;
   is_admin?: boolean;
   is_moderator?: boolean;
+  is_support?: boolean;
+  is_senior_support?: boolean;
   sid?: string;
   type?: string;
   onboarding_completed?: boolean;
@@ -264,6 +267,31 @@ function isPublicRoute(pathname: string): boolean {
 
 function isAdminRoute(pathname: string): boolean {
   return ADMIN_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+}
+
+/**
+ * Pure decision function for the /gate44/* edge pre-filter, extracted so it
+ * is unit-testable without needing a real NextRequest/JWT round-trip (see
+ * middleware.test.ts). Mirrors the inline logic used inside `middleware()`.
+ *
+ * @param payload  - Verified access token claims (or the relevant subset).
+ * @param pathname - The request path being gated.
+ * @returns true if the request should be allowed past the edge pre-filter.
+ */
+export function isAllowedGate44Route(
+  payload: Pick<TokenPayload, "is_admin" | "is_moderator" | "is_support" | "is_senior_support">,
+  pathname: string
+): boolean {
+  if (payload.is_admin) return true;
+  const isForumModRoute = FORUM_MOD_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  const isSupportModRoute = SUPPORT_MOD_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  const isAllowedModerator = isForumModRoute && !!payload.is_moderator;
+  // Support queue/ticket pages: moderator, admin (already covered above),
+  // is_support, or is_senior_support may all pass the edge pre-filter — this
+  // is what lets a plain (non-moderator, non-admin) support-staff user reach
+  // /gate44/support/queue and /gate44/support/tickets/:id directly.
+  const isAllowedSupportStaff = isSupportModRoute && !!(payload.is_moderator || payload.is_support || payload.is_senior_support);
+  return isAllowedModerator || isAllowedSupportStaff;
 }
 
 function isAppRoute(_pathname: string): boolean {
@@ -509,12 +537,9 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
       return response;
     }
 
-    const isForumModRoute = FORUM_MOD_PREFIXES.some((prefix) => pathname.startsWith(prefix));
-    const isSupportModRoute = SUPPORT_MOD_PREFIXES.some((prefix) => pathname.startsWith(prefix));
-    const isAllowedModerator = (isForumModRoute || isSupportModRoute) && !!payload.is_moderator;
-
-    if (!payload.is_admin && !isAllowedModerator) {
-      // Valid token but not admin (and not a moderator on a scoped /gate44/forum/* route) – redirect to app
+    if (!isAllowedGate44Route(payload, pathname)) {
+      // Valid token but not admin (and not a moderator/support-staff member on
+      // a scoped /gate44/forum|support/* route) – redirect to app
       return NextResponse.redirect(new URL(HOME_URL, request.url));
     }
 

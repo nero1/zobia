@@ -9,8 +9,10 @@
 
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
+import { useTranslation } from "react-i18next";
 
 export function HelpSearchBox() {
+  const { t } = useTranslation();
   const router = useRouter();
   const [q, setQ] = useState("");
 
@@ -26,11 +28,11 @@ export function HelpSearchBox() {
         type="search"
         value={q}
         onChange={(e) => setQ(e.target.value)}
-        placeholder="Search the Help Center…"
+        placeholder={t("help.searchPlaceholder", "Search the Help Center…")}
         className="flex-1 rounded-xl border border-border bg-background px-4 py-2.5 text-sm"
       />
       <button type="submit" className="rounded-xl bg-primary px-4 py-2.5 text-sm font-semibold text-primary-foreground">
-        Search
+        {t("help.search", "Search")}
       </button>
     </form>
   );

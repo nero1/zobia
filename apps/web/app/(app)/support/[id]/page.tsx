@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useCallback, use } from "react";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 
 interface Message {
   id: string;
@@ -29,6 +30,7 @@ interface Ticket {
 }
 
 export default function TicketDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { t } = useTranslation();
   const { id } = use(params);
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -64,11 +66,11 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
         body: JSON.stringify({ body: reply }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? "Failed to send message");
+      if (!res.ok) throw new Error(json?.error?.message ?? t("support.sendFailed", "Failed to send message"));
       setReply("");
       load();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to send message");
+      setError(e instanceof Error ? e.message : t("support.sendFailed", "Failed to send message"));
     } finally {
       setSending(false);
     }
@@ -82,7 +84,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
   if (notFound) {
     return (
       <div className="mx-auto max-w-2xl p-4">
-        <p className="rounded-xl border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">Ticket not found.</p>
+        <p className="rounded-xl border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">{t("support.ticketNotFound", "Ticket not found.")}</p>
       </div>
     );
   }
@@ -92,9 +94,9 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
 
   return (
     <div className="mx-auto max-w-2xl p-4">
-      <Link href="/support" className="text-sm text-primary-600 hover:underline">&larr; My Tickets</Link>
+      <Link href="/support" className="text-sm text-primary-600 hover:underline">&larr; {t("support.myTickets", "My Tickets")}</Link>
       <h1 className="mt-2 mb-1 text-xl font-bold text-neutral-900 dark:text-neutral-50">{ticket.subject}</h1>
-      <p className="mb-4 text-sm text-neutral-500">Status: {ticket.status}</p>
+      <p className="mb-4 text-sm text-neutral-500">{t("support.statusLabel", "Status: {{status}}", { status: t(`support.status.${ticket.status}`, ticket.status) })}</p>
 
       <div className="mb-4 space-y-3">
         {messages.map((m) => (
@@ -109,10 +111,10 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
               }`}
             >
               <p className="mb-1 text-xs font-semibold uppercase opacity-70">
-                {m.sender_type === "ai" ? "Zobia AI Assistant" : m.sender_type === "staff" ? "Support Team" : "You"}
+                {m.sender_type === "ai" ? t("support.aiAssistant", "Zobia AI Assistant") : m.sender_type === "staff" ? t("support.staffReply", "Support Team") : t("support.you", "You")}
               </p>
               <p className="whitespace-pre-wrap">{m.body}</p>
-              {m.charged && <p className="mt-1 text-xs opacity-60">Charged {m.charged_credits} credits / {m.charged_stars} stars</p>}
+              {m.charged && <p className="mt-1 text-xs opacity-60">{t("support.chargedNotice", "Charged {{credits}} credits / {{stars}} stars", { credits: m.charged_credits, stars: m.charged_stars })}</p>}
             </div>
           </div>
         ))}
@@ -123,7 +125,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
           onClick={talkToHuman}
           className="mb-4 w-full rounded-xl border border-primary-600 px-4 py-2 text-sm font-semibold text-primary-600 hover:bg-primary-50 dark:hover:bg-primary-950"
         >
-          This didn&apos;t help — talk to a real person
+          {t("support.talkToHuman", "This didn't help — talk to a real person")}
         </button>
       )}
 
@@ -132,7 +134,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
           <textarea
             value={reply}
             onChange={(e) => setReply(e.target.value)}
-            placeholder="Type a message…"
+            placeholder={t("support.typeMessage", "Type a message…")}
             rows={3}
             className="flex-1 rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
           />
@@ -141,7 +143,7 @@ export default function TicketDetailPage({ params }: { params: Promise<{ id: str
             disabled={sending || !reply.trim()}
             className="rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
-            Send
+            {t("support.send", "Send")}
           </button>
         </div>
       )}

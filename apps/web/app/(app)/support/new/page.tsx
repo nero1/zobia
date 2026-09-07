@@ -15,6 +15,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { useTranslation } from "react-i18next";
 
 interface Eligibility {
   freeAccess: boolean;
@@ -25,6 +26,7 @@ interface Eligibility {
 }
 
 function NewTicketForm() {
+  const { t } = useTranslation();
   const router = useRouter();
   const search = useSearchParams();
   const [subject, setSubject] = useState(search.get("prefillSubject") ?? "");
@@ -55,10 +57,10 @@ function NewTicketForm() {
         }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? "Failed to create ticket");
+      if (!res.ok) throw new Error(json?.error?.message ?? t("support.createFailed", "Failed to create ticket"));
       router.push(`/support/${json.data.id}`);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create ticket");
+      setError(e instanceof Error ? e.message : t("support.createFailed", "Failed to create ticket"));
     } finally {
       setSubmitting(false);
     }
@@ -68,25 +70,27 @@ function NewTicketForm() {
     return (
       <div className="mx-auto max-w-lg p-4">
         <p className="rounded-xl border border-dashed border-neutral-300 p-8 text-center text-sm text-neutral-500 dark:border-neutral-700">
-          Support tickets aren&apos;t available right now. Try the <Link href="/help" className="text-primary-600 hover:underline">Help Center</Link>.
+          {t("support.unavailable", "Support tickets aren't available right now. Try the")} <Link href="/help" className="text-primary-600 hover:underline">{t("help.title", "Help Center")}</Link>.
         </p>
       </div>
     );
   }
 
+  const costAmount = [
+    eligibility && eligibility.costCredits > 0 ? `${eligibility.costCredits} credits` : null,
+    eligibility && eligibility.costStars > 0 ? `${eligibility.costStars} stars` : null,
+  ].filter(Boolean).join(" or ");
+
   return (
     <div className="mx-auto max-w-lg p-4">
-      <h1 className="mb-1 text-2xl font-bold text-neutral-900 dark:text-neutral-50">New Support Ticket</h1>
+      <h1 className="mb-1 text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("support.newTicketTitle", "New Support Ticket")}</h1>
 
       {eligibility && !eligibility.freeAccess && (
         eligibility.blocked ? (
-          <p className="mb-4 text-sm text-red-600">Support tickets aren&apos;t available on your current plan.</p>
+          <p className="mb-4 text-sm text-red-600">{t("support.blockedNotice", "Support tickets aren't available on your current plan.")}</p>
         ) : (
           <p className="mb-4 text-sm text-neutral-500">
-            This will cost{" "}
-            {eligibility.costCredits > 0 && <strong>{eligibility.costCredits} credits</strong>}
-            {eligibility.costCredits > 0 && eligibility.costStars > 0 && " or "}
-            {eligibility.costStars > 0 && <strong>{eligibility.costStars} stars</strong>}.
+            {t("support.costNotice", "This will cost {{amount}}.", { amount: costAmount })}
           </p>
         )
       )}
@@ -96,13 +100,13 @@ function NewTicketForm() {
           type="text"
           value={subject}
           onChange={(e) => setSubject(e.target.value)}
-          placeholder="Subject"
+          placeholder={t("support.subject", "Subject")}
           className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
         />
         <textarea
           value={message}
           onChange={(e) => setMessage(e.target.value)}
-          placeholder="Describe your issue…"
+          placeholder={t("support.describeIssue", "Describe your issue…")}
           rows={6}
           className="w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
         />
@@ -112,7 +116,7 @@ function NewTicketForm() {
           disabled={submitting || !subject.trim() || !message.trim() || eligibility?.blocked}
           className="w-full rounded-xl bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
         >
-          {submitting ? "Submitting…" : "Submit Ticket"}
+          {submitting ? t("support.submitting", "Submitting…") : t("support.submitTicket", "Submit Ticket")}
         </button>
       </div>
     </div>

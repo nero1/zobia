@@ -144,6 +144,19 @@ export interface AccessTokenPayload extends JWTPayload {
    *  access) — authorization decisions always re-verify against the
    *  DATABASE, this claim is never trusted alone. */
   is_moderator?: boolean;
+  /** True when the user holds the sitewide `is_support` role
+   *  (0033_support_tickets.sql). Same fail-closed convention as
+   *  `is_moderator`: only used for the cheap edge middleware pre-filter on
+   *  /gate44/support/* — real authorization always re-checks the DATABASE
+   *  via lib/support/staffAuth.ts#requireSupportStaff. Never client-settable
+   *  — always freshly read from the DB at token issuance (see
+   *  lib/auth/session.ts createSession/refreshAccessToken). */
+  is_support?: boolean;
+  /** True when the user additionally holds `is_senior_support`. Carried
+   *  alongside `is_support` for client-side UI that distinguishes senior
+   *  support (e.g. escalation targets) — server-side authorization still
+   *  always re-checks the database, never this claim. */
+  is_senior_support?: boolean;
   /** Session ID (matches Redis key for invalidation). */
   sid: string;
   /** Token type — 'pre_auth' tokens are only valid for the 2FA verify endpoint. */
