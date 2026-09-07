@@ -66,6 +66,9 @@ const RANK_COLORS: Record<string, string> = {
 /** Max track level used for the progress bar denominator. */
 const TRACK_MAX_LEVEL = 100;
 
+/** XP required per track level — matches app/(app)/profile/page.tsx's own-profile TrackBar. */
+const XP_PER_TRACK_LEVEL = 1000;
+
 const TRACK_EMOJIS: Record<string, string> = {
   social:      "💬",
   creator:     "🎨",
@@ -117,6 +120,15 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       level_knowledge: number;
       level_explorer: number;
       level_gaming: number;
+      xp_social: number;
+      xp_creator: number;
+      xp_competitor: number;
+      xp_generosity: number;
+      xp_knowledge: number;
+      xp_explorer: number;
+      xp_gaming: number;
+      login_streak: number;
+      longest_streak: number;
       is_creator: boolean;
       creator_tier: string | null;
       guild_id: string | null;
@@ -143,6 +155,15 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
               COALESCE(level_knowledge, 1) AS level_knowledge,
               COALESCE(level_explorer, 1) AS level_explorer,
               COALESCE(level_gaming, 1) AS level_gaming,
+              COALESCE(xp_social, 0) AS xp_social,
+              COALESCE(xp_creator, 0) AS xp_creator,
+              COALESCE(xp_competitor, 0) AS xp_competitor,
+              COALESCE(xp_generosity, 0) AS xp_generosity,
+              COALESCE(xp_knowledge, 0) AS xp_knowledge,
+              COALESCE(xp_explorer, 0) AS xp_explorer,
+              COALESCE(xp_gaming, 0) AS xp_gaming,
+              COALESCE(login_streak, 0) AS login_streak,
+              COALESCE(longest_streak, 0) AS longest_streak,
               COALESCE(is_creator, false) AS is_creator,
               creator_tier,
               guild_id,
@@ -395,14 +416,24 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     const rankName = rankInfo.rankName;
     const rankColor = RANK_COLORS[rankName] ?? "#9CA3AF";
 
+    // Progress within the current level (matches the own-profile TrackBar
+    // formula: xp % XP_PER_TRACK_LEVEL out of XP_PER_TRACK_LEVEL). Without
+    // this, `xp`/`xpForNext` were previously omitted entirely, which made the
+    // client's `track.xpForNext > 0` guard always fall through to 100% —
+    // every track bar rendered full regardless of actual progress.
+    const trackProgress = (trackXp: number) => ({
+      xp: trackXp % XP_PER_TRACK_LEVEL,
+      xpForNext: XP_PER_TRACK_LEVEL,
+    });
+
     const trackLevels = hidden.includes("xp") ? [] : [
-      { track: "Social",     label: "Social",     emoji: TRACK_EMOJIS.social,     level: user.level_social,     maxLevel: TRACK_MAX_LEVEL },
-      { track: "Creator",    label: "Creator",    emoji: TRACK_EMOJIS.creator,    level: user.level_creator,    maxLevel: TRACK_MAX_LEVEL },
-      { track: "Competitor", label: "Competitor", emoji: TRACK_EMOJIS.competitor, level: user.level_competitor, maxLevel: TRACK_MAX_LEVEL },
-      { track: "Generosity", label: "Generosity", emoji: TRACK_EMOJIS.generosity, level: user.level_generosity, maxLevel: TRACK_MAX_LEVEL },
-      { track: "Knowledge",  label: "Knowledge",  emoji: TRACK_EMOJIS.knowledge,  level: user.level_knowledge,  maxLevel: TRACK_MAX_LEVEL },
-      { track: "Explorer",   label: "Explorer",   emoji: TRACK_EMOJIS.explorer,   level: user.level_explorer,   maxLevel: TRACK_MAX_LEVEL },
-      { track: "Gaming",     label: "Gaming",     emoji: TRACK_EMOJIS.gaming,     level: user.level_gaming,     maxLevel: TRACK_MAX_LEVEL },
+      { track: "Social",     label: "Social",     emoji: TRACK_EMOJIS.social,     level: user.level_social,     maxLevel: TRACK_MAX_LEVEL, ...trackProgress(user.xp_social) },
+      { track: "Creator",    label: "Creator",    emoji: TRACK_EMOJIS.creator,    level: user.level_creator,    maxLevel: TRACK_MAX_LEVEL, ...trackProgress(user.xp_creator) },
+      { track: "Competitor", label: "Competitor", emoji: TRACK_EMOJIS.competitor, level: user.level_competitor, maxLevel: TRACK_MAX_LEVEL, ...trackProgress(user.xp_competitor) },
+      { track: "Generosity", label: "Generosity", emoji: TRACK_EMOJIS.generosity, level: user.level_generosity, maxLevel: TRACK_MAX_LEVEL, ...trackProgress(user.xp_generosity) },
+      { track: "Knowledge",  label: "Knowledge",  emoji: TRACK_EMOJIS.knowledge,  level: user.level_knowledge,  maxLevel: TRACK_MAX_LEVEL, ...trackProgress(user.xp_knowledge) },
+      { track: "Explorer",   label: "Explorer",   emoji: TRACK_EMOJIS.explorer,   level: user.level_explorer,   maxLevel: TRACK_MAX_LEVEL, ...trackProgress(user.xp_explorer) },
+      { track: "Gaming",     label: "Gaming",     emoji: TRACK_EMOJIS.gaming,     level: user.level_gaming,     maxLevel: TRACK_MAX_LEVEL, ...trackProgress(user.xp_gaming) },
     ];
 
     const seasonHistory = hidden.includes("seasons") ? [] : seasonRows.map((s) => ({
@@ -436,6 +467,8 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       // XP progress
       xp: hidden.includes("xp") ? null : user.xp_total,
       xpForNextRank: hidden.includes("xp") ? null : (rankInfo.nextRankXp ?? 0),
+      loginStreak: hidden.includes("xp") ? null : user.login_streak,
+      longestStreak: hidden.includes("xp") ? null : user.longest_streak,
       // Prestige — both names
       prestigeStars: user.prestige_count,
       prestige: user.prestige_count,

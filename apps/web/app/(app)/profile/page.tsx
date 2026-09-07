@@ -51,6 +51,8 @@ interface MeData {
   star_balance: number;
   xp_total: number;
   legacy_score: number;
+  login_streak: number;
+  longest_streak: number;
   rank_name: string;
   rank_level: number;
   rank_sublevel: number;
@@ -288,6 +290,14 @@ export default function MyProfilePage() {
               {me.legacy_score > 0 && (
                 <span className="text-xs text-amber-600">
                   ⚜️ {me.legacy_score.toLocaleString()} Legacy
+                </span>
+              )}
+              {me.login_streak > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700 dark:bg-orange-900/50 dark:text-orange-300"
+                  title={me.longest_streak ? `Longest streak: ${me.longest_streak} days` : undefined}
+                >
+                  🔥 {me.login_streak}-day streak
                 </span>
               )}
             </div>

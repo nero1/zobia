@@ -416,8 +416,29 @@ export default function OnboardingPage() {
         setGuildsLoading(true);
         fetch(`/api/guilds?city=${encodeURIComponent(city)}&limit=6`)
           .then((r) => r.json())
-          .then((d: { guilds?: GuildSuggestion[] }) => {
-            setSuggestedGuilds(d.guilds ?? []);
+          .then((d: {
+            data?: {
+              items?: {
+                id: string; name: string; description: string | null;
+                crest_emoji?: string | null; member_count?: number; tier?: string;
+              }[];
+            };
+          }) => {
+            // GET /api/guilds returns { success, data: { items } } with raw
+            // (snake_case) DB rows, not a top-level `guilds` array — the old
+            // `d.guilds` read was always undefined, so this list silently
+            // never showed any suggestions.
+            const rows = d.data?.items ?? [];
+            setSuggestedGuilds(
+              rows.map((g) => ({
+                id: g.id,
+                name: g.name,
+                description: g.description,
+                memberCount: g.member_count ?? 0,
+                emblem: g.crest_emoji ?? "🏰",
+                tier: g.tier ?? "bronze",
+              }))
+            );
           })
           .catch(() => {})
           .finally(() => setGuildsLoading(false));

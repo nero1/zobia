@@ -13,6 +13,7 @@
  */
 
 import type { DatabaseAdapter } from "@/lib/db/interface";
+import { getManifestValue } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -54,6 +55,7 @@ interface UserRow {
   id: string;
   xp_total: number;
   city: string | null;
+  nemesis_opt_out: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -79,11 +81,14 @@ export async function assignNemesis(
   db: DatabaseAdapter
 ): Promise<NemesisAssignment | null> {
   const userResult = await db.query<UserRow>(
-    `SELECT id, xp_total, city FROM users WHERE id = $1 AND deleted_at IS NULL`,
+    `SELECT id, xp_total, city, COALESCE(nemesis_opt_out, false) AS nemesis_opt_out
+     FROM users WHERE id = $1 AND deleted_at IS NULL`,
     [userId]
   );
   const user = userResult.rows[0];
   if (!user) return null;
+  // Users who opted out (Profile Settings) never get a nemesis assigned.
+  if (user.nemesis_opt_out) return null;
 
   const minXP = Math.floor(user.xp_total * (1 - NEMESIS_XP_TOLERANCE));
   const maxXP = Math.ceil(user.xp_total * (1 + NEMESIS_XP_TOLERANCE));
@@ -115,6 +120,7 @@ export async function assignNemesis(
     const conditions = [
       `u.id != $1`,
       `u.deleted_at IS NULL`,
+      `COALESCE(u.nemesis_opt_out, false) = false`,
       `u.xp_total BETWEEN $2 AND $3`,
       // Exclude users in any block relationship with the target (mutual-block safety)
       `u.id NOT IN (
@@ -191,6 +197,15 @@ export async function assignNemesis(
 export async function refreshNemesisAssignments(
   db: DatabaseAdapter
 ): Promise<{ updated: number; failed: number }> {
+  // BUG: deactivate assignments for users who opted out (Profile Settings)
+  // since their last refresh — assignNemesis() alone won't touch an existing
+  // row for them, it just declines to create a new one.
+  await db.query(
+    `UPDATE nemesis_assignments SET is_active = false
+     WHERE is_active = true
+       AND user_id IN (SELECT id FROM users WHERE nemesis_opt_out = true)`
+  ).catch(() => {});
+
   const usersResult = await db.query<{ user_id: string }>(
     `SELECT DISTINCT user_id FROM nemesis_assignments WHERE is_active = true`,
     []
@@ -214,6 +229,7 @@ export async function refreshNemesisAssignments(
     `SELECT u.id FROM users u
      WHERE u.deleted_at IS NULL
        AND u.xp_total > 0
+       AND COALESCE(u.nemesis_opt_out, false) = false
        AND u.id NOT IN (
          SELECT user_id FROM nemesis_assignments WHERE is_active = true
        )
@@ -294,4 +310,69 @@ export async function compareNemesisProgress(
     delta: userXP - nemesisXP,
     userIsAhead: userXP >= nemesisXP,
   };
+}
+
+// ---------------------------------------------------------------------------
+// expireUnacceptedNemesisChallenges
+// ---------------------------------------------------------------------------
+
+/** Fallback if the `nemesis_challenge_accept_days` manifest key is missing. */
+const DEFAULT_CHALLENGE_ACCEPT_DAYS = 3;
+
+/**
+ * CRON: sweeps XP-sprint challenges the challenged party never accepted.
+ *
+ * If a challenge sent by `x` to their nemesis `y` sits unaccepted for more
+ * than the admin-configured `nemesis_challenge_accept_days` window (default
+ * 3), the challenge is marked 'expired' and `x` is given a new nemesis
+ * assignment — the current one has gone quiet, so keep the rivalry active
+ * rather than leaving `x` stuck challenging someone who never responds.
+ *
+ * Intended to run once a day (any pending challenge older than the window
+ * qualifies, independent of the weekly nemesis-refresh cadence).
+ *
+ * @param db - Active database adapter.
+ */
+export async function expireUnacceptedNemesisChallenges(
+  db: DatabaseAdapter
+): Promise<{ expired: number; reassigned: number; failed: number }> {
+  const acceptDaysRaw = await getManifestValue("nemesis_challenge_accept_days");
+  const acceptDays = Math.max(1, parseInt(acceptDaysRaw ?? "", 10) || DEFAULT_CHALLENGE_ACCEPT_DAYS);
+
+  const { rows: staleChallenges } = await db.query<{ id: string; challenger_id: string }>(
+    `SELECT id, challenger_id FROM nemesis_challenges
+     WHERE status = 'pending'
+       AND created_at < NOW() - ($1 || ' days')::interval`,
+    [acceptDays]
+  );
+
+  if (staleChallenges.length === 0) return { expired: 0, reassigned: 0, failed: 0 };
+
+  let reassigned = 0;
+  let failed = 0;
+
+  await withConcurrency(staleChallenges, async (challenge) => {
+    try {
+      await db.query(
+        `UPDATE nemesis_challenges SET status = 'expired' WHERE id = $1 AND status = 'pending'`,
+        [challenge.id]
+      );
+      const newAssignment = await assignNemesis(challenge.challenger_id, db);
+      if (newAssignment) {
+        reassigned++;
+        await db.query(
+          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+           VALUES ($1, 'nemesis_challenge_expired', $2, false, NOW())`,
+          [
+            challenge.challenger_id,
+            JSON.stringify({ newNemesisId: newAssignment.nemesis_id }),
+          ]
+        ).catch(() => {});
+      }
+    } catch {
+      failed++;
+    }
+  }, 10);
+
+  return { expired: staleChallenges.length, reassigned, failed };
 }

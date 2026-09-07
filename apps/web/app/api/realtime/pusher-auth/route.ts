@@ -20,10 +20,18 @@ import { verifyAccessToken } from "@/lib/auth/jwt";
 import { ACCESS_TOKEN_COOKIE } from "@/lib/auth/session";
 import { db } from "@/lib/db";
 
-const DM_CHANNEL_RE =
-  /^private-dm-conversation-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
-const ROOM_CHANNEL_RE =
-  /^private-room-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const UUID = "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}";
+const DM_CHANNEL_RE = new RegExp(`^private-dm-conversation-(${UUID})$`);
+// "room:<uuid>:messages" maps to "private-room-<uuid>-messages" (see
+// lib/realtime/pusherChannelName.ts) — the "-messages" suffix is the only
+// room channel currently published to, but the suffix is optional here for
+// forward compatibility with a bare room presence/event channel.
+const ROOM_CHANNEL_RE = new RegExp(`^private-room-(${UUID})(?:-messages)?$`);
+const GROUP_CHANNEL_RE = new RegExp(`^private-group-(${UUID})-messages$`);
+// "user:<uuid>" → "private-user-<uuid>" — the per-user channel used for
+// account-scoped push events (reward_earned, etc.). Only the owning user may
+// ever subscribe to their own channel.
+const USER_CHANNEL_RE = new RegExp(`^private-user-(${UUID})$`);
 
 export async function POST(req: NextRequest) {
   // 1. Authenticate
@@ -66,9 +74,11 @@ export async function POST(req: NextRequest) {
 
   // 3. Validate channel and authorise the caller
   const dmMatch = DM_CHANNEL_RE.exec(channel_name);
-  const roomMatch = ROOM_CHANNEL_RE.exec(channel_name);
+  const roomMatch = !dmMatch ? ROOM_CHANNEL_RE.exec(channel_name) : null;
+  const groupMatch = !dmMatch && !roomMatch ? GROUP_CHANNEL_RE.exec(channel_name) : null;
+  const userMatch = !dmMatch && !roomMatch && !groupMatch ? USER_CHANNEL_RE.exec(channel_name) : null;
 
-  if (!dmMatch && !roomMatch) {
+  if (!dmMatch && !roomMatch && !groupMatch && !userMatch) {
     return new Response("Unsupported channel format", { status: 400 });
   }
 
@@ -101,6 +111,22 @@ export async function POST(req: NextRequest) {
       [roomId, userId]
     );
     if (!rows[0]) {
+      return new Response("Forbidden", { status: 403 });
+    }
+  } else if (groupMatch) {
+    const groupId = groupMatch[1];
+    const { rows } = await db.query<{ group_chat_id: string }>(
+      `SELECT group_chat_id FROM group_chat_members
+       WHERE group_chat_id = $1 AND user_id = $2
+       LIMIT 1`,
+      [groupId, userId]
+    );
+    if (!rows[0]) {
+      return new Response("Forbidden", { status: 403 });
+    }
+  } else if (userMatch) {
+    // A user's personal channel may only ever be subscribed to by that user.
+    if (userMatch[1] !== userId) {
       return new Response("Forbidden", { status: 403 });
     }
   }

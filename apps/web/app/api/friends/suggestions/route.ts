@@ -43,7 +43,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
          GROUP BY 1
        )
        SELECT DISTINCT ON (u.id)
-         u.id, u.username, u.display_name, u.avatar_emoji, u.rank_name, u.is_verified,
+         u.id, u.username, u.display_name, u.avatar_emoji, u.avatar_url, u.rank_name, u.is_verified,
          COALESCE(fof.mutual_count, 0) AS mutual_friend_count
        FROM users u
        LEFT JOIN fof ON fof.uid = u.id
@@ -61,6 +61,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         username: r.username,
         displayName: r.display_name ?? r.username,
         avatarEmoji: r.avatar_emoji,
+        avatarUrl: r.avatar_url ?? null,
         rankName: r.rank_name,
         isVerified: r.is_verified,
         mutualFriendCount: Number(r.mutual_friend_count),

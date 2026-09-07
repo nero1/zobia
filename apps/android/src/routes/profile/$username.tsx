@@ -39,6 +39,8 @@ interface RichProfile {
   joinedAt: string;
   rankName: string | null;
   xp: number | null;
+  loginStreak?: number | null;
+  longestStreak?: number | null;
   plan: string;
   isVerified: boolean;
   prestige?: number;
@@ -139,9 +141,8 @@ function ProfilePage() {
         </div>
       </div>
 
-      {/* Stats — the profile endpoint doesn't expose a login streak for
-          non-owners, so this is XP + Rank only (was a 3-up grid with streak). */}
-      <div className="grid grid-cols-2 divide-x divide-neutral-100 border-b border-neutral-100">
+      {/* Stats — GET /api/users/:userId/profile now includes loginStreak. */}
+      <div className={`grid ${profile.loginStreak ? 'grid-cols-3' : 'grid-cols-2'} divide-x divide-neutral-100 border-b border-neutral-100`}>
         <div className="px-4 py-4 text-center">
           <p className="text-lg font-bold text-neutral-900">{(profile.xp ?? 0).toLocaleString()}</p>
           <p className="text-xs text-neutral-500">XP</p>
@@ -150,6 +151,12 @@ function ProfilePage() {
           <p className="text-lg font-bold text-neutral-900">{profile.rankName ?? '—'}</p>
           <p className="text-xs text-neutral-500">{t('profile.rank')}</p>
         </div>
+        {!!profile.loginStreak && (
+          <div className="px-4 py-4 text-center" title={profile.longestStreak ? `Longest: ${profile.longestStreak}` : undefined}>
+            <p className="text-lg font-bold text-orange-600">🔥 {profile.loginStreak}</p>
+            <p className="text-xs text-neutral-500">{t('profile.streak', 'Day Streak')}</p>
+          </div>
+        )}
       </div>
 
       {/* Track levels */}

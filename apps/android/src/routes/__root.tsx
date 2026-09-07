@@ -19,6 +19,7 @@ import { AuthUserSchema } from '@zobia/shared/schemas/auth';
 import { setPreAuthToken, endOAuthAttempt, isOAuthInProgress } from '@/lib/auth/preAuth';
 import { env } from '@/lib/env';
 import { usePresenceHeartbeat } from '@/lib/hooks/usePresenceHeartbeat';
+import { useLoginStreak } from '@/lib/hooks/useLoginStreak';
 import { initPushNotifications } from '@/lib/push';
 import { apiClient } from '@/lib/api/client';
 import { useReferralCaptureFromLink } from '@/lib/deeplinks/referral';
@@ -37,6 +38,9 @@ function AppShell() {
 
   // Keeps last_active_at / online status warm app-wide — see usePresenceHeartbeat.ts.
   usePresenceHeartbeat();
+
+  // Records today's login (streak, XP, quest progress) once per day — see useLoginStreak.ts.
+  useLoginStreak();
 
   // Captures `?r=CODE` from a shared referral deep link (zobia://... or a
   // verified https://zobia.org/... App Link) into Preferences so the

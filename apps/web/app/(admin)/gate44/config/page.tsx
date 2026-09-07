@@ -149,6 +149,13 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     type: "boolean",
     group: "Group Chats",
   },
+  // Nemesis System
+  nemesis_challenge_accept_days: {
+    label: "Challenge Accept Window (days)",
+    description: "Days a challenged user has to accept a Nemesis XP-sprint challenge before the challenger is assigned a new Nemesis.",
+    type: "number",
+    group: "Nemesis System",
+  },
   // Auth
   auth_google_enabled: {
     label: "Google OAuth",

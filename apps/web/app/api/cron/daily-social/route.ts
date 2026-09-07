@@ -7,6 +7,7 @@ export const maxDuration = 10;
  * CRON slot 6 of 7 — runs at 04:00 UTC (05:00 WAT).
  *
  *  1. Nemesis assignments refresh (Sundays only)
+ *  1b. Nemesis challenge accept-window sweep (every day)
  *  2. Weekly season leaderboard snapshot (Sundays only)
  *  3. Leaderboard ripple notifications (set-based, already fast)
  *  4. DM conversation score sticker milestones — fully set-based (was N+1)
@@ -19,7 +20,7 @@ export const maxDuration = 10;
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
-import { refreshNemesisAssignments } from "@/lib/nemesis/nemesisEngine";
+import { refreshNemesisAssignments, expireUnacceptedNemesisChallenges } from "@/lib/nemesis/nemesisEngine";
 import { batchCalculateTrustScores } from "@/lib/trust/trustScore";
 
 const STICKER_MILESTONES = [50, 100, 200, 365] as const;
@@ -48,6 +49,14 @@ export const GET = async (req: NextRequest) => {
     }
   } catch (err) {
     errors.push(`nemesisRefresh: ${String(err)}`);
+  }
+
+  // 1b. Nemesis challenge accept-window sweep (every day — the accept
+  // deadline is per-challenge, not tied to the weekly refresh cadence).
+  try {
+    results.nemesisChallengeExpiry = await expireUnacceptedNemesisChallenges(db);
+  } catch (err) {
+    errors.push(`nemesisChallengeExpiry: ${String(err)}`);
   }
 
   // 2. Weekly season leaderboard snapshot (Sundays only)

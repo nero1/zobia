@@ -13,6 +13,8 @@ import { db as globalDb } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { upsertLeaderboardSnapshot } from "@/lib/leaderboards/engine";
 import type { LeaderboardTrack } from "@/lib/leaderboards/engine";
+import { getRankForXP } from "@/lib/xp/engine";
+import { publishRealtimeEvent } from "@/lib/realtime";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -143,6 +145,45 @@ export async function safeAwardXP(
           await upsertLeaderboardSnapshot(userId, track as LeaderboardTrack, trackXP, client, { scope: "city", city }).catch((err) => {
             logger.warn({ err, userId, city, track }, "[leaderboard] city snapshot upsert failed after XP award");
           });
+        }
+      }
+
+      // Level-up detection — safeAwardXP is the actual production XP-award
+      // path (unlike the unused app/api/xp/award/route.ts, which had its own
+      // rank-up detection that never ran because nothing calls that route).
+      // xp_total is incremented above regardless of `track`, so any award can
+      // trigger a rank-up. Computed from XP values alone (not the cached
+      // rank_name/rank_sublevel columns, which this keeps in sync here).
+      if (amount > 0) {
+        const rankBefore = getRankForXP(xpTotal - amount);
+        const rankAfter = getRankForXP(xpTotal);
+        const didRankUp = rankAfter.rankName !== rankBefore.rankName || rankAfter.sublevel !== rankBefore.sublevel;
+        if (didRankUp) {
+          await (client as DatabaseAdapter).query(
+            `UPDATE users SET rank_name = $2, rank_sublevel = $3 WHERE id = $1`,
+            [userId, rankAfter.rankName, rankAfter.sublevel]
+          ).catch((err) => {
+            logger.warn({ err, userId }, "[safeAwardXP] rank_name/rank_sublevel sync failed after rank-up");
+          });
+
+          // Notification + realtime celebration only fire once the award is
+          // durably committed (mirrors the xp_meta quest trigger below) —
+          // never from inside a caller-supplied transaction that might roll back.
+          if (!dbClient) {
+            globalDb.query(
+              `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+               VALUES ($1, 'rank_up', $2, false, NOW())`,
+              [userId, JSON.stringify({ from: rankBefore.rankName, to: rankAfter.rankName, sublevelTo: rankAfter.sublevel })]
+            ).catch((err) => {
+              logger.warn({ err, userId }, "[safeAwardXP] rank_up notification insert failed");
+            });
+            publishRealtimeEvent(`user:${userId}`, "reward_earned", {
+              type: "rank_up",
+              rankFrom: rankBefore.rankName,
+              rankTo: rankAfter.rankName,
+              sublevelTo: rankAfter.sublevel,
+            }).catch(() => {});
+          }
         }
       }
 

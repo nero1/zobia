@@ -36,12 +36,22 @@ interface SprintStanding {
   isMe: boolean;
 }
 
+interface IncomingChallenge {
+  challengeId: string;
+  challengerId: string;
+  challengerUsername: string;
+  challengerDisplayName: string;
+  challengerAvatarEmoji: string;
+}
+
 interface NemesisData {
   nemesis: NemesisParty | null;
   me: NemesisParty | null;
+  optedOut?: boolean;
   sprintStandings?: SprintStanding[];
   sprintActive?: boolean;
   sprintEndsAt?: string | null;
+  incomingChallenge?: IncomingChallenge | null;
   comparison?: {
     userXP: number;
     nemesisXP: number;
@@ -93,7 +103,19 @@ function NemesisSkeleton() {
 // ---------------------------------------------------------------------------
 
 function NemesisCard({ data, onChallenge, challenging }: { data: NemesisData; onChallenge: () => void; challenging: boolean }) {
-  const { nemesis, me, sprintStandings = [], comparison } = data;
+  const { nemesis, me, sprintStandings = [], comparison, optedOut } = data;
+
+  if (optedOut) {
+    return (
+      <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-2xl p-6 text-center">
+        <div className="text-4xl mb-3">🔕</div>
+        <h3 className="font-bold text-neutral-700 dark:text-neutral-300 mb-1">Nemesis System Off</h3>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">
+          You&apos;ve turned off Nemesis rivals. Re-enable it anytime in Settings → Privacy.
+        </p>
+      </div>
+    );
+  }
 
   if (!nemesis || !me) {
     return (
@@ -213,6 +235,7 @@ export default function NemesisPage() {
   const [error, setError] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState("");
   const [challenging, setChallenging] = useState(false);
+  const [accepting, setAccepting] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -246,6 +269,26 @@ export default function NemesisPage() {
       setError("Network error. Please try again.");
     } finally {
       setChallenging(false);
+    }
+  }, [load]);
+
+  const handleAcceptChallenge = useCallback(async (challengeId: string) => {
+    setAccepting(true);
+    try {
+      const res = await fetch(`/api/nemesis/challenge/${challengeId}/accept`, {
+        method: "POST",
+        credentials: "include",
+      });
+      if (res.ok) {
+        await load();
+      } else {
+        const body = await res.json().catch(() => ({})) as { error?: { code?: string; message?: string } };
+        setError(translateApiError(tRef.current, body.error?.code ?? null, body.error?.message ?? "Failed to accept challenge"));
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setAccepting(false);
     }
   }, [load]);
 
@@ -304,7 +347,29 @@ export default function NemesisPage() {
           </button>
         </div>
       ) : (
-        <NemesisCard data={data!} onChallenge={handleChallenge} challenging={challenging} />
+        <>
+          {data?.incomingChallenge && (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-800 dark:bg-amber-950/30">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="text-2xl">{data.incomingChallenge.challengerAvatarEmoji}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-200 truncate">
+                    {data.incomingChallenge.challengerDisplayName} challenged you to an XP sprint!
+                  </p>
+                  <p className="text-xs text-amber-700 dark:text-amber-400">Accept to start the 7-day sprint</p>
+                </div>
+              </div>
+              <button
+                onClick={() => handleAcceptChallenge(data.incomingChallenge!.challengeId)}
+                disabled={accepting}
+                className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+              >
+                {accepting ? "…" : "Accept"}
+              </button>
+            </div>
+          )}
+          <NemesisCard data={data!} onChallenge={handleChallenge} challenging={challenging} />
+        </>
       )}
 
       {/* How it works */}

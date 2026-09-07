@@ -24,11 +24,21 @@ interface NemesisParty {
   xp: number;
 }
 
+interface IncomingChallenge {
+  challengeId: string;
+  challengerId: string;
+  challengerUsername: string;
+  challengerDisplayName: string;
+  challengerAvatarEmoji: string;
+}
+
 interface NemesisData {
   nemesis: NemesisParty | null;
   me: NemesisParty | null;
+  optedOut?: boolean;
   sprintActive?: boolean;
   sprintEndsAt?: string | null;
+  incomingChallenge?: IncomingChallenge | null;
   comparison?: { userXP: number; nemesisXP: number; delta: number; userIsAhead: boolean } | null;
   recentActivity?: Array<{ id: string; userId: string; description: string; xpEarned: number; createdAt: string }>;
 }
@@ -62,9 +72,23 @@ async function sendChallenge() {
   await apiClient.post('/nemesis/challenge');
 }
 
+async function acceptChallenge(challengeId: string) {
+  await apiClient.post(`/nemesis/challenge/${challengeId}/accept`);
+}
+
 function NemesisCard({ data, onChallenge, challenging }: { data: NemesisData; onChallenge: () => void; challenging: boolean }) {
   const { t } = useTranslation();
-  const { nemesis, me, comparison } = data;
+  const { nemesis, me, comparison, optedOut } = data;
+
+  if (optedOut) {
+    return (
+      <div className="bg-white border border-neutral-200 rounded-2xl p-6 text-center">
+        <div className="text-4xl mb-3">🔕</div>
+        <h3 className="font-bold text-neutral-700 mb-1">Nemesis System Off</h3>
+        <p className="text-sm text-neutral-500">You&apos;ve turned off Nemesis rivals. Re-enable it anytime in Settings → Privacy.</p>
+      </div>
+    );
+  }
 
   if (!nemesis || !me) {
     return (
@@ -168,6 +192,10 @@ function NemesisPage() {
     mutationFn: sendChallenge,
     onSuccess: () => refetch(),
   });
+  const acceptMutation = useMutation({
+    mutationFn: acceptChallenge,
+    onSuccess: () => refetch(),
+  });
 
   useEffect(() => {
     const nextRefreshAt = nextSundayIso();
@@ -208,7 +236,29 @@ function NemesisPage() {
           </button>
         </div>
       ) : (
-        <NemesisCard data={data!} onChallenge={() => challengeMutation.mutate()} challenging={challengeMutation.isPending} />
+        <>
+          {data?.incomingChallenge && (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+              <div className="flex items-center gap-3 min-w-0">
+                <span className="text-2xl">{data.incomingChallenge.challengerAvatarEmoji}</span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-amber-900 truncate">
+                    {data.incomingChallenge.challengerDisplayName} challenged you to an XP sprint!
+                  </p>
+                  <p className="text-xs text-amber-700">Accept to start the 7-day sprint</p>
+                </div>
+              </div>
+              <button
+                onClick={() => acceptMutation.mutate(data.incomingChallenge!.challengeId)}
+                disabled={acceptMutation.isPending}
+                className="shrink-0 rounded-lg bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+              >
+                {acceptMutation.isPending ? '…' : 'Accept'}
+              </button>
+            </div>
+          )}
+          <NemesisCard data={data!} onChallenge={() => challengeMutation.mutate()} challenging={challengeMutation.isPending} />
+        </>
       )}
 
       <div className="mt-6 bg-neutral-100 rounded-xl p-4">

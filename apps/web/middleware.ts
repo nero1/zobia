@@ -508,8 +508,19 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
 
   // Public routes – pass through
   if (isPublicRoute(pathname)) {
-    // Redirect authenticated users away from login page and root landing page
-    if ((pathname.startsWith("/auth/login") || pathname === "/" || pathname === "") && token) {
+    // Redirect authenticated users away from login page, root landing page,
+    // and the OAuth error page. The error page in particular can be reached
+    // by a stale/duplicate request racing a concurrent successful sign-in
+    // (see app/api/auth/google/callback/route.ts) — if the user already has
+    // a valid session by the time they load it, just send them onward
+    // instead of showing a "session expired" notice to a signed-in user.
+    if (
+      (pathname.startsWith("/auth/login") ||
+        pathname.startsWith("/auth/error") ||
+        pathname === "/" ||
+        pathname === "") &&
+      token
+    ) {
       const payload = await verifyToken(token);
       if (payload?.sub && payload?.type !== 'pre_auth') {
         return NextResponse.redirect(new URL(HOME_URL, request.url));

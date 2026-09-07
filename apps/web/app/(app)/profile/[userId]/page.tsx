@@ -66,6 +66,8 @@ interface UserProfile {
   rankLevel: number;
   xp: number;
   xpForNextRank: number;
+  loginStreak: number | null;
+  longestStreak: number | null;
   prestige: number; // number of prestige stars, 0 if none
   plan: string;
   isModerator: boolean;
@@ -308,6 +310,14 @@ export default function ProfilePage() {
               {profile.connectionBadge && (
                 <span className="inline-flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">
                   🔗 {profile.connectionBadge}
+                </span>
+              )}
+              {!!profile.loginStreak && profile.loginStreak > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700 dark:bg-orange-900/50 dark:text-orange-300"
+                  title={profile.longestStreak ? `Longest streak: ${profile.longestStreak} days` : undefined}
+                >
+                  🔥 {profile.loginStreak}-day streak
                 </span>
               )}
             </div>

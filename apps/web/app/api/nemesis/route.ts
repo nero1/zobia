@@ -75,12 +75,17 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     );
 
     if (!rows[0]) {
-      // No nemesis — try to assign one
+      // No nemesis — try to assign one (assignNemesis() itself declines for
+      // an opted-out user, so surface that distinctly from "no match yet").
       const newAssignment = await assignNemesis(userId, db);
       if (!newAssignment) {
+        const { rows: optOutRows } = await db.query<{ nemesis_opt_out: boolean }>(
+          `SELECT COALESCE(nemesis_opt_out, false) AS nemesis_opt_out FROM users WHERE id = $1`,
+          [userId]
+        );
         return NextResponse.json({
           success: true,
-          data: { nemesis: null },
+          data: { nemesis: null, optedOut: optOutRows[0]?.nemesis_opt_out === true },
           error: null,
         });
       }
@@ -177,6 +182,33 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     );
     const activeSprint = sprintRows[0] ?? null;
 
+    // A pending challenge sent TO this user (by anyone — not necessarily
+    // their current nemesis, since a nemesis reassignment can happen while a
+    // challenge is still awaiting response) that they can accept.
+    const { rows: incomingRows } = await db.query<{
+      id: string;
+      challenger_id: string;
+      username: string;
+      display_name: string;
+      avatar_emoji: string;
+    }>(
+      `SELECT nc.id, nc.challenger_id, u.username, u.display_name, u.avatar_emoji
+       FROM nemesis_challenges nc
+       JOIN users u ON u.id = nc.challenger_id
+       WHERE nc.challenged_id = $1 AND nc.status = 'pending'
+       ORDER BY nc.created_at DESC LIMIT 1`,
+      [userId]
+    );
+    const incomingChallenge = incomingRows[0]
+      ? {
+          challengeId: incomingRows[0].id,
+          challengerId: incomingRows[0].challenger_id,
+          challengerUsername: incomingRows[0].username,
+          challengerDisplayName: incomingRows[0].display_name,
+          challengerAvatarEmoji: incomingRows[0].avatar_emoji,
+        }
+      : null;
+
     const competitorTrackInfo = getTrackLevelForXP("competitor", me?.xp_competitor ?? 0);
 
     return NextResponse.json({
@@ -198,6 +230,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       recentActivity,
       sprintActive: activeSprint !== null,
       sprintEndsAt: activeSprint?.expires_at ?? null,
+      incomingChallenge,
       // Legacy fields for web client compatibility
       comparison: {
         userXP: comparison.userXP,

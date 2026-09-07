@@ -409,6 +409,8 @@ XP (Experience Points) is the universal score reflecting a user's total activity
 
 Within each rank are sub-levels (I, II, III) providing shorter-term milestones. A user at Baller III is one sub-level from Boss I — this prevents the gaps between major ranks from feeling discouraging.
 
+**Level Up celebration:** whenever an XP award crosses a rank or sub-level threshold, the user is shown a full-screen celebratory overlay (confetti, the new rank name/sub-level, a short chime) delivered in real time via the same push channel as other reward toasts. Admins can preview the animation on demand from `/gate44/notifications-demo`.
+
 ---
 
 ## 7. Progression Architecture
@@ -1007,6 +1009,10 @@ Notifications fire when: Nemesis overtakes user, user overtakes Nemesis, Nemesis
 
 Users can dismiss a Nemesis assignment to regenerate a new one. Users cannot choose their Nemesis.
 
+Eligible users (anyone who has been assigned a Nemesis at least once) can turn the Nemesis system off entirely from Profile Settings → Privacy. Opting out removes their current assignment immediately, exempts them from future automatic assignment, and excludes them from being selected as anyone else's rival.
+
+If the challenged party does not accept a "Challenge" XP-sprint invite within an admin-configurable window (`nemesis_challenge_accept_days` in `/gate44/config`, default 3 days), the challenge expires and the challenger is assigned a new Nemesis so the rivalry stays active.
+
 ### The Platform Council
 
 Monthly, the top 50 users by Legacy Score are invited to join the Platform Council — a user advisory body. Council members receive early feature access (2 weeks before general release), participate in monthly feedback sessions, receive a "Platform Council" badge, and can submit Feature Ideas (top idea per month gets a development commitment).
@@ -1028,6 +1034,8 @@ Referral links use numeric IDs and not usernames (for privacy). URL format: `?r=
 **Tier 1 (Direct Referral):** The referrer earns a Credit and XP bonus when their referred user completes onboarding and performs a specified qualifying action (configurable by admin — default: first credit purchase or 7-day streak).
 
 **Tier 2 (Indirect Referral):** If the referred user themselves refers someone who qualifies, the original referrer earns a smaller Tier 2 bonus. The Tier 2 bonus amount is admin-configurable. Tier 2 referrals do not extend further (two tiers maximum).
+
+The `/referrals` page shows a scannable QR code below the referral link (in addition to the copy-to-clipboard link), so the link can be shared in person without typing it.
 
 ### Public URL Structure — SEO-Friendly Slugs
 
@@ -1085,6 +1093,10 @@ Notifications must never feel like interruptions. They must feel like invitation
 **Silent (badge only, no sound/banner):**
 - New message in a group chat (unless DM).
 - Weekly contribution score update.
+
+### In-App "New Notifications" Indicator
+
+The notification bell (and the "Notifications" nav menu item) shows a small red dot whenever a notification has arrived since the Notifications page was last opened on that device — independent of read/unread state. Opening the page clears the dot immediately; it reappears only once a newer notification arrives after that. This is tracked per-device (localStorage, scoped by user id) so it never depends on marking individual notifications as read.
 
 ### Email Notifications
 

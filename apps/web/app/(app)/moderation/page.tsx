@@ -22,6 +22,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { extractArray } from "@/lib/api/extractArray";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -220,8 +221,12 @@ export default function ModerationCenterPage() {
         const endpoint = queue === "forum" ? "/api/admin/forum/queue" : "/api/admin/moderation";
         const res = await fetch(`${endpoint}?status=${status}`, { credentials: "include" });
         if (!res.ok) throw new Error("Failed to load queue");
-        const data = (await res.json()) as { items?: ReportItem[] };
-        setItems(data.items ?? []);
+        const data = await res.json();
+        // /api/admin/moderation returns flat { items }; /api/admin/forum/queue
+        // returns { success, data: { items } } — extractArray() handles both
+        // so switching the queue selector to "Forum" doesn't silently show
+        // an always-empty list.
+        setItems(extractArray<ReportItem>(data, ["items"]));
       }
     } catch (e) {
       setError(e instanceof Error ? translateApiError(tRef.current, (e as Error & { code?: string | null }).code, e.message) : "Unknown error");

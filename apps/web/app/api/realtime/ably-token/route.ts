@@ -28,6 +28,10 @@ const ROOM_CHANNEL_RE =
   /^room:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(:[a-z_]+)?$/;
 const GROUP_CHANNEL_RE =
   /^group:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(:[a-z_]+)?$/;
+// Per-user channel for account-scoped push events (reward_earned, etc.) — see
+// lib/quests/questEngine.ts and other publishRealtimeEvent(`user:${userId}`, …) callers.
+const USER_CHANNEL_RE =
+  /^user:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
 
 export async function GET(req: NextRequest) {
   // 1. Authenticate — accept the access-token cookie (web) OR a Bearer token
@@ -58,8 +62,9 @@ export async function GET(req: NextRequest) {
   const dmMatch = DM_CHANNEL_RE.exec(channel);
   const roomMatch = ROOM_CHANNEL_RE.exec(channel);
   const groupMatch = GROUP_CHANNEL_RE.exec(channel);
+  const userMatch = USER_CHANNEL_RE.exec(channel);
 
-  if (!dmMatch && !roomMatch && !groupMatch) {
+  if (!dmMatch && !roomMatch && !groupMatch && !userMatch) {
     return new Response("Unsupported channel format", { status: 400 });
   }
 
@@ -104,6 +109,11 @@ export async function GET(req: NextRequest) {
       [groupId, userId]
     );
     if (!rows[0]) {
+      return new Response("Forbidden", { status: 403 });
+    }
+  } else if (userMatch) {
+    // A user's personal channel may only ever be subscribed to by that user.
+    if (userMatch[1] !== userId) {
       return new Response("Forbidden", { status: 403 });
     }
   }

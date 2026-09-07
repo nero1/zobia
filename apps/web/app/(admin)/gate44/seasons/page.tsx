@@ -10,6 +10,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { useCurrency } from "@/lib/hooks/useCurrency";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -110,6 +111,7 @@ interface CreateSeasonModalProps {
 
 function CreateSeasonModal({ onClose, onCreated }: CreateSeasonModalProps) {
   const { t: tSub } = useTranslation();
+  const currency = useCurrency();
   const [form, setForm] = useState<CreateSeasonForm>(EMPTY_FORM);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
@@ -247,7 +249,7 @@ function CreateSeasonModal({ onClose, onCreated }: CreateSeasonModalProps) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                Pass Price (coins)
+                Pass Price ({currency.softPlural})
               </label>
               <input
                 type="number"
@@ -259,7 +261,7 @@ function CreateSeasonModal({ onClose, onCreated }: CreateSeasonModalProps) {
             </div>
             <div>
               <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-neutral-500">
-                Reward Pool (coins)
+                Reward Pool ({currency.softPlural})
               </label>
               <input
                 type="number"
@@ -324,6 +326,7 @@ function CreateSeasonModal({ onClose, onCreated }: CreateSeasonModalProps) {
 
 function SeasonCard({ season }: { season: Season }) {
   const { label, classes } = seasonStatus(season);
+  const currency = useCurrency();
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
@@ -349,11 +352,11 @@ function SeasonCard({ season }: { season: Season }) {
         </div>
         <div>
           <span className="block font-semibold uppercase tracking-wider text-neutral-400">Pass Price</span>
-          <span className="font-semibold text-amber-600 dark:text-amber-400">{season.pass_price_coins.toLocaleString()} coins</span>
+          <span className="font-semibold text-amber-600 dark:text-amber-400">{season.pass_price_coins.toLocaleString()} {currency.softPlural}</span>
         </div>
         <div>
           <span className="block font-semibold uppercase tracking-wider text-neutral-400">Reward Pool</span>
-          <span className="font-semibold text-teal-600 dark:text-teal-400">{season.reward_pool_coins.toLocaleString()} coins</span>
+          <span className="font-semibold text-teal-600 dark:text-teal-400">{season.reward_pool_coins.toLocaleString()} {currency.softPlural}</span>
         </div>
       </div>
     </div>
