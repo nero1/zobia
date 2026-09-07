@@ -5267,7 +5267,8 @@ purchases always go through Google Play Billing (`lib/payments/
 googlePlay.ts`, already built), which has no equivalent redirect step.
 
 Remaining: Message Groups, Room creation, Business/Subscription
-settings, and the Admin panel are still not ported.
+settings, and the Admin panel are still not ported. (Message Groups
+were ported in v2.19 — see that changelog.)
 
 #### v2.09 — Notifications, Rewarded Ads, and a full Android bug audit (final batch of the user-page parity effort)
 
@@ -6439,6 +6440,25 @@ gating, moderation, invitations)
 
 ---
 
-*ZobiaSocial PRD v2.18*
+## Appendix: Version 2.19 Change Log
+
+### v2.19 — Changelog
+
+#### Group Chats ported to the Capacitor Android app
+
+Closes the gap called out in v2.18: group chats had no Android screens at
+all. Added `apps/android/src/routes/messages/groups/{index,create,$groupId}.tsx`,
+mirroring the web/PWA pages feature-for-feature — group list with the
+renewal-time reactivation prompt, group creation (name/tag/friend picker),
+and the group chat screen itself (message feed with realtime + adaptive
+poll, live-presence heartbeat driving the "chat is full" notice, a members
+panel with admin mute/remove actions, and a header menu for leave/block
+group). A "Groups" entry point was added next to "New Message" on the
+Android Messages screen, matching web. No backend changes — this pass
+consumes the same `/api/messages/group/*` endpoints added in v2.18.
+
+---
+
+*ZobiaSocial PRD v2.19*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

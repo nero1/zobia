@@ -174,12 +174,20 @@ function MessagesPage() {
     <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-white">
       <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100">
         <h1 className="text-lg font-bold text-neutral-900">{t('messages.title')}</h1>
-        <button
-          onClick={() => setShowNewMessage(true)}
-          className="rounded-full bg-primary-600 px-4 py-2 text-xs font-semibold text-white"
-        >
-          {t('messages.newMessage')}
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/messages/groups"
+            className="rounded-full border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700"
+          >
+            {t('messages.groups')}
+          </Link>
+          <button
+            onClick={() => setShowNewMessage(true)}
+            className="rounded-full bg-primary-600 px-4 py-2 text-xs font-semibold text-white"
+          >
+            {t('messages.newMessage')}
+          </button>
+        </div>
       </div>
       {status === 'pending' && (
         <div className="divide-y divide-neutral-100">
