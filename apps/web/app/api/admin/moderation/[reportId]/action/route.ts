@@ -28,6 +28,8 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 import { DEEPSEEK_MODELS, GEMINI_MODELS, GEMINI_CONFIG } from "@/lib/ai/config";
 import { invalidateAllSessions } from "@/lib/auth/session";
+import { canPlatformModPerform } from "@/lib/moderation/capabilities";
+import { applyReportRewards, applyMaliciousReportPenalty } from "@/lib/moderation/rewards";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -46,9 +48,13 @@ const ActionBodySchema = z.object({
   note: z.string().max(500).optional(),
   /** Duration in hours — required for suspend_user. */
   duration_hours: z.number().int().positive().optional(),
+  /**
+   * Only meaningful with action: "dismiss" — flags the report itself as
+   * malicious/spammy, docking the original reporter's Trust Score instead
+   * of paying the usual "not accepted" XP consolation (PRD "REPORTING").
+   */
+  mark_malicious: z.boolean().optional(),
 });
-
-const ADMIN_ONLY_ACTIONS = new Set(["ban_user", "escalate_ai"]);
 
 // ---------------------------------------------------------------------------
 // Layer-3 AI Escalation — re-analyze with DeepSeek/Gemini for appeals
@@ -202,14 +208,14 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
         throw badRequest("Invalid action payload", parsed.error.flatten());
       }
 
-      const { action, note, duration_hours } = parsed.data;
+      const { action, note, duration_hours, mark_malicious } = parsed.data;
 
-      if (ADMIN_ONLY_ACTIONS.has(action) && !auth.isAdmin) {
+      // Admins may always take any action; a non-admin Platform Mod is
+      // gated by the admin-configured capability set (/gate44/moderation/settings).
+      if (!auth.isAdmin && !(await canPlatformModPerform(action))) {
         throw forbidden(
-          action === "ban_user"
-            ? "Only administrators can permanently ban a user."
-            : "Only administrators can trigger AI re-escalation.",
-          "ADMIN_ONLY_ACTION"
+          `Platform Mods are not currently permitted to take the "${action}" action. Ask an administrator to enable it.`,
+          "MOD_CAPABILITY_DISABLED"
         );
       }
 
@@ -222,10 +228,11 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
         id: string;
         reported_user_id: string | null;
         reported_message_id: string | null;
+        reported_guild_message_id: string | null;
         reporter_id: string | null;
         status: string;
       }>(
-        `SELECT id, reported_user_id, reported_message_id, reporter_id, status
+        `SELECT id, reported_user_id, reported_message_id, reported_guild_message_id, reporter_id, status
          FROM moderation_reports
          WHERE id = $1 AND deleted_at IS NULL`,
         [reportId]
@@ -317,16 +324,24 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
         }
 
         // 4. Remove content if requested
-        if (
-          action === "remove_content" &&
-          report.reported_message_id
-        ) {
+        if (action === "remove_content" && report.reported_message_id) {
           await tx.query(
             `UPDATE messages
              SET deleted_at = NOW(), deleted_by = $1
              WHERE id = $2`,
             [auth.user.sub, report.reported_message_id]
           );
+        } else if (action === "remove_content" && report.reported_guild_message_id) {
+          await tx.query(
+            `UPDATE guild_messages SET is_deleted = true, deleted_by = $1 WHERE id = $2`,
+            [auth.user.sub, report.reported_guild_message_id]
+          );
+        }
+
+        // 5. Malicious/spammy report — flags the report, docks the original
+        // reporter's Trust Score instead of the usual reward (dismiss only).
+        if (action === "dismiss" && mark_malicious) {
+          await tx.query(`UPDATE moderation_reports SET is_malicious = true WHERE id = $1`, [reportId]);
         }
       });
 
@@ -334,6 +349,13 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
       // continue using the platform after the action takes effect.
       if (report.reported_user_id && (action === "ban_user" || action === "suspend_user")) {
         await invalidateAllSessions(report.reported_user_id).catch(() => {});
+      }
+
+      // Reporting rewards (PRD "REPORTING") — best-effort, after commit.
+      if (action === "dismiss" && mark_malicious) {
+        await applyMaliciousReportPenalty(reportId);
+      } else {
+        await applyReportRewards(reportId, action === "dismiss" ? "not_accepted" : "accepted");
       }
 
       // Notify the reporter of the outcome

@@ -73,6 +73,7 @@ function sanitizeManifestValue(key: string, value: string): string {
     lower.startsWith("feature_") ||
     lower.includes("_enabled") ||
     lower.startsWith("is_") ||
+    lower.startsWith("modcap_") ||
     lower.includes("require_") ||
     lower.includes("required_") ||
     lower.includes("allow_")
@@ -95,7 +96,10 @@ function sanitizeManifestValue(key: string, value: string): string {
     lower.includes("_limit") ||
     lower.includes("_threshold") ||
     lower.includes("_cap") ||
-    lower.includes("_ttl")
+    lower.includes("_ttl") ||
+    lower.includes("_hours") ||
+    lower.startsWith("report_reward_") ||
+    lower.startsWith("report_malicious_")
   ) {
     const num = parseInt(value, 10);
     if (isNaN(num) || String(num) !== value.trim()) {

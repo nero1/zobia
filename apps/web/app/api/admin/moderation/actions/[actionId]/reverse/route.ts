@@ -31,16 +31,24 @@ import { withModeratorOrAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
+import { canPlatformModPerform } from "@/lib/moderation/capabilities";
 
 const reverseActionSchema = z.object({
   note: z.string().max(500).optional(),
 });
 
-const ADMIN_ONLY_REVERSE = new Set(["ban", "ban_user", "escalate", "escalate_ai"]);
+/** Reversing ban/escalate requires the SAME capability as taking the action forward — a mod granted ban_user may also undo their own ban. Admins always may. */
+const CAPABILITY_GATED_REVERSE: Record<string, string> = {
+  ban: "ban_user",
+  ban_user: "ban_user",
+  escalate: "escalate_ai",
+  escalate_ai: "escalate_ai",
+};
 
 interface ModerationActionRow {
   id: string;
   action_type: string;
+  actor_type: string;
   target_user_id: string | null;
   report_id: string | null;
   reversed_at: string | null;
@@ -48,8 +56,12 @@ interface ModerationActionRow {
 
 interface ReportContentRow {
   reported_message_id: string | null;
+  reported_guild_message_id: string | null;
   reported_forum_question_id: string | null;
   reported_forum_answer_id: string | null;
+  reported_bb_post_id: string | null;
+  reported_bb_thread_id: string | null;
+  reported_guild_id: string | null;
 }
 
 export const POST = withModeratorOrAdminAuth<{ actionId: string }>(async (req: NextRequest, { params, auth }) => {
@@ -59,7 +71,7 @@ export const POST = withModeratorOrAdminAuth<{ actionId: string }>(async (req: N
     const body = await validateBody(req, reverseActionSchema);
 
     const { rows } = await db.query<ModerationActionRow>(
-      `SELECT id, action_type, target_user_id, report_id, reversed_at
+      `SELECT id, action_type, actor_type, target_user_id, report_id, reversed_at
        FROM moderation_actions
        WHERE id = $1`,
       [actionId]
@@ -68,15 +80,20 @@ export const POST = withModeratorOrAdminAuth<{ actionId: string }>(async (req: N
     if (!action) throw notFound("Moderation action not found");
     if (action.reversed_at !== null) throw badRequest("Action already reversed", "ALREADY_REVERSED");
 
-    if (ADMIN_ONLY_REVERSE.has(action.action_type) && !auth.isAdmin) {
-      throw forbidden("Only administrators can reverse a ban or AI escalation.", "ADMIN_ONLY_ACTION");
+    const requiredCap = CAPABILITY_GATED_REVERSE[action.action_type];
+    if (requiredCap && !auth.isAdmin && !(await canPlatformModPerform(requiredCap))) {
+      throw forbidden("Platform Mods are not currently permitted to reverse a ban or AI escalation.", "MOD_CAPABILITY_DISABLED");
     }
 
     let reportContent: ReportContentRow | null = null;
     if (action.report_id) {
       const { rows: reportRows } = await db.query<ReportContentRow>(
-        `SELECT reported_message_id, reported_forum_question_id, reported_forum_answer_id
-         FROM moderation_reports WHERE id = $1`,
+        `SELECT r.reported_message_id, r.reported_guild_message_id, r.reported_forum_question_id, r.reported_forum_answer_id,
+                r.reported_bb_post_id, r.reported_bb_thread_id,
+                COALESCE(r.reported_guild_id, gmsg.guild_id) AS reported_guild_id
+         FROM moderation_reports r
+         LEFT JOIN guild_messages gmsg ON gmsg.id = r.reported_guild_message_id
+         WHERE r.id = $1`,
         [action.report_id]
       );
       reportContent = reportRows[0] ?? null;
@@ -107,6 +124,11 @@ export const POST = withModeratorOrAdminAuth<{ actionId: string }>(async (req: N
             `UPDATE messages SET deleted_at = NULL, deleted_by = NULL WHERE id = $1`,
             [reportContent.reported_message_id]
           );
+        } else if (reportContent.reported_guild_message_id) {
+          await tx.query(
+            `UPDATE guild_messages SET is_deleted = false, deleted_by = NULL WHERE id = $1`,
+            [reportContent.reported_guild_message_id]
+          );
         } else if (reportContent.reported_forum_question_id) {
           await tx.query(
             `UPDATE forum_questions SET deleted_at = NULL WHERE id = $1`,
@@ -117,9 +139,19 @@ export const POST = withModeratorOrAdminAuth<{ actionId: string }>(async (req: N
             `UPDATE forum_answers SET deleted_at = NULL WHERE id = $1`,
             [reportContent.reported_forum_answer_id]
           );
+        } else if (reportContent.reported_bb_post_id) {
+          await tx.query(`UPDATE bb_posts SET deleted_at = NULL WHERE id = $1`, [reportContent.reported_bb_post_id]);
+        } else if (reportContent.reported_bb_thread_id) {
+          await tx.query(`UPDATE bb_threads SET deleted_at = NULL WHERE id = $1`, [reportContent.reported_bb_thread_id]);
         }
+      } else if (action.action_type === "mute_member" && action.target_user_id && reportContent?.reported_guild_id) {
+        await tx.query(
+          `UPDATE guild_members SET is_muted = false, muted_until = NULL WHERE guild_id = $1 AND user_id = $2`,
+          [reportContent.reported_guild_id, action.target_user_id]
+        );
       }
-      // dismiss/escalate/escalate_ai: no domain mutation to undo.
+      // dismiss/escalate/escalate_ai/kick_member: no domain mutation to undo
+      // (a kicked member must be re-invited/re-approved like anyone else).
 
       await tx.query(
         `UPDATE moderation_actions
@@ -129,11 +161,16 @@ export const POST = withModeratorOrAdminAuth<{ actionId: string }>(async (req: N
       );
 
       if (action.report_id) {
+        // Reversing the automated auto-quarantine action also clears the
+        // auto_quarantined flag; reversing a manual action leaves it as-is.
+        const clearAutoQuarantine = action.actor_type === "automated";
         await tx.query(
           `UPDATE moderation_reports
-           SET status = 'pending', resolved_at = NULL, resolved_by = NULL, resolution_note = NULL
+           SET status = 'pending', resolved_at = NULL, resolved_by = NULL, resolution_note = NULL,
+               reward_applied = false, is_malicious = false,
+               auto_quarantined = CASE WHEN $2 THEN false ELSE auto_quarantined END
            WHERE id = $1`,
-          [action.report_id]
+          [action.report_id, clearAutoQuarantine]
         );
       }
     });

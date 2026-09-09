@@ -67,6 +67,7 @@ interface MemberRow {
   avatar_emoji: string;
   rank_name: string;
   xp_total: number;
+  is_moderator: boolean;
 }
 
 interface WarRow {
@@ -137,12 +138,13 @@ export const GET = withAuth(
       if (!guildResult.rows[0]) throw notFound("Guild not found");
       const guild = guildResult.rows[0];
 
-      const membershipResult = await db.query<{ role: string }>(
-        `SELECT role FROM guild_members WHERE guild_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
+      const membershipResult = await db.query<{ role: string; is_moderator: boolean }>(
+        `SELECT role, is_moderator FROM guild_members WHERE guild_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
         [guildId, userId]
       );
       const isMember = membershipResult.rows.length > 0;
       const isCaptain = guild.captain_id === userId;
+      const isModerator = isCaptain || Boolean(membershipResult.rows[0]?.is_moderator);
 
       // Fetch members with public profile info. The roster (usernames,
       // contribution scores) is member/captain-only for invite-only guilds —
@@ -152,7 +154,7 @@ export const GET = withAuth(
       const membersResult = canSeeRoster
         ? await db.query<MemberRow>(
             `SELECT gm.id, gm.user_id, gm.role, gm.contribution_score,
-                    gm.war_points_total, gm.joined_at,
+                    gm.war_points_total, gm.joined_at, gm.is_moderator,
                     u.username, u.display_name, u.avatar_emoji, u.rank_name, u.xp_total
              FROM guild_members gm
              JOIN users u ON u.id = gm.user_id
@@ -262,6 +264,7 @@ export const GET = withAuth(
         isOpenToJoin: guild.recruitment_type !== "invite_only",
         isMember,
         isCaptain,
+        isModerator,
         activeWar,
         members: membersResult.rows.map((m) => ({
           userId: m.user_id,
@@ -271,6 +274,7 @@ export const GET = withAuth(
           role: m.role,
           contributionScore: m.contribution_score,
           joinedAt: m.joined_at,
+          isModerator: m.is_moderator,
         })),
         warHistory,
         allianceHistory,

@@ -1,20 +1,26 @@
 "use client";
 
 /**
- * app/(app)/moderation/page.tsx
+ * app/(app)/watch56/page.tsx
  *
- * Moderation Center — a standalone area (outside /gate44) reachable by both
- * moderators and admins. Unifies the existing report queues:
- *   - "Reports"     → GET /api/admin/moderation (general reports)
- *   - "Forum Queue" → GET /api/admin/forum/queue (Answers questions/answers)
- *   - "Audit Log"   → GET /api/admin/moderation/audit (admin-only)
+ * Moderation Center — a standalone area (outside /gate44) reachable by
+ * Platform Mods, Forum Mods (guild-scoped, PRD "Platform Mods and Forum
+ * Mods"), and Admins. Renamed from /moderation to /watch56 so the URL isn't
+ * a trivially guessable "mod panel" path (defense in depth, mirrors the
+ * /admin → /gate44 rename) — it carries no special auth gate of its own
+ * (an unauthenticated visit gets the ordinary generic login page, never an
+ * "Admin"-labelled screen), is never linked from public pages, and is
+ * deliberately excluded from the sitemap/robots.txt.
  *
- * Both queue tabs already ran through withModeratorOrAdminAuth server-side —
- * this page only adds a client-side gate so a non-mod never sees the UI
- * flash before the API calls 403. Resolved items show which mod/admin acted
- * (moderator_username) and offer a "Reverse" button
- * (POST /api/admin/moderation/actions/[actionId]/reverse) so mistakes can be
- * undone — reversing a ban is admin-only, mirroring the forward action.
+ * Unifies:
+ *   - "Reports"      → GET /api/admin/moderation (sitewide queue — Platform Mods/Admin)
+ *   - "Forum Queue"  → GET /api/admin/forum/queue (Answers Q&A reports — Platform Mods/Admin)
+ *   - "Guild Queue"  → GET /api/guild-moderation (guild-scoped reports — Forum Mods/captain, or Platform Mods/Admin across all guilds)
+ *   - "Audit Log"    → GET /api/admin/moderation/audit (admin-only)
+ *
+ * Every queue tab already enforces its own auth server-side — this page
+ * only adds a client-side gate so a non-mod never sees the UI flash before
+ * the API calls 403/404.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -28,7 +34,7 @@ import { extractArray } from "@/lib/api/extractArray";
 // Types
 // ---------------------------------------------------------------------------
 
-type QueueKey = "reports" | "forum" | "audit";
+type QueueKey = "reports" | "forum" | "guild" | "audit";
 type StatusFilter = "pending" | "resolved" | "escalated";
 
 interface ReportItem {
@@ -37,14 +43,17 @@ interface ReportItem {
   reported_user_username?: string | null;
   question_title?: string | null;
   answer_body?: string | null;
+  guild_message_content?: string | null;
+  guild_name?: string | null;
   report_type: string;
   description: string | null;
   status: string;
-  ai_category: string | null;
-  ai_confidence: number | null;
+  ai_category?: string | null;
+  ai_confidence?: number | null;
+  duplicate_count?: number;
   created_at: string;
   resolved_at: string | null;
-  resolved_by: string | null;
+  resolved_by?: string | null;
   resolved_by_username: string | null;
   resolution_note: string | null;
   action_id: string | null;
@@ -82,13 +91,22 @@ function timeAgo(iso: string): string {
   return `${Math.floor(hrs / 24)}d ago`;
 }
 
-const ACTIONS: { label: string; action: string; durationHours?: number; adminOnly?: boolean; classes: string }[] = [
+const PLATFORM_ACTIONS: { label: string; action: string; durationHours?: number; classes: string }[] = [
   { label: "Dismiss", action: "dismiss", classes: "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300" },
   { label: "Warn", action: "warn", classes: "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-300" },
   { label: "Remove Content", action: "remove_content", classes: "bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900 dark:text-orange-300" },
   { label: "Suspend 24h", action: "suspend_user", durationHours: 24, classes: "bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900 dark:text-red-300" },
   { label: "Suspend 7d", action: "suspend_user", durationHours: 168, classes: "bg-red-200 text-red-800 hover:bg-red-300 dark:bg-red-950 dark:text-red-200" },
-  { label: "Ban", action: "ban_user", adminOnly: true, classes: "bg-red-600 text-white hover:bg-red-700" },
+  { label: "Ban", action: "ban_user", classes: "bg-red-600 text-white hover:bg-red-700" },
+  { label: "Escalate to AI", action: "escalate_ai", classes: "bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900 dark:text-purple-300" },
+];
+
+const GUILD_ACTIONS: { label: string; action: string; durationHours?: number; classes: string }[] = [
+  { label: "Dismiss", action: "dismiss", classes: "bg-neutral-100 text-neutral-700 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-300" },
+  { label: "Warn", action: "warn", classes: "bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-300" },
+  { label: "Remove Content", action: "remove_content", classes: "bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900 dark:text-orange-300" },
+  { label: "Mute 24h", action: "mute_member", durationHours: 24, classes: "bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900 dark:text-red-300" },
+  { label: "Kick from Guild", action: "kick_member", classes: "bg-red-600 text-white hover:bg-red-700" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -98,20 +116,25 @@ const ACTIONS: { label: string; action: string; durationHours?: number; adminOnl
 function ReportCard({
   item,
   queue,
-  isAdmin,
   busy,
   onAction,
   onReverse,
 }: {
   item: ReportItem;
-  queue: "reports" | "forum";
-  isAdmin: boolean;
+  queue: "reports" | "forum" | "guild";
   busy: string | null;
-  onAction: (item: ReportItem, action: string, durationHours?: number) => void;
+  onAction: (item: ReportItem, action: string, durationHours?: number, markMalicious?: boolean) => void;
   onReverse: (item: ReportItem) => void;
 }) {
+  const { t } = useTranslation();
   const isBusy = busy === item.id;
-  const title = queue === "forum" ? item.question_title ?? item.answer_body ?? "(forum content)" : item.reported_user_username ?? "(target)";
+  const title =
+    queue === "forum"
+      ? item.question_title ?? item.answer_body ?? "(forum content)"
+      : queue === "guild"
+        ? item.guild_message_content ?? "(guild content)"
+        : item.reported_user_username ?? "(target)";
+  const actions = queue === "guild" ? GUILD_ACTIONS : PLATFORM_ACTIONS;
 
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
@@ -121,7 +144,17 @@ function ReportCard({
         <span className="rounded-full bg-neutral-100 px-2 py-0.5 font-semibold text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">
           {item.report_type.replace(/_/g, " ")}
         </span>
-        {item.ai_confidence !== null && (
+        {item.guild_name && (
+          <span className="rounded-full bg-indigo-100 px-2 py-0.5 font-semibold text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">
+            {item.guild_name}
+          </span>
+        )}
+        {!!item.duplicate_count && item.duplicate_count > 1 && (
+          <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700 dark:bg-rose-900 dark:text-rose-300" title={t("moderation.duplicateCountHint", "Distinct reporters against this target")}>
+            {t("moderation.duplicateCount", "{{count}} reports", { count: item.duplicate_count })}
+          </span>
+        )}
+        {item.ai_confidence != null && (
           <span className="rounded-full bg-teal-100 px-2 py-0.5 font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
             AI {Math.round(item.ai_confidence)}%
           </span>
@@ -131,12 +164,21 @@ function ReportCard({
       <p className="mb-3 truncate text-sm text-neutral-700 dark:text-neutral-300">{title}</p>
 
       {item.status === "pending" ? (
-        <div className="flex flex-wrap gap-1.5">
-          {ACTIONS.filter((a) => !a.adminOnly || isAdmin).map(({ label, action, durationHours, classes }) => (
+        <div className="flex flex-wrap items-center gap-1.5">
+          {actions.map(({ label, action, durationHours, classes }) => (
             <button
               key={label}
               disabled={isBusy}
-              onClick={() => onAction(item, action, durationHours)}
+              onClick={() => {
+                if (action === "dismiss") {
+                  const markMalicious = window.confirm(
+                    t("moderation.confirmMalicious", "Was this report malicious or spammy (bad-faith)? OK = yes, dock the reporter's Trust Score. Cancel = ordinary dismissal.")
+                  );
+                  onAction(item, action, undefined, markMalicious);
+                } else {
+                  onAction(item, action, durationHours);
+                }
+              }}
               className={`flex items-center justify-center rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${classes}`}
             >
               {isBusy ? <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" /> : label}
@@ -175,6 +217,7 @@ export default function ModerationCenterPage() {
   const router = useRouter();
 
   const [me, setMe] = useState<Me | null>(null);
+  const [hasGuildScope, setHasGuildScope] = useState(false);
   const [checked, setChecked] = useState(false);
   const [queue, setQueue] = useState<QueueKey>("reports");
   const [status, setStatus] = useState<StatusFilter>("pending");
@@ -190,13 +233,19 @@ export default function ModerationCenterPage() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
+  const isAdmin = Boolean(me?.is_admin);
+  const isPlatformMod = Boolean(me?.is_admin || me?.is_moderator);
+
   useEffect(() => {
-    fetch("/api/users/me", { credentials: "include" })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((json) => {
+    Promise.all([
+      fetch("/api/users/me", { credentials: "include" }).then((r) => (r.ok ? r.json() : null)),
+      fetch("/api/guild-moderation?status=pending", { credentials: "include" }).then((r) => r.ok),
+    ])
+      .then(([json, guildOk]) => {
         const user = json?.user ?? json;
         setMe(user);
-        if (!user?.is_admin && !user?.is_moderator) {
+        setHasGuildScope(Boolean(guildOk));
+        if (!user?.is_admin && !user?.is_moderator && !guildOk) {
           router.replace("/home");
         }
       })
@@ -204,8 +253,7 @@ export default function ModerationCenterPage() {
       .finally(() => setChecked(true));
   }, [router]);
 
-  const isAdmin = Boolean(me?.is_admin);
-  const isMod = Boolean(me?.is_admin || me?.is_moderator);
+  const isMod = isPlatformMod || hasGuildScope;
 
   const load = useCallback(async () => {
     if (!isMod) return;
@@ -218,14 +266,12 @@ export default function ModerationCenterPage() {
         const data = (await res.json()) as { data?: { items?: AuditItem[] } };
         setAuditItems(data.data?.items ?? []);
       } else {
-        const endpoint = queue === "forum" ? "/api/admin/forum/queue" : "/api/admin/moderation";
+        const endpoint = queue === "forum" ? "/api/admin/forum/queue" : queue === "guild" ? "/api/guild-moderation" : "/api/admin/moderation";
         const res = await fetch(`${endpoint}?status=${status}`, { credentials: "include" });
         if (!res.ok) throw new Error("Failed to load queue");
         const data = await res.json();
-        // /api/admin/moderation returns flat { items }; /api/admin/forum/queue
-        // returns { success, data: { items } } — extractArray() handles both
-        // so switching the queue selector to "Forum" doesn't silently show
-        // an always-empty list.
+        // /api/admin/moderation returns flat { items }; the forum/guild queues
+        // return { success, data: { items } } — extractArray() handles both.
         setItems(extractArray<ReportItem>(data, ["items"]));
       }
     } catch (e) {
@@ -237,15 +283,22 @@ export default function ModerationCenterPage() {
 
   useEffect(() => { void load(); }, [load]);
 
-  async function handleAction(item: ReportItem, action: string, durationHours?: number) {
+  async function handleAction(item: ReportItem, action: string, durationHours?: number, markMalicious?: boolean) {
     setBusy(item.id);
     try {
-      const endpoint = queue === "forum" ? `/api/admin/forum/queue/${item.id}/action` : `/api/admin/moderation/${item.id}/action`;
+      const endpoint =
+        queue === "forum" ? `/api/admin/forum/queue/${item.id}/action`
+        : queue === "guild" ? `/api/guild-moderation/${item.id}/action`
+        : `/api/admin/moderation/${item.id}/action`;
       const res = await fetch(endpoint, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, ...(durationHours ? { duration_hours: durationHours } : {}) }),
+        body: JSON.stringify({
+          action,
+          ...(durationHours ? { duration_hours: durationHours } : {}),
+          ...(markMalicious ? { mark_malicious: true } : {}),
+        }),
       });
       if (!res.ok) throw new Error("Action failed");
       showToast(t("moderation.actionApplied", "Action applied"));
@@ -284,10 +337,14 @@ export default function ModerationCenterPage() {
   if (!isMod) return null;
 
   const queueTabs: { key: QueueKey; label: string }[] = [
-    { key: "reports", label: t("moderation.tab.reports", "Reports") },
-    { key: "forum", label: t("moderation.tab.forum", "Forum Queue") },
+    ...(isPlatformMod ? [{ key: "reports" as QueueKey, label: t("moderation.tab.reports", "Reports") }] : []),
+    ...(isPlatformMod ? [{ key: "forum" as QueueKey, label: t("moderation.tab.forum", "Forum Queue") }] : []),
+    ...(hasGuildScope ? [{ key: "guild" as QueueKey, label: t("moderation.tab.guild", "Guild Queue") }] : []),
     ...(isAdmin ? [{ key: "audit" as QueueKey, label: t("moderation.tab.audit", "Audit Log") }] : []),
   ];
+
+  // Land on whichever tab is actually available (a pure Forum Mod has no "reports" tab).
+  const activeQueue = queueTabs.some((qt) => qt.key === queue) ? queue : (queueTabs[0]?.key ?? "reports");
 
   return (
     <div className="mx-auto max-w-3xl p-4 sm:p-6">
@@ -314,7 +371,7 @@ export default function ModerationCenterPage() {
             key={key}
             onClick={() => setQueue(key)}
             className={`flex-1 rounded-lg py-2 text-sm font-semibold transition-colors ${
-              queue === key ? "bg-white text-neutral-900 shadow-card dark:bg-neutral-900 dark:text-neutral-50" : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+              activeQueue === key ? "bg-white text-neutral-900 shadow-card dark:bg-neutral-900 dark:text-neutral-50" : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
             }`}
           >
             {label}
@@ -322,7 +379,7 @@ export default function ModerationCenterPage() {
         ))}
       </div>
 
-      {queue !== "audit" && (
+      {activeQueue !== "audit" && (
         <div className="mb-4 flex gap-2 text-xs">
           {(["pending", "resolved", "escalated"] as StatusFilter[]).map((s) => (
             <button
@@ -349,7 +406,7 @@ export default function ModerationCenterPage() {
           Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-24 animate-pulse rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900" />
           ))
-        ) : queue === "audit" ? (
+        ) : activeQueue === "audit" ? (
           auditItems.length === 0 ? (
             <p className="py-12 text-center text-sm text-neutral-500">{t("moderation.noAuditEntries", "No moderation activity yet.")}</p>
           ) : (
@@ -381,8 +438,7 @@ export default function ModerationCenterPage() {
             <ReportCard
               key={item.id}
               item={item}
-              queue={queue === "forum" ? "forum" : "reports"}
-              isAdmin={isAdmin}
+              queue={activeQueue === "forum" ? "forum" : activeQueue === "guild" ? "guild" : "reports"}
               busy={busy}
               onAction={handleAction}
               onReverse={handleReverse}

@@ -384,6 +384,43 @@ export interface ZobiaManifest {
     /** When true, "Contact a real person" from an AI answer is always free and cost messaging is hidden. */
     aiFreeForAll: boolean;
   };
+  // Moderation: reporting rewards, malicious-report penalty, duplicate-report
+  // flood control, and granular per-action capabilities for Platform Mods
+  // (sitewide, users.is_moderator) and Forum Mods (guild-scoped,
+  // guild_members.is_moderator). Admin-editable at /gate44/moderation/settings.
+  moderation: {
+    /** Credits awarded to the FIRST reporter of an accepted report. */
+    reportRewardCreditsFirstAccepted: number;
+    /** XP awarded to the FIRST reporter of an accepted report. */
+    reportRewardXpFirstAccepted: number;
+    /** XP awarded to every reporter after the first on an accepted report. */
+    reportRewardXpSubsequentAccepted: number;
+    /** XP awarded to a reporter when their report is dismissed (not accepted). */
+    reportRewardXpNotAccepted: number;
+    /** Trust Score points deducted from the original reporter when their report is marked malicious/spammy. */
+    reportMaliciousTrustPenalty: number;
+    /** Distinct reporters against the same target before it is auto-quarantined pending review. 0 disables auto-quarantine. */
+    duplicateAutoQuarantineThreshold: number;
+    /** Rolling window (hours) new reports against the same target are folded into the existing pending report. */
+    duplicateClusterWindowHours: number;
+    /** Sitewide Platform Mod capabilities. Admins can always perform every action regardless of these flags. */
+    platformModActions: {
+      dismiss: boolean;
+      warn: boolean;
+      removeContent: boolean;
+      suspendUser: boolean;
+      banUser: boolean;
+      escalateAi: boolean;
+    };
+    /** Guild-scoped Forum Mod capabilities (no sitewide jurisdiction). */
+    guildModActions: {
+      dismiss: boolean;
+      warn: boolean;
+      removeContent: boolean;
+      muteMember: boolean;
+      kickMember: boolean;
+    };
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -613,6 +650,30 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
   },
   helpCenterSettings: {
     aiFreeForAll: false,
+  },
+  moderation: {
+    reportRewardCreditsFirstAccepted: 50,
+    reportRewardXpFirstAccepted: 50,
+    reportRewardXpSubsequentAccepted: 50,
+    reportRewardXpNotAccepted: 1,
+    reportMaliciousTrustPenalty: 1,
+    duplicateAutoQuarantineThreshold: 5,
+    duplicateClusterWindowHours: 24,
+    platformModActions: {
+      dismiss: true,
+      warn: true,
+      removeContent: true,
+      suspendUser: true,
+      banUser: false,
+      escalateAi: false,
+    },
+    guildModActions: {
+      dismiss: true,
+      warn: true,
+      removeContent: true,
+      muteMember: true,
+      kickMember: false,
+    },
   },
 };
 
@@ -1074,6 +1135,30 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
     },
     helpCenterSettings: {
       aiFreeForAll: parseBool(kv["help_center_ai_free_for_all"], DEFAULT_MANIFEST.helpCenterSettings.aiFreeForAll),
+    },
+    moderation: {
+      reportRewardCreditsFirstAccepted: parseInt10(kv["report_reward_credits_first_accepted"], DEFAULT_MANIFEST.moderation.reportRewardCreditsFirstAccepted),
+      reportRewardXpFirstAccepted:      parseInt10(kv["report_reward_xp_first_accepted"],      DEFAULT_MANIFEST.moderation.reportRewardXpFirstAccepted),
+      reportRewardXpSubsequentAccepted: parseInt10(kv["report_reward_xp_subsequent_accepted"], DEFAULT_MANIFEST.moderation.reportRewardXpSubsequentAccepted),
+      reportRewardXpNotAccepted:        parseInt10(kv["report_reward_xp_not_accepted"],        DEFAULT_MANIFEST.moderation.reportRewardXpNotAccepted),
+      reportMaliciousTrustPenalty:      parseInt10(kv["report_malicious_trust_penalty"],       DEFAULT_MANIFEST.moderation.reportMaliciousTrustPenalty),
+      duplicateAutoQuarantineThreshold: parseInt10(kv["report_duplicate_auto_quarantine_threshold"], DEFAULT_MANIFEST.moderation.duplicateAutoQuarantineThreshold),
+      duplicateClusterWindowHours:      parseInt10(kv["report_duplicate_cluster_window_hours"], DEFAULT_MANIFEST.moderation.duplicateClusterWindowHours),
+      platformModActions: {
+        dismiss:       parseBool(kv["modcap_platform_dismiss"] ?? "true",       DEFAULT_MANIFEST.moderation.platformModActions.dismiss),
+        warn:          parseBool(kv["modcap_platform_warn"] ?? "true",         DEFAULT_MANIFEST.moderation.platformModActions.warn),
+        removeContent: parseBool(kv["modcap_platform_remove_content"] ?? "true", DEFAULT_MANIFEST.moderation.platformModActions.removeContent),
+        suspendUser:   parseBool(kv["modcap_platform_suspend_user"] ?? "true",  DEFAULT_MANIFEST.moderation.platformModActions.suspendUser),
+        banUser:       parseBool(kv["modcap_platform_ban_user"] ?? "false",     DEFAULT_MANIFEST.moderation.platformModActions.banUser),
+        escalateAi:    parseBool(kv["modcap_platform_escalate_ai"] ?? "false",  DEFAULT_MANIFEST.moderation.platformModActions.escalateAi),
+      },
+      guildModActions: {
+        dismiss:       parseBool(kv["modcap_guild_dismiss"] ?? "true",       DEFAULT_MANIFEST.moderation.guildModActions.dismiss),
+        warn:          parseBool(kv["modcap_guild_warn"] ?? "true",         DEFAULT_MANIFEST.moderation.guildModActions.warn),
+        removeContent: parseBool(kv["modcap_guild_remove_content"] ?? "true", DEFAULT_MANIFEST.moderation.guildModActions.removeContent),
+        muteMember:    parseBool(kv["modcap_guild_mute_member"] ?? "true",   DEFAULT_MANIFEST.moderation.guildModActions.muteMember),
+        kickMember:    parseBool(kv["modcap_guild_kick_member"] ?? "false",  DEFAULT_MANIFEST.moderation.guildModActions.kickMember),
+      },
     },
   };
 }

@@ -194,6 +194,13 @@ export function Sidebar() {
               isActive={pathname.startsWith("/gate44")}
             />
           )}
+          {(user?.is_moderator || user?.is_admin) && (
+            <SidebarLink
+              href="/watch56"
+              label="Moderation"
+              isActive={pathname.startsWith("/watch56")}
+            />
+          )}
           {visibleNavItems.map((item) => (
             <SidebarLink
               key={item.href}
