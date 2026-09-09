@@ -32,6 +32,8 @@ export interface GuildMember {
   role: GuildMemberRole;
   contributionScore: number;
   joinedAt: string;
+  /** Forum Mod (guild-scoped moderator) — granted by the captain at POST /api/guilds/[guildId]/moderators. */
+  isModerator?: boolean;
 }
 
 export interface WarRecord {
@@ -88,6 +90,8 @@ export interface GuildDetail {
   isOpenToJoin: boolean;
   isMember: boolean;
   isCaptain: boolean;
+  /** Forum Mod of this guild — captain always counts as one. */
+  isModerator: boolean;
   activeWar: ActiveWar | null;
   members: GuildMember[];
   warHistory: WarRecord[];

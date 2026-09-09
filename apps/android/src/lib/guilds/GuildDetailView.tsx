@@ -9,7 +9,8 @@
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
-import type { GuildDetail, GuildMemberRole } from './types';
+import { apiClient } from '@/lib/api/client';
+import type { GuildDetail, GuildMember, GuildMemberRole } from './types';
 
 export type GuildTierBase = 'bronze' | 'silver' | 'gold' | 'platinum' | 'legend';
 
@@ -59,6 +60,88 @@ function SectionCard({ title, children }: { title: React.ReactNode; children: Re
       </div>
       {children}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Forum Mods — guild-scoped moderators, assigned by the captain
+// (mirrors apps/web/app/(app)/guilds/[guildId]/page.tsx's ForumModsSection)
+// ---------------------------------------------------------------------------
+
+function ForumModsSection({ guildId, isCaptain, members }: { guildId: string; isCaptain: boolean; members: GuildMember[] }) {
+  const { t } = useTranslation();
+  const [pendingUserId, setPendingUserId] = useState<string | null>(null);
+  const [modIds, setModIds] = useState<Set<string>>(
+    () => new Set(members.filter((m) => m.isModerator).map((m) => m.userId))
+  );
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function toggleMod(userId: string, grant: boolean) {
+    setPendingUserId(userId);
+    setMsg(null);
+    try {
+      if (grant) {
+        await apiClient.post(`/guilds/${guildId}/moderators`, { userId });
+      } else {
+        await apiClient.delete(`/guilds/${guildId}/moderators`, { data: { userId } });
+      }
+      setModIds((prev) => {
+        const next = new Set(prev);
+        if (grant) next.add(userId); else next.delete(userId);
+        return next;
+      });
+    } catch {
+      setMsg(t('guild.forumModsUpdateFailed'));
+    } finally {
+      setPendingUserId(null);
+    }
+  }
+
+  const nonCaptainMembers = members.filter((m) => m.role !== 'captain');
+
+  return (
+    <SectionCard title={`🛡️ ${t('guild.forumMods')}`}>
+      <div className="px-5 py-4">
+        <p className="mb-3 text-xs text-neutral-500">
+          {t('guild.forumModsDescription')}{' '}
+          <Link to="/watch56" className="font-medium text-primary-600">
+            {t('guild.forumModsOpenQueue')}
+          </Link>
+        </p>
+        {msg && <p className="mb-2 text-xs text-danger-600">{msg}</p>}
+        {isCaptain ? (
+          <div className="divide-y divide-neutral-100">
+            {nonCaptainMembers.length === 0 ? (
+              <p className="py-3 text-xs text-neutral-400">{t('guild.forumModsNoMembers')}</p>
+            ) : (
+              nonCaptainMembers.slice(0, 30).map((m) => {
+                const isMod = modIds.has(m.userId);
+                return (
+                  <div key={m.userId} className="flex items-center justify-between gap-3 py-2.5">
+                    <span className="truncate text-sm text-neutral-700">{m.displayName ?? `@${m.username}`}</span>
+                    <button
+                      disabled={pendingUserId === m.userId}
+                      onClick={() => toggleMod(m.userId, !isMod)}
+                      className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-50 ${
+                        isMod ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-600'
+                      }`}
+                    >
+                      {isMod ? t('guild.forumModsRevoke') : t('guild.forumModsGrant')}
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {members.filter((m) => modIds.has(m.userId)).map((m) => (
+              <p key={m.userId} className="text-sm text-neutral-700">{m.displayName ?? `@${m.username}`}</p>
+            ))}
+          </div>
+        )}
+      </div>
+    </SectionCard>
   );
 }
 
@@ -217,6 +300,11 @@ export function GuildDetailView({
           )}
         </div>
       </SectionCard>
+
+      {/* Forum Mods — guild-scoped moderators (PRD "Platform Mods and Forum Mods") */}
+      {guild.isModerator && (
+        <ForumModsSection guildId={guild.id} isCaptain={guild.isCaptain} members={guild.members} />
+      )}
 
       {/* War history */}
       {guild.warHistory.length > 0 && (
