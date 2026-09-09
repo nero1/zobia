@@ -845,6 +845,12 @@ export const guildMembers = pgTable(
     joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow(),
     // FIX-C01: soft-delete column so WHERE left_at IS NULL filters active members
     leftAt: timestamp("left_at", { withTimezone: true }),
+    // Forum Mod (guild-scoped moderator) — 0037_forum_mods_and_report_flood_control.sql
+    isModerator: boolean("is_moderator").notNull().default(false),
+    moderatorGrantedBy: uuid("moderator_granted_by").references(() => users.id, { onDelete: "set null" }),
+    moderatorGrantedAt: timestamp("moderator_granted_at", { withTimezone: true }),
+    isMuted: boolean("is_muted").notNull().default(false),
+    mutedUntil: timestamp("muted_until", { withTimezone: true }),
   },
   (t) => ({
     unique: uniqueIndex("guild_members_guild_user_active_idx").on(t.guildId, t.userId).where(sql`left_at IS NULL`),
@@ -1151,6 +1157,8 @@ export const guildMessages = pgTable("guild_messages", {
   stickerId: text("sticker_id"),
   gifUrl: text("gif_url"),
   isDeleted: boolean("is_deleted").notNull().default(false),
+  // 0037_forum_mods_and_report_flood_control.sql
+  deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -3798,6 +3806,9 @@ export const moderationReports = pgTable("moderation_reports", {
   }),
   reportedForumQuestionId: uuid("reported_forum_question_id"),
   reportedForumAnswerId: uuid("reported_forum_answer_id"),
+  // 0032_bbforum_full.sql
+  reportedBbThreadId: uuid("reported_bb_thread_id"),
+  reportedBbPostId: uuid("reported_bb_post_id"),
   reportType: text("report_type").notNull().default("other"),
   description: text("description"),
   status: text("status").notNull().default("pending"),
@@ -3814,13 +3825,40 @@ export const moderationReports = pgTable("moderation_reports", {
   resolutionNote: text("resolution_note"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  // 0037_forum_mods_and_report_flood_control.sql
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  reportedGuildMessageId: uuid("reported_guild_message_id").references(() => guildMessages.id, { onDelete: "cascade" }),
+  clusterKey: text("cluster_key"),
+  duplicateCount: integer("duplicate_count").notNull().default(1),
+  isMalicious: boolean("is_malicious").notNull().default(false),
+  rewardApplied: boolean("reward_applied").notNull().default(false),
+  autoQuarantined: boolean("auto_quarantined").notNull().default(false),
 });
+
+export const moderationReportReporters = pgTable(
+  "moderation_report_reporters",
+  {
+    id: uuid("id").primaryKey().default(sql`gen_random_uuid()`),
+    reportId: uuid("report_id")
+      .notNull()
+      .references(() => moderationReports.id, { onDelete: "cascade" }),
+    reporterId: uuid("reporter_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    isFirst: boolean("is_first").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("moderation_report_reporters_report_id_reporter_id_key").on(t.reportId, t.reporterId),
+  })
+);
 
 export const moderationActions = pgTable("moderation_actions", {
   id: uuidPk(),
-  targetUserId: uuid("target_user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
+  // 0037_forum_mods_and_report_flood_control.sql: made nullable — content-only
+  // reports (no reported_user_id) already existed before target_user_id could
+  // ever be populated for them.
+  targetUserId: uuid("target_user_id").references(() => users.id, { onDelete: "cascade" }),
   moderatorId: uuid("moderator_id").references(() => users.id, {
     onDelete: "set null",
   }),
@@ -4787,6 +4825,8 @@ export type Report = typeof reports.$inferSelect;
 export type NewReport = typeof reports.$inferInsert;
 export type ModerationReport = typeof moderationReports.$inferSelect;
 export type NewModerationReport = typeof moderationReports.$inferInsert;
+export type ModerationReportReporter = typeof moderationReportReporters.$inferSelect;
+export type NewModerationReportReporter = typeof moderationReportReporters.$inferInsert;
 export type ModerationAction = typeof moderationActions.$inferSelect;
 export type NewModerationAction = typeof moderationActions.$inferInsert;
 
@@ -5020,6 +5060,7 @@ export const schema = {
   // Moderation & Reports
   reports,
   moderationReports,
+  moderationReportReporters,
   moderationActions,
 
   // Cultural Events & Community
