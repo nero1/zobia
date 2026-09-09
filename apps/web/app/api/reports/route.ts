@@ -21,6 +21,7 @@ import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 import { classifyReport, type ReportType } from "@/lib/moderation/aiClassifier";
+import { computeClusterKey, findExistingCluster, registerFirstReporter, maybeAutoQuarantine } from "@/lib/moderation/clustering";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -36,6 +37,8 @@ const ReportBodySchema = z.object({
   reportedRoomId: z.string().uuid().optional(),
   /** UUID of the guild being reported. */
   reportedGuildId: z.string().uuid().optional(),
+  /** UUID of the guild chat message being reported. */
+  reportedGuildMessageId: z.string().uuid().optional(),
   /** UUID of the forum question being reported. */
   reportedForumQuestionId: z.string().uuid().optional(),
   /** UUID of the forum answer being reported. */
@@ -93,6 +96,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       !data.reportedMessageId &&
       !data.reportedRoomId &&
       !data.reportedGuildId &&
+      !data.reportedGuildMessageId &&
       !data.reportedForumQuestionId &&
       !data.reportedForumAnswerId &&
       !data.reportedBbThreadId &&
@@ -114,14 +118,36 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       .filter(Boolean)
       .join(" | ");
 
+    // Flood control: fold a report against a target that's already pending
+    // review into the existing report instead of creating a new queue entry
+    // (see lib/moderation/clustering.ts). Only a brand-new cluster runs AI
+    // classification — a duplicate just adds this user as a reporter.
+    const clusterKey = computeClusterKey(data);
+    let reportId: string | undefined;
+
+    if (clusterKey) {
+      const joined = await db.transaction(async (tx) => {
+        const existing = await findExistingCluster(tx, clusterKey, auth.user.sub);
+        if (existing) {
+          await maybeAutoQuarantine(tx, existing.reportId, clusterKey, existing.duplicateCount);
+          return existing.reportId;
+        }
+        return null;
+      });
+      if (joined) {
+        // Already reported by someone else and still pending — nothing more to do.
+        return NextResponse.json({ ok: true }, { status: 200 });
+      }
+    }
+
     // Insert the report first so we have an ID
     const { rows } = await db.query<{ id: string }>(
       `INSERT INTO moderation_reports
          (reporter_id, reported_user_id, reported_message_id,
-          reported_room_id, reported_guild_id, reported_forum_question_id,
+          reported_room_id, reported_guild_id, reported_guild_message_id, reported_forum_question_id,
           reported_forum_answer_id, reported_bb_thread_id, reported_bb_post_id,
-          report_type, description, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'pending', NOW())
+          report_type, description, status, cluster_key, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', $13, NOW())
        RETURNING id`,
       [
         auth.user.sub,
@@ -129,16 +155,21 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         data.reportedMessageId ?? null,
         data.reportedRoomId ?? null,
         data.reportedGuildId ?? null,
+        data.reportedGuildMessageId ?? null,
         data.reportedForumQuestionId ?? null,
         data.reportedForumAnswerId ?? null,
         data.reportedBbThreadId ?? null,
         data.reportedBbPostId ?? null,
         data.reportType,
         data.description ?? null,
+        clusterKey,
       ]
     );
 
-    const reportId = rows[0]?.id;
+    reportId = rows[0]?.id;
+    if (reportId) {
+      await registerFirstReporter(db, reportId, auth.user.sub);
+    }
 
     // Run AI classification async — routes to correct pipeline stage based on confidence
     if (reportId) {

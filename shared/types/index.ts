@@ -508,7 +508,8 @@ export type CoinTransactionType =
   | 'support_ticket_cost'
   | 'group_chat_capacity_upgrade'
   | 'group_join_credit'
-  | 'group_message_credit';
+  | 'group_message_credit'
+  | 'report_reward';
 
 export interface CoinLedgerEntry {
   id: string;

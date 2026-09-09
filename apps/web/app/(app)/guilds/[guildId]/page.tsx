@@ -38,6 +38,8 @@ interface GuildMember {
   role: "captain" | "veteran" | "recruiter" | "member";
   contributionScore: number;
   joinedAt: string;
+  /** Forum Mod (guild-scoped moderator) — granted by the captain at POST /api/guilds/[guildId]/moderators. */
+  isModerator?: boolean;
 }
 
 interface WarRecord {
@@ -94,6 +96,8 @@ interface GuildDetail {
   isOpenToJoin: boolean;
   isMember: boolean;
   isCaptain: boolean;
+  /** Forum Mod of this guild — captain always counts as one. */
+  isModerator: boolean;
   activeWar: ActiveWar | null;
   members: GuildMember[];
   warHistory: WarRecord[];
@@ -403,6 +407,91 @@ function SectionCard({ title, children }: { title: React.ReactNode; children: Re
 }
 
 // ---------------------------------------------------------------------------
+// Forum Mods — guild-scoped moderators, assigned by the captain
+// ---------------------------------------------------------------------------
+
+function ForumModsSection({ guildId, isCaptain, members }: { guildId: string; isCaptain: boolean; members: GuildMember[] }) {
+  const [pendingUserId, setPendingUserId] = useState<string | null>(null);
+  const [modIds, setModIds] = useState<Set<string>>(
+    () => new Set(members.filter((m) => m.isModerator).map((m) => m.userId))
+  );
+  const [msg, setMsg] = useState<string | null>(null);
+
+  async function toggleMod(userId: string, grant: boolean) {
+    setPendingUserId(userId);
+    setMsg(null);
+    try {
+      const res = await fetch(`/api/guilds/${guildId}/moderators`, {
+        method: grant ? "POST" : "DELETE",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      if (!res.ok) throw new Error("Failed to update Forum Mod");
+      setModIds((prev) => {
+        const next = new Set(prev);
+        if (grant) next.add(userId); else next.delete(userId);
+        return next;
+      });
+    } catch {
+      setMsg("Couldn't update Forum Mod status. Try again.");
+    } finally {
+      setPendingUserId(null);
+    }
+  }
+
+  const nonCaptainMembers = members.filter((m) => m.role !== "captain");
+
+  return (
+    <SectionCard title="🛡️ Forum Mods">
+      <div className="px-5 py-4">
+        <p className="mb-3 text-xs text-neutral-500">
+          Forum Mods can review reports and take limited action (warn, remove messages, mute/kick) within this guild only —
+          they have no sitewide moderation powers.{" "}
+          <Link href="/watch56" className="font-medium text-primary-600 hover:underline">
+            Open the Guild Queue →
+          </Link>
+        </p>
+        {msg && <p className="mb-2 text-xs text-red-600">{msg}</p>}
+        {isCaptain ? (
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
+            {nonCaptainMembers.length === 0 ? (
+              <p className="py-3 text-xs text-neutral-400">No other members yet.</p>
+            ) : (
+              nonCaptainMembers.slice(0, 30).map((m) => {
+                const isMod = modIds.has(m.userId);
+                return (
+                  <div key={m.userId} className="flex items-center justify-between gap-3 py-2.5">
+                    <span className="truncate text-sm text-neutral-700 dark:text-neutral-300">{m.displayName ?? `@${m.username}`}</span>
+                    <button
+                      disabled={pendingUserId === m.userId}
+                      onClick={() => toggleMod(m.userId, !isMod)}
+                      className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-50 ${
+                        isMod
+                          ? "bg-primary-100 text-primary-700 hover:bg-primary-200 dark:bg-primary-950 dark:text-primary-300"
+                          : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400"
+                      }`}
+                    >
+                      {isMod ? "Forum Mod ✓" : "Make Forum Mod"}
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        ) : (
+          <div className="space-y-1">
+            {members.filter((m) => modIds.has(m.userId)).map((m) => (
+              <p key={m.userId} className="text-sm text-neutral-700 dark:text-neutral-300">{m.displayName ?? `@${m.username}`}</p>
+            ))}
+          </div>
+        )}
+      </div>
+    </SectionCard>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
 
@@ -651,6 +740,11 @@ export default function GuildProfilePage() {
           )}
         </div>
       </SectionCard>
+
+      {/* Forum Mods — guild-scoped moderators (PRD "Platform Mods and Forum Mods") */}
+      {guild.isModerator && (
+        <ForumModsSection guildId={guild.id} isCaptain={guild.isCaptain} members={guild.members} />
+      )}
 
       {/* War history */}
       {guild.warHistory.length > 0 && (

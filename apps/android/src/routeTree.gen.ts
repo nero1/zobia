@@ -20,7 +20,7 @@ import { Route as PrestigeRouteImport } from './routes/prestige'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as NemesisRouteImport } from './routes/nemesis'
-import { Route as ModerationRouteImport } from './routes/moderation'
+import { Route as Watch56RouteImport } from './routes/watch56'
 import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
 import { Route as KycRouteImport } from './routes/kyc'
 import { Route as HomeRouteImport } from './routes/home'
@@ -181,9 +181,9 @@ const NemesisRoute = NemesisRouteImport.update({
   path: '/nemesis',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ModerationRoute = ModerationRouteImport.update({
-  id: '/moderation',
-  path: '/moderation',
+const Watch56Route = Watch56RouteImport.update({
+  id: '/watch56',
+  path: '/watch56',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LeaderboardsRoute = LeaderboardsRouteImport.update({
@@ -722,7 +722,7 @@ export interface FileRoutesByFullPath {
   '/home': typeof HomeRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
-  '/moderation': typeof ModerationRoute
+  '/watch56': typeof Watch56Route
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
@@ -840,7 +840,7 @@ export interface FileRoutesByTo {
   '/home': typeof HomeRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
-  '/moderation': typeof ModerationRoute
+  '/watch56': typeof Watch56Route
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
@@ -959,7 +959,7 @@ export interface FileRoutesById {
   '/home': typeof HomeRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
-  '/moderation': typeof ModerationRoute
+  '/watch56': typeof Watch56Route
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
@@ -1079,7 +1079,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/kyc'
     | '/leaderboards'
-    | '/moderation'
+    | '/watch56'
     | '/nemesis'
     | '/notifications'
     | '/onboarding'
@@ -1197,7 +1197,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/kyc'
     | '/leaderboards'
-    | '/moderation'
+    | '/watch56'
     | '/nemesis'
     | '/notifications'
     | '/onboarding'
@@ -1315,7 +1315,7 @@ export interface FileRouteTypes {
     | '/home'
     | '/kyc'
     | '/leaderboards'
-    | '/moderation'
+    | '/watch56'
     | '/nemesis'
     | '/notifications'
     | '/onboarding'
@@ -1434,7 +1434,7 @@ export interface RootRouteChildren {
   HomeRoute: typeof HomeRoute
   KycRoute: typeof KycRoute
   LeaderboardsRoute: typeof LeaderboardsRoute
-  ModerationRoute: typeof ModerationRoute
+  Watch56Route: typeof Watch56Route
   NemesisRoute: typeof NemesisRoute
   NotificationsRoute: typeof NotificationsRoute
   OnboardingRoute: typeof OnboardingRoute
@@ -1616,11 +1616,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof NemesisRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/moderation': {
-      id: '/moderation'
-      path: '/moderation'
-      fullPath: '/moderation'
-      preLoaderRoute: typeof ModerationRouteImport
+    '/watch56': {
+      id: '/watch56'
+      path: '/watch56'
+      fullPath: '/watch56'
+      preLoaderRoute: typeof Watch56RouteImport
       parentRoute: typeof rootRouteImport
     }
     '/leaderboards': {
@@ -2382,7 +2382,7 @@ const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRoute,
   KycRoute: KycRoute,
   LeaderboardsRoute: LeaderboardsRoute,
-  ModerationRoute: ModerationRoute,
+  Watch56Route: Watch56Route,
   NemesisRoute: NemesisRoute,
   NotificationsRoute: NotificationsRoute,
   OnboardingRoute: OnboardingRoute,

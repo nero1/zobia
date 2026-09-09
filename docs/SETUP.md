@@ -402,6 +402,18 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    > `psql "$DIRECT_URL" < db/migrations/0036_nemesis_opt_out_and_challenge_timeout.sql`).
    > No new env vars.
 
+   > **Forum Mods (guild-scoped moderators) & Reporting flood control:**
+   > `guild_members.is_moderator`/`is_muted`/`muted_until`, `guild_messages.deleted_by`,
+   > `moderation_reports.deleted_at`/`reported_guild_message_id`/`cluster_key`/
+   > `duplicate_count`/`is_malicious`/`reward_applied`/`auto_quarantined`, the new
+   > `moderation_report_reporters` table, two CHECK-constraint/NOT-NULL fixes on
+   > `moderation_actions`, and the `report_reward_*`/`report_duplicate_*`/`modcap_*`
+   > `x_manifest` defaults all ship in
+   > `db/migrations/0037_forum_mods_and_report_flood_control.sql` (picked up
+   > automatically by `npm run migrate`, or
+   > `psql "$DIRECT_URL" < db/migrations/0037_forum_mods_and_report_flood_control.sql`).
+   > No new env vars — reuses the existing Credits/XP award helpers.
+
 ### Option B: Railway PostgreSQL
 
 1. Go to [railway.app](https://railway.app) and create a new project.

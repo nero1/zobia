@@ -1444,18 +1444,47 @@ Prohibited content and behaviours:
 - Advanced moderation (edge cases, appeals, complex context) is escalated to DeepSeek AI with Gemini as fallback. This escalation is used sparingly given cost.
 - Admin receives a daily moderation digest and real-time alerts for critical escalations.
 
-### Moderation Center (v2.10)
+### Moderation Center (v2.10, moved to `/watch56` + Forum Mods in v2.17)
 
-A standalone area at `/moderation` (outside `/admin`), reachable by both Moderators and Admins — Admin gets a link to it from the Admin section as well as their own full `/admin/moderation` queue; Moderators get a link to it from their user-area drawer, mirroring how the Admin link appears there for admins. It unifies:
-- **Reports** — the general report queue (`GET/POST /api/admin/moderation`), now `withModeratorOrAdminAuth` (previously admin-only) so Moderators can act on it directly, not just Answers content.
-- **Forum Queue** — Answers question/answer reports (`/api/admin/forum/queue`), already moderator-accessible.
-- **Audit Log** (Admin-only tab) — `GET /api/admin/moderation/audit`, every *manual* moderation action (`moderation_actions` where `actor_type = 'manual'`) with the acting moderator's username, distinct from the existing automated-actions log which only ever surfaced system/AI-driven actions.
+A standalone area at **`/watch56`** (outside `/gate44`; renamed from `/moderation` — an externally-reachable URL like `/admin` or `/moderation` is a bad idea per defense in depth, so the path is deliberately non-descriptive). It is never linked from any public page, carries no entry in `sitemap.xml`, and is never mentioned in `robots.txt` (a disallow rule would itself advertise the path). An unauthenticated visit gets the ordinary, generic login page — never anything labelled "Admin" or "Moderator" — because the route sits under the normal authenticated app, not the separate `/gate44` admin-JWT gate. It is reachable by Platform Mods, Forum Mods, and Admins:
 
-Every resolved report shows which mod/admin acted on it (`resolved_by_username`) — visible only within this mod/admin-gated area. `ban_user` and `escalate_ai` stay Admin-only actions within the shared queue (Moderators can dismiss/warn/remove-content/suspend). Any manual action can be reversed (`POST /api/admin/moderation/actions/[actionId]/reverse`) — restores removed content, lifts a suspension/ban, credits back a warning, and resets the report to `pending` for re-review; reversing a ban is Admin-only, mirroring the forward action.
+- Admin gets a link to it from the Admin nav (web sidebar + hamburger, Capacitor hamburger) as well as their own full `/gate44/moderation` queue.
+- Platform Mods get the same nav link, mirroring how the Admin link appears there for admins.
+- Forum Mods (see below) reach it via a "Open the Guild Queue" link on their guild's page, and see only the tabs their scope grants them.
+
+It unifies:
+- **Reports** — the sitewide report queue (`GET/POST /api/admin/moderation`), `withModeratorOrAdminAuth` — Platform Mods and Admin only.
+- **Forum Queue** — Answers question/answer reports (`/api/admin/forum/queue`), Platform Mods and Admin only.
+- **Guild Queue** — reports scoped to a Guild or a guild chat message (`GET /api/guild-moderation`, action via `POST /api/guild-moderation/[reportId]/action`) — visible to a Forum Mod/captain for their own guild(s) only, or to Platform Mods/Admin across every guild.
+- **Audit Log** (Admin-only tab) — `GET /api/admin/moderation/audit`, every *manual* moderation action (`moderation_actions` where `actor_type = 'manual'`) with the acting moderator's username, distinct from the existing automated-actions log which only ever surfaced system/AI-driven actions. Automated auto-quarantine actions (see "Reporting" flood control below) also land here (`actor_type = 'automated'`).
+
+Every resolved report shows which mod/admin acted on it (`resolved_by_username`) — visible only within this mod/admin-gated area. Any manual action can be reversed (`POST /api/admin/moderation/actions/[actionId]/reverse`, Platform Mods/Admin only) — restores removed content, lifts a suspension/ban/mute, credits back a warning, and resets the report to `pending` for re-review; reversing a ban or an AI escalation requires the same capability as taking it forward (see below).
+
+#### Platform Mods and Forum Mods
+
+Two distinct moderator tiers:
+
+- **Platform Mods** (`users.is_moderator`, granted by Admin) — sitewide jurisdiction across the whole Reports/Forum Queue/Guild Queue surface.
+- **Forum Mods** (`guild_members.is_moderator`) — scoped to a single Guild ("forum" here means Guild — Guilds already have a creator/owner and member roles), no sitewide jurisdiction at all. Assigned by that guild's captain (or an Admin) at `POST /api/guilds/[guildId]/moderators` (list: `GET`, revoke: `DELETE`) — managed from a "Forum Mods" panel on the guild's own page, visible to the captain (who can toggle any non-captain member) and to existing Forum Mods (read-only list).
+
+Each tier's available actions are **fully admin-configurable, per action**, at `/gate44/moderation/settings` (also under `/gate44/config`) — Admins can always perform every action regardless of these flags; a non-admin mod is gated by them:
+- Platform Mod actions: `dismiss`, `warn`, `remove_content`, `suspend_user`, `ban_user`, `escalate_ai`. Reasonable defaults: everything on except `ban_user` and `escalate_ai` (off by default — an admin can grant either).
+- Forum Mod actions (guild-scoped only — never a sitewide action): `dismiss`, `warn`, `remove_content`, `mute_member`, `kick_member`. Reasonable defaults: everything on except `kick_member`. A guild's own captain always bypasses these flags within their own guild, the same way an Admin bypasses them everywhere.
+
+### Reporting
+
+Any user can report a message, guild chat message, Room, user profile, Guild, Answers question/answer, or old-school Forum thread/post inline (`POST /api/reports`). The response is always a generic 200 — a reporter never learns the outcome from the request itself, only via an in-app notification once resolved.
+
+**Rewards (admin-configurable at `/gate44/moderation/settings`, reasonable defaults shown):**
+- A report that is **accepted** (any resolution other than dismiss) pays the **first** person to report that target 50 Credits + 50 XP; every **subsequent** reporter of the same target gets 50 XP only (no Credits).
+- A report that is **not accepted** (dismissed) pays every reporter (first and subsequent) 1 XP.
+- A report the reviewing mod/admin marks **malicious or spammy** pays no reward — instead the *original* (first) reporter's Trust Score is docked (default: 1 point). Reporters who merely piled onto an existing report are treated as ordinary "not accepted" reporters (1 XP) — they didn't originate the bad-faith claim, they had no way to know it was one.
+
+**Flood control (duplicate reports on the same content):** hundreds of people reporting the same bad post would otherwise flood the queue with near-identical rows. Instead, every report against the *same target* within a rolling window (admin-configurable, default 24h) folds into the *one* existing pending report — bumping a `duplicate_count` shown in the queue and recording each additional reporter (for reward/penalty purposes) without creating a new queue entry. If the number of distinct reporters against a target crosses an admin-configurable threshold (default: 5) before a moderator has reviewed it, the target is **automatically quarantined** (soft-hidden) pending review — logged as an `automated` moderation action so it's visible in the Audit Log and reversible exactly like a manual "Remove Content" action. Auto-quarantine currently covers chat messages, guild chat messages, and old-school Forum posts/threads; other target types (Rooms, Guilds, user profiles, Answers Q&A) are not auto-hidden but are still boosted to the top of the queue by their duplicate count.
 
 ### Trust Scores
 
-Every user has a private Trust Score derived from: account age, report rate vs report outcomes, verification status, and payment history. Trust Scores are never shown to users. They silently gate certain high-sensitivity features — for example, a new user cannot immediately create a paid ClassRoom; they need 30 days and a minimum Trust Score.
+Every user has a private Trust Score derived from: account age, report rate vs report outcomes, verification status, and payment history. Trust Scores are never shown to users. They silently gate certain high-sensitivity features — for example, a new user cannot immediately create a paid ClassRoom; they need 30 days and a minimum Trust Score. A report marked malicious/spammy docks the original reporter's Trust Score (see "Reporting" above).
 
 ### Suspended and Banned Users
 
