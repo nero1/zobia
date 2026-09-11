@@ -12,7 +12,7 @@
 
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import type { TransactionClient, SqlParam } from "@/lib/db/interface";
 import { loadManifest, requireFeatureEnabled, type ZobiaManifest } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
@@ -237,7 +237,7 @@ export interface ListPollsResult {
 }
 
 export async function listPolls(tab: "new" | "popular" | "mine", cursor: string | undefined, limit: number, viewerId?: string | null): Promise<ListPollsResult> {
-  const params: unknown[] = [];
+  const params: SqlParam[] = [];
   let where = `p.status = 'active' AND p.deleted_at IS NULL`;
   if (tab === "mine") {
     if (!viewerId) throw forbidden("Sign in to view your polls.");
@@ -352,14 +352,25 @@ export async function getPollTreasury(pollId: string): Promise<TreasuryState | n
   return getContentTreasury("poll", pollId);
 }
 
-export async function fundPollTreasury(userId: string, pollId: string, amount: number, maxClaimants: number, isAdmin: boolean): Promise<TreasuryState> {
+/**
+ * Only the poll's own creator may fund its reward pot — the funding amount
+ * is always debited from the caller's own Credits balance (never anyone
+ * else's), matching blogs' fundPostTreasury (only the post's author can
+ * fund it, full stop). There is deliberately no "admin funds on a
+ * creator's behalf" bypass: that would either silently debit the
+ * creator's balance without their consent (if funded in their name) or
+ * require a separate admin-grant flow this feature doesn't need for v1.
+ * An admin who wants to sponsor a poll's pot can do so by being the
+ * poll's own creator.
+ */
+export async function fundPollTreasury(userId: string, pollId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
   await requireFeatureEnabled("polls");
   await requireFeatureEnabled("pollMonetization");
   const { rows } = await db.query<{ creator_id: string }>(`SELECT creator_id FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [pollId]);
   const poll = rows[0];
   if (!poll) throw notFound("Poll not found");
-  if (poll.creator_id !== userId && !isAdmin) throw forbidden("Only the poll's creator (or an admin) can fund its reward pot.");
-  return fundContentTreasury(poll.creator_id, "poll", pollId, amount, maxClaimants, "poll_treasury_fund");
+  if (poll.creator_id !== userId) throw forbidden("Only the poll's creator can fund its reward pot.");
+  return fundContentTreasury(userId, "poll", pollId, amount, maxClaimants, "poll_treasury_fund");
 }
 
 // ---------------------------------------------------------------------------

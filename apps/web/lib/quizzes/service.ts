@@ -14,7 +14,7 @@
 
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import type { TransactionClient, SqlParam } from "@/lib/db/interface";
 import { loadManifest, requireFeatureEnabled, type ZobiaManifest } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
@@ -306,7 +306,7 @@ export interface ListQuizzesResult {
 }
 
 export async function listQuizzes(tab: "new" | "popular" | "mine", cursor: string | undefined, limit: number, viewerId?: string | null): Promise<ListQuizzesResult> {
-  const params: unknown[] = [];
+  const params: SqlParam[] = [];
   let where = `q.status = 'active' AND q.deleted_at IS NULL`;
   if (tab === "mine") {
     if (!viewerId) throw forbidden("Sign in to view your quizzes.");
@@ -460,14 +460,15 @@ export async function getQuizTreasury(quizId: string): Promise<TreasuryState | n
   return getContentTreasury("quiz", quizId);
 }
 
-export async function fundQuizTreasury(userId: string, quizId: string, amount: number, maxClaimants: number, isAdmin: boolean): Promise<TreasuryState> {
+/** Only the quiz's own creator may fund its reward pot — see fundPollTreasury's docstring for why there's no admin-on-behalf-of bypass. */
+export async function fundQuizTreasury(userId: string, quizId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
   await requireFeatureEnabled("quizzes");
   await requireFeatureEnabled("quizMonetization");
   const { rows } = await db.query<{ creator_id: string }>(`SELECT creator_id FROM quizzes WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [quizId]);
   const quiz = rows[0];
   if (!quiz) throw notFound("Quiz not found");
-  if (quiz.creator_id !== userId && !isAdmin) throw forbidden("Only the quiz's creator (or an admin) can fund its reward pot.");
-  return fundContentTreasury(quiz.creator_id, "quiz", quizId, amount, maxClaimants, "quiz_treasury_fund");
+  if (quiz.creator_id !== userId) throw forbidden("Only the quiz's creator can fund its reward pot.");
+  return fundContentTreasury(userId, "quiz", quizId, amount, maxClaimants, "quiz_treasury_fund");
 }
 
 // ---------------------------------------------------------------------------
