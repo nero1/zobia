@@ -2701,3 +2701,95 @@ Browsing (categories, docs, search, Ask AI) is mirrored at
 `apps/android/src/routes/help/**`; the admin CRUD
 (`/gate44/help-center/**`) is web-only, matching how Blogs/Answers admin
 tooling is web-only today.
+
+## Polls & Quizzes (PRD §36)
+
+Users create custom Polls (others vote) and custom Quizzes (others take,
+scored server-side), at public SEO-friendly `/poll/<slug>` and
+`/quiz/<slug>` URLs. Built to reuse the same feature-flag → eligibility →
+level-gate → atomic-write → best-effort-reward pipeline as Answers/Blogs
+rather than introducing a parallel system.
+
+### How It Works
+
+1. `lib/polls/service.ts` and `lib/quizzes/service.ts` both mirror
+   `lib/forum/service.ts`'s pipeline exactly: `requireFeatureEnabled` →
+   `get*Eligibility` (rank + manifest config) → level gate
+   (`polls_min_level_to_create`/`quizzes_min_level_to_create`, default
+   Level 1 each) → atomic insert (`db.transaction`) → best-effort reward
+   (`safeAwardXPFireAndForget` + a daily-capped `creditCoins` call) fired
+   **after** the write commits.
+2. A quiz's correct answers (`quiz_question_options.is_correct`) are never
+   sent to a taker — `getQuizBySlug()` only includes `isCorrect` on each
+   option when the caller passes `includeAnswers=true` **and** the viewer
+   is the quiz's own creator. Grading happens entirely server-side in
+   `submitQuizAttempt()`, which compares the submitted `selectedOptionIds`
+   against the DB's correct set per question and returns a
+   `perQuestionResult` array (safe to reveal only after grading).
+3. **Reward pots (treasuries)** are NOT a bespoke per-content-type table —
+   `lib/contentTreasury.ts` generalises Blogs' `blog_post_treasuries` /
+   `blog_post_treasury_claims` mechanic (§32, migration
+   `0020_blog_post_treasury.sql`) into two shared tables,
+   `content_treasuries`/`content_treasury_claims`, keyed by
+   `(content_type, content_id)` where `content_type` is `'poll'` or
+   `'quiz'`. Same anti-abuse shape as blogs: `SELECT ... FOR UPDATE` row
+   lock on the treasury row, `INSERT ... ON CONFLICT (treasury_id,
+   user_id) DO NOTHING` as the one-claim-per-user dedupe, reward-per-
+   claimant recomputed from the *current* funded amount at claim time (so
+   a mid-flight top-up raises the payout for remaining slots), and the
+   creator can never claim their own pot. Poll claim types are
+   `vote`/`share`; quiz claim types are `pass`/`share` (a taker who fails
+   never claims — "first X users who **pass**" per product spec). A
+   separate shared `content_shares` table (also `content_type`-keyed)
+   gives idempotent per-user share tracking, mirroring
+   `blog_post_shares`.
+4. Baseline (always-on) rewards are a second, independent layer from the
+   treasury: `polls_reward_xp_creator`/`_credits_creator`,
+   `polls_reward_xp_voter`/`_credits_voter` (and the `quizzes_*` /
+   `_taker` equivalents) in `ZobiaManifest['polls']`/`['quizzes']`,
+   parsed in `lib/manifest/index.ts` exactly like the `forum` config
+   block — admin-editable at `/gate44/polls/settings` /
+   `/gate44/quizzes/settings`, default **1 XP, 0 Credits** per action,
+   each capped by a rolling-24h `coin_ledger` lookup
+   (`polls_daily_reward_cap_credits`/`quizzes_daily_reward_cap_credits`,
+   default 50 — same `transaction_type LIKE '<prefix>_%'` cap query
+   pattern as forum's).
+5. Moderation reuses the generic `reports`/`moderation_reports` tables —
+   two nullable columns (`reported_poll_id`, `reported_quiz_id`) were
+   added to both, same convention as
+   `reported_forum_question_id`/`reported_blog_post_id`.
+
+### Feature Flags
+
+`feature_polls` / `feature_quizzes` (in x_manifest / `/gate44/feature-
+flags` or `/gate44/config`) independently kill each entire feature — every
+`/api/polls/**`/`/api/quizzes/**` endpoint throws `FEATURE_DISABLED` (503)
+via `requireFeatureEnabled()`, and the nav entries + `/poll/*`/`/quiz/*`
+pages are hidden/404. `poll_monetization_enabled` /
+`quiz_monetization_enabled` independently kill only the reward-pot
+sub-feature (funding/claiming a pot) while polls/quizzes keep working —
+same relationship as `feature_blogs` vs `blog_monetization_enabled`.
+
+### SEO
+
+`/poll/<slug>` and `/quiz/<slug>` are full SSR public pages (not a
+preview+CTA split like Answers' `/a/<slug>`) — a signed-in visitor can
+vote/take the quiz directly on the public page, an anonymous visitor sees
+a "Sign in to vote/take this quiz" CTA, following Blogs' public-article
+pattern rather than Answers' redirect-to-app pattern, since short-form
+sharable content benefits more from removing the extra hop. Slugs use the
+same `generateUniqueSlug()` + numeric-suffix convention as
+rooms/games/blogs/answers (`lib/slug.ts`, `poll`/`quiz` entities). Both are
+listed in `app/sitemap.ts` (capped at 2000 each) and registered in
+`middleware.ts`'s `PUBLIC_PREFIXES`.
+
+### Android
+
+Mirrored at `/polls`, `/polls/<slug>`, `/quizzes`, `/quizzes/<slug>` in
+the Capacitor app (`apps/android/src/routes/polls/*`,
+`.../quizzes/*`), calling the exact same `/api/polls/*`/`/api/quizzes/*`
+REST endpoints as web/PWA, plus admin screens
+(`apps/android/src/routes/admin/{polls,quizzes}.tsx`) built with the same
+`AdminUI` kit as the Blogs admin screen.
+
+**Migration:** `db/migrations/0038_polls_quizzes.sql`.

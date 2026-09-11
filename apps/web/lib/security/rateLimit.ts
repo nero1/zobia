@@ -127,6 +127,10 @@ export const RATE_LIMITS = {
   blogWrite: { limit: 15, windowMs: 60 * 1000, name: "blog:write" } as RateLimitOptions,
   /** Liking, subscribing, or recording a view on a blog/post. Cheap, L1-skip eligible. */
   blogVote: { limit: 60, windowMs: 60 * 1000, name: "blog:vote" } as RateLimitOptions,
+  /** Creating a poll, quiz, or funding a reward pot. */
+  pollQuizWrite: { limit: 10, windowMs: 60 * 1000, name: "pollquiz:write" } as RateLimitOptions,
+  /** Voting on a poll or submitting a quiz attempt/share. Cheap, L1-skip eligible. */
+  pollQuizVote: { limit: 60, windowMs: 60 * 1000, name: "pollquiz:vote" } as RateLimitOptions,
   /** Listing or revoking active sessions (BUG-CAP-06) — touches auth state, bypassL1. */
   sessionManage: { limit: 30, windowMs: 60 * 1000, name: "session:manage", bypassL1: true } as RateLimitOptions,
 } as const;

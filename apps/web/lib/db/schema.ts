@@ -4320,6 +4320,165 @@ export const blogPostTreasuryClaims = pgTable(
   })
 );
 
+// Migration 0038: Polls & Quizzes — user-created polls (vote) and quizzes
+// (take/score). Reward pots reuse the generic contentTreasuries/
+// contentTreasuryClaims/contentShares tables below rather than duplicating
+// blogPostTreasuries per content type.
+export const polls = pgTable(
+  "polls",
+  {
+    id: uuidPk(),
+    creatorId: uuid("creator_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    allowMultiple: boolean("allow_multiple").notNull().default(false),
+    status: text("status").notNull().default("active"),
+    closesAt: timestamp("closes_at", { withTimezone: true }),
+    viewCount: integer("view_count").notNull().default(0),
+    voterCount: integer("voter_count").notNull().default(0),
+    shareCount: integer("share_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    slugIdx: uniqueIndex("polls_slug_idx").on(t.slug),
+  })
+);
+
+export const pollOptions = pgTable("poll_options", {
+  id: uuidPk(),
+  pollId: uuid("poll_id").notNull().references(() => polls.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  position: integer("position").notNull().default(0),
+  voteCount: integer("vote_count").notNull().default(0),
+});
+
+export const pollVotes = pgTable(
+  "poll_votes",
+  {
+    id: uuidPk(),
+    pollId: uuid("poll_id").notNull().references(() => polls.id, { onDelete: "cascade" }),
+    optionId: uuid("option_id").notNull().references(() => pollOptions.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("poll_votes_poll_option_user_idx").on(t.pollId, t.optionId, t.userId),
+  })
+);
+
+export const quizzes = pgTable(
+  "quizzes",
+  {
+    id: uuidPk(),
+    creatorId: uuid("creator_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    description: text("description"),
+    status: text("status").notNull().default("active"),
+    passingScorePercent: integer("passing_score_percent").notNull().default(60),
+    maxAttemptsPerUser: integer("max_attempts_per_user").notNull().default(1),
+    viewCount: integer("view_count").notNull().default(0),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    shareCount: integer("share_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    slugIdx: uniqueIndex("quizzes_slug_idx").on(t.slug),
+  })
+);
+
+export const quizQuestions = pgTable("quiz_questions", {
+  id: uuidPk(),
+  quizId: uuid("quiz_id").notNull().references(() => quizzes.id, { onDelete: "cascade" }),
+  position: integer("position").notNull().default(0),
+  prompt: text("prompt").notNull(),
+  type: text("type").notNull().default("single"),
+  points: integer("points").notNull().default(1),
+});
+
+export const quizQuestionOptions = pgTable("quiz_question_options", {
+  id: uuidPk(),
+  questionId: uuid("question_id").notNull().references(() => quizQuestions.id, { onDelete: "cascade" }),
+  label: text("label").notNull(),
+  isCorrect: boolean("is_correct").notNull().default(false),
+  position: integer("position").notNull().default(0),
+});
+
+export const quizAttempts = pgTable("quiz_attempts", {
+  id: uuidPk(),
+  quizId: uuid("quiz_id").notNull().references(() => quizzes.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  attemptNumber: integer("attempt_number").notNull().default(1),
+  score: integer("score").notNull().default(0),
+  totalPoints: integer("total_points").notNull().default(0),
+  scorePercent: integer("score_percent").notNull().default(0),
+  passed: boolean("passed").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  completedAt: timestamp("completed_at", { withTimezone: true }),
+});
+
+export const quizAttemptAnswers = pgTable("quiz_attempt_answers", {
+  id: uuidPk(),
+  attemptId: uuid("attempt_id").notNull().references(() => quizAttempts.id, { onDelete: "cascade" }),
+  questionId: uuid("question_id").notNull().references(() => quizQuestions.id, { onDelete: "cascade" }),
+  selectedOptionIds: jsonb("selected_option_ids").notNull().default(sql`'[]'::jsonb`),
+  isCorrect: boolean("is_correct").notNull().default(false),
+});
+
+export const contentShares = pgTable(
+  "content_shares",
+  {
+    id: uuidPk(),
+    contentType: text("content_type").notNull(),
+    contentId: uuid("content_id").notNull(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("content_shares_type_content_user_idx").on(t.contentType, t.contentId, t.userId),
+  })
+);
+
+export const contentTreasuries = pgTable(
+  "content_treasuries",
+  {
+    id: uuidPk(),
+    contentType: text("content_type").notNull(),
+    contentId: uuid("content_id").notNull(),
+    ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    fundedAmount: integer("funded_amount").notNull().default(0),
+    remainingAmount: integer("remaining_amount").notNull().default(0),
+    maxClaimants: integer("max_claimants").notNull(),
+    claimantCount: integer("claimant_count").notNull().default(0),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("content_treasuries_type_content_idx").on(t.contentType, t.contentId),
+  })
+);
+
+export const contentTreasuryClaims = pgTable(
+  "content_treasury_claims",
+  {
+    id: uuidPk(),
+    treasuryId: uuid("treasury_id").notNull().references(() => contentTreasuries.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    claimType: text("claim_type").notNull(),
+    amount: integer("amount").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("content_treasury_claims_treasury_user_idx").on(t.treasuryId, t.userId),
+  })
+);
+
 export const blogPostDailyStats = pgTable(
   "blog_post_daily_stats",
   {

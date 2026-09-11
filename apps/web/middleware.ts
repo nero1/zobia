@@ -153,6 +153,11 @@ const PUBLIC_PREFIXES = [
   "/a/",
   "/b/",
   "/p/",
+  // Polls & Quizzes public SEO pages — publicly readable, indexable
+  "/poll/",
+  "/quiz/",
+  "/api/polls/",
+  "/api/quizzes/",
   // BB-style forum (boards/threads) — publicly readable, indexable
   "/forum",
   "/f/",

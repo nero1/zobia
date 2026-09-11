@@ -26,7 +26,7 @@ interface Queryable {
 }
 
 /** Identifier types that own a slug namespace. */
-export type SlugEntity = "room" | "game" | "forum_question" | "blog" | "business_page" | "bb_thread" | "bb_board" | "help_category" | "help_doc";
+export type SlugEntity = "room" | "game" | "forum_question" | "blog" | "business_page" | "bb_thread" | "bb_board" | "help_category" | "help_doc" | "poll" | "quiz";
 
 /**
  * The column + table each entity uses. Slugs are unique *within* an entity
@@ -45,6 +45,8 @@ const SLUG_SOURCES: Record<SlugEntity, { table: string }> = {
   // probe just for this feature.
   help_category: { table: "help_categories" },
   help_doc: { table: "help_docs" },
+  poll: { table: "polls" },
+  quiz: { table: "quizzes" },
 };
 
 /**

@@ -198,6 +198,31 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Blogs table absent or unavailable — skip silently
   }
 
+  // Public polls. Served at /poll/<slug>. The table may not exist on older
+  // DBs (pre-0038 migration) — the catch keeps the sitemap working regardless.
+  try {
+    const { rows: pollRows } = await db.query<{ slug: string; updated_at: string }>(
+      `SELECT slug, updated_at FROM polls WHERE deleted_at IS NULL AND status = 'active' ORDER BY updated_at DESC NULLS LAST LIMIT 2000`
+    );
+    for (const p of pollRows) {
+      entries.push({ url: `${BASE_URL}/poll/${encodeURIComponent(p.slug)}`, lastModified: new Date(p.updated_at), changeFrequency: "daily", priority: 0.4 });
+    }
+  } catch {
+    // Polls table absent or unavailable — skip silently
+  }
+
+  // Public quizzes. Served at /quiz/<slug>.
+  try {
+    const { rows: quizRows } = await db.query<{ slug: string; updated_at: string }>(
+      `SELECT slug, updated_at FROM quizzes WHERE deleted_at IS NULL AND status = 'active' ORDER BY updated_at DESC NULLS LAST LIMIT 2000`
+    );
+    for (const q of quizRows) {
+      entries.push({ url: `${BASE_URL}/quiz/${encodeURIComponent(q.slug)}`, lastModified: new Date(q.updated_at), changeFrequency: "daily", priority: 0.4 });
+    }
+  } catch {
+    // Quizzes table absent or unavailable — skip silently
+  }
+
   // Public Business Pages. Served at /p/<slug>. The table may not exist on
   // older DBs (pre-0003-business-expansion migration) — skip silently.
   try {

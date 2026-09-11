@@ -70,6 +70,14 @@ export interface ZobiaManifest {
     blogGifts: boolean;
     /** Master kill-switch for ALL blog monetization (paywall unlocks, post/blog treasuries, gifts). */
     blogMonetization: boolean;
+    /** Custom Polls — users create polls other users vote on, at /poll/<slug>. */
+    polls: boolean;
+    /** Reward pots (treasuries) on Polls. Requires `polls` too. */
+    pollMonetization: boolean;
+    /** Custom Quizzes — users create quizzes other users take, at /quiz/<slug>. */
+    quizzes: boolean;
+    /** Reward pots (treasuries) on Quizzes. Requires `quizzes` too. */
+    quizMonetization: boolean;
     kyc: boolean;
     adsSystem: boolean;
     nativeAds: boolean;
@@ -176,6 +184,45 @@ export interface ZobiaManifest {
     dailyRewardCapCredits: number;
     /** Run profanity/duplicate auto-moderation on new questions and answers. */
     autoModerationEnabled: boolean;
+  };
+  // Polls — admin-editable at /gate44/polls/settings. Baseline XP/Credits
+  // are always-on; reward pots (treasuries) are a separate, optional layer
+  // the poll creator funds themselves (gated by features.pollMonetization).
+  polls: {
+    /** Minimum account level required to create a poll. */
+    minLevelToCreate: number;
+    /** XP awarded for creating a poll. */
+    rewardXpCreator: number;
+    /** Credits awarded for creating a poll. */
+    rewardCreditsCreator: number;
+    /** XP awarded for voting on a poll. */
+    rewardXpVoter: number;
+    /** Credits awarded for voting on a poll. */
+    rewardCreditsVoter: number;
+    /** Ceiling on total poll-sourced credit rewards a user can earn per rolling 24h. */
+    dailyRewardCapCredits: number;
+    /** Maximum number of options a poll may have. */
+    maxOptions: number;
+  };
+  // Quizzes — admin-editable at /gate44/quizzes/settings. Same shape as
+  // `polls` above.
+  quizzes: {
+    /** Minimum account level required to create a quiz. */
+    minLevelToCreate: number;
+    /** XP awarded for creating a quiz. */
+    rewardXpCreator: number;
+    /** Credits awarded for creating a quiz. */
+    rewardCreditsCreator: number;
+    /** XP awarded for completing (taking) a quiz. */
+    rewardXpTaker: number;
+    /** Credits awarded for completing (taking) a quiz. */
+    rewardCreditsTaker: number;
+    /** Ceiling on total quiz-sourced credit rewards a user can earn per rolling 24h. */
+    dailyRewardCapCredits: number;
+    /** Maximum number of questions a quiz may have. */
+    maxQuestions: number;
+    /** Default max attempts per user when a quiz creator does not specify one. */
+    defaultMaxAttempts: number;
   };
   // Guilds (PRD §13) — admin-editable at /gate44/guilds
   guilds: {
@@ -459,6 +506,10 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     blogs: true,
     blogGifts: true,
     blogMonetization: true,
+    polls: true,
+    pollMonetization: true,
+    quizzes: true,
+    quizMonetization: true,
     kyc: true,
     adsSystem: true,
     nativeAds: true,
@@ -496,6 +547,25 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     rewardCreditsBestAnswer: 10,
     dailyRewardCapCredits: 50,
     autoModerationEnabled: true,
+  },
+  polls: {
+    minLevelToCreate: 1,
+    rewardXpCreator: 1,
+    rewardCreditsCreator: 0,
+    rewardXpVoter: 1,
+    rewardCreditsVoter: 0,
+    dailyRewardCapCredits: 50,
+    maxOptions: 10,
+  },
+  quizzes: {
+    minLevelToCreate: 1,
+    rewardXpCreator: 1,
+    rewardCreditsCreator: 0,
+    rewardXpTaker: 1,
+    rewardCreditsTaker: 0,
+    dailyRewardCapCredits: 50,
+    maxQuestions: 25,
+    defaultMaxAttempts: 1,
   },
   guilds: {
     minLevelToCreate: 4,
@@ -774,6 +844,8 @@ export const FEATURE_FLAG_KEY_MAP: Record<string, keyof ZobiaManifest["features"
   feature_bbforum: "bbforum",
   feature_blogs: "blogs",
   feature_blog_gifts: "blogGifts",
+  feature_polls: "polls",
+  feature_quizzes: "quizzes",
   feature_kyc: "kyc",
   feature_ads_system: "adsSystem",
   feature_native_ads: "nativeAds",
@@ -896,6 +968,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       blogs:                      parseBool(kv["feature_blogs"]                     ?? "true",  DEFAULT_MANIFEST.features.blogs),
       blogGifts:                  parseBool(kv["feature_blog_gifts"]                ?? "true",  DEFAULT_MANIFEST.features.blogGifts),
       blogMonetization:           parseBool(kv["blog_monetization_enabled"]         ?? "true",  DEFAULT_MANIFEST.features.blogMonetization),
+      polls:                      parseBool(kv["feature_polls"]                     ?? "true",  DEFAULT_MANIFEST.features.polls),
+      pollMonetization:           parseBool(kv["poll_monetization_enabled"]         ?? "true",  DEFAULT_MANIFEST.features.pollMonetization),
+      quizzes:                    parseBool(kv["feature_quizzes"]                   ?? "true",  DEFAULT_MANIFEST.features.quizzes),
+      quizMonetization:           parseBool(kv["quiz_monetization_enabled"]         ?? "true",  DEFAULT_MANIFEST.features.quizMonetization),
       kyc:                        parseBool(kv["feature_kyc"]                       ?? "true",  DEFAULT_MANIFEST.features.kyc),
       adsSystem:                  parseBool(kv["feature_ads_system"]                ?? "true",  DEFAULT_MANIFEST.features.adsSystem),
       nativeAds:                  parseBool(kv["feature_native_ads"]                ?? "true",  DEFAULT_MANIFEST.features.nativeAds),
@@ -940,6 +1016,25 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       rewardCreditsBestAnswer:        parseInt10(kv["forum_reward_credits_best_answer"],      DEFAULT_MANIFEST.forum.rewardCreditsBestAnswer),
       dailyRewardCapCredits:          parseInt10(kv["forum_daily_reward_cap_credits"],        DEFAULT_MANIFEST.forum.dailyRewardCapCredits),
       autoModerationEnabled:          parseBool(kv["forum_auto_moderation_enabled"] ?? "true", DEFAULT_MANIFEST.forum.autoModerationEnabled),
+    },
+    polls: {
+      minLevelToCreate:        parseInt10(kv["polls_min_level_to_create"],        DEFAULT_MANIFEST.polls.minLevelToCreate),
+      rewardXpCreator:         parseInt10(kv["polls_reward_xp_creator"],          DEFAULT_MANIFEST.polls.rewardXpCreator),
+      rewardCreditsCreator:    parseInt10(kv["polls_reward_credits_creator"],     DEFAULT_MANIFEST.polls.rewardCreditsCreator),
+      rewardXpVoter:           parseInt10(kv["polls_reward_xp_voter"],            DEFAULT_MANIFEST.polls.rewardXpVoter),
+      rewardCreditsVoter:      parseInt10(kv["polls_reward_credits_voter"],       DEFAULT_MANIFEST.polls.rewardCreditsVoter),
+      dailyRewardCapCredits:   parseInt10(kv["polls_daily_reward_cap_credits"],   DEFAULT_MANIFEST.polls.dailyRewardCapCredits),
+      maxOptions:              parseInt10(kv["polls_max_options"],                DEFAULT_MANIFEST.polls.maxOptions),
+    },
+    quizzes: {
+      minLevelToCreate:        parseInt10(kv["quizzes_min_level_to_create"],      DEFAULT_MANIFEST.quizzes.minLevelToCreate),
+      rewardXpCreator:         parseInt10(kv["quizzes_reward_xp_creator"],        DEFAULT_MANIFEST.quizzes.rewardXpCreator),
+      rewardCreditsCreator:    parseInt10(kv["quizzes_reward_credits_creator"],   DEFAULT_MANIFEST.quizzes.rewardCreditsCreator),
+      rewardXpTaker:           parseInt10(kv["quizzes_reward_xp_taker"],          DEFAULT_MANIFEST.quizzes.rewardXpTaker),
+      rewardCreditsTaker:      parseInt10(kv["quizzes_reward_credits_taker"],     DEFAULT_MANIFEST.quizzes.rewardCreditsTaker),
+      dailyRewardCapCredits:   parseInt10(kv["quizzes_daily_reward_cap_credits"], DEFAULT_MANIFEST.quizzes.dailyRewardCapCredits),
+      maxQuestions:            parseInt10(kv["quizzes_max_questions"],            DEFAULT_MANIFEST.quizzes.maxQuestions),
+      defaultMaxAttempts:      parseInt10(kv["quizzes_default_max_attempts"],     DEFAULT_MANIFEST.quizzes.defaultMaxAttempts),
     },
     guilds: {
       minLevelToCreate: parseInt10(kv["guilds_min_level_to_create"], DEFAULT_MANIFEST.guilds.minLevelToCreate),
