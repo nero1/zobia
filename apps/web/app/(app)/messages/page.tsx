@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { useMarkMessagesSeen } from "@/lib/notifications/useHasNewSince";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -180,6 +181,7 @@ function NewMessageDialog({ onClose, onOpen }: NewMessageDialogProps) {
  * DM inbox — conversation list with search and "New Message" dialog.
  */
 export default function MessagesPage() {
+  useMarkMessagesSeen();
   const { t } = useTranslation();
   const tRef = useRef(t);
   useEffect(() => {

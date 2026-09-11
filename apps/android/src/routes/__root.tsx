@@ -10,6 +10,7 @@ import { useTranslation } from 'react-i18next';
 import { App as CapApp } from '@capacitor/app';
 import { Browser } from '@capacitor/browser';
 import { TopBar } from '@/components/layout/TopBar';
+import { GlobalLoadingIndicator } from '@/components/shared/GlobalLoadingIndicator';
 import { BottomNav } from '@/components/layout/BottomNav';
 import { OfflineBanner } from '@/components/ui/OfflineBanner';
 import { AuthGuard } from '@/components/auth/AuthGuard';
@@ -325,6 +326,7 @@ function AppShell() {
   if (isPublicRoute) {
     return (
       <div className="h-full flex flex-col">
+        <GlobalLoadingIndicator />
         <div className="flex-1 overflow-y-auto">
           <Outlet />
         </div>
@@ -339,6 +341,7 @@ function AppShell() {
     return (
       <AuthGuard>
         <div className="h-full flex flex-col">
+          <GlobalLoadingIndicator />
           <div className="flex-1 overflow-y-auto">
             <Outlet />
           </div>
@@ -366,6 +369,7 @@ function AppShell() {
   if (isAdminRoute) {
     return (
       <AuthGuard>
+        <GlobalLoadingIndicator />
         <AdminShell>
           <Outlet />
         </AdminShell>
@@ -376,6 +380,7 @@ function AppShell() {
   return (
     <AuthGuard>
       <div className="h-full flex flex-col">
+        <GlobalLoadingIndicator />
         <TopBar title={getTitle()} showBack={showBack} />
         <OfflineBanner />
         <main className="flex-1 overflow-y-auto">

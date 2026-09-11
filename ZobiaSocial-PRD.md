@@ -175,6 +175,12 @@ Each user is algorithmically assigned a Nemesis — another user within 10% of t
 
 When a user has an active Plus/Pro/Max subscription or a Business plan that is due to expire within 14 days, the Home page — and the Business hub (`/business`) for a business plan — shows a dismissible alert immediately on login: *"Your plan ends in N days time. [Resubscribe]"*, linking to Settings → Subscription (or Settings → Business for a business plan). The alert can be dismissed with an × while more than 7 days remain; dismissal is remembered per expiry date (a renewal resets it). Once 7 days or fewer remain, the alert reappears **without** the × and cannot be dismissed until the user resubscribes or the plan lapses. If both a personal and a business plan are expiring, whichever is soonest is shown. (Shared as `components/PlanExpiryBanner.tsx`; for a business plan, "ends" is backed by `business_accounts.current_period_ends_at` — see §17.)
 
+### Switching Plans
+
+- **Free → Plus/Pro/Max**: requires payment — the user is redirected to checkout, and the plan activates as soon as that payment is confirmed.
+- **Between two paid plans (e.g. Max → Pro, Plus → Pro)**: takes effect immediately with no new payment and no proration — the remaining time on the current billing period simply continues under the new plan. The plan-switch grid always shows a "Switch to Free" option too; picking it is a downgrade to no paid plan, handled identically to Cancel Subscription below (not a purchase, so it never goes through checkout).
+- **Cancel Subscription / Switch to Free**: the user keeps their current plan's benefits until the current billing period ends, then moves to Free. Switching to Free specifically prompts a confirmation dialog first, since it's easy to trigger by mistake from the plan grid.
+
 ### Subscription Grace Period
 
 When a Plus/Pro/Max (or Business Starter/Growth/Enterprise) subscription
@@ -724,6 +730,21 @@ When a gift is received by a creator inside their Room:
 
 Every Room displays a "Top Gifters" leaderboard — updated in real time, showing the top 5 gifters in the last 24 hours. The current top gifter's name appears in the Room header. Achieving Top Gifter status in 3 or more Rooms unlocks a permanent "The Patron" badge on the Generosity Track.
 
+### Room Custom Rewards
+
+Distinct from the sitewide gift catalogue above, a room owner may fund and configure **one active Custom Reward** for their own Room at a time — a way to directly incentivise gifting them specifically, in that Room. Visible to every member (and the owner) on the Room page.
+
+The owner picks:
+- **Title** — a short name for the reward (e.g. "VIP Shoutout").
+- **For the first N people** — how many distinct gift senders may claim it.
+- **Reward action** — one of:
+  - **Credits** or **Stars**: the owner pre-funds a pool from their own balance; it's split evenly among the first N distinct members who send them ANY gift while in the Room, and paid out automatically and immediately on that Nth-or-earlier claim.
+  - **Custom text unlock**: no pool — each of the first N claimants is shown the owner's own free-text instructions for how to redeem it (e.g. "DM me your Discord tag for the VIP role"). The platform does not enforce or track fulfilment of a custom-text reward beyond notifying the claimant of the instructions; honouring it is between the owner and the claimant.
+
+A member can only claim a given reward once. Configuring a new reward replaces the room's previous one (any unclaimed pooled funds are not automatically refunded to the owner — deactivate before replacing if a refund is intended, via support). The owner can deactivate their reward at any time without replacing it.
+
+Site admins can disable this feature entirely (master flag), and configure the minimum account level a room owner needs to create a reward and a server-side ceiling on "first N people" (abuse/spam guard) — `/gate44/config`.
+
 ---
 
 ## 13. Guild System
@@ -1101,6 +1122,12 @@ Notifications must never feel like interruptions. They must feel like invitation
 ### In-App "New Notifications" Indicator
 
 The notification bell (and the "Notifications" nav menu item) shows a small red dot whenever a notification has arrived since the Notifications page was last opened on that device — independent of read/unread state. Opening the page clears the dot immediately; it reappears only once a newer notification arrives after that. This is tracked per-device (localStorage, scoped by user id) so it never depends on marking individual notifications as read.
+
+The same pattern applies to the **Inbox** ("Announcements" nav item) and **Messages** nav items: each shows its own red dot whenever something new has arrived there since that page was last visited on this device, clearing on visit regardless of whether anything was marked read, and reappearing only once something newer arrives. Each surface (Notifications/Inbox/Messages) tracks its own "last seen" independently.
+
+### In-App Loading Feedback
+
+Every tap/click that kicks off a network request (a page navigation, an API call) shows a small spinning-circle indicator near the top of the screen — overlaying any pulsing skeleton already on the page — after a brief delay, so a user on a slow connection can immediately tell whether their tap registered and the app is working, rather than wondering if it silently failed or their session expired. It's shown platform-wide (web, PWA, and the Capacitor Android app) with no per-page opt-in required.
 
 ### Email Notifications
 
@@ -1543,6 +1570,9 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 - Upgrade users to Moderator role.
 - Reset user passwords, force 2FA, manually verify accounts.
 
+**Reporting Content (User-Facing)**
+- The reasons shown to a user reporting content are, in order: Scam/Fraud, Spam, Fake Account, Inappropriate Content, Hate Speech, Violence, Misinformation, Self Harm, Other. "Harassment" is not offered as a user-facing reason (it remains a valid internal moderation category the AI classifier can still assign).
+
 **Content Moderation**
 - Moderation queue with report categorisation.
 - AI-generated confidence score per report.
@@ -1580,6 +1610,7 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 - Credit-to-cash conversion rate.
 - Payout threshold (manual approval trigger).
 - Low payout balance alert threshold.
+- Platform-wide default max image upload size: 1 MB, for any image uploaded anywhere on the platform (blog cover images, tweet/moment/forum attachments, ad creatives, etc.). Supported types: GIF, JPEG, PNG, SVG, AVIF, WebP. (KYC identity document uploads are a deliberate exception — they support a larger size and also accept PDF, for verification-quality reasons.)
 - Active AI model versions (DeepSeek and Gemini — stored in a central constants file, not hardcoded inline).
 - Redis provider (ioredis native or Upstash — configured via env var).
 - Email on/off toggle (all email, non-critical email).

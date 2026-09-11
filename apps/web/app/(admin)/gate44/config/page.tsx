@@ -477,6 +477,25 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     ],
   },
 
+  // Room Custom Rewards
+  feature_room_custom_rewards: {
+    label: "Enable Room Custom Rewards",
+    description: "Lets a room owner fund/configure one active reward (Credits/Stars pool, or a custom-text unlock) that the first N members to send them any gift in that room unlock. Requires Gifts to also be enabled.",
+    type: "boolean",
+    group: "Room Custom Rewards",
+  },
+  room_custom_rewards_min_owner_level: {
+    label: "Minimum Level to Create a Reward",
+    description: "Minimum account level (main rank number, 1 = Beginner) a room owner needs to set up a Custom Reward. Default: 1.",
+    type: "number",
+    group: "Room Custom Rewards",
+  },
+  room_custom_rewards_max_claimants_cap: {
+    label: "Max Claimants Ceiling",
+    description: "Server-side ceiling on how many claimants ('for the first N people') a room owner can set per reward — an abuse/spam guard. Default: 500.",
+    type: "number",
+    group: "Room Custom Rewards",
+  },
   // Moments
   feature_moments: {
     label: "Enable Moments",

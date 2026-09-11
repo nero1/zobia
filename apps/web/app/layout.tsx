@@ -23,6 +23,7 @@ import { I18nProvider } from "@/components/providers/I18nProvider";
 import { FloatingNotificationProvider } from "@/components/providers/FloatingNotificationProvider";
 import { ReferralCapture } from "@/components/referral/ReferralCapture";
 import { SkipToMain } from "@/components/shared/SkipToMain";
+import { GlobalLoadingIndicator } from "@/components/shared/GlobalLoadingIndicator";
 import { SessionExpiredModal } from "@/components/auth/SessionExpiredModal";
 import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
 import { loadManifest } from "@/lib/manifest";
@@ -186,6 +187,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
                     unnoticed. Self-guards against showing on /auth/* routes. */}
                 <SessionExpiredModal />
                 <ImpersonationBanner />
+                <GlobalLoadingIndicator />
                 <main id="main-content">
                   {children}
                 </main>

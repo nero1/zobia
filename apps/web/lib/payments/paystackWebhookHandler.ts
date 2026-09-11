@@ -42,6 +42,9 @@ export interface PaystackChargeEvent {
       businessName?: string;
       businessType?: string | null;
       tier?: string;
+      /** Set on POST /api/economy/subscriptions payments — see the itemType === "subscription" branch below. */
+      planName?: string;
+      interval?: "monthly" | "annual";
       /** "ad_wallet" routes a coin_pack credit to the Ad Wallet instead of coin_balance. */
       destination?: "main_wallet" | "ad_wallet";
     };
@@ -147,9 +150,80 @@ export async function processChargeSuccess(
       return;
     }
 
-    // Subscription charges: plan activation is handled by subscription.create event;
-    // skip coin/star crediting here to avoid double-crediting or NaN errors.
+    // Subscription charges — plan activation.
+    //
+    // This used to defer activation to a Paystack `subscription.create` event
+    // and just return here. That event only fires for a true Paystack
+    // recurring Subscription object (created with a `plan` code), but
+    // POST /api/economy/subscriptions initiates a plain one-off
+    // `/transaction/initialize` charge with no `plan` attached — so
+    // `subscription.create` never fires, and a plan purchase/change would
+    // charge the user successfully but never actually update their plan.
+    // Our own billing period tracking (subscriptions.ends_at, swept daily by
+    // lib/plans/subscriptionSweep.ts) doesn't need a real Paystack
+    // Subscription object anyway. Mirrors the (already-correct) DodoPayments
+    // handler's `itemType === "subscription"` branch below in
+    // dodoWebhookHandler.ts.
     if (itemType === "subscription") {
+      const VALID_PLANS = ["plus", "pro", "max"] as const;
+      const rawPlanName = metadata.planName ?? "";
+      if (!VALID_PLANS.includes(rawPlanName as (typeof VALID_PLANS)[number])) {
+        logger.error(
+          { rawPlanName, reference, metadata },
+          "[webhook/paystack] Unrecognised plan name — aborting subscription activation"
+        );
+        await tx.query(
+          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
+           VALUES ('unknown_paystack_plan', 'warning', $1, $2::jsonb, NOW())`,
+          [
+            `Unknown Paystack plan name: "${rawPlanName}"`,
+            JSON.stringify({ reference, rawPlanName, metadata }),
+          ]
+        ).catch(() => {});
+        return;
+      }
+      const planName = rawPlanName as (typeof VALID_PLANS)[number];
+
+      const billingPeriod = (metadata as Record<string, unknown>).interval === "annual" ? "annual" : "monthly";
+      const endsAt = new Date();
+      if (billingPeriod === "annual") {
+        endsAt.setFullYear(endsAt.getFullYear() + 1);
+      } else {
+        endsAt.setMonth(endsAt.getMonth() + 1);
+      }
+
+      await tx.query(
+        `INSERT INTO subscriptions
+           (user_id, plan, billing_period, status, provider, provider_subscription_id, starts_at, ends_at, created_at, updated_at)
+         VALUES ($1, $2, $3, 'active', 'paystack', $4, NOW(), $5, NOW(), NOW())
+         ON CONFLICT (user_id) DO UPDATE
+           SET plan = $2, billing_period = $3, status = 'active', provider = 'paystack',
+               provider_subscription_id = $4, cancelled_at = NULL, ends_at = $5, updated_at = NOW()`,
+        [userId, planName, billingPeriod, reference, endsAt.toISOString()]
+      );
+
+      await tx.query(
+        `UPDATE users SET plan = $1, updated_at = NOW() WHERE id = $2`,
+        [planName, userId]
+      );
+
+      // Award monthly subscription bonus coins (PRD §3) — dedup key scoped to
+      // plan + user + calendar month so a re-delivered webhook (or the
+      // separate daily-economy CRON's own monthly bonus pass) never double-credits.
+      const MONTHLY_PLAN_BONUS: Record<string, number> = { plus: 50, pro: 200, max: 500 };
+      const bonusCoins = MONTHLY_PLAN_BONUS[planName];
+      if (bonusCoins && bonusCoins > 0) {
+        const monthKey = `plan:${userId}:${new Date().toISOString().slice(0, 7)}`;
+        await creditCoins(
+          userId,
+          bonusCoins,
+          "subscription_bonus",
+          monthKey,
+          `${planName} plan subscription — monthly coin bonus`,
+          { plan: planName },
+          tx
+        );
+      }
       return;
     }
 

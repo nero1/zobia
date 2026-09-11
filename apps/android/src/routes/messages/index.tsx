@@ -10,6 +10,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
+import { useMarkMessagesSeen } from '@/lib/notifications/useHasNewSince';
 
 interface UserSuggestion {
   id: string;
@@ -124,43 +125,47 @@ interface Conversation {
   unreadCount: number;
 }
 
-// Raw row shape returned by GET /api/messages/dm (snake_case, flat).
+// Row shape returned by GET /api/messages/dm — see
+// apps/web/app/api/messages/dm/route.ts's GET handler, which maps its raw
+// snake_case SQL rows to this camelCase shape before responding under the
+// `conversations` key (not `items` — a prior version of this file expected
+// `{ items: [...] }` with snake_case fields, which never matched the actual
+// response and made the inbox always render empty).
 interface ConversationRow {
-  conversation_id: string;
-  other_user_id: string;
-  other_username: string;
-  other_display_name: string | null;
-  other_avatar_emoji: string | null;
-  last_message_content: string | null;
-  last_message_at: string;
-  unread_count: number;
+  conversationId: string;
+  participantUserId: string;
+  participantUsername: string;
+  participantDisplayName: string | null;
+  participantAvatarEmoji: string | null;
+  lastMessage: string;
+  lastMessageAt: string;
+  unreadCount: number;
 }
 
 function mapConversation(row: ConversationRow): Conversation {
   return {
-    id: row.conversation_id,
+    id: row.conversationId,
     otherUser: {
-      id: row.other_user_id,
-      username: row.other_username,
-      displayName: row.other_display_name ?? row.other_username,
-      avatarEmoji: row.other_avatar_emoji ?? '👤',
+      id: row.participantUserId,
+      username: row.participantUsername,
+      displayName: row.participantDisplayName ?? row.participantUsername,
+      avatarEmoji: row.participantAvatarEmoji ?? '👤',
     },
-    lastMessage: row.last_message_content
-      ? { content: row.last_message_content, createdAt: row.last_message_at }
+    lastMessage: row.lastMessage
+      ? { content: row.lastMessage, createdAt: row.lastMessageAt }
       : undefined,
-    unreadCount: row.unread_count,
+    unreadCount: row.unreadCount,
   };
 }
 
 async function fetchInbox() {
-  // The API responds with { items, nextCursor, hasMore, total }, not a bare array —
-  // treating the response itself as the list caused `conversations.map` to crash.
-  const { data } = await apiClient.get<{ items: ConversationRow[] }>('/messages/dm');
-  const rows = data?.items ?? [];
+  const { data } = await apiClient.get<{ conversations: ConversationRow[] }>('/messages/dm');
+  const rows = data?.conversations ?? [];
   return rows.map(mapConversation);
 }
 
 function MessagesPage() {
+  useMarkMessagesSeen();
   const { t } = useTranslation();
   const [showNewMessage, setShowNewMessage] = useState(false);
   const { data: conversations, status, refetch } = useQuery({

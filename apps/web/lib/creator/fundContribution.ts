@@ -34,9 +34,22 @@ function splitPercentKey(activity: CreatorFundActivity): string {
   return `creator_fund_split_${activity}_percent`;
 }
 
-/** Reads the admin-configured contribution percent for an activity (via the cached manifest — no extra Redis round-trip beyond the existing shared KV cache). */
-export async function getCreatorFundSplitPercent(activity: CreatorFundActivity): Promise<number> {
-  const raw = await getManifestValue(splitPercentKey(activity));
+/**
+ * Reads the admin-configured contribution percent for an activity (via the
+ * cached manifest — no extra Redis round-trip beyond the existing shared KV
+ * cache).
+ *
+ * @param dbClient - Pass the active transaction client when calling this
+ *   from inside `db.transaction()` so a cold manifest cache falls back to a
+ *   query on that same connection instead of checking out a second one from
+ *   the shared pool (which can starve/timeout a small pool and surface as a
+ *   spurious 500 — see contributeToCreatorFund below).
+ */
+export async function getCreatorFundSplitPercent(
+  activity: CreatorFundActivity,
+  dbClient: TransactionClient | typeof db = db
+): Promise<number> {
+  const raw = await getManifestValue(splitPercentKey(activity), dbClient);
   const parsed = raw !== null ? Number(raw) : NaN;
   if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) return DEFAULT_SPLIT_PERCENT;
   return parsed;
@@ -58,7 +71,7 @@ export async function contributeToCreatorFund(
 ): Promise<void> {
   if (!Number.isFinite(grossAmountKobo) || grossAmountKobo <= 0) return;
 
-  const percent = await getCreatorFundSplitPercent(activity);
+  const percent = await getCreatorFundSplitPercent(activity, dbClient);
   const contributionKobo = Math.floor((grossAmountKobo * percent) / 100);
   if (contributionKobo <= 0) return;
 

@@ -21,6 +21,7 @@ import { Network } from '@capacitor/network';
 import { focusManager, onlineManager } from '@tanstack/react-query';
 import { env } from '@/lib/env';
 import { secureGet, secureSet, secureRemove } from '@/lib/auth/secureTokenStore';
+import { reportRequestStart, reportRequestEnd } from '@/lib/loading/requestActivity';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -198,6 +199,31 @@ export async function refreshAccessToken(): Promise<string | null> {
 
   return refreshPromise;
 }
+
+// Request/response activity tracking — powers <GlobalLoadingIndicator/> (see
+// lib/loading/requestActivity.ts). Registered as its own interceptor pair
+// (rather than folded into the auth interceptors below) so the start/end
+// counting can't be skipped by an early return in the auth logic.
+apiClient.interceptors.request.use(
+  (config) => {
+    reportRequestStart();
+    return config;
+  },
+  (error: AxiosError) => {
+    reportRequestEnd();
+    return Promise.reject(error);
+  },
+);
+apiClient.interceptors.response.use(
+  (response) => {
+    reportRequestEnd();
+    return response;
+  },
+  (error: AxiosError) => {
+    reportRequestEnd();
+    return Promise.reject(error);
+  },
+);
 
 // Request interceptor — attach stored JWT as Bearer token.
 apiClient.interceptors.request.use(

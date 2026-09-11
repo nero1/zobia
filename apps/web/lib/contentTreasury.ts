@@ -19,12 +19,16 @@
 import { db } from "@/lib/db";
 import type { TransactionClient } from "@/lib/db/interface";
 import { checkAndDebit, creditCoins } from "@/lib/economy/coins";
+import { debitStars, creditStars } from "@/lib/economy/stars";
 import type { CoinTransactionType } from "@zobia/types";
+import type { StarTransactionType } from "@/lib/economy/stars";
 import { badRequest } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 
-export type TreasuryContentType = "poll" | "quiz";
-export type TreasuryClaimType = "vote" | "share" | "pass";
+export type TreasuryContentType = "poll" | "quiz" | "room";
+export type TreasuryClaimType = "vote" | "share" | "pass" | "gift";
+/** Room Custom Rewards (migration 0040) only — polls/quizzes always use "credits". */
+export type RewardAction = "credits" | "stars" | "custom_text";
 
 export interface TreasuryState {
   id: string;
@@ -155,6 +159,179 @@ export async function claimContentTreasuryReward(
     await creditCoins(userId, rewardPerClaimant, claimRewardType, `content_treasury_claim:${treasury.id}:${userId}`, "Reward pot claim", { contentType, contentId, claimType }, tx);
 
     return { amount: rewardPerClaimant };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Room Custom Rewards (migration 0040) — content_type = "room", claim_type = "gift"
+// ---------------------------------------------------------------------------
+
+export interface RoomRewardState extends TreasuryState {
+  title: string | null;
+  rewardAction: RewardAction;
+  customInstructions: string | null;
+}
+
+interface RoomRewardRow extends TreasuryRow {
+  title: string | null;
+  reward_action: RewardAction;
+  custom_instructions: string | null;
+}
+
+function toRoomRewardState(row: RoomRewardRow): RoomRewardState {
+  return { ...toTreasuryState(row), title: row.title, rewardAction: row.reward_action, customInstructions: row.custom_instructions };
+}
+
+export async function getRoomReward(roomId: string): Promise<RoomRewardState | null> {
+  const { rows } = await db.query<RoomRewardRow>(
+    `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, title, reward_action, custom_instructions
+     FROM content_treasuries WHERE content_type = 'room' AND content_id = $1 LIMIT 1`,
+    [roomId]
+  );
+  return rows[0] ? toRoomRewardState(rows[0]) : null;
+}
+
+export interface FundRoomRewardParams {
+  ownerId: string;
+  roomId: string;
+  title: string;
+  maxClaimants: number;
+  rewardAction: RewardAction;
+  /** Required (and > 0) for rewardAction "credits"/"stars"; ignored for "custom_text". */
+  amount?: number;
+  /** Required for rewardAction "custom_text"; ignored otherwise. */
+  customInstructions?: string;
+}
+
+/**
+ * Create or replace a room's single active Custom Reward. Only the room
+ * owner may call this (enforced by the caller/route). For "credits"/"stars",
+ * debits `amount` from the owner's own balance up front — same "pre-fund the
+ * pot" model as fundContentTreasury. For "custom_text" there's no pool to
+ * fund; the first `maxClaimants` distinct gift senders each just receive
+ * `customInstructions`.
+ */
+export async function fundRoomReward(params: FundRoomRewardParams): Promise<RoomRewardState> {
+  const { ownerId, roomId, title, maxClaimants, rewardAction, amount, customInstructions } = params;
+
+  if (!title.trim()) throw badRequest("Reward title is required.", "ROOM_REWARD_INVALID_TITLE");
+  if (!Number.isInteger(maxClaimants) || maxClaimants <= 0) {
+    throw badRequest("Max claimants must be a positive integer.", "TREASURY_INVALID_MAX_CLAIMANTS");
+  }
+
+  if (rewardAction === "custom_text") {
+    if (!customInstructions?.trim()) {
+      throw badRequest("Custom unlock instructions are required.", "ROOM_REWARD_INVALID_INSTRUCTIONS");
+    }
+    const { rows } = await db.query<RoomRewardRow>(
+      `INSERT INTO content_treasuries
+         (content_type, content_id, owner_id, funded_amount, remaining_amount, max_claimants, reward_action, custom_instructions, title, status)
+       VALUES ('room', $1, $2, 0, 0, $3, 'custom_text', $4, $5, 'active')
+       ON CONFLICT (content_type, content_id) DO UPDATE SET
+         funded_amount = 0, remaining_amount = 0, max_claimants = $3,
+         reward_action = 'custom_text', custom_instructions = $4, title = $5,
+         claimant_count = 0, status = 'active', updated_at = NOW()
+       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status, title, reward_action, custom_instructions`,
+      [roomId, ownerId, maxClaimants, customInstructions.trim(), title.trim()]
+    );
+    return toRoomRewardState(rows[0]);
+  }
+
+  if (!Number.isInteger(amount) || amount === undefined || amount <= 0) {
+    throw badRequest("Amount must be a positive integer.", "TREASURY_INVALID_AMOUNT");
+  }
+
+  const referenceId = `room_reward_fund:${roomId}:${Date.now()}`;
+  const result = await db.transaction(async (tx: TransactionClient) => {
+    if (rewardAction === "stars") {
+      await debitStars(ownerId, amount, "room_reward_fund", referenceId, "Funded a room reward pot", tx);
+    } else {
+      await checkAndDebit(ownerId, amount, "room_reward_fund", referenceId, "Funded a room reward pot", { roomId }, tx);
+    }
+    const { rows } = await tx.query<RoomRewardRow>(
+      `INSERT INTO content_treasuries
+         (content_type, content_id, owner_id, funded_amount, remaining_amount, max_claimants, reward_action, custom_instructions, title, status)
+       VALUES ('room', $1, $2, $3, $3, $4, $5, NULL, $6, 'active')
+       ON CONFLICT (content_type, content_id) DO UPDATE SET
+         funded_amount = $3, remaining_amount = $3, max_claimants = $4,
+         reward_action = $5, custom_instructions = NULL, title = $6,
+         claimant_count = 0, status = 'active', updated_at = NOW()
+       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status, title, reward_action, custom_instructions`,
+      [roomId, ownerId, amount, maxClaimants, rewardAction, title.trim()]
+    );
+    return rows[0];
+  });
+
+  return toRoomRewardState(result);
+}
+
+/** Deactivate a room's Custom Reward without deleting its claim history. */
+export async function closeRoomReward(roomId: string): Promise<void> {
+  await db.query(
+    `UPDATE content_treasuries SET status = 'closed', updated_at = NOW() WHERE content_type = 'room' AND content_id = $1`,
+    [roomId]
+  );
+}
+
+/**
+ * Called after a gift-send commits (app/api/economy/gifts/send/route.ts) when
+ * the recipient is that room's owner. Best-effort — never surfaces as an
+ * error to the gift sender; a missing/exhausted/inactive reward is just a
+ * no-op. Returns what to tell the sender they unlocked, or null.
+ */
+export async function claimRoomRewardOnGift(
+  roomId: string,
+  userId: string,
+  giftId: string
+): Promise<{ title: string; rewardAction: RewardAction; amount: number; customInstructions: string | null } | null> {
+  return db.transaction(async (tx: TransactionClient) => {
+    const { rows } = await tx.query<RoomRewardRow>(
+      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id, title, reward_action, custom_instructions
+       FROM content_treasuries WHERE content_type = 'room' AND content_id = $1 FOR UPDATE`,
+      [roomId]
+    );
+    const reward = rows[0];
+    if (!reward || reward.status !== "active") return null;
+    if (reward.claimant_count >= reward.max_claimants) return null;
+    if (reward.owner_id === userId) return null; // owner can't claim their own reward
+
+    let payoutAmount = 0;
+    if (reward.reward_action !== "custom_text") {
+      payoutAmount = Math.floor(reward.funded_amount / reward.max_claimants);
+      if (payoutAmount <= 0 || reward.remaining_amount < payoutAmount) return null;
+    }
+
+    const { rowCount } = await tx.query(
+      `INSERT INTO content_treasury_claims (treasury_id, user_id, claim_type, amount) VALUES ($1, $2, 'gift', $3) ON CONFLICT (treasury_id, user_id) DO NOTHING`,
+      [reward.id, userId, payoutAmount]
+    );
+    if (!rowCount || rowCount === 0) return null; // already claimed this reward
+
+    const newClaimantCount = reward.claimant_count + 1;
+    const newRemaining = reward.remaining_amount - payoutAmount;
+    const exhausted =
+      newClaimantCount >= reward.max_claimants ||
+      (reward.reward_action !== "custom_text" && newRemaining < payoutAmount);
+    await tx.query(
+      `UPDATE content_treasuries SET claimant_count = $2, remaining_amount = $3, status = $4, updated_at = NOW() WHERE id = $1`,
+      [reward.id, newClaimantCount, newRemaining, exhausted ? "exhausted" : "active"]
+    );
+
+    if (reward.reward_action === "stars") {
+      await creditStars(userId, payoutAmount, "room_reward_claim", `room_reward_claim:${reward.id}:${userId}`, "Room reward claim", tx);
+    } else if (reward.reward_action === "credits") {
+      await creditCoins(userId, payoutAmount, "room_reward_claim", `room_reward_claim:${reward.id}:${userId}`, "Room reward claim", { roomId }, tx);
+    }
+
+    return {
+      title: reward.title ?? "Room Reward",
+      rewardAction: reward.reward_action,
+      amount: payoutAmount,
+      customInstructions: reward.reward_action === "custom_text" ? reward.custom_instructions : null,
+    };
+  }).catch((err) => {
+    logger.error({ err, roomId, userId, giftId }, "[contentTreasury] failed to claim room reward on gift");
+    return null;
   });
 }
 

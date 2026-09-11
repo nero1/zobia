@@ -17,21 +17,13 @@ import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 import { classifyReport, type ReportType } from "@/lib/moderation/aiClassifier";
+import { REASON_LABEL_TO_TYPE } from "@/lib/moderation/reportReasons";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const bodySchema = z.object({
   reason: z.string().min(1).max(200),
 });
-
-// Must match moderation_reports.report_type accepted values
-const REASON_TO_TYPE: Record<string, ReportType> = {
-  Harassment:              "harassment",
-  Spam:                    "spam",
-  "Fake Account":          "other",
-  "Inappropriate Content": "sexual_content",
-  Other:                   "other",
-};
 
 interface UserParams {
   userId: string;
@@ -46,7 +38,7 @@ export const POST = withAuth<UserParams>(async (req: NextRequest, { params, auth
     if (userId === auth.user.sub) throw badRequest("You cannot report yourself");
 
     const body = bodySchema.parse(await req.json());
-    const reportType: ReportType = REASON_TO_TYPE[body.reason] ?? "other";
+    const reportType: ReportType = REASON_LABEL_TO_TYPE[body.reason] ?? "other";
 
     await db.query(
       `INSERT INTO moderation_reports

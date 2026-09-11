@@ -15,6 +15,7 @@
  */
 
 import { useRef, useState } from "react";
+import { IMAGE_ACCEPT_ATTR, isImageFileValid } from "@/lib/uploads/imageValidationShared";
 
 export interface QuotedPreview {
   id: string;
@@ -49,6 +50,12 @@ export function PostEditor({
   async function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    const validation = isImageFileValid(file);
+    if (!validation.ok) {
+      setUploadError(validation.message);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     setUploading(true);
     setUploadError(null);
     try {
@@ -107,7 +114,7 @@ export function PostEditor({
       />
 
       <div className="flex flex-wrap items-center gap-2">
-        <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp,image/gif" onChange={handleFileSelect} className="hidden" id="bbforum-image-input" />
+        <input ref={fileInputRef} type="file" accept={IMAGE_ACCEPT_ATTR} onChange={handleFileSelect} className="hidden" id="bbforum-image-input" />
         <label
           htmlFor="bbforum-image-input"
           className="cursor-pointer rounded-lg border border-neutral-300 px-2.5 py-1 text-xs font-semibold text-neutral-600 hover:border-primary-400 hover:text-primary-600 dark:border-neutral-700 dark:text-neutral-300"

@@ -20,7 +20,7 @@
  */
 
 import { db } from "@/lib/db";
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
 import { redis } from "@/lib/redis";
 import { env } from "@/lib/env";
 import { memGet, memSet, memDel } from "@/lib/cache/memory";
@@ -93,6 +93,8 @@ export interface ZobiaManifest {
     helpCenter: boolean;
     /** "Ask AI" block on Help Center doc pages. Independent of supportTickets. */
     helpCenterAi: boolean;
+    /** Room Custom Rewards — room owners fund a first-come-first-served credits/stars pot or custom-text unlock, triggered by any gift sent to them in their room. Requires `gifts` too. */
+    roomCustomRewards: boolean;
   };
   /**
    * Feature keys (matching `features.*` property names above) for which
@@ -148,6 +150,14 @@ export interface ZobiaManifest {
     softNamePlural: string;     // e.g. "Credits"
     premiumNameSingular: string; // e.g. "Star"
     premiumNamePlural: string;   // e.g. "Stars"
+  };
+  // Room Custom Rewards — admin-editable at /gate44/config. Requires
+  // features.roomCustomRewards (and features.gifts) too.
+  roomCustomRewards: {
+    /** Minimum account level a room owner needs to create a Custom Reward. */
+    minOwnerLevel: number;
+    /** Server-side ceiling on maxClaimants a room owner can set (abuse/spam guard). */
+    maxClaimantsCap: number;
   };
   // Zobia Moments — pricing & eligibility (admin-editable at /gate44/config)
   moments: {
@@ -540,6 +550,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     supportTickets: false,
     helpCenter: true,
     helpCenterAi: true,
+    roomCustomRewards: true,
   },
   featureModVisibility: [],
   currency: {
@@ -547,6 +558,10 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     softNamePlural: "Credits",
     premiumNameSingular: "Star",
     premiumNamePlural: "Stars",
+  },
+  roomCustomRewards: {
+    minOwnerLevel: 1,
+    maxClaimantsCap: 500,
   },
   moments: {
     costCredits: 100,
@@ -882,6 +897,7 @@ export const FEATURE_FLAG_KEY_MAP: Record<string, keyof ZobiaManifest["features"
   feature_instream_ads: "instreamAds",
   feature_boosted_posts: "boostedPosts",
   feature_ad_coupons: "adCoupons",
+  feature_room_custom_rewards: "roomCustomRewards",
 };
 
 /**
@@ -1013,6 +1029,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       supportTickets:             parseBool(kv["feature_support_tickets"],                      DEFAULT_MANIFEST.features.supportTickets),
       helpCenter:                 parseBool(kv["feature_help_center"]               ?? "true",  DEFAULT_MANIFEST.features.helpCenter),
       helpCenterAi:               parseBool(kv["feature_help_center_ai"]            ?? "true",  DEFAULT_MANIFEST.features.helpCenterAi),
+      roomCustomRewards:          parseBool(kv["feature_room_custom_rewards"]       ?? "true",  DEFAULT_MANIFEST.features.roomCustomRewards),
       // BUG-MANIFEST-01: populate vipRoomPricing from x_manifest keys
       vipRoomPricing: kv["vip_room_pricing_min_ngn"] && kv["vip_room_pricing_max_ngn"]
         ? {
@@ -1027,6 +1044,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       softNamePlural:      unquote(kv["currency_soft_name_plural"])      ?? DEFAULT_MANIFEST.currency.softNamePlural,
       premiumNameSingular: unquote(kv["currency_premium_name_singular"]) ?? DEFAULT_MANIFEST.currency.premiumNameSingular,
       premiumNamePlural:   unquote(kv["currency_premium_name_plural"])   ?? DEFAULT_MANIFEST.currency.premiumNamePlural,
+    },
+    roomCustomRewards: {
+      minOwnerLevel:   parseInt10(kv["room_custom_rewards_min_owner_level"],  DEFAULT_MANIFEST.roomCustomRewards.minOwnerLevel),
+      maxClaimantsCap: parseInt10(kv["room_custom_rewards_max_claimants_cap"], DEFAULT_MANIFEST.roomCustomRewards.maxClaimantsCap),
     },
     moments: {
       costCredits: parseInt10(kv["moments_cost_credits"], DEFAULT_MANIFEST.moments.costCredits),
@@ -1408,9 +1429,20 @@ export async function invalidateManifestCache(): Promise<void> {
  * cold or unavailable.
  *
  * @param key - The x_manifest key to look up
+ * @param dbClient - Optional DB client/transaction to run the cache-miss
+ *   fallback query on. Pass the transaction client when calling this from
+ *   inside `db.transaction()` — otherwise the fallback query checks out a
+ *   SECOND connection from the same pool the open transaction is already
+ *   holding one from, which can starve/timeout a small pool (default
+ *   DB_POOL_SIZE=2) and surface as a spurious 500/503 whenever the Redis
+ *   manifest cache happens to be cold. Defaults to the shared pooled `db`
+ *   for callers outside a transaction.
  * @returns Raw string value or null if the key does not exist
  */
-export async function getManifestValue(key: string): Promise<string | null> {
+export async function getManifestValue(
+  key: string,
+  dbClient: Pick<DatabaseAdapter, "query"> | TransactionClient = db
+): Promise<string | null> {
   // 1. Try the KV cache first
   try {
     const cachedKv = await redis.get(CACHE_KV_KEY);
@@ -1423,9 +1455,9 @@ export async function getManifestValue(key: string): Promise<string | null> {
     // Redis unavailable – fall through to DB
   }
 
-  // 2. Cache miss — query the DB directly
+  // 2. Cache miss — query the DB directly (via the caller's client, if given)
   try {
-    const { rows } = await db.query<{ value: string }>(
+    const { rows } = await dbClient.query<{ value: string }>(
       "SELECT value FROM x_manifest WHERE key = $1 LIMIT 1",
       [key]
     );

@@ -203,6 +203,17 @@ Users can send gift items (flower, trophy, crown, etc.) to any other user. Gift 
 
 Creators earn credit revenue when they receive gifts in their rooms (80% net; 85% for Zobia Icon creators). The platform retains the remainder. All credit flows are recorded atomically in `coin_ledger`.
 
+#### Room Custom Rewards
+
+A room owner can configure ONE active "Custom Reward" for their room at a time (`app/api/rooms/[roomId]/rewards/route.ts`, `components/rooms/RoomRewardPanel.tsx`), visible to every member on the room page. It triggers when a member sends the owner ANY gift while viewing that room:
+
+- **Credits / Stars**: the owner pre-funds a pool (debited from their own balance up front); it's split evenly among the first N distinct claimants and paid out automatically the instant each of them qualifies.
+- **Custom text unlock**: no pool — each of the first N claimants is shown the owner's own free-text redemption instructions via notification.
+
+Implemented as `content_type = 'room'`, `claim_type = 'gift'` on the same generic `content_treasuries`/`content_treasury_claims` tables Polls and Quizzes already use for their reward pots (`lib/contentTreasury.ts`) — extended with a `reward_action` column (`credits`/`stars`/`custom_text`) rather than a new table pair. The claim check (`claimRoomRewardOnGift`) runs in its own transaction AFTER the gift-send transaction commits in `app/api/economy/gifts/send/route.ts`, not nested inside it — nesting a second `db.transaction()` inside an already-open one checks out a second connection from the same (small, serverless-sized) pool, which is the exact bug class fixed in `lib/manifest`'s `getManifestValue()` (see that file's doc comment). Admin-configurable at `/gate44/config` (master flag `feature_room_custom_rewards`, `room_custom_rewards_min_owner_level`, `room_custom_rewards_max_claimants_cap`) — migration `0040_room_custom_rewards.sql`.
+
+This is independent of the separate, admin-curated sitewide "Rewarded Gifts" catalogue (`gift_items.is_rewarded`/`reward_config`, migration `0026`), which grants a badge/privilege when a specific admin-marked gift item is sent to a room or blog owner — both systems can trigger from the same gift send.
+
 #### Gifts Hub
 
 A dedicated **Gifts Hub** is accessible from the main navigation (below Friends) on both web and Expo:
@@ -2818,5 +2829,18 @@ the Capacitor app (`apps/android/src/routes/polls/*`,
 REST endpoints as web/PWA, plus admin screens
 (`apps/android/src/routes/admin/{polls,quizzes}.tsx`) built with the same
 `AdminUI` kit as the Blogs admin screen.
+
+## Global Loading Feedback, Image Uploads & Subscription Fixes
+
+A batch of platform-wide fixes/features, applied identically to web, PWA, and the Capacitor Android app unless noted:
+
+- **Global loading indicator**: a small spinning circle appears near the top of the screen (above any page skeleton) whenever a request is in flight, so a tap gives instant feedback on a slow connection instead of looking unresponsive. Web/PWA wraps `window.fetch` once (`lib/loading/requestActivity.ts`, mounted via `components/shared/GlobalLoadingIndicator.tsx` in `app/layout.tsx`); Android hooks the shared axios `apiClient`'s interceptors instead (`apps/android/src/lib/loading/requestActivity.ts`, mounted in `routes/__root.tsx`), since Android calls the API through axios rather than `window.fetch`. Shown after a 200ms delay and held for a minimum 400ms to avoid flicker.
+- **Inbox/Messages "new since visit" red dots**: extended the existing Notifications nav-dot pattern (`lib/notifications/useHasNewNotifications.ts`) to the Inbox/Announcements and Messages nav items (`lib/notifications/useHasNewSince.ts` on web, the equivalent file under `apps/android/src/lib/notifications/`) — same per-device localStorage "last seen" approach, one entry per surface so they don't clobber each other.
+- **Android Messages/DM inbox was silently always empty**: `apps/android/src/routes/messages/index.tsx` expected the conversation-list response as `{ items: [...] }` with snake_case fields; `GET /api/messages/dm` actually responds `{ conversations: [...] }` with camelCase fields. Fixed to match the real API contract.
+- **Image uploads standardized to 1MB**: `lib/uploads/imageValidation.ts`/`imageValidationShared.ts`/`uploadImage.ts` replace three near-duplicate inline `MAX_UPLOAD_BYTES`/`ALLOWED_MIME` blocks (tweets/moments/forum uploads) with one shared max size (1 MiB, down from 8 MiB) and allow-list (GIF/JPEG/PNG/WebP/AVIF/SVG, up from just JPEG/PNG/WebP/GIF). SVGs are sanitized (`lib/uploads/sanitizeSvg.ts`, via the existing `sanitize-html` dependency) rather than run through the raster `compressImage()` pipeline, since they're vector markup that can carry `<script>`/event-handler XSS.
+- **Report reasons curated**: the reasons shown to a reporting user are now Scam/Fraud, Spam, Fake Account, Inappropriate Content, Hate Speech, Violence, Misinformation, Self Harm, Other — Scam/Fraud first, Harassment removed as a user-facing option (`lib/moderation/reportReasons.ts`, single source of truth; wired into the BBForum post report flow, which previously used a raw `window.prompt`, and the Answers report modal).
+- **Branded room creation 500 error**: `contributeToCreatorFund()` (called when a branded room's sponsor budget seeds the Creator Fund) read the admin-configured split percentage via `getManifestValue()`, which issued its own fresh `db.query()` on the shared connection pool — while already inside the branded-room-creation `db.transaction()`, which (on the Supabase adapter) checks out a dedicated connection from that *same* small pool. A cold Redis manifest cache could starve/timeout waiting for a second connection and trip the DB circuit breaker into a 500. Fixed by threading the caller's transaction client through `getManifestValue()`/`getCreatorFundSplitPercent()` so the fallback query reuses the already-open connection instead of requesting a new one.
+- **Subscription plan switching**: see PRD §3 "Switching Plans" for the corrected behavior. Root cause of "payment succeeds but plan doesn't change" between two paid plans: `POST /api/economy/subscriptions` issues a one-off Paystack charge with no `plan` code, so Paystack's `subscription.create` event (which the webhook relied on to actually activate the plan) never fires. Fixed by activating the plan directly in the `charge.success` handler (mirroring the already-correct DodoPayments handler) and, on the frontend, routing a paid-to-paid switch through the existing (previously unused) `PUT /api/economy/subscriptions/[subscriptionId]` "change plan immediately, no new payment" endpoint instead of initiating a new charge. Also fixed: "Switch to Free" 400'd (plan enum only allows plus/pro/max — free isn't a subscribable plan, it's a cancellation) and "Cancel Subscription" 405'd (called `DELETE` on the collection route; the handler lives on `.../[subscriptionId]`).
+- **Room Custom Rewards**: see the "Room Custom Rewards" subsection under Gifting above and PRD §12.
 
 **Migration:** `db/migrations/0038_polls_quizzes.sql`.

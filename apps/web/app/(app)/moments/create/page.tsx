@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useCurrency, currencyLabel } from "@/lib/hooks/useCurrency";
 import { useMomentsConfig } from "@/lib/hooks/useMomentsConfig";
+import { IMAGE_ACCEPT_ATTR, isImageFileValid } from "@/lib/uploads/imageValidationShared";
 
 const MAX_CONTENT = 500;
 const MAX_CAPTION = 200;
@@ -48,6 +49,12 @@ export default function CreateMomentPage() {
   async function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    const validation = isImageFileValid(file);
+    if (!validation.ok) {
+      setUploadError(validation.message);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     setUploading(true);
     setUploadError(null);
     try {
@@ -195,7 +202,7 @@ export default function CreateMomentPage() {
                   <input
                     ref={fileInputRef}
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    accept={IMAGE_ACCEPT_ATTR}
                     onChange={handleImageSelect}
                     className="hidden"
                     id="moment-image-input"
