@@ -67,6 +67,8 @@ const FEATURE_ROUTES: FeatureRouteRule[] = [
   { segment: "council", featureKey: "platformCouncil" },
   { segment: "moments", featureKey: "moments" },
   { segment: "blogs", featureKey: "blogs" },
+  { segment: "polls", featureKey: "polls" },
+  { segment: "quizzes", featureKey: "quizzes" },
   { segment: "kyc", featureKey: "kyc" },
   { segment: "ads", featureKey: "adsSystem" },
   { segment: "answers", featureKey: "forum" },

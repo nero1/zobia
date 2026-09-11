@@ -44,6 +44,8 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: '/moments', labelKey: 'nav.moments', icon: '🎬', flagKey: 'moments' },
   { href: '/answers', labelKey: 'nav.answers', icon: '❓', flagKey: 'forum' },
   { href: '/forum', labelKey: 'nav.bbforum', icon: '🗂️', flagKey: 'bbforum' },
+  { href: '/polls', labelKey: 'nav.polls', icon: '📊', flagKey: 'polls' },
+  { href: '/quizzes', labelKey: 'nav.quizzes', icon: '🧠', flagKey: 'quizzes' },
   { href: '/quests', labelKey: 'nav.quests', icon: '🎯' },
   { href: '/games', labelKey: 'nav.games', icon: '🎮', flagKey: 'games' },
   { href: '/blogs', labelKey: 'nav.blogs', icon: '✍️', flagKey: 'blogs' },
