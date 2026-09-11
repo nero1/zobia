@@ -99,7 +99,7 @@ function PollsPage() {
   if (featureFlags && featureFlags.polls === false) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 bg-neutral-50 px-6 text-center">
-        <p className="text-sm text-neutral-500">{t('polls.disabled', 'Polls are currently unavailable.')}</p>
+        <p className="text-sm text-neutral-500">{t('polls.disabled', 'Polls are currently disabled.')}</p>
       </div>
     );
   }
@@ -140,7 +140,7 @@ function PollsPage() {
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
           <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 text-3xl">📊</div>
           <p className="font-semibold text-neutral-900 text-sm">
-            {tab === 'mine' ? t('polls.empty.mine', "You haven't created any polls yet") : t('polls.empty.default', 'No polls yet')}
+            {tab === 'mine' ? t('polls.empty.mine', "You haven't created any polls yet.") : t('polls.empty.default', 'No polls yet — be the first to create one!')}
           </p>
         </div>
       )}

@@ -97,7 +97,7 @@ function QuizzesPage() {
   if (featureFlags && featureFlags.quizzes === false) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 bg-neutral-50 px-6 text-center">
-        <p className="text-sm text-neutral-500">{t('quizzes.disabled', 'Quizzes are currently unavailable.')}</p>
+        <p className="text-sm text-neutral-500">{t('quizzes.disabled', 'Quizzes are currently disabled.')}</p>
       </div>
     );
   }
@@ -138,7 +138,7 @@ function QuizzesPage() {
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
           <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 text-3xl">🧠</div>
           <p className="font-semibold text-neutral-900 text-sm">
-            {tab === 'mine' ? t('quizzes.empty.mine', "You haven't created any quizzes yet") : t('quizzes.empty.default', 'No quizzes yet')}
+            {tab === 'mine' ? t('quizzes.empty.mine', "You haven't created any quizzes yet.") : t('quizzes.empty.default', 'No quizzes yet — be the first to create one!')}
           </p>
         </div>
       )}
