@@ -61,6 +61,13 @@ function AppShell() {
       try {
         const parsed = new URL(url);
 
+        // Shared by every case below: the verified https App Link host
+        // (e.g. zobia.org) — used to recognise a universal link vs. the
+        // zobia:// custom scheme.
+        const webOrigin = (() => {
+          try { return new URL(env.VITE_WEB_BASE_URL).hostname; } catch { return null; }
+        })();
+
         // Handle zobia://gift/:userId — mirrors web's app/(app)/gift/[userId]/page.tsx:
         // resolve the recipient's username, then hand off to the Gifts Hub send flow
         // instead of a dedicated screen (gifts.tsx already preselects via search params).
@@ -79,14 +86,68 @@ function AppShell() {
           return;
         }
 
+        // Handle public-content deep links — the zobia:// custom scheme built
+        // by lib/deeplinks/routes.ts's deepLink(PUBLIC_PATHS.*) (e.g.
+        // zobia://g/<slug>, zobia://poll/<slug>) OR the equivalent verified
+        // https App Link (https://<web-origin>/g/<slug>, .../poll/<slug>,
+        // ...) opened from outside the app (a shared link, a browser tab).
+        // Previously neither form navigated anywhere in-app — the WebView
+        // just kept whatever screen was already showing. `prefix` is the
+        // first path segment either way: the custom scheme's hostname, or
+        // the universal link's first pathname segment.
+        {
+          let prefix: string | null = null;
+          let restPath = '';
+          if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+            // zobia://<prefix>/<rest>
+            prefix = parsed.hostname || null;
+            restPath = parsed.pathname.replace(/^\//, '');
+          } else if (webOrigin && parsed.hostname === webOrigin) {
+            // https://<webOrigin>/<prefix>/<rest>
+            const m = parsed.pathname.match(/^\/([^/]+)\/(.+)$/);
+            if (m) { prefix = m[1]; restPath = m[2]; }
+          }
+          const slug = restPath ? decodeURIComponent(restPath.split('/')[0]) : null;
+
+          if (slug && (prefix === 'g' || prefix === 'game')) {
+            // Games are addressed by slug in-app too (GET /api/games/:slug) — no resolve needed.
+            navigate({ to: '/games/$slug', params: { slug } });
+            return;
+          }
+
+          if (slug && prefix === 'poll') {
+            navigate({ to: '/polls/$slug', params: { slug } });
+            return;
+          }
+
+          if (slug && prefix === 'quiz') {
+            navigate({ to: '/quizzes/$slug', params: { slug } });
+            return;
+          }
+
+          if (slug && (prefix === 'r' || prefix === 'room')) {
+            // Rooms are addressed by internal id in-app (GET /api/rooms/:id/messages),
+            // but the public/shareable path is slug-based — resolve slug -> id first via
+            // the same public resolver the web Expo universal-link screens use.
+            try {
+              const { data } = await apiClient.get<{ found: boolean; id?: string }>('/public/resolve', {
+                params: { type: 'room', id: slug },
+              });
+              if (data.found && data.id) {
+                navigate({ to: '/rooms/$roomId', params: { roomId: data.id } });
+              }
+            } catch (err) {
+              console.error('[deeplink] room resolve failed:', err);
+            }
+            return;
+          }
+        }
+
         // Handle OAuth callback deep links.
         // BUG-CAP-04 fix: accept both the verified https App Link
         // (https://<web-origin>/auth/callback?code=...) and the legacy
         // zobia://auth/callback custom-scheme form as a fallback for
         // devices/browsers where App Links verification hasn't succeeded.
-        const webOrigin = (() => {
-          try { return new URL(env.VITE_WEB_BASE_URL).hostname; } catch { return null; }
-        })();
         const isHttpsCallback =
           (parsed.protocol === 'https:' || parsed.protocol === 'http:') &&
           webOrigin !== null &&
