@@ -20,6 +20,8 @@ export const adminNavItems: AdminNavItem[] = [
   { href: '/admin/moderation', labelKey: 'admin.nav.moderation', labelDefault: 'Moderation', icon: '🚩' },
   { href: '/watch56', labelKey: 'moderation.title', labelDefault: 'Moderation Center', icon: '🧭' },
   { href: '/admin/forum', labelKey: 'admin.nav.forum', labelDefault: 'Answers', icon: '❓' },
+  { href: '/admin/polls', labelKey: 'admin.nav.polls', labelDefault: 'Polls', icon: '📊' },
+  { href: '/admin/quizzes', labelKey: 'admin.nav.quizzes', labelDefault: 'Quizzes', icon: '🧠' },
   { href: '/admin/community-notes', labelKey: 'admin.nav.communityNotes', labelDefault: 'Community Notes', icon: '📝' },
   { href: '/admin/financial', labelKey: 'admin.nav.financial', labelDefault: 'Financial', icon: '💳' },
   { href: '/admin/payouts', labelKey: 'admin.nav.payouts', labelDefault: 'Payouts', icon: '💸' },

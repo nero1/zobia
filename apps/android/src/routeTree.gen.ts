@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as Watch56RouteImport } from './routes/watch56'
 import { Route as WalletRouteImport } from './routes/wallet'
 import { Route as StickersRouteImport } from './routes/stickers'
 import { Route as StatsRouteImport } from './routes/stats'
@@ -20,7 +21,6 @@ import { Route as PrestigeRouteImport } from './routes/prestige'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as NotificationsRouteImport } from './routes/notifications'
 import { Route as NemesisRouteImport } from './routes/nemesis'
-import { Route as Watch56RouteImport } from './routes/watch56'
 import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
 import { Route as KycRouteImport } from './routes/kyc'
 import { Route as HomeRouteImport } from './routes/home'
@@ -36,7 +36,9 @@ import { Route as AnnouncementsRouteImport } from './routes/announcements'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SupportIndexRouteImport } from './routes/support/index'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
+import { Route as QuizzesIndexRouteImport } from './routes/quizzes/index'
 import { Route as ProfileIndexRouteImport } from './routes/profile/index'
+import { Route as PollsIndexRouteImport } from './routes/polls/index'
 import { Route as MomentsIndexRouteImport } from './routes/moments/index'
 import { Route as MessagesIndexRouteImport } from './routes/messages/index'
 import { Route as MerchIndexRouteImport } from './routes/merch/index'
@@ -55,7 +57,11 @@ import { Route as SupportTicketIdRouteImport } from './routes/support/$ticketId'
 import { Route as SettingsSecurityRouteImport } from './routes/settings/security'
 import { Route as SettingsPrivacyRouteImport } from './routes/settings/privacy'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
+import { Route as QuizzesNewRouteImport } from './routes/quizzes/new'
+import { Route as QuizzesSlugRouteImport } from './routes/quizzes/$slug'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
+import { Route as PollsNewRouteImport } from './routes/polls/new'
+import { Route as PollsSlugRouteImport } from './routes/polls/$slug'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
 import { Route as MessagesConversationIdRouteImport } from './routes/messages/$conversationId'
 import { Route as MerchCreatorIdRouteImport } from './routes/merch/$creatorId'
@@ -78,6 +84,8 @@ import { Route as AdminSponsoredQuestsRouteImport } from './routes/admin/sponsor
 import { Route as AdminSeasonsRouteImport } from './routes/admin/seasons'
 import { Route as AdminRoomsRouteImport } from './routes/admin/rooms'
 import { Route as AdminRefundsRouteImport } from './routes/admin/refunds'
+import { Route as AdminQuizzesRouteImport } from './routes/admin/quizzes'
+import { Route as AdminPollsRouteImport } from './routes/admin/polls'
 import { Route as AdminModerationRouteImport } from './routes/admin/moderation'
 import { Route as AdminMessagesRouteImport } from './routes/admin/messages'
 import { Route as AdminLeaderboardsRouteImport } from './routes/admin/leaderboards'
@@ -126,6 +134,11 @@ import { Route as AdminSettingsProfileStatsRouteImport } from './routes/admin/se
 import { Route as AdminSettingsPrivacyRouteImport } from './routes/admin/settings/privacy'
 import { Route as AdminPayoutsAppealsRouteImport } from './routes/admin/payouts/appeals'
 
+const Watch56Route = Watch56RouteImport.update({
+  id: '/watch56',
+  path: '/watch56',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WalletRoute = WalletRouteImport.update({
   id: '/wallet',
   path: '/wallet',
@@ -179,11 +192,6 @@ const NotificationsRoute = NotificationsRouteImport.update({
 const NemesisRoute = NemesisRouteImport.update({
   id: '/nemesis',
   path: '/nemesis',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const Watch56Route = Watch56RouteImport.update({
-  id: '/watch56',
-  path: '/watch56',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LeaderboardsRoute = LeaderboardsRouteImport.update({
@@ -261,9 +269,19 @@ const RoomsIndexRoute = RoomsIndexRouteImport.update({
   path: '/rooms/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const QuizzesIndexRoute = QuizzesIndexRouteImport.update({
+  id: '/quizzes/',
+  path: '/quizzes/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProfileIndexRoute = ProfileIndexRouteImport.update({
   id: '/profile/',
   path: '/profile/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PollsIndexRoute = PollsIndexRouteImport.update({
+  id: '/polls/',
+  path: '/polls/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MomentsIndexRoute = MomentsIndexRouteImport.update({
@@ -356,9 +374,29 @@ const RoomsRoomIdRoute = RoomsRoomIdRouteImport.update({
   path: '/rooms/$roomId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const QuizzesNewRoute = QuizzesNewRouteImport.update({
+  id: '/quizzes/new',
+  path: '/quizzes/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QuizzesSlugRoute = QuizzesSlugRouteImport.update({
+  id: '/quizzes/$slug',
+  path: '/quizzes/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProfileUsernameRoute = ProfileUsernameRouteImport.update({
   id: '/profile/$username',
   path: '/profile/$username',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PollsNewRoute = PollsNewRouteImport.update({
+  id: '/polls/new',
+  path: '/polls/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PollsSlugRoute = PollsSlugRouteImport.update({
+  id: '/polls/$slug',
+  path: '/polls/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
 const MomentsCreateRoute = MomentsCreateRouteImport.update({
@@ -469,6 +507,16 @@ const AdminRoomsRoute = AdminRoomsRouteImport.update({
 const AdminRefundsRoute = AdminRefundsRouteImport.update({
   id: '/admin/refunds',
   path: '/admin/refunds',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminQuizzesRoute = AdminQuizzesRouteImport.update({
+  id: '/admin/quizzes',
+  path: '/admin/quizzes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminPollsRoute = AdminPollsRouteImport.update({
+  id: '/admin/polls',
+  path: '/admin/polls',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminModerationRoute = AdminModerationRouteImport.update({
@@ -722,7 +770,6 @@ export interface FileRoutesByFullPath {
   '/home': typeof HomeRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
-  '/watch56': typeof Watch56Route
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
@@ -734,6 +781,7 @@ export interface FileRoutesByFullPath {
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
+  '/watch56': typeof Watch56Route
   '/admin/actions-log': typeof AdminActionsLogRoute
   '/admin/ads': typeof AdminAdsRoute
   '/admin/ai-settings': typeof AdminAiSettingsRoute
@@ -761,6 +809,8 @@ export interface FileRoutesByFullPath {
   '/admin/leaderboards': typeof AdminLeaderboardsRoute
   '/admin/messages': typeof AdminMessagesRoute
   '/admin/moderation': typeof AdminModerationRoute
+  '/admin/polls': typeof AdminPollsRoute
+  '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/seasons': typeof AdminSeasonsRoute
@@ -783,7 +833,11 @@ export interface FileRoutesByFullPath {
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
+  '/polls/$slug': typeof PollsSlugRoute
+  '/polls/new': typeof PollsNewRoute
   '/profile/$username': typeof ProfileUsernameRoute
+  '/quizzes/$slug': typeof QuizzesSlugRoute
+  '/quizzes/new': typeof QuizzesNewRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/privacy': typeof SettingsPrivacyRoute
   '/settings/security': typeof SettingsSecurityRoute
@@ -802,7 +856,9 @@ export interface FileRoutesByFullPath {
   '/merch/': typeof MerchIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
+  '/polls/': typeof PollsIndexRoute
   '/profile/': typeof ProfileIndexRoute
+  '/quizzes/': typeof QuizzesIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/support/': typeof SupportIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
@@ -840,7 +896,6 @@ export interface FileRoutesByTo {
   '/home': typeof HomeRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
-  '/watch56': typeof Watch56Route
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
@@ -852,6 +907,7 @@ export interface FileRoutesByTo {
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
+  '/watch56': typeof Watch56Route
   '/admin/actions-log': typeof AdminActionsLogRoute
   '/admin/ads': typeof AdminAdsRoute
   '/admin/ai-settings': typeof AdminAiSettingsRoute
@@ -879,6 +935,8 @@ export interface FileRoutesByTo {
   '/admin/leaderboards': typeof AdminLeaderboardsRoute
   '/admin/messages': typeof AdminMessagesRoute
   '/admin/moderation': typeof AdminModerationRoute
+  '/admin/polls': typeof AdminPollsRoute
+  '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/seasons': typeof AdminSeasonsRoute
@@ -901,7 +959,11 @@ export interface FileRoutesByTo {
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
+  '/polls/$slug': typeof PollsSlugRoute
+  '/polls/new': typeof PollsNewRoute
   '/profile/$username': typeof ProfileUsernameRoute
+  '/quizzes/$slug': typeof QuizzesSlugRoute
+  '/quizzes/new': typeof QuizzesNewRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/privacy': typeof SettingsPrivacyRoute
   '/settings/security': typeof SettingsSecurityRoute
@@ -920,7 +982,9 @@ export interface FileRoutesByTo {
   '/merch': typeof MerchIndexRoute
   '/messages': typeof MessagesIndexRoute
   '/moments': typeof MomentsIndexRoute
+  '/polls': typeof PollsIndexRoute
   '/profile': typeof ProfileIndexRoute
+  '/quizzes': typeof QuizzesIndexRoute
   '/rooms': typeof RoomsIndexRoute
   '/support': typeof SupportIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
@@ -959,7 +1023,6 @@ export interface FileRoutesById {
   '/home': typeof HomeRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
-  '/watch56': typeof Watch56Route
   '/nemesis': typeof NemesisRoute
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
@@ -971,6 +1034,7 @@ export interface FileRoutesById {
   '/stats': typeof StatsRoute
   '/stickers': typeof StickersRoute
   '/wallet': typeof WalletRoute
+  '/watch56': typeof Watch56Route
   '/admin/actions-log': typeof AdminActionsLogRoute
   '/admin/ads': typeof AdminAdsRoute
   '/admin/ai-settings': typeof AdminAiSettingsRoute
@@ -998,6 +1062,8 @@ export interface FileRoutesById {
   '/admin/leaderboards': typeof AdminLeaderboardsRoute
   '/admin/messages': typeof AdminMessagesRoute
   '/admin/moderation': typeof AdminModerationRoute
+  '/admin/polls': typeof AdminPollsRoute
+  '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/seasons': typeof AdminSeasonsRoute
@@ -1020,7 +1086,11 @@ export interface FileRoutesById {
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
+  '/polls/$slug': typeof PollsSlugRoute
+  '/polls/new': typeof PollsNewRoute
   '/profile/$username': typeof ProfileUsernameRoute
+  '/quizzes/$slug': typeof QuizzesSlugRoute
+  '/quizzes/new': typeof QuizzesNewRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/privacy': typeof SettingsPrivacyRoute
   '/settings/security': typeof SettingsSecurityRoute
@@ -1039,7 +1109,9 @@ export interface FileRoutesById {
   '/merch/': typeof MerchIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
+  '/polls/': typeof PollsIndexRoute
   '/profile/': typeof ProfileIndexRoute
+  '/quizzes/': typeof QuizzesIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/support/': typeof SupportIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
@@ -1079,7 +1151,6 @@ export interface FileRouteTypes {
     | '/home'
     | '/kyc'
     | '/leaderboards'
-    | '/watch56'
     | '/nemesis'
     | '/notifications'
     | '/onboarding'
@@ -1091,6 +1162,7 @@ export interface FileRouteTypes {
     | '/stats'
     | '/stickers'
     | '/wallet'
+    | '/watch56'
     | '/admin/actions-log'
     | '/admin/ads'
     | '/admin/ai-settings'
@@ -1118,6 +1190,8 @@ export interface FileRouteTypes {
     | '/admin/leaderboards'
     | '/admin/messages'
     | '/admin/moderation'
+    | '/admin/polls'
+    | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
     | '/admin/seasons'
@@ -1140,7 +1214,11 @@ export interface FileRouteTypes {
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
+    | '/polls/$slug'
+    | '/polls/new'
     | '/profile/$username'
+    | '/quizzes/$slug'
+    | '/quizzes/new'
     | '/rooms/$roomId'
     | '/settings/privacy'
     | '/settings/security'
@@ -1159,7 +1237,9 @@ export interface FileRouteTypes {
     | '/merch/'
     | '/messages/'
     | '/moments/'
+    | '/polls/'
     | '/profile/'
+    | '/quizzes/'
     | '/rooms/'
     | '/support/'
     | '/admin/payouts/appeals'
@@ -1197,7 +1277,6 @@ export interface FileRouteTypes {
     | '/home'
     | '/kyc'
     | '/leaderboards'
-    | '/watch56'
     | '/nemesis'
     | '/notifications'
     | '/onboarding'
@@ -1209,6 +1288,7 @@ export interface FileRouteTypes {
     | '/stats'
     | '/stickers'
     | '/wallet'
+    | '/watch56'
     | '/admin/actions-log'
     | '/admin/ads'
     | '/admin/ai-settings'
@@ -1236,6 +1316,8 @@ export interface FileRouteTypes {
     | '/admin/leaderboards'
     | '/admin/messages'
     | '/admin/moderation'
+    | '/admin/polls'
+    | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
     | '/admin/seasons'
@@ -1258,7 +1340,11 @@ export interface FileRouteTypes {
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
+    | '/polls/$slug'
+    | '/polls/new'
     | '/profile/$username'
+    | '/quizzes/$slug'
+    | '/quizzes/new'
     | '/rooms/$roomId'
     | '/settings/privacy'
     | '/settings/security'
@@ -1277,7 +1363,9 @@ export interface FileRouteTypes {
     | '/merch'
     | '/messages'
     | '/moments'
+    | '/polls'
     | '/profile'
+    | '/quizzes'
     | '/rooms'
     | '/support'
     | '/admin/payouts/appeals'
@@ -1315,7 +1403,6 @@ export interface FileRouteTypes {
     | '/home'
     | '/kyc'
     | '/leaderboards'
-    | '/watch56'
     | '/nemesis'
     | '/notifications'
     | '/onboarding'
@@ -1327,6 +1414,7 @@ export interface FileRouteTypes {
     | '/stats'
     | '/stickers'
     | '/wallet'
+    | '/watch56'
     | '/admin/actions-log'
     | '/admin/ads'
     | '/admin/ai-settings'
@@ -1354,6 +1442,8 @@ export interface FileRouteTypes {
     | '/admin/leaderboards'
     | '/admin/messages'
     | '/admin/moderation'
+    | '/admin/polls'
+    | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
     | '/admin/seasons'
@@ -1376,7 +1466,11 @@ export interface FileRouteTypes {
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
+    | '/polls/$slug'
+    | '/polls/new'
     | '/profile/$username'
+    | '/quizzes/$slug'
+    | '/quizzes/new'
     | '/rooms/$roomId'
     | '/settings/privacy'
     | '/settings/security'
@@ -1395,7 +1489,9 @@ export interface FileRouteTypes {
     | '/merch/'
     | '/messages/'
     | '/moments/'
+    | '/polls/'
     | '/profile/'
+    | '/quizzes/'
     | '/rooms/'
     | '/support/'
     | '/admin/payouts/appeals'
@@ -1434,7 +1530,6 @@ export interface RootRouteChildren {
   HomeRoute: typeof HomeRoute
   KycRoute: typeof KycRoute
   LeaderboardsRoute: typeof LeaderboardsRoute
-  Watch56Route: typeof Watch56Route
   NemesisRoute: typeof NemesisRoute
   NotificationsRoute: typeof NotificationsRoute
   OnboardingRoute: typeof OnboardingRoute
@@ -1446,6 +1541,7 @@ export interface RootRouteChildren {
   StatsRoute: typeof StatsRoute
   StickersRoute: typeof StickersRoute
   WalletRoute: typeof WalletRoute
+  Watch56Route: typeof Watch56Route
   AdminActionsLogRoute: typeof AdminActionsLogRoute
   AdminAdsRoute: typeof AdminAdsRoute
   AdminAiSettingsRoute: typeof AdminAiSettingsRoute
@@ -1473,6 +1569,8 @@ export interface RootRouteChildren {
   AdminLeaderboardsRoute: typeof AdminLeaderboardsRoute
   AdminMessagesRoute: typeof AdminMessagesRoute
   AdminModerationRoute: typeof AdminModerationRoute
+  AdminPollsRoute: typeof AdminPollsRoute
+  AdminQuizzesRoute: typeof AdminQuizzesRoute
   AdminRefundsRoute: typeof AdminRefundsRoute
   AdminRoomsRoute: typeof AdminRoomsRoute
   AdminSeasonsRoute: typeof AdminSeasonsRoute
@@ -1495,7 +1593,11 @@ export interface RootRouteChildren {
   MerchCreatorIdRoute: typeof MerchCreatorIdRoute
   MessagesConversationIdRoute: typeof MessagesConversationIdRoute
   MomentsCreateRoute: typeof MomentsCreateRoute
+  PollsSlugRoute: typeof PollsSlugRoute
+  PollsNewRoute: typeof PollsNewRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
+  QuizzesSlugRoute: typeof QuizzesSlugRoute
+  QuizzesNewRoute: typeof QuizzesNewRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
   SupportTicketIdRoute: typeof SupportTicketIdRoute
   SupportNewRoute: typeof SupportNewRoute
@@ -1512,7 +1614,9 @@ export interface RootRouteChildren {
   MerchIndexRoute: typeof MerchIndexRoute
   MessagesIndexRoute: typeof MessagesIndexRoute
   MomentsIndexRoute: typeof MomentsIndexRoute
+  PollsIndexRoute: typeof PollsIndexRoute
   ProfileIndexRoute: typeof ProfileIndexRoute
+  QuizzesIndexRoute: typeof QuizzesIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
   SupportIndexRoute: typeof SupportIndexRoute
   AdminPayoutsAppealsRoute: typeof AdminPayoutsAppealsRoute
@@ -1539,6 +1643,13 @@ export interface RootRouteChildren {
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/watch56': {
+      id: '/watch56'
+      path: '/watch56'
+      fullPath: '/watch56'
+      preLoaderRoute: typeof Watch56RouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/wallet': {
       id: '/wallet'
       path: '/wallet'
@@ -1614,13 +1725,6 @@ declare module '@tanstack/react-router' {
       path: '/nemesis'
       fullPath: '/nemesis'
       preLoaderRoute: typeof NemesisRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/watch56': {
-      id: '/watch56'
-      path: '/watch56'
-      fullPath: '/watch56'
-      preLoaderRoute: typeof Watch56RouteImport
       parentRoute: typeof rootRouteImport
     }
     '/leaderboards': {
@@ -1728,11 +1832,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RoomsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/quizzes/': {
+      id: '/quizzes/'
+      path: '/quizzes'
+      fullPath: '/quizzes/'
+      preLoaderRoute: typeof QuizzesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/profile/': {
       id: '/profile/'
       path: '/profile'
       fullPath: '/profile/'
       preLoaderRoute: typeof ProfileIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/polls/': {
+      id: '/polls/'
+      path: '/polls'
+      fullPath: '/polls/'
+      preLoaderRoute: typeof PollsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/moments/': {
@@ -1861,11 +1979,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RoomsRoomIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/quizzes/new': {
+      id: '/quizzes/new'
+      path: '/quizzes/new'
+      fullPath: '/quizzes/new'
+      preLoaderRoute: typeof QuizzesNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/quizzes/$slug': {
+      id: '/quizzes/$slug'
+      path: '/quizzes/$slug'
+      fullPath: '/quizzes/$slug'
+      preLoaderRoute: typeof QuizzesSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/profile/$username': {
       id: '/profile/$username'
       path: '/profile/$username'
       fullPath: '/profile/$username'
       preLoaderRoute: typeof ProfileUsernameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/polls/new': {
+      id: '/polls/new'
+      path: '/polls/new'
+      fullPath: '/polls/new'
+      preLoaderRoute: typeof PollsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/polls/$slug': {
+      id: '/polls/$slug'
+      path: '/polls/$slug'
+      fullPath: '/polls/$slug'
+      preLoaderRoute: typeof PollsSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/moments/create': {
@@ -2020,6 +2166,20 @@ declare module '@tanstack/react-router' {
       path: '/admin/refunds'
       fullPath: '/admin/refunds'
       preLoaderRoute: typeof AdminRefundsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/quizzes': {
+      id: '/admin/quizzes'
+      path: '/admin/quizzes'
+      fullPath: '/admin/quizzes'
+      preLoaderRoute: typeof AdminQuizzesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/polls': {
+      id: '/admin/polls'
+      path: '/admin/polls'
+      fullPath: '/admin/polls'
+      preLoaderRoute: typeof AdminPollsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/moderation': {
@@ -2382,7 +2542,6 @@ const rootRouteChildren: RootRouteChildren = {
   HomeRoute: HomeRoute,
   KycRoute: KycRoute,
   LeaderboardsRoute: LeaderboardsRoute,
-  Watch56Route: Watch56Route,
   NemesisRoute: NemesisRoute,
   NotificationsRoute: NotificationsRoute,
   OnboardingRoute: OnboardingRoute,
@@ -2394,6 +2553,7 @@ const rootRouteChildren: RootRouteChildren = {
   StatsRoute: StatsRoute,
   StickersRoute: StickersRoute,
   WalletRoute: WalletRoute,
+  Watch56Route: Watch56Route,
   AdminActionsLogRoute: AdminActionsLogRoute,
   AdminAdsRoute: AdminAdsRoute,
   AdminAiSettingsRoute: AdminAiSettingsRoute,
@@ -2421,6 +2581,8 @@ const rootRouteChildren: RootRouteChildren = {
   AdminLeaderboardsRoute: AdminLeaderboardsRoute,
   AdminMessagesRoute: AdminMessagesRoute,
   AdminModerationRoute: AdminModerationRoute,
+  AdminPollsRoute: AdminPollsRoute,
+  AdminQuizzesRoute: AdminQuizzesRoute,
   AdminRefundsRoute: AdminRefundsRoute,
   AdminRoomsRoute: AdminRoomsRoute,
   AdminSeasonsRoute: AdminSeasonsRoute,
@@ -2443,7 +2605,11 @@ const rootRouteChildren: RootRouteChildren = {
   MerchCreatorIdRoute: MerchCreatorIdRoute,
   MessagesConversationIdRoute: MessagesConversationIdRoute,
   MomentsCreateRoute: MomentsCreateRoute,
+  PollsSlugRoute: PollsSlugRoute,
+  PollsNewRoute: PollsNewRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
+  QuizzesSlugRoute: QuizzesSlugRoute,
+  QuizzesNewRoute: QuizzesNewRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
   SupportTicketIdRoute: SupportTicketIdRoute,
   SupportNewRoute: SupportNewRoute,
@@ -2460,7 +2626,9 @@ const rootRouteChildren: RootRouteChildren = {
   MerchIndexRoute: MerchIndexRoute,
   MessagesIndexRoute: MessagesIndexRoute,
   MomentsIndexRoute: MomentsIndexRoute,
+  PollsIndexRoute: PollsIndexRoute,
   ProfileIndexRoute: ProfileIndexRoute,
+  QuizzesIndexRoute: QuizzesIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
   SupportIndexRoute: SupportIndexRoute,
   AdminPayoutsAppealsRoute: AdminPayoutsAppealsRoute,

@@ -4855,6 +4855,146 @@ default and seeds the new reward/image-cost/pot-expiry `x_manifest` keys).
 
 ---
 
+## 36. Polls & Quizzes (v2.20)
+
+Users (and admins) can create custom **Polls** other people vote on, and
+custom **Quizzes** other people take and get scored on. Built to reuse the
+platform's existing economy, progression, moderation and admin
+infrastructure — no parallel system — mirroring how Answers (§31) and Blogs
+(§32) were built.
+
+### 36.0 SEO — public URLs, slugs, sitemap
+
+- **Public, crawlable pages**: `/poll/<slug>` and `/quiz/<slug>` (web/PWA —
+  `app/poll/[slug]/page.tsx`, `app/quiz/[slug]/page.tsx`), following the
+  same `/b/<slug>` and `/a/<slug>` convention (§"Public URL Structure —
+  SEO-Friendly Slugs"): SSR, title/description/OpenGraph/Twitter metadata, a
+  self-referential canonical tag, and structured data. Only
+  `status = 'active'`, non-deleted polls/quizzes resolve — disabled content
+  never leaks to crawlers. Unlike Answers' preview+CTA split, these pages
+  are the real interactive experience (like Blogs' article page) — voting
+  and quiz-taking both work directly on the public page for a signed-in
+  viewer, with a "Sign in to vote/take this quiz" CTA for anonymous
+  visitors, since polls/quizzes are short-form, sharable content where a
+  redirect-to-app hop would hurt conversion.
+- **Slugs**: `polls.slug` / `quizzes.slug` are generated from the title at
+  creation time using the same `generateUniqueSlug()` utility and
+  numeric-suffix dedupe convention as rooms/games/blogs/answers
+  (`lib/slug.ts`, `poll`/`quiz` entities).
+- **Sitemap**: active, non-deleted polls/quizzes are listed at
+  `/poll/<slug>` / `/quiz/<slug>` in `app/sitemap.ts` (capped at 2000 each,
+  same convention as blogs/answers). `/poll/`, `/quiz/`, `/api/polls/`,
+  `/api/quizzes/` are public in `middleware.ts` (`PUBLIC_PREFIXES`).
+
+### 36.1 Polls
+
+- **Creation**: any user at or above `polls_min_level_to_create` (default
+  Level 1) can create a poll with a title, optional description, 2-10
+  options, an "allow multiple choices" toggle, and an optional close date.
+  `POST /api/polls`.
+- **Voting**: one vote per user per poll (or, for multi-choice polls, one
+  vote per user per selected option — still exactly one *ballot* per poll).
+  Once a poll's creator sets `status = 'closed'`, or its `closesAt` date
+  passes, voting stops and only results are shown. `POST
+  /api/polls/<slug>/vote`.
+- **Discovery**: `/polls` (web/PWA) and `/polls` (Capacitor Android) — New,
+  Popular ("Mine" for the signed-in user's own polls) tabs, cursor
+  pagination, "Create Poll" CTA.
+
+### 36.2 Quizzes
+
+- **Creation**: any user at or above `quizzes_min_level_to_create` (default
+  Level 1) can create a quiz: title, optional description, a passing score
+  percentage (default 60%), a max-attempts-per-user (default 1, admin
+  configurable default via `quizzes_default_max_attempts`), and 1-25
+  questions, each single-choice, multiple-choice, or true/false with 2-8
+  options and at least one marked correct. `POST /api/quizzes`.
+- **Taking a quiz**: correct answers are never sent to the client before
+  grading — a taker only ever sees option labels, never `isCorrect`, until
+  they submit an attempt (`POST /api/quizzes/<slug>/attempt`), which grades
+  server-side and returns the score, pass/fail, and a per-question
+  correct/incorrect breakdown (revealing the correct option(s) only for
+  questions already answered). A quiz's creator (or an admin), viewing their
+  own quiz, may fetch `?includeAnswers=1` to review/edit the answer key.
+- **Discovery**: `/quizzes` — same New/Popular/Mine tab pattern as Polls.
+
+### 36.3 Rewards — baseline (always-on) + reward pots (creator-funded, optional)
+
+Two independent reward layers, mirroring the Answers (§31) config pattern
+exactly:
+
+1. **Baseline XP/Credits** — always on, admin-configurable, awarded
+   regardless of any pot: creating a poll/quiz, voting on a poll, and
+   taking (completing) a quiz each award a small, admin-configured amount
+   of XP and/or Credits (default: **1 XP, 0 Credits** for every action),
+   capped by a rolling-24h daily Credits cap per user
+   (`polls_daily_reward_cap_credits` / `quizzes_daily_reward_cap_credits`,
+   default 50). Configurable at `/gate44/polls/settings` and
+   `/gate44/quizzes/settings` (also editable at `/gate44/config`).
+2. **Reward pots (treasuries)** — optional, creator-funded: a poll or quiz
+   creator (or an admin, on the creator's behalf) transfers Credits into a
+   pot associated with their poll/quiz and sets a max number of claimants.
+   The first N distinct users who **vote or share** a rewarded poll, or who
+   **pass or share** a rewarded quiz ("quiz creator can specify prices in
+   Credits for the first X users who pass the quiz"), split the pot evenly
+   — the per-claimant amount is recomputed from the pot's current funded
+   total at claim time, so a mid-flight top-up raises the reward for
+   remaining slots. A creator can never claim their own pot. This is the
+   *exact* mechanic Blogs' per-post reward pot (§32, migration
+   `0020_blog_post_treasury.sql`) implements, generalised into two shared
+   tables (`content_treasuries`, `content_treasury_claims`, `content_type`
+   discriminator `'poll'|'quiz'`) rather than duplicated per content type,
+   plus a shared `content_shares` idempotent-share-tracking table. Gated by
+   `poll_monetization_enabled` / `quiz_monetization_enabled` master
+   kill-switches (independent of the base `feature_polls`/`feature_quizzes`
+   flags — a poll/quiz still works with pots off, just without payouts).
+   `GET/POST /api/polls/<slug>/treasury`, `GET/POST
+   /api/quizzes/<slug>/treasury`.
+
+### 36.4 Site Admin controls
+
+- **CRUD + moderation**: admins/moderators can list, search, and change the
+  status of any poll/quiz (`active` / `closed` / `disabled`) or soft-delete
+  it, at `/gate44/polls` and `/gate44/quizzes` (mirrors the Blogs admin
+  table, `/gate44/blogs`). `GET/PATCH/DELETE /api/admin/polls/**`,
+  `/api/admin/quizzes/**`.
+- **Reward configuration**: admin sets the baseline XP/Credits for
+  creating/voting/taking (§36.3.1) at `/gate44/polls/settings` /
+  `/gate44/quizzes/settings` — this is *in addition to* whatever a
+  creator's own reward pot pays out, never a replacement for it.
+- **Feature kill-switches**: `feature_polls` and `feature_quizzes` (each
+  independently toggleable at `/gate44/feature-flags`, also surfaced in
+  their focused settings pages) turn the entire respective feature off —
+  all `/api/polls/**` or `/api/quizzes/**` endpoints return `503
+  FEATURE_DISABLED` and the `/poll/*`/`/quiz/*` pages and nav entries
+  disappear. `poll_monetization_enabled` / `quiz_monetization_enabled`
+  independently kill only the reward-pot sub-feature (§36.3.2).
+- Reports on individual polls/quizzes plug into the existing generic
+  `reports`/`moderation_reports` tables via new `reported_poll_id`/
+  `reported_quiz_id` columns (same convention as
+  `reported_forum_question_id`/`reported_blog_post_id`), surfaced in the
+  standard moderation queue.
+
+### 36.5 Capacitor Android
+
+Mirrored at `/polls`, `/polls/<slug>`, `/quizzes`, `/quizzes/<slug>` in the
+Capacitor app (`apps/android/src/routes/polls/*`,
+`apps/android/src/routes/quizzes/*`), calling the exact same
+`/api/polls/*`/`/api/quizzes/*` REST endpoints as web/PWA, plus admin
+screens at `apps/android/src/routes/admin/polls.tsx` and
+`.../quizzes.tsx` mirroring the Blogs admin screen's `AdminUI` kit pattern.
+
+**New migration to run:** `db/migrations/0038_polls_quizzes.sql` (adds
+`polls`, `poll_options`, `poll_votes`, `quizzes`, `quiz_questions`,
+`quiz_question_options`, `quiz_attempts`, `quiz_attempt_answers`, the shared
+`content_shares`/`content_treasuries`/`content_treasury_claims` tables, the
+`reported_poll_id`/`reported_quiz_id` columns on `reports` and
+`moderation_reports`, and seeds the `feature_polls`, `feature_quizzes`,
+`poll_monetization_enabled`, `quiz_monetization_enabled`, and all
+`polls_*`/`quizzes_*` reward/config `x_manifest` keys with their defaults).
+
+---
+
 ## Appendix: Version 2.04 Change Log
 
 ### v2.04 — Changelog
@@ -6504,6 +6644,43 @@ consumes the same `/api/messages/group/*` endpoints added in v2.18.
 
 ---
 
-*ZobiaSocial PRD v2.19*
+## Appendix: Version 2.20 Change Log
+
+### v2.20 — Changelog
+
+#### New Feature: Polls & Quizzes (§36)
+
+Users can create custom Polls (others vote) and custom Quizzes (others take
+and get scored), at public SEO-friendly `/poll/<slug>` and `/quiz/<slug>`
+URLs, following the exact same feature-flag → eligibility → level-gate →
+atomic-write → best-effort-reward pipeline as Answers/Blogs/Forum.
+
+- Baseline XP/Credits for creating a poll/quiz and for voting/taking one
+  (default 1 XP, 0 Credits each), admin-configurable with a rolling-24h
+  Credits cap — same shape as the Answers reward config.
+- Optional creator-funded reward pots: the first N voters/sharers (polls)
+  or passers/sharers (quizzes) split a Credits pot the creator (or an
+  admin) funds. Generalises Blogs' per-post treasury mechanic
+  (`blog_post_treasuries`) into two shared tables
+  (`content_treasuries`/`content_treasury_claims`, a `content_type`
+  discriminator) instead of a third bespoke implementation, plus a shared
+  `content_shares` table for idempotent share tracking. New
+  `lib/contentTreasury.ts`.
+- Site admins can CRUD/disable individual polls/quizzes
+  (`/gate44/polls`, `/gate44/quizzes`), configure baseline rewards
+  (`/gate44/polls/settings`, `/gate44/quizzes/settings`), and
+  independently kill-switch each feature and its monetization sub-feature
+  (`feature_polls`, `feature_quizzes`, `poll_monetization_enabled`,
+  `quiz_monetization_enabled`).
+- Mirrored feature-for-feature in the Capacitor Android app
+  (`apps/android/src/routes/polls/*`, `.../quizzes/*`, plus the two new
+  admin screens), and registered in the PWA-served nav/sitemap the same
+  way as Answers/Blogs.
+
+**New migration to run:** `db/migrations/0038_polls_quizzes.sql`.
+
+---
+
+*ZobiaSocial PRD v2.20*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

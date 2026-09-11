@@ -63,6 +63,8 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/quests", label: "Quests" },
   { href: "/games", label: "Games", flagKey: "games" },
   { href: "/blogs", label: "Blogs", flagKey: "blogs" },
+  { href: "/polls", label: "Polls", flagKey: "polls" },
+  { href: "/quizzes", label: "Quizzes", flagKey: "quizzes" },
   { href: "/business", label: "Business", flagKey: "businessAccounts" },
   { href: "/ads", label: "Ads", flagKey: "adsSystem" },
   { href: "/rooms", label: "Rooms", flagKey: "rooms" },

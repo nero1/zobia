@@ -134,6 +134,16 @@ const LABEL_MAP: Record<string, FlagMeta> = {
     description:
       "Enable the User Profile Stats page. Configure which plans get the Basic vs Full view at Admin > Profile Stats.",
   },
+  feature_polls: {
+    label: "Polls",
+    description:
+      "Enable custom Polls (/poll/<slug>). Users create polls other users vote on. Configure rewards at Admin > Polls Settings.",
+  },
+  feature_quizzes: {
+    label: "Quizzes",
+    description:
+      "Enable custom Quizzes (/quiz/<slug>). Users create quizzes other users take. Configure rewards at Admin > Quizzes Settings.",
+  },
 };
 
 // ---------------------------------------------------------------------------

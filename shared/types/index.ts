@@ -509,7 +509,15 @@ export type CoinTransactionType =
   | 'group_chat_capacity_upgrade'
   | 'group_join_credit'
   | 'group_message_credit'
-  | 'report_reward';
+  | 'report_reward'
+  | 'poll_create_reward'
+  | 'poll_vote_reward'
+  | 'poll_treasury_fund'
+  | 'poll_treasury_claim'
+  | 'quiz_create_reward'
+  | 'quiz_attempt_reward'
+  | 'quiz_treasury_fund'
+  | 'quiz_treasury_claim';
 
 export interface CoinLedgerEntry {
   id: string;

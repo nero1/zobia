@@ -413,6 +413,20 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    > automatically by `npm run migrate`, or
    > `psql "$DIRECT_URL" < db/migrations/0037_forum_mods_and_report_flood_control.sql`).
    > No new env vars — reuses the existing Credits/XP award helpers.
+   >
+   > **Polls & Quizzes:** the new `polls`/`poll_options`/`poll_votes`,
+   > `quizzes`/`quiz_questions`/`quiz_question_options`/`quiz_attempts`/
+   > `quiz_attempt_answers` tables, the shared
+   > `content_shares`/`content_treasuries`/`content_treasury_claims` reward-pot
+   > tables, the `reported_poll_id`/`reported_quiz_id` columns on `reports`/
+   > `moderation_reports`, and the `feature_polls`/`feature_quizzes`/
+   > `poll_monetization_enabled`/`quiz_monetization_enabled`/`polls_*`/
+   > `quizzes_*` `x_manifest` defaults all ship in
+   > `db/migrations/0038_polls_quizzes.sql` (picked up automatically by
+   > `npm run migrate`, or
+   > `psql "$DIRECT_URL" < db/migrations/0038_polls_quizzes.sql`). No new env
+   > vars — reuses the existing Credits/XP award helpers. See PRD §36 and
+   > `docs/HOW-IT-WORKS.md`'s "Polls & Quizzes" section.
 
 ### Option B: Railway PostgreSQL
 
@@ -1428,6 +1442,35 @@ Community Notes is an admin-toggleable crowdsourced fact-checking feature (PRD �
 - **Capacitor Android:** Available at `/community-notes` (`apps/android/src/routes/community-notes.tsx`). (Was also in the now-discontinued Expo app; not relevant to current deployments.)
 
 When enabled, users can add contextual notes to flagged content and vote notes as helpful or unhelpful. Notes with sufficient helpful votes gain "Visible" status and appear alongside the original content.
+
+---
+
+## Polls & Quizzes Feature
+
+Polls & Quizzes are admin-toggleable, user-generated content features (PRD
+§36) — users create polls others vote on, and quizzes others take and get
+scored on. No new CRON job is required — all rewards and moderation run
+synchronously on the write path, same as Answers/Blogs.
+
+- **Toggle:** In the admin panel under Feature Flags (or `/gate44/polls
+  /settings` and `/gate44/quizzes/settings`), set `feature_polls`/
+  `feature_quizzes` on/off independently. `poll_monetization_enabled`/
+  `quiz_monetization_enabled` independently toggle just the reward-pot
+  sub-feature.
+- **User UI:** `/polls`, `/polls/new`, public `/poll/<slug>` — same shape
+  for `/quizzes`, `/quizzes/new`, public `/quiz/<slug>`.
+- **API:** `GET/POST /api/polls`, `GET/PATCH/DELETE /api/polls/[slug]`,
+  `POST /api/polls/[slug]/vote`, `POST /api/polls/[slug]/share`,
+  `GET/POST /api/polls/[slug]/treasury` — same shape under `/api/quizzes`
+  (`/attempt` instead of `/vote`).
+- **Admin:** `/gate44/polls`, `/gate44/quizzes` (CRUD/status/delete),
+  `/gate44/polls/settings`, `/gate44/quizzes/settings` (baseline
+  XP/Credits reward config).
+- **Capacitor Android:** Available at `/polls`, `/quizzes`
+  (`apps/android/src/routes/polls/*`, `.../quizzes/*`), plus the two
+  admin screens.
+- **Migration:** `db/migrations/0038_polls_quizzes.sql` — see the note
+  under "Database Setup" above.
 
 ---
 

@@ -1,0 +1,161 @@
+/**
+ * apps/android/src/routes/quizzes/index.tsx
+ *
+ * Quizzes list — mirrors apps/web/app/(app)/quizzes/page.tsx (same UI-parity
+ * requirement as Answers/Polls). Uses this app's infinite-scroll convention.
+ *
+ * GET /api/quizzes — cursor-paginated, tab-filtered.
+ */
+
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { createFileRoute, Link } from '@tanstack/react-router';
+import { useTranslation } from 'react-i18next';
+import { useCallback, useRef, useState } from 'react';
+import { apiClient } from '@/lib/api/client';
+import { useFeatureFlags } from '@/lib/hooks/useManifest';
+
+type Tab = 'new' | 'popular' | 'mine';
+
+interface QuizSummary {
+  id: string;
+  slug: string;
+  title: string;
+  attemptCount: number;
+  createdAt: string;
+  creatorUsername: string | null;
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 1) return 'now';
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+async function fetchQuizzesPage({ pageParam, tab }: { pageParam?: string; tab: Tab }) {
+  const params = new URLSearchParams({ tab, limit: '20' });
+  if (pageParam) params.set('cursor', pageParam);
+  const { data } = await apiClient.get<{ quizzes: QuizSummary[]; nextCursor: string | null }>(`/quizzes?${params}`);
+  return { items: data?.quizzes ?? [], nextCursor: data?.nextCursor ?? null };
+}
+
+function QuizCard({ q }: { q: QuizSummary }) {
+  const { t } = useTranslation();
+  return (
+    <Link to="/quizzes/$slug" params={{ slug: q.slug }} className="block bg-white border-b border-neutral-100 p-4">
+      <h3 className="line-clamp-2 text-sm font-semibold text-neutral-900">{q.title}</h3>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+        <span>@{q.creatorUsername ?? 'unknown'}</span>
+        <span>·</span>
+        <span>{timeAgo(q.createdAt)}</span>
+        <span>·</span>
+        <span>{q.attemptCount} {q.attemptCount === 1 ? t('quizzes.attempt', 'attempt') : t('quizzes.attempts', 'attempts')}</span>
+      </div>
+    </Link>
+  );
+}
+
+function QuizzesPage() {
+  const { t } = useTranslation();
+  const featureFlags = useFeatureFlags();
+  const [tab, setTab] = useState<Tab>('new');
+
+  const queryKey = ['quizzes', 'list', tab];
+  const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status, refetch } = useInfiniteQuery({
+    queryKey,
+    queryFn: ({ pageParam }) => fetchQuizzesPage({ pageParam, tab }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
+  });
+
+  const observer = useRef<IntersectionObserver | null>(null);
+  const loaderRef = useCallback(
+    (node: HTMLDivElement | null) => {
+      if (isFetchingNextPage) return;
+      if (observer.current) observer.current.disconnect();
+      if (node) {
+        observer.current = new IntersectionObserver((entries) => {
+          if (entries[0]?.isIntersecting && hasNextPage) fetchNextPage();
+        });
+        observer.current.observe(node);
+      }
+    },
+    [isFetchingNextPage, hasNextPage, fetchNextPage],
+  );
+
+  const quizzes = data?.pages.flatMap((p) => p.items) ?? [];
+
+  const tabs: { key: Tab; label: string; icon: string }[] = [
+    { key: 'new', label: t('quizzes.tabs.new', 'New'), icon: '🆕' },
+    { key: 'popular', label: t('quizzes.tabs.popular', 'Popular'), icon: '🔥' },
+    { key: 'mine', label: t('quizzes.tabs.mine', 'Mine'), icon: '👤' },
+  ];
+
+  if (featureFlags && featureFlags.quizzes === false) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 bg-neutral-50 px-6 text-center">
+        <p className="text-sm text-neutral-500">{t('quizzes.disabled', 'Quizzes are currently disabled.')}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="h-full overflow-y-auto bg-neutral-50">
+      <div className="flex items-center justify-between bg-white px-4 py-3 border-b border-neutral-100">
+        <h1 className="text-lg font-bold text-neutral-900">{t('quizzes.title', 'Quizzes')}</h1>
+        <Link to="/quizzes/new" className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white">
+          + {t('quizzes.create.cta', 'Create Quiz')}
+        </Link>
+      </div>
+
+      <div className="flex gap-1 bg-white px-3 py-2 border-b border-neutral-100">
+        {tabs.map(({ key, label, icon }) => (
+          <button
+            key={key}
+            onClick={() => setTab(key)}
+            className={`flex-1 rounded-lg py-1.5 text-xs font-semibold ${tab === key ? 'bg-neutral-900 text-white' : 'text-neutral-500'}`}
+          >
+            {icon} {label}
+          </button>
+        ))}
+      </div>
+
+      {status === 'pending' && (
+        <div>{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 border-b border-neutral-100 bg-white p-4 animate-pulse" />)}</div>
+      )}
+
+      {status === 'error' && (
+        <div className="flex flex-col items-center justify-center py-20 gap-4">
+          <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+          <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">{t('android.error.retry')}</button>
+        </div>
+      )}
+
+      {status === 'success' && quizzes.length === 0 && (
+        <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
+          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 text-3xl">🧠</div>
+          <p className="font-semibold text-neutral-900 text-sm">
+            {tab === 'mine' ? t('quizzes.empty.mine', "You haven't created any quizzes yet.") : t('quizzes.empty.default', 'No quizzes yet — be the first to create one!')}
+          </p>
+        </div>
+      )}
+
+      {quizzes.map((q) => <QuizCard key={q.id} q={q} />)}
+
+      <div ref={loaderRef} className="py-4">
+        {isFetchingNextPage && (
+          <div className="flex justify-center">
+            <div className="w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export const Route = createFileRoute('/quizzes/')({
+  component: QuizzesPage,
+});

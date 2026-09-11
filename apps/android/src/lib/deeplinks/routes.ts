@@ -24,6 +24,9 @@ export const ROUTES = {
   MESSAGE_THREAD: (threadId: string) => `/messages/${encodeURIComponent(threadId)}`,
   PROFILE: (username: string) => `/profile/${encodeURIComponent(username)}`,
   GAME: (slug: string) => `/games/${encodeURIComponent(slug)}`,
+  // Polls & Quizzes — mirrors apps/web/lib/deeplinks/routes.ts.
+  POLL: (slug: string) => `/polls/${encodeURIComponent(slug)}`,
+  QUIZ: (slug: string) => `/quizzes/${encodeURIComponent(slug)}`,
   // No standalone /gift/:userId screen — mirrors web's app/(app)/gift/[userId]/page.tsx,
   // which just resolves the recipient's username and redirects into the Gifts Hub send
   // flow. The inbound zobia://gift/:userId link is handled in routes/__root.tsx's
@@ -45,6 +48,13 @@ export const PUBLIC_PATHS = {
   room: (slug: string) => `/r/${encodeURIComponent(slug)}`,
   course: (slug: string) => `/c/${encodeURIComponent(slug)}`,
   game: (slug: string) => `/g/${encodeURIComponent(slug)}`,
+  // Polls & Quizzes — mirrors apps/web's app/poll/[slug] and app/quiz/[slug]
+  // public pages (unlike profile/room/game/course, these use the full word,
+  // not a single-letter path segment — apps/web/lib/deeplinks/routes.ts has
+  // no PUBLIC_PATHS entries for these yet, so this follows the page paths
+  // directly rather than an existing convention to mirror).
+  poll: (slug: string) => `/poll/${encodeURIComponent(slug)}`,
+  quiz: (slug: string) => `/quiz/${encodeURIComponent(slug)}`,
   // Help Center doc/category pages are public on web too — included here so
   // the inbound zobia://help/... universal link resolves without an auth check.
   help: (categorySlug: string) => `/help/${encodeURIComponent(categorySlug)}`,
