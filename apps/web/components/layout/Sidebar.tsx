@@ -58,6 +58,7 @@ interface PrimaryNavItem {
 const primaryNavItems: PrimaryNavItem[] = [
   { href: "/home", label: "Home" },
   { href: "/moments", label: "Moments", flagKey: "moments" },
+  { href: "/tweets", label: "Tweets", flagKey: "tweets" },
   { href: "/answers", label: "Answers", flagKey: "forum" },
   { href: "/forum", label: "Forum", flagKey: "bbforum" },
   { href: "/quests", label: "Quests" },
@@ -147,6 +148,7 @@ function navIcon(label: string): string {
     Leaderboards: "🏆",
     Rankings: "🏆",
     Moments: "⚡",
+    Tweets: "🐦",
     Answers: "❓",
     Forum: "🗨️",
     Business: "🏢",

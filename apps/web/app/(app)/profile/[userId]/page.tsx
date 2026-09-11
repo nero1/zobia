@@ -16,6 +16,7 @@ import { OnlineRing } from "@/components/ui/OnlineRing";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { XpLevelBadge } from "@/components/shared/UserBadges";
+import { ProfileTweets } from "@/components/tweets/ProfileTweets";
 import type { RankName } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -470,6 +471,9 @@ export default function ProfilePage() {
           </div>
         </div>
       )}
+
+      {/* Tweets */}
+      <ProfileTweets authorId={profile.id} />
 
       {/* Public Achievements Wall (PRD §15) */}
       {profile.achievements && profile.achievements.length > 0 && (

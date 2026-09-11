@@ -19,6 +19,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { UserBadgeRow } from '@/components/shared/UserBadges';
+import { ProfileTweets } from '@/components/tweets/ProfileTweets';
 import type { RankName } from '@zobia/shared/types';
 
 interface TrackLevel {
@@ -173,6 +174,9 @@ function ProfilePage() {
           </div>
         </div>
       )}
+
+      {/* Tweets */}
+      <ProfileTweets authorId={profile.id} />
     </div>
   );
 }

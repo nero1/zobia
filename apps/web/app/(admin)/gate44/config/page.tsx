@@ -503,6 +503,56 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Moments",
   },
 
+  // Tweets
+  feature_tweets: {
+    label: "Enable Tweets",
+    description: "Master toggle for Tweets (the /tweets feed, composer, and profile tab). When off, all Tweets endpoints return 503.",
+    type: "boolean",
+    group: "Tweets",
+  },
+  tweets_min_level: {
+    label: "Minimum Level to Tweet",
+    description: "Minimum account level (main rank number, 1 = Beginner, 2 = Rookie, …) required to post a Tweet. Default: 2.",
+    type: "number",
+    group: "Tweets",
+  },
+  tweets_image_cost_credits: {
+    label: "Image Upload Cost (Credits)",
+    description: "Credits charged to attach an image to a Tweet. Set to 0 to make image uploads free. Video embeds (YouTube/TikTok) are always free regardless of this setting. Default: 5.",
+    type: "number",
+    group: "Tweets",
+  },
+  tweets_default_max_length: {
+    label: "Default Tweet Length (characters)",
+    description: "Standard Tweet length limit in characters, applied to every eligible user unless they are long-form exempt. Default: 280.",
+    type: "number",
+    group: "Tweets",
+  },
+  tweets_long_min_level: {
+    label: "Long-Form Exempt: Minimum Level",
+    description: "Minimum account level that unlocks free long-form Tweets (above the default length) up to the user's own personal length setting. Combined with the role/plan list below by OR — meeting either qualifies. Default: 10.",
+    type: "number",
+    group: "Tweets",
+  },
+  tweets_long_min_role: {
+    label: "Long-Form Exempt: Roles/Plans",
+    description: "JSON array of role/plan entries that unlock free long-form Tweets — same vocabulary as Support Ticket eligibility (plan slugs like \"pro\"/\"max\", \"prestige_N\", \"business_N\", \"role_admin\", \"role_moderator\"). Combined with the minimum level above by OR. Default: [\"role_admin\",\"role_moderator\",\"pro\",\"max\"].",
+    type: "string",
+    group: "Tweets",
+  },
+  tweets_long_max_length: {
+    label: "Long-Form Ceiling (words)",
+    description: "The maximum a user's personal Tweet length setting can be raised to, expressed in WORDS (not characters) — converted to an approximate character ceiling internally. Default: 1000 words.",
+    type: "number",
+    group: "Tweets",
+  },
+  tweets_long_tweet_cost_credits: {
+    label: "Long Tweet Cost (Credits)",
+    description: "Credits charged for a single Tweet whose content exceeds the default length, for users who are NOT long-form exempt. Exempt users post long Tweets for free (up to their personal length). Default: 10.",
+    type: "number",
+    group: "Tweets",
+  },
+
   // Blogs — Rewarded Gifts (migration 0024) + the monetization kill-switch.
   // Per-plan blog_rev_share_pct_* / blog_paystack_fee_pct / blog_vat_pct
   // (defined in lib/blogs/limits.ts) already apply to gift purchases too —
@@ -843,6 +893,7 @@ const GROUP_ORDER = [
   "Guild Wars",
   "Messaging",
   "Moments",
+  "Tweets",
   "Answers",
   "Blogs",
   "Physical Goods",

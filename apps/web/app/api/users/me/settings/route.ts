@@ -19,6 +19,7 @@ import { db, SqlParam } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { clampPersonalTweetMaxLength } from "@/lib/tweets/service";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -45,6 +46,10 @@ const settingsSchema = z.object({
   locale:                z.string().min(2).max(10).optional(),
   // Pidgin suggestions — null means "follow system default (locale-based)"
   pidginSuggestionsEnabled: z.boolean().nullable().optional(),
+  // Personal Tweet length preference (characters). null resets to the admin
+  // default; a number is clamped server-side to [default, long-form ceiling]
+  // — see lib/tweets/service.ts's clampPersonalTweetMaxLength.
+  tweetMaxLength: z.number().int().positive().nullable().optional(),
 }).strict();
 
 // ---------------------------------------------------------------------------
@@ -68,6 +73,7 @@ interface SettingsRow {
   email_non_critical:         boolean;
   locale:                     string | null;
   pidgin_suggestions_enabled: boolean | null;
+  tweet_max_length:           number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -94,7 +100,8 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
               COALESCE(email_all_enabled, true)     AS email_all_enabled,
               COALESCE(email_non_critical, true)    AS email_non_critical,
               locale,
-              pidgin_suggestions_enabled
+              pidgin_suggestions_enabled,
+              tweet_max_length
        FROM users
        WHERE id = $1 AND deleted_at IS NULL
        LIMIT 1`,
@@ -128,6 +135,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
         },
         locale: rows[0].locale ?? "en",
         pidginSuggestionsEnabled: rows[0].pidgin_suggestions_enabled,
+        tweetMaxLength: rows[0].tweet_max_length,
       },
       error: null,
     });
@@ -176,6 +184,13 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     if (body.pidginSuggestionsEnabled !== undefined) {
       setClauses.push(`pidgin_suggestions_enabled = $${idx}`);
       values.push(body.pidginSuggestionsEnabled);
+      idx++;
+    }
+
+    if (body.tweetMaxLength !== undefined) {
+      const clamped = body.tweetMaxLength === null ? null : await clampPersonalTweetMaxLength(userId, body.tweetMaxLength);
+      setClauses.push(`tweet_max_length = $${idx}`);
+      values.push(clamped);
       idx++;
     }
 

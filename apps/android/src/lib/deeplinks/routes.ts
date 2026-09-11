@@ -27,6 +27,8 @@ export const ROUTES = {
   // Polls & Quizzes — mirrors apps/web/lib/deeplinks/routes.ts.
   POLL: (slug: string) => `/polls/${encodeURIComponent(slug)}`,
   QUIZ: (slug: string) => `/quizzes/${encodeURIComponent(slug)}`,
+  // Tweets — stable per-tweet deep link, mirrors apps/web's app/(app)/tweets/[tweetId]/page.tsx.
+  TWEET: (tweetId: string) => `/tweets/${encodeURIComponent(tweetId)}`,
   // No standalone /gift/:userId screen — mirrors web's app/(app)/gift/[userId]/page.tsx,
   // which just resolves the recipient's username and redirects into the Gifts Hub send
   // flow. The inbound zobia://gift/:userId link is handled in routes/__root.tsx's

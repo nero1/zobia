@@ -34,6 +34,7 @@ import { Route as CommunityNotesRouteImport } from './routes/community-notes'
 import { Route as ClassroomRouteImport } from './routes/classroom'
 import { Route as AnnouncementsRouteImport } from './routes/announcements'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as TweetsIndexRouteImport } from './routes/tweets/index'
 import { Route as SupportIndexRouteImport } from './routes/support/index'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as QuizzesIndexRouteImport } from './routes/quizzes/index'
@@ -52,6 +53,8 @@ import { Route as BlogsIndexRouteImport } from './routes/blogs/index'
 import { Route as AnswersIndexRouteImport } from './routes/answers/index'
 import { Route as AdsIndexRouteImport } from './routes/ads/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
+import { Route as TweetsCreateRouteImport } from './routes/tweets/create'
+import { Route as TweetsTweetIdRouteImport } from './routes/tweets/$tweetId'
 import { Route as SupportNewRouteImport } from './routes/support/new'
 import { Route as SupportTicketIdRouteImport } from './routes/support/$ticketId'
 import { Route as SettingsSecurityRouteImport } from './routes/settings/security'
@@ -259,6 +262,11 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TweetsIndexRoute = TweetsIndexRouteImport.update({
+  id: '/tweets/',
+  path: '/tweets/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SupportIndexRoute = SupportIndexRouteImport.update({
   id: '/support/',
   path: '/support/',
@@ -347,6 +355,16 @@ const AdsIndexRoute = AdsIndexRouteImport.update({
 const AdminIndexRoute = AdminIndexRouteImport.update({
   id: '/admin/',
   path: '/admin/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TweetsCreateRoute = TweetsCreateRouteImport.update({
+  id: '/tweets/create',
+  path: '/tweets/create',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TweetsTweetIdRoute = TweetsTweetIdRouteImport.update({
+  id: '/tweets/$tweetId',
+  path: '/tweets/$tweetId',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SupportNewRoute = SupportNewRouteImport.update({
@@ -843,6 +861,8 @@ export interface FileRoutesByFullPath {
   '/settings/security': typeof SettingsSecurityRoute
   '/support/$ticketId': typeof SupportTicketIdRoute
   '/support/new': typeof SupportNewRoute
+  '/tweets/$tweetId': typeof TweetsTweetIdRoute
+  '/tweets/create': typeof TweetsCreateRoute
   '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
@@ -861,6 +881,7 @@ export interface FileRoutesByFullPath {
   '/quizzes/': typeof QuizzesIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/support/': typeof SupportIndexRoute
+  '/tweets/': typeof TweetsIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
   '/admin/settings/privacy': typeof AdminSettingsPrivacyRoute
   '/admin/settings/profile-stats': typeof AdminSettingsProfileStatsRoute
@@ -969,6 +990,8 @@ export interface FileRoutesByTo {
   '/settings/security': typeof SettingsSecurityRoute
   '/support/$ticketId': typeof SupportTicketIdRoute
   '/support/new': typeof SupportNewRoute
+  '/tweets/$tweetId': typeof TweetsTweetIdRoute
+  '/tweets/create': typeof TweetsCreateRoute
   '/admin': typeof AdminIndexRoute
   '/ads': typeof AdsIndexRoute
   '/answers': typeof AnswersIndexRoute
@@ -987,6 +1010,7 @@ export interface FileRoutesByTo {
   '/quizzes': typeof QuizzesIndexRoute
   '/rooms': typeof RoomsIndexRoute
   '/support': typeof SupportIndexRoute
+  '/tweets': typeof TweetsIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
   '/admin/settings/privacy': typeof AdminSettingsPrivacyRoute
   '/admin/settings/profile-stats': typeof AdminSettingsProfileStatsRoute
@@ -1096,6 +1120,8 @@ export interface FileRoutesById {
   '/settings/security': typeof SettingsSecurityRoute
   '/support/$ticketId': typeof SupportTicketIdRoute
   '/support/new': typeof SupportNewRoute
+  '/tweets/$tweetId': typeof TweetsTweetIdRoute
+  '/tweets/create': typeof TweetsCreateRoute
   '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
   '/answers/': typeof AnswersIndexRoute
@@ -1114,6 +1140,7 @@ export interface FileRoutesById {
   '/quizzes/': typeof QuizzesIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/support/': typeof SupportIndexRoute
+  '/tweets/': typeof TweetsIndexRoute
   '/admin/payouts/appeals': typeof AdminPayoutsAppealsRoute
   '/admin/settings/privacy': typeof AdminSettingsPrivacyRoute
   '/admin/settings/profile-stats': typeof AdminSettingsProfileStatsRoute
@@ -1224,6 +1251,8 @@ export interface FileRouteTypes {
     | '/settings/security'
     | '/support/$ticketId'
     | '/support/new'
+    | '/tweets/$tweetId'
+    | '/tweets/create'
     | '/admin/'
     | '/ads/'
     | '/answers/'
@@ -1242,6 +1271,7 @@ export interface FileRouteTypes {
     | '/quizzes/'
     | '/rooms/'
     | '/support/'
+    | '/tweets/'
     | '/admin/payouts/appeals'
     | '/admin/settings/privacy'
     | '/admin/settings/profile-stats'
@@ -1350,6 +1380,8 @@ export interface FileRouteTypes {
     | '/settings/security'
     | '/support/$ticketId'
     | '/support/new'
+    | '/tweets/$tweetId'
+    | '/tweets/create'
     | '/admin'
     | '/ads'
     | '/answers'
@@ -1368,6 +1400,7 @@ export interface FileRouteTypes {
     | '/quizzes'
     | '/rooms'
     | '/support'
+    | '/tweets'
     | '/admin/payouts/appeals'
     | '/admin/settings/privacy'
     | '/admin/settings/profile-stats'
@@ -1476,6 +1509,8 @@ export interface FileRouteTypes {
     | '/settings/security'
     | '/support/$ticketId'
     | '/support/new'
+    | '/tweets/$tweetId'
+    | '/tweets/create'
     | '/admin/'
     | '/ads/'
     | '/answers/'
@@ -1494,6 +1529,7 @@ export interface FileRouteTypes {
     | '/quizzes/'
     | '/rooms/'
     | '/support/'
+    | '/tweets/'
     | '/admin/payouts/appeals'
     | '/admin/settings/privacy'
     | '/admin/settings/profile-stats'
@@ -1601,6 +1637,8 @@ export interface RootRouteChildren {
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
   SupportTicketIdRoute: typeof SupportTicketIdRoute
   SupportNewRoute: typeof SupportNewRoute
+  TweetsTweetIdRoute: typeof TweetsTweetIdRoute
+  TweetsCreateRoute: typeof TweetsCreateRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdsIndexRoute: typeof AdsIndexRoute
   AnswersIndexRoute: typeof AnswersIndexRoute
@@ -1619,6 +1657,7 @@ export interface RootRouteChildren {
   QuizzesIndexRoute: typeof QuizzesIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
   SupportIndexRoute: typeof SupportIndexRoute
+  TweetsIndexRoute: typeof TweetsIndexRoute
   AdminPayoutsAppealsRoute: typeof AdminPayoutsAppealsRoute
   AdminSettingsPrivacyRoute: typeof AdminSettingsPrivacyRoute
   AdminSettingsProfileStatsRoute: typeof AdminSettingsProfileStatsRoute
@@ -1818,6 +1857,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/tweets/': {
+      id: '/tweets/'
+      path: '/tweets'
+      fullPath: '/tweets/'
+      preLoaderRoute: typeof TweetsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/support/': {
       id: '/support/'
       path: '/support'
@@ -1942,6 +1988,20 @@ declare module '@tanstack/react-router' {
       path: '/admin'
       fullPath: '/admin/'
       preLoaderRoute: typeof AdminIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tweets/create': {
+      id: '/tweets/create'
+      path: '/tweets/create'
+      fullPath: '/tweets/create'
+      preLoaderRoute: typeof TweetsCreateRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tweets/$tweetId': {
+      id: '/tweets/$tweetId'
+      path: '/tweets/$tweetId'
+      fullPath: '/tweets/$tweetId'
+      preLoaderRoute: typeof TweetsTweetIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/support/new': {
@@ -2613,6 +2673,8 @@ const rootRouteChildren: RootRouteChildren = {
   RoomsRoomIdRoute: RoomsRoomIdRoute,
   SupportTicketIdRoute: SupportTicketIdRoute,
   SupportNewRoute: SupportNewRoute,
+  TweetsTweetIdRoute: TweetsTweetIdRoute,
+  TweetsCreateRoute: TweetsCreateRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdsIndexRoute: AdsIndexRoute,
   AnswersIndexRoute: AnswersIndexRoute,
@@ -2631,6 +2693,7 @@ const rootRouteChildren: RootRouteChildren = {
   QuizzesIndexRoute: QuizzesIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
   SupportIndexRoute: SupportIndexRoute,
+  TweetsIndexRoute: TweetsIndexRoute,
   AdminPayoutsAppealsRoute: AdminPayoutsAppealsRoute,
   AdminSettingsPrivacyRoute: AdminSettingsPrivacyRoute,
   AdminSettingsProfileStatsRoute: AdminSettingsProfileStatsRoute,

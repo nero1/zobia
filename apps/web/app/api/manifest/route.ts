@@ -53,6 +53,13 @@ type PublicManifest = {
     costStars: number;
     minLevel: number;
   };
+  tweets: {
+    minLevel: number;
+    imageCostCredits: number;
+    defaultMaxLength: number;
+    longMaxLengthWords: number;
+    longTweetCostCredits: number;
+  };
   forum: {
     minLevelToPost: number;
     minLevelToComment: number;
@@ -126,6 +133,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         costCredits: manifest.moments.costCredits,
         costStars: manifest.moments.costStars,
         minLevel: manifest.moments.minLevel,
+      },
+      tweets: {
+        minLevel: manifest.tweets.minLevel,
+        imageCostCredits: manifest.tweets.imageCostCredits,
+        defaultMaxLength: manifest.tweets.defaultMaxLength,
+        longMaxLengthWords: manifest.tweets.longMaxLengthWords,
+        longTweetCostCredits: manifest.tweets.longTweetCostCredits,
       },
       forum: {
         minLevelToPost: manifest.forum.minLevelToPost,

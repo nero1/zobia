@@ -73,6 +73,7 @@ interface PrimaryNavItem {
 const primaryNavItems: PrimaryNavItem[] = [
   { href: "/home",         labelKey: "nav.home",         icon: "🏠" },
   { href: "/moments",      labelKey: "nav.moments",      icon: "⚡", flagKey: "moments" },
+  { href: "/tweets",       labelKey: "nav.tweets",       icon: "🐦", flagKey: "tweets" },
   { href: "/answers",      labelKey: "nav.answers",      icon: "❓", flagKey: "forum" },
   { href: "/forum",        labelKey: "nav.bbforum",      icon: "🗨️", flagKey: "bbforum" },
   { href: "/quests",       labelKey: "nav.quests",       icon: "🎯" },
