@@ -23,7 +23,7 @@ import { LiveRoomPulseBar } from "@/components/ui/LiveRoomPulseBar";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
 import { authFetch } from "@/lib/api/authFetch";
-import { useCurrency } from "@/lib/hooks/useCurrency";
+import { useCurrency, currencyLabel } from "@/lib/hooks/useCurrency";
 import { useMomentsConfig } from "@/lib/hooks/useMomentsConfig";
 import { useAdsConfig } from "@/lib/hooks/useAdsConfig";
 import InStreamAd from "@/components/ads/InStreamAd";
@@ -855,7 +855,9 @@ function RoomInputBar({
           {!momentsConfig.isFree && (
             <span className="text-xs text-purple-600 dark:text-purple-400">
               · Costs {momentCurrency === "credits" ? momentsConfig.costCredits : momentsConfig.costStars}{" "}
-              {momentCurrency === "credits" ? currency.softPlural : currency.premiumPlural}
+              {momentCurrency === "credits"
+                ? currencyLabel(momentsConfig.costCredits, currency.softSingular, currency.softPlural)
+                : currencyLabel(momentsConfig.costStars, currency.premiumSingular, currency.premiumPlural)}
             </span>
           )}
           {momentsConfig.costCredits > 0 && momentsConfig.costStars > 0 && (

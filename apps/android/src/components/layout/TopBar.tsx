@@ -31,6 +31,12 @@ interface PrimaryNavItem {
   icon: string;
   /** When set, hides this entry from non-staff if the flag is off (see useFeatureFlags). */
   flagKey?: string;
+  /**
+   * Council-only gate: visible to admins always, and to everyone else only
+   * once the flag is on AND they hold an active council seat (user.is_council_member).
+   * Unlike a plain flagKey, moderators do NOT get a mod-visibility exception here.
+   */
+  requiresCouncilMembership?: boolean;
 }
 
 const primaryNavItems: PrimaryNavItem[] = [
@@ -58,7 +64,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: '/seasons', labelKey: 'nav.seasons', icon: '🗓️' },
   { href: '/guild', labelKey: 'nav.guild', icon: '🛡️' },
   { href: '/guilds', labelKey: 'nav.guilds', icon: '🏰' },
-  { href: '/council', labelKey: 'nav.council', icon: '⚖️', flagKey: 'platformCouncil' },
+  { href: '/council', labelKey: 'nav.council', icon: '⚖️', flagKey: 'platformCouncil', requiresCouncilMembership: true },
   { href: '/community-notes', labelKey: 'nav.communityNotes', icon: '📝', flagKey: 'communityNotes' },
   { href: '/nemesis', labelKey: 'nav.nemesis', icon: '👻', flagKey: 'nemesisSystem' },
 ];
@@ -85,6 +91,11 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
   // see the entry (with a small "off" indicator); moderators do too, but
   // only when the flag is on the admin-managed mod-visibility allow-list.
   const visibleNavItems = primaryNavItems.filter((item) => {
+    if (item.requiresCouncilMembership) {
+      if (user?.is_admin) return true;
+      const enabled = !item.flagKey || featureFlags?.[item.flagKey] !== false;
+      return enabled && !!user?.is_council_member;
+    }
     if (!item.flagKey) return true;
     const enabled = featureFlags?.[item.flagKey] !== false;
     const access = resolveFeatureAccess(enabled, modVisibleKeys.includes(item.flagKey), {

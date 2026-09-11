@@ -23,6 +23,7 @@ interface SidebarUser {
   plan?: string | null;
   is_admin?: boolean;
   is_moderator?: boolean;
+  is_council_member?: boolean;
 }
 
 function useSidebarUser() {
@@ -45,6 +46,13 @@ interface PrimaryNavItem {
   label: string;
   /** When set, hides this entry from non-admins if the flag is off (see useFeatureFlags). */
   flagKey?: keyof FeatureFlags;
+  /**
+   * Council-only gate: visible to admins always, and to everyone else only
+   * once the flag is on AND they hold an active council seat. Unlike a plain
+   * flagKey, moderators get no mod-visibility exception here (PRD §15 — the
+   * council is for members and admins, not staff at large).
+   */
+  requiresCouncilMembership?: boolean;
 }
 
 const primaryNavItems: PrimaryNavItem[] = [
@@ -70,6 +78,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/referrals", label: "Referrals" },
   { href: "/classroom", label: "Classroom", flagKey: "classrooms" },
   { href: "/leaderboards", label: "Leaderboards", flagKey: "rankings" },
+  { href: "/council", label: "Council", flagKey: "platformCouncil", requiresCouncilMembership: true },
 ];
 
 const secondaryNavItems = [
@@ -162,6 +171,11 @@ export function Sidebar() {
   const featureFlags = useFeatureFlags();
   const modVisibleKeys = useFeatureModVisibility();
   const visibleNavItems = primaryNavItems.filter((item) => {
+    if (item.requiresCouncilMembership) {
+      if (user?.is_admin) return true;
+      const enabled = !item.flagKey || featureFlags[item.flagKey] !== false;
+      return enabled && !!user?.is_council_member;
+    }
     if (!item.flagKey) return true;
     const access = resolveFeatureAccess(
       featureFlags[item.flagKey] !== false,

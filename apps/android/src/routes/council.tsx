@@ -21,7 +21,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
-import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
+import { useFeatureFlags } from '@/lib/hooks/useManifest';
 import { FeatureNotFound } from '@/components/shared/FeatureNotFound';
 
 interface CouncilMember {
@@ -153,12 +153,13 @@ function CouncilPage() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const featureFlags = useFeatureFlags();
-  const modVisibleKeys = useFeatureModVisibility();
-  const access = resolveFeatureAccess(
-    featureFlags?.platformCouncil !== false,
-    modVisibleKeys.includes('platformCouncil'),
-    { isAdmin: user?.is_admin, isModerator: user?.is_moderator }
-  );
+  // Council pages are for council members and admins only — even when the
+  // feature flag is on, a regular user (or a moderator who isn't also a
+  // council member) does not get to view membership/ideas here. This is
+  // deliberately stricter than resolveFeatureAccess()'s generic mod-visibility
+  // exception, which is why it isn't reused for the accessible check below.
+  const flagEnabled = featureFlags?.platformCouncil !== false;
+  const access = { accessible: !!user?.is_admin || (flagEnabled && !!user?.is_council_member) };
   const qc = useQueryClient();
   const [votingId, setVotingId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);

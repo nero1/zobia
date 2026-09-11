@@ -57,6 +57,8 @@ export const AuthUserSchema = z.object({
   is_support: z.boolean().optional(),
   is_senior_support: z.boolean().optional(),
   is_creator: z.boolean(),
+  /** Active Platform Council seat — optional/defaults falsy so old cached auth payloads without it still parse. */
+  is_council_member: z.boolean().optional(),
   avatar_url: z.string().nullable().optional(),
 });
 

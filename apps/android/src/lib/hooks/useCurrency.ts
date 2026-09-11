@@ -32,3 +32,11 @@ export function useCurrency(): CurrencyNames {
     premiumPlural: currency.premiumNamePlural ?? DEFAULTS.premiumPlural,
   };
 }
+
+/**
+ * Picks the singular form of an admin-configured currency name when `amount`
+ * is exactly 1, the plural form otherwise (e.g. "1 Star" vs "5 Stars").
+ */
+export function currencyLabel(amount: number, singular: string, plural: string): string {
+  return amount === 1 ? singular : plural;
+}

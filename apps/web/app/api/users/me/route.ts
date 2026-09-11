@@ -46,6 +46,8 @@ interface UserFullProfile {
   is_senior_support: boolean;
   is_creator: boolean;
   is_verified: boolean;
+  /** Active Platform Council seat (platform_council_members, left_at IS NULL). Gates the /council nav link + page. */
+  is_council_member: boolean;
   onboarding_completed: boolean;
   /** Whether the account has a password set (vs. OAuth-only login). */
   has_password: boolean;
@@ -163,6 +165,7 @@ const SELECT_COLUMNS = `
   city, country, locale, plan, is_admin, COALESCE(is_moderator, false) AS is_moderator,
   COALESCE(is_support, false) AS is_support, COALESCE(is_senior_support, false) AS is_senior_support,
   is_creator, is_verified,
+  EXISTS(SELECT 1 FROM platform_council_members pcm WHERE pcm.user_id = users.id AND pcm.left_at IS NULL) AS is_council_member,
   onboarding_completed, coin_balance, star_balance,
   (password_hash IS NOT NULL) AS has_password,
   (google_id IS NOT NULL OR telegram_id IS NOT NULL) AS has_oauth_login,

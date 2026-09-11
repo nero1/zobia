@@ -2322,7 +2322,7 @@ The original monolithic `daily/route.ts` (2700+ lines) ran all background jobs i
 ```
 23:00 UTC  daily-core      — structural resets (quests, streaks, XP, moments, pins)
 00:00 UTC  daily-users     — user-state jobs (inactivity, guild discovery, comeback coins)
-01:00 UTC  daily-notify    — outbound notifications (push, email, Telegram, council invites)
+01:00 UTC  daily-notify    — outbound notifications (push, email, Telegram, council invites + monthly council reconciliation)
 02:00 UTC  daily-guilds    — guild lifecycle (tiers, patron badge, contribution, quests)
 03:00 UTC  daily-economy   — money (creator fund, plan bonuses, ad revenue, payouts, referrals, subscription grace-period sweep)
 04:00 UTC  daily-social    — social graph (nemesis, leaderboards, stickers, trust scores)

@@ -178,6 +178,7 @@ export async function refreshAccessToken(): Promise<string | null> {
               is_support: Boolean(me.is_support ?? me.isSupport ?? false),
               is_senior_support: Boolean(me.is_senior_support ?? me.isSeniorSupport ?? false),
               is_creator: Boolean(me.is_creator ?? me.isCreator ?? false),
+              is_council_member: Boolean(me.is_council_member ?? me.isCouncilMember ?? false),
               avatar_url: (me.avatar_url ?? null) as string | null,
             };
             const userJson = JSON.stringify(updatedUser);

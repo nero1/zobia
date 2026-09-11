@@ -29,6 +29,7 @@ interface NavUser {
   plan?: string | null;
   is_admin?: boolean;
   is_moderator?: boolean;
+  is_council_member?: boolean;
 }
 
 function useNavUser() {
@@ -64,6 +65,8 @@ interface PrimaryNavItem {
   icon: string;
   /** When set, hides this entry from non-admins if the flag is off (see useFeatureFlags). */
   flagKey?: keyof FeatureFlags;
+  /** Council-only gate — see Sidebar.tsx's identical flag for the rationale. */
+  requiresCouncilMembership?: boolean;
 }
 
 // Full nav for desktop + drawer
@@ -91,6 +94,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/classroom",    labelKey: "nav.classroom",    icon: "🏫", flagKey: "classrooms" },
   { href: "/leaderboards", labelKey: "nav.leaderboards", icon: "🏆", flagKey: "rankings" },
   { href: "/seasons",      labelKey: "nav.seasons",      icon: "🗓️" },
+  { href: "/council",      labelKey: "nav.council",      icon: "⚖️", flagKey: "platformCouncil", requiresCouncilMembership: true },
 ];
 
 const secondaryNavItems = [
@@ -189,6 +193,7 @@ function MobileDrawer({
   onLogout,
   isAdmin,
   isModerator,
+  isCouncilMember,
   hasNewNotifications,
 }: {
   open: boolean;
@@ -198,6 +203,7 @@ function MobileDrawer({
   onLogout: () => void;
   isAdmin?: boolean;
   isModerator?: boolean;
+  isCouncilMember?: boolean;
   hasNewNotifications?: boolean;
 }) {
   const { t } = useTranslation();
@@ -215,7 +221,13 @@ function MobileDrawer({
   // Hide nav entries for features an admin turned off. Admins always still
   // see the entry (with a small "off" indicator); moderators do too, but
   // only when the flag is on the admin-managed mod-visibility allow-list.
+  // Council is a stricter special case — see requiresCouncilMembership.
   const visibleNavItems = primaryNavItems.filter((item) => {
+    if (item.requiresCouncilMembership) {
+      if (isAdmin) return true;
+      const enabled = !item.flagKey || featureFlags[item.flagKey] !== false;
+      return enabled && !!isCouncilMember;
+    }
     if (!item.flagKey) return true;
     const access = resolveFeatureAccess(
       featureFlags[item.flagKey] !== false,
@@ -712,6 +724,7 @@ export function Navbar() {
         onLogout={handleLogout}
         isAdmin={navUser?.is_admin}
         isModerator={navUser?.is_moderator}
+        isCouncilMember={navUser?.is_council_member}
         hasNewNotifications={hasNewNotifications}
       />
 
