@@ -198,6 +198,30 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Blogs table absent or unavailable — skip silently
   }
 
+  // Public Tweets. Served at /t/<id> — Tweets have no slug, just the uuid.
+  // The table may not exist on older DBs (pre-0039-tweets migration) — the
+  // catch keeps the sitemap working regardless.
+  try {
+    const { rows: tweetRows } = await db.query<{ id: string; created_at: string }>(
+      `SELECT id, created_at
+       FROM tweets
+       WHERE deleted_at IS NULL
+       ORDER BY created_at DESC
+       LIMIT 2000`
+    );
+
+    for (const tw of tweetRows) {
+      entries.push({
+        url: `${BASE_URL}/t/${encodeURIComponent(tw.id)}`,
+        lastModified: new Date(tw.created_at),
+        changeFrequency: "daily",
+        priority: 0.4,
+      });
+    }
+  } catch {
+    // Tweets table absent or unavailable — skip silently
+  }
+
   // Public polls. Served at /poll/<slug>. The table may not exist on older
   // DBs (pre-0038 migration) — the catch keeps the sitemap working regardless.
   try {

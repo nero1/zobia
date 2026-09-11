@@ -5021,11 +5021,17 @@ beyond one level (you cannot retweet a retweet — you retweet the original).
   existing notifications pipeline (`lib/notifications/insert.ts`).
 - **Likes**: Twitter-style single like/unlike toggle (`tweet_likes`), unlike
   Moments' multi-emoji reactions.
-- **Deep links**: every Tweet has a stable URL, `/tweets/<id>`, which is
-  also where its reply thread lives — this is the "posted Nh ago" link on
-  every Tweet card, and the target the Capacitor app's `zobia://tweet/<id>`
-  / `zobia://tweets/<id>` deep link and its https App Link equivalent
-  resolve to.
+- **Deep links**: every Tweet has a stable, authenticated URL, `/tweets/<id>`,
+  which is also where its reply thread lives — this is the "posted Nh ago"
+  link on every Tweet card, and the target the Capacitor app's
+  `zobia://tweet/<id>` / `zobia://tweets/<id>` deep link and its https App
+  Link equivalent resolve to. A public, crawlable, SSR short URL also exists
+  at `/t/<id>` (the `/t/` counterpart to `/a/` for Answers and `/b/` for
+  Blogs) — a lightweight logged-out preview with a CTA to join, used by the
+  in-app "Share" action and picked up by `zobia://t/<id>` / its https App
+  Link equivalent on Android. The `/tweets/*` app routes and `/api/tweets/**`
+  API routes are unchanged; only this additional public preview surface is
+  new.
 
 ### 37.1 Video embeds (always free)
 

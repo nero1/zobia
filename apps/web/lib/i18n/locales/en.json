@@ -3381,6 +3381,8 @@
   "tweets.quoteRetweet": "Quote Retweet",
   "tweets.addComment": "Add a comment…",
   "tweets.retweetedBy": "{{username}} retweeted",
+  "tweets.share": "Share",
+  "tweets.linkCopied": "Link copied",
   "settings.tweetMaxLength.label": "Your Tweet length limit",
   "settings.tweetMaxLength.hint": "Tweets up to {{default}} characters are always free. Longer Tweets cost {{cost}} Credits each.",
   "settings.tweetMaxLength.hintExempt": "Your account posts long Tweets for free, up to {{max}} characters."

@@ -30,6 +30,7 @@ export default function TweetDetailPage() {
   const [replyDraft, setReplyDraft] = useState("");
   const [replySubmitting, setReplySubmitting] = useState(false);
   const [replyError, setReplyError] = useState<string | null>(null);
+  const [shareCopied, setShareCopied] = useState(false);
   const replyInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -142,6 +143,29 @@ export default function TweetDetailPage() {
     [router, tweetId]
   );
 
+  // Shares the public, crawlable /t/<id> URL (see app/t/[tweetId]/page.tsx) —
+  // not this authenticated /tweets/<id> route — so the link works for
+  // logged-out recipients and carries proper SEO metadata/JSON-LD. Mirrors
+  // handleShare in app/(app)/answers/[id]/page.tsx.
+  const handleShare = useCallback(async () => {
+    const url = `${window.location.origin}/t/${tweetId}`;
+    try {
+      if (navigator.share) {
+        await navigator.share({ url });
+        return;
+      }
+    } catch {
+      return; // user cancelled the native share sheet
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable — nothing more we can do without a fallback UI.
+    }
+  }, [tweetId]);
+
   const handlePin = useCallback(async (id: string) => {
     await fetch(`/api/tweets/${id}/pin`, { method: "POST", credentials: "include" });
     setTweet((prev) => (prev ? { ...prev, isPinned: true } : prev));
@@ -190,6 +214,17 @@ export default function TweetDetailPage() {
         </svg>
         {t("tweets.title")}
       </Link>
+
+      {tweet && (
+        <div className="flex justify-end">
+          <button
+            onClick={() => void handleShare()}
+            className="text-sm font-semibold text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"
+          >
+            {shareCopied ? t("tweets.linkCopied") : t("tweets.share")}
+          </button>
+        </div>
+      )}
 
       {tweet === undefined && (
         <div className="animate-pulse rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
