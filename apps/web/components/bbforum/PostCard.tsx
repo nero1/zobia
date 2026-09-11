@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PostBody } from "@/components/bbforum/PostBody";
 import { PostEditor } from "@/components/bbforum/PostEditor";
+import { REPORT_REASONS } from "@/lib/moderation/reportReasons";
 
 export interface PostCardData {
   id: string;
@@ -63,6 +64,7 @@ export function PostCard({
   const [busy, setBusy] = useState(false);
   const [deleted, setDeleted] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
 
   const canModify = viewerId === post.authorId || isModerator;
 
@@ -112,10 +114,9 @@ export function PostCard({
     }
   }
 
-  async function handleReport() {
+  async function handleReport(reportType: string) {
     setMenuOpen(false);
-    const reportType = window.prompt("Report reason (spam, harassment, hate_speech, violence, sexual_content, misinformation, self_harm, scam, other):", "other");
-    if (!reportType) return;
+    setReportOpen(false);
     await fetch("/api/reports", {
       method: "POST", credentials: "include",
       headers: { "Content-Type": "application/json" },
@@ -142,7 +143,26 @@ export function PostCard({
               <button onClick={() => { setMenuOpen(false); onQuote(post); }} className="block w-full px-3 py-1.5 text-left text-xs hover:bg-neutral-50 dark:hover:bg-neutral-700">Quote</button>
               {canModify && <button onClick={() => { setMenuOpen(false); setEditing(true); }} className="block w-full px-3 py-1.5 text-left text-xs hover:bg-neutral-50 dark:hover:bg-neutral-700">Edit</button>}
               {canModify && <button disabled={busy} onClick={handleDelete} className="block w-full px-3 py-1.5 text-left text-xs text-red-600 hover:bg-red-50 dark:hover:bg-red-950">Delete</button>}
-              {!canModify && <button onClick={handleReport} className="block w-full px-3 py-1.5 text-left text-xs text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950">Report</button>}
+              {!canModify && <button onClick={() => { setMenuOpen(false); setReportOpen(true); }} className="block w-full px-3 py-1.5 text-left text-xs text-amber-600 hover:bg-amber-50 dark:hover:bg-amber-950">Report</button>}
+            </div>
+          )}
+          {reportOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setReportOpen(false)}>
+              <div className="relative w-full max-w-sm rounded-2xl bg-white p-5 dark:bg-neutral-900" onClick={(e) => e.stopPropagation()}>
+                <button onClick={() => setReportOpen(false)} className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200" aria-label="Close">✕</button>
+                <h2 className="mb-3 text-base font-bold text-neutral-900 dark:text-neutral-50">Report post</h2>
+                <div className="space-y-1.5">
+                  {REPORT_REASONS.map(({ label, type }) => (
+                    <button
+                      key={label}
+                      onClick={() => void handleReport(type)}
+                      className="block w-full rounded-lg border border-neutral-200 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
         </div>

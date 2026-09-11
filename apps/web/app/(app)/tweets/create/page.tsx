@@ -20,6 +20,7 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useTweetsConfig } from "@/lib/hooks/useTweetsConfig";
 import { useTweetLengthPolicy } from "@/lib/hooks/useTweetLengthPolicy";
 import type { TweetVideoProvider } from "@/components/tweets/types";
+import { IMAGE_ACCEPT_ATTR, isImageFileValid } from "@/lib/uploads/imageValidationShared";
 
 interface InsufficientFundsInfo {
   costCredits: number;
@@ -94,6 +95,12 @@ export default function CreateTweetPage() {
   async function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
+    const validation = isImageFileValid(file);
+    if (!validation.ok) {
+      setUploadError(validation.message);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     setUploading(true);
     setUploadError(null);
     try {
@@ -244,7 +251,7 @@ export default function CreateTweetPage() {
             <input
               ref={fileInputRef}
               type="file"
-              accept="image/jpeg,image/png,image/webp,image/gif"
+              accept={IMAGE_ACCEPT_ATTR}
               onChange={handleImageSelect}
               className="hidden"
               id="tweet-image-input"

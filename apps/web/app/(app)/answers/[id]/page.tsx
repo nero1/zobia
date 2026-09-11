@@ -18,6 +18,7 @@ import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { QuestionMiniList, type QuestionMiniListItem } from "@/components/answers/QuestionMiniList";
 import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
+import { REPORT_REASONS } from "@/lib/moderation/reportReasons";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -618,13 +619,13 @@ export default function QuestionDetailPage() {
             <button onClick={() => setReportTarget(null)} className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200" aria-label="Close">✕</button>
             <h2 className="mb-3 text-base font-bold text-neutral-900 dark:text-neutral-50">{t("answers.report.title", "Report content")}</h2>
             <div className="space-y-1.5">
-              {["spam", "harassment", "hate_speech", "misinformation", "sexual_content", "other"].map((rt) => (
+              {REPORT_REASONS.map(({ label, type }) => (
                 <button
-                  key={rt}
-                  onClick={() => void submitReport(rt)}
-                  className="block w-full rounded-lg border border-neutral-200 px-3 py-2 text-left text-sm capitalize text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  key={label}
+                  onClick={() => void submitReport(type)}
+                  className="block w-full rounded-lg border border-neutral-200 px-3 py-2 text-left text-sm text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
-                  {rt.replace(/_/g, " ")}
+                  {label}
                 </button>
               ))}
             </div>

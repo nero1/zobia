@@ -20,7 +20,7 @@
  */
 
 import { db } from "@/lib/db";
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
 import { redis } from "@/lib/redis";
 import { env } from "@/lib/env";
 import { memGet, memSet, memDel } from "@/lib/cache/memory";
@@ -1408,9 +1408,20 @@ export async function invalidateManifestCache(): Promise<void> {
  * cold or unavailable.
  *
  * @param key - The x_manifest key to look up
+ * @param dbClient - Optional DB client/transaction to run the cache-miss
+ *   fallback query on. Pass the transaction client when calling this from
+ *   inside `db.transaction()` — otherwise the fallback query checks out a
+ *   SECOND connection from the same pool the open transaction is already
+ *   holding one from, which can starve/timeout a small pool (default
+ *   DB_POOL_SIZE=2) and surface as a spurious 500/503 whenever the Redis
+ *   manifest cache happens to be cold. Defaults to the shared pooled `db`
+ *   for callers outside a transaction.
  * @returns Raw string value or null if the key does not exist
  */
-export async function getManifestValue(key: string): Promise<string | null> {
+export async function getManifestValue(
+  key: string,
+  dbClient: Pick<DatabaseAdapter, "query"> | TransactionClient = db
+): Promise<string | null> {
   // 1. Try the KV cache first
   try {
     const cachedKv = await redis.get(CACHE_KV_KEY);
@@ -1423,9 +1434,9 @@ export async function getManifestValue(key: string): Promise<string | null> {
     // Redis unavailable – fall through to DB
   }
 
-  // 2. Cache miss — query the DB directly
+  // 2. Cache miss — query the DB directly (via the caller's client, if given)
   try {
-    const { rows } = await db.query<{ value: string }>(
+    const { rows } = await dbClient.query<{ value: string }>(
       "SELECT value FROM x_manifest WHERE key = $1 LIMIT 1",
       [key]
     );
