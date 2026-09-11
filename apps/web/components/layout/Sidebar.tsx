@@ -15,6 +15,8 @@ import { useState, useEffect, useCallback } from "react";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
+import { useHasNewNotifications } from "@/lib/notifications/useHasNewNotifications";
+import { useHasNewMessages, useHasNewAnnouncements } from "@/lib/notifications/useHasNewSince";
 
 interface SidebarUser {
   display_name: string | null;
@@ -98,11 +100,13 @@ function SidebarLink({
   label,
   isActive,
   isOffForUsers,
+  hasNewDot,
 }: {
   href: string;
   label: string;
   isActive: boolean;
   isOffForUsers?: boolean;
+  hasNewDot?: boolean;
 }) {
   return (
     <Link
@@ -116,8 +120,11 @@ function SidebarLink({
       )}
       aria-current={isActive ? "page" : undefined}
     >
-      <span className="w-5 text-center text-base leading-none" aria-hidden="true">
+      <span className="relative w-5 text-center text-base leading-none" aria-hidden="true">
         {navIcon(label)}
+        {hasNewDot && (
+          <span className="absolute -top-0.5 -right-0.5 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-neutral-900" />
+        )}
       </span>
       {label}
       {isOffForUsers && (
@@ -174,6 +181,14 @@ export function Sidebar() {
   const user = useSidebarUser();
   const featureFlags = useFeatureFlags();
   const modVisibleKeys = useFeatureModVisibility();
+  const hasNewNotifications = useHasNewNotifications();
+  const hasNewMessages = useHasNewMessages();
+  const hasNewAnnouncements = useHasNewAnnouncements();
+  const newDotHrefs: Record<string, boolean | undefined> = {
+    "/notifications": hasNewNotifications,
+    "/messages": hasNewMessages,
+    "/announcements": hasNewAnnouncements,
+  };
   const visibleNavItems = primaryNavItems.filter((item) => {
     if (item.requiresCouncilMembership) {
       if (user?.is_admin) return true;
@@ -226,6 +241,7 @@ export function Sidebar() {
               label={item.label}
               isActive={pathname.startsWith(item.href)}
               isOffForUsers={!!item.flagKey && featureFlags[item.flagKey] === false}
+              hasNewDot={newDotHrefs[item.href]}
             />
           ))}
         </nav>

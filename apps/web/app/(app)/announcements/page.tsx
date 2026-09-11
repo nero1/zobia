@@ -14,6 +14,7 @@
 import { useRef, useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { useMarkAnnouncementsSeen } from "@/lib/notifications/useHasNewSince";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -140,6 +141,7 @@ function EmptyState() {
 // ---------------------------------------------------------------------------
 
 export default function AnnouncementsPage() {
+  useMarkAnnouncementsSeen();
   const { t } = useTranslation();
   const tRef = useRef(t);
   useEffect(() => {

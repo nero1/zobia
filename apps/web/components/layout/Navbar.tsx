@@ -20,6 +20,7 @@ import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/Avatar";
 import { useUnreadNotificationsCount } from "@/lib/notifications/useUnreadCount";
 import { useHasNewNotifications } from "@/lib/notifications/useHasNewNotifications";
+import { useHasNewMessages, useHasNewAnnouncements } from "@/lib/notifications/useHasNewSince";
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
 
 interface NavUser {
@@ -198,6 +199,8 @@ function MobileDrawer({
   isModerator,
   isCouncilMember,
   hasNewNotifications,
+  hasNewMessages,
+  hasNewAnnouncements,
 }: {
   open: boolean;
   onClose: () => void;
@@ -208,7 +211,17 @@ function MobileDrawer({
   isModerator?: boolean;
   isCouncilMember?: boolean;
   hasNewNotifications?: boolean;
+  hasNewMessages?: boolean;
+  hasNewAnnouncements?: boolean;
 }) {
+  // hrefs whose primaryNavItems entry should show the "new since last visit"
+  // red dot — keyed here (rather than one boolean prop per href) so adding
+  // another surface later is a one-line addition to this map.
+  const newDotHrefs: Record<string, boolean | undefined> = {
+    "/notifications": hasNewNotifications,
+    "/messages": hasNewMessages,
+    "/announcements": hasNewAnnouncements,
+  };
   const { t } = useTranslation();
   const featureFlags = useFeatureFlags();
   const modVisibleKeys = useFeatureModVisibility();
@@ -323,7 +336,7 @@ function MobileDrawer({
                 >
                   <span className="relative w-5 text-center text-base leading-none" aria-hidden="true">
                     {item.icon}
-                    {item.href === "/notifications" && hasNewNotifications && (
+                    {newDotHrefs[item.href] && (
                       <span className="absolute -top-0.5 -right-0.5 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-neutral-900" />
                     )}
                   </span>
@@ -549,6 +562,8 @@ export function Navbar() {
   const displayName = navUser?.display_name ?? navUser?.username ?? "User";
   const unreadCount = useUnreadNotificationsCount();
   const hasNewNotifications = useHasNewNotifications();
+  const hasNewMessages = useHasNewMessages();
+  const hasNewAnnouncements = useHasNewAnnouncements();
 
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Ref so touch handlers always see the latest open state without re-registering
@@ -729,6 +744,8 @@ export function Navbar() {
         isModerator={navUser?.is_moderator}
         isCouncilMember={navUser?.is_council_member}
         hasNewNotifications={hasNewNotifications}
+        hasNewMessages={hasNewMessages}
+        hasNewAnnouncements={hasNewAnnouncements}
       />
 
       {/* Mobile bottom tab bar */}

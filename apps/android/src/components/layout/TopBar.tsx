@@ -10,6 +10,7 @@ import { Link, useRouter, useRouterState } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
 import { useUnreadNotificationsCount, useHasNewNotifications } from '@/lib/notifications/queries';
+import { useHasNewMessages, useHasNewAnnouncements } from '@/lib/notifications/useHasNewSince';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
 
 interface TopBarProps {
@@ -83,6 +84,13 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
   const { clearAuth, user } = useAuth();
   const unreadCount = useUnreadNotificationsCount();
   const hasNewNotifications = useHasNewNotifications();
+  const hasNewMessages = useHasNewMessages();
+  const hasNewAnnouncements = useHasNewAnnouncements();
+  const newDotHrefs: Record<string, boolean | undefined> = {
+    '/notifications': hasNewNotifications,
+    '/messages': hasNewMessages,
+    '/announcements': hasNewAnnouncements,
+  };
   const pathname = useRouterState({ select: (state) => state.location.pathname });
   const [drawerOpen, setDrawerOpen] = useState(false);
   const featureFlags = useFeatureFlags();
@@ -244,7 +252,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                 >
                   <span className="relative w-5 text-center text-base leading-none" aria-hidden="true">
                     {item.icon}
-                    {item.href === '/notifications' && hasNewNotifications && (
+                    {newDotHrefs[item.href] && (
                       <span className="absolute -top-0.5 -right-0.5 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" />
                     )}
                   </span>

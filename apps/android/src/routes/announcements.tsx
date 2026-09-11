@@ -12,6 +12,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useMarkAnnouncementsSeen } from '@/lib/notifications/useHasNewSince';
 
 interface AnnouncementMessage {
   id: string;
@@ -74,6 +75,7 @@ function MessageCard({ message, onRead }: { message: AnnouncementMessage; onRead
 }
 
 function AnnouncementsPage() {
+  useMarkAnnouncementsSeen();
   const { t } = useTranslation();
   const qc = useQueryClient();
 
