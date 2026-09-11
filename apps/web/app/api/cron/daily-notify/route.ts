@@ -10,6 +10,8 @@ export const maxDuration = 10;
  *  1. Re-engagement push/email dispatch (batch personalisation context)
  *  2. Telegram re-engagement — concurrent delivery (was sequential HTTP)
  *  3. Council invitations — single INSERT...SELECT + batch push
+ *  4. Council membership reconciliation (1st of month) — drop members who
+ *     fell out of the top 50, notify them
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -265,6 +267,63 @@ export const GET = async (req: NextRequest) => {
     }
   } catch (err) {
     errors.push(`councilInvitations: ${String(err)}`);
+  }
+
+  // 4. Council membership reconciliation (1st of month) — drop any active
+  // member who has fallen out of the current top 50 by legacy_score, mirroring
+  // the top-50 cutoff the invitation step above uses to invite new members.
+  // Notifies each dropped member so they know their seat ended (PRD §15).
+  try {
+    const now = new Date();
+    if (now.getUTCDate() === 1) {
+      const cycleMonth = now.toISOString().slice(0, 7);
+      const { sendPushNotification } = await import('@/lib/notifications/push');
+
+      const { rows: dropped } = await db.query<{ user_id: string }>(
+        `WITH ranked AS (
+           SELECT id, ROW_NUMBER() OVER (ORDER BY legacy_score DESC) AS rnk
+           FROM users
+           WHERE deleted_at IS NULL AND NOT COALESCE(is_banned, false)
+         ),
+         removed AS (
+           UPDATE platform_council_members pcm
+           SET left_at = NOW()
+           WHERE pcm.left_at IS NULL
+             AND NOT EXISTS (SELECT 1 FROM ranked r WHERE r.id = pcm.user_id AND r.rnk <= 50)
+           RETURNING pcm.user_id
+         ),
+         notified AS (
+           INSERT INTO notifications (user_id, type, title, body, metadata, reference_id, is_read, created_at)
+           SELECT user_id, 'council_removed',
+                  'Platform Council Membership Ended',
+                  'You have dropped out of the top 50 Legacy Score and are no longer a Platform Council member.',
+                  '{}'::jsonb, $1, false, NOW()
+           FROM removed
+           ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+           RETURNING user_id
+         )
+         -- LEFT JOIN (rather than selecting from "removed" alone) forces Postgres
+         -- to actually evaluate the "notified" CTE — an unreferenced data-modifying
+         -- CTE is not guaranteed to run.
+         SELECT r.user_id FROM removed r LEFT JOIN notified n ON n.user_id = r.user_id`,
+        [`council_removed:${cycleMonth}`]
+      );
+
+      await withConcurrency(dropped, CONCURRENCY, async (row) => {
+        await sendPushNotification(
+          row.user_id,
+          '🏛️ Platform Council Membership Ended',
+          'You have dropped out of the top 50 Legacy Score and are no longer a Platform Council member.',
+          { action: 'open_council' }
+        );
+      });
+
+      results.councilReconciliation = { removed: dropped.length };
+    } else {
+      results.councilReconciliation = { skipped: true, reason: 'Not 1st of month' };
+    }
+  } catch (err) {
+    errors.push(`councilReconciliation: ${String(err)}`);
   }
 
   return NextResponse.json({

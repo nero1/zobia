@@ -3,15 +3,15 @@
 /**
  * app/(app)/moments/create/page.tsx
  *
- * Create a new Moment — text content with optional image URL and caption.
+ * Create a new Moment — text content with an optional uploaded image and caption.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
-import { useCurrency } from "@/lib/hooks/useCurrency";
+import { useCurrency, currencyLabel } from "@/lib/hooks/useCurrency";
 import { useMomentsConfig } from "@/lib/hooks/useMomentsConfig";
 
 const MAX_CONTENT = 500;
@@ -41,6 +41,29 @@ export default function CreateMomentPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [insufficientFunds, setInsufficientFunds] = useState<InsufficientFundsInfo | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+
+  async function handleImageSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    setUploadError(null);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch("/api/moments/uploads/image", { method: "POST", credentials: "include", body: formData });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Upload failed");
+      setImageUrl(json.data.url);
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  }
 
   const bothCurrenciesAvailable = momentsConfig.costCredits > 0 && momentsConfig.costStars > 0;
 
@@ -163,18 +186,41 @@ export default function CreateMomentPage() {
           </div>
           {optionalExpanded && (
             <div className="space-y-4 p-5">
-              {/* Image URL */}
+              {/* Image upload */}
               <div>
                 <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-                  {t("moments.create.imageUrl")}
+                  {t("moments.create.image")}
                 </label>
-                <input
-                  type="url"
-                  value={imageUrl}
-                  onChange={(e) => setImageUrl(e.target.value)}
-                  placeholder={t("moments.create.imageUrlPlaceholder")}
-                  className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder-neutral-500"
-                />
+                <div className="flex flex-wrap items-center gap-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    onChange={handleImageSelect}
+                    className="hidden"
+                    id="moment-image-input"
+                  />
+                  <label
+                    htmlFor="moment-image-input"
+                    className="cursor-pointer rounded-xl border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-600 hover:border-blue-400 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300"
+                  >
+                    {uploading ? t("moments.create.uploading") : t("moments.create.addImage")}
+                  </label>
+                  {imageUrl && (
+                    <button
+                      type="button"
+                      onClick={() => setImageUrl("")}
+                      className="text-xs font-semibold text-red-600 hover:underline"
+                    >
+                      {t("moments.create.removeImage")}
+                    </button>
+                  )}
+                </div>
+                {uploadError && <p className="mt-1.5 text-xs text-red-600">{uploadError}</p>}
+                {imageUrl && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={imageUrl} alt="" className="mt-2 max-h-48 rounded-lg border border-neutral-200 dark:border-neutral-700" />
+                )}
               </div>
 
               {/* Caption */}
@@ -206,7 +252,10 @@ export default function CreateMomentPage() {
             <p className="text-xs font-semibold text-amber-800 dark:text-amber-300">
               {t("moments.create.costNotice", {
                 cost: payCurrency === "credits" ? momentsConfig.costCredits : momentsConfig.costStars,
-                currency: payCurrency === "credits" ? currency.softPlural : currency.premiumPlural,
+                currency:
+                  payCurrency === "credits"
+                    ? currencyLabel(momentsConfig.costCredits, currency.softSingular, currency.softPlural)
+                    : currencyLabel(momentsConfig.costStars, currency.premiumSingular, currency.premiumPlural),
               })}
             </p>
             {bothCurrenciesAvailable && (
@@ -243,7 +292,7 @@ export default function CreateMomentPage() {
           </Link>
           <button
             type="submit"
-            disabled={!content.trim() || submitting}
+            disabled={!content.trim() || submitting || uploading}
             className="flex-1 rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           >
             {submitting ? t("moments.create.posting") : t("moments.create.post")}

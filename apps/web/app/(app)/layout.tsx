@@ -51,21 +51,22 @@ interface AppLayoutProps {
  * mode. Returns nulls/false gracefully if the JWT is missing, invalid, or
  * DB calls fail.
  */
-async function resolveAnnouncements(): Promise<{
+async function resolveAnnouncements(checkCouncilMembership: boolean): Promise<{
   banner: BannerData | null;
   modal: AnnouncementData | null;
   hasEmail: boolean;
   isStaff: boolean;
   isAdmin: boolean;
   isModerator: boolean;
+  isCouncilMember: boolean;
 }> {
   if (!env.DATABASE_PROVIDER) {
-    return { banner: null, modal: null, hasEmail: true, isStaff: false, isAdmin: false, isModerator: false };
+    return { banner: null, modal: null, hasEmail: true, isStaff: false, isAdmin: false, isModerator: false, isCouncilMember: false };
   }
   try {
     const cookieStore = await cookies();
     const accessToken = cookieStore.get("zobia_at")?.value;
-    if (!accessToken) return { banner: null, modal: null, hasEmail: true, isStaff: false, isAdmin: false, isModerator: false };
+    if (!accessToken) return { banner: null, modal: null, hasEmail: true, isStaff: false, isAdmin: false, isModerator: false, isCouncilMember: false };
 
     const payload = await verifyAccessToken(accessToken);
     const userId = payload.sub;
@@ -79,10 +80,19 @@ async function resolveAnnouncements(): Promise<{
       role: null as string | null,
     };
 
-    const [resolvedBanner, resolvedModal] = await Promise.all([
+    const [resolvedBanner, resolvedModal, councilRows] = await Promise.all([
       getActiveBannerForUser(userId, announcementUser, db).catch(() => null),
       getActiveModalForUser(userId, announcementUser, db).catch(() => null),
+      // Only queried when the current route is actually gated by council
+      // membership (see FEATURE_ROUTES below) — keeps this off every other page.
+      checkCouncilMembership
+        ? db.query<{ is_member: boolean }>(
+            `SELECT EXISTS(SELECT 1 FROM platform_council_members WHERE user_id = $1 AND left_at IS NULL) AS is_member`,
+            [userId]
+          ).catch(() => ({ rows: [{ is_member: false }] }))
+        : Promise.resolve({ rows: [{ is_member: false }] }),
     ]);
+    const isCouncilMember = !!councilRows.rows[0]?.is_member;
 
     const banner: BannerData | null = resolvedBanner
       ? {
@@ -102,9 +112,9 @@ async function resolveAnnouncements(): Promise<{
         }
       : null;
 
-    return { banner, modal, hasEmail, isStaff, isAdmin, isModerator };
+    return { banner, modal, hasEmail, isStaff, isAdmin, isModerator, isCouncilMember };
   } catch {
-    return { banner: null, modal: null, hasEmail: true, isStaff: false, isAdmin: false, isModerator: false };
+    return { banner: null, modal: null, hasEmail: true, isStaff: false, isAdmin: false, isModerator: false, isCouncilMember: false };
   }
 }
 
@@ -112,8 +122,17 @@ async function resolveAnnouncements(): Promise<{
  * Authenticated app shell layout.
  */
 export default async function AppLayout({ children }: AppLayoutProps) {
-  const [{ banner, modal, hasEmail, isStaff, isAdmin, isModerator }, manifest] = await Promise.all([
-    resolveAnnouncements(),
+  // Feature-flag page gate: a disabled feature's URL visited directly (nav
+  // links already hide themselves) renders a plain 404 — no mention that a
+  // feature is disabled, no admin-only exception disclosed. Admins always
+  // pass; moderators pass only when the flag is on the admin-managed
+  // mod-visibility allow-list (/gate44/feature-flags).
+  const pathname = (await headers()).get("x-pathname") ?? "";
+  const segments = pathname.split("/").filter(Boolean);
+  const gateKey = resolveFeatureGate(segments);
+
+  const [{ banner, modal, hasEmail, isStaff, isAdmin, isModerator, isCouncilMember }, manifest] = await Promise.all([
+    resolveAnnouncements(gateKey === "platformCouncil"),
     loadManifest(),
   ]);
 
@@ -125,18 +144,17 @@ export default async function AppLayout({ children }: AppLayoutProps) {
     return <MaintenancePage message={manifest.maintenance.message} />;
   }
 
-  // Feature-flag page gate: a disabled feature's URL visited directly (nav
-  // links already hide themselves) renders a plain 404 — no mention that a
-  // feature is disabled, no admin-only exception disclosed. Admins always
-  // pass; moderators pass only when the flag is on the admin-managed
-  // mod-visibility allow-list (/gate44/feature-flags).
-  const pathname = (await headers()).get("x-pathname") ?? "";
-  const segments = pathname.split("/").filter(Boolean);
-  const gateKey = resolveFeatureGate(segments);
   if (gateKey) {
     const enabled = manifest.features[gateKey] as boolean | undefined;
     const modVisible = manifest.featureModVisibility.includes(gateKey);
-    if (enabled === false && !isFeatureAccessible(false, modVisible, { isAdmin, isModerator })) {
+    // Platform Council is stricter than the generic flag gate: only an
+    // active council seat or an admin may view it, even while the flag is
+    // on — moderators get no mod-visibility exception here (see PRD §15).
+    const accessible =
+      gateKey === "platformCouncil"
+        ? isAdmin || (enabled !== false && isCouncilMember)
+        : enabled !== false || isFeatureAccessible(false, modVisible, { isAdmin, isModerator });
+    if (!accessible) {
       return (
         <div className="flex min-h-screen flex-col bg-neutral-50 dark:bg-neutral-950">
           <Navbar />

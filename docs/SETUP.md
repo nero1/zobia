@@ -838,7 +838,7 @@ The 7 daily slots are staggered hourly through the night so each finishes well w
 |---|---|---|
 | 23:00 | `/api/cron/daily-core` | Quest deck reset, login streaks (increment + reset), daily login XP, moments expiry, expired pin sweep, message history cleanup |
 | 00:00 | `/api/cron/daily-users` | Inactivity event detection (3/7/14/30/90-day thresholds), guild discovery prompts for new users, comeback coin expiry |
-| 01:00 | `/api/cron/daily-notify` | Re-engagement push + email dispatch, Telegram re-engagement (concurrent), Platform Council invitations (last 7 days of month) |
+| 01:00 | `/api/cron/daily-notify` | Re-engagement push + email dispatch, Telegram re-engagement (concurrent), Platform Council invitations (last 7 days of month), Platform Council membership reconciliation (1st of month — drops members outside the top 50, notifies them) |
 | 02:00 | `/api/cron/daily-guilds` | Guild tier demotion/promotion, Patron badge, guild contribution alerts, guild quest reset (Mondays) |
 | 03:00 | `/api/cron/daily-economy` | Creator Fund seed (day 1) + distribute (day 5), monthly plan bonus (day 1), ad revenue enrolment (day 1), weekly payouts (Fridays), referral streak qualifying |
 | 04:00 | `/api/cron/daily-social` | Nemesis refresh (Sundays), season leaderboard snapshot (Sundays), leaderboard ripple notifications, DM sticker milestones, trust score batch recalculation, earnable sticker unlocks, creator tier progression |
