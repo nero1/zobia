@@ -93,6 +93,8 @@ export interface ZobiaManifest {
     helpCenter: boolean;
     /** "Ask AI" block on Help Center doc pages. Independent of supportTickets. */
     helpCenterAi: boolean;
+    /** Room Custom Rewards — room owners fund a first-come-first-served credits/stars pot or custom-text unlock, triggered by any gift sent to them in their room. Requires `gifts` too. */
+    roomCustomRewards: boolean;
   };
   /**
    * Feature keys (matching `features.*` property names above) for which
@@ -148,6 +150,14 @@ export interface ZobiaManifest {
     softNamePlural: string;     // e.g. "Credits"
     premiumNameSingular: string; // e.g. "Star"
     premiumNamePlural: string;   // e.g. "Stars"
+  };
+  // Room Custom Rewards — admin-editable at /gate44/config. Requires
+  // features.roomCustomRewards (and features.gifts) too.
+  roomCustomRewards: {
+    /** Minimum account level a room owner needs to create a Custom Reward. */
+    minOwnerLevel: number;
+    /** Server-side ceiling on maxClaimants a room owner can set (abuse/spam guard). */
+    maxClaimantsCap: number;
   };
   // Zobia Moments — pricing & eligibility (admin-editable at /gate44/config)
   moments: {
@@ -540,6 +550,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     supportTickets: false,
     helpCenter: true,
     helpCenterAi: true,
+    roomCustomRewards: true,
   },
   featureModVisibility: [],
   currency: {
@@ -547,6 +558,10 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     softNamePlural: "Credits",
     premiumNameSingular: "Star",
     premiumNamePlural: "Stars",
+  },
+  roomCustomRewards: {
+    minOwnerLevel: 1,
+    maxClaimantsCap: 500,
   },
   moments: {
     costCredits: 100,
@@ -882,6 +897,7 @@ export const FEATURE_FLAG_KEY_MAP: Record<string, keyof ZobiaManifest["features"
   feature_instream_ads: "instreamAds",
   feature_boosted_posts: "boostedPosts",
   feature_ad_coupons: "adCoupons",
+  feature_room_custom_rewards: "roomCustomRewards",
 };
 
 /**
@@ -1013,6 +1029,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       supportTickets:             parseBool(kv["feature_support_tickets"],                      DEFAULT_MANIFEST.features.supportTickets),
       helpCenter:                 parseBool(kv["feature_help_center"]               ?? "true",  DEFAULT_MANIFEST.features.helpCenter),
       helpCenterAi:               parseBool(kv["feature_help_center_ai"]            ?? "true",  DEFAULT_MANIFEST.features.helpCenterAi),
+      roomCustomRewards:          parseBool(kv["feature_room_custom_rewards"]       ?? "true",  DEFAULT_MANIFEST.features.roomCustomRewards),
       // BUG-MANIFEST-01: populate vipRoomPricing from x_manifest keys
       vipRoomPricing: kv["vip_room_pricing_min_ngn"] && kv["vip_room_pricing_max_ngn"]
         ? {
@@ -1027,6 +1044,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       softNamePlural:      unquote(kv["currency_soft_name_plural"])      ?? DEFAULT_MANIFEST.currency.softNamePlural,
       premiumNameSingular: unquote(kv["currency_premium_name_singular"]) ?? DEFAULT_MANIFEST.currency.premiumNameSingular,
       premiumNamePlural:   unquote(kv["currency_premium_name_plural"])   ?? DEFAULT_MANIFEST.currency.premiumNamePlural,
+    },
+    roomCustomRewards: {
+      minOwnerLevel:   parseInt10(kv["room_custom_rewards_min_owner_level"],  DEFAULT_MANIFEST.roomCustomRewards.minOwnerLevel),
+      maxClaimantsCap: parseInt10(kv["room_custom_rewards_max_claimants_cap"], DEFAULT_MANIFEST.roomCustomRewards.maxClaimantsCap),
     },
     moments: {
       costCredits: parseInt10(kv["moments_cost_credits"], DEFAULT_MANIFEST.moments.costCredits),

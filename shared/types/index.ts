@@ -519,7 +519,9 @@ export type CoinTransactionType =
   | 'quiz_treasury_fund'
   | 'quiz_treasury_claim'
   | 'tweet_image_created'
-  | 'tweet_long_created';
+  | 'tweet_long_created'
+  | 'room_reward_fund'
+  | 'room_reward_claim';
 
 export interface CoinLedgerEntry {
   id: string;

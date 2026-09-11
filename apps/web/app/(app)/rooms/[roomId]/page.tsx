@@ -19,6 +19,7 @@ import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { TopGifters } from "@/components/rooms/TopGifters";
+import { RoomRewardPanel } from "@/components/rooms/RoomRewardPanel";
 import { LiveRoomPulseBar } from "@/components/ui/LiveRoomPulseBar";
 import { useRealtimeChannel } from "@/lib/realtime/useRealtimeChannel";
 import { useAdaptiveChatPoll } from "@/lib/hooks/useAdaptiveChatPoll";
@@ -1875,6 +1876,9 @@ export default function RoomPage() {
 
         {/* Top Gifters */}
         <TopGifters roomId={roomId} />
+
+        {/* Room Custom Rewards (owner-configured; visible to all members) */}
+        <RoomRewardPanel roomId={roomId} isOwner={Boolean(currentUserId && room.creatorId === currentUserId)} />
 
         {/* Creator Gift Spectacle Threshold (PRD §12) — visible to room creator only */}
         {currentUserId && room.creatorId === currentUserId && (

@@ -35,6 +35,7 @@ import { insertNotificationBatch } from "@/lib/notifications/insert";
 import { logger } from "@/lib/logger";
 import type { Plan } from "@zobia/types";
 import type { RewardConfig } from "@/lib/economy/giftItems";
+import { claimRoomRewardOnGift } from "@/lib/contentTreasury";
 
 // Platform takes 20% of gifts received by creators (PRD §14)
 const CREATOR_GIFT_FEE_PERCENT = 20;
@@ -572,6 +573,38 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       ).catch((err) => {
         logger.error({ err }, '[gifts:POST] failed to notify sender of reward unlock');
       });
+    }
+
+    // Room Custom Rewards (migration 0040) — independent of the sitewide
+    // Rewarded Gifts catalogue above: any gift sent to the room's owner can
+    // trigger the room's own owner-configured reward. Runs in its own
+    // transaction AFTER the send above has committed (mirrors how Polls/
+    // Quizzes claim their treasury post-commit) rather than nesting another
+    // db.transaction() inside the one above, which would check out a second
+    // connection from the same pool while the first is still held (the exact
+    // class of bug fixed in lib/manifest/getManifestValue — see
+    // lib/creator/fundContribution.ts's doc comment).
+    if (body.roomId && roomCreatorId && body.recipientId === roomCreatorId) {
+      const roomReward = await claimRoomRewardOnGift(body.roomId, senderId, giftId).catch((err) => {
+        logger.error({ err }, '[gifts:POST] room reward claim failed');
+        return null;
+      });
+      if (roomReward) {
+        const rewardBody =
+          roomReward.rewardAction === "custom_text"
+            ? roomReward.customInstructions ?? "Check the room for how to claim it."
+            : `You received ${roomReward.amount} ${roomReward.rewardAction === "stars" ? "Stars" : "Credits"}!`;
+        await insertNotificationBatch(
+          db,
+          [senderId],
+          "room_reward_unlocked",
+          `You unlocked "${roomReward.title}"!`,
+          rewardBody,
+          { giftId, roomId: body.roomId, rewardAction: roomReward.rewardAction }
+        ).catch((err) => {
+          logger.error({ err }, '[gifts:POST] failed to notify sender of room reward unlock');
+        });
+      }
     }
 
     return NextResponse.json({
