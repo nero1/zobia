@@ -23,6 +23,7 @@ type BillingInterval = "monthly" | "annual";
 
 interface CurrentPlanData {
   plan: PlanId;
+  subscriptionId?: string | null;
   subscription?: {
     interval?: BillingInterval;
     currentPeriodEnd?: string;
@@ -35,12 +36,20 @@ interface MeResponse {
   plan?: string;
 }
 
-interface SubscriptionResponse {
-  subscription?: {
-    interval?: BillingInterval;
-    current_period_end?: string;
-    cancel_at_period_end?: boolean;
+/** Matches GET /api/economy/subscriptions's actual response shape (app/api/economy/subscriptions/route.ts). */
+interface SubscriptionsGetResponse {
+  currentSubscription?: {
+    id: string;
+    plan: PlanId;
+    status: string;
+    currentPeriodEnd?: string | null;
+    cancelledAt?: string | null;
   } | null;
+  availablePlans?: {
+    id: string;
+    plan: PlanId;
+    interval: BillingInterval;
+  }[];
 }
 
 interface PlanFeature {
@@ -289,6 +298,10 @@ export default function SubscriptionPage() {
   useEffect(() => { tRef.current = t; }, [t]);
   const router = useRouter();
   const [planData, setPlanData] = useState<CurrentPlanData | null>(null);
+  // Maps "plan:interval" -> subscription_plans.id, from GET's availablePlans —
+  // needed to resolve the newPlanId a plan-change (PUT) or new subscription
+  // (POST) call requires.
+  const [planIdsByPlanInterval, setPlanIdsByPlanInterval] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [interval, setInterval] = useState<BillingInterval>("monthly");
@@ -301,46 +314,122 @@ export default function SubscriptionPage() {
     setTimeout(() => setToast(null), 3500);
   }, []);
 
+  const loadPlanData = useCallback(async (): Promise<void> => {
+    const [meRes, subRes] = await Promise.all([
+      fetch("/api/users/me", { credentials: "include" }),
+      fetch("/api/economy/subscriptions", { credentials: "include" }),
+    ]);
+    if (meRes.status === 401) { router.push("/auth/login"); return; }
+    if (!meRes.ok) throw new Error(tRef.current('subscription.loadError'));
+    const meJson = (await meRes.json()) as MeResponse;
+    const subJson = subRes.ok ? (await subRes.json()) as SubscriptionsGetResponse : null;
+    const rawUser = meJson.user ?? meJson;
+    const planId = ((rawUser as { plan?: string }).plan ?? "free") as PlanId;
+    const sub = subJson?.currentSubscription;
+    // A subscription row can linger with status='cancelled' until its period
+    // actually ends (see DELETE handler) — only treat it as "active paid plan
+    // benefits, ending soon" if it's still that user's current plan.
+    const isCancelled = sub?.status === "cancelled" && sub.plan === planId;
+    const data: CurrentPlanData = {
+      plan: planId,
+      subscriptionId: sub && sub.plan === planId ? sub.id : null,
+      subscription: sub && sub.plan === planId ? {
+        currentPeriodEnd: sub.currentPeriodEnd ?? undefined,
+        cancelAtPeriodEnd: isCancelled,
+      } : null,
+    };
+    setPlanData(data);
+    setPlanIdsByPlanInterval(
+      Object.fromEntries((subJson?.availablePlans ?? []).map((p) => [`${p.plan}:${p.interval}`, p.id]))
+    );
+  }, [router]);
+
   useEffect(() => {
     (async () => {
       try {
-        const [meRes, subRes] = await Promise.all([
-          fetch("/api/users/me", { credentials: "include" }),
-          fetch("/api/economy/subscriptions", { credentials: "include" }),
-        ]);
-        if (meRes.status === 401) { router.push("/auth/login"); return; }
-        if (!meRes.ok) throw new Error(tRef.current('subscription.loadError'));
-        const meJson = (await meRes.json()) as MeResponse;
-        const subJson = subRes.ok ? (await subRes.json()) as SubscriptionResponse : null;
-        const rawUser = meJson.user ?? meJson;
-        const planId = ((rawUser as { plan?: string }).plan ?? "free") as PlanId;
-        const sub = subJson?.subscription;
-        const data: CurrentPlanData = {
-          plan: planId,
-          subscription: sub ? {
-            interval: sub.interval,
-            currentPeriodEnd: sub.current_period_end,
-            cancelAtPeriodEnd: sub.cancel_at_period_end,
-          } : null,
-        };
-        setPlanData(data);
-        if (data.subscription?.interval) {
-          setInterval(data.subscription.interval);
-        }
+        await loadPlanData();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Unknown error");
       } finally {
         setLoading(false);
       }
     })();
-  }, [router]);
+  }, [loadPlanData]);
+
+  /** Cancel the current paid subscription — access continues until the current period ends. */
+  async function cancelCurrentSubscription(): Promise<void> {
+    const subscriptionId = planData?.subscriptionId;
+    if (!subscriptionId) {
+      throw new Error(t('subscription.cancelFailed'));
+    }
+    const res = await fetch(`/api/economy/subscriptions/${subscriptionId}`, {
+      method: "DELETE",
+      credentials: "include",
+    });
+    if (!res.ok) {
+      const d = (await res.json()) as { error?: { message?: string; code?: string } };
+      const err = new Error(d.error?.message ?? t('subscription.cancelFailed')) as Error & { code?: string | null };
+      err.code = d.error?.code ?? null;
+      throw err;
+    }
+  }
 
   async function handleUpgrade(targetPlan: PlanId) {
     const currentPlanAtTime = (planData?.plan ?? "free") as PlanId;
     const isUpgrading = planRank(targetPlan) > planRank(currentPlanAtTime);
 
+    // Switching to Free is a downgrade to no paid plan — there's no
+    // "subscribe to free" concept (subscription_plans/subscriptions only
+    // cover plus/pro/max), so this cancels the current paid subscription
+    // instead of POSTing a plan purchase. Confirm first — this is a
+    // one-way action a user could easily trigger by mistake from the plan grid.
+    if (targetPlan === "free") {
+      if (!window.confirm(t('subscription.switchToFreeConfirm', 'Switch to the Free plan? You will keep your current plan\'s benefits until the current billing period ends, then move to Free.'))) {
+        return;
+      }
+      setUpgrading(targetPlan);
+      try {
+        await cancelCurrentSubscription();
+        showToast(t('subscription.downgradedSuccess', { plan: targetPlan }));
+        await loadPlanData();
+      } catch (e) {
+        const err = e as Error & { code?: string | null };
+        const fallback = t('subscription.downgradeFailed');
+        showToast(e instanceof Error ? translateApiError(t, err.code, err.message || fallback) : fallback, "error");
+      } finally {
+        setUpgrading(null);
+      }
+      return;
+    }
+
     setUpgrading(targetPlan);
     try {
+      const isPlanChange = currentPlanAtTime !== "free" && planData?.subscriptionId;
+      if (isPlanChange) {
+        // Already on a paid plan — change plan directly (PRD: effective
+        // immediately, no prorating/new payment) rather than charging again.
+        const newPlanId = planIdsByPlanInterval[`${targetPlan}:${interval}`];
+        if (!newPlanId) {
+          throw new Error(t(isUpgrading ? 'subscription.upgradeFailed' : 'subscription.downgradeFailed'));
+        }
+        const res = await fetch(`/api/economy/subscriptions/${planData!.subscriptionId}`, {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ newPlanId }),
+        });
+        if (!res.ok) {
+          const d = (await res.json()) as { error?: { message?: string; code?: string } };
+          const err = new Error(d.error?.message ?? t(isUpgrading ? 'subscription.upgradeFailed' : 'subscription.downgradeFailed')) as Error & { code?: string | null };
+          err.code = d.error?.code ?? null;
+          throw err;
+        }
+        showToast(t(isUpgrading ? 'subscription.upgradedSuccess' : 'subscription.downgradedSuccess', { plan: targetPlan }));
+        await loadPlanData();
+        return;
+      }
+
+      // Free -> paid: needs a real payment first.
       const res = await fetch("/api/economy/subscriptions", {
         method: "POST",
         credentials: "include",
@@ -359,21 +448,7 @@ export default function SubscriptionPage() {
         window.location.href = url;
       } else {
         showToast(t(isUpgrading ? 'subscription.upgradedSuccess' : 'subscription.downgradedSuccess', { plan: targetPlan }));
-        // Refetch plan data
-        const [meRes2, subRes2] = await Promise.all([
-          fetch("/api/users/me", { credentials: "include" }),
-          fetch("/api/economy/subscriptions", { credentials: "include" }),
-        ]);
-        if (meRes2.ok) {
-          const meJson2 = (await meRes2.json()) as MeResponse;
-          const subJson2 = subRes2.ok ? (await subRes2.json()) as SubscriptionResponse : null;
-          const rawUser2 = meJson2.user ?? meJson2;
-          const sub2 = subJson2?.subscription;
-          setPlanData({
-            plan: ((rawUser2 as { plan?: string }).plan ?? "free") as PlanId,
-            subscription: sub2 ? { interval: sub2.interval, currentPeriodEnd: sub2.current_period_end, cancelAtPeriodEnd: sub2.cancel_at_period_end } : null,
-          });
-        }
+        await loadPlanData();
       }
     } catch (e) {
       const err = e as Error & { code?: string | null };
@@ -388,32 +463,9 @@ export default function SubscriptionPage() {
     if (!confirm(t('subscription.cancelConfirm'))) return;
     setCancelling(true);
     try {
-      const res = await fetch("/api/economy/subscriptions", {
-        method: "DELETE",
-        credentials: "include",
-      });
-      if (!res.ok) {
-        const d = (await res.json()) as { error?: { message?: string; code?: string } };
-        const err = new Error(d.error?.message ?? t('subscription.cancelFailed')) as Error & { code?: string | null };
-        err.code = d.error?.code ?? null;
-        throw err;
-      }
+      await cancelCurrentSubscription();
       showToast(t('subscription.cancelledSuccess'));
-      // Refetch
-      const [meRes3, subRes3] = await Promise.all([
-        fetch("/api/users/me", { credentials: "include" }),
-        fetch("/api/economy/subscriptions", { credentials: "include" }),
-      ]);
-      if (meRes3.ok) {
-        const meJson3 = (await meRes3.json()) as MeResponse;
-        const subJson3 = subRes3.ok ? (await subRes3.json()) as SubscriptionResponse : null;
-        const rawUser3 = meJson3.user ?? meJson3;
-        const sub3 = subJson3?.subscription;
-        setPlanData({
-          plan: ((rawUser3 as { plan?: string }).plan ?? "free") as PlanId,
-          subscription: sub3 ? { interval: sub3.interval, currentPeriodEnd: sub3.current_period_end, cancelAtPeriodEnd: sub3.cancel_at_period_end } : null,
-        });
-      }
+      await loadPlanData();
     } catch (e) {
       const err = e as Error & { code?: string | null };
       const fallback = t('subscription.cancelFailed');
@@ -423,21 +475,13 @@ export default function SubscriptionPage() {
     }
   }
 
-  async function handleIntervalToggle(newInterval: BillingInterval) {
+  function handleIntervalToggle(newInterval: BillingInterval) {
+    // Just a display/purchase-target preference — no separate persistence
+    // call needed (there's no PATCH endpoint for this and no
+    // subscriptions column it would even map to). It takes effect the next
+    // time the user actually subscribes or changes plan, via
+    // `interval` closed over in handleUpgrade.
     setInterval(newInterval);
-    // Persist preference if user has an active subscription
-    if (planData?.plan && planData.plan !== "free") {
-      try {
-        await fetch("/api/economy/subscriptions", {
-          method: "PATCH",
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ interval: newInterval }),
-        });
-      } catch {
-        // Non-fatal — the toggle still updates local UI
-      }
-    }
   }
 
   if (loading) {

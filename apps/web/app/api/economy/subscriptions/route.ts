@@ -33,6 +33,7 @@ interface SubscriptionRow {
   id: string;
   user_id: string;
   plan: Plan;
+  billing_period: "monthly" | "annual";
   status: "active" | "cancelled" | "past_due" | "trialing";
   starts_at: string;
   ends_at: string | null;
@@ -65,7 +66,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
 
     const { rows } = await db.query<SubscriptionRow>(
-      `SELECT id, user_id, plan, status, starts_at,
+      `SELECT id, user_id, plan, billing_period, status, starts_at,
               ends_at, cancelled_at, provider_subscription_id, created_at
        FROM subscriptions
        WHERE user_id = $1 AND status IN ('active', 'cancelled')
@@ -89,6 +90,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
         ? {
             id: subscription.id,
             plan: subscription.plan,
+            interval: subscription.billing_period,
             status: subscription.status,
             currentPeriodStart: subscription.starts_at,
             currentPeriodEnd: subscription.ends_at,

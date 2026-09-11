@@ -3244,6 +3244,7 @@
   "subscription.redirecting": "Redirecting…",
   "subscription.renews": "Renews {{date}}",
   "subscription.switchTo": "Switch to {{plan}}",
+  "subscription.switchToFreeConfirm": "Switch to the Free plan? You will keep your current plan's benefits until the current billing period ends, then move to Free.",
   "subscription.title": "Subscription & Billing",
   "subscription.twoMonthsFree": "2 months free",
   "subscription.upgradeFailed": "Upgrade failed",
