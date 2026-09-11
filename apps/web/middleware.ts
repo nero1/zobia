@@ -153,6 +153,8 @@ const PUBLIC_PREFIXES = [
   "/a/",
   "/b/",
   "/p/",
+  // Public Tweet SEO page (/t/<tweetId>) — mirrors /a/ and /b/ above.
+  "/t/",
   // Polls & Quizzes public SEO pages — publicly readable, indexable
   "/poll/",
   "/quiz/",

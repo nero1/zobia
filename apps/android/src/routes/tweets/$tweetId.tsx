@@ -15,6 +15,7 @@ import { useAuth } from '@/lib/auth/store';
 import { apiClient } from '@/lib/api/client';
 import { TweetCard } from '@/components/tweets/TweetCard';
 import { mapTweet, type TweetRow } from '@/components/tweets/types';
+import { PUBLIC_PATHS, universalLink } from '@/lib/deeplinks/routes';
 
 function TweetDetailPage() {
   const { t } = useTranslation();
@@ -25,6 +26,31 @@ function TweetDetailPage() {
   const [replyDraft, setReplyDraft] = useState('');
   const [replyError, setReplyError] = useState<string | null>(null);
   const [replySubmitting, setReplySubmitting] = useState(false);
+  const [shareCopied, setShareCopied] = useState(false);
+
+  // Shares the public, crawlable /t/<id> web page — not this in-app route —
+  // so the recipient (who may not have the app) gets a working, SEO-friendly
+  // link. Uses the Web Share API available inside the Capacitor WebView, with
+  // a clipboard fallback, matching apps/web/app/(app)/tweets/[tweetId]/page.tsx
+  // and apps/android/src/routes/answers/$questionId.tsx's handleShare.
+  async function handleShare(): Promise<void> {
+    const url = universalLink(PUBLIC_PATHS.tweet(tweetId));
+    try {
+      if (navigator.share) {
+        await navigator.share({ url });
+        return;
+      }
+    } catch {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareCopied(true);
+      setTimeout(() => setShareCopied(false), 2000);
+    } catch {
+      // no fallback UI available
+    }
+  }
 
   const { data: tweet, isLoading } = useQuery({
     queryKey: ['tweets', 'detail', tweetId],
@@ -113,10 +139,15 @@ function TweetDetailPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50">
-      <div className="bg-white border-b border-neutral-100 px-4 py-3">
+      <div className="bg-white border-b border-neutral-100 px-4 py-3 flex items-center justify-between">
         <Link to="/tweets" className="text-sm font-semibold text-neutral-500">
           ← {t('tweets.title')}
         </Link>
+        {tweet && (
+          <button onClick={() => void handleShare()} className="text-sm font-semibold text-neutral-500">
+            {shareCopied ? t('tweets.linkCopied', 'Link copied') : t('tweets.share', 'Share')}
+          </button>
+        )}
       </div>
 
       {isLoading && (

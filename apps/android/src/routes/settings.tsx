@@ -4,7 +4,7 @@
  * Settings screen: language, logout, app version.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useQueryClient } from '@tanstack/react-query';
@@ -15,6 +15,8 @@ import { restorePurchases } from '@/lib/payments/googlePlay';
 import { LOCALE_LABELS, SUPPORTED_LOCALES, type SupportedLocale } from '@zobia/shared/i18n';
 import i18n from '@/lib/i18n';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
+import { useTweetsConfig } from '@/lib/hooks/useTweetsConfig';
+import { useTweetLengthPolicy } from '@/lib/hooks/useTweetLengthPolicy';
 
 // ZB-AND-09 fix: restorePurchases() was fully implemented in
 // lib/payments/googlePlay.ts but had no UI entry point anywhere in the app —
@@ -172,6 +174,68 @@ function DataAndAccountSection() {
   );
 }
 
+// Tweets — personal max Tweet length. Mirrors apps/web/app/(app)/settings/page.tsx's
+// "Tweets" Section: GET /api/tweets/policy (via useTweetLengthPolicy) for the
+// current value/limits, PATCH /api/users/me/settings { tweetMaxLength } to save
+// (same generic settings endpoint web's saveField() falls through to for fields
+// with no dedicated route). Gated on useTweetsConfig().enabled like web's
+// tweetsConfig.enabled check.
+function TweetLengthSection() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const policy = useTweetLengthPolicy();
+  const [input, setInput] = useState('');
+  const [saving, setSaving] = useState(false);
+  const initialized = useRef(false);
+
+  useEffect(() => {
+    if (!initialized.current && policy.personalMaxLength) {
+      setInput(String(policy.personalMaxLength));
+      initialized.current = true;
+    }
+  }, [policy.personalMaxLength]);
+
+  async function handleSave() {
+    const n = parseInt(input, 10);
+    if (!Number.isFinite(n)) return;
+    setSaving(true);
+    try {
+      await apiClient.patch('/users/me/settings', { tweetMaxLength: n });
+      await qc.invalidateQueries({ queryKey: ['tweets', 'policy'] });
+    } catch {
+      // non-fatal — input keeps whatever the user typed, they can retry
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-white px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 mb-1">{t('tweets.title')}</h3>
+      <label className="mb-1 mt-2 block text-xs font-semibold text-neutral-700">
+        {t('settings.tweetMaxLength.label')}
+      </label>
+      <p className="mb-2 text-xs text-neutral-500">
+        {policy.isLongFormExempt
+          ? t('settings.tweetMaxLength.hintExempt', { max: policy.longMaxLengthChars })
+          : t('settings.tweetMaxLength.hint', { default: policy.defaultMaxLength, cost: policy.longTweetCostCredits })}
+      </p>
+      <div className="flex items-center gap-2">
+        <input
+          type="number"
+          min={policy.defaultMaxLength}
+          max={policy.longMaxLengthChars}
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onBlur={() => void handleSave()}
+          disabled={saving}
+          className="w-28 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm disabled:opacity-40"
+        />
+      </div>
+    </div>
+  );
+}
+
 // BUG-CAP-11 fix: fallback only, used if App.getInfo() throws (e.g. running
 // in a plain browser during `npm run dev`, where the native App plugin is a
 // no-op). The real value always comes from the installed APK's manifest.
@@ -185,6 +249,7 @@ function SettingsPage() {
   const [appVersion, setAppVersion] = useState(FALLBACK_APP_VERSION);
   const featureFlags = useFeatureFlags();
   const modVisibleKeys = useFeatureModVisibility();
+  const tweetsConfig = useTweetsConfig();
   const statsAccess = resolveFeatureAccess(
     featureFlags?.profileStats !== false,
     modVisibleKeys.includes('profileStats'),
@@ -276,6 +341,9 @@ function SettingsPage() {
           ))}
         </div>
       </div>
+
+      {/* Tweets — personal max Tweet length */}
+      {tweetsConfig.enabled && <TweetLengthSection />}
 
       {/* Restore Purchases (ZB-AND-09) */}
       <RestorePurchasesSection />

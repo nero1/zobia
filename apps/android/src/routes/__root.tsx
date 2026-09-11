@@ -125,8 +125,12 @@ function AppShell() {
             return;
           }
 
-          if (slug && (prefix === 'tweet' || prefix === 'tweets')) {
+          if (slug && (prefix === 'tweet' || prefix === 'tweets' || prefix === 't')) {
             // Tweets are addressed by internal id in-app too (GET /api/tweets/:id) — no resolve needed.
+            // 't' is the public short-URL prefix (mirrors apps/web's /t/<id>,
+            // the counterpart to /a/ for Answers and /b/ for Blogs); 'tweet'/
+            // 'tweets' are kept for backward compatibility with links built
+            // before the /t/ short URL existed.
             navigate({ to: '/tweets/$tweetId', params: { tweetId: slug } });
             return;
           }

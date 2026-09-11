@@ -61,6 +61,13 @@ export const PUBLIC_PATHS = {
   // the inbound zobia://help/... universal link resolves without an auth check.
   help: (categorySlug: string) => `/help/${encodeURIComponent(categorySlug)}`,
   helpDoc: (categorySlug: string, docSlug: string) => `/help/${encodeURIComponent(categorySlug)}/${encodeURIComponent(docSlug)}`,
+  // Tweets — public, crawlable short URL, mirrors apps/web's app/t/[tweetId]
+  // page (the /t/ counterpart to /a/ for Answers and /b/ for Blogs). Unlike
+  // profile/room/game/course, the in-app screen keeps the longer `/tweets/:id`
+  // route name (see ROUTES.TWEET above) — only this public/deep-link path
+  // uses the short `t` segment, same as apps/web keeps /tweets/<id> as the
+  // authenticated route while /t/<id> is the public SEO preview.
+  tweet: (tweetId: string) => `/t/${encodeURIComponent(tweetId)}`,
 } as const;
 
 export function deepLink(path: string): string {
