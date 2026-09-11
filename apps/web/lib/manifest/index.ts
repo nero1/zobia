@@ -62,6 +62,8 @@ export interface ZobiaManifest {
     physicalGoodsManualFulfillment: boolean;
     physicalGoodsPartnerFulfillment: boolean;
     moments: boolean;
+    /** Tweets — short text posts with an optional charged image and a free YouTube/TikTok video embed, at /tweets. */
+    tweets: boolean;
     forum: boolean;
     /** Old-school BB-style forum (boards/threads at /forum, /f/<slug>) — separate from the Answers Q&A feature above. */
     bbforum: boolean;
@@ -155,6 +157,23 @@ export interface ZobiaManifest {
     costStars: number;
     /** Minimum account level (main rank number, 1 = Beginner) required to post a Moment. */
     minLevel: number;
+  };
+  // Tweets — admin-editable at /gate44/config
+  tweets: {
+    /** Minimum account level (main rank number, 1 = Beginner) required to post a Tweet. */
+    minLevel: number;
+    /** Credits charged to attach an image to a Tweet. 0 = free. Video embeds are always free regardless of this. */
+    imageCostCredits: number;
+    /** Standard Tweet length limit in characters, applied to all eligible users unless they are long-form exempt. */
+    defaultMaxLength: number;
+    /** Minimum account level that unlocks free long-form Tweets (OR'd with longMinRoles). */
+    longMinLevel: number;
+    /** Role/plan eligibility list (lib/plans/eligibility.ts vocabulary) that unlocks free long-form Tweets (OR'd with longMinLevel). */
+    longMinRoles: string[];
+    /** Long-form Tweet ceiling in WORDS — the max a user's personal tweetMaxLength can be raised to. */
+    longMaxLengthWords: number;
+    /** Credits charged for a single Tweet over defaultMaxLength, for users who are NOT long-form exempt. */
+    longTweetCostCredits: number;
   };
   // Answers — mini forum / Q&A (admin-editable at /gate44/config and /gate44/answers/settings)
   forum: {
@@ -501,6 +520,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     physicalGoodsManualFulfillment: true,
     physicalGoodsPartnerFulfillment: false,
     moments: true,
+    tweets: true,
     forum: true,
     bbforum: true,
     blogs: true,
@@ -532,6 +552,15 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     costCredits: 100,
     costStars: 1,
     minLevel: 2,
+  },
+  tweets: {
+    minLevel: 2,
+    imageCostCredits: 5,
+    defaultMaxLength: 280,
+    longMinLevel: 10,
+    longMinRoles: ["role_admin", "role_moderator", "pro", "max"],
+    longMaxLengthWords: 1000,
+    longTweetCostCredits: 10,
   },
   forum: {
     minLevelToPost: 2,
@@ -840,6 +869,7 @@ export const FEATURE_FLAG_KEY_MAP: Record<string, keyof ZobiaManifest["features"
   feature_war_event_active: "warEventActive",
   feature_pidgin_autocomplete: "pidginAutocomplete",
   feature_moments: "moments",
+  feature_tweets: "tweets",
   feature_forum: "forum",
   feature_bbforum: "bbforum",
   feature_blogs: "blogs",
@@ -963,6 +993,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       physicalGoodsManualFulfillment:  parseBool(kv["physical_goods_fulfillment_manual"]  ?? "true",  DEFAULT_MANIFEST.features.physicalGoodsManualFulfillment),
       physicalGoodsPartnerFulfillment: parseBool(kv["physical_goods_fulfillment_partner"],            DEFAULT_MANIFEST.features.physicalGoodsPartnerFulfillment),
       moments:                    parseBool(kv["feature_moments"]                   ?? "true",  DEFAULT_MANIFEST.features.moments),
+      tweets:                     parseBool(kv["feature_tweets"]                    ?? "true",  DEFAULT_MANIFEST.features.tweets),
       forum:                      parseBool(kv["feature_forum"]                     ?? "true",  DEFAULT_MANIFEST.features.forum),
       bbforum:                    parseBool(kv["feature_bbforum"]                   ?? "true",  DEFAULT_MANIFEST.features.bbforum),
       blogs:                      parseBool(kv["feature_blogs"]                     ?? "true",  DEFAULT_MANIFEST.features.blogs),
@@ -1001,6 +1032,15 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       costCredits: parseInt10(kv["moments_cost_credits"], DEFAULT_MANIFEST.moments.costCredits),
       costStars:   parseInt10(kv["moments_cost_stars"],   DEFAULT_MANIFEST.moments.costStars),
       minLevel:    parseInt10(kv["moments_min_level"],    DEFAULT_MANIFEST.moments.minLevel),
+    },
+    tweets: {
+      minLevel:            parseInt10(kv["tweets_min_level"],                 DEFAULT_MANIFEST.tweets.minLevel),
+      imageCostCredits:    parseInt10(kv["tweets_image_cost_credits"],        DEFAULT_MANIFEST.tweets.imageCostCredits),
+      defaultMaxLength:    parseInt10(kv["tweets_default_max_length"],        DEFAULT_MANIFEST.tweets.defaultMaxLength),
+      longMinLevel:        parseInt10(kv["tweets_long_min_level"],            DEFAULT_MANIFEST.tweets.longMinLevel),
+      longMinRoles:        parseStringArray(kv["tweets_long_min_role"],       DEFAULT_MANIFEST.tweets.longMinRoles),
+      longMaxLengthWords:  parseInt10(kv["tweets_long_max_length"],           DEFAULT_MANIFEST.tweets.longMaxLengthWords),
+      longTweetCostCredits: parseInt10(kv["tweets_long_tweet_cost_credits"],  DEFAULT_MANIFEST.tweets.longTweetCostCredits),
     },
     forum: {
       minLevelToPost:                 parseInt10(kv["forum_min_level_to_post"],              DEFAULT_MANIFEST.forum.minLevelToPost),

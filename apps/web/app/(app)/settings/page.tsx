@@ -15,6 +15,8 @@ import { QRCodeSVG } from "qrcode.react";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { subscribeToWebPush, unsubscribeFromWebPush, getWebPushPermission, isWebPushSupported } from "@/lib/push/webPush";
 import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
+import { useTweetsConfig } from "@/lib/hooks/useTweetsConfig";
+import { useTweetLengthPolicy } from "@/lib/hooks/useTweetLengthPolicy";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -198,6 +200,13 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const kycEnabled = useFeatureEnabled("kyc");
   const [error, setError] = useState<string | null>(null);
+  const tweetsConfig = useTweetsConfig();
+  const tweetLengthPolicy = useTweetLengthPolicy();
+  const [tweetMaxLengthInput, setTweetMaxLengthInput] = useState("");
+  useEffect(() => {
+    if (!tweetMaxLengthInput) setTweetMaxLengthInput(String(tweetLengthPolicy.personalMaxLength));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tweetLengthPolicy.personalMaxLength]);
 
   // Form state (initialized from settings)
   const [displayName, setDisplayName] = useState("");
@@ -823,6 +832,34 @@ export default function SettingsPage() {
           </select>
         </div>
       </Section>
+
+      {/* Tweets — personal max Tweet length */}
+      {tweetsConfig.enabled && (
+        <Section title="Tweets">
+          <div>
+            <label className="mb-1.5 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+              {t("settings.tweetMaxLength.label", "Your Tweet length limit")}
+            </label>
+            <p className="mb-2 text-xs text-neutral-500">
+              {tweetLengthPolicy.isLongFormExempt
+                ? t("settings.tweetMaxLength.hintExempt", { max: tweetLengthPolicy.longMaxLengthChars })
+                : t("settings.tweetMaxLength.hint", { default: tweetLengthPolicy.defaultMaxLength, cost: tweetLengthPolicy.longTweetCostCredits })}
+            </p>
+            <input
+              type="number"
+              min={tweetLengthPolicy.defaultMaxLength}
+              max={tweetLengthPolicy.longMaxLengthChars}
+              value={tweetMaxLengthInput}
+              onChange={(e) => setTweetMaxLengthInput(e.target.value)}
+              onBlur={() => {
+                const n = parseInt(tweetMaxLengthInput, 10);
+                if (Number.isFinite(n)) void saveField("tweetMaxLength", n);
+              }}
+              className="w-32 rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            />
+          </div>
+        </Section>
+      )}
 
       {/* Theme */}
       <Section title="Theme">

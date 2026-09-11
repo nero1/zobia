@@ -125,6 +125,12 @@ function AppShell() {
             return;
           }
 
+          if (slug && (prefix === 'tweet' || prefix === 'tweets')) {
+            // Tweets are addressed by internal id in-app too (GET /api/tweets/:id) — no resolve needed.
+            navigate({ to: '/tweets/$tweetId', params: { tweetId: slug } });
+            return;
+          }
+
           if (slug && (prefix === 'r' || prefix === 'room')) {
             // Rooms are addressed by internal id in-app (GET /api/rooms/:id/messages),
             // but the public/shareable path is slug-based — resolve slug -> id first via

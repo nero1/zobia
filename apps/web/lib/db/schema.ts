@@ -775,6 +775,84 @@ export const momentReactions = pgTable(
   })
 );
 
+export const tweets = pgTable(
+  "tweets",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    parentTweetId: uuid("parent_tweet_id"),
+    content: text("content"),
+    imageUrl: text("image_url"),
+    videoProvider: text("video_provider"),
+    videoUrl: text("video_url"),
+    videoEmbedId: text("video_embed_id"),
+    isPinned: boolean("is_pinned").notNull().default(false),
+    likesCount: integer("likes_count").notNull().default(0),
+    repliesCount: integer("replies_count").notNull().default(0),
+    retweetsCount: integer("retweets_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    check("tweets_content_required", sql`${t.content} IS NOT NULL OR ${t.imageUrl} IS NOT NULL OR ${t.videoProvider} IS NOT NULL`),
+    check("tweets_content_length", sql`${t.content} IS NULL OR char_length(${t.content}) <= 7000`),
+  ]
+);
+
+export const tweetRetweets = pgTable(
+  "tweet_retweets",
+  {
+    id: uuidPk(),
+    tweetId: uuid("tweet_id")
+      .notNull()
+      .references(() => tweets.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    quoteContent: text("quote_content"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("idx_tweet_retweets_tweet_user").on(t.tweetId, t.userId),
+  })
+);
+
+export const tweetLikes = pgTable(
+  "tweet_likes",
+  {
+    id: uuidPk(),
+    tweetId: uuid("tweet_id")
+      .notNull()
+      .references(() => tweets.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("idx_tweet_likes_tweet_user").on(t.tweetId, t.userId),
+  })
+);
+
+export const tweetMentions = pgTable(
+  "tweet_mentions",
+  {
+    id: uuidPk(),
+    tweetId: uuid("tweet_id")
+      .notNull()
+      .references(() => tweets.id, { onDelete: "cascade" }),
+    mentionedUserId: uuid("mentioned_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("idx_tweet_mentions_tweet_user").on(t.tweetId, t.mentionedUserId),
+  })
+);
+
 // ---------------------------------------------------------------------------
 // SECTION 4: Guilds
 // ---------------------------------------------------------------------------
@@ -4716,6 +4794,14 @@ export type MomentView = typeof momentViews.$inferSelect;
 export type NewMomentView = typeof momentViews.$inferInsert;
 export type MomentReaction = typeof momentReactions.$inferSelect;
 export type NewMomentReaction = typeof momentReactions.$inferInsert;
+export type Tweet = typeof tweets.$inferSelect;
+export type NewTweet = typeof tweets.$inferInsert;
+export type TweetLike = typeof tweetLikes.$inferSelect;
+export type NewTweetLike = typeof tweetLikes.$inferInsert;
+export type TweetMention = typeof tweetMentions.$inferSelect;
+export type NewTweetMention = typeof tweetMentions.$inferInsert;
+export type TweetRetweet = typeof tweetRetweets.$inferSelect;
+export type NewTweetRetweet = typeof tweetRetweets.$inferInsert;
 
 // Guilds
 export type Guild = typeof guilds.$inferSelect;

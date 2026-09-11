@@ -4995,6 +4995,230 @@ screens at `apps/android/src/routes/admin/polls.tsx` and
 
 ---
 
+## 37. Tweets (v2.21)
+
+A lightweight, Twitter-style social primitive, deliberately built simpler
+than Zobia Moments (§5) — no 24h expiry, but also no ephemerality: Tweets
+are a permanent, likeable, replyable, retweetable feed entry at `/tweets`.
+
+### 37.0 Content model
+
+A Tweet has: text content (subject to the length policy in §37.3), an
+optional single uploaded image (charged, §37.2), an optional free YouTube or
+TikTok video embed (§37.1), an `isPinned` flag (a user may pin exactly one
+Tweet to their profile — pinning a new one atomically unpins the previous
+one), a denormalised `likesCount`, and — since v2.21 — a nullable
+`parentTweetId` (a reply is just a Tweet with this set, denormalised
+`repliesCount` on the parent) and `retweetsCount`. No quote/retweet chains
+beyond one level (you cannot retweet a retweet — you retweet the original).
+
+- **Eligibility**: Level 2+ by default (`tweets_min_level`), master toggle
+  `feature_tweets`, both admin-configurable at `/gate44/config`.
+- **Mentions**: `@username` tokens are parsed out of Tweet content (and
+  quote-retweet text) on create, using the same matching rule as Room chat
+  `@mentions` (`lib/notifications/chatPush.ts`'s `parseMentions`), resolved
+  to `tweet_mentions` rows for the Mentions feed tab and routed through the
+  existing notifications pipeline (`lib/notifications/insert.ts`).
+- **Likes**: Twitter-style single like/unlike toggle (`tweet_likes`), unlike
+  Moments' multi-emoji reactions.
+- **Deep links**: every Tweet has a stable URL, `/tweets/<id>`, which is
+  also where its reply thread lives — this is the "posted Nh ago" link on
+  every Tweet card, and the target the Capacitor app's `zobia://tweet/<id>`
+  / `zobia://tweets/<id>` deep link and its https App Link equivalent
+  resolve to.
+
+### 37.1 Video embeds (always free)
+
+- **YouTube**: the video ID is extracted client-submitted-URL-side from any
+  standard URL shape (`watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`) and
+  rendered via the privacy-enhanced `youtube-nocookie.com/embed/<id>`
+  iframe — on both web and the Capacitor Android WebView, where a
+  cross-origin iframe embed is unremarkable and renders reliably.
+- **TikTok**: the video ID is extracted from a full-form URL
+  (`tiktok.com/@user/video/<id>`) directly; a shortened share link
+  (`vm.tiktok.com/…`, `vt.tiktok.com/…`) is resolved **server-side** at
+  submit time with a single `GET` + `redirect: "follow"` request, reading
+  the ID off the final resolved URL — this doubles as validating the link
+  is a real, reachable video (a dead/invalid short link simply fails to
+  resolve and the Tweet is rejected with `INVALID_TIKTOK_URL`). We chose
+  this over TikTok's public oEmbed endpoint because oEmbed 404s on some
+  private/region-locked videos that still resolve fine via a plain redirect
+  follow, and because only the ID is needed (not embed HTML) — see
+  `lib/tweets/service.ts`'s `resolveTikTokId` for the full rationale.
+  **Rendering differs by platform**: on web, TikTok's official
+  `embed.js`-hydrated `<blockquote class="tiktok-embed">` is used (no API
+  key required). On the **Capacitor Android app**, that same script-based
+  embed was deliberately *not* ported — a same-page iframe injected by a
+  third-party script, inside an already-embedded WebView, with no user
+  gesture context and stricter default third-party-cookie handling, was
+  unreliable in testing. The Android app instead shows a lightweight "Watch
+  on TikTok" card that opens the video in the system browser via
+  `@capacitor/browser`'s in-app tab — reliable everywhere, at the cost of
+  not auto-playing inline.
+- **Composer UX**: tapping "Add video" offers a YouTube/TikTok choice, then
+  a URL field with a "?" help icon opening a short tooltip explaining
+  exactly how to copy the link on each platform (YouTube: Share → Copy
+  Link; TikTok: Share → Copy Link, and to open a shortened link once first
+  if it doesn't expand).
+
+### 37.2 Image uploads (Credits-only)
+
+Unlike Moments' dual-currency (Credits and/or Stars) pricing, a Tweet image
+upload is **Credits-only** — simpler, since Tweets have no equivalent to
+Moments' "pay with whichever currency is priced" flexibility need.
+`tweets_image_cost_credits` (default 5, admin-configurable, `0` = free) is
+charged atomically with the Tweet's creation in one DB transaction (same
+charge-then-insert-in-one-`db.transaction()` shape as `createMoment()`) —
+if creation fails for any reason, the charge never happens. The upload
+itself (`POST /api/tweets/uploads/image`) only stores the file and returns
+its URL, mirroring `POST /api/moments/uploads/image`; the charge happens at
+Tweet-creation time, not upload time.
+
+### 37.3 Tweet length: default, long-form exemption, and pay-per-long-Tweet
+
+Replacing a flat character cap, Tweet length is governed by an
+admin-configurable policy (all keys at `/gate44/config`, group "Tweets"),
+computed per-request in `lib/tweets/service.ts`'s `getTweetsEligibility()`:
+
+- **`tweets_default_max_length`** (default **280** characters) — the
+  standard limit every eligible user gets for free.
+- **Long-form exemption** — a user posts free Tweets above the default
+  length, up to their personal max length (below), if they meet **either**:
+  - **`tweets_long_min_level`** (default 10) — an XP-rank level gate, same
+    convention as `tweets_min_level`/Moments' `minLevel`; or
+  - **`tweets_long_min_role`** (default
+    `["role_admin","role_moderator","pro","max"]`) — a role/plan allow-list
+    check reusing **`lib/plans/eligibility.ts`'s existing `isPlanEligible()`
+    helper** (the same "plan slugs / `prestige_N` / `business_N` /
+    `role_admin` / `role_moderator`" allow-list vocabulary already powering
+    Support Ticket free-access eligibility, §33) — the pre-existing
+    "role-vs-tier" gating pattern in this codebase, reused rather than
+    reinvented.
+
+  These two combine by **OR** — meeting either qualifies.
+- **`tweets_long_max_length`** (default **1000 words**) — the ceiling a
+  user's *personal* length preference can be raised to. Deliberately
+  expressed in **words**, not characters, per product decision (it's the
+  more intuitive unit for an admin setting a "how long is too long" policy)
+  — converted internally to an approximate character ceiling
+  (`words × ~6 chars/word`, a rough average-English-word-plus-space factor)
+  since actual content validation is inherently character-based. This is
+  capped by `TWEETS_HARD_CHAR_CAP` (7000 characters, a code constant, *not*
+  admin-configurable — a DB-level safety net mirrored as a `CHECK`
+  constraint) regardless of how high the word ceiling is set.
+- **Personal length preference** — every user (exempt or not) can set their
+  own effective max length via **Settings → Tweets** (`PATCH
+  /api/users/me/settings` with `{ tweetMaxLength }`, stored on
+  `users.tweet_max_length`), clamped server-side to
+  `[tweets_default_max_length, longMaxLengthChars]`.
+- **`tweets_long_tweet_cost_credits`** (default **10**) — charged, exactly
+  like the image charge (same one-`db.transaction()` shape, a second
+  `debitCoins()` call alongside the image's when a Tweet has both a long
+  body *and* an image), when a **specific Tweet's** content exceeds the
+  default length and its author is **not** long-form exempt. Exempt authors
+  never pay this — their long Tweets (up to their personal max length) are
+  always free.
+- **Composer UX**: the character counter reflects the caller's personal
+  effective max length (`GET /api/tweets/policy`); past the default length
+  while not exempt, an inline notice ("posting this will cost N Credits")
+  appears, and a 402 `INSUFFICIENT_TWEET_LENGTH_FUNDS` response (same
+  balance/cost-notice modal pattern as Moments' `INSUFFICIENT_MOMENT_FUNDS`)
+  is shown if the caller can't afford it.
+
+### 37.4 Replies
+
+A reply is a Tweet with `parentTweetId` set — no separate table. The parent
+Tweet's `repliesCount` is bumped atomically alongside the reply's insert.
+Same content rules (length policy, optional image/video) apply to replies
+as to top-level Tweets. The `/tweets/<id>` deep-link page shows the parent
+Tweet, an inline reply composer, and the reply thread — chronological
+(oldest first), cursor-paginated (`GET /api/tweets?parentTweetId=<id>`,
+same `?cursor=`/`?limit=` convention as every other Tweets feed query).
+Replying to someone still fires `@mention` notifications exactly like a
+top-level Tweet, and a reply that mentions a user appears in *their*
+Mentions tab identically to a top-level mention (mentions are keyed off
+`tweet_mentions`, which doesn't distinguish reply vs. top-level).
+
+### 37.5 Retweets (plain and quote)
+
+`tweet_retweets` (`tweetId`, `userId`, nullable `quoteContent`) — one row
+per `(tweet, retweeter)`, so re-retweeting is a toggle like a like. A
+**quote retweet** is the same row with `quoteContent` set; changing your
+quote is un-retweet-then-retweet-again in the UI, upsert-in-place
+server-side. Retweeting your own Tweet is rejected
+(`CANNOT_RETWEET_OWN`) — same gate (feature flag + level) as posting a
+Tweet, but **no separate charge** (a deliberate simplification vs. Tweet
+creation's image/length charges — retweeting redistributes existing
+content, it doesn't create new billable content).
+
+- **Attribution**: a retweet appears as its own feed entry, "`@username`
+  retweeted", carrying the *original* Tweet's content (image, video, likes/
+  replies/retweets counts) — implemented as a `UNION ALL` between "tweets
+  authored by X" and "tweets retweeted by X" in every feed query that needs
+  it (Friends, Following, and a user's own profile), ordered by whichever
+  activity (post or retweet) happened when. The For You and Mentions tabs
+  deliberately stay tweet-only — a retweet doesn't independently rank or
+  get mentioned.
+- **Quote content mentions**: `@username` tokens inside quote-retweet text
+  fire the same mention-notification pipeline as Tweet content, but don't
+  get their own `tweet_mentions` row (there's no separate "quote tweet"
+  entity to attach one to — the mention lives on the retweet).
+
+### 37.6 Feeds — four tabs, one endpoint
+
+`GET /api/tweets?tab=<foryou|friends|following|mentions>` (default
+`foryou`), or `?authorId=<id>` for a profile's own Tweets+retweets (pinned
+first), or `?parentTweetId=<id>` for a reply thread — all cursor-paginated
+the same way as `/api/moments` (`?cursor=&limit=`, capped at 50/page).
+
+- **For You**: a query-time "hot" ranking — `score = likesCount /
+  (ageInHours + 2)^1.5` (the standard Reddit/HN-style decay formula),
+  ×1.5 boosted when the author is a friend or someone the viewer follows —
+  computed per-request with no cron/background job (there's no ranking
+  infrastructure to reuse, and a daily-only cron cadence would make a "hot"
+  feed stale for most of the day, so it's deliberately kept a plain SQL
+  expression evaluated at query time). Indexed on `tweets(created_at)` and
+  `tweets(user_id, created_at)` for the friend/follow `EXISTS` join. Cursor
+  is a base64-encoded `{score, id}` pair, since the ranking key isn't a
+  plain column.
+- **Friends**: mutual (accepted) `friendships`, chronological, including
+  retweets by any friend (§37.5).
+- **Following**: one-directional `follows`, chronological, same retweet
+  inclusion.
+- **Mentions**: tweets/replies where the viewer is `@mentioned`
+  (`tweet_mentions`), chronological.
+
+### 37.7 Site Admin controls
+
+All at `/gate44/config`, group "Tweets": `feature_tweets` (master
+kill-switch), `tweets_min_level`, `tweets_image_cost_credits`,
+`tweets_default_max_length`, `tweets_long_min_level`,
+`tweets_long_min_role`, `tweets_long_max_length`,
+`tweets_long_tweet_cost_credits` (§37.3). Reports on individual Tweets plug
+into the existing generic `reports`/`moderation_reports` tables via a new
+`reported_tweet_id` column, same convention as `reported_poll_id` (§36.4).
+
+### 37.8 Capacitor Android
+
+Mirrored feature-for-feature at `apps/android/src/routes/tweets/{index,
+create,$tweetId}.tsx`, following the exact porting convention used for
+Moments (`apps/android/src/routes/moments/*`) — same feed-with-tabs +
+infinite-scroll pattern as `routes/home.tsx`, same composer flow, same
+`@capacitor/browser` open-externally fallback pattern already used
+elsewhere for links the WebView shouldn't render inline (§37.1's TikTok
+caveat is the only rendering divergence from web). A "Tweets" entry was
+added to the drawer nav (`components/layout/TopBar.tsx`) and the deep-link
+handler (`routes/__root.tsx`) gained a `tweet`/`tweets` prefix case
+alongside the existing poll/quiz/game/room ones.
+
+**New migration to run:** `db/migrations/0039_tweets.sql` (adds `tweets`,
+`tweet_likes`, `tweet_mentions`, `tweet_retweets`; `users.tweet_max_length`;
+the `reported_tweet_id` column on `reports` and `moderation_reports`; and
+seeds `feature_tweets` and all `tweets_*` config `x_manifest` keys with
+their defaults).
+
+---
+
 ## Appendix: Version 2.04 Change Log
 
 ### v2.04 — Changelog
@@ -6681,6 +6905,55 @@ atomic-write → best-effort-reward pipeline as Answers/Blogs/Forum.
 
 ---
 
-*ZobiaSocial PRD v2.20*
+## Appendix: Version 2.21 Change Log
+
+### v2.21 — Changelog
+
+#### New Feature: Tweets (§37)
+
+A lightweight, Twitter-style social primitive at `/tweets` — short text
+posts with an optional Credits-charged image, an optional free YouTube/
+TikTok video embed, replies, retweets (plain and quote), likes, pinning,
+and four feed tabs (For You/Friends/Following/Mentions).
+
+- **Creation**: Level 2+ by default (`tweets_min_level`), master toggle
+  `feature_tweets`. `@username` mentions parsed and routed through the
+  existing notifications pipeline; a stable `/tweets/<id>` deep link on
+  both web and the Capacitor app.
+- **Media**: an image upload costs `tweets_image_cost_credits` (default 5,
+  admin-configurable to 0), charged atomically with the Tweet in one
+  transaction, same shape as `createMoment()`. A video embed (YouTube or
+  TikTok) is always free — see §37.1 for the TikTok short-link resolution
+  approach and the Capacitor WebView rendering caveat (native `embed.js`
+  hydration on web; a "Watch on TikTok" external-open card on Android).
+- **Configurable length** (§37.3): replaces a flat character cap with an
+  admin-configured default (`tweets_default_max_length`, 280 chars), a
+  role-or-level long-form exemption (`tweets_long_min_role` reusing
+  `lib/plans/eligibility.ts`'s existing role/plan allow-list pattern,
+  OR'd with `tweets_long_min_level`) that unlocks free long Tweets up to a
+  per-user personal length setting, an admin ceiling on that personal
+  setting expressed in words (`tweets_long_max_length`), and a per-Tweet
+  Credits charge (`tweets_long_tweet_cost_credits`) for non-exempt users
+  who post over the default length.
+- **Replies** (§37.4): a reply is a Tweet with `parentTweetId` set — no
+  separate table. Shown as a chronological, cursor-paginated thread on the
+  Tweet's `/tweets/<id>` page, with an inline reply composer.
+- **Retweets** (§37.5): plain or quote (with added commentary), toggleable,
+  no separate charge. Attributed as "`@username` retweeted" in the
+  retweeter's profile and in followers'/friends' feeds via a `UNION ALL`
+  between authored and retweeted Tweets.
+- Site admins configure all of the above at `/gate44/config` (group
+  "Tweets"); reports on individual Tweets plug into the existing generic
+  `reports`/`moderation_reports` tables.
+- Mirrored feature-for-feature in the Capacitor Android app
+  (`apps/android/src/routes/tweets/*`), registered in the drawer nav and
+  the deep-link handler (`routes/__root.tsx`) alongside the existing
+  poll/quiz/game/room cases.
+
+**New migration to run:** `db/migrations/0039_tweets.sql`.
+
+---
+
+*ZobiaSocial PRD v2.21*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
