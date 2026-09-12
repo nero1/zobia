@@ -25,11 +25,6 @@ import { logger } from "@/lib/logger";
 import { loadManifest } from "@/lib/manifest";
 import { getCoinEconomy, getRevenueByProvider, getPayoutSummary } from "@/lib/admin/financialStats";
 
-// Re-exported so app/api/admin/data-management/stats/route.ts (Financial tab)
-// can import the same helpers from this route module if preferred — the
-// canonical implementations now live in lib/admin/financialStats.ts.
-export { getCoinEconomy, getRevenueByProvider, getPayoutSummary };
-
 // ---------------------------------------------------------------------------
 // Helper: anomaly detection (simple heuristics)
 // ---------------------------------------------------------------------------
