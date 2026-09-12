@@ -66,6 +66,7 @@ import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as QuizzesNewRouteImport } from './routes/quizzes/new'
 import { Route as QuizzesSlugRouteImport } from './routes/quizzes/$slug'
 import { Route as QuestsManageRouteImport } from './routes/quests/manage'
+import { Route as ProfileThemeRouteImport } from './routes/profile/theme'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as PollsNewRouteImport } from './routes/polls/new'
 import { Route as PollsSlugRouteImport } from './routes/polls/$slug'
@@ -437,6 +438,11 @@ const QuizzesSlugRoute = QuizzesSlugRouteImport.update({
 const QuestsManageRoute = QuestsManageRouteImport.update({
   id: '/quests/manage',
   path: '/quests/manage',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileThemeRoute = ProfileThemeRouteImport.update({
+  id: '/profile/theme',
+  path: '/profile/theme',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfileUsernameRoute = ProfileUsernameRouteImport.update({
@@ -962,6 +968,7 @@ export interface FileRoutesByFullPath {
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
   '/profile/$username': typeof ProfileUsernameRoute
+  '/profile/theme': typeof ProfileThemeRoute
   '/quests/manage': typeof QuestsManageRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
@@ -1108,6 +1115,7 @@ export interface FileRoutesByTo {
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
   '/profile/$username': typeof ProfileUsernameRoute
+  '/profile/theme': typeof ProfileThemeRoute
   '/quests/manage': typeof QuestsManageRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
@@ -1255,6 +1263,7 @@ export interface FileRoutesById {
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
   '/profile/$username': typeof ProfileUsernameRoute
+  '/profile/theme': typeof ProfileThemeRoute
   '/quests/manage': typeof QuestsManageRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
@@ -1403,6 +1412,7 @@ export interface FileRouteTypes {
     | '/polls/$slug'
     | '/polls/new'
     | '/profile/$username'
+    | '/profile/theme'
     | '/quests/manage'
     | '/quizzes/$slug'
     | '/quizzes/new'
@@ -1549,6 +1559,7 @@ export interface FileRouteTypes {
     | '/polls/$slug'
     | '/polls/new'
     | '/profile/$username'
+    | '/profile/theme'
     | '/quests/manage'
     | '/quizzes/$slug'
     | '/quizzes/new'
@@ -1695,6 +1706,7 @@ export interface FileRouteTypes {
     | '/polls/$slug'
     | '/polls/new'
     | '/profile/$username'
+    | '/profile/theme'
     | '/quests/manage'
     | '/quizzes/$slug'
     | '/quizzes/new'
@@ -1842,6 +1854,7 @@ export interface RootRouteChildren {
   PollsSlugRoute: typeof PollsSlugRoute
   PollsNewRoute: typeof PollsNewRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
+  ProfileThemeRoute: typeof ProfileThemeRoute
   QuestsManageRoute: typeof QuestsManageRoute
   QuizzesSlugRoute: typeof QuizzesSlugRoute
   QuizzesNewRoute: typeof QuizzesNewRoute
@@ -2303,6 +2316,13 @@ declare module '@tanstack/react-router' {
       path: '/quests/manage'
       fullPath: '/quests/manage'
       preLoaderRoute: typeof QuestsManageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile/theme': {
+      id: '/profile/theme'
+      path: '/profile/theme'
+      fullPath: '/profile/theme'
+      preLoaderRoute: typeof ProfileThemeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profile/$username': {
@@ -3014,6 +3034,7 @@ const rootRouteChildren: RootRouteChildren = {
   PollsSlugRoute: PollsSlugRoute,
   PollsNewRoute: PollsNewRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
+  ProfileThemeRoute: ProfileThemeRoute,
   QuestsManageRoute: QuestsManageRoute,
   QuizzesSlugRoute: QuizzesSlugRoute,
   QuizzesNewRoute: QuizzesNewRoute,

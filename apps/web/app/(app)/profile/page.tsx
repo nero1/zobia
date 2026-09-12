@@ -91,6 +91,16 @@ interface GuildData {
   tier: string;
 }
 
+interface ProfileThemeTokens {
+  bg: string;
+  card: string;
+  accent: string;
+  text: string;
+  muted: string;
+}
+
+const DEFAULT_PROFILE_THEME_TOKENS: ProfileThemeTokens = { bg: "#0a0a0a", card: "#171717", accent: "#14b8a6", text: "#fafafa", muted: "#a3a3a3" };
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -176,6 +186,7 @@ export default function MyProfilePage() {
   const [me, setMe] = useState<MeData | null>(null);
   const [guild, setGuild] = useState<GuildData | null>(null);
   const [seasons, setSeasons] = useState<SeasonRecord[]>([]);
+  const [themeTokens, setThemeTokens] = useState<ProfileThemeTokens>(DEFAULT_PROFILE_THEME_TOKENS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const currency = useCurrency();
@@ -205,6 +216,14 @@ export default function MyProfilePage() {
       if (sRes.ok) {
         const sData = await sRes.json();
         setSeasons(sData.seasons ?? []);
+      }
+
+      // Load the equipped profile theme (color skin) — see lib/profile/themes.ts
+      const themeRes = await fetch("/api/profile-themes", { credentials: "include" });
+      if (themeRes.ok) {
+        const themeData = (await themeRes.json()) as { data?: { themes?: Array<{ isActive: boolean; config: ProfileThemeTokens }> } };
+        const active = themeData.data?.themes?.find((t) => t.isActive);
+        if (active) setThemeTokens(active.config);
       }
     } catch (e) {
       const err = e as Error & { code?: string | null };
@@ -236,7 +255,14 @@ export default function MyProfilePage() {
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4 sm:p-6">
       {/* ── Header card ─────────────────────────────────────────────── */}
-      <div className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
+      {/* Theme tokens applied as inline style on this load-bearing card only
+          (background + accent-colored top border) — mirrors the blog theme
+          engine's light-touch approach (components/blogs/layouts/*) rather
+          than a full class-map rewrite of the whole page. */}
+      <div
+        className="rounded-xl border-t-4 p-6 shadow-sm"
+        style={{ backgroundColor: themeTokens.card, borderTopColor: themeTokens.accent, borderTopWidth: 4, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0 }}
+      >
         <div className="flex items-start gap-4">
           {/* Avatar with rank ring + presence indicator */}
           <OnlineRing userId={me.id} size="lg">
@@ -250,7 +276,7 @@ export default function MyProfilePage() {
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
+              <h1 className="text-xl font-bold" style={{ color: themeTokens.text }}>
                 {me.display_name ?? me.username ?? "Anonymous"}
               </h1>
               {me.is_verified && (
@@ -270,7 +296,7 @@ export default function MyProfilePage() {
               )}
             </div>
 
-            <p className="mt-0.5 text-sm text-neutral-500">
+            <p className="mt-0.5 text-sm" style={{ color: themeTokens.muted }}>
               @{me.username ?? "—"}
               {me.city && <span> · {me.city}</span>}
               <span> · Playing since {joinedYear}</span>
@@ -315,13 +341,18 @@ export default function MyProfilePage() {
             </div>
           </div>
 
-          {/* Edit button */}
-          <Link
-            href="/settings"
-            className="shrink-0 rounded-lg border border-neutral-300 px-4 py-1.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-          >
-            Edit profile
-          </Link>
+          {/* Edit / theme buttons */}
+          <div className="flex shrink-0 flex-col items-end gap-1.5">
+            <Link
+              href="/settings"
+              className="rounded-lg border border-neutral-300 px-4 py-1.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              Edit profile
+            </Link>
+            <Link href="/profile/theme" className="text-xs font-medium hover:underline" style={{ color: themeTokens.accent }}>
+              🎨 Theme
+            </Link>
+          </div>
         </div>
 
         {/* Wallet summary */}

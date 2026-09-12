@@ -283,7 +283,7 @@ function QuestFormFields({ form, setForm }: { form: QuestForm; setForm: (updater
               <input value={form.targetAction} onChange={(e) => setForm((f) => ({ ...f, targetAction: e.target.value }))} className={adminInputClass} placeholder={t('admin.sponsoredQuests.targetActionPlaceholder', "Leave blank for a generic 'mark as done' action")} />
             </AdminField>
             <p className="text-[11px] text-neutral-400">
-              {t('admin.sponsoredQuests.estimatedReach', 'Estimated reach: {{count}} impressions across the run.', { count: fmtNumber(estimatedReach) })}
+              {t('admin.sponsoredQuests.estimatedReach', 'Estimated reach: {{reach}} impressions across the run.', { reach: fmtNumber(estimatedReach) })}
             </p>
           </>
         )}

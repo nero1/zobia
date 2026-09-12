@@ -143,7 +143,7 @@ function QuestManagePage() {
                     currency: currency.softPlural,
                     impressions: q.impressions_count.toLocaleString(),
                   })}
-                  {q.estimated_reach ? ` · ${t('quests.manage.estReach', 'est. reach {{count}}', { count: q.estimated_reach.toLocaleString() })}` : ''}
+                  {q.estimated_reach ? ` · ${t('quests.manage.estReach', 'est. reach {{reach}}', { reach: q.estimated_reach.toLocaleString() })}` : ''}
                   {q.ends_at ? ` · ${t('quests.manage.ends', 'ends {{date}}', { date: new Date(q.ends_at).toLocaleDateString() })}` : ''}
                 </p>
               )}

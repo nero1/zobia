@@ -94,7 +94,10 @@ interface UserProfile {
   isFollowing: boolean;
   legacyScore: number;
   connectionBadge: string | null;
+  profileTheme?: { id: string; config: { bg: string; card: string; accent: string; text: string; muted: string } };
 }
+
+const DEFAULT_PROFILE_THEME_TOKENS = { bg: "#0a0a0a", card: "#171717", accent: "#14b8a6", text: "#fafafa", muted: "#a3a3a3" };
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -328,11 +331,17 @@ function ProfilePageInner() {
   }
 
   const rankXpPct = profile.xpForNextRank > 0 ? Math.min(100, Math.round((profile.xp / profile.xpForNextRank) * 100)) : 100;
+  const themeTokens = profile.profileTheme?.config ?? DEFAULT_PROFILE_THEME_TOKENS;
 
   return (
     <div className="mx-auto max-w-2xl space-y-4 p-4 sm:p-6">
-      {/* Profile card */}
-      <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      {/* Profile card — theme tokens applied as inline style on this
+          load-bearing card only, mirroring the blog theme engine's
+          light-touch approach rather than a full class-map rewrite. */}
+      <div
+        className="rounded-xl border-t-4 p-5 shadow-card"
+        style={{ backgroundColor: themeTokens.card, borderTopColor: themeTokens.accent, borderTopWidth: 4, borderLeftWidth: 0, borderRightWidth: 0, borderBottomWidth: 0 }}
+      >
         <div className="flex flex-wrap gap-4">
           {/* Avatar with rank ring + presence indicator */}
           <OnlineRing userId={profile.id} size="lg">
@@ -347,7 +356,7 @@ function ProfilePageInner() {
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="flex items-center gap-1.5 text-xl font-bold text-neutral-900 dark:text-neutral-50">
+              <h1 className="flex items-center gap-1.5 text-xl font-bold" style={{ color: themeTokens.text }}>
                 {profile.displayName}
                 <XpLevelBadge rank={profile.rankName as RankName} size="md" />
                 <VerifiedBadge show={profile.isVerified} size="md" />
@@ -358,8 +367,8 @@ function ProfilePageInner() {
                 </span>
               )}
             </div>
-            <p className="text-sm text-neutral-500">@{profile.username}</p>
-            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+            <p className="text-sm" style={{ color: themeTokens.muted }}>@{profile.username}</p>
+            <div className="mt-1 flex flex-wrap items-center gap-2 text-xs" style={{ color: themeTokens.muted }}>
               {profile.city && <span>📍 {profile.city}</span>}
               <span>Playing since {formatYear(profile.joinedAt)}</span>
             </div>
