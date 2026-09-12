@@ -32,6 +32,7 @@ const UpdateSchema = z.object({
     .object({
       plans: z.array(z.string()).optional(),
       roles: z.array(z.string()).optional(),
+      genders: z.array(z.enum(["male", "female", "non_binary", "prefer_not_to_say"])).optional(),
     })
     .optional(),
   displayOrder: z.number().int().min(0).optional(),
@@ -48,6 +49,7 @@ interface DbRow {
   is_active: boolean;
   target_plans: string[] | null;
   target_roles: string[] | null;
+  target_genders: string[] | null;
   display_order: number;
   starts_at: string | null;
   ends_at: string | null;
@@ -66,7 +68,7 @@ function toApiAnnouncement(type: "modal" | "banner", row: DbRow) {
     title: row.title ?? undefined,
     content: row.content,
     status: computeStatus(row),
-    audience: { plans: row.target_plans ?? [], roles: row.target_roles ?? [] },
+    audience: { plans: row.target_plans ?? [], roles: row.target_roles ?? [], genders: row.target_genders ?? [] },
     startAt: row.starts_at,
     endAt: row.ends_at,
     displayOrder: row.display_order,
@@ -90,6 +92,7 @@ async function detectRowType(id: string): Promise<RowType> {
 const RETURNING_COLUMNS = `id, title, content, content_type, is_active,
                    COALESCE(target_plans, '{}')::text[] AS target_plans,
                    COALESCE(target_roles, '{}')::text[] AS target_roles,
+                   COALESCE(target_genders, '{}')::text[] AS target_genders,
                    display_order, starts_at, ends_at`;
 
 async function applyUpdate(
@@ -118,6 +121,7 @@ async function applyUpdate(
   // (that produced a malformed array literal and a 500 on every save).
   if (updates.audience?.plans !== undefined) { setClauses.push(`target_plans = $${idx++}`); values.push(updates.audience.plans); }
   if (updates.audience?.roles !== undefined) { setClauses.push(`target_roles = $${idx++}`); values.push(updates.audience.roles); }
+  if (updates.audience?.genders !== undefined) { setClauses.push(`target_genders = $${idx++}`); values.push(updates.audience.genders); }
   if (updates.displayOrder !== undefined) { setClauses.push(`display_order = $${idx++}`); values.push(updates.displayOrder); }
   if (type === "banner" && updates.linkUrl !== undefined) { setClauses.push(`link_url = $${idx++}`); values.push(updates.linkUrl); }
 

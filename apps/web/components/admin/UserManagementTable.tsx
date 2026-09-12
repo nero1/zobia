@@ -598,6 +598,7 @@ export default function UserManagementTable({ embedded = false, onSelectionChang
   }, [t]);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [genderFilter, setGenderFilter] = useState<Set<string>>(new Set());
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -635,6 +636,7 @@ export default function UserManagementTable({ embedded = false, onSelectionChang
     try {
       const params = new URLSearchParams({ limit: "20" });
       if (debouncedQuery) params.set("q", debouncedQuery);
+      if (genderFilter.size > 0) params.set("gender", Array.from(genderFilter).join(","));
       if (cursor) params.set("cursor", cursor);
       const res = await fetch(`/api/admin/users?${params}`, { credentials: "include" });
       if (res.status === 401 || res.status === 403) {
@@ -654,14 +656,23 @@ export default function UserManagementTable({ embedded = false, onSelectionChang
     } finally {
       setLoading(false);
     }
-  }, [debouncedQuery]);
+  }, [debouncedQuery, genderFilter]);
 
-  // Re-run search whenever the debounced query changes, resetting pagination.
+  // Re-run search whenever the debounced query or gender filter changes, resetting pagination.
   useEffect(() => {
     setCursorHistory([undefined]);
     void search(undefined, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery]);
+  }, [debouncedQuery, genderFilter]);
+
+  function toggleGenderFilter(value: string) {
+    setGenderFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
 
   function goNext() {
     if (!nextCursor) return;
@@ -791,6 +802,40 @@ export default function UserManagementTable({ embedded = false, onSelectionChang
           {loading ? "Searching…" : "Search"}
         </button>
       </form>
+
+      {/* Gender filter — pill multi-select; "unset" is its own bucket for gender IS NULL */}
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Gender:</span>
+        {[
+          { value: "male", label: "Male" },
+          { value: "female", label: "Female" },
+          { value: "non_binary", label: "Other" },
+          { value: "prefer_not_to_say", label: "Prefer not to say" },
+          { value: "unset", label: "Not set" },
+        ].map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => toggleGenderFilter(opt.value)}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              genderFilter.has(opt.value)
+                ? "border-blue-600 bg-blue-600 text-white"
+                : "border-neutral-300 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+        {genderFilter.size > 0 && (
+          <button
+            type="button"
+            onClick={() => setGenderFilter(new Set())}
+            className="text-xs font-medium text-neutral-500 underline hover:text-neutral-700 dark:hover:text-neutral-300"
+          >
+            Clear
+          </button>
+        )}
+      </div>
 
       {/* Error */}
       {error && (

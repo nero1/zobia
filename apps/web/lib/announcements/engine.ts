@@ -8,6 +8,7 @@
  *  - Schedule (starts_at / ends_at)
  *  - Plan targeting (empty = all plans)
  *  - Role targeting (empty = all roles)
+ *  - Gender targeting (empty = all genders)
  *  - Display mode from x_manifest (serial or random)
  *  - For serial mode: tracks viewed modals via user_modal_views
  *
@@ -51,6 +52,7 @@ export interface AnnouncementUser {
   id: string;
   plan_id?: string | null;
   role?: string | null;
+  gender?: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -62,17 +64,20 @@ export interface AnnouncementUser {
  *
  * Empty target arrays mean "show to everyone".
  *
- * @param user        - The current user
- * @param targetPlans - Plans the announcement targets (empty = all)
- * @param targetRoles - Roles the announcement targets (empty = all)
+ * @param user          - The current user
+ * @param targetPlans   - Plans the announcement targets (empty = all)
+ * @param targetRoles   - Roles the announcement targets (empty = all)
+ * @param targetGenders - Genders the announcement targets (empty = all)
  */
 function matchesTargeting(
   user: AnnouncementUser,
   targetPlans: string[],
-  targetRoles: string[]
+  targetRoles: string[],
+  targetGenders: string[] = []
 ): boolean {
   if (targetPlans.length > 0 && (!user.plan_id || !targetPlans.includes(user.plan_id))) return false;
   if (targetRoles.length > 0 && (!user.role || !targetRoles.includes(user.role))) return false;
+  if (targetGenders.length > 0 && (!user.gender || !targetGenders.includes(user.gender))) return false;
   return true;
 }
 
@@ -111,6 +116,7 @@ export async function getActiveModalForUser(
     display_order: number;
     target_plans: string[];
     target_roles: string[];
+    target_genders: string[];
     starts_at: string | null;
     ends_at: string | null;
   }>(
@@ -118,6 +124,7 @@ export async function getActiveModalForUser(
        id, title, content, content_type, display_order,
        COALESCE(target_plans, '{}')::text[]  AS target_plans,
        COALESCE(target_roles, '{}')::text[]  AS target_roles,
+       COALESCE(target_genders, '{}')::text[]  AS target_genders,
        starts_at, ends_at
      FROM announcement_modals
      WHERE is_active = true
@@ -129,7 +136,7 @@ export async function getActiveModalForUser(
   );
 
   const eligible = modals.filter((m) =>
-    matchesTargeting(user, m.target_plans, m.target_roles)
+    matchesTargeting(user, m.target_plans, m.target_roles, m.target_genders)
   );
 
   if (eligible.length === 0) return null;
@@ -239,6 +246,7 @@ export async function getActiveBannerForUser(
     link_url: string | null;
     target_plans: string[];
     target_roles: string[];
+    target_genders: string[];
     starts_at: string | null;
     ends_at: string | null;
   }>(
@@ -246,6 +254,7 @@ export async function getActiveBannerForUser(
        id, title, content, content_type, link_url,
        COALESCE(target_plans, '{}')::text[]  AS target_plans,
        COALESCE(target_roles, '{}')::text[]  AS target_roles,
+       COALESCE(target_genders, '{}')::text[]  AS target_genders,
        starts_at, ends_at
      FROM announcement_banners
      WHERE is_active = true
@@ -257,7 +266,7 @@ export async function getActiveBannerForUser(
   );
 
   const eligible = banners.filter((b) =>
-    matchesTargeting(user, b.target_plans, b.target_roles)
+    matchesTargeting(user, b.target_plans, b.target_roles, b.target_genders)
   );
 
   if (eligible.length === 0) return null;
