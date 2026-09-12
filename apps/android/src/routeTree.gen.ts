@@ -44,6 +44,7 @@ import { Route as PollsIndexRouteImport } from './routes/polls/index'
 import { Route as MomentsIndexRouteImport } from './routes/moments/index'
 import { Route as MessagesIndexRouteImport } from './routes/messages/index'
 import { Route as MerchIndexRouteImport } from './routes/merch/index'
+import { Route as MarketIndexRouteImport } from './routes/market/index'
 import { Route as HelpIndexRouteImport } from './routes/help/index'
 import { Route as GuildsIndexRouteImport } from './routes/guilds/index'
 import { Route as GamesIndexRouteImport } from './routes/games/index'
@@ -71,6 +72,7 @@ import { Route as PollsSlugRouteImport } from './routes/polls/$slug'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
 import { Route as MessagesConversationIdRouteImport } from './routes/messages/$conversationId'
 import { Route as MerchCreatorIdRouteImport } from './routes/merch/$creatorId'
+import { Route as MarketSectionRouteImport } from './routes/market/$section'
 import { Route as HelpSearchRouteImport } from './routes/help/search'
 import { Route as GuildsGuildIdRouteImport } from './routes/guilds/$guildId'
 import { Route as GamesSavedRouteImport } from './routes/games/saved'
@@ -327,6 +329,11 @@ const MerchIndexRoute = MerchIndexRouteImport.update({
   path: '/merch/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MarketIndexRoute = MarketIndexRouteImport.update({
+  id: '/market/',
+  path: '/market/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const HelpIndexRoute = HelpIndexRouteImport.update({
   id: '/help/',
   path: '/help/',
@@ -460,6 +467,11 @@ const MessagesConversationIdRoute = MessagesConversationIdRouteImport.update({
 const MerchCreatorIdRoute = MerchCreatorIdRouteImport.update({
   id: '/merch/$creatorId',
   path: '/merch/$creatorId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MarketSectionRoute = MarketSectionRouteImport.update({
+  id: '/market/$section',
+  path: '/market/$section',
   getParentRoute: () => rootRouteImport,
 } as any)
 const HelpSearchRoute = HelpSearchRouteImport.update({
@@ -943,6 +955,7 @@ export interface FileRoutesByFullPath {
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
   '/help/search': typeof HelpSearchRoute
+  '/market/$section': typeof MarketSectionRoute
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
@@ -970,6 +983,7 @@ export interface FileRoutesByFullPath {
   '/games/': typeof GamesIndexRoute
   '/guilds/': typeof GuildsIndexRoute
   '/help/': typeof HelpIndexRoute
+  '/market/': typeof MarketIndexRoute
   '/merch/': typeof MerchIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
@@ -1087,6 +1101,7 @@ export interface FileRoutesByTo {
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
   '/help/search': typeof HelpSearchRoute
+  '/market/$section': typeof MarketSectionRoute
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
@@ -1114,6 +1129,7 @@ export interface FileRoutesByTo {
   '/games': typeof GamesIndexRoute
   '/guilds': typeof GuildsIndexRoute
   '/help': typeof HelpIndexRoute
+  '/market': typeof MarketIndexRoute
   '/merch': typeof MerchIndexRoute
   '/messages': typeof MessagesIndexRoute
   '/moments': typeof MomentsIndexRoute
@@ -1232,6 +1248,7 @@ export interface FileRoutesById {
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
   '/help/search': typeof HelpSearchRoute
+  '/market/$section': typeof MarketSectionRoute
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
@@ -1259,6 +1276,7 @@ export interface FileRoutesById {
   '/games/': typeof GamesIndexRoute
   '/guilds/': typeof GuildsIndexRoute
   '/help/': typeof HelpIndexRoute
+  '/market/': typeof MarketIndexRoute
   '/merch/': typeof MerchIndexRoute
   '/messages/': typeof MessagesIndexRoute
   '/moments/': typeof MomentsIndexRoute
@@ -1378,6 +1396,7 @@ export interface FileRouteTypes {
     | '/games/saved'
     | '/guilds/$guildId'
     | '/help/search'
+    | '/market/$section'
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
@@ -1405,6 +1424,7 @@ export interface FileRouteTypes {
     | '/games/'
     | '/guilds/'
     | '/help/'
+    | '/market/'
     | '/merch/'
     | '/messages/'
     | '/moments/'
@@ -1522,6 +1542,7 @@ export interface FileRouteTypes {
     | '/games/saved'
     | '/guilds/$guildId'
     | '/help/search'
+    | '/market/$section'
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
@@ -1549,6 +1570,7 @@ export interface FileRouteTypes {
     | '/games'
     | '/guilds'
     | '/help'
+    | '/market'
     | '/merch'
     | '/messages'
     | '/moments'
@@ -1666,6 +1688,7 @@ export interface FileRouteTypes {
     | '/games/saved'
     | '/guilds/$guildId'
     | '/help/search'
+    | '/market/$section'
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
@@ -1693,6 +1716,7 @@ export interface FileRouteTypes {
     | '/games/'
     | '/guilds/'
     | '/help/'
+    | '/market/'
     | '/merch/'
     | '/messages/'
     | '/moments/'
@@ -1811,6 +1835,7 @@ export interface RootRouteChildren {
   GamesSavedRoute: typeof GamesSavedRoute
   GuildsGuildIdRoute: typeof GuildsGuildIdRoute
   HelpSearchRoute: typeof HelpSearchRoute
+  MarketSectionRoute: typeof MarketSectionRoute
   MerchCreatorIdRoute: typeof MerchCreatorIdRoute
   MessagesConversationIdRoute: typeof MessagesConversationIdRoute
   MomentsCreateRoute: typeof MomentsCreateRoute
@@ -1836,6 +1861,7 @@ export interface RootRouteChildren {
   GamesIndexRoute: typeof GamesIndexRoute
   GuildsIndexRoute: typeof GuildsIndexRoute
   HelpIndexRoute: typeof HelpIndexRoute
+  MarketIndexRoute: typeof MarketIndexRoute
   MerchIndexRoute: typeof MerchIndexRoute
   MessagesIndexRoute: typeof MessagesIndexRoute
   MomentsIndexRoute: typeof MomentsIndexRoute
@@ -2125,6 +2151,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof MerchIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/market/': {
+      id: '/market/'
+      path: '/market'
+      fullPath: '/market/'
+      preLoaderRoute: typeof MarketIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/help/': {
       id: '/help/'
       path: '/help'
@@ -2312,6 +2345,13 @@ declare module '@tanstack/react-router' {
       path: '/merch/$creatorId'
       fullPath: '/merch/$creatorId'
       preLoaderRoute: typeof MerchCreatorIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/market/$section': {
+      id: '/market/$section'
+      path: '/market/$section'
+      fullPath: '/market/$section'
+      preLoaderRoute: typeof MarketSectionRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/help/search': {
@@ -2967,6 +3007,7 @@ const rootRouteChildren: RootRouteChildren = {
   GamesSavedRoute: GamesSavedRoute,
   GuildsGuildIdRoute: GuildsGuildIdRoute,
   HelpSearchRoute: HelpSearchRoute,
+  MarketSectionRoute: MarketSectionRoute,
   MerchCreatorIdRoute: MerchCreatorIdRoute,
   MessagesConversationIdRoute: MessagesConversationIdRoute,
   MomentsCreateRoute: MomentsCreateRoute,
@@ -2992,6 +3033,7 @@ const rootRouteChildren: RootRouteChildren = {
   GamesIndexRoute: GamesIndexRoute,
   GuildsIndexRoute: GuildsIndexRoute,
   HelpIndexRoute: HelpIndexRoute,
+  MarketIndexRoute: MarketIndexRoute,
   MerchIndexRoute: MerchIndexRoute,
   MessagesIndexRoute: MessagesIndexRoute,
   MomentsIndexRoute: MomentsIndexRoute,

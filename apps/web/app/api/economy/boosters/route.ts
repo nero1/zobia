@@ -3,15 +3,22 @@ export const dynamic = 'force-dynamic';
 /**
  * app/api/economy/boosters/route.ts
  *
- * POST /api/economy/boosters
- * Purchase and activate a booster pack.
+ * GET  /api/economy/boosters — list active boost types (the Market's
+ *   "Boosts & Passes" catalog, admin-managed via /gate44/boosts).
+ * POST /api/economy/boosters — purchase and activate a boost.
  *
- * Body: { boosterType: "xp_booster" | "quest_accelerator" | "guild_war_boost" }
+ * Body: { boosterType: string } — any active boost_types.key.
  *
- * Costs (coins):
- *   xp_booster:        200 coins → 2× XP for 24 hours
- *   quest_accelerator: 500 coins → +50% XP on quests for 7 days
- *   guild_war_boost:   300 coins → double personal War Points for next war
+ * Previously this route hardcoded a fixed BOOSTER_CONFIG map, so adding a
+ * new boost type required a code deploy. It now reads the catalog from the
+ * boost_types table (migration 0050) so admin can add new boost types from
+ * gate44 without touching code — see lib/market/query.ts's Market
+ * "Boosts & Passes" section, which reads the same table.
+ *
+ * IMPORTANT for the Capacitor Android app: Google Play Billing requires a
+ * matching product to exist in Play Console for any boost with an
+ * `iapProductId` before Android users can buy it — see
+ * docs/HOW-IT-WORKS.md "Boosts & Play Billing".
  *
  * Inserts into user_xp_boosters (columns: user_id, booster_type, multiplier,
  * expires_at, is_active). Deducts coins atomically.
@@ -21,67 +28,45 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { handleApiError, badRequest, conflict } from "@/lib/api/errors";
+import { handleApiError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { debitCoins } from "@/lib/economy/coins";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-// BUG-007 FIX: multiplier stored as integer basis points (100 = 1.0×, 200 = 2.0×)
-// to avoid decimal precision issues. Column type changed from decimal(4,2) to integer.
-/** Booster configuration: cost in coins, XP multiplier in basis points, duration in hours. */
-const BOOSTER_CONFIG = {
-  xp_booster: {
-    cost: 200,
-    multiplier: 200, // 2.0× → 200 bp
-    durationHours: 24,
-    description: "2× XP for 24 hours",
-  },
-  quest_accelerator: {
-    cost: 500,
-    multiplier: 150, // 1.5× → 150 bp
-    durationHours: 24 * 7, // 7 days
-    description: "+50% XP on quests for 7 days",
-  },
-  guild_war_boost: {
-    cost: 300,
-    multiplier: 200, // 2.0× → 200 bp
-    durationHours: 24 * 30, // expires after 30 days if war hasn't occurred
-    description: "Double personal War Points for next guild war",
-  },
-  // Premium Send animation (PRD §11)
-  premium_send: {
-    cost: 50,
-    multiplier: 0,
-    durationHours: 24 * 365, // one-shot; expires after use or 1 year
-    description: "Premium gold-shimmer animation on your next message",
-  },
-  premium_send_7day: {
-    cost: 250,
-    multiplier: 0,
-    durationHours: 24 * 7, // 7-day subscription pass
-    description: "Premium animations on all messages for 7 days",
-  },
-} as const;
-
-type BoosterType = keyof typeof BOOSTER_CONFIG;
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 // ---------------------------------------------------------------------------
 // Schema
 // ---------------------------------------------------------------------------
 
 const purchaseBoosterSchema = z.object({
-  boosterType: z.enum(
-    ["xp_booster", "quest_accelerator", "guild_war_boost", "premium_send", "premium_send_7day"],
-    {
-      errorMap: () => ({
-        message:
-          "boosterType must be one of: xp_booster, quest_accelerator, guild_war_boost, premium_send, premium_send_7day",
-      }),
-    }
-  ),
+  boosterType: z.string().min(1).max(64),
+});
+
+interface BoostTypeRow {
+  id: string;
+  key: string;
+  label: string;
+  description: string | null;
+  multiplier_bp: number;
+  duration_hours: number;
+  coins_cost: number | null;
+  stackable: boolean;
+}
+
+// ---------------------------------------------------------------------------
+// GET /api/economy/boosters
+// ---------------------------------------------------------------------------
+
+export const GET = withAuth(async () => {
+  try {
+    const { rows } = await db.query<BoostTypeRow>(
+      `SELECT id, key, label, description, multiplier_bp, duration_hours,
+              coins_cost, stackable
+       FROM boost_types WHERE is_active = TRUE ORDER BY sort_order ASC`
+    );
+    return NextResponse.json({ success: true, data: { boosts: rows }, error: null });
+  } catch (err) {
+    return handleApiError(err);
+  }
 });
 
 // ---------------------------------------------------------------------------
@@ -89,19 +74,31 @@ const purchaseBoosterSchema = z.object({
 // ---------------------------------------------------------------------------
 
 /**
- * Purchase and activate a booster pack.
+ * Purchase and activate a boost.
  *
- * Validates the booster type, checks coin balance, atomically debits coins,
- * and inserts an active booster record into user_xp_boosters.
+ * Validates the boost type against the active catalog, checks coin balance,
+ * atomically debits coins, and inserts an active booster record into
+ * user_xp_boosters.
  */
-export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
+export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const body = await validateBody(req, purchaseBoosterSchema);
     const userId = auth.user.sub;
-    const boosterType = body.boosterType as BoosterType;
-    const config = BOOSTER_CONFIG[boosterType];
+    const boosterType = body.boosterType;
+
+    const { rows: configRows } = await db.query<BoostTypeRow>(
+      `SELECT id, key, label, description, multiplier_bp, duration_hours,
+              coins_cost, stackable
+       FROM boost_types WHERE key = $1 AND is_active = TRUE LIMIT 1`,
+      [boosterType]
+    );
+    const config = configRows[0];
+    if (!config) {
+      throw notFound(`Unknown or inactive boost type: ${boosterType}`);
+    }
+    const cost = config.coins_cost ?? 0;
 
     // Check that the user can afford the booster
     const { rows: userRows } = await db.query<{ coin_balance: number }>(
@@ -113,16 +110,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("User not found", "USER_NOT_FOUND");
     }
 
-    if (userRows[0].coin_balance < config.cost) {
+    if (userRows[0].coin_balance < cost) {
       throw badRequest(
-        `Insufficient coins. This booster costs ${config.cost} coins.`,
+        `Insufficient coins. This booster costs ${cost} coins.`,
         "INSUFFICIENT_BALANCE"
       );
     }
 
-    // premium_send (one-shot) can stack; all other boosters block duplicates
-    const blocksDuplicates = boosterType !== "premium_send";
-    if (blocksDuplicates) {
+    // Non-stackable boosters (most of them) block duplicates while active.
+    if (!config.stackable) {
       const { rows: existingRows } = await db.query<{ id: string }>(
         `SELECT id FROM user_xp_boosters
          WHERE user_id = $1 AND booster_type = $2 AND is_active = TRUE AND expires_at > NOW()
@@ -139,17 +135,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Compute expiry
-    const expiresAt = new Date(Date.now() + config.durationHours * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + config.duration_hours * 60 * 60 * 1000);
 
     // Atomically debit coins and insert booster record
     const booster = await db.transaction(async (tx) => {
       // Debit coins using the economy module (handles ledger + balance update atomically)
       await debitCoins(
         userId,
-        config.cost,
+        cost,
         "booster_purchase",
         null,
-        `Purchased ${boosterType}: ${config.description}`,
+        `Purchased ${boosterType}: ${config.description ?? config.label}`,
         { boosterType },
         tx
       );
@@ -168,33 +164,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
            (user_id, booster_type, multiplier, expires_at, is_active, created_at)
          VALUES ($1, $2, $3, $4, TRUE, NOW())
          RETURNING id, user_id, booster_type, multiplier, expires_at, is_active, created_at`,
-        [userId, boosterType, config.multiplier, expiresAt.toISOString()]
+        [userId, boosterType, config.multiplier_bp, expiresAt.toISOString()]
       );
 
       return boosterRows[0];
     });
+
+    void triggerActivityQuestProgress(userId, "market_purchase", db);
 
     return NextResponse.json(
       {
         success: true,
         data: {
           booster,
-          coinsSpent: config.cost,
-          description: config.description,
+          coinsSpent: cost,
+          description: config.description ?? config.label,
         },
         error: null,
       },
       { status: 201 }
     );
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "INSUFFICIENT_BALANCE") {
-      return handleApiError(
-        badRequest(
-          `Insufficient coins to purchase this booster.`,
-          "INSUFFICIENT_BALANCE"
-        )
-      );
-    }
     return handleApiError(err);
   }
 });

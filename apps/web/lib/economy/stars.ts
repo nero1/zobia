@@ -35,6 +35,7 @@ export type StarTransactionType =
   | "moment_created"
   | "blog_extra_slot"
   | "blog_theme_purchase"
+  | "profile_theme_purchase"
   | "blog_gift_purchase"
   | "blog_gift_earnings"
   | "bbforum_image_upload"

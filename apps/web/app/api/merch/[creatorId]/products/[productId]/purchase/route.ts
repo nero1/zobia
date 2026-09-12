@@ -17,9 +17,12 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { requireFeatureEnabled } from "@/lib/manifest";
+import { requireFeatureEnabled, getManifestValue } from "@/lib/manifest";
 import { sendPushNotification } from "@/lib/notifications/push";
 import { sendEmail } from "@/lib/notifications/email";
+import { awardMerchDigitalReferralCommission } from "@/lib/referrals/commissions";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -98,9 +101,10 @@ export const POST = withAuth(
           is_active: boolean;
           stock: number | null;
           product_type: string;
+          referral_enabled: boolean;
         }>(
           `SELECT mp.id, mp.store_id, mp.name, mp.price_kobo::TEXT AS price_kobo,
-                  mp.is_active, mp.stock, mp.product_type
+                  mp.is_active, mp.stock, mp.product_type, mp.referral_enabled
            FROM merch_products mp
            JOIN merch_stores ms ON ms.id = mp.store_id
            WHERE mp.id = $1 AND ms.creator_id = $2
@@ -234,6 +238,18 @@ export const POST = withAuth(
           );
         }
 
+        // Digital-item referral commission (standard tier1/tier2 rates).
+        // Physical items are deferred to confirm-receipt since the order can
+        // still be refunded/disputed before then.
+        if (!isPhysical && product.referral_enabled) {
+          const digitalReferralsEnabled = await getManifestValue("market_referral_digital_enabled", tx);
+          if (digitalReferralsEnabled === "true") {
+            await awardMerchDigitalReferralCommission(tx, userId, priceKobo, orderId).catch((err) => {
+              logger.error({ err, orderId }, "[merch] Digital referral commission failed (non-fatal)");
+            });
+          }
+        }
+
         // Award XP to buyer
         await tx.query(
           `UPDATE users
@@ -266,6 +282,8 @@ export const POST = withAuth(
           xpAwarded: XP_AWARD_MERCH_PURCHASE,
         };
       });
+
+      void triggerActivityQuestProgress(userId, "market_purchase", db);
 
       // Notify seller — in-app, push, and email (fire-and-forget, non-blocking)
       const shippingDesc = result.productType === 'physical' && body.shippingCity

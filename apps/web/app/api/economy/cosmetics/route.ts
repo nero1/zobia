@@ -32,6 +32,7 @@ import { handleApiError, badRequest, notFound, forbidden } from "@/lib/api/error
 import { debitCoins } from "@/lib/economy/coins";
 import { debitStars } from "@/lib/economy/stars";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -257,6 +258,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         [userId, body.itemId, item.cosmetic_type]
       );
     });
+
+    void triggerActivityQuestProgress(userId, "market_purchase", db);
 
     return NextResponse.json(
       {

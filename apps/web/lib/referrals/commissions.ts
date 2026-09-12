@@ -198,6 +198,169 @@ export async function awardReferralCommissions(
 }
 
 // ---------------------------------------------------------------------------
+// Market (creator item) referral commissions
+// ---------------------------------------------------------------------------
+
+/** kobo -> coins, matching the ceil convention used at merch checkout (app/api/merch/purchase/route.ts). */
+function koboToCoinsFloor(kobo: number): number {
+  return Math.floor(kobo / 100);
+}
+
+/**
+ * Award a referral commission for a DIGITAL Market item purchase.
+ *
+ * Reuses the platform's standard tier1/tier2 rates (5% / 2%) applied to the
+ * item price — same mechanism as `awardReferralCommissions` for coin
+ * purchases, just a different trigger event and a distinct
+ * `source_type`/`reference_order_id` on the ledger row so it's
+ * distinguishable in a referrer's stats.
+ *
+ * Gated by the caller on `market_referral_digital_enabled` (x_manifest) and
+ * the product's own `referral_enabled` flag — this function itself performs
+ * no gating, it only pays out.
+ */
+export async function awardMerchDigitalReferralCommission(
+  db: DatabaseClient,
+  buyerId: string,
+  priceKobo: number,
+  orderId: string
+): Promise<CommissionResult> {
+  const result: CommissionResult = {
+    tier1ReferrerId: null,
+    tier1Coins: 0,
+    tier2ReferrerId: null,
+    tier2Coins: 0,
+  };
+  if (priceKobo <= 0) return result;
+
+  type ReferredByRow = { [K in typeof schema.users.referredBy.name]: string | null };
+  const { rows: tier1Rows } = await db.query<ReferredByRow>(
+    `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    [buyerId]
+  );
+  const tier1Id = tier1Rows[0]?.referred_by ?? null;
+  if (!tier1Id || tier1Id === buyerId) return result;
+  result.tier1ReferrerId = tier1Id;
+
+  const tier1Kobo = new Decimal(priceKobo).mul(TIER_1_RATE).toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber();
+  const tier1Coins = koboToCoinsFloor(tier1Kobo);
+  if (tier1Coins > 0) {
+    await creditCoins(
+      tier1Id,
+      tier1Coins,
+      "referral_commission",
+      `merch:${orderId}:t1`,
+      `Tier 1 referral commission from a Market item purchase`,
+      { tier: 1, buyerId, orderId },
+      db
+    );
+    result.tier1Coins = tier1Coins;
+    await db.query(
+      `INSERT INTO referral_commissions
+         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, source_type, reference_order_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, '1', 'credited', 'merch_digital', $7, NOW())
+       ON CONFLICT (trigger_event_id) DO NOTHING`,
+      [tier1Id, buyerId, `merch:${orderId}:t1`, priceKobo, tier1Kobo, tier1Coins, orderId]
+    );
+  }
+
+  type ReferredByRow2 = ReferredByRow;
+  const { rows: tier2Rows } = await db.query<ReferredByRow2>(
+    `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    [tier1Id]
+  );
+  const tier2Id = tier2Rows[0]?.referred_by ?? null;
+  if (!tier2Id || tier2Id === buyerId || tier2Id === tier1Id) return result;
+  result.tier2ReferrerId = tier2Id;
+
+  const tier2Kobo = new Decimal(priceKobo).mul(TIER_2_RATE).toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber();
+  const tier2Coins = koboToCoinsFloor(tier2Kobo);
+  if (tier2Coins > 0) {
+    await creditCoins(
+      tier2Id,
+      tier2Coins,
+      "referral_commission",
+      `merch:${orderId}:t2`,
+      `Tier 2 referral commission from a Market item purchase`,
+      { tier: 2, buyerId, orderId },
+      db
+    );
+    result.tier2Coins = tier2Coins;
+    await db.query(
+      `INSERT INTO referral_commissions
+         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, source_type, reference_order_id, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, '2', 'credited', 'merch_digital', $7, NOW())
+       ON CONFLICT (trigger_event_id) DO NOTHING`,
+      [tier2Id, buyerId, `merch:${orderId}:t2`, priceKobo, tier2Kobo, tier2Coins, orderId]
+    );
+  }
+
+  return result;
+}
+
+/**
+ * Award a referral commission for a PHYSICAL Market item purchase.
+ *
+ * Physical items don't use the standard tier1/tier2 rates: the seller
+ * decides the *pool* (a % of the item price, minimum enforced by
+ * `market_referral_physical_min_pct`), because — unlike a digital item or a
+ * coin top-up — the full sale price of a physical good is not profit
+ * (materials/shipping). The platform then takes its standard cut
+ * (`market_referral_platform_fee_pct`, same rate as the merch 80/20 split)
+ * out of that pool, and the remainder goes to the *direct* referrer only
+ * (single-tier — the pool is already small).
+ *
+ * Called once an order is confirmed received (not at purchase time), since a
+ * physical order can still be refunded/disputed before then.
+ */
+export async function awardMerchPhysicalReferralCommission(
+  db: DatabaseClient,
+  buyerId: string,
+  priceKobo: number,
+  commissionPct: number,
+  orderId: string
+): Promise<{ referrerId: string | null; referrerCoins: number }> {
+  const empty = { referrerId: null, referrerCoins: 0 };
+  if (priceKobo <= 0 || commissionPct <= 0) return empty;
+
+  type ReferredByRow = { [K in typeof schema.users.referredBy.name]: string | null };
+  const { rows: buyerRows } = await db.query<ReferredByRow>(
+    `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+    [buyerId]
+  );
+  const referrerId = buyerRows[0]?.referred_by ?? null;
+  if (!referrerId || referrerId === buyerId) return empty;
+
+  const platformFeePctStr = await getManifestValue("market_referral_platform_fee_pct", db);
+  const platformFeePct = platformFeePctStr ? parseFloat(platformFeePctStr) : 20;
+
+  const poolKobo = new Decimal(priceKobo).mul(commissionPct).div(100).toDecimalPlaces(0, Decimal.ROUND_DOWN);
+  const platformCutKobo = poolKobo.mul(platformFeePct).div(100).toDecimalPlaces(0, Decimal.ROUND_DOWN);
+  const referrerKobo = poolKobo.minus(platformCutKobo).toNumber();
+  const referrerCoins = koboToCoinsFloor(referrerKobo);
+  if (referrerCoins <= 0) return empty;
+
+  await creditCoins(
+    referrerId,
+    referrerCoins,
+    "referral_commission",
+    `merch:${orderId}:physical`,
+    `Referral commission from a physical Market item purchase`,
+    { buyerId, orderId, commissionPct, platformFeePct },
+    db
+  );
+  await db.query(
+    `INSERT INTO referral_commissions
+       (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, source_type, reference_order_id, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, '1', 'credited', 'merch_physical', $7, NOW())
+     ON CONFLICT (trigger_event_id) DO NOTHING`,
+    [referrerId, buyerId, `merch:${orderId}:physical`, priceKobo, referrerKobo, referrerCoins, orderId]
+  );
+
+  return { referrerId, referrerCoins };
+}
+
+// ---------------------------------------------------------------------------
 // DLQ: write failed commission attempts
 // ---------------------------------------------------------------------------
 

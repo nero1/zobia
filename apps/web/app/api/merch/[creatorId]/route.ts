@@ -19,6 +19,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
+import { getMerchSellerEligibility, MERCH_SELLER_INELIGIBLE_MESSAGE } from "@/lib/merch/eligibility";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -57,6 +58,8 @@ interface MerchProductRow {
   image_url: string | null;
   is_active: boolean;
   stock: number | null;
+  referral_enabled: boolean;
+  referral_commission_pct: string | null;
   created_at: string;
 }
 
@@ -84,7 +87,8 @@ export async function GET(
 
     const { rows: productRows } = await db.query<MerchProductRow>(
       `SELECT id, store_id, name, description, product_type,
-              price_kobo::TEXT AS price_kobo, image_url, is_active, stock, created_at
+              price_kobo::TEXT AS price_kobo, image_url, is_active, stock,
+              referral_enabled, referral_commission_pct::TEXT AS referral_commission_pct, created_at
        FROM merch_products
        WHERE store_id = $1 AND is_active = TRUE
        ORDER BY created_at DESC`,
@@ -94,6 +98,7 @@ export async function GET(
     const products = productRows.map((p) => ({
       ...p,
       priceKobo: parseInt(p.price_kobo, 10),
+      referralCommissionPct: p.referral_commission_pct ? parseFloat(p.referral_commission_pct) : null,
     }));
 
     return NextResponse.json({
@@ -127,17 +132,11 @@ export const POST = withAuth(
         throw forbidden("You can only manage your own merch store");
       }
 
-      // Verify caller is an Elite+ creator (per PRD §14: Merch Store is Elite tier+)
-      const { rows: userRows } = await db.query<{ is_creator: boolean; creator_tier: string | null }>(
-        `SELECT is_creator, creator_tier FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      if (!userRows[0]?.is_creator) {
-        throw forbidden("Creator account required");
-      }
-      const tier = userRows[0]?.creator_tier ?? "";
-      if (!["elite", "icon", "zobia_icon"].includes(tier)) {
-        throw forbidden("Merch stores are available to Elite, Icon, and Zobia Icon creators only");
+      // Verify caller is an Elite+ creator or a verified Business account
+      // (per PRD §14: Merch Store is Elite tier+, extended to Business accounts).
+      const eligibility = await getMerchSellerEligibility(userId, db);
+      if (!eligibility.qualified) {
+        throw forbidden(MERCH_SELLER_INELIGIBLE_MESSAGE);
       }
 
       const body = await validateBody(req, upsertStoreSchema);

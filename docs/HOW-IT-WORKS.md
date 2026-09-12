@@ -751,6 +751,37 @@ Referral commissions are tracked in `referral_commissions` with both coin and mo
 
 Referral stats are visible at `/api/referrals`.
 
+**Market item referrals (extends the two-tier system above):** a creator can opt an individual Market item into the referral program (`merch_products.referral_enabled`) so other users can earn a commission for referring buyers — see the Market section below for the mechanics, and `lib/referrals/commissions.ts`'s `awardMerchDigitalReferralCommission`/`awardMerchPhysicalReferralCommission`.
+
+### Market
+
+`/market` (web/PWA) and the mirrored Capacitor Android route unify everything purchasable into one browse page: creator digital/physical items (`merch_products`), platform cosmetics/themes/credits (`store_items`), and boosts/passes (`boost_types`). Backend: `lib/market/query.ts`; API: `GET /api/market` (home sections) and `GET /api/market/section` (paginated "view more" per section).
+
+**Sections** (each capped for a grid preview, with "View more" linking to the full paginated list):
+- **Sponsored** — creator items the creator or admin promoted (`merch_products.is_sponsored`, live while `sponsored_until` is unset or in the future). Capped at 2 grid rows (6 items).
+- **Featured** — admin-curated creator items (`merch_products.is_admin_featured`) and platform items (`store_items.is_featured`), toggled from `/gate44/market`. Capped at 2 grid rows.
+- **Trending** — creator items, weighted-random rotation: every active item can appear, but an item crossing `market_trending_min_orders` completed orders (14-day window intent, admin-configurable via `x_manifest`) gets its selection weight multiplied by `market_trending_boost_weight` (default 2.0×) — this is the "fair rotation, popular items show up slightly more" behavior, computed per-request in SQL (`ORDER BY random() * weight`) with no persistent state or extra Redis calls. Capped at 2 grid rows.
+- **Platform** — all active platform items (cosmetics/themes/credits/boosts). Capped at 3 grid rows (9 items).
+
+**Categories:** Digital, Physical, Cosmetics & Themes, Boosts & Passes, Credits — a category facet on the "view more" page. Creator items are Digital or Physical (by `product_type`); platform items are classified by `store_items.item_type`/`cosmetic_type`, plus the `boost_types` catalog for Boosts & Passes.
+
+**Sort** (price/popularity/rating) applies to creator items only — `popularity` counts completed `merch_orders`, `rating` averages `merch_product_reviews` (a new 1-5 star, verified-purchase review table; no rating concept exists for platform items or a meaningful "popularity" for e.g. a coin pack).
+
+**List/grid toggle** reuses the same pattern as `/rooms` and `/games`.
+
+**Qualified sellers:** Elite+ creators (`creator_tier` in elite/icon/zobia_icon) or a verified, active Business account (`business_accounts.verified = true AND status = 'active'`) — see `lib/merch/eligibility.ts`. Manage a store and add products at `/creator/merch` (web) — this page did not exist before the Market batch; product creation was previously API-only.
+
+**Referral program on Market items** (per-listing opt-in, `merch_products.referral_enabled`):
+- **Digital items** use the platform's standard two-tier commission rate (5% tier 1 / 2% tier 2 of the item price — the same rates as a coin-purchase referral commission), gated by `x_manifest.market_referral_digital_enabled`. Awarded at purchase time.
+- **Physical items** use a creator-set commission % (minimum `market_referral_physical_min_pct`, default 1%) of the sale price, because the full price of a physical good isn't profit. From that %, the platform first takes its standard cut (`market_referral_platform_fee_pct`, default 20% — the same split as the merch 80/20 creator share), and the remainder goes to the *direct* referrer only (single-tier, since the pool is small). Gated by `x_manifest.market_referral_physical_enabled`. Awarded when the buyer confirms receipt (`POST /api/merch/orders/:orderId/confirm-receipt`), not at purchase, since a physical order can still be refunded before then.
+- A product's referral card shows a collapsible "Earn a commission" panel (logged-in users only) with the rate and a ready-to-share link (the viewer's own `?r=` code already attached) plus a copy button — `components/merch/ReferralShareDropdown.tsx` (web) / `components/market/MarketItemCard.tsx`'s `ReferralRow` (Android).
+
+**Boosts & Passes admin catalog:** boost/multiplier types (XP Booster, Quest Accelerator, etc.) used to be a hardcoded map in `app/api/economy/boosters/route.ts`. They now live in the `boost_types` table, editable from `/gate44/boosts` — admin can add a new boost type (multiplier, duration, coin cost) without a code deploy. **Google Play Billing note:** a boost purchased in-app on the web/PWA is paid with Coins directly (`POST /api/economy/boosters`), but for the Capacitor Android app specifically, any *new* purchasable product (a new boost type, or any other new store item) must also be created as a matching product in Google Play Console — Play Billing only recognizes products it knows about. Enter the same product ID as `iapProductId` when creating the boost in `/gate44/boosts`.
+
+**Daily quest:** "Market Run" (`quest_templates.action_type = 'market_purchase'`) is in the regular daily quest pool — completed by any Market purchase (merch item, cosmetic/theme, or boost).
+
+**Profile Themes** (`profile_themes` table) mirror the existing Blog Themes system (`blog_themes`, PRD §32) exactly: a small admin-editable catalog of color skins, sold through the same `store_items`/`user_cosmetics` purchase ledger as everything else in Credits/Stars. Pick/buy one at `/profile/theme` (`GET`/`POST /api/profile-themes(/equip)`); equip sets `users.active_profile_theme_id`. Admin-edit the catalog at `/gate44/profile-themes`. Note: the equip/purchase pipeline is fully wired, but the live profile page does not yet read `active_profile_theme_id` to apply the tokens visually — that render-side hookup is the one remaining piece.
+
 ### Notifications
 
 In-app notifications stored in the `notifications` table. Notification types include: guild war updates, nemesis rank changes, leaderboard rank changes, quest completions, friend activity, DM received, gift received, streak milestones, and season events. Telegram bot notifications are sent for high-priority events if the user has linked their Telegram account (`telegram_id` on users table).
