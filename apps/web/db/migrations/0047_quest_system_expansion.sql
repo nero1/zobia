@@ -119,8 +119,11 @@ CREATE INDEX IF NOT EXISTS idx_sponsored_quest_events_daily_spend ON sponsored_q
 -- One impression per user per quest per day — deck generation is already
 -- locked per user+date (questEngine.ts generateDailyDeck), so this is a
 -- defensive backstop against a retried insert double-billing the budget.
+-- `created_at::date` alone is not IMMUTABLE (it depends on the session
+-- TimeZone GUC), which Postgres rejects in an index expression. Fixing the
+-- zone to UTC via `AT TIME ZONE` makes the cast deterministic and IMMUTABLE.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_sponsored_quest_events_impression_dedupe
-    ON sponsored_quest_events (quest_id, user_id, (created_at::date))
+    ON sponsored_quest_events (quest_id, user_id, ((created_at AT TIME ZONE 'UTC')::date))
     WHERE event_type = 'impression' AND user_id IS NOT NULL;
 
 -- ---------------------------------------------------------------------------

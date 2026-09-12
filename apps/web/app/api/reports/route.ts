@@ -21,7 +21,7 @@ import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 import { classifyReport, type ReportType } from "@/lib/moderation/aiClassifier";
-import { computeClusterKey, findExistingCluster, registerFirstReporter, maybeAutoQuarantine } from "@/lib/moderation/clustering";
+import { computeClusterKey, findExistingCluster, registerFirstReporter, maybeAutoQuarantine, maybeRaiseReportSpikeAlert } from "@/lib/moderation/clustering";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -130,6 +130,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         const existing = await findExistingCluster(tx, clusterKey, auth.user.sub);
         if (existing) {
           await maybeAutoQuarantine(tx, existing.reportId, clusterKey, existing.duplicateCount);
+          await maybeRaiseReportSpikeAlert(tx, clusterKey, existing.duplicateCount);
           return existing.reportId;
         }
         return null;

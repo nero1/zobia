@@ -60,13 +60,17 @@ export const POST = withAdminAuth(
 
       const resolvedAt = new Date().toISOString();
 
+      // Resolving stops the Level 1/2 escalation schedule immediately — no more
+      // pages for this alert until a fresh trigger reopens it (see raiseAlert()).
       const result = await db.query<{ id: string; resolved: boolean }>(
         `UPDATE system_alerts
-         SET resolved        = true,
-             resolved_at     = $1,
-             resolved_by     = $2,
-             resolution_note = $3,
-             updated_at      = NOW()
+         SET resolved            = true,
+             resolved_at         = $1,
+             resolved_by         = $2,
+             resolution_note     = $3,
+             escalation_complete = true,
+             next_escalation_at  = NULL,
+             updated_at          = NOW()
          WHERE id = $4
          RETURNING id, resolved`,
         [resolvedAt, auth.user.sub, note ?? null, alertId]

@@ -15,6 +15,7 @@ import { moveToDeadLetterQueue, getCreatorFeeRate } from "@/lib/payments/payouts
 import { logger } from "@/lib/logger";
 import { contributeToCreatorFund } from "@/lib/creator/fundContribution";
 import { BUSINESS_BILLING_PERIOD_DAYS } from "@/lib/business/limits";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // ---------------------------------------------------------------------------
 // DodoPayments webhook event types
@@ -183,14 +184,15 @@ export async function processPaymentSucceeded(
         // the user was charged twice for signup (e.g. two checkout sessions
         // opened before the first webhook landed). Flag for manual refund.
         logger.error({ providerReference, userId }, "[webhook/dodopayments] business_signup — account already exists under a different payment (possible duplicate charge)");
-        await tx.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('business_signup_duplicate_charge', 'warning', $1, $2::jsonb, NOW())`,
-          [
-            `Business signup payment ${providerReference} completed for user ${userId} who already has a business account — possible duplicate charge, requires manual refund review`,
-            JSON.stringify({ userId, reference: providerReference }),
-          ]
-        );
+        await raiseAlert(tx, {
+          type: "business_signup_duplicate_charge",
+          category: "financial",
+          priorityLevel: 3,
+          title: "Possible duplicate business signup charge",
+          message: `Business signup payment ${providerReference} completed for user ${userId} who already has a business account — possible duplicate charge, requires manual refund review`,
+          metadata: { userId, reference: providerReference },
+          dedupeKey: `business_signup_duplicate_charge:${providerReference}`,
+        });
         return;
       }
 
@@ -245,14 +247,15 @@ export async function processPaymentSucceeded(
           { paymentRef, businessAccountId, newTier },
           "[webhook/dodopayments] business_upgrade activation matched 0 rows (stale or already-applied reference)"
         );
-        await tx.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('business_upgrade_activation_mismatch', 'warning', $1, $2::jsonb, NOW())`,
-          [
-            `Business upgrade activation for account ${businessAccountId} matched 0 rows (reference ${paymentRef})`,
-            JSON.stringify({ businessAccountId, newTier, reference: paymentRef }),
-          ]
-        );
+        await raiseAlert(tx, {
+          type: "business_upgrade_activation_mismatch",
+          category: "financial",
+          priorityLevel: 3,
+          title: "Business upgrade activation mismatch",
+          message: `Business upgrade activation for account ${businessAccountId} matched 0 rows (reference ${paymentRef})`,
+          metadata: { businessAccountId, newTier, reference: paymentRef },
+          dedupeKey: `business_upgrade_activation_mismatch:${businessAccountId}:${paymentRef}`,
+        });
         return;
       }
 
@@ -394,14 +397,15 @@ export async function processPaymentSucceeded(
           { rawPlanName, providerReference, metadata },
           "[webhook/dodopayments] Unrecognised plan name — aborting subscription activation"
         );
-        await tx.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('unknown_dodo_plan', 'warning', $1, $2::jsonb, NOW())`,
-          [
-            `Unknown DodoPayments plan name: "${rawPlanName}"`,
-            JSON.stringify({ providerReference, rawPlanName, metadata }),
-          ]
-        ).catch(() => {});
+        await raiseAlert(tx, {
+          type: "unknown_dodo_plan",
+          category: "financial",
+          priorityLevel: 3,
+          title: "Unknown DodoPayments plan name",
+          message: `Unknown DodoPayments plan name: "${rawPlanName}"`,
+          metadata: { providerReference, rawPlanName, metadata },
+          dedupeKey: `unknown_dodo_plan:${rawPlanName}`,
+        }).catch(() => {});
         return;
       }
       const planName = rawPlanName as (typeof VALID_PLANS)[number];

@@ -31,6 +31,8 @@ const adminNavItems = [
   { href: "/gate44/messages",           label: "Messages",           icon: "💬" },
   { href: "/gate44/contact-messages",   label: "Contact Messages",   icon: "✉️" },
   { href: "/gate44/alerts",             label: "Alerts",             icon: "🔔" },
+  { href: "/gate44/alerts/settings",    label: "Alert Settings",     icon: "📟" },
+  { href: "/gate44/monitoring",         label: "Monitoring",         icon: "📡" },
   { href: "/gate44/config",             label: "Config",             icon: "⚙️" },
   { href: "/gate44/settings/privacy",   label: "Privacy Settings",   icon: "🔒" },
   { href: "/gate44/settings/security",  label: "Security",           icon: "🛡️" },

@@ -523,6 +523,40 @@ export interface ZobiaManifest {
       kickMember: boolean;
     };
   };
+  /**
+   * 6-level admin/mod alert & notification system (PRD §20 "Alerts &
+   * Monitoring"). Per-level channel toggles, Level 1/2 escalation schedule,
+   * and mass-report-spike thresholds. Admin-editable at
+   * /gate44/alerts/settings. See lib/alerts/types.ts for level definitions.
+   */
+  alerting: {
+    /** Per-level channel toggles. Keyed by AlertPriorityLevel (1-6). */
+    channels: Record<1 | 2 | 3 | 4 | 5 | 6, { sms: boolean; email: boolean; telegram: boolean; push: boolean; inApp: boolean }>;
+    escalation: {
+      /** Hour offsets from first trigger for each notification stage within one backoff cycle. */
+      level1HoursSchedule: number[];
+      /** How many times the backoff schedule repeats before switching to the daily phase. */
+      level1Cycles: number;
+      level1DailyPhaseDays: number;
+      level1WeeklyPhaseWeeks: number;
+      level2HoursSchedule: number[];
+      level2Cycles: number;
+      level2DailyPhaseDays: number;
+      level2WeeklyPhaseWeeks: number;
+    };
+    /** Distinct-reporter thresholds (per content cluster) that escalate a mass-report event to the given level. */
+    reportSpike: {
+      level5Threshold: number;
+      level4Threshold: number;
+      level3Threshold: number;
+      /** Sitewide reports/hour across distinct targets — crossing this suggests brigading/an attack, not just one bad post. */
+      level2VelocityThreshold: number;
+    };
+    /** Whether moderators (not just admins) are notified for infra/other-category alerts. Site/security/moderation always notify mods; financial never does. */
+    notifyModsForInfraOther: boolean;
+    /** Active SMS provider key. Only used for Level 1/2 alerts. */
+    smsProvider: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -827,6 +861,34 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
       kickMember: false,
     },
   },
+  alerting: {
+    channels: {
+      1: { sms: true, email: true, telegram: true, push: true, inApp: true },
+      2: { sms: true, email: true, telegram: true, push: true, inApp: true },
+      3: { sms: false, email: true, telegram: true, push: true, inApp: true },
+      4: { sms: false, email: false, telegram: true, push: true, inApp: true },
+      5: { sms: false, email: false, telegram: true, push: false, inApp: true },
+      6: { sms: false, email: false, telegram: false, push: false, inApp: true },
+    },
+    escalation: {
+      level1HoursSchedule: [1, 2, 4, 8, 16, 32],
+      level1Cycles: 3,
+      level1DailyPhaseDays: 7,
+      level1WeeklyPhaseWeeks: 52,
+      level2HoursSchedule: [1, 2, 4, 8, 16, 32],
+      level2Cycles: 1,
+      level2DailyPhaseDays: 3,
+      level2WeeklyPhaseWeeks: 0,
+    },
+    reportSpike: {
+      level5Threshold: 5,
+      level4Threshold: 15,
+      level3Threshold: 40,
+      level2VelocityThreshold: 100,
+    },
+    notifyModsForInfraOther: false,
+    smsProvider: "termii",
+  },
 };
 
 // ---------------------------------------------------------------------------
@@ -887,6 +949,13 @@ function parseStringArray(value: string | undefined, fallback: string[]): string
   } catch {
     return fallback;
   }
+}
+
+/** Parse a string value as a comma-separated list of integers (e.g. "1,2,4,8,16,32"). Returns fallback on any failure. */
+function parseIntArray(value: string | undefined, fallback: number[]): number[] {
+  if (value === undefined) return fallback;
+  const parts = value.split(",").map((p) => parseInt(p.trim(), 10));
+  return parts.length > 0 && parts.every((n) => !isNaN(n)) ? parts : fallback;
 }
 
 /**
@@ -1366,6 +1435,70 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
         muteMember:    parseBool(kv["modcap_guild_mute_member"] ?? "true",   DEFAULT_MANIFEST.moderation.guildModActions.muteMember),
         kickMember:    parseBool(kv["modcap_guild_kick_member"] ?? "false",  DEFAULT_MANIFEST.moderation.guildModActions.kickMember),
       },
+    },
+    alerting: {
+      channels: {
+        1: {
+          sms:      parseBool(kv["alert_level_1_channel_sms"],      DEFAULT_MANIFEST.alerting.channels[1].sms),
+          email:    parseBool(kv["alert_level_1_channel_email"],    DEFAULT_MANIFEST.alerting.channels[1].email),
+          telegram: parseBool(kv["alert_level_1_channel_telegram"], DEFAULT_MANIFEST.alerting.channels[1].telegram),
+          push:     parseBool(kv["alert_level_1_channel_push"],     DEFAULT_MANIFEST.alerting.channels[1].push),
+          inApp:    parseBool(kv["alert_level_1_channel_in_app"],   DEFAULT_MANIFEST.alerting.channels[1].inApp),
+        },
+        2: {
+          sms:      parseBool(kv["alert_level_2_channel_sms"],      DEFAULT_MANIFEST.alerting.channels[2].sms),
+          email:    parseBool(kv["alert_level_2_channel_email"],    DEFAULT_MANIFEST.alerting.channels[2].email),
+          telegram: parseBool(kv["alert_level_2_channel_telegram"], DEFAULT_MANIFEST.alerting.channels[2].telegram),
+          push:     parseBool(kv["alert_level_2_channel_push"],     DEFAULT_MANIFEST.alerting.channels[2].push),
+          inApp:    parseBool(kv["alert_level_2_channel_in_app"],   DEFAULT_MANIFEST.alerting.channels[2].inApp),
+        },
+        3: {
+          sms:      parseBool(kv["alert_level_3_channel_sms"],      DEFAULT_MANIFEST.alerting.channels[3].sms),
+          email:    parseBool(kv["alert_level_3_channel_email"],    DEFAULT_MANIFEST.alerting.channels[3].email),
+          telegram: parseBool(kv["alert_level_3_channel_telegram"], DEFAULT_MANIFEST.alerting.channels[3].telegram),
+          push:     parseBool(kv["alert_level_3_channel_push"],     DEFAULT_MANIFEST.alerting.channels[3].push),
+          inApp:    parseBool(kv["alert_level_3_channel_in_app"],   DEFAULT_MANIFEST.alerting.channels[3].inApp),
+        },
+        4: {
+          sms:      parseBool(kv["alert_level_4_channel_sms"],      DEFAULT_MANIFEST.alerting.channels[4].sms),
+          email:    parseBool(kv["alert_level_4_channel_email"],    DEFAULT_MANIFEST.alerting.channels[4].email),
+          telegram: parseBool(kv["alert_level_4_channel_telegram"], DEFAULT_MANIFEST.alerting.channels[4].telegram),
+          push:     parseBool(kv["alert_level_4_channel_push"],     DEFAULT_MANIFEST.alerting.channels[4].push),
+          inApp:    parseBool(kv["alert_level_4_channel_in_app"],   DEFAULT_MANIFEST.alerting.channels[4].inApp),
+        },
+        5: {
+          sms:      parseBool(kv["alert_level_5_channel_sms"],      DEFAULT_MANIFEST.alerting.channels[5].sms),
+          email:    parseBool(kv["alert_level_5_channel_email"],    DEFAULT_MANIFEST.alerting.channels[5].email),
+          telegram: parseBool(kv["alert_level_5_channel_telegram"], DEFAULT_MANIFEST.alerting.channels[5].telegram),
+          push:     parseBool(kv["alert_level_5_channel_push"],     DEFAULT_MANIFEST.alerting.channels[5].push),
+          inApp:    parseBool(kv["alert_level_5_channel_in_app"],   DEFAULT_MANIFEST.alerting.channels[5].inApp),
+        },
+        6: {
+          sms:      parseBool(kv["alert_level_6_channel_sms"],      DEFAULT_MANIFEST.alerting.channels[6].sms),
+          email:    parseBool(kv["alert_level_6_channel_email"],    DEFAULT_MANIFEST.alerting.channels[6].email),
+          telegram: parseBool(kv["alert_level_6_channel_telegram"], DEFAULT_MANIFEST.alerting.channels[6].telegram),
+          push:     parseBool(kv["alert_level_6_channel_push"],     DEFAULT_MANIFEST.alerting.channels[6].push),
+          inApp:    parseBool(kv["alert_level_6_channel_in_app"],   DEFAULT_MANIFEST.alerting.channels[6].inApp),
+        },
+      },
+      escalation: {
+        level1HoursSchedule:   parseIntArray(kv["alert_level1_escalation_schedule"], DEFAULT_MANIFEST.alerting.escalation.level1HoursSchedule),
+        level1Cycles:          parseInt10(kv["alert_level1_escalation_cycles"], DEFAULT_MANIFEST.alerting.escalation.level1Cycles),
+        level1DailyPhaseDays:  parseInt10(kv["alert_level1_daily_phase_days"], DEFAULT_MANIFEST.alerting.escalation.level1DailyPhaseDays),
+        level1WeeklyPhaseWeeks: parseInt10(kv["alert_level1_weekly_phase_weeks"], DEFAULT_MANIFEST.alerting.escalation.level1WeeklyPhaseWeeks),
+        level2HoursSchedule:   parseIntArray(kv["alert_level2_escalation_schedule"], DEFAULT_MANIFEST.alerting.escalation.level2HoursSchedule),
+        level2Cycles:          parseInt10(kv["alert_level2_escalation_cycles"], DEFAULT_MANIFEST.alerting.escalation.level2Cycles),
+        level2DailyPhaseDays:  parseInt10(kv["alert_level2_daily_phase_days"], DEFAULT_MANIFEST.alerting.escalation.level2DailyPhaseDays),
+        level2WeeklyPhaseWeeks: parseInt10(kv["alert_level2_weekly_phase_weeks"], DEFAULT_MANIFEST.alerting.escalation.level2WeeklyPhaseWeeks),
+      },
+      reportSpike: {
+        level5Threshold:         parseInt10(kv["alert_report_spike_level5_threshold"], DEFAULT_MANIFEST.alerting.reportSpike.level5Threshold),
+        level4Threshold:         parseInt10(kv["alert_report_spike_level4_threshold"], DEFAULT_MANIFEST.alerting.reportSpike.level4Threshold),
+        level3Threshold:         parseInt10(kv["alert_report_spike_level3_threshold"], DEFAULT_MANIFEST.alerting.reportSpike.level3Threshold),
+        level2VelocityThreshold: parseInt10(kv["alert_report_spike_level2_velocity_threshold"], DEFAULT_MANIFEST.alerting.reportSpike.level2VelocityThreshold),
+      },
+      notifyModsForInfraOther: parseBool(kv["alert_notify_mods_infra_other"], DEFAULT_MANIFEST.alerting.notifyModsForInfraOther),
+      smsProvider: kv["alert_sms_provider"] ?? DEFAULT_MANIFEST.alerting.smsProvider,
     },
   };
 }

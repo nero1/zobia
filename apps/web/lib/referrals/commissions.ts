@@ -19,6 +19,7 @@ import { getManifestValue } from "@/lib/manifest";
 import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { logger } from "@/lib/logger";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 // Schema-derived types: column name validation at compile time.
 // schema.users.referredBy.name === "referred_by" — any rename triggers a TS error.
 import { schema } from "@/lib/db/schema";
@@ -293,14 +294,15 @@ export async function retryFailedCommissions(): Promise<{ retried: number; resol
         if (newCount >= MAX_COMMISSION_RETRIES) {
           permanentFailed++;
           logger.error({ paymentId: row.payment_id, userId: row.user_id, newCount }, "[commissions] Commission permanently failed after max retries");
-          await tx.query(
-            `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-             VALUES ('commission_permanent_failure', 'critical', $1, $2::jsonb, NOW())`,
-            [
-              `Referral commission for payment ${row.payment_id} failed after ${MAX_COMMISSION_RETRIES} retries`,
-              JSON.stringify({ paymentId: row.payment_id, userId: row.user_id, retryCount: newCount }),
-            ]
-          ).catch(() => {});
+          await raiseAlert(tx, {
+            type: "commission_permanent_failure",
+            category: "financial",
+            priorityLevel: 2,
+            title: "Referral commission permanently failed",
+            message: `Referral commission for payment ${row.payment_id} failed after ${MAX_COMMISSION_RETRIES} retries`,
+            metadata: { paymentId: row.payment_id, userId: row.user_id, retryCount: newCount },
+            dedupeKey: `commission_permanent_failure:${row.payment_id}`,
+          }).catch(() => {});
         }
       }
     }

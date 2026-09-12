@@ -17,6 +17,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // Patterns that indicate extension or third-party injection — not actionable
 const NOISE_PATTERNS = [
@@ -70,14 +71,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     const blockedUri = String(report["blocked-uri"] ?? report["blockedURL"] ?? "");
 
     // Persist to system_alerts (best-effort — never fail the response)
-    db.query(
-      `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-       VALUES ('csp_violation', 'low', $1, $2::jsonb, NOW())`,
-      [
-        `CSP violation: ${violatedDirective} blocked ${blockedUri || "(inline)"}`,
-        JSON.stringify({ documentUri, violatedDirective, blockedUri, raw: report }),
-      ]
-    ).catch(() => {});
+    raiseAlert(db, {
+      type: "csp_violation",
+      category: "security",
+      priorityLevel: 6,
+      title: "CSP violation reported",
+      message: `CSP violation: ${violatedDirective} blocked ${blockedUri || "(inline)"}`,
+      metadata: { documentUri, violatedDirective, blockedUri, raw: report },
+      dedupeKey: `csp_violation:${violatedDirective}:${blockedUri}`,
+    }).catch(() => {});
   }
 
   // Always return 204 — browsers don't need a body

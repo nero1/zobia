@@ -7,6 +7,7 @@
 import type { DatabaseAdapter } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { getManifestValue } from "@/lib/manifest";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 export async function checkDlqDepth(
   db: DatabaseAdapter
@@ -22,16 +23,15 @@ export async function checkDlqDepth(
   const threshold = thresholdRaw ? parseInt(thresholdRaw, 10) || 100 : 100;
 
   if (depth >= threshold) {
-    await db
-      .query(
-        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('dlq_depth_exceeded', 'critical', $1, $2::jsonb, NOW())`,
-        [
-          `XP dead-letter queue depth ${depth} exceeds threshold ${threshold}`,
-          JSON.stringify({ depth, threshold }),
-        ]
-      )
-      .catch(() => {});
+    await raiseAlert(db, {
+      type: "dlq_depth_exceeded",
+      category: "infra",
+      priorityLevel: 3,
+      title: "XP dead-letter queue depth exceeded",
+      message: `XP dead-letter queue depth ${depth} exceeds threshold ${threshold}`,
+      metadata: { depth, threshold },
+      dedupeKey: "dlq_depth_exceeded",
+    }).catch(() => {});
 
     logger.error({ depth, threshold }, `[dlqMonitor] DLQ depth ${depth} exceeds threshold ${threshold}`);
     return { depth, alerted: true };

@@ -20,6 +20,7 @@
 import { redis } from "@/lib/redis";
 import { logger } from "@/lib/logger";
 import { db } from "@/lib/db";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 /** TTL in seconds for the pin_ok key after a successful PIN verification. */
 export const PIN_OK_TTL_SECONDS = 5 * 60; // 5 minutes
@@ -60,14 +61,15 @@ export async function requirePinVerified(userId: string, sessionId: string): Pro
   } catch (err) {
     // Fail closed on Redis outage — do not allow sensitive operations
     logger.error({ err, userId, sessionId }, "[pinGuard] Redis unavailable — failing closed");
-    await db.query(
-      `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-       VALUES ('redis_unavailable', 'critical', $1, $2::jsonb, NOW())`,
-      [
-        `pinGuard: Redis unavailable for user ${userId}`,
-        JSON.stringify({ userId, sessionId }),
-      ]
-    ).catch(() => {});
+    await raiseAlert(db, {
+      type: "redis_unavailable",
+      category: "infra",
+      priorityLevel: 1,
+      title: "Redis unavailable — PIN guard failing closed",
+      message: `pinGuard: Redis unavailable for user ${userId}`,
+      metadata: { userId, sessionId },
+      dedupeKey: "redis_unavailable",
+    }).catch(() => {});
     return false;
   }
 }

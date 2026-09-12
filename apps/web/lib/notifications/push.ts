@@ -21,6 +21,7 @@ import { atomicIncrWithTtl } from "@/lib/redis/helpers";
 import { logger } from "@/lib/logger";
 import { sendFcmBatch, type FcmMessage } from "@/lib/notifications/fcm";
 import { sendWebPushBatch, type WebPushMessage } from "@/lib/notifications/webPush";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -197,14 +198,15 @@ async function sendExpoBatch(
       const text = await response.text().catch(() => "(unreadable)");
       logger.error({ status: response.status, recipientCount: messages.length }, `[push] Expo API returned ${response.status}: ${text}`);
       // BUG-12: write system_alert so ops can detect silent notification loss
-      await db.query(
-        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('push_notification_batch_failed', 'warning', $1, $2::jsonb, NOW())`,
-        [
-          `Expo push batch failed with HTTP ${response.status}`,
-          JSON.stringify({ status: response.status, recipientCount: messages.length }),
-        ]
-      ).catch(() => {});
+      await raiseAlert(db, {
+        type: "push_notification_batch_failed",
+        category: "infra",
+        priorityLevel: 4,
+        title: "Expo push batch failed",
+        message: `Expo push batch failed with HTTP ${response.status}`,
+        metadata: { status: response.status, recipientCount: messages.length },
+        dedupeKey: "push_notification_batch_failed",
+      }).catch(() => {});
       return staleTokens;
     }
 

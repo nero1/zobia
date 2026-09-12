@@ -16,6 +16,7 @@
 import type { DatabaseAdapter } from "@/lib/db/interface";
 import { logger } from "@/lib/logger";
 import { getManifestValue } from "@/lib/manifest";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -95,16 +96,14 @@ export async function checkPayoutFraud(
 
   if (isSuspicious) {
     // Log to system_alerts — best-effort, never blocks the calling flow
-    await db
-      .query(
-        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('payout_fraud_flag', 'critical', $1, $2::jsonb, NOW())`,
-        [
-          `Payout fraud flag: creator ${creatorId} requested ₦${(grossKobo / 100).toFixed(2)}. Reasons: ${reasons.join('; ')}`,
-          JSON.stringify({ creatorId, grossKobo, reasons }),
-        ]
-      )
-      .catch(() => {});
+    await raiseAlert(db, {
+      type: "payout_fraud_flag",
+      category: "financial",
+      priorityLevel: 3,
+      title: "Payout fraud flag",
+      message: `Payout fraud flag: creator ${creatorId} requested ₦${(grossKobo / 100).toFixed(2)}. Reasons: ${reasons.join('; ')}`,
+      metadata: { creatorId, grossKobo, reasons },
+    }).catch(() => {});
 
     // FRAUD-03: Use SYSTEM_ACTOR_ID instead of NULL — admin_audit_log.admin_id is NOT NULL
     await db

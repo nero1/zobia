@@ -21,6 +21,7 @@ import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getOwnCampaign, listCreatives, submitCampaignForModeration } from "@/lib/ads/repo";
 import { logger } from "@/lib/logger";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 interface Ctx {
   params: Promise<{ campaignId: string }>;
@@ -60,16 +61,15 @@ export const POST = withAuth(async (_req: NextRequest, { params, auth }: Ctx) =>
     const { moderationStatus, reason } = await submitCampaignForModeration(campaign, advertiserName);
 
     if (moderationStatus === "pending") {
-      await db
-        .query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('ad_campaign_pending_review', 'info', $1, $2::jsonb, NOW())`,
-          [
-            `Advertiser "${advertiserName}" submitted an ad campaign ("${campaign.name}") pending moderation.`,
-            JSON.stringify({ campaignId, businessAccountId: campaign.business_account_id }),
-          ]
-        )
-        .catch((err) => logger.error({ err }, "[business/ads/submit] failed to write system_alert"));
+      await raiseAlert(db, {
+        type: "ad_campaign_pending_review",
+        category: "moderation",
+        priorityLevel: 6,
+        title: "Ad campaign pending review",
+        message: `Advertiser "${advertiserName}" submitted an ad campaign ("${campaign.name}") pending moderation.`,
+        metadata: { campaignId, businessAccountId: campaign.business_account_id },
+        dedupeKey: `ad_campaign_pending_review:${campaignId}`,
+      }).catch((err) => logger.error({ err }, "[business/ads/submit] failed to write system_alert"));
     }
 
     return NextResponse.json({ success: true, data: { campaignId, moderationStatus, reason }, error: null });

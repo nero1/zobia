@@ -13,6 +13,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, forbidden, notFound, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 const AppealSchema = z.object({
   reason: z
@@ -77,16 +78,15 @@ export const POST = withAuth(
       );
 
       // Notify admin via system_alert
-      await db
-        .query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('payout_appeal', 'warning', $1, $2::jsonb, NOW())`,
-          [
-            `Creator ${userId} submitted an appeal for rejected payout ${payoutId}.`,
-            JSON.stringify({ payoutId, creatorId: userId, reason: body.reason }),
-          ]
-        )
-        .catch(() => {});
+      await raiseAlert(db, {
+        type: "payout_appeal",
+        category: "financial",
+        priorityLevel: 4,
+        title: "Payout appeal submitted",
+        message: `Creator ${userId} submitted an appeal for rejected payout ${payoutId}.`,
+        metadata: { payoutId, creatorId: userId, reason: body.reason },
+        dedupeKey: `payout_appeal:${payoutId}`,
+      }).catch(() => {});
 
       return NextResponse.json({
         success: true,

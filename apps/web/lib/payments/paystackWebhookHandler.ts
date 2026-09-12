@@ -17,6 +17,7 @@ import { loadManifest } from "@/lib/manifest";
 import { contributeToCreatorFund } from "@/lib/creator/fundContribution";
 import { logger } from "@/lib/logger";
 import { BUSINESS_BILLING_PERIOD_DAYS } from "@/lib/business/limits";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // ---------------------------------------------------------------------------
 // Paystack webhook event types (subset)
@@ -172,14 +173,15 @@ export async function processChargeSuccess(
           { rawPlanName, reference, metadata },
           "[webhook/paystack] Unrecognised plan name — aborting subscription activation"
         );
-        await tx.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('unknown_paystack_plan', 'warning', $1, $2::jsonb, NOW())`,
-          [
-            `Unknown Paystack plan name: "${rawPlanName}"`,
-            JSON.stringify({ reference, rawPlanName, metadata }),
-          ]
-        ).catch(() => {});
+        await raiseAlert(tx, {
+          type: "unknown_paystack_plan",
+          category: "financial",
+          priorityLevel: 3,
+          title: "Unknown Paystack plan name",
+          message: `Unknown Paystack plan name: "${rawPlanName}"`,
+          metadata: { reference, rawPlanName, metadata },
+          dedupeKey: `unknown_paystack_plan:${rawPlanName}`,
+        }).catch(() => {});
         return;
       }
       const planName = rawPlanName as (typeof VALID_PLANS)[number];
@@ -349,14 +351,15 @@ export async function processChargeSuccess(
         // the user was charged twice for signup (e.g. two checkout sessions
         // opened before the first webhook landed). Flag for manual refund.
         logger.error({ reference, userId }, "[webhook/paystack] business_signup — account already exists under a different payment (possible duplicate charge)");
-        await tx.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('business_signup_duplicate_charge', 'warning', $1, $2::jsonb, NOW())`,
-          [
-            `Business signup payment ${reference} completed for user ${userId} who already has a business account — possible duplicate charge, requires manual refund review`,
-            JSON.stringify({ userId, reference }),
-          ]
-        );
+        await raiseAlert(tx, {
+          type: "business_signup_duplicate_charge",
+          category: "financial",
+          priorityLevel: 3,
+          title: "Possible duplicate business signup charge",
+          message: `Business signup payment ${reference} completed for user ${userId} who already has a business account — possible duplicate charge, requires manual refund review`,
+          metadata: { userId, reference },
+          dedupeKey: `business_signup_duplicate_charge:${reference}`,
+        });
         return;
       }
 
@@ -403,14 +406,15 @@ export async function processChargeSuccess(
       // a system_alert for manual reconciliation instead.
       if (activationResult.rowCount === 0) {
         logger.error({ reference, businessAccountId, newTier }, "[webhook/paystack] business_upgrade activation matched 0 rows (stale or already-applied reference)");
-        await tx.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('business_upgrade_activation_mismatch', 'warning', $1, $2::jsonb, NOW())`,
-          [
-            `Business upgrade activation for account ${businessAccountId} matched 0 rows (reference ${reference})`,
-            JSON.stringify({ businessAccountId, newTier, reference }),
-          ]
-        );
+        await raiseAlert(tx, {
+          type: "business_upgrade_activation_mismatch",
+          category: "financial",
+          priorityLevel: 3,
+          title: "Business upgrade activation mismatch",
+          message: `Business upgrade activation for account ${businessAccountId} matched 0 rows (reference ${reference})`,
+          metadata: { businessAccountId, newTier, reference },
+          dedupeKey: `business_upgrade_activation_mismatch:${businessAccountId}:${reference}`,
+        });
         return;
       }
 
@@ -485,14 +489,15 @@ export async function processChargeSuccess(
               `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE provider_reference = $1`,
               [reference]
             ).catch(() => {});
-            await tx.query(
-              `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-               VALUES ('purchase_expired_item', 'warning', $1, $2::jsonb, NOW())`,
-              [
-                `Purchase ${reference} for expired item ${metadata.packId} — requires manual refund review`,
-                JSON.stringify({ reference, packId: metadata.packId, paidAt, validUntil }),
-              ]
-            ).catch(() => {});
+            await raiseAlert(tx, {
+              type: "purchase_expired_item",
+              category: "financial",
+              priorityLevel: 3,
+              title: "Purchase for expired store item",
+              message: `Purchase ${reference} for expired item ${metadata.packId} — requires manual refund review`,
+              metadata: { reference, packId: metadata.packId, paidAt, validUntil },
+              dedupeKey: `purchase_expired_item:${reference}`,
+            }).catch(() => {});
             return;
           }
         }
@@ -506,14 +511,15 @@ export async function processChargeSuccess(
             `UPDATE payments SET status = 'underpaid', updated_at = NOW() WHERE provider_reference = $1`,
             [reference]
           ).catch(() => {});
-          await tx.query(
-            `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-             VALUES ('underpayment', 'critical', $1, $2::jsonb, NOW())`,
-            [
-              `Underpayment for reference ${reference}: paid ${amount}, expected ${packRows[0].price_kobo}`,
-              JSON.stringify({ reference, amount, priceKobo: packRows[0].price_kobo, userId, packId: metadata.packId }),
-            ]
-          ).catch(() => {});
+          await raiseAlert(tx, {
+            type: "underpayment",
+            category: "financial",
+            priorityLevel: 2,
+            title: "Underpayment detected",
+            message: `Underpayment for reference ${reference}: paid ${amount}, expected ${packRows[0].price_kobo}`,
+            metadata: { reference, amount, priceKobo: packRows[0].price_kobo, userId, packId: metadata.packId },
+            dedupeKey: `underpayment:${reference}`,
+          }).catch(() => {});
           return;
         }
       }
@@ -788,14 +794,15 @@ export async function processSubscriptionEvent(
 
     if (!derivedPlan) {
       logger.error({ planName: event.data.plan?.name, subscriptionCode: subscription_code, userId: resolvedUserId }, "[webhook/paystack] Unrecognised plan name — no plan activated");
-      await db.query(
-        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('unknown_plan_code', 'critical', $1, $2::jsonb, NOW())`,
-        [
-          `Unknown Paystack plan name: ${event.data.plan?.name}`,
-          JSON.stringify({ subscriptionCode: subscription_code, planName: event.data.plan?.name, userId: resolvedUserId }),
-        ]
-      ).catch(() => {});
+      await raiseAlert(db, {
+        type: "unknown_plan_code",
+        category: "financial",
+        priorityLevel: 2,
+        title: "Unknown Paystack subscription plan code",
+        message: `Unknown Paystack plan name: ${event.data.plan?.name}`,
+        metadata: { subscriptionCode: subscription_code, planName: event.data.plan?.name, userId: resolvedUserId },
+        dedupeKey: `unknown_plan_code:${subscription_code}`,
+      }).catch(() => {});
       return;
     }
 

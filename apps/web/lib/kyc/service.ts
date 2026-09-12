@@ -47,6 +47,8 @@ import { analyzeDocument } from "@/lib/kyc/geminiVision";
 import { storage } from "@/lib/storage";
 import { createCustomer, validateCustomerIdentity } from "@/lib/payments/paystack";
 import { logger } from "@/lib/logger";
+import { raiseAlert } from "@/lib/alerts/dispatch";
+import type { AlertPriorityLevel } from "@/lib/alerts/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -161,12 +163,20 @@ async function attachDocuments(tx: TransactionClient, submissionId: string, user
   );
 }
 
-async function alertAdmins(type: string, message: string, metadata: Record<string, unknown>): Promise<void> {
-  await db.query(
-    `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-     VALUES ($1, 'low', $2, $3::jsonb, NOW())`,
-    [type, message, JSON.stringify(metadata)]
-  ).catch(() => {});
+async function alertAdmins(
+  type: string,
+  message: string,
+  metadata: Record<string, unknown>,
+  priorityLevel: AlertPriorityLevel = 6
+): Promise<void> {
+  await raiseAlert(db, {
+    type,
+    category: "other",
+    priorityLevel,
+    title: message,
+    message,
+    metadata,
+  }).catch(() => {});
 }
 
 async function notifyUser(userId: string, type: string, title: string, body: string, metadata?: Record<string, unknown>): Promise<void> {
@@ -450,7 +460,7 @@ async function finalizeAiReview(
   } else if (combinedScore < manifest.kyc.aiEscalateBelowThreshold) {
     await db.query(`UPDATE kyc_submissions SET status = 'manual_review', ai_escalated = true, updated_at = NOW() WHERE id = $1`, [submissionId]);
     await notifyUser(userId, "kyc_escalated", "KYC under review", "We need a bit more time to review your verification. This may take a few days.", { submissionId });
-    await alertAdmins("kyc_ai_escalation", "AI-reviewed KYC submission escalated to manual review", { submissionId, combinedScore });
+    await alertAdmins("kyc_ai_escalation", "AI-reviewed KYC submission escalated to manual review", { submissionId, combinedScore }, 5);
   } else {
     // Mid-confidence band: not confident enough to auto-approve, not low enough to
     // treat as likely-fraudulent — still a human call, but not flagged as an escalation.
