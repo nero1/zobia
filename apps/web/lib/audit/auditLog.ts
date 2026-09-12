@@ -39,7 +39,17 @@ export type AuditAction =
   | "admin_enable_guild"
   | "admin_delete_guild"
   | "admin_transfer_guild_captain"
-  | "admin_remove_guild_member";
+  | "admin_remove_guild_member"
+  // Centralized Data Management (/gate44/data-management)
+  | "data_management_stats_read"
+  | "admin_export_users"
+  | "admin_export_accounts"
+  | "admin_import_users_job_created"
+  | "admin_import_users_job_batch"
+  | "admin_import_users_job_completed"
+  | "admin_create_user"
+  | "admin_edit_user"
+  | "admin_delete_user";
 
 export interface AuditLogParams {
   actorId?: string | null;

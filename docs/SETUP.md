@@ -428,6 +428,19 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    > vars — reuses the existing Credits/XP award helpers. See PRD §36 and
    > `docs/HOW-IT-WORKS.md`'s "Polls & Quizzes" section.
 
+   > **Centralized Data Management:** the new `admin_data_import_jobs` table
+   > (tracks chunked NDJSON account-import jobs) and composite/partial
+   > indexes on `users` for the filtered export queries (`idx_users_export_filter`,
+   > `idx_users_export_created_at`, `idx_users_export_trust_score`,
+   > `idx_users_export_country`) ship in
+   > `db/migrations/0041_admin_data_management.sql` (picked up automatically
+   > by `npm run migrate`, or
+   > `psql "$DIRECT_URL" < db/migrations/0041_admin_data_management.sql`).
+   > No new env vars. Adds a new `exceljs` dependency to `apps/web/package.json`
+   > (streaming XLSX export for `/gate44/data-management`) — pulled in by the
+   > normal root `npm install`. See `docs/HOW-IT-WORKS.md`'s "Data Management"
+   > section.
+
 ### Option B: Railway PostgreSQL
 
 1. Go to [railway.app](https://railway.app) and create a new project.

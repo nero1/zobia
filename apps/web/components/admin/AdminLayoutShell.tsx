@@ -17,6 +17,7 @@ import { clsx } from "clsx";
 const adminNavItems = [
   { href: "/gate44",                    label: "Dashboard",          icon: "◼" },
   { href: "/gate44/users",              label: "Users",              icon: "👥" },
+  { href: "/gate44/data-management",    label: "Data Management",    icon: "🗄️" },
   { href: "/gate44/moderation",         label: "Moderation",         icon: "🚩" },
   { href: "/gate44/moderation/settings", label: "Moderation Settings", icon: "🛡️" },
   { href: "/watch56",                  label: "Moderation Center",  icon: "🧭" },
