@@ -7280,6 +7280,74 @@ every edit kept as a reviewable/restorable revision.
 
 ---
 
-*ZobiaSocial PRD v2.22*
+## Appendix: Version 2.23 Change Log
+
+### v2.23 — Changelog
+
+#### Fix: Wallet totals boxes overflow with large numbers (§11)
+
+The three Wallet balance boxes (XP / Credits / Stars) used a fixed
+`grid-cols-3` layout with no minimum-width handling; a long number (this
+app supports balances up to 15 digits) doesn't wrap (numbers have no
+whitespace to break on), so it overflowed its own box and was painted over
+by the next box's opaque background — effectively hiding the tail of the
+number. Fixed by:
+- Switching the row from a fixed 3-column grid to `flex flex-wrap`, so a
+  box can grow to fit a long number and, if all three no longer fit on one
+  row, the overflow box gracefully wraps to a new line instead of bleeding
+  into its neighbour.
+- Scaling the number's font size down as its digit count grows
+  (`balanceFontSizeClass`), so even a 15-digit balance stays legible and
+  on one line in the common case.
+- Adding `tabular-nums` and a `title` attribute (full value) on the number.
+- Mirrored identically in the Capacitor Android app's wallet screen
+  (`apps/android/src/routes/wallet.tsx`).
+
+#### Fix: Wallet transaction history — name the game, not the internal source code (§11)
+
+Game win/challenge-win/wager transactions in the wallet history showed the
+internal reward-source constant verbatim (e.g. "Game reward: game_win"),
+which is meaningless to a user who plays dozens of games. `grantGamingReward`
+(`lib/games/rewards.ts`) now accepts the game's display name and builds the
+transaction description from it (e.g. "Game reward: Zobia Tetris"),
+threaded through from `finalizeScore` (`lib/games/sessions.ts`) and the
+challenge-series win/wager-stake/wager-payout paths
+(`lib/games/challenges.ts`, e.g. "Challenge wager stake: Zobia Tetris").
+Reward sources with no single associated game (cross-game play milestones)
+fall back to a friendly label ("Game reward: Play milestone") instead of
+the raw source constant.
+
+#### Enhancement: Creator earnings — withdrawal threshold progress bar (§14, §18)
+
+The Creator dashboard (`/creator`) already had a Payouts section with
+request buttons and payout history; it was missing visibility into *how
+close* a creator is to the minimum payout threshold before those buttons
+would actually succeed (previously they were always enabled and only
+failed server-side with `BELOW_MINIMUM_PAYOUT`). Added:
+- `GET /api/creator/payouts` now also returns `minPayoutKobo` (the
+  admin-configured minimum payout threshold, §14).
+- A `ThresholdProgressBar` on `/creator`: amber fill + remaining-amount
+  copy while `availableEarningsKobo` is below `minPayoutKobo`, teal fill +
+  "✅ Withdrawal threshold reached" once it's met. The bank-transfer and
+  crypto request buttons are disabled (with a tooltip) until the threshold
+  is met; Coins conversion has no minimum and stays enabled whenever the
+  balance is positive.
+- The Wallet page's "Income This Month" card (previously only shown when
+  there was income or a pending payout this month) now always renders for
+  creators, with the same threshold progress bar and a "Manage & Withdraw →"
+  link to `/creator`, so a creator with a bit of pending revenue but $0
+  logged "this month" can still see how close they are to unlocking a
+  withdrawal.
+- Mirrored feature-for-feature in the Capacitor Android app: the same
+  `ThresholdProgressBar` on `/creator`'s payout section, and a new
+  `CreatorEarningsCard` on the wallet screen (rendered only when
+  `payoutConfig` is non-null, i.e. the signed-in user is a creator).
+
+No new migration — this reuses the existing `payout_threshold_kobo`
+manifest setting (already admin-configurable at `/gate44`).
+
+---
+
+*ZobiaSocial PRD v2.23*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

@@ -25,21 +25,33 @@ export interface RewardBundle {
   stars: number;
 }
 
+/** Human-friendly fallback labels for reward sources that aren't tied to a single game. */
+const FRIENDLY_SOURCE_LABELS: Record<string, string> = {
+  game_play_milestone: "Play milestone",
+};
+
 /**
  * Grant a bundle of credits / gaming-XP / stars to a user, idempotently.
  * Recomputes the user's gaming level and fires any newly reached gaming track
  * milestones. Returns the bundle actually granted (zeros are skipped).
+ *
+ * `gameName` (when known) is used to build a specific wallet transaction
+ * description, e.g. "Game reward: Zobia Tetris" instead of the generic
+ * "Game reward: game_win" — see wallet transaction history.
  */
 export async function grantGamingReward(
   userId: string,
   bundle: RewardBundle,
   source: string,
   referenceId: string,
-  client?: TransactionClient
+  client?: TransactionClient,
+  gameName?: string | null
 ): Promise<RewardBundle> {
   const credits = Math.max(0, Math.floor(bundle.credits));
   const xp = Math.max(0, Math.floor(bundle.xp));
   const stars = Math.max(0, Math.floor(bundle.stars));
+  const label = gameName ?? FRIENDLY_SOURCE_LABELS[source] ?? source;
+  const description = `Game reward: ${label}`;
 
   if (credits > 0) {
     await creditCoins(
@@ -47,8 +59,8 @@ export async function grantGamingReward(
       credits,
       "game_reward",
       `${referenceId}:credits`,
-      `Game reward: ${source}`,
-      { source },
+      description,
+      { source, gameName: gameName ?? undefined },
       client
     ).catch((err) => logger.error({ userId, source }, `[games] credit reward failed: ${err}`));
   }
@@ -59,7 +71,7 @@ export async function grantGamingReward(
       stars,
       "game_reward",
       `${referenceId}:stars`,
-      `Game reward: ${source}`,
+      description,
       client
     ).catch((err) => logger.error({ userId, source }, `[games] star reward failed: ${err}`));
   }

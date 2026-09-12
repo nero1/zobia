@@ -60,6 +60,8 @@ interface BoosterPack {
 
 interface EarningsData {
   totalMonthNgn: number;
+  availableEarningsKobo: number;
+  minPayoutKobo: number;
   pendingPayouts: { id: string; amount: number; currency: string; method: string; status: string; createdAt: string }[];
 }
 
@@ -109,41 +111,62 @@ function WalletSkeleton() {
 // Balance Cards
 // ---------------------------------------------------------------------------
 
+/**
+ * Shrinks the number's font size as its digit count grows so that even a
+ * 15-digit balance stays on one line inside its box instead of overflowing
+ * into (and being visually clipped by) the next box.
+ */
+function balanceFontSizeClass(value: number): string {
+  const digits = Math.abs(Math.trunc(value)).toString().length;
+  if (digits > 12) return "text-sm";
+  if (digits > 9) return "text-base";
+  if (digits > 6) return "text-lg";
+  return "text-xl";
+}
+
+function BalanceBox({
+  label,
+  emoji,
+  value,
+  caption,
+}: {
+  label: string;
+  emoji: string;
+  value: number;
+  caption: string;
+}) {
+  const formatted = value.toLocaleString();
+  return (
+    <div className="min-w-[9.5rem] flex-1 basis-[9.5rem] rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{label}</p>
+      <div className="mt-2 flex items-center gap-1.5">
+        <span className="shrink-0 text-xl">{emoji}</span>
+        <span
+          className={`font-bold tabular-nums text-neutral-900 dark:text-neutral-50 ${balanceFontSizeClass(value)}`}
+          title={formatted}
+        >
+          {formatted}
+        </span>
+      </div>
+      <p className="mt-1 text-xs text-neutral-400">{caption}</p>
+    </div>
+  );
+}
+
 function BalanceCard({ balance, activePlan, currency }: { balance: Balance; activePlan: string | null; currency: CurrencyNames }) {
   const plan = activePlan ?? balance.plan ?? "Free";
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-3 gap-3">
-        <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">XP</p>
-          <div className="mt-2 flex items-center gap-1.5">
-            <span className="text-xl">⚡</span>
-            <span className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
-              {(balance.xp ?? 0).toLocaleString()}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-neutral-400">Experience</p>
-        </div>
-        <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{currency.softPlural}</p>
-          <div className="mt-2 flex items-center gap-1.5">
-            <span className="text-xl">🪙</span>
-            <span className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
-              {balance.coins.toLocaleString()}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-neutral-400">Soft currency</p>
-        </div>
-        <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{currency.premiumPlural}</p>
-          <div className="mt-2 flex items-center gap-1.5">
-            <span className="text-xl">⭐</span>
-            <span className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
-              {balance.stars.toLocaleString()}
-            </span>
-          </div>
-          <p className="mt-1 text-xs text-neutral-400">Premium</p>
-        </div>
+      {/*
+       * Flex-wrap (not a fixed 3-col grid) so a box holding a very long
+       * number can grow to fit its content and, if there isn't room for all
+       * three on one row, the next box gracefully wraps to a new line
+       * instead of overflowing and getting painted over by its neighbour.
+       */}
+      <div className="flex flex-wrap gap-3">
+        <BalanceBox label="XP" emoji="⚡" value={balance.xp ?? 0} caption="Experience" />
+        <BalanceBox label={currency.softPlural} emoji="🪙" value={balance.coins} caption="Soft currency" />
+        <BalanceBox label={currency.premiumPlural} emoji="⭐" value={balance.stars} caption="Premium" />
       </div>
       <div className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white px-5 py-3 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
         <div>
@@ -198,11 +221,22 @@ function RankBadgesSummary({ rank }: { rank: RankSummary }) {
 // ---------------------------------------------------------------------------
 
 function EarningsSection({ earnings }: { earnings: EarningsData }) {
+  const met = earnings.availableEarningsKobo >= earnings.minPayoutKobo;
+  const pct = earnings.minPayoutKobo > 0
+    ? Math.min(100, Math.round((earnings.availableEarningsKobo / earnings.minPayoutKobo) * 100))
+    : 100;
+  const remainingNgn = Math.max(0, Math.ceil((earnings.minPayoutKobo - earnings.availableEarningsKobo) / 100));
+
   return (
     <div className="space-y-3">
       {/* Income this month */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Income This Month</p>
+        <div className="flex items-center justify-between">
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">Income This Month</p>
+          <Link href="/creator" className="text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400">
+            Manage & Withdraw →
+          </Link>
+        </div>
         <div className="mt-2 flex items-center gap-2">
           <span className="text-2xl">💰</span>
           <span className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
@@ -210,6 +244,31 @@ function EarningsSection({ earnings }: { earnings: EarningsData }) {
           </span>
         </div>
         <p className="mt-1 text-xs text-neutral-400">From gifts, tips, and sponsorships</p>
+
+        {/* Withdrawal threshold progress */}
+        <div className="mt-4 border-t border-neutral-100 pt-3 dark:border-neutral-800">
+          <div className="flex items-center justify-between text-xs">
+            <span className={`font-semibold ${met ? "text-teal-700 dark:text-teal-300" : "text-amber-700 dark:text-amber-400"}`}>
+              {met ? "✅ Ready to withdraw" : `₦${remainingNgn.toLocaleString()} more to unlock withdrawal`}
+            </span>
+            <span className="tabular-nums text-neutral-400">
+              ₦{Math.floor(earnings.availableEarningsKobo / 100).toLocaleString()} / ₦{Math.floor(earnings.minPayoutKobo / 100).toLocaleString()}
+            </span>
+          </div>
+          <div
+            className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700"
+            role="progressbar"
+            aria-valuenow={pct}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label="Progress toward minimum payout threshold"
+          >
+            <div
+              className={`h-full rounded-full transition-all duration-500 ${met ? "bg-teal-500" : "bg-amber-400"}`}
+              style={{ width: `${pct}%` }}
+            />
+          </div>
+        </div>
       </div>
 
       {/* Pending payouts */}
@@ -736,6 +795,9 @@ function WalletContent() {
           const payoutsJson = payoutsRes?.ok ? await payoutsRes.json() as Record<string, unknown> : null;
           const earningsData = (earningsJson?.data ?? earningsJson) as { month?: { netKobo?: number } } | null;
           const payoutsData = (payoutsJson?.data ?? payoutsJson) as {
+            payoutConfig?: unknown;
+            availableEarningsKobo?: number;
+            minPayoutKobo?: number;
             payouts?: { id: string; gross_kobo?: number; net_kobo?: number; payout_method?: string; status?: string; created_at?: string }[];
           } | null;
           const pendingStatuses = new Set(["pending", "awaiting_approval", "processing"]);
@@ -750,8 +812,17 @@ function WalletContent() {
               createdAt: p.created_at ?? new Date().toISOString(),
             }));
           const totalMonthNgn = Math.floor((earningsData?.month?.netKobo ?? 0) / 100);
-          if (totalMonthNgn > 0 || pending.length > 0) {
-            earnings = { totalMonthNgn, pendingPayouts: pending };
+          // payoutConfig is only non-null for creators (see GET /api/creator/payouts) —
+          // show the earnings/withdraw card for every creator, not just those with
+          // income already this month, so they can see the withdrawal threshold.
+          const isCreator = payoutsData?.payoutConfig != null;
+          if (isCreator) {
+            earnings = {
+              totalMonthNgn,
+              availableEarningsKobo: payoutsData?.availableEarningsKobo ?? 0,
+              minPayoutKobo: payoutsData?.minPayoutKobo ?? 100_000,
+              pendingPayouts: pending,
+            };
           }
         } catch { /* creator data is non-fatal */ }
 

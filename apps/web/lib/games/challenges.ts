@@ -108,12 +108,14 @@ export async function acceptChallenge(challengeId: string, userId: string): Prom
 
     let escrow = 0;
     if (c.wager_credits > 0) {
+      const game = await getGameById(c.game_id);
+      const stakeDescription = game ? `Challenge wager stake: ${game.name}` : "Challenge wager stake";
       // Escrow both stakes atomically. If either side cannot pay, the whole
       // transaction rolls back and nobody is charged.
       await debitCoins(c.challenger_id, c.wager_credits, "game_wager",
-        `chal:${c.id}:stake:${c.challenger_id}`, "Challenge wager stake", { challengeId: c.id }, tx);
+        `chal:${c.id}:stake:${c.challenger_id}`, stakeDescription, { challengeId: c.id }, tx);
       await debitCoins(c.opponent_id, c.wager_credits, "game_wager",
-        `chal:${c.id}:stake:${c.opponent_id}`, "Challenge wager stake", { challengeId: c.id }, tx);
+        `chal:${c.id}:stake:${c.opponent_id}`, stakeDescription, { challengeId: c.id }, tx);
       escrow = c.wager_credits * 2;
     }
 
@@ -353,12 +355,15 @@ async function settleSeries(
   let prizeXp = 0;
   let prizeStars = 0;
 
+  const game = await getGameById(c.game_id);
+
   if (winnerId && c.escrow_credits > 0) {
     const cfg = await getGamesConfig();
     const payout = computeWagerPayout(c.escrow_credits, cfg.wagerRakePct);
     if (payout > 0) {
+      const payoutDescription = game ? `Challenge wager payout: ${game.name}` : "Challenge wager payout";
       await creditCoins(winnerId, payout, "game_payout", `chal:${c.id}:payout`,
-        "Challenge wager payout", { challengeId: c.id }, tx);
+        payoutDescription, { challengeId: c.id }, tx);
       prizeCredits += payout;
     }
   } else if (!winnerId && c.escrow_credits > 0) {
@@ -367,24 +372,22 @@ async function settleSeries(
   }
 
   // Award the game's per-win reward bundle to the series winner as the prize.
-  if (winnerId) {
-    const game = await getGameById(c.game_id);
-    if (game) {
-      const bundle = await grantGamingReward(
-        winnerId,
-        {
-          credits: game.reward_credits_per_win,
-          xp: game.reward_xp_per_win,
-          stars: game.reward_stars_per_win,
-        },
-        "game_challenge_win",
-        `chal:${c.id}:prize`,
-        tx
-      );
-      prizeCredits += bundle.credits;
-      prizeXp += bundle.xp;
-      prizeStars += bundle.stars;
-    }
+  if (winnerId && game) {
+    const bundle = await grantGamingReward(
+      winnerId,
+      {
+        credits: game.reward_credits_per_win,
+        xp: game.reward_xp_per_win,
+        stars: game.reward_stars_per_win,
+      },
+      "game_challenge_win",
+      `chal:${c.id}:prize`,
+      tx,
+      game.name
+    );
+    prizeCredits += bundle.credits;
+    prizeXp += bundle.xp;
+    prizeStars += bundle.stars;
   }
 
   await tx.query(

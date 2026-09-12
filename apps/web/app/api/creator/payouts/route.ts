@@ -99,10 +99,16 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       [userId]
     );
 
+    // Load payout config
+    const manifest = await loadManifest();
+    const pc = manifest.payouts;
+    const minPayoutKobo = pc.enabled ? manifest.payoutThresholdKobo : DEFAULT_MIN_PAYOUT_KOBO;
+
     if (!profileRows[0]?.is_creator) {
       return NextResponse.json({
         isCreator: false,
         availableEarningsKobo: 0,
+        minPayoutKobo,
         payoutConfig: null,
         bankAccount: { configured: false },
         walletAddress: { configured: false },
@@ -113,10 +119,6 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 
     const profile = profileRows[0];
     const isNigeria = (profile.country ?? "NG") === "NG";
-
-    // Load payout config
-    const manifest = await loadManifest();
-    const pc = manifest.payouts;
 
     const payoutConfig = isNigeria
       ? {
@@ -172,7 +174,9 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     );
 
     return NextResponse.json({
+      isCreator: true,
       availableEarningsKobo: profile.available_earnings_kobo ?? 0,
+      minPayoutKobo,
       payoutConfig,
       bankAccount: bankRows[0]
         ? {

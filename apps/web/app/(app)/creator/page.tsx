@@ -94,6 +94,7 @@ interface PayoutConfig {
 
 interface PayoutsData {
   availableEarningsKobo: number;
+  minPayoutKobo: number;
   payoutConfig: PayoutConfig | null;
   bankAccount: { configured: boolean };
   walletAddress: { configured: boolean };
@@ -145,6 +146,47 @@ function RevenueCard({ label, value }: { label: string; value: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// Withdrawal threshold progress bar
+// ---------------------------------------------------------------------------
+
+/**
+ * Shows progress toward the minimum payout threshold for methods that
+ * enforce one (bank transfer / crypto — Coins conversion has no minimum).
+ * Colored fill: amber while below threshold, teal once it's met.
+ */
+function ThresholdProgressBar({ availableKobo, minKobo }: { availableKobo: number; minKobo: number }) {
+  const met = availableKobo >= minKobo;
+  const pct = minKobo > 0 ? Math.min(100, Math.round((availableKobo / minKobo) * 100)) : 100;
+  const remainingKobo = Math.max(0, minKobo - availableKobo);
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between text-xs">
+        <span className={`font-semibold ${met ? "text-teal-700 dark:text-teal-300" : "text-amber-700 dark:text-amber-400"}`}>
+          {met ? "✅ Withdrawal threshold reached" : `${formatNgn(remainingKobo)} more to reach the minimum payout`}
+        </span>
+        <span className="tabular-nums text-neutral-400">
+          {formatNgn(availableKobo)} / {formatNgn(minKobo)}
+        </span>
+      </div>
+      <div
+        className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Progress toward minimum payout threshold"
+      >
+        <div
+          className={`h-full rounded-full transition-all duration-500 ${met ? "bg-teal-500" : "bg-amber-400"}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Payout section
 // ---------------------------------------------------------------------------
 
@@ -157,49 +199,67 @@ interface PayoutSectionProps {
 
 function PayoutSection({ payouts, onRequest, requesting, error }: PayoutSectionProps) {
   const cfg = payouts.payoutConfig;
+  const belowThreshold = payouts.availableEarningsKobo < payouts.minPayoutKobo;
   return (
     <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
       <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
         <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">Payouts</h2>
       </div>
       <div className="p-5">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950/30">
-          <div>
-            <p className="text-xs text-teal-700 dark:text-teal-400">Available Balance</p>
-            <p className="text-2xl font-bold text-teal-700 dark:text-teal-300">{formatNgn(payouts.availableEarningsKobo)}</p>
-          </div>
-          {!payouts.pendingPayout && cfg && (
-            <div className="flex flex-wrap gap-2">
-              {cfg.coinsEnabled && (
-                <button
-                  onClick={() => onRequest("coins")}
-                  disabled={requesting}
-                  className="rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
-                >
-                  {requesting ? "Requesting…" : "Request (Coins)"}
-                </button>
-              )}
-              {cfg.bankTransferEnabled && (
-                <button
-                  onClick={() => onRequest("bank_transfer")}
-                  disabled={requesting || !payouts.bankAccount.configured}
-                  className="rounded-xl border border-teal-600 px-4 py-2.5 text-sm font-semibold text-teal-700 hover:bg-teal-50 disabled:opacity-60 dark:text-teal-300 dark:hover:bg-teal-950/30"
-                  title={!payouts.bankAccount.configured ? "Add a bank account first" : undefined}
-                >
-                  {requesting ? "Requesting…" : "Request (Bank)"}
-                </button>
-              )}
-              {cfg.cryptoEnabled && (
-                <button
-                  onClick={() => onRequest("crypto")}
-                  disabled={requesting || !payouts.walletAddress.configured}
-                  className="rounded-xl border border-teal-600 px-4 py-2.5 text-sm font-semibold text-teal-700 hover:bg-teal-50 disabled:opacity-60 dark:text-teal-300 dark:hover:bg-teal-950/30"
-                  title={!payouts.walletAddress.configured ? "Add a wallet address first" : undefined}
-                >
-                  {requesting ? "Requesting…" : "Request (Crypto)"}
-                </button>
-              )}
+        <div className="mb-4 rounded-xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950/30">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-xs text-teal-700 dark:text-teal-400">Available Balance</p>
+              <p className="text-2xl font-bold text-teal-700 dark:text-teal-300">{formatNgn(payouts.availableEarningsKobo)}</p>
             </div>
+            {!payouts.pendingPayout && cfg && (
+              <div className="flex flex-wrap gap-2">
+                {cfg.coinsEnabled && (
+                  <button
+                    onClick={() => onRequest("coins")}
+                    disabled={requesting || payouts.availableEarningsKobo <= 0}
+                    className="rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+                  >
+                    {requesting ? "Requesting…" : "Request (Coins)"}
+                  </button>
+                )}
+                {cfg.bankTransferEnabled && (
+                  <button
+                    onClick={() => onRequest("bank_transfer")}
+                    disabled={requesting || !payouts.bankAccount.configured || belowThreshold}
+                    className="rounded-xl border border-teal-600 px-4 py-2.5 text-sm font-semibold text-teal-700 hover:bg-teal-50 disabled:opacity-60 dark:text-teal-300 dark:hover:bg-teal-950/30"
+                    title={
+                      belowThreshold
+                        ? `You need at least ${formatNgn(payouts.minPayoutKobo)} to withdraw`
+                        : !payouts.bankAccount.configured
+                          ? "Add a bank account first"
+                          : undefined
+                    }
+                  >
+                    {requesting ? "Requesting…" : "Request (Bank)"}
+                  </button>
+                )}
+                {cfg.cryptoEnabled && (
+                  <button
+                    onClick={() => onRequest("crypto")}
+                    disabled={requesting || !payouts.walletAddress.configured || belowThreshold}
+                    className="rounded-xl border border-teal-600 px-4 py-2.5 text-sm font-semibold text-teal-700 hover:bg-teal-50 disabled:opacity-60 dark:text-teal-300 dark:hover:bg-teal-950/30"
+                    title={
+                      belowThreshold
+                        ? `You need at least ${formatNgn(payouts.minPayoutKobo)} to withdraw`
+                        : !payouts.walletAddress.configured
+                          ? "Add a wallet address first"
+                          : undefined
+                    }
+                  >
+                    {requesting ? "Requesting…" : "Request (Crypto)"}
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+          {(cfg?.bankTransferEnabled || cfg?.cryptoEnabled) && (
+            <ThresholdProgressBar availableKobo={payouts.availableEarningsKobo} minKobo={payouts.minPayoutKobo} />
           )}
         </div>
 
