@@ -163,6 +163,16 @@ export interface ZobiaManifest {
     /** Server-side ceiling on maxClaimants a room owner can set (abuse/spam guard). */
     maxClaimantsCap: number;
   };
+  // Daily quest deck engine — Sponsored Quest injection (lib/quests/questEngine.ts).
+  questSystem: {
+    sponsoredInjectionEnabled: boolean;
+    /** Probability (0-1) a deck swaps in an eligible Sponsored Quest for one regular slot. */
+    sponsoredDailySlotChance: number;
+    /** Default Credits per 1,000 daily-deck impressions when a quest sets no custom CPM. */
+    sponsoredDefaultCpmCredits: number;
+    /** Max Sponsored Quest slots per user per day. */
+    sponsoredMaxDailySlots: number;
+  };
   // Zobia Moments — pricing & eligibility (admin-editable at /gate44/config)
   moments: {
     /** Credits charged per Moment. 0 = free via Credits (default 100). */
@@ -580,6 +590,12 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
   roomCustomRewards: {
     minOwnerLevel: 1,
     maxClaimantsCap: 500,
+  },
+  questSystem: {
+    sponsoredInjectionEnabled: true,
+    sponsoredDailySlotChance: 0.35,
+    sponsoredDefaultCpmCredits: 500,
+    sponsoredMaxDailySlots: 1,
   },
   moments: {
     costCredits: 100,
@@ -1073,6 +1089,12 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
     roomCustomRewards: {
       minOwnerLevel:   parseInt10(kv["room_custom_rewards_min_owner_level"],  DEFAULT_MANIFEST.roomCustomRewards.minOwnerLevel),
       maxClaimantsCap: parseInt10(kv["room_custom_rewards_max_claimants_cap"], DEFAULT_MANIFEST.roomCustomRewards.maxClaimantsCap),
+    },
+    questSystem: {
+      sponsoredInjectionEnabled: parseBool(kv["sponsored_quest_daily_injection_enabled"], DEFAULT_MANIFEST.questSystem.sponsoredInjectionEnabled),
+      sponsoredDailySlotChance:  parseFloat10(kv["sponsored_quest_daily_slot_chance"],    DEFAULT_MANIFEST.questSystem.sponsoredDailySlotChance),
+      sponsoredDefaultCpmCredits: parseInt10(kv["sponsored_quest_default_cpm_credits"],   DEFAULT_MANIFEST.questSystem.sponsoredDefaultCpmCredits),
+      sponsoredMaxDailySlots:    parseInt10(kv["sponsored_quest_max_daily_slots"],        DEFAULT_MANIFEST.questSystem.sponsoredMaxDailySlots),
     },
     moments: {
       costCredits: parseInt10(kv["moments_cost_credits"], DEFAULT_MANIFEST.moments.costCredits),

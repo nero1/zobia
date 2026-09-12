@@ -16,6 +16,23 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
+import { useCurrency } from "@/lib/hooks/useCurrency";
+
+// Mirrors lib/quests/sponsoredQuestPacing.ts SPONSORED_QUEST_DURATION_PRESETS —
+// kept as a plain client constant since that module pulls in server-only DB access.
+const DURATION_PRESETS = [
+  { key: "3d", label: "3 days", days: 3 },
+  { key: "1w", label: "1 week", days: 7 },
+  { key: "2w", label: "2 weeks", days: 14 },
+  { key: "1m", label: "1 month", days: 30 },
+  { key: "2m", label: "2 months", days: 60 },
+] as const;
+type DurationPresetKey = (typeof DURATION_PRESETS)[number]["key"] | "custom";
+
+function formatPresetRange(days: number): string {
+  const end = new Date(Date.now() + days * 86_400_000);
+  return end.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
+}
 
 // ---------------------------------------------------------------------------
 // Shared types
@@ -480,9 +497,21 @@ interface SponsoredQuest {
   business_page_id: string | null;
   created_at: string;
   application_count: number;
+  is_daily_quest_eligible: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  total_budget_credits: string;
+  spent_credits: string;
+  daily_budget_credits: string | null;
+  cpm_credits: string;
+  estimated_reach: number | null;
+  impressions_count: number;
+  auto_paused: boolean;
+  pause_reason: string | null;
 }
 
 function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
+  const currency = useCurrency();
   const [tierAllowed, setTierAllowed] = useState<boolean | null>(null);
   const [quests, setQuests] = useState<SponsoredQuest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -497,6 +526,16 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
   const [rewardCoins, setRewardCoins] = useState(1000);
   const [maxApplications, setMaxApplications] = useState(10);
   const [deadline, setDeadline] = useState("");
+
+  const [runInDailyDecks, setRunInDailyDecks] = useState(false);
+  const [durationPreset, setDurationPreset] = useState<DurationPresetKey>("1w");
+  const [totalBudgetCredits, setTotalBudgetCredits] = useState(5000);
+  const [dailyBudgetCredits, setDailyBudgetCredits] = useState("");
+  const [targetAction, setTargetAction] = useState("");
+
+  const durationDays = DURATION_PRESETS.find((p) => p.key === durationPreset)?.days ?? 7;
+  const estimatedReach = runInDailyDecks ? Math.floor((totalBudgetCredits / 500) * 1000) : 0;
+  const [restarting, setRestarting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -525,6 +564,8 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
     setSubmitting(true);
     setError(null);
     try {
+      const startsAt = new Date();
+      const endsAt = new Date(startsAt.getTime() + durationDays * 86_400_000);
       const res = await fetch("/api/business/sponsored-quests", {
         method: "POST",
         credentials: "include",
@@ -537,12 +578,19 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
           rewardCoins: Number(rewardCoins),
           maxApplications: Number(maxApplications),
           deadline: new Date(deadline).toISOString(),
+          isDailyQuestEligible: runInDailyDecks,
+          startsAt: runInDailyDecks ? startsAt.toISOString() : undefined,
+          endsAt: runInDailyDecks ? endsAt.toISOString() : undefined,
+          totalBudgetCredits: runInDailyDecks ? Number(totalBudgetCredits) : 0,
+          dailyBudgetCredits: runInDailyDecks && dailyBudgetCredits ? Number(dailyBudgetCredits) : undefined,
+          targetAction: runInDailyDecks && targetAction.trim() ? targetAction.trim() : undefined,
         }),
       });
       const json = await res.json();
       if (!json.success) throw new Error(json.error?.message ?? "Failed to submit quest");
       setShowForm(false);
       setTitle(""); setDescription(""); setRequirements(""); setRewardCoins(1000); setMaxApplications(10); setDeadline("");
+      setRunInDailyDecks(false); setTotalBudgetCredits(5000); setDailyBudgetCredits(""); setTargetAction("");
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to submit quest");
@@ -559,6 +607,21 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to cancel");
+    }
+  }
+
+  async function handleRestart(questId: string) {
+    setRestarting(questId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/business/sponsored-quests/${questId}/restart`, { method: "POST", credentials: "include" });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Failed to restart");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to restart");
+    } finally {
+      setRestarting(null);
     }
   }
 
@@ -584,9 +647,10 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
           <div className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
             <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Sponsored Quests</h2>
             <p className="mt-1 text-sm text-neutral-500">
-              Creators complete a quest you define and earn Coins from your reward pool. Every submission requires
+              Creators complete a quest you define and earn {currency.softPlural} from your reward pool. Every submission requires
               approval (manual by an admin, or automatic AI review — set by the platform) before it goes live, and is
-              shown as coming from the Business Page you select.
+              shown as coming from the Business Page you select. Optionally, also run it in regular users&apos;
+              daily quest decks for extra reach.
             </p>
             <button
               onClick={() => setShowForm((s) => !s)}
@@ -626,7 +690,7 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
-                  <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">Reward (Coins)</label>
+                  <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">Reward ({currency.softPlural})</label>
                   <input required type="number" min={100} value={rewardCoins} onChange={(e) => setRewardCoins(Number(e.target.value))} className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100" />
                 </div>
                 <div>
@@ -638,6 +702,52 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
                   <input required type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100" />
                 </div>
               </div>
+
+              <div className="rounded-xl border border-dashed border-neutral-300 p-4 dark:border-neutral-600 space-y-3">
+                <label className="flex items-center gap-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                  <input type="checkbox" checked={runInDailyDecks} onChange={(e) => setRunInDailyDecks(e.target.checked)} />
+                  Also boost this in regular users&apos; daily quest decks
+                </label>
+                {runInDailyDecks && (
+                  <>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">Duration</label>
+                      <div className="flex flex-wrap gap-2">
+                        {DURATION_PRESETS.map((p) => (
+                          <button
+                            type="button"
+                            key={p.key}
+                            onClick={() => setDurationPreset(p.key)}
+                            className={`rounded-lg border px-3 py-1.5 text-xs font-medium ${
+                              durationPreset === p.key ? "border-blue-600 bg-blue-600 text-white" : "border-neutral-300 text-neutral-600 dark:border-neutral-600 dark:text-neutral-300"
+                            }`}
+                          >
+                            {p.label} <span className="opacity-70">(today - {formatPresetRange(p.days)})</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">Total Budget ({currency.softPlural})</label>
+                        <input type="number" min={0} value={totalBudgetCredits} onChange={(e) => setTotalBudgetCredits(Number(e.target.value))} className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100" />
+                      </div>
+                      <div>
+                        <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">Daily Cap ({currency.softPlural}, optional)</label>
+                        <input type="number" min={0} value={dailyBudgetCredits} onChange={(e) => setDailyBudgetCredits(e.target.value)} placeholder="No cap" className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100" />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">Action to complete (optional)</label>
+                      <input value={targetAction} onChange={(e) => setTargetAction(e.target.value)} placeholder="e.g. visit_link — leave blank for a generic action" className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-100" />
+                    </div>
+                    <p className="text-xs text-neutral-400">
+                      Estimated reach: <strong>{estimatedReach.toLocaleString()}</strong> impressions over the run — billed as impressions from your budget, paced across the date range.
+                    </p>
+                  </>
+                )}
+              </div>
+
               <button type="submit" disabled={submitting} className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60">
                 {submitting ? "Submitting…" : "Submit for Approval"}
               </button>
@@ -665,15 +775,35 @@ function SponsoredQuestsPanel({ pages }: { pages: BusinessPageOption[] }) {
                       {q.moderation_status === "rejected" && q.moderation_reason && (
                         <p className="mt-1 text-xs text-red-600">Reason: {q.moderation_reason}</p>
                       )}
+                      {q.auto_paused && q.pause_reason && (
+                        <p className="mt-1 text-xs text-amber-600">⚠️ Paused: {q.pause_reason}. Restart it once resolved.</p>
+                      )}
                       <p className="mt-2 text-xs text-neutral-400">
-                        🪙 {q.reward_coins.toLocaleString()} coins · 📋 {q.application_count}/{q.max_applications} applications · ⏰ {new Date(q.deadline).toLocaleDateString()}
+                        🪙 {q.reward_coins.toLocaleString()} {currency.softPlural} · 📋 {q.application_count}/{q.max_applications} applications · ⏰ {new Date(q.deadline).toLocaleDateString()}
                       </p>
+                      {q.is_daily_quest_eligible && (
+                        <p className="mt-1 text-xs text-neutral-400">
+                          Daily deck boost: {Number(q.spent_credits).toLocaleString()}/{Number(q.total_budget_credits).toLocaleString()} {currency.softPlural} spent · {q.impressions_count.toLocaleString()} impressions
+                          {q.estimated_reach ? ` · est. reach ${q.estimated_reach.toLocaleString()}` : ""}
+                        </p>
+                      )}
                     </div>
-                    {q.moderation_status !== "approved" && (
-                      <button onClick={() => handleCancel(q.id)} className="flex-shrink-0 rounded-lg border border-red-300 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400">
-                        Cancel
-                      </button>
-                    )}
+                    <div className="flex flex-shrink-0 flex-col items-end gap-1.5">
+                      {q.auto_paused && (
+                        <button
+                          disabled={restarting === q.id}
+                          onClick={() => handleRestart(q.id)}
+                          className="rounded-lg bg-green-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+                        >
+                          {restarting === q.id ? "…" : "Restart"}
+                        </button>
+                      )}
+                      {q.moderation_status !== "approved" && (
+                        <button onClick={() => handleCancel(q.id)} className="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400">
+                          Cancel
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               ))}

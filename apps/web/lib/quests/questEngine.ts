@@ -22,6 +22,12 @@ import { publishRealtimeEvent } from "@/lib/realtime";
 import { logger } from "@/lib/logger";
 import { redis } from "@/lib/redis";
 import { db as globalDb } from "@/lib/db";
+import { loadManifest, type ZobiaManifest } from "@/lib/manifest";
+import {
+  getEligibleSponsoredQuestTemplates,
+  getSponsoredQuestSpendToday,
+  recordSponsoredQuestImpression,
+} from "@/lib/quests/sponsoredQuestPacing";
 
 // Maps a ProgressionTrack name to the corresponding users table column
 const TRACK_COLUMN: Record<string, string> = {
@@ -67,7 +73,26 @@ interface QuestTemplate {
   plan_required: Plan | null;
   /** Parallel progression track this quest's XP reward feeds (PRD §7), e.g. 'social', 'explorer'. */
   track: string;
+  /** Manifest feature key gating this template (NULL = always eligible). */
+  feature_key?: string | null;
 }
+
+/**
+ * quest_templates.feature_key values used by the seeded feature-gated
+ * templates (migration 0047) — each must be a real `manifest.features` key
+ * so `manifest.features[key]` gates it correctly. Also the vocabulary
+ * accepted by the admin quest-category boost picker (quest_feature_boosts).
+ */
+export const QUEST_FEATURE_KEYS: (keyof ZobiaManifest["features"])[] = [
+  "games",
+  "blogs",
+  "wiki",
+  "polls",
+  "quizzes",
+  "bbforum",
+  "gifts",
+  "rooms",
+];
 
 export interface QuestDeckItem extends QuestTemplate {
   progress_count: number;
@@ -144,31 +169,107 @@ export async function generateDailyDeck(
       [userId, today]
     );
 
+    let sponsoredSlot: { id: string; sponsoredQuestId: string; costCredits: number } | null = null;
+
     if (existingDeck.length === 0) {
+      // loadManifest() is in-process memory cached (zero Redis calls when
+      // warm — see lib/manifest/index.ts) so this doesn't add to Redis load.
+      const manifest = await loadManifest();
+      const enabledFeatureKeys = QUEST_FEATURE_KEYS.filter((key) => manifest.features[key]);
+
       // Fetch ALL eligible quest templates for this plan without a DB-level shuffle.
       // Selection is done in application code via a CSPRNG-based Fisher-Yates shuffle
       // so no key material is passed to the DB and the shuffle is cryptographically
-      // unpredictable.
+      // unpredictable. Templates for a disabled feature (feature_key not in the
+      // enabled list) and sponsored-quest shadow rows (handled separately below)
+      // are excluded at the SQL level.
       const { rows: allTemplates } = await db.query<QuestTemplate>(
         `SELECT id, title, description, action_type, target_count,
-                xp_reward, coin_reward, category, icon, plan_required, track
+                xp_reward, coin_reward, category, icon, plan_required, track, feature_key
          FROM quest_templates
          WHERE is_active = TRUE
+           AND sponsored_quest_id IS NULL
            AND (valid_date IS NULL OR valid_date = $1)
+           AND (feature_key IS NULL OR feature_key = ANY($3::text[]))
            AND (plan_required IS NULL OR plan_required = 'free'
                 OR (plan_required = 'plus' AND $2 IN ('plus','pro','max'))
                 OR (plan_required = 'pro' AND $2 IN ('pro','max'))
                 OR (plan_required = 'max' AND $2 = 'max'))`,
-        [today, plan]
+        [today, plan, enabledFeatureKeys]
       );
 
-      // Fisher-Yates shuffle using crypto.randomBytes — O(n) in-place, unbiased
-      const templates = [...allTemplates];
-      for (let i = templates.length - 1; i > 0; i--) {
-        const j = cryptoRandInt(i + 1);
-        [templates[i], templates[j]] = [templates[j], templates[i]];
+      // Admin "campaign boost" (PRD quests request — promote a feature's
+      // quests for a date range). Weight is applied by replicating a
+      // boosted template a few extra times in the shuffle pool: a cheap,
+      // auditable approximation of weighted sampling that keeps the
+      // existing CSPRNG Fisher-Yates shuffle untouched. Capped at 5x so one
+      // huge weight can't crowd out every other quest category.
+      const { rows: activeBoosts } = await db.query<{ feature_key: string; weight_multiplier: string }>(
+        `SELECT feature_key, weight_multiplier FROM quest_feature_boosts
+         WHERE starts_at <= NOW() AND ends_at >= NOW()`
+      );
+      const boostByFeature = new Map(activeBoosts.map((b) => [b.feature_key, Number(b.weight_multiplier)]));
+
+      const pool: QuestTemplate[] = [];
+      for (const t of allTemplates) {
+        pool.push(t);
+        const weight = t.feature_key ? boostByFeature.get(t.feature_key) : undefined;
+        if (weight && weight > 1) {
+          const extraCopies = Math.min(Math.round(weight) - 1, 4);
+          for (let i = 0; i < extraCopies; i++) pool.push(t);
+        }
       }
-      const selectedTemplates = templates.slice(0, deckSize);
+
+      // Fisher-Yates shuffle using crypto.randomBytes — O(n) in-place, unbiased
+      for (let i = pool.length - 1; i > 0; i--) {
+        const j = cryptoRandInt(i + 1);
+        [pool[i], pool[j]] = [pool[j], pool[i]];
+      }
+      // De-dupe replicated boost copies before slicing — the replication
+      // above is only meant to bias *which* templates survive the shuffle,
+      // not to let one template occupy two deck slots.
+      const seen = new Set<string>();
+      const shuffled = pool.filter((t) => (seen.has(t.id) ? false : (seen.add(t.id), true)));
+      const selectedTemplates = shuffled.slice(0, deckSize);
+
+      // Sponsored Quest injection (PRD sponsored quests — "infused into
+      // daily quests"): with probability sponsoredDailySlotChance, swap the
+      // deck's last slot for a budget-eligible Sponsored Quest.
+      if (manifest.questSystem.sponsoredInjectionEnabled && selectedTemplates.length > 0) {
+        const roll = cryptoRandInt(1_000_000) / 1_000_000;
+        if (roll < manifest.questSystem.sponsoredDailySlotChance) {
+          const candidates = await getEligibleSponsoredQuestTemplates(db);
+          const affordable: typeof candidates = [];
+          for (const c of candidates) {
+            const cpm = Number(c.cpm_credits) || manifest.questSystem.sponsoredDefaultCpmCredits;
+            const costCredits = cpm / 1000;
+            if (c.daily_budget_credits) {
+              const spentToday = await getSponsoredQuestSpendToday(db, c.sponsored_quest_id);
+              if (spentToday + costCredits > Number(c.daily_budget_credits)) continue;
+            }
+            affordable.push(c);
+          }
+          if (affordable.length > 0) {
+            const pick = affordable[cryptoRandInt(affordable.length)];
+            const cpm = Number(pick.cpm_credits) || manifest.questSystem.sponsoredDefaultCpmCredits;
+            selectedTemplates[selectedTemplates.length - 1] = {
+              id: pick.id,
+              title: pick.title,
+              description: pick.description,
+              action_type: pick.action_type,
+              target_count: pick.target_count,
+              xp_reward: pick.xp_reward,
+              coin_reward: pick.coin_reward,
+              category: pick.category,
+              icon: pick.icon,
+              plan_required: pick.plan_required as Plan | null,
+              track: pick.track,
+              feature_key: null,
+            };
+            sponsoredSlot = { id: pick.id, sponsoredQuestId: pick.sponsored_quest_id, costCredits: cpm / 1000 };
+          }
+        }
+      }
 
       if (selectedTemplates.length > 0) {
         const questIds = selectedTemplates.map((t) => t.id);
@@ -181,6 +282,13 @@ export async function generateDailyDeck(
            ON CONFLICT (user_id, quest_id, assigned_date) DO NOTHING`,
           [userId, ...questIds, today]
         );
+
+        // Bill the impression only once the deck is actually persisted, and
+        // only on this (the deck-generating) call — a concurrent request
+        // that lost the lock re-queries the DB below instead of billing again.
+        if (sponsoredSlot) {
+          await recordSponsoredQuestImpression(db, sponsoredSlot.sponsoredQuestId, userId, sponsoredSlot.costCredits);
+        }
       }
     }
   } finally {
@@ -285,9 +393,9 @@ export async function updateQuestProgress(
   let pendingElderBonus: { elderId: string; amount: number; ref: string; menteeId: string } | null = null;
 
   const result = await db.transaction(async (client) => {
-    const questResult = await client.query<QuestTemplate>(
+    const questResult = await client.query<QuestTemplate & { sponsored_quest_id: string | null }>(
       `SELECT id, target_count, xp_reward, coin_reward, action_type,
-              category, icon, plan_required, track
+              category, icon, plan_required, track, sponsored_quest_id
        FROM quest_templates
        WHERE id = $1 AND is_active = TRUE
          AND (valid_date IS NULL OR valid_date = $2)
@@ -373,6 +481,17 @@ export async function updateQuestProgress(
       // questId would collide across every user completing the same quest template.
       if (coinsAwarded > 0) {
         await creditCoins(userId, coinsAwarded, "quest_reward", questCompletionRef, "Daily quest reward", {}, client);
+      }
+
+      // Sponsored Quests panel stats (creator/owner-facing) — non-blocking.
+      if (quest.sponsored_quest_id) {
+        await client
+          .query(`UPDATE sponsored_quests SET completions_count = completions_count + 1 WHERE id = $1`, [
+            quest.sponsored_quest_id,
+          ])
+          .catch((err: unknown) =>
+            logger.error({ err, sponsoredQuestId: quest.sponsored_quest_id }, "[questEngine] Failed to bump sponsored quest completions_count")
+          );
       }
 
       // PRD §7: Elder mentorship bonus — 10% of quest XP to the user's active Elder mentor.

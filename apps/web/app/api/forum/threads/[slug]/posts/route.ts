@@ -15,6 +15,8 @@ import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { createReply } from "@/lib/bbforum/service";
+import { db } from "@/lib/db";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const createSchema = z.object({
   body: z.string().min(2).max(20000),
@@ -38,6 +40,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }: { params
       imageUrl: body.imageUrl ?? null,
       quotedPostId: body.quotedPostId ?? null,
     });
+    void triggerActivityQuestProgress(auth.user.sub, "forum_reply", db);
     return NextResponse.json({ success: true, data: { post, potClaimedCredits }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

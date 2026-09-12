@@ -3059,3 +3059,156 @@ A batch of platform-wide fixes/features, applied identically to web, PWA, and th
 - **Room Custom Rewards**: see the "Room Custom Rewards" subsection under Gifting above and PRD §12.
 
 **Migration:** `db/migrations/0038_polls_quizzes.sql`.
+
+## Quest System Expansion (PRD §7, §14, §17)
+
+### Feature-gated daily quest templates
+
+`quest_templates.feature_key` (nullable) ties a template to a manifest
+feature flag. `generateDailyDeck()` (`lib/quests/questEngine.ts`) fetches
+the current manifest once via `loadManifest()` (in-process cached — zero
+Redis calls when warm) and passes the caller's enabled feature keys into
+the template SQL query (`feature_key IS NULL OR feature_key = ANY($enabled)`),
+so a disabled feature's quests are simply never fetched, let alone
+assigned. Seeded templates (migration `0047`) cover Games (`game_play`),
+Blogs (`blog_publish`, `blog_comment`), Wiki (`wiki_edit`), Polls
+(`poll_vote`, `poll_create`), Quizzes (`quiz_complete`, `quiz_perfect`),
+Forum/bbforum (`forum_reply`, `forum_create_thread`), and a Gifts one that
+reuses the pre-existing `gift` action type. `triggerActivityQuestProgress()`
+calls were added at each feature's natural completion point:
+`app/api/games/[slug]/score`, `app/api/blogs/[slug]/posts` (on publish) and
+`.../comments`, `app/api/wiki/[slug]/pages` (create + edit), `app/api/polls`
+(create) and `.../vote`, `app/api/quizzes/[slug]/attempt` (complete, plus a
+second trigger when `scorePercent >= 100`), and
+`app/api/forum/boards/[boardSlug]/threads` (create) and
+`.../threads/[slug]/posts` (reply).
+
+### Admin campaign boosts
+
+`quest_feature_boosts` (`feature_key`, `weight_multiplier`, `starts_at`,
+`ends_at`, `note`) lets an admin promote a feature's quests for a date
+range — "show more Blog/Wiki quests this week or from X to Y date." Admin
+UI: `/gate44/quests/boosts` (list + schedule + end-early), API:
+`GET/POST /api/admin/quest-boosts`, `DELETE /api/admin/quest-boosts/:id`.
+`generateDailyDeck()` reads active boosts (`starts_at <= NOW() <= ends_at`)
+and, for each matching template, replicates it a few extra times (capped
+at 5×) in the pool handed to the existing CSPRNG Fisher-Yates shuffle
+before slicing to `deckSize` — a simple, auditable approximation of
+weighted sampling that doesn't disturb the existing shuffle's unbiasedness
+for everything else. If the admin schedules nothing, selection is
+unweighted exactly as before.
+
+### Sponsored Quests in the daily deck
+
+Previously Sponsored Quests (§14) only reached creators via the
+application marketplace (`sponsored_quest_applications` — apply, get
+approved, complete, get paid a % cash payout). A sponsored quest can now
+also opt in (`sponsored_quests.is_daily_quest_eligible`) to appear as a
+normal quest slot in regular users' daily decks, rewarding the quest's
+`reward_coins` in Credits directly (no cash payout involved — this is a
+separate distribution channel from the creator marketplace).
+
+Implementation reuses the existing quest plumbing rather than building a
+parallel system: `lib/quests/sponsoredQuestPacing.ts`
+`syncSponsoredQuestTemplate()` upserts a shadow `quest_templates` row
+(`sponsored_quest_id` FK, partial unique index) whenever a sponsored
+quest's eligibility/state changes (create, edit, moderate, pause, flag,
+delete, business self-service submit/edit/cancel, or an account-lifecycle
+sweep). That shadow row flows through the *same* `user_quest_decks`/
+`user_quest_progress`/`updateQuestProgress()` code path as any other
+quest — completion, XP, and Credit rewards all work identically.
+
+Selection: in `generateDailyDeck()`, with probability
+`sponsored_quest_daily_slot_chance` (manifest-configurable, default 0.35),
+the deck's last slot is swapped for one budget/date-eligible sponsored
+quest (`getEligibleSponsoredQuestTemplates()` — approved, active,
+unflagged, within `starts_at`/`ends_at`, budget remaining). At most
+`sponsored_quest_max_daily_slots` (default 1) per user per day.
+
+### Billing (Facebook-Ads-style duration + budget, impression-paced)
+
+Per product decision, businesses/admin pick a **duration** (presets: 3
+days, 1 week, 2 weeks, 1 month, 2 months, or a custom start/end date pair)
+and a **total budget**, with an optional daily cap; the UI shows an
+**estimated reach** (`estimateSponsoredQuestReach()` — budget ÷ CPM × 1000,
+a simple, honest estimate with no historical-demand curve). Under the
+hood, this is billed as impression-based CPM: every time the quest is
+placed into a user's deck, that's one impression billed at
+`cpm_credits`/1000 (default from manifest key
+`sponsored_quest_default_cpm_credits`, mirrors the existing Ads system's
+CPM idiom), debited from `total_budget_credits`
+(`recordSponsoredQuestImpression()` — a single conditional `UPDATE ...
+WHERE spent_credits + cost <= total_budget_credits` guards against a
+last-moment overspend race across concurrent deck generations) and logged
+to `sponsored_quest_events` for per-day pacing against `daily_budget_credits`.
+The duration+budget picker is just a friendlier framing over this same
+pacing mechanism — no separate billing system was invented.
+
+Business self-service: the existing `/business/ads` "Sponsored Quests" tab
+(§17) gained the duration/budget fields and a reach estimate, alongside
+the pre-existing reward/requirements/deadline fields for the
+creator-application side. Admin: `/gate44/sponsored-quests`'s create/edit
+form gained the same fields plus a "Quest Creator Username" field (see
+below).
+
+### Lifecycle: admin-assigned creator, pause, flag
+
+- **`owner_user_id`** — an admin can attribute a quest to a specific
+  username, who then gets a stats-only panel at `/quests/manage`
+  (`GET /api/quests/owned`, `PATCH /api/quests/owned/:id`): applications,
+  approvals, completions, spend/impressions, estimated reach. They can
+  **revive** an inactive quest, **extend** its end date, or **add
+  budget** — but can never edit public-facing details (title, description,
+  reward, etc.); a new quest goes through moderation again like any other
+  submission, same as the business self-service flow.
+- **Pause (follow-up)** — admin can pause a live quest for review
+  (`POST /api/admin/sponsored-quests/:id/pause`, `{action: "pause"|"resume", reason?}`),
+  distinct from moderation reject. Resuming a quest the *system*
+  auto-paused (see below) is blocked here — that must go through the
+  business restart flow, which re-verifies eligibility.
+- **Flag** — admin can flag a quest as spam/scam/other
+  (`POST /api/admin/sponsored-quests/:id/flag`), immediately excluding it
+  from moderation-approved daily-deck selection and application-marketplace
+  visibility (`flag_status != 'flagged'` is part of every eligibility
+  query) until cleared.
+
+### Account-lifecycle handling — never auto-resume
+
+Per product decision, a paused-due-to-account-issue quest is never
+silently reactivated:
+
+- **Ban** (`POST /api/admin/users/:userId/actions`, `action: "ban"`) —
+  pauses every quest where the banned user is `owner_user_id` or owns the
+  `business_account_id`, sets `auto_paused = true` and
+  `pause_reason = 'Account banned'`.
+- **Subscription fully lapses** (`lib/plans/subscriptionSweep.ts`, the
+  business grace→lapsed transition) — same pause, `pause_reason =
+  'Business subscription lapsed'`.
+- **Tier drops below Growth** (`lib/business/downgradeSweep.ts`, already
+  stopped quests pre-existing this change) — now additionally sets
+  `auto_paused = true` with a reason, instead of a bare `is_active = false`.
+
+In every case the business owner sees the reason on `/business/ads` and
+must explicitly hit **Restart** (`POST
+/api/business/sponsored-quests/:id/restart`) once the underlying issue is
+resolved (account unbanned, subscription renewed, tier restored) — the
+endpoint re-checks `business_accounts.status = 'active'` and the Growth+
+tier gate before flipping the quest back on.
+
+### Currency naming
+
+The admin Sponsored Quests page (`/gate44/sponsored-quests`) and its
+Capacitor Android mirror had "Coins" hardcoded in the reward field label
+and reward display instead of reading the admin-configured soft-currency
+name. Fixed on both platforms via `useCurrency()` (web) and the shared
+`admin.sponsoredQuests.rewardCoins`/`ads.quests.rewardLabel`/
+`ads.quests.rewardPlaceholder` i18n strings (Android) — renaming the soft
+currency now updates these screens automatically like everywhere else.
+
+### Backward compatibility
+
+`is_daily_quest_eligible` defaults to `false` on every column addition —
+existing Sponsored Quests keep behaving exactly as before (creator
+marketplace only) unless an admin/business explicitly opts one in.
+
+**Migration:** `db/migrations/0047_quest_system_expansion.sql`.

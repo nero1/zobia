@@ -12,6 +12,8 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getPollIdBySlug, votePoll } from "@/lib/polls/service";
+import { db } from "@/lib/db";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const voteSchema = z.object({
   optionIds: z.array(z.string().uuid()).min(1).max(10),
@@ -24,6 +26,7 @@ export const POST = withAuth<{ slug: string }>(async (req: NextRequest, { params
     if (!pollId) throw notFound("Poll not found");
     const body = await validateBody(req, voteSchema);
     const result = await votePoll(auth.user.sub, pollId, body.optionIds);
+    void triggerActivityQuestProgress(auth.user.sub, "poll_vote", db);
     return NextResponse.json({ success: true, data: result, error: null });
   } catch (err) {
     return handleApiError(err);

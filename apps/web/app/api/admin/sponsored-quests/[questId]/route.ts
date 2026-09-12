@@ -21,6 +21,7 @@ import type { SqlParam } from "@/lib/db";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { syncSponsoredQuestTemplate } from "@/lib/quests/sponsoredQuestPacing";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -37,6 +38,15 @@ const patchSchema = z.object({
   deadline:             z.string().datetime().optional(),
   minCreatorTier:       z.enum(["verified", "elite", "icon"]).optional(),
   isActive:             z.boolean().optional(),
+  ownerUsername:        z.string().min(1).max(50).nullable().optional(),
+  isDailyQuestEligible: z.boolean().optional(),
+  startsAt:             z.string().datetime().nullable().optional(),
+  endsAt:               z.string().datetime().nullable().optional(),
+  totalBudgetCredits:   z.number().min(0).optional(),
+  dailyBudgetCredits:   z.number().min(0).nullable().optional(),
+  cpmCredits:           z.number().positive().optional(),
+  targetAction:         z.string().min(1).max(100).nullable().optional(),
+  targetValue:          z.number().int().positive().nullable().optional(),
 });
 
 interface QuestCtx {
@@ -91,7 +101,29 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { params, auth }: Qu
       deadline:             "deadline",
       minCreatorTier:       "min_creator_tier",
       isActive:             "is_active",
+      isDailyQuestEligible: "is_daily_quest_eligible",
+      startsAt:             "starts_at",
+      endsAt:               "ends_at",
+      totalBudgetCredits:   "total_budget_credits",
+      dailyBudgetCredits:   "daily_budget_credits",
+      cpmCredits:           "cpm_credits",
+      targetAction:         "target_action",
+      targetValue:          "target_value",
     };
+
+    if (body.ownerUsername !== undefined) {
+      if (body.ownerUsername === null) {
+        setParts.push(`owner_user_id = NULL`);
+      } else {
+        const { rows: ownerRows } = await db.query<{ id: string }>(
+          `SELECT id FROM users WHERE username = $1 AND deleted_at IS NULL LIMIT 1`,
+          [body.ownerUsername]
+        );
+        if (!ownerRows[0]) throw badRequest(`No user found with username '${body.ownerUsername}'`);
+        setParts.push(`owner_user_id = $${idx++}`);
+        values.push(ownerRows[0].id);
+      }
+    }
 
     for (const [jsKey, dbCol] of Object.entries(fieldMap)) {
       const val = (body as Record<string, unknown>)[jsKey];
@@ -109,6 +141,8 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { params, auth }: Qu
       `UPDATE sponsored_quests SET ${setParts.join(", ")} WHERE id = $1`,
       values
     );
+
+    await syncSponsoredQuestTemplate(db, questId);
 
     return NextResponse.json({ success: true, data: { questId } });
   } catch (err) {
@@ -135,6 +169,7 @@ export const DELETE = withAdminAuth(async (req: NextRequest, { params, auth }: Q
        WHERE id = $1`,
       [questId]
     );
+    await syncSponsoredQuestTemplate(db, questId);
 
     return NextResponse.json({ success: true, data: { questId, deleted: true } });
   } catch (err) {

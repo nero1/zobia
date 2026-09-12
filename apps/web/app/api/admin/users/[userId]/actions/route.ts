@@ -32,6 +32,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { invalidateAllSessions } from "@/lib/auth/session";
 import { sendEmail } from "@/lib/notifications/email";
 import { logger } from "@/lib/logger";
+import { syncSponsoredQuestTemplate } from "@/lib/quests/sponsoredQuestPacing";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -327,6 +328,26 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
       await invalidateAllSessions(userId).catch((err) => {
         logger.error({ err: err }, "[admin:actions] Failed to invalidate sessions");
       });
+    }
+
+    // Banning a business owner or an admin-assigned quest "creator" pauses
+    // their running Sponsored Quests — never auto-resumed; they (or a new
+    // admin decision) must explicitly restart once the account is restored.
+    if (body.action === "ban") {
+      try {
+        const { rows: stoppedQuests } = await db.query<{ id: string }>(
+          `UPDATE sponsored_quests
+           SET is_active = FALSE, auto_paused = TRUE,
+               pause_reason = 'Account banned', paused_at = NOW(), updated_at = NOW()
+           WHERE is_active = TRUE AND deleted_at IS NULL
+             AND (owner_user_id = $1 OR business_account_id IN (SELECT id FROM business_accounts WHERE user_id = $1))
+           RETURNING id`,
+          [userId]
+        );
+        for (const q of stoppedQuests) await syncSponsoredQuestTemplate(db, q.id);
+      } catch (err) {
+        logger.error({ err, userId }, "[admin:actions] Failed to pause sponsored quests on ban");
+      }
     }
 
     return NextResponse.json(
