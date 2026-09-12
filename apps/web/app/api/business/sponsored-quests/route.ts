@@ -30,6 +30,7 @@ import {
 } from "@/lib/business/limits";
 import { classifySponsoredQuest } from "@/lib/moderation/aiClassifier";
 import { estimateSponsoredQuestReach, syncSponsoredQuestTemplate } from "@/lib/quests/sponsoredQuestPacing";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 const createSchema = z.object({
   businessPageId: z.string().uuid(),
@@ -220,16 +221,14 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     if (moderationStatus === "pending") {
-      await db
-        .query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('sponsored_quest_pending_review', 'info', $1, $2::jsonb, NOW())`,
-          [
-            `Business "${account.business_name}" submitted a Sponsored Quest ("${body.title}") pending moderation.`,
-            JSON.stringify({ questId: rows[0].id, businessAccountId: account.id }),
-          ]
-        )
-        .catch((err) => logger.error({ err }, "[business/sponsored-quests] failed to write system_alert"));
+      await raiseAlert(db, {
+        type: "sponsored_quest_pending_review",
+        category: "moderation",
+        priorityLevel: 6,
+        title: "Sponsored Quest pending review",
+        message: `Business "${account.business_name}" submitted a Sponsored Quest ("${body.title}") pending moderation.`,
+        metadata: { questId: rows[0].id, businessAccountId: account.id },
+      }).catch((err) => logger.error({ err }, "[business/sponsored-quests] failed to write system_alert"));
     }
 
     return NextResponse.json(

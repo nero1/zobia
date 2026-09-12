@@ -20,6 +20,7 @@ import { db } from "@/lib/db";
 import { initiateTransfer, verifyTransfer } from "@/lib/payments/paystack";
 import { logger } from "@/lib/logger";
 import { redis } from "@/lib/redis";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // ---------------------------------------------------------------------------
 // Circuit breaker keys and helpers
@@ -434,14 +435,15 @@ export async function moveToDeadLetterQueue(
       const restoreAmount = current[0].net_kobo;
       if (restoreAmount == null) {
         logger.error({ payoutId, creatorId }, "[payout/dlq] net_kobo is null — cannot restore earnings safely; requires manual review");
-        await tx.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('payout_dlq_null_net_kobo', 'critical', $1, $2::jsonb, NOW())`,
-          [
-            `Payout ${payoutId} moved to DLQ but net_kobo is null — earnings not restored`,
-            JSON.stringify({ payoutId, creatorId, grossKobo: current[0].gross_kobo }),
-          ]
-        ).catch(() => {});
+        await raiseAlert(tx, {
+          type: "payout_dlq_null_net_kobo",
+          category: "financial",
+          priorityLevel: 2,
+          title: "Payout stuck — earnings not restored",
+          message: `Payout ${payoutId} moved to DLQ but net_kobo is null — earnings not restored`,
+          metadata: { payoutId, creatorId, grossKobo: current[0].gross_kobo },
+          dedupeKey: `payout_dlq_null:${payoutId}`,
+        }).catch(() => {});
       } else {
         await tx.query(
           `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
@@ -493,15 +495,14 @@ export async function notifyPayoutFailure(
       .catch(() => {}),
 
     // System alert for admin
-    db
-      .query(
-        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('payout_failed', 'critical', $1, $2::jsonb, NOW())`,
-        [
-          `Payout ${payoutId} for creator ${creatorId} moved to dead-letter queue after max retries. Reason: ${reason}`,
-          JSON.stringify({ payoutId, creatorId, reason }),
-        ]
-      )
-      .catch(() => {}),
+    raiseAlert(db, {
+      type: "payout_failed",
+      category: "financial",
+      priorityLevel: 2,
+      title: "Payout moved to dead-letter queue",
+      message: `Payout ${payoutId} for creator ${creatorId} moved to dead-letter queue after max retries. Reason: ${reason}`,
+      metadata: { payoutId, creatorId, reason },
+      dedupeKey: `payout_failed:${payoutId}`,
+    }).catch(() => {}),
   ]);
 }

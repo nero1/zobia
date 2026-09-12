@@ -1745,6 +1745,34 @@ A fixed, non-scrolling banner pinned at the top of every screen, used for persis
 - Real-time alert panel for: low payout balance, large withdrawal pending, spike in reports, failed payment webhooks, CRON job failure, AI moderation API errors.
 - Alert history with resolution notes.
 
+### 20.1 Admin/Mod Alert Priority System (6 Levels)
+
+A professional-grade priority-based alert & escalation system for admins and moderators, replacing a flat 3-severity model. Implemented in `lib/alerts/` (`types.ts`, `dispatch.ts`, `schedule.ts`, `recipients.ts`), `lib/notifications/sms.ts` (Termii), and the admin panel at `/gate44/alerts` (dashboard) and `/gate44/alerts/settings` (granular per-level configuration). Every part of the platform that needs to page an admin/mod calls the central `raiseAlert()` function rather than inserting into `system_alerts` directly.
+
+**The 6 priority levels** (1 = most severe / Red, 6 = least severe / Green):
+
+| Level | Name | Color | Use cases | Channels | Escalates |
+|---|---|---|---|---|---|
+| 1 | Critical | `#DC2626` Red | Site down/unreachable, database unreachable, active confirmed security breach, payout treasury/account empty | SMS + Push + Email + Telegram + In-app | Yes |
+| 2 | Urgent Emergency | `#EA580C` Orange | DDoS/hacking/bot attack discovered while site still up, payout funds low, payment reconciliation inconsistencies, sitewide mass-report brigading | SMS + Push + Email + Telegram + In-app | Yes (shorter) |
+| 3 | Top Priority | `#F59E0B` Amber | Elevated error rate, moderation queue backlog, repeated failed webhook, single critical CRON failure, suspicious staff activity | Push + Email + Telegram + In-app | No |
+| 4 | High Priority | `#EAB308` Yellow | Slow query spikes, degraded cache hit ratio, moderate report spike, elevated non-critical API errors | Push + Telegram + In-app | No |
+| 5 | Medium Priority | `#84CC16` Lime | Minor anomalies, informational thresholds crossed, auto-quarantine triggered | Telegram + In-app | No |
+| 6 | Low Priority | `#22C55E` Green | Routine informational/housekeeping notices | In-app only | No |
+
+**Audience rules** — who gets notified is decided by the alert's `category`, not its level:
+- `financial` (payout treasury, reconciliation, withdrawals) → **admin-only, always**. Moderators never see money-related alerts.
+- `site`, `security`, `moderation` → admin **and** moderators.
+- `infra`, `other` → admin-only by default; admin can opt moderators in via the `alert_notify_mods_infra_other` setting.
+
+**SMS is the one deliberate exception** to the platform's no-SMS policy (§16, §22) — it is used ONLY for Level 1 and Level 2 alert paging, never for anything user-facing, auth, or marketing. Provider: **Termii** (pay-as-you-go, has a free tier), provider-abstracted (`SmsProvider` interface in `lib/notifications/sms.ts`) so additional providers can be added later by implementing the interface and registering it — no call-site changes needed.
+
+**Level 1/2 escalation schedule** (admin-configurable at `/gate44/alerts/settings`, implemented as a state machine in `lib/alerts/schedule.ts`): an hour-based backoff schedule (default: 1h, 2h, 4h, 8h, 16h, 32h after first trigger) repeats for a configurable number of cycles (default 3 for Level 1, 1 for Level 2), then switches to once-a-day paging for a configurable number of days (default 7 for Level 1, 3 for Level 2), then once-a-week for a configurable number of weeks (default 52 for Level 1, 0/disabled for Level 2), then stops permanently. Resolving the alert in the admin panel immediately stops the escalation schedule. Escalation re-checks run via the externally-triggered `/api/cron/alert-escalation` CRON (every 15-30 minutes via an external CRON service — Vercel Hobby only allows daily CRONs).
+
+**Mass-report spike detection**: distinct-reporter counts on a single content cluster (see §19 flood control) raise an alert at increasing priority as thresholds are crossed — default Level 5 at 5 reporters, Level 4 at 15, Level 3 at 40 — folded into ONE alert per cluster (via `dedupeKey`) that upgrades in place rather than spamming a new alert per reporter. A separate sitewide velocity check (default: 100+ reports across all targets in the last hour) raises a Level 2 alert to admins+mods, indicating possible brigading or a coordinated attack rather than one bad piece of content.
+
+**Monitoring dashboard** (`/gate44/monitoring`): uptime proxy derived from Level 1 "site"-category alert history (no separate uptime pinger needed), alert volume by priority level (24h + currently active), CRON job freshness (from `cron_state`), Redis reachability/latency, and a recent-alert log feed. Cached in Redis for 30 minutes with a manual "Refresh live data" bypass (mirrors the existing Data Management stats pattern) — deliberately not real-time or to-the-second accurate, to stay within free-tier Redis/DB call budgets. Cache-hit-ratio and slow-query tracking are explicitly reported as "not yet instrumented" (would require `pg_stat_statements` or a dedicated APM) rather than fabricated.
+
 ---
 
 ## 21. Internationalisation & Localisation

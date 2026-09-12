@@ -15,6 +15,7 @@ import { upsertLeaderboardSnapshot } from "@/lib/leaderboards/engine";
 import type { LeaderboardTrack } from "@/lib/leaderboards/engine";
 import { getRankForXP } from "@/lib/xp/engine";
 import { publishRealtimeEvent } from "@/lib/realtime";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -418,14 +419,15 @@ export async function retryFailedXPAwards(): Promise<{
 
       if (newRetryCount >= MAX_RETRIES) {
         permanentlyFailed++;
-        await globalDb.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('xp_award_permanent_failure', 'warning', $1, $2::jsonb, NOW())`,
-          [
-            `XP award permanently failed after ${MAX_RETRIES} retries for user ${row.user_id}`,
-            JSON.stringify({ failedXpAwardId: row.id, userId: row.user_id, source: row.source }),
-          ]
-        ).catch(() => {});
+        await raiseAlert(globalDb, {
+          type: "xp_award_permanent_failure",
+          category: "infra",
+          priorityLevel: 4,
+          title: "XP award permanently failed",
+          message: `XP award permanently failed after ${MAX_RETRIES} retries for user ${row.user_id}`,
+          metadata: { failedXpAwardId: row.id, userId: row.user_id, source: row.source },
+          dedupeKey: `xp_award_permanent_failure:${row.id}`,
+        }).catch(() => {});
       }
     }  // end catch
     }  // end for (const row of rows)

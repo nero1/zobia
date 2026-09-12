@@ -23,6 +23,7 @@ import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { normalizeFooterScriptContent } from "@/lib/admin/footerScriptNormalize";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -126,14 +127,14 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
 
     // BUG-020: Audit-log all footer script writes — raw script injection is
     // high-risk and must be attributable to a specific admin user.
-    await db.query(
-      `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-       VALUES ('footer_script_created', 'info', $1, $2::jsonb, NOW())`,
-      [
-        `Footer script "${name}" created by admin ${auth.user.sub}`,
-        JSON.stringify({ scriptId: rows[0].id, name, adminId: auth.user.sub }),
-      ]
-    ).catch(() => {});
+    await raiseAlert(db, {
+      type: "footer_script_created",
+      category: "security",
+      priorityLevel: 6,
+      title: "Footer script created",
+      message: `Footer script "${name}" created by admin ${auth.user.sub}`,
+      metadata: { scriptId: rows[0].id, name, adminId: auth.user.sub },
+    }).catch(() => {});
 
     return NextResponse.json(
       {

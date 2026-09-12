@@ -17,6 +17,7 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, conflict, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { requireFeatureEnabled } from "@/lib/manifest";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // ---------------------------------------------------------------------------
 // POST /api/business/verify
@@ -61,15 +62,15 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
     );
 
     // Alert admin of new verification request
-    await db.query(
-      `INSERT INTO system_alerts
-         (type, severity, message, metadata, created_at)
-       VALUES ('business_verification_request', 'low', $1, $2::jsonb, NOW())`,
-      [
-        `Business account ${id} requested verification`,
-        JSON.stringify({ businessAccountId: id, userId }),
-      ]
-    ).catch(() => {});
+    await raiseAlert(db, {
+      type: "business_verification_request",
+      category: "other",
+      priorityLevel: 6,
+      title: "Business verification request",
+      message: `Business account ${id} requested verification`,
+      metadata: { businessAccountId: id, userId },
+      dedupeKey: `business_verification_request:${id}`,
+    }).catch(() => {});
 
     return NextResponse.json({
       success: true,

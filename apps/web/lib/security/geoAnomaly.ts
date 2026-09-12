@@ -16,6 +16,7 @@
 
 import { redis } from "@/lib/redis";
 import { db } from "@/lib/db";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // ---------------------------------------------------------------------------
 // Configuration
@@ -139,16 +140,15 @@ export async function recordAndCheckAnomaly(
     // Log admin alert only when the threshold is reached — inserting on every
     // anomaly floods the table for mobile users with dynamic IPs (OPS-02).
     if (count >= ANOMALY_THRESHOLD) {
-      await db.query(
-        `INSERT INTO system_alerts
-           (type, severity, message, metadata, created_at)
-         VALUES
-           ('geo_anomaly', 'warning', $1, $2::jsonb, NOW())`,
-        [
-          `User ${userId} session IP changed from ${loginIp} to ${currentIp} — anomaly threshold reached (${count} in the last hour). Session will be invalidated.`,
-          JSON.stringify({ userId, sessionId, loginIp, currentIp, anomalyCount: count }),
-        ]
-      ).catch(() => {}); // Non-fatal — logging must not block requests
+      await raiseAlert(db, {
+        type: "geo_anomaly",
+        category: "security",
+        priorityLevel: 4,
+        title: "Geolocation anomaly — session invalidated",
+        message: `User ${userId} session IP changed from ${loginIp} to ${currentIp} — anomaly threshold reached (${count} in the last hour). Session will be invalidated.`,
+        metadata: { userId, sessionId, loginIp, currentIp, anomalyCount: count },
+        dedupeKey: `geo_anomaly:${sessionId}`,
+      }).catch(() => {}); // Non-fatal — logging must not block requests
     }
 
     return count >= ANOMALY_THRESHOLD;

@@ -25,6 +25,8 @@
 import type { TransactionClient } from "@/lib/db/interface";
 import { loadManifest } from "@/lib/manifest";
 import { logger } from "@/lib/logger";
+import { raiseAlert } from "@/lib/alerts/dispatch";
+import type { AlertPriorityLevel } from "@/lib/alerts/types";
 
 export interface ReportTargets {
   reportedUserId?: string | null;
@@ -189,4 +191,37 @@ export async function maybeAutoQuarantine(
       JSON.stringify({ duplicateCount, threshold, clusterKey }),
     ]
   );
+}
+
+/**
+ * Raises (or upgrades) an admin/mod alert when a single content cluster's
+ * distinct-reporter count crosses one of the mass-report thresholds
+ * (admin-configurable at /gate44/alerts/settings). Deduped per cluster via
+ * dedupeKey so a busy cluster produces ONE alert that escalates through
+ * Levels 5 -> 4 -> 3 -> 2 as duplicateCount climbs, instead of a new alert
+ * every time another reporter piles on.
+ */
+export async function maybeRaiseReportSpikeAlert(tx: TransactionClient, clusterKey: string, duplicateCount: number): Promise<void> {
+  const manifest = await loadManifest();
+  const { level5Threshold, level4Threshold, level3Threshold } = manifest.alerting.reportSpike;
+
+  let level: AlertPriorityLevel | null = null;
+  if (level3Threshold > 0 && duplicateCount >= level3Threshold) level = 3;
+  else if (level4Threshold > 0 && duplicateCount >= level4Threshold) level = 4;
+  else if (level5Threshold > 0 && duplicateCount >= level5Threshold) level = 5;
+  if (!level) return;
+
+  try {
+    await raiseAlert(tx, {
+      type: "report_spike",
+      category: "moderation",
+      priorityLevel: level,
+      title: "Mass report spike on a single item",
+      message: `${duplicateCount} distinct reporters have flagged the same content (cluster ${clusterKey}). Review the Moderation Center.`,
+      metadata: { clusterKey, duplicateCount },
+      dedupeKey: clusterKey,
+    });
+  } catch (err) {
+    logger.error({ err, clusterKey, duplicateCount }, "[moderation/clustering] failed to raise report spike alert");
+  }
 }

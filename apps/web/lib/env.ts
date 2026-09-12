@@ -97,6 +97,13 @@ const envSchema = z.object({
   MAILGUN_API_KEY: z.string().optional(),
   MAILGUN_DOMAIN: z.string().optional(),
 
+  // ---- SMS (admin/mod critical alerts ONLY — see lib/notifications/sms.ts) --
+  // The platform has an explicit no-SMS policy everywhere else (PRD §16, §22).
+  // This is the one deliberate exception: Level 1/2 admin alert paging.
+  SMS_PROVIDER: z.string().default("termii"),
+  TERMII_API_KEY: z.string().optional(),
+  TERMII_SENDER_ID: z.string().optional(),
+
   // ---- Payments -----------------------------------------------------------
   // Optional — required only when Paystack is the active payment provider.
   PAYSTACK_SECRET_KEY: z.string().optional(),

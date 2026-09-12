@@ -11,7 +11,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
+import Link from "next/link";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { ALERT_PRIORITY_LEVELS, type AlertPriorityLevel } from "@/lib/alerts/types";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -20,20 +22,22 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 type Severity = "critical" | "warning" | "info";
 type AlertStatus = "active" | "resolved";
 
-type AlertType =
-  | "low_payout_balance"
-  | "large_withdrawal"
-  | "report_spike"
-  | "cron_failure"
-  | "ai_api_error"
-  | "other";
-
 interface Alert {
   id: string;
-  type: AlertType;
+  type: string;
   severity: Severity;
   title: string;
   description: string;
+  priorityLevel: AlertPriorityLevel;
+  category: string;
+  notifyAdmin: boolean;
+  notifyMods: boolean;
+  escalationStage: number;
+  escalationPhase: string;
+  escalationComplete: boolean;
+  nextEscalationAt: string | null;
+  smsSentCount: number;
+  channelsSent: string[];
   status: AlertStatus;
   createdAt: string;
   resolvedAt?: string;
@@ -45,19 +49,21 @@ interface Alert {
 // Constants
 // ---------------------------------------------------------------------------
 
-const SEVERITY_BADGE: Record<Severity, { classes: string; dot: string }> = {
-  critical: { classes: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-300", dot: "bg-red-500 animate-pulse" },
-  warning: { classes: "bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300", dot: "bg-amber-400" },
-  info: { classes: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300", dot: "bg-blue-400" },
+const CATEGORY_ICON: Record<string, string> = {
+  site: "🌐",
+  security: "🛡️",
+  financial: "💰",
+  moderation: "📈",
+  infra: "⚙️",
+  other: "🔔",
 };
 
-const ALERT_TYPE_ICON: Record<AlertType, string> = {
-  low_payout_balance: "💰",
-  large_withdrawal: "⚠️",
-  report_spike: "📈",
-  cron_failure: "⏰",
-  ai_api_error: "🤖",
-  other: "🔔",
+const CHANNEL_ICON: Record<string, string> = {
+  sms: "📱",
+  email: "✉️",
+  telegram: "✈️",
+  push: "🔔",
+  in_app: "💬",
 };
 
 // ---------------------------------------------------------------------------
@@ -66,12 +72,15 @@ const ALERT_TYPE_ICON: Record<AlertType, string> = {
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+  const future = diff < 0;
+  const absMins = Math.floor(Math.abs(diff) / 60_000);
+  const suffix = future ? "" : " ago";
+  const prefix = future ? "in " : "";
+  if (absMins < 1) return future ? "in <1m" : "just now";
+  if (absMins < 60) return `${prefix}${absMins}m${suffix}`;
+  const hrs = Math.floor(absMins / 60);
+  if (hrs < 24) return `${prefix}${hrs}h${suffix}`;
+  return `${prefix}${Math.floor(hrs / 24)}d${suffix}`;
 }
 
 function formatDate(iso: string): string {
@@ -151,22 +160,38 @@ interface AlertCardProps {
 }
 
 function AlertCard({ alert, onResolve }: AlertCardProps) {
-  const { classes, dot } = SEVERITY_BADGE[alert.severity];
+  const levelDef = ALERT_PRIORITY_LEVELS[alert.priorityLevel] ?? ALERT_PRIORITY_LEVELS[6];
 
   return (
-    <div className={`rounded-xl border bg-white p-4 dark:bg-neutral-900 ${alert.severity === "critical" ? "border-red-200 dark:border-red-800" : alert.severity === "warning" ? "border-amber-200 dark:border-amber-800" : "border-blue-200 dark:border-blue-800"}`}>
+    <div className="rounded-xl border bg-white p-4 dark:bg-neutral-900" style={{ borderColor: alert.status === "active" ? levelDef.color : undefined }}>
       <div className="flex flex-wrap items-start gap-3">
-        <span className="mt-0.5 text-2xl">{ALERT_TYPE_ICON[alert.type]}</span>
+        <span className="mt-0.5 text-2xl">{CATEGORY_ICON[alert.category] ?? "🔔"}</span>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5">
-              <span className={`h-2 w-2 rounded-full ${dot}`} />
-              <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${classes}`}>{alert.severity}</span>
+              <span className={`h-2 w-2 rounded-full ${alert.priorityLevel <= 2 ? "animate-pulse" : ""}`} style={{ backgroundColor: levelDef.color }} />
+              <span className="rounded-full px-2 py-0.5 text-xs font-semibold text-white" style={{ backgroundColor: levelDef.color }}>
+                L{alert.priorityLevel} · {levelDef.label}
+              </span>
             </div>
+            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-neutral-500 dark:bg-neutral-800">{alert.category}</span>
             <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">{alert.title}</h3>
             <span className="ml-auto text-xs text-neutral-400">{timeAgo(alert.createdAt)}</span>
           </div>
           <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">{alert.description}</p>
+
+          <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-neutral-400">
+            {alert.channelsSent.map((c) => (
+              <span key={c} title={c}>{CHANNEL_ICON[c] ?? c}</span>
+            ))}
+            {alert.smsSentCount > 0 && <span>· {alert.smsSentCount} SMS sent</span>}
+            {alert.status === "active" && !alert.escalationComplete && alert.nextEscalationAt && (
+              <span>· next page {timeAgo(alert.nextEscalationAt)} ({alert.escalationPhase})</span>
+            )}
+            {alert.status === "active" && alert.escalationComplete && ALERT_PRIORITY_LEVELS[alert.priorityLevel].escalates && (
+              <span>· escalation schedule exhausted</span>
+            )}
+          </div>
 
           {alert.status === "resolved" && (
             <div className="mt-2 rounded-lg border border-neutral-100 bg-neutral-50 p-2 text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-800/50">
@@ -228,8 +253,16 @@ export default function AdminAlertsPage() {
         err.code = body.error?.code ?? null;
         throw err;
       }
-      const data = (await res.json()) as { success: boolean; data: { alerts: Alert[]; total: number } };
-      setAlerts(data.data?.alerts ?? []);
+      const data = (await res.json()) as {
+        success: boolean;
+        data: { alerts: Array<Omit<Alert, "description" | "status"> & { message: string; resolved: boolean }>; total: number };
+      };
+      const mapped: Alert[] = (data.data?.alerts ?? []).map((a) => ({
+        ...a,
+        description: a.message,
+        status: a.resolved ? "resolved" : "active",
+      }));
+      setAlerts(mapped);
     } catch (e) {
       const err = e as Error & { code?: string | null };
       setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
@@ -257,18 +290,30 @@ export default function AdminAlertsPage() {
   const active = alerts.filter((a) => a.status === "active");
   const resolved = alerts.filter((a) => a.status === "resolved");
 
-  const criticalCount = active.filter((a) => a.severity === "critical").length;
+  const criticalCount = active.filter((a) => a.priorityLevel === 1).length;
+  const urgentCount = active.filter((a) => a.priorityLevel === 2).length;
 
   return (
     <div className="relative space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Alerts Dashboard</h1>
-        {criticalCount > 0 && (
-          <span className="flex items-center gap-1.5 rounded-full bg-red-100 px-3 py-1 text-sm font-semibold text-red-700 dark:bg-red-900 dark:text-red-300">
-            <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
-            {criticalCount} critical
-          </span>
-        )}
+        <div className="flex items-center gap-2">
+          {criticalCount > 0 && (
+            <span className="flex items-center gap-1.5 rounded-full bg-red-100 px-3 py-1 text-sm font-semibold text-red-700 dark:bg-red-900 dark:text-red-300">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500" />
+              {criticalCount} critical
+            </span>
+          )}
+          {urgentCount > 0 && (
+            <span className="flex items-center gap-1.5 rounded-full bg-orange-100 px-3 py-1 text-sm font-semibold text-orange-700 dark:bg-orange-900 dark:text-orange-300">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-orange-500" />
+              {urgentCount} urgent
+            </span>
+          )}
+          <Link href="/gate44/alerts/settings" className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800">
+            Settings
+          </Link>
+        </div>
       </div>
 
       {toast && (

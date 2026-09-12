@@ -80,6 +80,8 @@ export function deriveNotificationActionUrl(
     case "kyc_approved":
     case "kyc_rejected":
       return "/kyc";
+    case "admin_alert":
+      return "/gate44/alerts";
     default:
       return null;
   }

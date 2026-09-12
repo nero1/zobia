@@ -34,6 +34,7 @@ import { processPendingPayouts, reconcileStuckPayouts } from "@/lib/payments/pay
 import { validateCronSecret } from "@/lib/cron/auth";
 import { logger } from "@/lib/logger";
 import { db } from "@/lib/db";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 export const POST = async (req: NextRequest) => {
   // ── Auth ──────────────────────────────────────────────────────────────────
@@ -73,15 +74,15 @@ export const POST = async (req: NextRequest) => {
       const DLQ_ALERT_THRESHOLD = 10;
       if (dlqDepth >= DLQ_ALERT_THRESHOLD) {
         logger.warn({ dlqDepth }, "[cron/payouts] DLQ depth alert: payout_dead_letter_queue has many entries");
-        await db.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('payout_dlq_depth', 'warning', $1, $2::jsonb, NOW())
-           ON CONFLICT DO NOTHING`,
-          [
-            `Payout DLQ has ${dlqDepth} entries — manual review required`,
-            JSON.stringify({ dlqDepth }),
-          ]
-        ).catch(() => {});
+        await raiseAlert(db, {
+          type: "payout_dlq_depth",
+          category: "financial",
+          priorityLevel: 2,
+          title: "Payout dead-letter queue depth exceeded",
+          message: `Payout DLQ has ${dlqDepth} entries — manual review required`,
+          metadata: { dlqDepth },
+          dedupeKey: "payout_dlq_depth",
+        }).catch(() => {});
       }
     } catch (err) {
       logger.warn({ err }, "[cron/payouts] Failed to check DLQ depth");

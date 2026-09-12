@@ -12,6 +12,7 @@ import type { DatabaseAdapter } from "@/lib/db/interface";
 import { creditCoins } from "@/lib/economy/coins";
 import { upsertLeaderboardSnapshot } from "@/lib/leaderboards/engine";
 import { logger } from "@/lib/logger";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -700,11 +701,15 @@ export async function claimPassMilestone(
       const packUuid = packResult.rows[0]?.id;
       if (!packUuid) {
         logger.error({ milestoneId, userId }, '[seasonEngine] Sticker pack not found for milestone reward — skipping grant');
-        await client.query(
-          `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-           VALUES ('missing_sticker_pack', 'warning', $1, $2::jsonb, NOW())`,
-          [`Sticker pack not found for milestone ${milestoneId}`, JSON.stringify({ milestoneId, userId })]
-        ).catch(() => {});
+        await raiseAlert(client, {
+          type: "missing_sticker_pack",
+          category: "other",
+          priorityLevel: 4,
+          title: "Sticker pack not found for season milestone",
+          message: `Sticker pack not found for milestone ${milestoneId}`,
+          metadata: { milestoneId, userId },
+          dedupeKey: `missing_sticker_pack:${milestoneId}`,
+        }).catch(() => {});
         // fall through — milestone is still marked claimed
         claimed = { rewardType: milestone.reward_type, rewardValue: milestone.reward_value };
         return;

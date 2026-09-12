@@ -999,8 +999,18 @@ Inject custom scripts via the `footer_scripts` table — for analytics, pixel tr
 ### Audit Logs (`/gate44/audit-logs`)
 Read-only viewer over the platform's two audit trails: `admin_audit_log` (config/KYC/payout/feature-flag/ads-moderation/impersonation writes made through the admin panel) and `audit_log` (`lib/audit/auditLog.ts` — login/logout, 2FA, PIN, admin ban/suspend, read-path access to sensitive views). `GET /api/admin/audit-logs?source=admin|security` with action/actor/date filters, admin-only. Both tables are keyset-paginated (`created_at, id` — see `db/migrations/0013_audit_log_viewer.sql`), never OFFSET, so listing stays fast no matter how many rows have accumulated. **Retention:** rows older than 365 days are deleted in bounded batches by the `daily-platform` CRON slot (`lib/audit/pruneAuditLogs.ts`) so the tables never grow unbounded — this piggybacks on the existing daily-platform slot rather than a new CRON entry (see CRON Setup in `docs/SETUP.md`). If longer retention is ever needed for compliance, archive to cold storage before deleting rather than raising the window indefinitely.
 
-### Alerts (`/api/admin/alerts`)
-System alerts for: low payout balance, AI provider failure, CRON failure, moderation queue spike. Each alert can be resolved by an admin with an optional note.
+### Alerts (`/api/admin/alerts`) — 6-Level Priority System
+
+The flat 3-severity `system_alerts` model (info/warning/critical) has been superseded by a 6-level priority system (PRD §20.1). Anything that needs to page an admin/mod calls `raiseAlert()` (`lib/alerts/dispatch.ts`) instead of inserting into `system_alerts` directly.
+
+- **Levels 1-6** (1 = Critical/Red … 6 = Low/Green) each have a default channel set (SMS/Email/Telegram/Push/In-app), admin-editable at `/gate44/alerts/settings`. Only Levels 1-2 ever send SMS (via Termii, `lib/notifications/sms.ts`) — the platform's one deliberate exception to its no-SMS policy.
+- **Audience** is decided by `category`, not level: `financial` alerts are admin-only always; `site`/`security`/`moderation` go to admins + moderators; `infra`/`other` are admin-only unless opted in.
+- **Escalation**: Levels 1-2 repeat on an hour-based backoff schedule (default 1h/2h/4h/8h/16h/32h, configurable cycles/daily/weekly phases) until resolved, driven by the externally-triggered `/api/cron/alert-escalation` CRON (every 15-30 min — see SETUP.md). Resolving the alert in `/gate44/alerts` stops escalation immediately.
+- **Dedupe**: repeat triggers of the same underlying condition (`dedupeKey`, e.g. a report cluster key or a payout ID) fold into one open alert instead of spamming a new one — but a genuine severity upgrade (e.g. a report cluster crossing into a higher level) re-notifies at the new level.
+- **Mass-report spikes**: `lib/moderation/clustering.ts` raises a Level 5→4→3 alert as a content cluster's distinct-reporter count crosses configurable thresholds; a separate sitewide velocity check in the escalation CRON raises Level 2 for suspected brigading/attacks.
+- **Monitoring dashboard** at `/gate44/monitoring`: uptime proxy (from Level 1 "site" alert history), alert volume by level, CRON job freshness, Redis reachability, recent alert feed — cached 30 min, manual refresh available.
+
+Each alert can still be resolved by an admin with an optional note (`POST /api/admin/alerts/[alertId]/resolve`).
 
 ### Android Admin Mirror
 A read-only admin dashboard view available in the Expo app for admins, showing the same metrics as the web panel without write access.

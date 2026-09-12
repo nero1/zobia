@@ -20,6 +20,7 @@ import { db } from "@/lib/db";
 import { validateCronSecret } from "@/lib/cron/auth";
 import { getManifestValue } from "@/lib/manifest";
 import { logger } from "@/lib/logger";
+import { raiseAlert } from "@/lib/alerts/dispatch";
 
 const BATCH_SIZE = 500;
 const DEFAULT_AUTO_CORRECT_THRESHOLD = 50;
@@ -163,25 +164,27 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     // BUG-CRON-01: Raise critical alerts for large discrepancies that exceed the threshold.
     for (const d of largeXpDiscrepancies) {
-      await db.query(
-        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('balance_discrepancy', 'critical', $1, $2::jsonb, NOW())`,
-        [
-          `Large XP discrepancy for user ${d.userId}: delta ${d.delta} (above auto-correct threshold ${AUTO_CORRECT_THRESHOLD})`,
-          JSON.stringify({ userId: d.userId, assetType: 'xp', ledgerSum: String(d.ledgerSum), walletBalance: String(d.walletBalance), delta: String(d.delta), threshold: AUTO_CORRECT_THRESHOLD }),
-        ]
-      ).catch(() => {});
+      await raiseAlert(db, {
+        type: "balance_discrepancy",
+        category: "financial",
+        priorityLevel: 2,
+        title: "Large XP balance discrepancy",
+        message: `Large XP discrepancy for user ${d.userId}: delta ${d.delta} (above auto-correct threshold ${AUTO_CORRECT_THRESHOLD})`,
+        metadata: { userId: d.userId, assetType: 'xp', ledgerSum: String(d.ledgerSum), walletBalance: String(d.walletBalance), delta: String(d.delta), threshold: AUTO_CORRECT_THRESHOLD },
+        dedupeKey: `balance_discrepancy:xp:${d.userId}`,
+      }).catch(() => {});
     }
 
     for (const d of largeCoinDiscrepancies) {
-      await db.query(
-        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('balance_discrepancy', 'critical', $1, $2::jsonb, NOW())`,
-        [
-          `Large coin discrepancy for user ${d.userId}: delta ${d.delta} (above auto-correct threshold ${AUTO_CORRECT_THRESHOLD})`,
-          JSON.stringify({ userId: d.userId, assetType: 'coins', ledgerSum: String(d.ledgerSum), walletBalance: String(d.walletBalance), delta: String(d.delta), threshold: AUTO_CORRECT_THRESHOLD }),
-        ]
-      ).catch(() => {});
+      await raiseAlert(db, {
+        type: "balance_discrepancy",
+        category: "financial",
+        priorityLevel: 2,
+        title: "Large coin balance discrepancy",
+        message: `Large coin discrepancy for user ${d.userId}: delta ${d.delta} (above auto-correct threshold ${AUTO_CORRECT_THRESHOLD})`,
+        metadata: { userId: d.userId, assetType: 'coins', ledgerSum: String(d.ledgerSum), walletBalance: String(d.walletBalance), delta: String(d.delta), threshold: AUTO_CORRECT_THRESHOLD },
+        dedupeKey: `balance_discrepancy:coin:${d.userId}`,
+      }).catch(() => {});
     }
 
     // AUDIT-01: Insert audit records and alert on ALL auto-corrections (RECONCILE-01).
@@ -195,14 +198,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
          VALUES ($1, 'xp', $2, $3, NOW(), 'auto-corrected by reconcile-balances CRON')`,
         [userId, String(ledgerSum), String(walletBalance)]
       ).catch(() => {});
-      await db.query(
-        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('balance_discrepancy', 'warning', $1, $2::jsonb, NOW())`,
-        [
-          `XP balance auto-corrected for user ${userId}: delta ${discrepancyAmount}`,
-          JSON.stringify({ userId, assetType: 'xp', ledgerSum: String(ledgerSum), walletBalance: String(walletBalance), discrepancyAmount: String(discrepancyAmount) }),
-        ]
-      ).catch(() => {});
+      await raiseAlert(db, {
+        type: "balance_discrepancy",
+        category: "financial",
+        priorityLevel: 4,
+        title: "XP balance auto-corrected",
+        message: `XP balance auto-corrected for user ${userId}: delta ${discrepancyAmount}`,
+        metadata: { userId, assetType: 'xp', ledgerSum: String(ledgerSum), walletBalance: String(walletBalance), discrepancyAmount: String(discrepancyAmount) },
+        dedupeKey: `balance_discrepancy_corrected:xp:${userId}`,
+      }).catch(() => {});
     }
 
     // Batch auto-correct XP
@@ -225,14 +229,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
          VALUES ($1, 'coins', $2, $3, NOW(), 'auto-corrected by reconcile-balances CRON')`,
         [userId, String(ledgerSum), String(walletBalance)]
       ).catch(() => {});
-      await db.query(
-        `INSERT INTO system_alerts (type, severity, message, metadata, created_at)
-         VALUES ('balance_discrepancy', 'warning', $1, $2::jsonb, NOW())`,
-        [
-          `Coin balance auto-corrected for user ${userId}: delta ${discrepancyAmount}`,
-          JSON.stringify({ userId, assetType: 'coins', ledgerSum: String(ledgerSum), walletBalance: String(walletBalance), discrepancyAmount: String(discrepancyAmount) }),
-        ]
-      ).catch(() => {});
+      await raiseAlert(db, {
+        type: "balance_discrepancy",
+        category: "financial",
+        priorityLevel: 4,
+        title: "Coin balance auto-corrected",
+        message: `Coin balance auto-corrected for user ${userId}: delta ${discrepancyAmount}`,
+        metadata: { userId, assetType: 'coins', ledgerSum: String(ledgerSum), walletBalance: String(walletBalance), discrepancyAmount: String(discrepancyAmount) },
+        dedupeKey: `balance_discrepancy_corrected:coin:${userId}`,
+      }).catch(() => {});
     }
 
     // Batch auto-correct coins

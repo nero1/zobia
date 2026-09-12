@@ -14,6 +14,7 @@ Before you begin, you will need accounts and tools for the following:
 - **Google AI Studio** — Gemini fallback AI (aistudio.google.com)
 - **Google Cloud Console** — OAuth 2.0 credentials (console.cloud.google.com)
 - **Telegram BotFather** — Telegram login bot (@BotFather on Telegram)
+- **Termii** — SMS for Level 1/2 admin/mod critical alert paging ONLY (termii.com); the platform has no other SMS usage. Pay-as-you-go, has a free tier. Optional — alerts still fire on every other channel without it.
 - **Expo** — React Native build platform (expo.dev) — legacy app, being discontinued; kept for reference only, do not develop new features on it
 - **EAS CLI** — Expo Application Services for Android builds — only needed for the legacy, discontinued Expo app (`apps/expo/`); the current Capacitor Android app (`apps/android/`) builds via GitHub Actions + Gradle, no EAS account required
 - **Google AdMob** — banner/interstitial/rewarded ads in the Capacitor Android app (admob.google.com) — optional; the in-house ad system works without it
@@ -244,6 +245,9 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `GROQ_API_ENDPOINT` | No | Override endpoint (default: `https://api.groq.com/openai/v1`) | Groq docs |
 | `MAILGUN_API_KEY` | No | Mailgun API key for transactional email | Mailgun → Account → API Keys |
 | `MAILGUN_DOMAIN` | No | Mailgun sending domain (e.g. `mg.yourdomain.com`) | Mailgun → Sending → Domains |
+| `SMS_PROVIDER` | No | Active SMS provider key for Level 1/2 admin/mod alert paging (default `termii`). Also admin-editable at `/gate44/alerts/settings`. | — |
+| `TERMII_API_KEY` | No | Termii API key — used ONLY for Level 1/2 critical alert SMS. Without it, alerts still fire on every other channel. | termii.com → API Keys |
+| `TERMII_SENDER_ID` | No | Termii registered Sender ID (required alongside `TERMII_API_KEY` for SMS to send) | termii.com → Sender ID → request approval |
 | `PAYSTACK_SECRET_KEY` | No | Paystack secret key — must have Transfers permission enabled | Paystack dashboard → Settings → API Keys |
 | `PAYSTACK_PUBLIC_KEY` | No | Paystack public key | Paystack dashboard → Settings → API Keys |
 | `DODOPAYMENTS_API_KEY` | No | DodoPayments API key | DodoPayments dashboard → API |
@@ -910,6 +914,13 @@ Because Vercel Hobby limits each path to once per day, sub-daily jobs must be tr
 - Schedule: Every 15 minutes
 - HTTP Method: GET
 - Header: `Authorization: Bearer YOUR_CRON_SECRET`
+
+**Alert Escalation (every 15-30 minutes)**
+- URL: `https://your-domain.com/api/cron/alert-escalation`
+- Schedule: Every 15-30 minutes
+- HTTP Method: GET
+- Header: `Authorization: Bearer YOUR_CRON_SECRET`
+- Purpose: re-notifies unresolved Level 1/2 admin/mod alerts on their hour-based backoff/daily/weekly escalation schedule, and checks sitewide report velocity for brigading/attack spikes. See PRD §20.1 and `/gate44/alerts/settings`.
 
 **Games Housekeeping (hourly)**
 - URL: `https://your-domain.com/api/cron/games`
