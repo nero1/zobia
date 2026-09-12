@@ -1570,6 +1570,41 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 - Upgrade users to Moderator role.
 - Reset user passwords, force 2FA, manually verify accounts.
 
+**20.x Data Management Utility** (`/gate44/data-management`)
+
+A dedicated bulk-data utility, separate from the per-user search/detail flow
+above (which stays focused on moderation actions against a single account).
+
+- **Three tabs:** Users (default), Financial, Statistical. Each shows a row
+  of quick-stat cards (totals/averages relevant to that tab) at the top.
+- **Cached stats, minimal Redis usage:** stat cards are cached in Redis for
+  30 minutes rather than computed live on every page load, with a manual
+  "Refresh live data" button that bypasses the cache on demand. This is a
+  deliberate choice to minimize Redis calls given free-tier plan limits
+  (Vercel/Redis) — no live-updating stats, no polling.
+- **Granular data export:** admin picks an output format (CSV, TSV, or
+  XLSX), which fields to include from a safe allowlist (never password
+  hashes or other secrets), and filters — e.g. "export the emails of all
+  users at trust score ≥ 80", "export the IDs of every banned user in
+  Nigeria", or "export the ID of the #1 XP earner on the leaderboard".
+  Built to scale to millions of rows: cursor (keyset) pagination in bounded
+  batches, never `OFFSET`, streamed directly into the response.
+- **Full-account export/import (install migration):** a separate,
+  explicitly-flagged NDJSON export of complete user accounts, used to move
+  users between two separate Zobia deployments/installs — not the same as
+  the granular export above. Secrets (password hash, TOTP secret) are
+  excluded by default and only included when the admin opts in, since doing
+  so makes the export file as sensitive as a database backup. Import runs as
+  a chunked background job (bounded batches, polled to completion) and
+  dedupes incoming rows against existing accounts by email, username, or ID
+  — admin chooses whether a match is skipped or has its safe fields
+  overwritten; importing can never grant admin access.
+- **Individual account lifecycle:** admin can create a new user by hand
+  (mirroring the same defaults a Google/Telegram sign-up would produce,
+  since there is no email/password signup flow), edit a safe field
+  allowlist on an existing account, or soft-delete/anonymize one — all
+  audit-logged, and an admin account can never be deleted this way.
+
 **Reporting Content (User-Facing)**
 - The reasons shown to a user reporting content are, in order: Scam/Fraud, Spam, Fake Account, Inappropriate Content, Hate Speech, Violence, Misinformation, Self Harm, Other. "Harassment" is not offered as a user-facing reason (it remains a valid internal moderation category the AI classifier can still assign).
 

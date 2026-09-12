@@ -16,9 +16,8 @@ import { z } from "zod";
 import { db, SqlParam } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
-import { invalidateAllSessions } from "@/lib/auth/session";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { storage } from "@/lib/storage";
+import { anonymizeUserAccount } from "@/lib/users/anonymizeAccount";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -349,66 +348,11 @@ export const DELETE = withAuth(async (_req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const userId = auth.user.sub;
-    const shortId = userId.replace(/-/g, "").slice(0, 8);
 
-    let kycStorageKeys: string[] = [];
-
-    await db.transaction(async (tx) => {
-      // Soft delete: anonymise public-facing fields but KEEP identifiers (email, google_id, etc.)
-      // so the user can reactivate within the 30-day grace period by logging in again.
-      // PII identifiers are only wiped by the scheduled purge job after pending_deletion_at.
-      await tx.query(
-        `UPDATE users
-         SET display_name    = 'Deleted User',
-             bio             = NULL,
-             avatar_emoji    = '👤',
-             city            = NULL,
-             push_token      = NULL,
-             pin_hash        = NULL,
-             deleted_at      = NOW(),
-             updated_at      = NOW()
-         WHERE id = $1 AND deleted_at IS NULL`,
-        [userId]
-      );
-
-      // Hard-delete payment PII — bank accounts and wallet addresses are PII
-      // that cannot be retained; payout records preserve accounting data via snapshots.
-      await tx.query(
-        `DELETE FROM creator_bank_accounts WHERE creator_id = $1`,
-        [userId]
-      );
-      await tx.query(
-        `DELETE FROM creator_wallet_addresses WHERE creator_id = $1`,
-        [userId]
-      );
-      await tx.query(
-        `DELETE FROM creator_kyc WHERE creator_id = $1`,
-        [userId]
-      ).catch(() => {});
-
-      // Hard-delete identity KYC PII (Tiers 1-3) — BVN digits, encrypted ID
-      // numbers, full legal names, uploaded document storage keys. Collect
-      // storage keys before deleting so we can purge the underlying objects
-      // after the transaction commits.
-      const { rows: docRows } = await tx.query<{ storage_key: string }>(
-        `SELECT storage_key FROM kyc_documents WHERE user_id = $1`,
-        [userId]
-      );
-      kycStorageKeys = docRows.map((r) => r.storage_key);
-
-      // Cascades to kyc_documents rows attached to a submission via
-      // ON DELETE CASCADE; the second delete below catches any documents
-      // uploaded but never attached to a submission.
-      await tx.query(`DELETE FROM kyc_submissions WHERE user_id = $1`, [userId]);
-      await tx.query(`DELETE FROM kyc_documents WHERE user_id = $1`, [userId]);
-    });
-
-    if (kycStorageKeys.length > 0) {
-      await storage.deleteMany(kycStorageKeys).catch(() => {});
-    }
-
-    // ZB-16: Invalidate all active sessions so deleted user can't keep refreshing tokens
-    await invalidateAllSessions(userId).catch(() => {});
+    // Shared with the admin-triggered delete endpoint
+    // (app/api/admin/data-management/users/[id]/route.ts) — see
+    // lib/users/anonymizeAccount.ts for the full anonymization/PII-purge logic.
+    await anonymizeUserAccount(userId);
 
     return NextResponse.json(
       { success: true, data: { message: "Account deleted. We're sorry to see you go." }, error: null },

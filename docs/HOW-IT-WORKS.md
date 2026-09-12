@@ -727,6 +727,80 @@ All moderation actions are performed via `POST /api/admin/users/:userId/actions`
 
 Admins cannot action their own account or any other admin account. All actions are append-only in the audit log (no delete or update endpoints exist).
 
+### Data Management (`/gate44/data-management`)
+Centralized admin utility for bulk user data operations, distinct from the
+per-user search/detail flow above. Three tabs — Users (default), Financial,
+Statistical — each backed by `GET /api/admin/data-management/stats?tab=...`.
+
+**Cached stats.** Each tab's quick-stat cards (totals/averages) are cached in
+Redis for 30 minutes (`lib/admin/statsCache.ts`, key `admin:dm:stats:<tab>`,
+`SETEX`) — deliberately not live-updating, to stay frugal with Redis calls on
+a free-tier plan. A "Refresh live data" button passes `?live=1` to bypass the
+cache and recompute immediately, overwriting the cached value. The Financial
+tab reuses the same coin-economy/revenue/payout queries as
+`/api/admin/financial` (`lib/admin/financialStats.ts`) wrapped in the cache
+rather than duplicating them.
+
+**Granular export** (`POST /api/admin/data-management/users/export`) — the
+admin picks an output format (CSV, TSV, or XLSX via `exceljs`'s streaming
+workbook writer), which safe fields to include (an explicit allowlist —
+`id`, `username`, `email`, `displayName`, `plan`, `trustScore`, `xpTotal`,
+`isVerified`, `isBanned`, `isSuspended`, `isModerator`, `city`, `country`,
+`locale`, `createdAt`, `lastActiveAt`, `coinBalance`, `starBalance`,
+`guildId`, `referralCode`, `kycTier` — secrets like `passwordHash` can never
+be selected), and filters (plan, trust score / XP range, ban/suspend/verify
+status, country, created-date range, or `leaderboardRank: 1` for "the #1 XP
+earner"). Internally pages through matches via the same keyset (cursor)
+pagination pattern as `GET /api/admin/users` — batches of ~5,000, ordered by
+`(created_at DESC, id DESC)`, never `OFFSET` — and streams each batch
+straight into the response so a multi-million-row export never buffers the
+whole dataset in memory.
+
+**Full account export/import** (`POST /api/admin/data-management/users/export-accounts`,
+`POST .../users/import`, `POST .../users/import/:jobId`) is a separate
+feature for migrating users between separate Zobia installs/deployments —
+not the granular export above. Export streams NDJSON (one JSON object per
+line) of complete user rows via the same keyset-batched pattern; secrets
+(`passwordHash`, `totpSecret`, `pinHash`) are stripped by default and only
+included when the admin explicitly sets `includeCredentials: true` — doing
+so makes the exported file as sensitive as a database backup (it makes
+imported accounts stay login-capable on the destination install), so treat
+it accordingly (encrypt at rest, TLS-only transfer, delete promptly).
+
+Import is a **chunked job**, not a single request: uploading a file (NDJSON
+or a JSON array, normalized to NDJSON, capped at ~50MB since it is stored in
+the `admin_data_import_jobs.raw_data` text column) creates a job row and
+returns a `jobId` immediately. The client then repeatedly calls
+`POST /api/admin/data-management/users/import/:jobId`, each call processing
+the next bounded batch (500 rows) inside one `db.transaction` and advancing
+`processed_rows` — never a single long-running request, because Vercel
+serverless functions have a hard execution-time limit that a multi-million-row
+import would exceed. Both the web and Android admin UIs poll `GET .../:jobId`
+every ~1.5s to show progress until `status === 'completed'`. Rows are
+deduped by matching email OR username OR id against existing users:
+`skip` leaves the existing row untouched, `overwrite` updates its safe
+fields only (never `id`, `created_at`, `is_admin`, or any credential field —
+an import file can never grant admin access or clobber a password hash).
+New user inserts mirror the OAuth-callback insert defaults (`is_admin`
+always forced `false`, `onboarding_completed = false`).
+
+Admin create/edit/soft-delete of individual accounts round out the tab:
+`POST /api/admin/data-management/users` mirrors the OAuth insert defaults
+with an optional bcrypt-hashed password; `PATCH .../users/:id` edits a safe
+field allowlist; `DELETE .../users/:id` soft-deletes via the shared
+`lib/users/anonymizeAccount.ts` helper (also used by the self-service
+`DELETE /api/users/me`), refusing to delete another admin account.
+
+The Users tab embeds the same search/list/detail/impersonate/suspend/ban UI
+as `/gate44/users` (extracted into `components/admin/UserManagementTable.tsx`)
+plus Create/Export/Import toolbar buttons and a Delete action in the detail
+drawer. The Android admin mirror (`apps/android/src/routes/admin/data-management.tsx`)
+rebuilds the stats/search/create/delete flow natively but opens the full web
+page in an authenticated in-app browser tab for Export/Import, since those
+are multi-step flows (format/field/filter pickers, file upload, streaming
+downloads) with no existing native file-download convention on the app to
+build on yet.
+
 ### Content Moderation (`/api/admin/moderation`)
 View AI-classified reports queue. Accept or reject AI decisions. Bulk-action common violation types. View moderation history per user.
 

@@ -4655,6 +4655,34 @@ export const auditLog = pgTable("audit_log", {
     .defaultNow(),
 });
 
+// Migration 0041: Centralized Data Management admin utility — job-tracking
+// table for the chunked NDJSON account import flow (see
+// app/api/admin/data-management/users/import/**). Queried with raw SQL by
+// app code per repo convention; kept here for schema completeness.
+export const adminDataImportJobs = pgTable("admin_data_import_jobs", {
+  id: uuidPk(),
+  adminId: uuid("admin_id")
+    .notNull()
+    .references(() => users.id),
+  filename: text("filename"),
+  format: text("format").notNull().default("ndjson"),
+  dedupeStrategy: text("dedupe_strategy").notNull().default("skip"),
+  rawData: text("raw_data").notNull(),
+  totalRows: integer("total_rows").notNull().default(0),
+  processedRows: integer("processed_rows").notNull().default(0),
+  importedCount: integer("imported_count").notNull().default(0),
+  skippedCount: integer("skipped_count").notNull().default(0),
+  errorCount: integer("error_count").notNull().default(0),
+  status: text("status").notNull().default("pending"),
+  errors: jsonb("errors").notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 // Migration 010 (db): feature flags with plan gates and early-access windows
 export const featureFlags = pgTable("feature_flags", {
   key: text("key").primaryKey(),
