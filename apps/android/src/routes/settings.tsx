@@ -4,17 +4,19 @@
  * Settings screen: language, logout, app version.
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { App } from '@capacitor/app';
 import { useAuth } from '@/lib/auth/store';
 import { apiClient } from '@/lib/api/client';
 import { restorePurchases } from '@/lib/payments/googlePlay';
 import { LOCALE_LABELS, SUPPORTED_LOCALES, type SupportedLocale } from '@zobia/shared/i18n';
+import { DEFAULT_AVATAR_EMOJIS } from '@zobia/shared/utils';
 import i18n from '@/lib/i18n';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
+import { AvatarCropModal } from '@/components/profile/AvatarCropModal';
 
 // ZB-AND-09 fix: restorePurchases() was fully implemented in
 // lib/payments/googlePlay.ts but had no UI entry point anywhere in the app —
@@ -172,6 +174,123 @@ function DataAndAccountSection() {
   );
 }
 
+// Profile Pictures feature — mirrors apps/web/app/(app)/settings/page.tsx's
+// avatar section. Fetches avatar_url/avatar_emoji directly (not carried on
+// the cached AuthUser) since they can change without a re-login.
+interface AvatarProfile {
+  avatar_url: string | null;
+  avatar_emoji: string | null;
+}
+
+function ProfilePhotoSection() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [showDefaultIconPicker, setShowDefaultIconPicker] = useState(false);
+  const [savingIcon, setSavingIcon] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const { data } = useQuery({
+    queryKey: ['users', 'me', 'avatar-profile'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ user: AvatarProfile }>('/users/me');
+      return data.user;
+    },
+  });
+
+  async function selectDefaultIcon(emoji: string) {
+    setSavingIcon(emoji);
+    try {
+      await apiClient.put('/users/me', { avatar_emoji: emoji });
+      qc.setQueryData(['users', 'me', 'avatar-profile'], { avatar_url: null, avatar_emoji: emoji });
+      setShowDefaultIconPicker(false);
+      setToast(t('profile.avatar.iconUpdated'));
+    } catch {
+      setToast(t('profile.avatar.uploadFailed'));
+    } finally {
+      setSavingIcon(null);
+      setTimeout(() => setToast(null), 3000);
+    }
+  }
+
+  return (
+    <div className="bg-white px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 mb-3">{t('profile.avatar.sectionLabel')}</h3>
+      <div className="flex items-center gap-4">
+        {data?.avatar_url ? (
+          <img src={data.avatar_url} alt="" className="w-16 h-16 rounded-full object-cover" />
+        ) : (
+          <div className="w-16 h-16 rounded-full bg-primary-100 flex items-center justify-center text-2xl">
+            {data?.avatar_emoji ?? '👤'}
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold"
+            >
+              {t('profile.avatar.uploadPhoto')}
+            </button>
+            <button
+              onClick={() => setShowDefaultIconPicker((v) => !v)}
+              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold"
+            >
+              {t('profile.avatar.useDefaultIcon')}
+            </button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) setCropImageSrc(URL.createObjectURL(file));
+              e.target.value = '';
+            }}
+          />
+        </div>
+      </div>
+
+      {showDefaultIconPicker && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {DEFAULT_AVATAR_EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              disabled={savingIcon !== null}
+              onClick={() => void selectDefaultIcon(emoji)}
+              className={`h-10 w-10 rounded-full text-xl disabled:opacity-50 ${
+                data?.avatar_emoji === emoji ? 'ring-2 ring-primary-500 ring-offset-2' : ''
+              }`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {toast && <p className="mt-2 text-xs text-neutral-600">{toast}</p>}
+
+      {cropImageSrc && (
+        <AvatarCropModal
+          imageSrc={cropImageSrc}
+          onClose={() => {
+            URL.revokeObjectURL(cropImageSrc);
+            setCropImageSrc(null);
+          }}
+          onUploaded={(newUrl) => {
+            qc.setQueryData(['users', 'me', 'avatar-profile'], { avatar_url: newUrl, avatar_emoji: null });
+            setToast(t('profile.avatar.photoUpdated'));
+            setTimeout(() => setToast(null), 3000);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 // BUG-CAP-11 fix: fallback only, used if App.getInfo() throws (e.g. running
 // in a plain browser during `npm run dev`, where the native App plugin is a
 // no-op). The real value always comes from the installed APK's manifest.
@@ -221,6 +340,9 @@ function SettingsPage() {
           </div>
         </div>
       )}
+
+      {/* Profile photo (Profile Pictures feature) */}
+      <ProfilePhotoSection />
 
       {/* Wallet & Stats */}
       <div className="bg-white px-6 py-2 mb-3">

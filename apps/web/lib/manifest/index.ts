@@ -148,6 +148,18 @@ export interface ZobiaManifest {
     /** Minimum account level (main rank number, 1 = Beginner) required to post a Moment. */
     minLevel: number;
   };
+  /**
+   * Profile picture (avatar) change cost for free-plan users. Paid-plan users
+   * upload custom avatars at no charge; free-plan users may pay this cost in
+   * Credits OR Stars to upload a custom photo instead of switching to a
+   * default icon (which is always free). Admin-editable at /gate44/config.
+   */
+  avatarChange: {
+    /** Credits charged to a free-plan user for a custom avatar upload (default 200). */
+    costCredits: number;
+    /** Stars charged to a free-plan user for a custom avatar upload (default 1). */
+    costStars: number;
+  };
   // Answers — mini forum / Q&A (admin-editable at /gate44/config and /gate44/answers/settings)
   forum: {
     /** Minimum account level required to post a question. */
@@ -444,6 +456,10 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     costCredits: 100,
     costStars: 1,
     minLevel: 2,
+  },
+  avatarChange: {
+    costCredits: 200,
+    costStars: 1,
   },
   forum: {
     minLevelToPost: 2,
@@ -864,6 +880,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       costCredits: parseInt10(kv["moments_cost_credits"], DEFAULT_MANIFEST.moments.costCredits),
       costStars:   parseInt10(kv["moments_cost_stars"],   DEFAULT_MANIFEST.moments.costStars),
       minLevel:    parseInt10(kv["moments_min_level"],    DEFAULT_MANIFEST.moments.minLevel),
+    },
+    avatarChange: {
+      costCredits: parseInt10(kv["avatar_change_cost_credits"], DEFAULT_MANIFEST.avatarChange.costCredits),
+      costStars:   parseInt10(kv["avatar_change_cost_stars"],   DEFAULT_MANIFEST.avatarChange.costStars),
     },
     forum: {
       minLevelToPost:                 parseInt10(kv["forum_min_level_to_post"],              DEFAULT_MANIFEST.forum.minLevelToPost),

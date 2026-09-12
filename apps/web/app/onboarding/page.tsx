@@ -19,6 +19,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { useTranslation } from "react-i18next";
+import { DEFAULT_AVATAR_EMOJIS } from "@/lib/profile/defaultAvatars";
 import {
   getStoredReferralCode,
   clearStoredReferralCode,
@@ -96,10 +97,7 @@ const COMMON_CITIES = [
   "Other",
 ];
 
-const AVATAR_OPTIONS = [
-  "😎", "🔥", "👑", "💎", "🦁", "🐯", "⚡", "🚀", "🎯", "💪",
-  "🌟", "🎭", "🏆", "🎪", "🌊", "🦅", "🐉", "🌙", "☀️", "🎸",
-];
+const AVATAR_OPTIONS = DEFAULT_AVATAR_EMOJIS;
 
 // ---------------------------------------------------------------------------
 // Helpers

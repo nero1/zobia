@@ -19,6 +19,7 @@ import { handleApiError, notFound } from "@/lib/api/errors";
 import { invalidateAllSessions } from "@/lib/auth/session";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { storage } from "@/lib/storage";
+import { applyDefaultAvatarIcon } from "@/lib/profile/avatarService";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -234,6 +235,15 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
  * Accepted fields: display_name, bio, locale, avatar_emoji, push_token,
  * dm_notifications, guild_notifications, streak_notifications.
  *
+ * `avatar_emoji` — Profile Pictures feature: switching to one of the default
+ * onboarding icons (lib/profile/defaultAvatars.ts) is always free on any
+ * plan, but goes through lib/profile/avatarService.ts's
+ * `applyDefaultAvatarIcon` rather than a plain column update, so it (a)
+ * rejects emoji not in the recognised default set, (b) clears avatar_url —
+ * which otherwise takes rendering precedence, see app/u/[username]/page.tsx
+ * — and (c) enforces the same once-a-week cooldown as a custom photo
+ * upload. Throws 429 AVATAR_CHANGE_RATE_LIMITED within the cooldown window.
+ *
  * @returns JSON { user: UserFullProfile }
  */
 export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
@@ -242,7 +252,11 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, updateProfileSchema);
 
-    // Build SET clause dynamically from provided fields
+    if (body.avatar_emoji !== undefined) {
+      await applyDefaultAvatarIcon(auth.user.sub, body.avatar_emoji);
+    }
+
+    // Build SET clause dynamically from the remaining provided fields
     const updates: string[] = [];
     const params: SqlParam[] = [auth.user.sub];
     let paramIdx = 2;
@@ -258,10 +272,6 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
     if (body.locale !== undefined) {
       updates.push(`locale = $${paramIdx++}`);
       params.push(body.locale);
-    }
-    if (body.avatar_emoji !== undefined) {
-      updates.push(`avatar_emoji = $${paramIdx++}`);
-      params.push(body.avatar_emoji);
     }
     if (body.push_token !== undefined) {
       updates.push(`push_token = $${paramIdx++}`);

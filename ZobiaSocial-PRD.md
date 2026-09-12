@@ -917,6 +917,16 @@ A Zobia profile is a living record of everything the user has done, earned, and 
 - Creator card (if creator: top 3 rooms by member count with a "see all N rooms by this creator" link, subscriber count, total earnings optionally displayed).
 - Public Achievements wall (top lifetime milestones).
 
+### Profile Pictures
+
+Users can set a custom uploaded photo as their avatar, cropped/framed with a Facebook-style pan/zoom/crop step (`components/profile/AvatarCropModal.tsx`), or pick one of the same default icons offered during onboarding — both from `Settings → Profile Photo`, on web and the Capacitor Android app alike, both against the same backend.
+
+- **Paid-plan users** upload a custom photo for free. Downgrading to Free afterward never removes an already-uploaded custom photo — only the *upload/change action* is plan-gated, not the stored avatar.
+- **Free-plan users** can still upload a custom photo by paying an admin-configured fee in Credits **or** Stars (their choice) — default 200 Credits or 1 Star, editable at `/gate44/config`. Switching to a **default onboarding icon** is always free, on any plan.
+- **Animated GIFs are never stored animated**: an uploaded GIF is reduced server-side to its 2nd frame before storage — avatars are always static. This applies only to the avatar upload path; other image uploads (Tweets, Moments, the BB-style Forum) are unaffected and keep full animated GIFs.
+- **Once-a-week cooldown**: any avatar change — a new custom upload, or switching between default icons — is limited to once every 7 days, tracked on a dedicated `users.avatar_changed_at` column.
+- Charging and the avatar change are applied atomically in one DB transaction, so a failed change is never charged for.
+
 ### User Profile Stats Page (v1.98)
 
 Every user's profile has a dedicated Stats page — a central hub for badges,
