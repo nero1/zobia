@@ -140,6 +140,88 @@ export function TrustBar({ score }: { score: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// Username history — collapsible, lazy-loaded on first expand
+// ---------------------------------------------------------------------------
+
+interface UsernameHistoryEntry {
+  id: string;
+  old_username: string;
+  new_username: string;
+  changed_at: string;
+  redirect_enabled: boolean;
+  reserved_until: string | null;
+  cost_paid_credits: number;
+  cost_paid_stars: number;
+}
+
+function UsernameHistorySection({ userId }: { userId: string }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [history, setHistory] = useState<UsernameHistoryEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadHistory() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/username-history`, { credentials: "include" });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json?.error?.message ?? "Failed to load history");
+      setHistory(json.data.history);
+      setLoaded(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load history");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+      <button
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (next && !loaded) void loadHistory();
+        }}
+        className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-wider text-neutral-500"
+      >
+        <span>Username History</span>
+        <span>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="space-y-2">
+          {loading && <p className="text-xs text-neutral-400">Loading…</p>}
+          {error && <p className="text-xs text-danger-600">{error}</p>}
+          {!loading && !error && loaded && history.length === 0 && (
+            <p className="text-xs text-neutral-400">This user has never changed their username.</p>
+          )}
+          {history.map((entry) => (
+            <div key={entry.id} className="rounded-lg border border-neutral-100 p-2 text-xs dark:border-neutral-800">
+              <p className="font-medium text-neutral-800 dark:text-neutral-200">
+                @{entry.old_username} → @{entry.new_username}
+              </p>
+              <p className="mt-0.5 text-neutral-500">{formatDate(entry.changed_at)}</p>
+              <p className="mt-0.5 text-neutral-500">
+                {entry.redirect_enabled
+                  ? "Redirect: old username permanently redirects"
+                  : entry.reserved_until
+                    ? `Reserved until ${formatDate(entry.reserved_until)} (no redirect)`
+                    : "No redirect"}
+              </p>
+              <p className="mt-0.5 text-neutral-500">
+                Paid: {entry.cost_paid_credits > 0 ? `${entry.cost_paid_credits} Credits` : entry.cost_paid_stars > 0 ? `${entry.cost_paid_stars} Stars` : "Free"}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Detail panel
 // ---------------------------------------------------------------------------
 
@@ -385,6 +467,11 @@ function DetailPanel({ user, onClose, onAction, onImpersonate, onDelete, showDel
             />
           </div>
         </div>
+
+        {/* Username History — available to admins and moderators via the
+            dedicated endpoint (app/api/admin/users/[userId]/username-history,
+            withModeratorOrAdminAuth) */}
+        <UsernameHistorySection userId={user.id} />
 
         {/* Danger zone — soft-delete. Only shown when embedded in Data Management
             (app/(admin)/gate44/data-management/page.tsx); the standalone

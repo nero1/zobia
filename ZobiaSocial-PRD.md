@@ -948,6 +948,28 @@ Users can set a custom uploaded photo as their avatar, cropped/framed with a Fac
 - **Once-a-week cooldown**: any avatar change — a new custom upload, or switching between default icons — is limited to once every 7 days, tracked on a dedicated `users.avatar_changed_at` column.
 - Charging and the avatar change are applied atomically in one DB transaction, so a failed change is never charged for.
 
+### Username Change
+
+Usernames are permanent by default, but eligible users may change theirs from Settings.
+
+**Eligibility (admin-configurable, `x_manifest`).** A user qualifies if *any* apply:
+- Account level (main rank number) ≥ a configurable minimum (default 5), **or**
+- On a configurable set of plans (default: Max only), **or**
+- Owns an active Business Account on a configurable set of tiers (default: Growth, Enterprise).
+
+**Cost & frequency (admin-configurable).** 5,000 Credits **or** 50 Stars (user's choice, same "pick your currency" pattern as Moments), once every 90 days (admin-configurable cooldown).
+
+**Flow.**
+1. Pick the new username — a live, debounced availability check runs before the user may proceed; a name that isn't available can never reach the payment step.
+2. Choose whether the old username should permanently redirect to the new profile, or not.
+3. Confirm — eligibility, cooldown, and availability are all re-verified server-side inside one atomic transaction immediately before charging, so a race can never leave the account charged without being renamed, or renamed while the old name is still claimable.
+
+**What happens to the old username:**
+- **Redirect on** — `/u/<old>` redirects to the new profile forever; the old name is reserved indefinitely and can never be re-registered by anyone, including the original owner.
+- **Redirect off** — for exactly one year, visiting the old username shows a distinct "this account no longer exists" message (not the ordinary "profile not found") and the name cannot be registered by anyone. After one year it's automatically released back into the available pool.
+
+**Admin/mod visibility.** Every change is recorded (old/new username, timestamp, redirect choice, reservation expiry, amount paid) and surfaced as a "Username History" list on the admin user-detail page (`/gate44/users`), visible to admins and moderators.
+
 ### User Profile Stats Page (v1.98)
 
 Every user's profile has a dedicated Stats page — a central hub for badges,

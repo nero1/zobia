@@ -540,6 +540,32 @@ Settings are stored as five columns on the `users` table:
 
 Changes take effect within 60 seconds (Redis cache TTL).
 
+### Username Change
+
+Eligible users can change their username from Settings ("Account" → "Username"). A user qualifies if **any** of these hold:
+
+- Account level (`users.rank_level`) is at or above the configured minimum, **or**
+- They're on an eligible plan (`users.plan`), **or**
+- They have an active Business Account (`business_accounts.status = 'active'`) on an eligible tier (`business_accounts.tier`).
+
+All three thresholds are admin-configurable via `x_manifest`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `username_change_min_level` | `5` | Minimum `rank_level` |
+| `username_change_plans` | `["max"]` | JSON array of eligible plan slugs |
+| `username_change_business_tiers` | `["growth","enterprise"]` | JSON array of eligible `business_accounts.tier` values |
+| `username_change_cost_credits` | `5000` | Credits charged (0 = not payable with Credits) |
+| `username_change_cost_stars` | `50` | Stars charged (0 = not payable with Stars) |
+| `username_change_cooldown_days` | `90` | Minimum days between changes for the same user |
+
+The user picks the new username **first**; a debounced live availability check (`GET /api/users/me/username/availability`) must return available before they're allowed to proceed to the cost/redirect step — the client never lets someone pay for a name that's already gone. On confirm, `POST /api/users/me/username` re-checks eligibility, cooldown, and availability **again inside a single DB transaction** (never trusting the client-side gate), charges Credits or Stars — the user's choice — via the existing `debitCoins`/`debitStars` ledger primitives, updates `users.username`, and records the change in `username_change_history` (queryable per-user history: old/new username, timestamp, redirect choice, reservation expiry, amount paid). `users.username` already carries a `UNIQUE` constraint (`users_username_key`), so a concurrent claim of the same name cannot slip through even under a race.
+
+**What happens to the old username** is the user's choice at confirm time:
+
+- **Redirect chosen** — `/u/<old-username>` (and the `GET /api/public/resolve?type=profile` deep-link resolver used by universal links) permanently redirect to the new username's profile, forever. The old username is held indefinitely in `username_reservations` (`redirect_to_username` set, `reserved_until = NULL`) so nobody — including the original owner — can ever re-register it.
+- **Redirect not chosen** — for exactly **one year**, `/u/<old-username>` shows a distinct "This account no longer exists" message (not the generic "profile not found" 404 — the copy explicitly distinguishes "used to exist" from "never existed"). The username is held in `username_reservations` with a real `reserved_until` timestamp and cannot be registered by anyone during that year. After the year elapses, the hold lapses automatically — every read (`checkUsernameAvailability`, `resolveOldUsername`) compares `reserved_until` against `NOW()` live, so release is correct immediately with **no cron job or cleanup task required**. Registration (`/api/onboarding/check-username`, `/api/onboarding/complete`) and the Username Change availability check both call the exact same shared helper (`lib/username/availability.ts`), so a held username is rejected identically everywhere.
+
 ### Online Friends & Presence Filtering
 
 The Home page "Online Friends" row previously listed **every** accepted friendship regardless of whether the friend was actually online — it called the same `GET /api/friends` endpoint used by the full Friends list page, which has no presence filter at all. Fixed by adding a dedicated `GET /api/friends/online` endpoint that only returns friends who:

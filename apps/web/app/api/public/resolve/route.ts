@@ -20,6 +20,7 @@ import { handleApiError } from "@/lib/api/errors";
 import { resolvePublicRoom } from "@/lib/public/resolveRoom";
 import { resolvePublicGame } from "@/lib/public/resolveGame";
 import { resolvePublicForumQuestion } from "@/lib/public/resolveForumQuestion";
+import { resolveOldUsername } from "@/lib/username/availability";
 
 const ROOM_TYPES = ["free_open", "vip", "drop", "tipping", "limited"];
 const COURSE_TYPES = ["classroom"];
@@ -92,13 +93,37 @@ export async function GET(req: NextRequest) {
            LIMIT 1`,
           [identifier]
         );
-        if (!rows[0]) return NextResponse.json({ found: false }, { headers: CACHE_HEADERS_SHORT });
-        return NextResponse.json({
-          found: true,
-          type,
-          id: rows[0].id,
-          username: rows[0].username,
-        }, { headers: CACHE_HEADERS });
+        if (rows[0]) {
+          return NextResponse.json({
+            found: true,
+            type,
+            id: rows[0].id,
+            username: rows[0].username,
+          }, { headers: CACHE_HEADERS });
+        }
+
+        // Not a live username — an old username that changed (with redirect
+        // enabled) should still deep-link to the current profile.
+        const resolution = await resolveOldUsername(identifier);
+        if (resolution.kind === "redirect") {
+          const redirected = await db.query<{ id: string; username: string }>(
+            `SELECT id, username FROM users
+             WHERE username = $1 AND deleted_at IS NULL AND COALESCE(is_banned, false) = false
+             LIMIT 1`,
+            [resolution.toUsername]
+          );
+          if (redirected.rows[0]) {
+            return NextResponse.json({
+              found: true,
+              type,
+              id: redirected.rows[0].id,
+              username: redirected.rows[0].username,
+              canonicalUsername: redirected.rows[0].username,
+            }, { headers: CACHE_HEADERS });
+          }
+        }
+
+        return NextResponse.json({ found: false }, { headers: CACHE_HEADERS_SHORT });
       }
 
       default:

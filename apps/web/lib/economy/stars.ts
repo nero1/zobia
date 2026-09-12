@@ -41,7 +41,8 @@ export type StarTransactionType =
   | "support_ticket_cost"
   | "room_reward_fund"
   | "room_reward_claim"
-  | "avatar_change";
+  | "avatar_change"
+  | "username_change";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
