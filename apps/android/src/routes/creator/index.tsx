@@ -46,9 +46,43 @@ interface CreatorDashboard {
 
 interface PayoutsData {
   availableEarningsKobo: number;
+  minPayoutKobo: number;
   payoutConfig: { bankTransferEnabled: boolean; coinsEnabled: boolean; cryptoEnabled: boolean; isManualMode: boolean } | null;
   pendingPayout: { id: string; method: string } | null;
   payouts: Array<{ id: string; grossKobo: number; netKobo: number; status: string; method: string; createdAt: string; completedAt: string | null }>;
+}
+
+/**
+ * Shows progress toward the minimum payout threshold. Mirrors
+ * apps/web/app/(app)/creator/page.tsx's `ThresholdProgressBar`.
+ */
+function ThresholdProgressBar({ availableKobo, minKobo, t }: { availableKobo: number; minKobo: number; t: (key: string, def?: string) => string }) {
+  const met = availableKobo >= minKobo;
+  const pct = minKobo > 0 ? Math.min(100, Math.round((availableKobo / minKobo) * 100)) : 100;
+  const remaining = Math.max(0, minKobo - availableKobo);
+
+  return (
+    <div className="mt-3">
+      <div className="flex items-center justify-between text-xs">
+        <span className={`font-semibold ${met ? 'text-teal-700' : 'text-amber-700'}`}>
+          {met ? t('creator.thresholdMet', '✅ Withdrawal threshold reached') : `${formatNgn(remaining)} ${t('creator.thresholdRemaining', 'more to reach the minimum payout')}`}
+        </span>
+        <span className="tabular-nums text-neutral-400">
+          {formatNgn(availableKobo)} / {formatNgn(minKobo)}
+        </span>
+      </div>
+      <div
+        className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-neutral-200"
+        role="progressbar"
+        aria-valuenow={pct}
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-label="Progress toward minimum payout threshold"
+      >
+        <div className={`h-full rounded-full transition-all duration-500 ${met ? 'bg-teal-500' : 'bg-amber-400'}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
 }
 
 const STREAM_LABEL: Record<string, string> = {
@@ -215,24 +249,33 @@ function CreatorDashboardPage() {
             <div className="h-16 animate-pulse rounded-lg bg-neutral-100" />
           ) : payouts ? (
             <>
-              <div className="mb-3 flex items-center justify-between rounded-xl border border-teal-200 bg-teal-50 p-3">
-                <div>
-                  <p className="text-xs text-teal-700">{t('creator.availableBalance', 'Available Balance')}</p>
-                  <p className="text-xl font-bold text-teal-700">{formatNgn(payouts.availableEarningsKobo)}</p>
-                </div>
-                {!payouts.pendingPayout && payouts.payoutConfig && (
-                  <div className="flex gap-1.5">
-                    {payouts.payoutConfig.coinsEnabled && (
-                      <button onClick={() => requestPayout('coins')} disabled={requesting} className="rounded-lg bg-teal-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60">
-                        {t('creator.requestPayout', 'Request')} (🪙)
-                      </button>
-                    )}
-                    {payouts.payoutConfig.bankTransferEnabled && (
-                      <button onClick={() => requestPayout('bank_transfer')} disabled={requesting} className="rounded-lg border border-teal-600 px-3 py-2 text-xs font-semibold text-teal-700 disabled:opacity-60">
-                        {t('creator.requestPayout', 'Request')} (Bank)
-                      </button>
-                    )}
+              <div className="mb-3 rounded-xl border border-teal-200 bg-teal-50 p-3">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-xs text-teal-700">{t('creator.availableBalance', 'Available Balance')}</p>
+                    <p className="text-xl font-bold text-teal-700">{formatNgn(payouts.availableEarningsKobo)}</p>
                   </div>
+                  {!payouts.pendingPayout && payouts.payoutConfig && (
+                    <div className="flex gap-1.5">
+                      {payouts.payoutConfig.coinsEnabled && (
+                        <button onClick={() => requestPayout('coins')} disabled={requesting || payouts.availableEarningsKobo <= 0} className="rounded-lg bg-teal-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60">
+                          {t('creator.requestPayout', 'Request')} (🪙)
+                        </button>
+                      )}
+                      {payouts.payoutConfig.bankTransferEnabled && (
+                        <button
+                          onClick={() => requestPayout('bank_transfer')}
+                          disabled={requesting || payouts.availableEarningsKobo < payouts.minPayoutKobo}
+                          className="rounded-lg border border-teal-600 px-3 py-2 text-xs font-semibold text-teal-700 disabled:opacity-60"
+                        >
+                          {t('creator.requestPayout', 'Request')} (Bank)
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {(payouts.payoutConfig?.bankTransferEnabled || payouts.payoutConfig?.cryptoEnabled) && (
+                  <ThresholdProgressBar availableKobo={payouts.availableEarningsKobo} minKobo={payouts.minPayoutKobo} t={t} />
                 )}
               </div>
               {payouts.pendingPayout && (

@@ -206,7 +206,8 @@ export async function finalizeScore(
         { credits, xp, stars },
         "game_win",
         `play:${play.id}`,
-        tx
+        tx,
+        game.name
       );
     }
   });

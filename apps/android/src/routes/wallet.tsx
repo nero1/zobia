@@ -58,6 +58,85 @@ async function fetchTransactions({ pageParam, tab }: { pageParam?: string; tab: 
   return data;
 }
 
+/**
+ * Shrinks the number's font size as its digit count grows so that even a
+ * 15-digit balance stays on one line inside its box instead of overflowing
+ * into (and being visually clipped by) the next box. Mirrors
+ * apps/web/app/(app)/wallet/page.tsx's `balanceFontSizeClass`.
+ */
+function balanceFontSizeClass(value: number): string {
+  const digits = Math.abs(Math.trunc(value)).toString().length;
+  if (digits > 12) return 'text-xs';
+  if (digits > 9) return 'text-sm';
+  if (digits > 6) return 'text-base';
+  return 'text-lg';
+}
+
+function BalanceBox({ label, value }: { label: string; value: string | number }) {
+  const formatted = typeof value === 'number' ? value.toLocaleString() : value;
+  return (
+    <div className="min-w-[7rem] flex-1 basis-[7rem] bg-white rounded-xl p-3 text-center">
+      <p
+        className={`font-bold tabular-nums text-neutral-900 ${typeof value === 'number' ? balanceFontSizeClass(value) : 'text-lg'}`}
+        title={formatted}
+      >
+        {formatted}
+      </p>
+      <p className="text-xs text-neutral-500">{label}</p>
+    </div>
+  );
+}
+
+interface CreatorPayoutsSummary {
+  isCreator?: boolean;
+  availableEarningsKobo: number;
+  minPayoutKobo: number;
+  payoutConfig: unknown | null;
+}
+
+function formatNgn(kobo: number): string {
+  return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(kobo / 100);
+}
+
+/**
+ * Compact creator-earnings card for the wallet screen — mirrors
+ * apps/web/app/(app)/wallet/page.tsx's `EarningsSection`. Only rendered for
+ * creators (payoutConfig is non-null only when `is_creator = true` — see
+ * GET /api/creator/payouts). Links to the full /creator dashboard to withdraw.
+ */
+function CreatorEarningsCard({ payouts }: { payouts: CreatorPayoutsSummary }) {
+  const { t } = useTranslation();
+  const met = payouts.availableEarningsKobo >= payouts.minPayoutKobo;
+  const pct = payouts.minPayoutKobo > 0
+    ? Math.min(100, Math.round((payouts.availableEarningsKobo / payouts.minPayoutKobo) * 100))
+    : 100;
+  const remaining = Math.max(0, payouts.minPayoutKobo - payouts.availableEarningsKobo);
+
+  return (
+    <div className="mx-6 mb-3 rounded-xl border border-neutral-200 bg-white p-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+          {t('creator.availableBalance', 'Available Balance')}
+        </p>
+        <Link to="/creator" className="text-xs font-semibold text-blue-600">
+          {t('creator.manageAndWithdraw', 'Manage & Withdraw →')}
+        </Link>
+      </div>
+      <p className="mt-1 text-xl font-bold text-neutral-900">{formatNgn(payouts.availableEarningsKobo)}</p>
+      <div className="mt-3">
+        <div className="flex items-center justify-between text-xs">
+          <span className={`font-semibold ${met ? 'text-teal-700' : 'text-amber-700'}`}>
+            {met ? t('creator.thresholdMet', '✅ Withdrawal threshold reached') : `${formatNgn(remaining)} ${t('creator.thresholdRemaining', 'more to reach the minimum payout')}`}
+          </span>
+        </div>
+        <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-neutral-200" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+          <div className={`h-full rounded-full transition-all duration-500 ${met ? 'bg-teal-500' : 'bg-amber-400'}`} style={{ width: `${pct}%` }} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function RankBadgesSummary({ me }: { me: MeSummary }) {
   const { t } = useTranslation();
   const subLabel = `${me.rank_name} ${['I', 'II', 'III'][me.rank_sublevel - 1] ?? 'I'}`;
@@ -176,6 +255,12 @@ function WalletPage() {
 
   const { data: me, status: meStatus } = useQuery({ queryKey: ['users', 'me'], queryFn: fetchMe });
 
+  // Creator earnings card — silently absent for non-creators (payoutConfig is null).
+  const { data: payouts } = useQuery({
+    queryKey: ['creator', 'payouts'],
+    queryFn: async () => (await apiClient.get<CreatorPayoutsSummary>('/creator/payouts')).data,
+  });
+
   const { data, fetchNextPage, hasNextPage, isFetchingNextPage, status } = useInfiniteQuery({
     queryKey: ['wallet', 'transactions', tab],
     queryFn: ({ pageParam }) => fetchTransactions({ pageParam, tab }),
@@ -194,23 +279,21 @@ function WalletPage() {
         <h1 className="text-xl font-bold text-neutral-900">{t('wallet.title')}</h1>
       </div>
 
-      {/* Balance */}
-      <div className="grid grid-cols-3 gap-2 px-6 mb-3">
-        <div className="bg-white rounded-xl p-3 text-center">
-          <p className="text-lg font-bold text-neutral-900">{meStatus === 'success' ? me.xp_total.toLocaleString() : '—'}</p>
-          <p className="text-xs text-neutral-500">XP</p>
-        </div>
-        <div className="bg-white rounded-xl p-3 text-center">
-          <p className="text-lg font-bold text-neutral-900">{meStatus === 'success' ? me.coin_balance.toLocaleString() : '—'}</p>
-          <p className="text-xs text-neutral-500">{t('wallet.coinsBalance')}</p>
-        </div>
-        <div className="bg-white rounded-xl p-3 text-center">
-          <p className="text-lg font-bold text-neutral-900">{meStatus === 'success' ? me.star_balance.toLocaleString() : '—'}</p>
-          <p className="text-xs text-neutral-500">{t('wallet.starsBalance')}</p>
-        </div>
+      {/*
+       * Flex-wrap (not a fixed 3-col grid) so a box holding a very long
+       * number can grow to fit its content and, if there isn't room for all
+       * three on one row, the next box gracefully wraps to a new line
+       * instead of overflowing and getting painted over by its neighbour.
+       */}
+      <div className="flex flex-wrap gap-2 px-6 mb-3">
+        <BalanceBox label="XP" value={meStatus === 'success' ? me.xp_total : '—'} />
+        <BalanceBox label={t('wallet.coinsBalance')} value={meStatus === 'success' ? me.coin_balance : '—'} />
+        <BalanceBox label={t('wallet.starsBalance')} value={meStatus === 'success' ? me.star_balance : '—'} />
       </div>
 
       {meStatus === 'success' && statsAccess.accessible && <RankBadgesSummary me={me} />}
+
+      {payouts?.payoutConfig != null && <CreatorEarningsCard payouts={payouts} />}
 
       {meStatus === 'success' && (me.plan === 'free' || me.plan === 'plus') && (
         <div className="px-6 mb-3">
