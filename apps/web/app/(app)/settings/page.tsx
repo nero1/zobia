@@ -769,6 +769,13 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      {/* Username change — separate section: it's a paid, cooldown-gated,
+          multi-step flow (pick → check availability → choose cost/redirect →
+          confirm), unlike the plain inline-save fields above. */}
+      <Section title={t("settings.username.title", "Username")}>
+        <UsernameChangeSection onToast={showToast} />
+      </Section>
+
       {/* Password change */}
       <Section title={settings?.hasPassword ? t("settings.changePassword", "Change Password") : t("settings.password.setTitle", "Set Password")}>
         <form onSubmit={handlePasswordChange} className="space-y-3">
@@ -1176,6 +1183,248 @@ export default function SettingsPage() {
       </div>
     </div>
   );
+
+// ---------------------------------------------------------------------------
+// Username change sub-component (rendered inline)
+// ---------------------------------------------------------------------------
+
+type UsernameStep = "idle" | "pick" | "confirm";
+
+interface UsernameEligibility {
+  eligible: boolean;
+  reason: string | null;
+  nextEligibleAt: string | null;
+  cooldownActive: boolean;
+  costCredits: number;
+  costStars: number;
+  cooldownDays: number;
+}
+
+function UsernameChangeSection({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
+  const { t } = useTranslation();
+  const [currentUsername, setCurrentUsername] = useState<string | null>(null);
+  const [eligibility, setEligibility] = useState<UsernameEligibility | null>(null);
+  const [step, setStep] = useState<UsernameStep>("idle");
+  const [candidate, setCandidate] = useState("");
+  const [availability, setAvailability] = useState<{ available: boolean; reason?: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [currency, setCurrency] = useState<"credits" | "stars">("credits");
+  const [redirectEnabled, setRedirectEnabled] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    void fetch("/api/users/me", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { const u = d?.data ?? d; if (u?.username) setCurrentUsername(u.username); })
+      .catch(() => {});
+    void fetch("/api/users/me/username", { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d?.data) setEligibility(d.data); })
+      .catch(() => {});
+  }, []);
+
+  // Debounced live availability check — never let the user proceed to
+  // payment/confirmation for a name that isn't available.
+  useEffect(() => {
+    if (step !== "pick" || candidate.trim().length < 3) {
+      setAvailability(null);
+      return;
+    }
+    setChecking(true);
+    const handle = setTimeout(() => {
+      void fetch(`/api/users/me/username/availability?username=${encodeURIComponent(candidate.trim())}`, { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d?.data) setAvailability(d.data); })
+        .catch(() => setAvailability({ available: false, reason: t("settings.username.checkFailed", "Couldn't check availability") }))
+        .finally(() => setChecking(false));
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [candidate, step, t]);
+
+  async function confirmChange() {
+    setSaving(true);
+    try {
+      const isFree = (eligibility?.costCredits ?? 0) <= 0 && (eligibility?.costStars ?? 0) <= 0;
+      const res = await fetch("/api/users/me/username", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: candidate.trim().toLowerCase(),
+          currency: isFree ? undefined : currency,
+          redirectEnabled,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) {
+        throw new Error(json?.error?.message ?? t("settings.username.changeFailed", "Couldn't change username"));
+      }
+      setCurrentUsername(json.data.newUsername);
+      setStep("idle");
+      setCandidate("");
+      onToast(t("settings.username.changed", "Username changed!"));
+      // Refresh eligibility/cooldown state.
+      void fetch("/api/users/me/username", { credentials: "include" })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => { if (d?.data) setEligibility(d.data); })
+        .catch(() => {});
+    } catch (e) {
+      onToast(e instanceof Error ? e.message : t("settings.username.changeFailed", "Couldn't change username"), "error");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const isFree = (eligibility?.costCredits ?? 0) <= 0 && (eligibility?.costStars ?? 0) <= 0;
+
+  return (
+    <div className="space-y-3">
+      <div>
+        <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t("settings.username.current", "Current username")}</p>
+        <p className="mt-0.5 text-sm text-neutral-500">{currentUsername ? `@${currentUsername}` : "…"}</p>
+      </div>
+
+      {eligibility && !eligibility.eligible && (
+        <p className="rounded-lg bg-neutral-100 p-2.5 text-xs text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+          {eligibility.reason ?? t("settings.username.notEligible", "You're not eligible to change your username right now.")}
+        </p>
+      )}
+
+      {step === "idle" && (
+        <button
+          onClick={() => setStep("pick")}
+          disabled={!eligibility?.eligible}
+          className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+        >
+          {t("settings.username.change", "Change username")}
+        </button>
+      )}
+
+      {step === "pick" && (
+        <div className="space-y-3 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+              {t("settings.username.newUsername", "New username")}
+            </label>
+            <input
+              value={candidate}
+              onChange={(e) => setCandidate(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ""))}
+              placeholder={t("settings.username.placeholder", "new_username")}
+              maxLength={30}
+              className="w-full rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            />
+            {checking && <p className="mt-1 text-xs text-neutral-400">{t("settings.username.checking", "Checking availability…")}</p>}
+            {!checking && availability && (
+              <p className={`mt-1 text-xs ${availability.available ? "text-success-600" : "text-danger-600"}`}>
+                {availability.available
+                  ? t("settings.username.available", "Available!")
+                  : (availability.reason ?? t("settings.username.unavailable", "Not available"))}
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center justify-between rounded-lg bg-neutral-50 p-2.5 dark:bg-neutral-800">
+            <div>
+              <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t("settings.username.redirectTitle", "Redirect my old username")}</p>
+              <p className="text-[11px] text-neutral-500">
+                {redirectEnabled
+                  ? t("settings.username.redirectOnHint", "Visits to your old username will always redirect here.")
+                  : t("settings.username.redirectOffHint", "Your old username will be held for 1 year, then released — nobody can claim it during that year.")}
+              </p>
+            </div>
+            <button
+              role="switch"
+              aria-checked={redirectEnabled}
+              onClick={() => setRedirectEnabled((v) => !v)}
+              className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${redirectEnabled ? "bg-blue-600" : "bg-neutral-300 dark:bg-neutral-700"}`}
+            >
+              <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${redirectEnabled ? "translate-x-5" : "translate-x-0.5"}`} />
+            </button>
+          </div>
+
+          {!isFree && (
+            <div>
+              <p className="mb-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t("settings.username.payWith", "Pay with")}</p>
+              <div className="flex gap-2">
+                {eligibility && eligibility.costCredits > 0 && (
+                  <button
+                    onClick={() => setCurrency("credits")}
+                    className={`flex-1 rounded-xl border px-3 py-2 text-xs font-semibold ${currency === "credits" ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950" : "border-neutral-300 text-neutral-600 dark:border-neutral-700"}`}
+                  >
+                    {t("settings.username.costCredits", "{{amount}} Credits", { amount: eligibility.costCredits })}
+                  </button>
+                )}
+                {eligibility && eligibility.costStars > 0 && (
+                  <button
+                    onClick={() => setCurrency("stars")}
+                    className={`flex-1 rounded-xl border px-3 py-2 text-xs font-semibold ${currency === "stars" ? "border-blue-500 bg-blue-50 text-blue-700 dark:bg-blue-950" : "border-neutral-300 text-neutral-600 dark:border-neutral-700"}`}
+                  >
+                    {t("settings.username.costStars", "{{amount}} Stars", { amount: eligibility.costStars })}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end gap-2">
+            <button
+              onClick={() => { setStep("idle"); setCandidate(""); setAvailability(null); }}
+              className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
+            >
+              {t("common.cancel", "Cancel")}
+            </button>
+            <button
+              onClick={() => setStep("confirm")}
+              disabled={!availability?.available}
+              className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+            >
+              {t("common.continue", "Continue")}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === "confirm" && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4"
+          role="dialog"
+          aria-modal="true"
+          onClick={(e) => { if (e.target === e.currentTarget) setStep("pick"); }}
+        >
+          <div className="w-full max-w-sm rounded-2xl border border-neutral-200 bg-white p-5 shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
+            <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-50">{t("settings.username.confirmTitle", "Confirm username change")}</h3>
+            <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+              {t("settings.username.confirmBody", "Change @{{old}} to @{{new}}?", { old: currentUsername, new: candidate })}
+            </p>
+            <p className="mt-1 text-xs text-neutral-500">
+              {isFree
+                ? t("settings.username.confirmFree", "This is free.")
+                : t("settings.username.confirmCost", "Cost: {{amount}} {{currency}}.", {
+                    amount: currency === "credits" ? eligibility?.costCredits : eligibility?.costStars,
+                    currency: currency === "credits" ? t("common.credits", "Credits") : t("common.stars", "Stars"),
+                  })}
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <button
+                onClick={() => setStep("pick")}
+                className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300"
+              >
+                {t("common.back", "Back")}
+              </button>
+              <button
+                onClick={() => void confirmChange()}
+                disabled={saving}
+                className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+              >
+                {saving ? t("common.saving", "Saving…") : t("common.confirm", "Confirm")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // ---------------------------------------------------------------------------
 // PIN sub-component (rendered inline)

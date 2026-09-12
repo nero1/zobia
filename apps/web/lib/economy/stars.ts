@@ -38,7 +38,8 @@ export type StarTransactionType =
   | "blog_gift_purchase"
   | "blog_gift_earnings"
   | "bbforum_image_upload"
-  | "support_ticket_cost";
+  | "support_ticket_cost"
+  | "username_change";
 
 // ---------------------------------------------------------------------------
 // Internal helpers

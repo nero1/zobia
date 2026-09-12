@@ -11,8 +11,9 @@
 
 import type { Metadata, ResolvingMetadata } from "next";
 import Image from "next/image";
-import { notFound } from "next/navigation";
+import { notFound, permanentRedirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { resolveOldUsername } from "@/lib/username/availability";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
 
@@ -60,6 +61,17 @@ export async function generateMetadata(
   const profile = await getPublicProfile(username).catch(() => null);
 
   if (!profile) {
+    // Distinguish "this account used to exist under this name" from "never
+    // existed" even in the metadata, so a stale search-engine snippet isn't
+    // misleading either. The redirect case is handled in the page body
+    // (metadata generation doesn't need to 301 — the page component does).
+    const resolution = await resolveOldUsername(username).catch(() => ({ kind: "not_found" as const }));
+    if (resolution.kind === "gone") {
+      return {
+        title: "This account no longer exists — Zobia Social",
+        robots: { index: false },
+      };
+    }
     return {
       title: "Profile not found — Zobia Social",
       robots: { index: false },
@@ -116,6 +128,32 @@ export default async function PublicProfilePage({
   const profile = await getPublicProfile(username).catch(() => null);
 
   if (!profile) {
+    // Not a live profile — check whether this was a username that changed.
+    const resolution = await resolveOldUsername(username).catch(() => ({ kind: "not_found" as const }));
+
+    if (resolution.kind === "redirect") {
+      // Redirect chosen at change time: keeps working indefinitely, no expiry.
+      permanentRedirect(`/u/${resolution.toUsername}`);
+    }
+
+    if (resolution.kind === "gone") {
+      // Redirect NOT chosen: for exactly one year from the change, show a
+      // distinct "used to exist" message instead of the generic 404 —
+      // reserved_until (compared against NOW() inside resolveOldUsername)
+      // decides this live, no cron dependency.
+      return (
+        <main className="min-h-screen bg-background flex items-center justify-center px-4">
+          <div className="max-w-md text-center py-16">
+            <h1 className="text-2xl font-bold mb-2">This account no longer exists</h1>
+            <p className="text-muted-foreground">
+              @{username} used to belong to a Zobia Social account, but that account has changed
+              its username. This name is temporarily unavailable.
+            </p>
+          </div>
+        </main>
+      );
+    }
+
     notFound();
   }
 
