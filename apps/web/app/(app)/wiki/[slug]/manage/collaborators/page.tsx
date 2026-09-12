@@ -75,7 +75,7 @@ function UserSearchPicker({ onPick, placeholder }: { onPick: (user: UserSearchRe
               className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-foreground hover:bg-accent"
             >
               <span className="font-medium">@{u.username}</span>
-              {u.display_name && <span className="text-xs text-muted-foreground">{u.display_name}</span>}
+              {u.displayName && u.displayName !== u.username && <span className="text-xs text-muted-foreground">{u.displayName}</span>}
             </button>
           ))}
         </div>

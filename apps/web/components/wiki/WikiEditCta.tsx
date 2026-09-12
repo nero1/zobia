@@ -30,12 +30,15 @@ export function WikiEditCta({
   signedIn?: boolean;
 }) {
   const { t } = useTranslation();
-  const editHref = pageSlug ? `/wiki/${wikiSlug}/${pageSlug}` : `/wiki/${wikiSlug}`;
+  const editHref = pageSlug ? `/wiki/${wikiSlug}/${pageSlug}/edit` : `/wiki/${wikiSlug}`;
   const href = signedIn ? editHref : "/auth/login";
 
   let label: string;
   if (signedIn) {
-    label = variant === "page" ? t("wiki.page.editPage", "Edit this page") : t("wiki.home.contribute", "Contribute");
+    // Reuse the authenticated dashboard's existing "wiki.page.edit" key
+    // (already shipped, see app/(app)/wiki/[slug]/[pageSlug]/page.tsx)
+    // rather than minting a near-duplicate for the same action.
+    label = variant === "page" ? t("wiki.page.edit", "Edit") : t("wiki.home.contribute", "Contribute");
   } else {
     label = variant === "page" ? t("wiki.page.loginToEdit", "Log in to edit this page") : t("wiki.home.loginToContribute", "Log in to contribute");
   }

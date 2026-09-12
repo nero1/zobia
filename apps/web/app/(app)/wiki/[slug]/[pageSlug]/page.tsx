@@ -71,9 +71,6 @@ export default function WikiPageViewPage() {
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <h1 className="text-2xl font-bold text-foreground">{page.title}</h1>
         <div className="flex flex-wrap gap-2">
-          <Link href={`/wiki/${slug}/${pageSlug}/edit`} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent">
-            {t("wiki.page.viewHistory", "History")}
-          </Link>
           {canContribute && (
             <Link href={`/wiki/${slug}/${pageSlug}/edit`} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90">
               {t("wiki.page.edit", "Edit")}
