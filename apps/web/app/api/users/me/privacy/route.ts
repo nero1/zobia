@@ -20,7 +20,7 @@ import { badRequest, forbidden, handleApiError } from '@/lib/api/errors';
 import { db, type SqlParam } from '@/lib/db';
 import { getAllowedPlans, isPlanEligible as userEligible, allEligibilityOptionsExcept } from '@/lib/plans/eligibility';
 
-const VALID_SECTIONS = ['avatar', 'bio', 'rank', 'xp', 'guild', 'seasons', 'badges'];
+const VALID_SECTIONS = ['avatar', 'bio', 'rank', 'xp', 'guild', 'seasons', 'badges', 'activities'];
 
 export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
   try {

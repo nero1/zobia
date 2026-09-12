@@ -3460,5 +3460,15 @@
   "tweets.linkCopied": "Link copied",
   "settings.tweetMaxLength.label": "Your Tweet length limit",
   "settings.tweetMaxLength.hint": "Tweets up to {{default}} characters are always free. Longer Tweets cost {{cost}} Credits each.",
-  "settings.tweetMaxLength.hintExempt": "Your account posts long Tweets for free, up to {{max}} characters."
+  "settings.tweetMaxLength.hintExempt": "Your account posts long Tweets for free, up to {{max}} characters.",
+  "profile.tabs.tweets": "Tweets",
+  "profile.tabs.activities": "Activities",
+  "profile.gallery.title": "Photo Gallery",
+  "profile.gallery.empty": "No photos yet",
+  "profile.moments.empty": "No moments yet",
+  "profile.activities.empty": "No activity yet",
+  "profile.activities.rankUp": "Ranked up to {{rank}}",
+  "profile.activities.badgeUnlocked": "Unlocked {{badge}}",
+  "profile.activities.guildJoined": "Joined guild {{guild}}",
+  "profile.leaderboard.view": "View Leaderboard"
 }

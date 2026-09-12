@@ -8,8 +8,8 @@
  * prestige stars, guild badge, season history, and action buttons.
  */
 
-import { useState, useEffect, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { OnlineRing } from "@/components/ui/OnlineRing";
@@ -17,6 +17,8 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { XpLevelBadge } from "@/components/shared/UserBadges";
 import { ProfileTweets } from "@/components/tweets/ProfileTweets";
+import { PhotoGallery } from "@/components/profile/PhotoGallery";
+import { ActivityFeed, useProfileActivity } from "@/components/profile/ActivityFeed";
 import type { RankName } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -171,7 +173,17 @@ function SeasonCard({ season }: { season: SeasonSummary }) {
  * Public user profile page.
  */
 export default function ProfilePage() {
+  return (
+    <Suspense fallback={<div className="p-4 sm:p-6"><ProfileSkeleton /></div>}>
+      <ProfilePageInner />
+    </Suspense>
+  );
+}
+
+function ProfilePageInner() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { t } = useTranslation();
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
@@ -185,6 +197,56 @@ export default function ProfilePage() {
   const [followBusy, setFollowBusy] = useState(false);
   const [isFriend, setIsFriend] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+
+  // Tweets | Activities tabs. Tab state is reflected in ?tab= so a direct
+  // link to a specific tab works. "activities" fetch 403s (ACTIVITIES_HIDDEN)
+  // when the owner has hidden that section — the tab is then not rendered at
+  // all, never merely disabled. The Tweets tab itself is hidden entirely
+  // until the profile has posted at least one Tweet, per product spec.
+  type ProfileTab = "tweets" | "activities";
+  const [hasTweets, setHasTweets] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!userId) return;
+    let cancelled = false;
+    fetch(`/api/tweets?authorId=${encodeURIComponent(userId)}&limit=1`, { credentials: "include" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((json: { data?: { tweets?: unknown[] } } | null) => {
+        if (!cancelled) setHasTweets(((json?.data?.tweets?.length) ?? 0) > 0);
+      })
+      .catch(() => { if (!cancelled) setHasTweets(false); });
+    return () => { cancelled = true; };
+  }, [userId]);
+  const { activities, forbidden: activitiesHidden } = useProfileActivity(userId);
+  const showTweetsTab = hasTweets === true;
+  const showActivitiesTab = !activitiesHidden;
+  const tabParam = searchParams.get("tab") as ProfileTab | null;
+  const [activeTab, setActiveTab] = useState<ProfileTab>(
+    tabParam === "activities" || tabParam === "tweets" ? tabParam : "tweets"
+  );
+
+  // Once the Tweets check resolves, correct the default: Tweets is active by
+  // default, but if the profile has zero Tweets that tab is hidden entirely
+  // and Activities becomes the default instead — unless the URL already
+  // asked for a specific (still-visible) tab.
+  useEffect(() => {
+    if (tabParam === "activities" || tabParam === "tweets") return; // explicit deep link wins
+    if (hasTweets === null) return; // wait for the tweets check to resolve
+    if (!showTweetsTab && showActivitiesTab) setActiveTab("activities");
+  }, [hasTweets, showTweetsTab, showActivitiesTab, tabParam]);
+
+  // Defensive fallback: never leave the UI on a tab that just became hidden
+  // (e.g. a deep link to ?tab=activities when the owner has it hidden).
+  useEffect(() => {
+    if (activeTab === "activities" && !showActivitiesTab && showTweetsTab) setActiveTab("tweets");
+    else if (activeTab === "tweets" && !showTweetsTab && showActivitiesTab) setActiveTab("activities");
+  }, [activeTab, showActivitiesTab, showTweetsTab]);
+
+  const selectTab = useCallback((tab: ProfileTab) => {
+    setActiveTab(tab);
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("tab", tab);
+    router.replace(`?${next.toString()}`, { scroll: false });
+  }, [router, searchParams]);
 
   useEffect(() => {
     if (!userId || userId === "undefined") {
@@ -398,10 +460,18 @@ export default function ProfilePage() {
 
       {/* Track levels */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-neutral-500">Track Levels</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Track Levels</h2>
+          <Link
+            href={`/leaderboards?scope=global&track=main`}
+            className="text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400"
+          >
+            🏆 {t("profile.leaderboard.view", "View Leaderboard")} →
+          </Link>
+        </div>
         <div className="space-y-3">
-          {profile.tracks.map((t) => (
-            <TrackBar key={t.track} track={t} />
+          {profile.tracks.map((tr) => (
+            <TrackBar key={tr.track} track={tr} />
           ))}
         </div>
       </div>
@@ -490,6 +560,50 @@ export default function ProfilePage() {
               </span>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Photo gallery — see components/profile/PhotoGallery.tsx */}
+      <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-500">
+          📷 {t("profile.gallery.title", "Photo Gallery")}
+        </h2>
+        <PhotoGallery userId={userId} />
+      </div>
+
+      {/* Tweets | Activities tabs */}
+      {(showTweetsTab || showActivitiesTab) && (
+        <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="mb-3 flex gap-4 border-b border-neutral-200 dark:border-neutral-800">
+            {showTweetsTab && (
+              <button
+                type="button"
+                onClick={() => selectTab("tweets")}
+                className={`-mb-px border-b-2 px-1 pb-2 text-sm font-semibold ${
+                  activeTab === "tweets"
+                    ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                    : "border-transparent text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                }`}
+              >
+                {t("profile.tabs.tweets", "Tweets")}
+              </button>
+            )}
+            {showActivitiesTab && (
+              <button
+                type="button"
+                onClick={() => selectTab("activities")}
+                className={`-mb-px border-b-2 px-1 pb-2 text-sm font-semibold ${
+                  activeTab === "activities"
+                    ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                    : "border-transparent text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                }`}
+              >
+                {t("profile.tabs.activities", "Activities")}
+              </button>
+            )}
+          </div>
+          {activeTab === "tweets" && showTweetsTab && <ProfileTweets authorId={userId} />}
+          {activeTab === "activities" && showActivitiesTab && <ActivityFeed activities={activities} />}
         </div>
       )}
     </div>
