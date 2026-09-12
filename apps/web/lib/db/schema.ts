@@ -3314,6 +3314,8 @@ export const announcementModals = pgTable("announcement_modals", {
   endsAt: timestamp("ends_at", { withTimezone: true }),
   targetPlans: text("target_plans").array(),
   targetRoles: text("target_roles").array(),
+  // Migration 037 (db): added target_genders
+  targetGenders: text("target_genders").array(),
   displayOrder: integer("display_order").notNull().default(0),
   // Migration 015 (db): added deleted_at, created_by
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -3331,6 +3333,8 @@ export const announcementBanners = pgTable("announcement_banners", {
   endsAt: timestamp("ends_at", { withTimezone: true }),
   targetPlans: text("target_plans").array(),
   targetRoles: text("target_roles").array(),
+  // Migration 037 (db): added target_genders
+  targetGenders: text("target_genders").array(),
   displayOrder: integer("display_order").notNull().default(0),
   // Migration 015 (db): added title, link_url, deleted_at, created_by
   title: text("title"),

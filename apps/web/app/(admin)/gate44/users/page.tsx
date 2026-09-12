@@ -48,6 +48,7 @@ interface AdminUser {
   isModerator: boolean;
   isSupport: boolean;
   isSeniorSupport: boolean;
+  gender: "male" | "female" | "non_binary" | "prefer_not_to_say" | null;
   reportHistoryCount: number;
   paymentHistoryCount: number;
   messageCount: number;
@@ -64,6 +65,17 @@ interface UsersResponse {
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
+
+// Gender filter options. "unset" is its own bucket (gender IS NULL), matching
+// GET /api/admin/users' gender query param contract. "non_binary" is the DB
+// value but labelled "Other" per product requirement.
+const GENDER_FILTER_OPTIONS: { value: string; label: string }[] = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "non_binary", label: "Other" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+  { value: "unset", label: "Not set" },
+];
 
 const PLAN_BADGE: Record<Plan, { label: string; classes: string }> = {
   free: { label: "Free", classes: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400" },
@@ -492,6 +504,7 @@ export default function AdminUsersPage() {
   }, [t]);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [genderFilter, setGenderFilter] = useState<string[]>([]);
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -529,6 +542,7 @@ export default function AdminUsersPage() {
       const params = new URLSearchParams({ limit: "20" });
       if (debouncedQuery) params.set("q", debouncedQuery);
       if (cursor) params.set("cursor", cursor);
+      if (genderFilter.length > 0) params.set("gender", genderFilter.join(","));
       const res = await fetch(`/api/admin/users?${params}`, { credentials: "include" });
       if (res.status === 401 || res.status === 403) {
         window.location.href = "/gate44/login";
@@ -547,14 +561,14 @@ export default function AdminUsersPage() {
     } finally {
       setLoading(false);
     }
-  }, [debouncedQuery]);
+  }, [debouncedQuery, genderFilter]);
 
-  // Re-run search whenever the debounced query changes, resetting pagination.
+  // Re-run search whenever the debounced query or gender filter changes, resetting pagination.
   useEffect(() => {
     setCursorHistory([undefined]);
     void search(undefined, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery]);
+  }, [debouncedQuery, genderFilter]);
 
   function goNext() {
     if (!nextCursor) return;
@@ -644,6 +658,41 @@ export default function AdminUsersPage() {
           {loading ? "Searching…" : "Search"}
         </button>
       </form>
+
+      {/* Gender filter — multi-select pills; empty = all genders */}
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">Gender:</span>
+        {GENDER_FILTER_OPTIONS.map((opt) => {
+          const active = genderFilter.includes(opt.value);
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() =>
+                setGenderFilter((prev) =>
+                  active ? prev.filter((v) => v !== opt.value) : [...prev, opt.value]
+                )
+              }
+              className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${
+                active
+                  ? "bg-blue-600 text-white"
+                  : "border border-neutral-300 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+        {genderFilter.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setGenderFilter([])}
+            className="text-xs font-semibold text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+          >
+            Clear
+          </button>
+        )}
+      </div>
 
       {/* Error */}
       {error && (

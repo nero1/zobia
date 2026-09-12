@@ -7,7 +7,7 @@ export const dynamic = 'force-dynamic';
  *
  * POST /api/onboarding/complete
  *   - Validates username uniqueness in real-time
- *   - Saves: username, display_name, avatar_emoji, city, vibe_quiz_responses, date_of_birth
+ *   - Saves: username, display_name, avatar_emoji, city, vibe_quiz_responses, date_of_birth, gender
  *   - Checks minimum age against x_manifest value (default 13)
  *   - Awards 500 XP welcome drop
  *   - Credits coin_ledger for welcome XP event
@@ -74,6 +74,7 @@ const onboardingSchema = z.object({
     .max(new Date().getFullYear(), "birth_year cannot be in the future"),
   birth_month: z.coerce.number().int().min(1).max(12).optional(),
   birth_day: z.coerce.number().int().min(1).max(31).optional(),
+  gender: z.enum(["male", "female", "non_binary", "prefer_not_to_say"]).optional().nullable(),
   referral_code: z.string().max(20).optional().nullable(),
   captcha_token: z.string().optional(),
 });
@@ -227,9 +228,10 @@ export const POST = withAuth(async (req, { params, auth }) => {
            onboarding_personalization = $6,
            date_of_birth              = $7,
            referral_code              = $8,
+           gender                     = $9,
            onboarding_completed       = true,
            updated_at                 = NOW()
-         WHERE id = $9 AND deleted_at IS NULL`,
+         WHERE id = $10 AND deleted_at IS NULL`,
         [
           body.username,
           body.display_name,
@@ -239,6 +241,7 @@ export const POST = withAuth(async (req, { params, auth }) => {
           personalization ? JSON.stringify(personalization) : null,
           dateOfBirth,
           referralCode,
+          body.gender ?? null,
           auth.user.sub,
         ]
       );

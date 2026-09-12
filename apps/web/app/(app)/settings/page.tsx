@@ -227,6 +227,9 @@ export default function SettingsPage() {
   const [dobSaving, setDobSaving] = useState(false);
   const [dobError, setDobError] = useState<string | null>(null);
 
+  // Gender (loaded from /api/users/me)
+  const [gender, setGender] = useState<"male" | "female" | "non_binary" | "prefer_not_to_say" | null>(null);
+
   // Password change
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -406,9 +409,17 @@ export default function SettingsPage() {
       try {
         const res = await fetch("/api/users/me", { credentials: "include" });
         if (!res.ok) return;
-        const data = (await res.json()) as { user?: { date_of_birth?: string | null } };
+        const data = (await res.json()) as {
+          user?: {
+            date_of_birth?: string | null;
+            gender?: "male" | "female" | "non_binary" | "prefer_not_to_say" | null;
+          };
+        };
         if (data.user?.date_of_birth) {
           setDateOfBirth(data.user.date_of_birth);
+        }
+        if (data.user?.gender) {
+          setGender(data.user.gender);
         }
       } catch { /* non-fatal */ }
     })();
@@ -484,6 +495,8 @@ export default function SettingsPage() {
       } else if (field === "dmOptOut") {
         url = "/api/users/me"; method = "PUT";
         body = { dm_privacy: value ? "friends_only" : "everyone" };
+      } else if (field === "gender") {
+        url = "/api/users/me"; method = "PUT"; body = { gender: value };
       } else {
         url = "/api/users/me/settings"; method = "PATCH"; body = { [field]: value };
       }
@@ -744,6 +757,37 @@ export default function SettingsPage() {
               ? <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{dobError}</p>
               : <p className="mt-1 text-xs text-neutral-400">Your full date of birth (YYYY-MM-DD). Only your birth year was collected during signup.</p>
             }
+          </div>
+
+          {/* Gender */}
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+              {t("settings.gender.label", "Gender")}
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  { value: "male", label: t("settings.gender.male", "Male") },
+                  { value: "female", label: t("settings.gender.female", "Female") },
+                  { value: "non_binary", label: t("settings.gender.other", "Other") },
+                  { value: "prefer_not_to_say", label: t("settings.gender.preferNotToSay", "Prefer not to say") },
+                ] as const
+              ).map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => { setGender(opt.value); void saveField("gender", opt.value); }}
+                  disabled={savingField === "gender"}
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold transition-colors disabled:opacity-60 ${
+                    gender === opt.value
+                      ? "bg-blue-600 text-white"
+                      : "border border-neutral-300 text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div>

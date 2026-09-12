@@ -76,6 +76,7 @@ function OnboardingPage() {
   const [displayName, setDisplayName] = useState('');
   const [city, setCity] = useState('');
   const [birthYear, setBirthYear] = useState('');
+  const [gender, setGender] = useState<'male' | 'female' | 'non_binary' | 'prefer_not_to_say' | null>(null);
   const [referralCode, setReferralCode] = useState('');
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
@@ -192,6 +193,7 @@ function OnboardingPage() {
         avatar_emoji: avatarEmoji,
         city: city.trim() || undefined,
         birth_year: parseInt(birthYear, 10),
+        gender: gender ?? undefined,
         referral_code: referralCode.trim() || undefined,
         captcha_token: captchaToken ?? undefined,
       });
@@ -319,6 +321,34 @@ function OnboardingPage() {
           {fieldErrors.birthYear
             ? <p role="alert" className="mt-1 text-xs text-red-600">{fieldErrors.birthYear}</p>
             : <p className="mt-1 text-xs text-neutral-400">{t('onboarding.step1.birthYearHint', { age: manifest?.minimumAge ?? 13 })}</p>}
+        </div>
+
+        {/* Gender (optional) */}
+        <div>
+          <label className="mb-1 block text-sm font-semibold text-neutral-700">{t('onboarding.step1.genderLabel', 'Gender')}</label>
+          <div className="flex flex-wrap gap-2">
+            {(
+              [
+                { value: 'male', label: t('onboarding.step1.genderMale', 'Male') },
+                { value: 'female', label: t('onboarding.step1.genderFemale', 'Female') },
+                { value: 'non_binary', label: t('onboarding.step1.genderOther', 'Other') },
+                { value: 'prefer_not_to_say', label: t('onboarding.step1.genderPreferNotToSay', 'Prefer not to say') },
+              ] as const
+            ).map((opt) => (
+              <button
+                key={opt.value}
+                type="button"
+                onClick={() => setGender(opt.value)}
+                className={`rounded-xl px-4 py-2.5 text-sm font-semibold ${
+                  gender === opt.value
+                    ? 'bg-primary-600 text-white'
+                    : 'border border-neutral-200 text-neutral-700'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Referral code — prefilled from a captured deep link (ZB-AND-02), editable */}

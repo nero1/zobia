@@ -77,6 +77,7 @@ async function resolveAnnouncements(): Promise<{
       id: userId,
       plan_id: null as string | null,
       role: null as string | null,
+      gender: null as string | null,
     };
 
     const [resolvedBanner, resolvedModal] = await Promise.all([

@@ -47,6 +47,67 @@ function RestorePurchasesSection() {
   );
 }
 
+// Gender sub-section — mirrors web's settings "Gender" pill selector, saved
+// via PUT /api/users/me (same endpoint web uses).
+type Gender = 'male' | 'female' | 'non_binary' | 'prefer_not_to_say';
+
+function GenderSection() {
+  const { t } = useTranslation();
+  const [gender, setGender] = useState<Gender | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiClient
+      .get<{ user?: { gender?: Gender | null } }>('/users/me')
+      .then(({ data }) => {
+        if (data.user?.gender) setGender(data.user.gender);
+      })
+      .catch(() => { /* non-fatal */ });
+  }, []);
+
+  async function save(value: Gender) {
+    const previous = gender;
+    setGender(value);
+    setSaving(true);
+    try {
+      await apiClient.put('/users/me', { gender: value });
+    } catch {
+      setGender(previous); // revert on failure
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const options: { value: Gender; label: string }[] = [
+    { value: 'male', label: t('settings.gender.male', 'Male') },
+    { value: 'female', label: t('settings.gender.female', 'Female') },
+    { value: 'non_binary', label: t('settings.gender.other', 'Other') },
+    { value: 'prefer_not_to_say', label: t('settings.gender.preferNotToSay', 'Prefer not to say') },
+  ];
+
+  return (
+    <div className="bg-white px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 mb-3">{t('settings.gender.label', 'Gender')}</h3>
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => void save(opt.value)}
+            disabled={saving}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-40 ${
+              gender === opt.value
+                ? 'bg-primary-600 text-white'
+                : 'border border-neutral-300 text-neutral-700'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // BUG-CAP-07: Data & Account sub-section — request-my-data + delete account.
 // Rendered inline (not a separate route) to mirror web's settings page,
 // which keeps both in the main Settings screen rather than a nested page.
@@ -276,6 +337,9 @@ function SettingsPage() {
           ))}
         </div>
       </div>
+
+      {/* Gender */}
+      <GenderSection />
 
       {/* Restore Purchases (ZB-AND-09) */}
       <RestorePurchasesSection />

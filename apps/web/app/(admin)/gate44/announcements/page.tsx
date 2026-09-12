@@ -30,6 +30,7 @@ interface Announcement {
   audience: {
     plans: string[];
     roles: string[];
+    genders: string[];
   };
   startAt: string | null;
   endAt: string | null;
@@ -68,6 +69,15 @@ const STATUS_BADGE: Record<AnnStatus, string> = {
 // a hand-typed list ("basic"/"vip") that never matched any real plan.
 const PLAN_OPTIONS = getAllPlanOptions();
 const ROLE_OPTIONS = ["user", "creator", "moderator", "admin"];
+// Mirrors the users.gender CHECK enum (see db/migrations consolidated schema) —
+// "non_binary" is labelled "Other" per product requirement while keeping the
+// DB value unchanged.
+const GENDER_OPTIONS: { value: string; label: string }[] = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "non_binary", label: "Other" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+];
 /** Default recipients for a NEW announcement: every non-business plan + every role. */
 const DEFAULT_SELECTED_PLANS = getPersonalPlanValues();
 
@@ -95,6 +105,11 @@ function AnnForm({ type, initial, onSave, onCancel }: AnnFormProps) {
   const [selectedRoles, setSelectedRoles] = useState<string[]>(
     initial?.audience?.roles ?? [...ROLE_OPTIONS]
   );
+  // Empty = "all genders" (same convention as plans/roles); new announcements
+  // default to targeting every gender.
+  const [selectedGenders, setSelectedGenders] = useState<string[]>(
+    initial?.audience?.genders ?? []
+  );
   const [displayOrder, setDisplayOrder] = useState(initial?.displayOrder ?? 1);
   const [status, setStatus] = useState<AnnStatus>(initial?.status ?? "inactive");
   const [saving, setSaving] = useState(false);
@@ -112,7 +127,7 @@ function AnnForm({ type, initial, onSave, onCancel }: AnnFormProps) {
         title: type === "modal" ? title : undefined,
         content,
         status,
-        audience: { plans: selectedPlans, roles: selectedRoles },
+        audience: { plans: selectedPlans, roles: selectedRoles, genders: selectedGenders },
         startAt: startAt || null,
         endAt: endAt || null,
         displayOrder,
@@ -208,6 +223,23 @@ function AnnForm({ type, initial, onSave, onCancel }: AnnFormProps) {
             ))}
           </div>
         </div>
+        <div>
+          <p className="mb-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">Gender</p>
+          <div className="flex flex-wrap gap-2">
+            {GENDER_OPTIONS.map((g) => (
+              <label key={g.value} className="flex cursor-pointer items-center gap-1.5 text-sm">
+                <input
+                  type="checkbox"
+                  checked={selectedGenders.includes(g.value)}
+                  onChange={() => setSelectedGenders(toggleArr(selectedGenders, g.value))}
+                  className="rounded border-neutral-300"
+                />
+                {g.label}
+              </label>
+            ))}
+          </div>
+          <p className="mt-1 text-xs text-neutral-400">Leave all unchecked to target every gender.</p>
+        </div>
       </div>
 
       <div>
@@ -258,6 +290,13 @@ function AnnRow({ ann, onToggle, onDelete, onEdit, busy }: AnnRowProps) {
             <span>
               Plans: {ann.audience.plans
                 .map((v) => PLAN_OPTIONS.find((p) => p.value === v)?.label ?? v)
+                .join(", ")}
+            </span>
+          )}
+          {ann.audience.genders.length > 0 && (
+            <span>
+              Gender: {ann.audience.genders
+                .map((v) => GENDER_OPTIONS.find((g) => g.value === v)?.label ?? v)
                 .join(", ")}
             </span>
           )}

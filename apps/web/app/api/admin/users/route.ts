@@ -5,9 +5,11 @@ export const dynamic = 'force-dynamic';
  *
  * Admin user management endpoint.
  *
- * GET /api/admin/users?q=...&page=1&limit=20
+ * GET /api/admin/users?q=...&page=1&limit=20&gender=male,female,unset
  *   - Admin-only (is_admin verified from DATABASE, not just JWT)
  *   - Search users by username, email, or UUID
+ *   - Optional `gender` filter: comma-separated list of male|female|non_binary|
+ *     prefer_not_to_say, plus the "unset" sentinel for gender IS NULL (its own bucket)
  *   - Returns paginated list with trust_score, plan, and report history summary
  */
 
@@ -39,6 +41,7 @@ interface AdminUserRow {
   is_suspended: boolean;
   is_banned: boolean;
   onboarding_completed: boolean;
+  gender: string | null;
   report_count: number;
   payment_history_count: number;
   message_count: number;
@@ -62,6 +65,7 @@ export interface AdminUser {
   isModerator: boolean;
   isSupport: boolean;
   isSeniorSupport: boolean;
+  gender: string | null;
   city: string;
   reportHistoryCount: number;
   paymentHistoryCount: number;
@@ -73,6 +77,8 @@ export interface AdminUser {
 // Schema
 // ---------------------------------------------------------------------------
 
+const GENDER_VALUES = ["male", "female", "non_binary", "prefer_not_to_say"] as const;
+
 const searchSchema = z.object({
   q: z.string().max(200).optional(),
   // ADMIN-01: cursor-based (keyset) pagination — avoids O(N) full-table scans from OFFSET
@@ -81,6 +87,22 @@ const searchSchema = z.object({
     .string()
     .optional()
     .transform((v) => Math.min(100, Math.max(1, v ? parseInt(v, 10) : 20))),
+  // Comma-separated list of users.gender enum values, plus the sentinel
+  // "unset" for users with gender IS NULL (its own bucket, per admin filter
+  // requirements) — e.g. ?gender=male,female,unset
+  gender: z
+    .string()
+    .optional()
+    .transform((v) =>
+      v
+        ? v
+            .split(",")
+            .map((g) => g.trim())
+            .filter((g): g is (typeof GENDER_VALUES)[number] | "unset" =>
+              g === "unset" || (GENDER_VALUES as readonly string[]).includes(g)
+            )
+        : []
+    ),
 });
 
 // ---------------------------------------------------------------------------
@@ -101,6 +123,7 @@ function toAdminUser(row: AdminUserRow): AdminUser {
     isModerator: row.is_moderator,
     isSupport: row.is_support,
     isSeniorSupport: row.is_senior_support,
+    gender: row.gender,
     city: row.city ?? "",
     reportHistoryCount: row.report_count,
     paymentHistoryCount: row.payment_history_count,
@@ -126,12 +149,28 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
     const { searchParams } = new URL(req.url);
-    const { q, cursor, limit } = validateSearchParams(searchParams, searchSchema);
+    const { q, cursor, limit, gender } = validateSearchParams(searchParams, searchSchema);
 
     // Build dynamic WHERE clause
     const conditions: string[] = ["u.deleted_at IS NULL"];
-    const queryParams: (string | number)[] = [];
+    const queryParams: (string | number | string[])[] = [];
     let paramIdx = 1;
+
+    if (gender.length > 0) {
+      const wantsUnset = gender.includes("unset");
+      const enumValues = gender.filter((g) => g !== "unset");
+      const genderConditions: string[] = [];
+      if (enumValues.length > 0) {
+        genderConditions.push(`u.gender = ANY($${paramIdx++})`);
+        queryParams.push(enumValues);
+      }
+      if (wantsUnset) {
+        genderConditions.push("u.gender IS NULL");
+      }
+      if (genderConditions.length > 0) {
+        conditions.push(`(${genderConditions.join(" OR ")})`);
+      }
+    }
 
     if (q) {
       const UUID_RE =
@@ -182,7 +221,7 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
          u.id, u.email, u.username, u.display_name, u.avatar_url,
          u.avatar_emoji, u.plan, u.trust_score, u.is_admin, u.is_moderator,
          COALESCE(u.is_support, false) AS is_support, COALESCE(u.is_senior_support, false) AS is_senior_support,
-         u.is_suspended, u.is_banned, u.onboarding_completed,
+         u.is_suspended, u.is_banned, u.onboarding_completed, u.gender,
          u.created_at, u.updated_at, u.last_active_at, u.city,
          (SELECT COUNT(*)::int FROM reports       WHERE reported_user_id = u.id)  AS report_count,
          (SELECT COUNT(*)::int FROM payments      WHERE user_id = u.id)           AS payment_history_count,
@@ -209,7 +248,7 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
     writeAuditLog({
       actorId: auth.user.sub,
       action: "user_profile_read",
-      metadata: { query: q ?? null, cursor: cursor ?? null, limit },
+      metadata: { query: q ?? null, cursor: cursor ?? null, limit, gender: gender.length > 0 ? gender : null },
     });
 
     return NextResponse.json(
