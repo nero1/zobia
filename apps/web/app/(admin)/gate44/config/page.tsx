@@ -572,6 +572,21 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Tweets",
   },
 
+  // Profile Pictures — avatar upload cost for free-plan users (paid-plan
+  // users upload for free; switching to a default icon is always free).
+  avatar_change_cost_credits: {
+    label: "Avatar Change Cost (Credits)",
+    description: "Credits charged to a free-plan user to upload a custom profile photo. Paid-plan users upload for free. Once-a-week cooldown applies regardless of plan. Default: 200.",
+    type: "number",
+    group: "Profile Pictures",
+  },
+  avatar_change_cost_stars: {
+    label: "Avatar Change Cost (Stars)",
+    description: "Stars charged to a free-plan user to upload a custom profile photo, as an alternative to paying in Credits. Default: 1.",
+    type: "number",
+    group: "Profile Pictures",
+  },
+
   // Blogs — Rewarded Gifts (migration 0024) + the monetization kill-switch.
   // Per-plan blog_rev_share_pct_* / blog_paystack_fee_pct / blog_vat_pct
   // (defined in lib/blogs/limits.ts) already apply to gift purchases too —

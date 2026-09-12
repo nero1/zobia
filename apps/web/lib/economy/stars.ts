@@ -40,7 +40,8 @@ export type StarTransactionType =
   | "bbforum_image_upload"
   | "support_ticket_cost"
   | "room_reward_fund"
-  | "room_reward_claim";
+  | "room_reward_claim"
+  | "avatar_change";
 
 // ---------------------------------------------------------------------------
 // Internal helpers

@@ -185,6 +185,18 @@ export interface ZobiaManifest {
     /** Credits charged for a single Tweet over defaultMaxLength, for users who are NOT long-form exempt. */
     longTweetCostCredits: number;
   };
+  /**
+   * Profile picture (avatar) change cost for free-plan users. Paid-plan users
+   * upload custom avatars at no charge; free-plan users may pay this cost in
+   * Credits OR Stars to upload a custom photo instead of switching to a
+   * default icon (which is always free). Admin-editable at /gate44/config.
+   */
+  avatarChange: {
+    /** Credits charged to a free-plan user for a custom avatar upload (default 200). */
+    costCredits: number;
+    /** Stars charged to a free-plan user for a custom avatar upload (default 1). */
+    costStars: number;
+  };
   // Answers — mini forum / Q&A (admin-editable at /gate44/config and /gate44/answers/settings)
   forum: {
     /** Minimum account level required to post a question. */
@@ -576,6 +588,10 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     longMinRoles: ["role_admin", "role_moderator", "pro", "max"],
     longMaxLengthWords: 1000,
     longTweetCostCredits: 10,
+  },
+  avatarChange: {
+    costCredits: 200,
+    costStars: 1,
   },
   forum: {
     minLevelToPost: 2,
@@ -1062,6 +1078,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       longMinRoles:        parseStringArray(kv["tweets_long_min_role"],       DEFAULT_MANIFEST.tweets.longMinRoles),
       longMaxLengthWords:  parseInt10(kv["tweets_long_max_length"],           DEFAULT_MANIFEST.tweets.longMaxLengthWords),
       longTweetCostCredits: parseInt10(kv["tweets_long_tweet_cost_credits"],  DEFAULT_MANIFEST.tweets.longTweetCostCredits),
+    },
+    avatarChange: {
+      costCredits: parseInt10(kv["avatar_change_cost_credits"], DEFAULT_MANIFEST.avatarChange.costCredits),
+      costStars:   parseInt10(kv["avatar_change_cost_stars"],   DEFAULT_MANIFEST.avatarChange.costStars),
     },
     forum: {
       minLevelToPost:                 parseInt10(kv["forum_min_level_to_post"],              DEFAULT_MANIFEST.forum.minLevelToPost),

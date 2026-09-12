@@ -116,6 +116,23 @@ Tweets are a permanent (non-expiring) Twitter-style feed at `/tweets`: text + an
 
 **Offline support:** like Moments, Tweets are not queued for offline send — posting (and any image upload) requires an active connection.
 
+### Profile Pictures
+
+Custom avatar photo upload with a Facebook-style pan/zoom/crop step, plus a free "switch to a default icon" option — both entry points are `Settings → Profile Photo` on web and Android, both calling the same `POST /api/users/me/avatar` (custom photo) or `PUT /api/users/me` (`avatar_emoji`, default icon) backend routes.
+
+**Crop UI:** `components/profile/AvatarCropModal.tsx` (web) and `apps/android/src/components/profile/AvatarCropModal.tsx` (Android, ported to that app's plain `<input type="file">` + axios idiom) both use `react-easy-crop` for a circular, 1:1 aspect crop over the picked image, then render the crop to a `<canvas>` and export a 512×512 JPEG `Blob` that's POSTed as multipart form data. This client-side crop only frames the shot — the server independently re-validates, strips GIF animation, and compresses on receipt.
+
+**Animated GIF avatars:** if the uploaded file is `image/gif`, `lib/storage/compress.ts`'s `extractGifSecondFrame()` reads the GIF's frame count via `sharp`'s metadata (`{ pages }`) and, if there's more than one frame, extracts frame index 1 (the 2nd frame, 0-indexed, via `sharp(buffer, { page: 1 })`) as a static PNG before the normal `compressImage()` pass — so a stored avatar is never animated. This is specific to the avatar upload path; tweets/moments/forum image uploads are untouched and keep full animated GIFs. If `sharp` isn't installed (see below), extraction is skipped and the original file is stored as-is (logged as a warning) — same graceful-degradation behavior `compressImage()` already has.
+
+**Paid-plan vs. free-plan (PRD-required gate):**
+- Any paid-plan user (`plan !== "free"`) uploads a custom photo for free.
+- A user who uploaded while on a paid plan and later downgrades to Free **keeps** that photo — downgrading never clears `avatar_url`; only the *upload/change action* is gated, not the stored value.
+- A Free-plan user can still upload a custom photo by paying an admin-configured cost in Credits **or** Stars (their choice, mirroring the Moments "pay with either currency" UX) — `avatar_change_cost_credits` (default `200`) / `avatar_change_cost_stars` (default `1`) in `x_manifest`, admin-editable at `/gate44/config` ("Profile Pictures" group). Set either to `0` to disable that currency.
+- Switching to one of the **default onboarding icons** (the exact emoji set offered at onboarding Step 1, `shared/utils/defaultAvatars.ts`'s `DEFAULT_AVATAR_EMOJIS` — the single source both onboarding and the Settings picker read from) is **always free**, on any plan.
+- Charging (`debitCoins`/`debitStars`) and the `users.avatar_url`/`avatar_emoji` update happen inside one DB transaction (`lib/profile/avatarService.ts`), so a failed update never leaves a user charged for a change that didn't apply — same pattern as Moments' `createMoment()`.
+
+**Once-a-week cooldown:** every avatar change — custom upload *or* switching to a different default icon — is limited to once every 7 days, tracked via a dedicated `users.avatar_changed_at` column (migration `0037_profile_avatar_upload.sql`; kept separate from `updated_at`, which many unrelated fields touch). Within the cooldown, the server returns `429 AVATAR_CHANGE_RATE_LIMITED` with a `nextEligibleAt` timestamp; the crop modal fetches `GET /api/users/me/avatar` up front to show the cooldown/cost state before the user even picks a file.
+
 ---
 
 ### Rooms

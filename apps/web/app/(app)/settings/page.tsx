@@ -18,6 +18,8 @@ import { subscribeToWebPush, unsubscribeFromWebPush, getWebPushPermission, isWeb
 import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
 import { useTweetsConfig } from "@/lib/hooks/useTweetsConfig";
 import { useTweetLengthPolicy } from "@/lib/hooks/useTweetLengthPolicy";
+import { AvatarCropModal } from "@/components/profile/AvatarCropModal";
+import { DEFAULT_AVATAR_EMOJIS } from "@/lib/profile/defaultAvatars";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -27,6 +29,8 @@ interface UserSettings {
   displayName: string;
   bio: string;
   email: string;
+  avatarUrl: string | null;
+  avatarEmoji: string | null;
   language: string;
   theme: "light" | "dark" | "system";
   notifications: Record<string, boolean>;
@@ -229,6 +233,14 @@ export default function SettingsPage() {
   const [displayName, setDisplayName] = useState("");
   const [bio, setBio] = useState("");
   const [email, setEmail] = useState("");
+
+  // Profile Pictures feature
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [avatarEmoji, setAvatarEmoji] = useState<string | null>(null);
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [showDefaultIconPicker, setShowDefaultIconPicker] = useState(false);
+  const [avatarSavingIcon, setAvatarSavingIcon] = useState<string | null>(null);
+  const avatarFileInputRef = useRef<HTMLInputElement>(null);
   const [language, setLanguage] = useState("en");
   // UI theme (light/dark/system) is a client-only preference handled by
   // next-themes (persists to localStorage, no server round-trip needed) —
@@ -397,6 +409,8 @@ export default function SettingsPage() {
           displayName: user.display_name ?? "",
           bio: user.bio ?? "",
           email: user.email ?? "",
+          avatarUrl: user.avatar_url ?? null,
+          avatarEmoji: user.avatar_emoji ?? null,
           language: user.locale ?? apiSettings.locale ?? "en",
           theme: "system",
           notifications: {
@@ -426,6 +440,8 @@ export default function SettingsPage() {
         setNotifications(mappedSettings.notifications);
         setDmOptOut(mappedSettings.dmOptOut);
         setHasPIN(Boolean(user.hasPIN));
+        setAvatarUrl(mappedSettings.avatarUrl);
+        setAvatarEmoji(mappedSettings.avatarEmoji);
       } catch (e) {
         const err = e as Error & { code?: string | null };
         setError(e instanceof Error ? translateApiError(tRef.current, err.code, err.message || "Unknown error") : "Unknown error");
@@ -732,9 +748,110 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {cropImageSrc && (
+        <AvatarCropModal
+          imageSrc={cropImageSrc}
+          onClose={() => {
+            URL.revokeObjectURL(cropImageSrc);
+            setCropImageSrc(null);
+          }}
+          onUploaded={(newUrl) => {
+            setAvatarUrl(newUrl);
+            setAvatarEmoji(null);
+            showToast(t("profile.avatar.photoUpdated"), "success");
+          }}
+        />
+      )}
+
       {/* Account */}
       <Section title="Account">
         <div className="space-y-4">
+          {/* Profile photo — Profile Pictures feature */}
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+              {t("profile.avatar.sectionLabel")}
+            </label>
+            <div className="flex items-center gap-4">
+              {avatarUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={avatarUrl} alt="" className="h-16 w-16 rounded-full object-cover" />
+              ) : (
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-neutral-100 text-2xl dark:bg-neutral-800">
+                  {avatarEmoji ?? "🙂"}
+                </div>
+              )}
+              <div className="flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => avatarFileInputRef.current?.click()}
+                    className="rounded-xl border border-neutral-300 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                  >
+                    {t("profile.avatar.uploadPhoto")}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowDefaultIconPicker((v) => !v)}
+                    className="rounded-xl border border-neutral-300 px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50 dark:border-neutral-700 dark:hover:bg-neutral-800"
+                  >
+                    {t("profile.avatar.useDefaultIcon")}
+                  </button>
+                </div>
+                <input
+                  ref={avatarFileInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) setCropImageSrc(URL.createObjectURL(file));
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+            </div>
+            {showDefaultIconPicker && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {DEFAULT_AVATAR_EMOJIS.map((emoji) => (
+                  <button
+                    key={emoji}
+                    type="button"
+                    disabled={avatarSavingIcon !== null}
+                    onClick={async () => {
+                      setAvatarSavingIcon(emoji);
+                      try {
+                        const res = await fetch("/api/users/me", {
+                          method: "PUT",
+                          credentials: "include",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ avatar_emoji: emoji }),
+                        });
+                        const json = await res.json();
+                        if (!res.ok) {
+                          throw Object.assign(new Error(json?.error?.message), { code: json?.error?.code });
+                        }
+                        setAvatarUrl(null);
+                        setAvatarEmoji(emoji);
+                        setShowDefaultIconPicker(false);
+                        showToast(t("profile.avatar.iconUpdated"), "success");
+                      } catch (err) {
+                        const e = err as { code?: string; message?: string };
+                        showToast(translateApiError(t, e.code, e.message ?? t("profile.avatar.uploadFailed")), "error");
+                      } finally {
+                        setAvatarSavingIcon(null);
+                      }
+                    }}
+                    className={`h-10 w-10 rounded-full text-xl transition-all disabled:opacity-50 ${
+                      avatarEmoji === emoji ? "ring-2 ring-blue-500 ring-offset-2" : "hover:scale-105"
+                    }`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {[
             { key: "displayName", label: "Display Name", value: displayName, onChange: setDisplayName, placeholder: "Your name" },
             { key: "email", label: "Email (optional)", value: email, onChange: setEmail, placeholder: "email@example.com", type: "email" },
