@@ -179,11 +179,11 @@ export default function WikiCollaboratorsPage() {
         body: JSON.stringify({ username: inviteUsername.trim() || undefined }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? t("wiki.collaborators.errors.inviteGeneric", "Failed to create invite"));
+      if (!res.ok) throw new Error(json?.error?.message ?? t("wiki.manage.errors.inviteGeneric", "Failed to create invite"));
       setInviteUsername("");
       await loadAll();
     } catch (err) {
-      setInviteError(err instanceof Error ? err.message : t("wiki.collaborators.errors.inviteGeneric", "Failed to create invite"));
+      setInviteError(err instanceof Error ? err.message : t("wiki.manage.errors.inviteGeneric", "Failed to create invite"));
     } finally {
       setCreatingInvite(false);
     }
@@ -210,18 +210,18 @@ export default function WikiCollaboratorsPage() {
       </div>
 
       <section>
-        <h2 className="text-sm font-semibold text-foreground mb-2">{t("wiki.collaborators.moderatorsTitle", "Moderators")}</h2>
-        <p className="mb-3 text-xs text-muted-foreground">{t("wiki.collaborators.moderatorsHint", "Moderators can manage settings, pages, and other collaborators just like you.")}</p>
+        <h2 className="text-sm font-semibold text-foreground mb-2">{t("wiki.manage.moderatorsTitle", "Moderators")}</h2>
+        <p className="mb-3 text-xs text-muted-foreground">{t("wiki.manage.moderatorsHint", "Moderators can manage settings, pages, and other collaborators just like you.")}</p>
         <div className="space-y-1.5">
-          {collaborators.length === 0 && <p className="text-sm text-muted-foreground">{t("wiki.collaborators.empty", "No collaborators yet.")}</p>}
+          {collaborators.length === 0 && <p className="text-sm text-muted-foreground">{t("wiki.manage.empty", "No collaborators yet.")}</p>}
           {collaborators.map((c) => (
             <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
               <div className="min-w-0">
                 <div className="text-sm font-medium text-foreground truncate">
                   @{c.username}
-                  {c.is_moderator && <span className="ml-2 rounded-full bg-blue-950/40 px-1.5 py-0.5 text-[10px] text-blue-400">{t("wiki.collaborators.moderatorBadge", "Moderator")}</span>}
+                  {c.is_moderator && <span className="ml-2 rounded-full bg-blue-950/40 px-1.5 py-0.5 text-[10px] text-blue-400">{t("wiki.manage.moderatorBadge", "Moderator")}</span>}
                 </div>
-                <div className="text-[11px] text-muted-foreground">{t("wiki.collaborators.editCount", "{{count}} page edits", { count: c.page_edit_count })}</div>
+                <div className="text-[11px] text-muted-foreground">{t("wiki.manage.editCount", "{{count}} page edits", { count: c.page_edit_count })}</div>
               </div>
               <button
                 type="button"
@@ -229,7 +229,7 @@ export default function WikiCollaboratorsPage() {
                 onClick={() => (c.is_moderator ? handleRevokeModerator(c.user_id) : handleGrantModerator(c.user_id))}
                 className="flex-shrink-0 rounded-lg bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700 disabled:opacity-50"
               >
-                {c.is_moderator ? t("wiki.collaborators.revokeModerator", "Remove moderator") : t("wiki.collaborators.grantModerator", "Make moderator")}
+                {c.is_moderator ? t("wiki.manage.revokeModerator", "Remove moderator") : t("wiki.manage.grantModerator", "Make moderator")}
               </button>
             </div>
           ))}
@@ -238,9 +238,9 @@ export default function WikiCollaboratorsPage() {
 
       {contributePolicy === "selected" && (
         <section>
-          <h2 className="text-sm font-semibold text-foreground mb-2">{t("wiki.collaborators.selectedTitle", "Selected contributors")}</h2>
-          <p className="mb-3 text-xs text-muted-foreground">{t("wiki.collaborators.selectedHint", "Since contribution is set to \"Selected people\", only users added here (or who accepted an invite) can create or edit pages.")}</p>
-          <UserSearchPicker onPick={handleAddCollaborator} placeholder={t("wiki.collaborators.searchPlaceholder", "Search by username to add…")} />
+          <h2 className="text-sm font-semibold text-foreground mb-2">{t("wiki.manage.selectedTitle", "Selected contributors")}</h2>
+          <p className="mb-3 text-xs text-muted-foreground">{t("wiki.manage.selectedHint", "Since contribution is set to \"Selected people\", only users added here (or who accepted an invite) can create or edit pages.")}</p>
+          <UserSearchPicker onPick={handleAddCollaborator} placeholder={t("wiki.manage.searchPlaceholder", "Search by username to add…")} />
           <div className="mt-3 space-y-1.5">
             {collaborators.map((c) => (
               <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
@@ -251,7 +251,7 @@ export default function WikiCollaboratorsPage() {
                   onClick={() => handleRemoveCollaborator(c.user_id)}
                   className="flex-shrink-0 rounded-lg bg-red-950/40 px-2.5 py-1.5 text-xs font-medium text-red-400 hover:bg-red-950/70 disabled:opacity-50"
                 >
-                  {t("wiki.collaborators.remove", "Remove")}
+                  {t("wiki.manage.removeCollaborator", "Remove")}
                 </button>
               </div>
             ))}
@@ -260,13 +260,13 @@ export default function WikiCollaboratorsPage() {
       )}
 
       <section>
-        <h2 className="text-sm font-semibold text-foreground mb-2">{t("wiki.collaborators.invitesTitle", "Invite links")}</h2>
-        <p className="mb-3 text-xs text-muted-foreground">{t("wiki.collaborators.invitesHint", "Create an open link anyone can use, or target a specific username.")}</p>
+        <h2 className="text-sm font-semibold text-foreground mb-2">{t("wiki.manage.invitesTitle", "Invite links")}</h2>
+        <p className="mb-3 text-xs text-muted-foreground">{t("wiki.manage.invitesHint", "Create an open link anyone can use, or target a specific username.")}</p>
         <div className="flex flex-wrap gap-2 mb-3">
           <input
             value={inviteUsername}
             onChange={(e) => setInviteUsername(e.target.value)}
-            placeholder={t("wiki.collaborators.inviteUsernamePlaceholder", "Username (optional — leave blank for an open link)")}
+            placeholder={t("wiki.manage.inviteUsernamePlaceholder", "Username (optional — leave blank for an open link)")}
             className="flex-1 min-w-[200px] rounded-xl border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-primary focus:outline-none"
           />
           <button
@@ -275,21 +275,21 @@ export default function WikiCollaboratorsPage() {
             disabled={creatingInvite}
             className="rounded-xl bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
-            {creatingInvite ? t("wiki.collaborators.creatingInvite", "Creating…") : t("wiki.collaborators.createInvite", "Create invite")}
+            {creatingInvite ? t("wiki.manage.creatingInvite", "Creating…") : t("wiki.manage.createInvite", "Create invite")}
           </button>
         </div>
         {inviteError && <p className="mb-2 text-sm text-red-500">{inviteError}</p>}
         <div className="space-y-1.5">
-          {invites.length === 0 && <p className="text-sm text-muted-foreground">{t("wiki.collaborators.invitesEmpty", "No invites yet.")}</p>}
+          {invites.length === 0 && <p className="text-sm text-muted-foreground">{t("wiki.manage.invitesEmpty", "No invites yet.")}</p>}
           {invites.map((inv) => (
             <div key={inv.id} className="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-3">
               <div className="min-w-0">
                 <div className="text-sm text-foreground truncate">
-                  {inv.invited_username ? `@${inv.invited_username}` : t("wiki.collaborators.openInvite", "Open link")}
-                  {inv.used_at && <span className="ml-2 text-[10px] text-muted-foreground">{t("wiki.collaborators.inviteUsed", "used")}</span>}
-                  {!inv.used_at && new Date(inv.expires_at) < new Date() && <span className="ml-2 text-[10px] text-red-400">{t("wiki.collaborators.inviteExpired", "expired")}</span>}
+                  {inv.invited_username ? `@${inv.invited_username}` : t("wiki.manage.openInvite", "Open link")}
+                  {inv.used_at && <span className="ml-2 text-[10px] text-muted-foreground">{t("wiki.manage.inviteUsed", "used")}</span>}
+                  {!inv.used_at && new Date(inv.expires_at) < new Date() && <span className="ml-2 text-[10px] text-red-400">{t("wiki.manage.inviteExpired", "expired")}</span>}
                 </div>
-                <div className="text-[11px] text-muted-foreground">{t("wiki.collaborators.inviteExpiresAt", "Expires {{date}}", { date: new Date(inv.expires_at).toLocaleDateString() })}</div>
+                <div className="text-[11px] text-muted-foreground">{t("wiki.manage.inviteExpiresAt", "Expires {{date}}", { date: new Date(inv.expires_at).toLocaleDateString() })}</div>
               </div>
               {!inv.used_at && (
                 <button
@@ -297,7 +297,7 @@ export default function WikiCollaboratorsPage() {
                   onClick={() => copyInviteLink(inv.token)}
                   className="flex-shrink-0 rounded-lg bg-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700"
                 >
-                  {copiedToken === inv.token ? t("wiki.collaborators.copied", "Copied ✓") : t("wiki.collaborators.copyLink", "Copy link")}
+                  {copiedToken === inv.token ? t("wiki.manage.linkCopied", "Copied ✓") : t("wiki.manage.copyLink", "Copy link")}
                 </button>
               )}
             </div>
