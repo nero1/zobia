@@ -447,6 +447,102 @@ business logic lives in `lib/blogs/repo.ts` + `lib/blogs/service.ts` +
   full tab bar (same "no Popular/Trending/New/Random tabs on mobile"
   convention as the rest of this page).
 
+### Wikis (PRD §38)
+
+Standard collaborative wikis reusing the platform's existing economy, XP,
+plans, moderation and admin infrastructure (same pattern as Blogs, §32,
+and Polls/Quizzes' generic reward pot). A wiki gets a public,
+SEO-crawlable home page at `/w/<slug>` and pages at `/w/<slug>/<pageSlug>`
+— see `app/w/[slug]/page.tsx`, `app/w/[slug]/[pageSlug]/page.tsx`. `/wiki`
+(discovery, mirrors Blogs) is the authenticated web/PWA and Capacitor
+Android route; business logic lives in `lib/wiki/repo.ts` +
+`lib/wiki/service.ts` + `lib/wiki/limits.ts` + `lib/wiki/permissions.ts`.
+
+- **Who can create a wiki:** gated by the admin along three independent,
+  `/gate44/wiki`-editable axes — minimum plan (`wiki_create_required_
+  plan`, default `free`), minimum creator level (`wiki_create_min_level`,
+  default 0), and an optional staff-only mode (`wiki_create_restricted_
+  to_staff`) that limits creation to moderators/admins regardless of
+  plan/level. Moderators/admins always bypass all three. A caller who
+  fails the gate gets back the specific unmet requirement, not a generic
+  refusal. Separately, per-plan quotas cap wikis owned (`wiki_max_owned_
+  <plan>`, default 1/3/10/25) and pages per wiki (`wiki_max_pages_
+  <plan>`, default 20/75/250/1000, scaled by the *owner's* plan).
+- **Contribute policy:** the owner picks one of `everyone` (default — any
+  signed-in user may create/edit pages), `friends` (only users with an
+  accepted `friendships` row with the owner), or `selected` (only users
+  explicitly added as a collaborator or who accepted an invite). The
+  owner and any wiki moderator can always contribute regardless of
+  policy. The first time someone actually contributes a page they're
+  auto-recorded as an active collaborator (even under `everyone`/
+  `friends`), which is what makes them show up in the collaborator list
+  and count toward `contributor_count`.
+- **Per-wiki moderators:** the owner (or an admin) grants moderator
+  status to a collaborator — `wiki_collaborators.is_moderator` plus
+  grant-audit columns (`moderator_granted_by`/`moderator_granted_at`),
+  the exact same shape as Guilds' Forum Mods (`guild_members.is_
+  moderator`). A wiki moderator can edit/delete any page on that one
+  wiki and manage its collaborators/invites; Platform Mods/Admins can
+  always moderate any wiki, re-verified against the database on every
+  call.
+- **Invites:** the owner (or a wiki moderator) generates a token-based
+  invite — optionally targeted at a username, or left open — with a
+  configurable expiry (`wiki_invite_expiry_hours`, default 168h) and
+  single-use tracking, same shape as `guild_invites`. Accepting one
+  (`/wiki/invite/<token>`) adds the user as an active `selected`-policy
+  collaborator regardless of the wiki's current contribute policy, and
+  fires a `wiki_invite_received` notification through the existing
+  notifications pipeline that deep-links straight to the accept screen.
+- **Rewards:** creating a wiki or contributing a page each earn a small,
+  always-on reward — default **1 XP / 0 Credits**, independently
+  admin-configurable (`wiki_create_reward_xp`/`_credits`, `wiki_
+  contribute_reward_xp`/`_credits`), with a rolling-24h Credits cap
+  (`wiki_daily_reward_cap_credits`, default 50) to prevent farming — same
+  mechanic as Polls/Quizzes.
+- **Reward pot ("treasury"):** a wiki owner can fund a Credits pot split
+  evenly among the first N distinct people who contribute a page or share
+  the wiki, recomputed at claim time on a top-up. Reuses the generic
+  `content_treasuries`/`content_treasury_claims`/`content_shares` tables
+  already built for Polls/Quizzes (`content_type = 'wiki'`, claim types
+  `contribute`/`share`) rather than a bespoke table. Gated by the
+  `wikiMonetization` sub-flag under the master `wiki` feature flag.
+- **Revision history:** every page save (create or edit) appends an
+  immutable row to `wiki_page_revisions` — revision number, full content
+  snapshot, editor, optional edit summary, timestamp. The live page row
+  always mirrors the latest revision so a normal read stays a single
+  cheap lookup; the revisions table exists purely for history/restore.
+  Any eligible contributor can restore an older revision, which itself
+  becomes a new revision rather than rewriting history. This is the only
+  piece of Wikis with no prior precedent elsewhere in the codebase (no
+  other content type here keeps edit history) — built as an append-only
+  ledger to match the existing `coin_ledger`/`xp_ledger` discipline.
+- **Content & sanitization:** raw author input (Markdown or plain text —
+  `content_format`, same split as Blog posts) is rendered to sanitized
+  HTML server-side via the existing `lib/security/htmlSanitizer.ts`
+  (`sanitizeBlogPostHtml`/`plainTextToBlogPostHtml`, reused as-is —
+  Markdown is converted to HTML *before* sanitizing, never after) and
+  stored as `content_html` alongside the raw source. All free-text input
+  (name, description, title, content, edit summaries, invite usernames)
+  is length-capped before it ever reaches the sanitizer. Nothing on a
+  wiki page is fed to an LLM in this version, so the AI-prompt-injection
+  delimiting pattern in `lib/ai/client.ts` doesn't currently apply — a
+  future AI feature on wiki content must follow that same pattern.
+- **Redis/offline discipline:** view counts are plain DB counter
+  increments (no Redis, no per-view ledger row), deduped client-side via
+  `localStorage` before the client even calls the view-record endpoint —
+  same pattern as Blogs' `zobia_blog_viewed`. Discovery/page/`/wiki/me`
+  queries flow through the same TanStack Query persister (IndexedDB via
+  `idb-keyval`) the rest of the app already uses for offline support.
+- **Capacitor Android:** mirrored feature-for-feature under `apps/android/
+  src/routes/wiki/*`, `components/wiki/*`, `lib/wiki/*`, hitting the same
+  `/api/wiki/*` backend as web — no separate mobile API.
+- **Admin:** `feature_wiki` master toggle (plus `wiki_monetization_
+  enabled` for the reward pot); `/gate44/wiki` lists every wiki with
+  pause/suspend/ban/deactivate/restore/delete actions (each logged to
+  `wiki_moderation_log`) and an admin-only ownership-transfer action
+  (`POST /api/admin/wiki/<id>/transfer`), plus the creation-gate/reward/
+  quota settings from the bullets above.
+
 ### Forum — Boards & Threads (PRD §33)
 
 - Old-school BB-style forum (SMF/vBulletin pattern): boards → sub-boards →

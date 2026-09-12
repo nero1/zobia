@@ -4590,6 +4590,126 @@ export const blogModerationLog = pgTable("blog_moderation_log", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
+// ---------------------------------------------------------------------------
+// Wikis — collaborative wikis (migration 0046). Discovery mirrors Blogs;
+// reward pot reuses the generic contentTreasuries/contentTreasuryClaims/
+// contentShares tables above (contentType = 'wiki') rather than duplicating
+// blogPostTreasuries again.
+// ---------------------------------------------------------------------------
+
+export const wikis = pgTable(
+  "wikis",
+  {
+    id: uuidPk(),
+    ownerId: uuid("owner_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    avatarUrl: text("avatar_url"),
+    coverImageUrl: text("cover_image_url"),
+    contributePolicy: text("contribute_policy").notNull().default("everyone"),
+    status: text("status").notNull().default("active"),
+    statusReason: text("status_reason"),
+    pageCount: integer("page_count").notNull().default(0),
+    contributorCount: integer("contributor_count").notNull().default(0),
+    viewCount: integer("view_count").notNull().default(0),
+    editCount: integer("edit_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    slugIdx: uniqueIndex("wikis_slug_idx").on(t.slug),
+  })
+);
+
+export const wikiPages = pgTable(
+  "wiki_pages",
+  {
+    id: uuidPk(),
+    wikiId: uuid("wiki_id").notNull().references(() => wikis.id, { onDelete: "cascade" }),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    contentMarkdown: text("content_markdown").notNull(),
+    contentHtml: text("content_html").notNull(),
+    contentFormat: text("content_format").notNull().default("markdown"),
+    status: text("status").notNull().default("published"),
+    revisionCount: integer("revision_count").notNull().default(1),
+    viewCount: integer("view_count").notNull().default(0),
+    createdBy: uuid("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+    lastEditedBy: uuid("last_edited_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    wikiSlugIdx: uniqueIndex("wiki_pages_wiki_slug_idx").on(t.wikiId, t.slug),
+  })
+);
+
+export const wikiPageRevisions = pgTable(
+  "wiki_page_revisions",
+  {
+    id: uuidPk(),
+    pageId: uuid("page_id").notNull().references(() => wikiPages.id, { onDelete: "cascade" }),
+    revisionNumber: integer("revision_number").notNull(),
+    title: text("title").notNull(),
+    contentMarkdown: text("content_markdown").notNull(),
+    contentFormat: text("content_format").notNull().default("markdown"),
+    editSummary: text("edit_summary"),
+    editedBy: uuid("edited_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pageNumberIdx: uniqueIndex("wiki_page_revisions_page_number_idx").on(t.pageId, t.revisionNumber),
+  })
+);
+
+export const wikiCollaborators = pgTable(
+  "wiki_collaborators",
+  {
+    id: uuidPk(),
+    wikiId: uuid("wiki_id").notNull().references(() => wikis.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("contributor"),
+    isModerator: boolean("is_moderator").notNull().default(false),
+    moderatorGrantedBy: uuid("moderator_granted_by").references(() => users.id, { onDelete: "set null" }),
+    moderatorGrantedAt: timestamp("moderator_granted_at", { withTimezone: true }),
+    status: text("status").notNull().default("active"),
+    invitedBy: uuid("invited_by").references(() => users.id, { onDelete: "set null" }),
+    pageEditCount: integer("page_edit_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    wikiUserIdx: uniqueIndex("wiki_collaborators_wiki_user_idx").on(t.wikiId, t.userId),
+  })
+);
+
+export const wikiInvites = pgTable("wiki_invites", {
+  id: uuidPk(),
+  wikiId: uuid("wiki_id").notNull().references(() => wikis.id, { onDelete: "cascade" }),
+  token: text("token").notNull().unique(),
+  invitedUserId: uuid("invited_user_id").references(() => users.id, { onDelete: "cascade" }),
+  createdBy: uuid("created_by").notNull().references(() => users.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  usedAt: timestamp("used_at", { withTimezone: true }),
+  usedByUserId: uuid("used_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const wikiModerationLog = pgTable("wiki_moderation_log", {
+  id: uuidPk(),
+  moderatorId: uuid("moderator_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  wikiId: uuid("wiki_id").references(() => wikis.id, { onDelete: "cascade" }),
+  pageId: uuid("page_id").references(() => wikiPages.id, { onDelete: "cascade" }),
+  targetUserId: uuid("target_user_id").references(() => users.id, { onDelete: "set null" }),
+  action: text("action").notNull(),
+  reason: text("reason"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
 export const platformCouncilMembers = pgTable(
   "platform_council_members",
   {
@@ -5364,6 +5484,14 @@ export const schema = {
   blogPostUnlocks,
   blogPostDailyStats,
   blogModerationLog,
+
+  // Wikis
+  wikis,
+  wikiPages,
+  wikiPageRevisions,
+  wikiCollaborators,
+  wikiInvites,
+  wikiModerationLog,
 
   platformCouncilMembers,
   platformCouncilIdeas,

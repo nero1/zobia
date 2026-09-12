@@ -95,6 +95,10 @@ export interface ZobiaManifest {
     helpCenterAi: boolean;
     /** Room Custom Rewards — room owners fund a first-come-first-served credits/stars pot or custom-text unlock, triggered by any gift sent to them in their room. Requires `gifts` too. */
     roomCustomRewards: boolean;
+    /** Collaborative Wikis — user-created wikis other users can contribute to, at /w/<slug>. */
+    wiki: boolean;
+    /** Reward pots (treasuries) on Wikis. Requires `wiki` too. */
+    wikiMonetization: boolean;
   };
   /**
    * Feature keys (matching `features.*` property names above) for which
@@ -557,6 +561,8 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     nativeAds: true,
     instreamAds: true,
     boostedPosts: true,
+    wiki: true,
+    wikiMonetization: true,
     adCoupons: true,
     profileStats: true,
     supportTickets: false,
@@ -912,6 +918,7 @@ export const FEATURE_FLAG_KEY_MAP: Record<string, keyof ZobiaManifest["features"
   feature_native_ads: "nativeAds",
   feature_instream_ads: "instreamAds",
   feature_boosted_posts: "boostedPosts",
+  feature_wiki: "wiki",
   feature_ad_coupons: "adCoupons",
   feature_room_custom_rewards: "roomCustomRewards",
 };
@@ -1046,6 +1053,8 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       helpCenter:                 parseBool(kv["feature_help_center"]               ?? "true",  DEFAULT_MANIFEST.features.helpCenter),
       helpCenterAi:               parseBool(kv["feature_help_center_ai"]            ?? "true",  DEFAULT_MANIFEST.features.helpCenterAi),
       roomCustomRewards:          parseBool(kv["feature_room_custom_rewards"]       ?? "true",  DEFAULT_MANIFEST.features.roomCustomRewards),
+      wiki:                       parseBool(kv["feature_wiki"]                      ?? "true",  DEFAULT_MANIFEST.features.wiki),
+      wikiMonetization:           parseBool(kv["wiki_monetization_enabled"]         ?? "true",  DEFAULT_MANIFEST.features.wikiMonetization),
       // BUG-MANIFEST-01: populate vipRoomPricing from x_manifest keys
       vipRoomPricing: kv["vip_room_pricing_min_ngn"] && kv["vip_room_pricing_max_ngn"]
         ? {
