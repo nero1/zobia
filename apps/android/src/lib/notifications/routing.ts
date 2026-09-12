@@ -42,6 +42,18 @@ export const VALID_PUSH_ROUTES: RegExp[] = [
   /^\/referrals$/i,
   /^\/events$/i,
   /^\/kyc$/i,
+  // Wiki (ZSB wiki phase): wiki_moderator_granted's web action is
+  // `/wiki/<id>/manage` (see apps/web/lib/notifications/actionRoute.ts) —
+  // Android's equivalent collaborators/moderators screen is also named
+  // "manage" (routes/wiki/$slug/manage.tsx) for exactly that reason.
+  // wiki_invite_received's action is `/wiki/invite/<token>`.
+  /^\/wiki$/i,
+  /^\/wiki\/[^/]+$/i,
+  /^\/wiki\/[^/]+\/manage$/i,
+  /^\/wiki\/[^/]+\/settings$/i,
+  /^\/wiki\/[^/]+\/treasury$/i,
+  /^\/wiki\/invite\/[^/]+$/i,
+  /^\/wiki\/[^/]+\/pages\/[^/]+$/i,
 ];
 
 /**

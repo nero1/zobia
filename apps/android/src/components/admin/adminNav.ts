@@ -55,4 +55,5 @@ export const adminNavItems: AdminNavItem[] = [
   { href: '/admin/ads', labelKey: 'admin.nav.ads', labelDefault: 'Ads', icon: '🖼️' },
   { href: '/admin/games', labelKey: 'admin.nav.games', labelDefault: 'Games', icon: '🎮' },
   { href: '/admin/blogs', labelKey: 'admin.nav.blogs', labelDefault: 'Blogs', icon: '✍️' },
+  { href: '/admin/wiki', labelKey: 'admin.nav.wiki', labelDefault: 'Wiki', icon: '📖' },
 ];
