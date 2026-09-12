@@ -19,6 +19,7 @@ import { getOptionalServerUser } from "@/lib/auth/serverUser";
 import { sanitizeForumPostContent } from "@/lib/security/htmlSanitizer";
 import { ThreadPostsSection } from "@/components/bbforum/ThreadPostsSection";
 import type { PostCardData } from "@/components/bbforum/PostCard";
+import { BoostContentButton } from "@/components/ads/BoostContentButton";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
 
@@ -112,11 +113,16 @@ export default async function ThreadPage({ params }: { params: Promise<{ slug: s
         {board && <Link href={`/forum/${board.slug}`} className="hover:underline">{board.name}</Link>}
       </div>
 
-      <h1 className="mb-1 text-2xl font-bold text-neutral-900 dark:text-neutral-50">
-        {thread.is_pinned && <span className="mr-1.5 text-amber-500">📌</span>}
-        {thread.is_locked && <span className="mr-1.5 text-neutral-400">🔒</span>}
-        {thread.title}
-      </h1>
+      <div className="mb-1 flex flex-wrap items-start justify-between gap-2">
+        <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
+          {thread.is_pinned && <span className="mr-1.5 text-amber-500">📌</span>}
+          {thread.is_locked && <span className="mr-1.5 text-neutral-400">🔒</span>}
+          {thread.title}
+        </h1>
+        {viewer && (viewer.userId === thread.author_id || viewer.isAdmin || viewer.isModerator) && (
+          <BoostContentButton contentType="forum_thread" contentId={thread.id} title={thread.title} />
+        )}
+      </div>
       <p className="mb-3 text-xs text-neutral-400">
         {thread.view_count} views · {thread.reply_count} replies
         {thread.edited_at && <span className="italic"> · edited {timeAgo(thread.edited_at)}</span>}

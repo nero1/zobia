@@ -11,6 +11,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { BoostContentButton } from "@/components/ads/BoostContentButton";
 
 interface BusinessPage {
   id: string;
@@ -232,9 +233,20 @@ export default function BusinessPageDetail() {
                   <p className="mt-1 line-clamp-2 text-sm text-neutral-500">{post.body}</p>
                   <p className="mt-1 text-xs text-neutral-400">{new Date(post.created_at).toLocaleDateString()} · 👁 {post.view_count} · {post.status}</p>
                 </div>
-                <button onClick={() => handleDeletePost(post.id)} className="flex-shrink-0 rounded-lg border border-red-300 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400">
-                  Delete
-                </button>
+                <div className="flex flex-shrink-0 gap-1.5">
+                  {post.status === "published" && (
+                    <BoostContentButton
+                      contentType="business_page_post"
+                      contentId={post.id}
+                      title={post.title}
+                      imageUrl={post.image_url}
+                      className="rounded-lg border border-blue-300 px-2.5 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-50 dark:border-blue-800 dark:text-blue-400"
+                    />
+                  )}
+                  <button onClick={() => handleDeletePost(post.id)} className="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 dark:border-red-800 dark:text-red-400">
+                    Delete
+                  </button>
+                </div>
               </div>
             </div>
           ))}

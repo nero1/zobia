@@ -13,6 +13,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { withBlogParam } from "@/lib/blogs/useSelectedBlog";
 import { ArticleQuotaNotice } from "@/components/blogs/ArticleQuotaNotice";
+import { BoostContentButton } from "@/components/ads/BoostContentButton";
 
 interface BlogRow {
   id: string;
@@ -255,6 +256,14 @@ export default function BlogDashboardPage() {
                 </div>
               </div>
               <div className="flex gap-1.5 flex-shrink-0">
+                {p.status === "published" && (
+                  <BoostContentButton
+                    contentType="blog_post"
+                    contentId={p.id}
+                    title={p.title}
+                    className="rounded-lg border border-neutral-700 px-2 py-1 text-xs font-medium text-neutral-200 hover:bg-neutral-800"
+                  />
+                )}
                 <Link href={withBlogParam(`/blogs/dashboard/posts/${p.slug}/edit`, blog.slug, blogs.length)} className="rounded-lg bg-neutral-800 px-2 py-1 text-xs font-medium text-neutral-200 hover:bg-neutral-700">
                   {t("blogs.dashboard.edit", "Edit")}
                 </Link>

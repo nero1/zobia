@@ -13,6 +13,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { BoostContentButton } from "@/components/ads/BoostContentButton";
 
 interface WikiPageDetail {
   id: string;
@@ -75,6 +76,14 @@ export default function WikiPageViewPage() {
             <Link href={`/wiki/${slug}/${pageSlug}/edit`} className="rounded-lg bg-primary px-3 py-1.5 text-xs font-semibold text-primary-foreground hover:opacity-90">
               {t("wiki.page.edit", "Edit")}
             </Link>
+          )}
+          {canManage && (
+            <BoostContentButton
+              contentType="wiki_page"
+              contentId={page.id}
+              title={page.title}
+              className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-200 hover:bg-neutral-700"
+            />
           )}
           {canManage && (
             <button
