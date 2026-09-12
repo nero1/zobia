@@ -16,6 +16,7 @@ import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { getBusinessPageLimit } from "@/lib/business/limits";
 import { getIncludedBusinessBlogCount } from "@/lib/blogs/limits";
+import { syncSponsoredQuestTemplate } from "@/lib/quests/sponsoredQuestPacing";
 
 export interface BusinessDowngradeSweepResult {
   accountsDowngraded: number;
@@ -83,13 +84,21 @@ export async function sweepBusinessDowngrades(): Promise<BusinessDowngradeSweepR
       );
       result.blogsDeactivated += blogsDeactivated ?? 0;
 
-      // Stop all running sponsored quests — "running adverts stop".
-      const { rowCount: stopped } = await db.query(
-        `UPDATE sponsored_quests SET is_active = FALSE, updated_at = NOW()
-         WHERE business_account_id = $1 AND is_active = TRUE AND deleted_at IS NULL`,
+      // Stop all running sponsored quests — "running adverts stop". Marked
+      // auto_paused so the owner sees why and must explicitly restart it
+      // (never auto-resumed) once they re-qualify for Growth+.
+      const { rows: stoppedQuests } = await db.query<{ id: string }>(
+        `UPDATE sponsored_quests
+         SET is_active = FALSE, auto_paused = TRUE,
+             pause_reason = 'Business account downgraded below the Growth tier', paused_at = NOW(), updated_at = NOW()
+         WHERE business_account_id = $1 AND is_active = TRUE AND deleted_at IS NULL
+         RETURNING id`,
         [account.id]
       );
-      result.questsStopped += stopped ?? 0;
+      result.questsStopped += stoppedQuests.length;
+      for (const q of stoppedQuests) {
+        await syncSponsoredQuestTemplate(db, q.id);
+      }
 
       await db.query(
         `UPDATE business_accounts

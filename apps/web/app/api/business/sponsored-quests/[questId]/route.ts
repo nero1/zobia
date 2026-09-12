@@ -17,6 +17,7 @@ import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getSponsoredQuestModerationMode } from "@/lib/business/limits";
+import { syncSponsoredQuestTemplate } from "@/lib/quests/sponsoredQuestPacing";
 
 interface Ctx {
   params: Promise<{ questId: string }>;
@@ -79,6 +80,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: Ctx) =>
     }
 
     await db.query(`UPDATE sponsored_quests SET ${setParts.join(", ")} WHERE id = $1`, values);
+    await syncSponsoredQuestTemplate(db, questId);
 
     return NextResponse.json({
       success: true,
@@ -100,6 +102,7 @@ export const DELETE = withAuth(async (_req: NextRequest, { params, auth }: Ctx) 
       `UPDATE sponsored_quests SET deleted_at = NOW(), is_active = FALSE, updated_at = NOW() WHERE id = $1`,
       [questId]
     );
+    await syncSponsoredQuestTemplate(db, questId);
 
     return NextResponse.json({ success: true, data: { questId, deleted: true }, error: null });
   } catch (err) {

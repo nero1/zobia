@@ -19,7 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { requireFeatureEnabled } from "@/lib/manifest";
+import { requireFeatureEnabled, getManifestValue } from "@/lib/manifest";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { logger } from "@/lib/logger";
@@ -29,6 +29,7 @@ import {
   getSponsoredQuestAiAutoApproveThreshold,
 } from "@/lib/business/limits";
 import { classifySponsoredQuest } from "@/lib/moderation/aiClassifier";
+import { estimateSponsoredQuestReach, syncSponsoredQuestTemplate } from "@/lib/quests/sponsoredQuestPacing";
 
 const createSchema = z.object({
   businessPageId: z.string().uuid(),
@@ -38,6 +39,16 @@ const createSchema = z.object({
   rewardCoins: z.number().int().positive(),
   maxApplications: z.number().int().positive().max(1000).default(10),
   deadline: z.string().datetime(),
+  // Daily-deck distribution (in addition to the creator-application
+  // marketplace above) — Facebook-Ads-style duration + budget, paced as
+  // impression CPM under the hood (lib/quests/sponsoredQuestPacing.ts).
+  isDailyQuestEligible: z.boolean().default(false),
+  startsAt: z.string().datetime().optional(),
+  endsAt: z.string().datetime().optional(),
+  totalBudgetCredits: z.number().min(0).default(0),
+  dailyBudgetCredits: z.number().min(0).optional().nullable(),
+  targetAction: z.string().min(1).max(100).optional(),
+  targetValue: z.number().int().positive().optional(),
 });
 
 interface SponsoredQuestBusinessRow {
@@ -53,6 +64,17 @@ interface SponsoredQuestBusinessRow {
   business_page_id: string | null;
   created_at: string;
   application_count: number;
+  is_daily_quest_eligible: boolean;
+  starts_at: string | null;
+  ends_at: string | null;
+  total_budget_credits: string;
+  spent_credits: string;
+  daily_budget_credits: string | null;
+  cpm_credits: string;
+  estimated_reach: number | null;
+  impressions_count: number;
+  auto_paused: boolean;
+  pause_reason: string | null;
 }
 
 async function getOwnBusinessAccount(userId: string): Promise<{ id: string; tier: string; business_name: string } | null> {
@@ -74,6 +96,9 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const { rows } = await db.query<SponsoredQuestBusinessRow>(
       `SELECT sq.id, sq.title, sq.description, sq.reward_coins, sq.max_applications, sq.deadline,
               sq.is_active, sq.moderation_status, sq.moderation_reason, sq.business_page_id, sq.created_at,
+              sq.is_daily_quest_eligible, sq.starts_at, sq.ends_at, sq.total_budget_credits,
+              sq.spent_credits, sq.daily_budget_credits, sq.cpm_credits, sq.estimated_reach,
+              sq.impressions_count, sq.auto_paused, sq.pause_reason,
               COUNT(sqa.id)::int AS application_count
        FROM sponsored_quests sq
        LEFT JOIN sponsored_quest_applications sqa ON sqa.quest_id = sq.id
@@ -108,6 +133,17 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     if (new Date(body.deadline) <= new Date()) {
       throw badRequest("deadline must be in the future");
     }
+    if (body.isDailyQuestEligible) {
+      if (!body.startsAt || !body.endsAt) {
+        throw badRequest("startsAt and endsAt are required when isDailyQuestEligible is true");
+      }
+      if (new Date(body.endsAt) <= new Date(body.startsAt)) {
+        throw badRequest("endsAt must be after startsAt");
+      }
+      if (body.totalBudgetCredits <= 0) {
+        throw badRequest("totalBudgetCredits must be greater than 0 to run in the daily quest deck");
+      }
+    }
 
     const { rows: pageRows } = await db.query<{ id: string; name: string; avatar_url: string | null }>(
       `SELECT id, name, avatar_url FROM business_pages
@@ -130,14 +166,26 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       moderationReason = review.reason;
     }
 
+    const durationDays = body.startsAt && body.endsAt
+      ? Math.max(1, Math.round((new Date(body.endsAt).getTime() - new Date(body.startsAt).getTime()) / 86_400_000))
+      : 7;
+    const cpmCredits = await getManifestValue("sponsored_quest_default_cpm_credits").then((v) => (v ? Number(v) : 500));
+    const estimatedReach = body.isDailyQuestEligible
+      ? estimateSponsoredQuestReach(body.totalBudgetCredits, cpmCredits, durationDays).totalImpressions
+      : null;
+
     const { rows } = await db.query<{ id: string }>(
       `INSERT INTO sponsored_quests
          (brand_name, brand_logo_url, title, description, requirements,
           reward_coins, creator_share_percent, platform_share_percent,
           max_applications, deadline, min_creator_tier, is_active,
           business_account_id, business_page_id, submitted_by,
-          moderation_status, moderation_reason, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,70,30,$7,$8,'verified',$9,$10,$11,$12,$13,$14,NOW())
+          moderation_status, moderation_reason, created_at,
+          is_daily_quest_eligible, starts_at, ends_at, pricing_model,
+          total_budget_credits, daily_budget_credits, cpm_credits,
+          estimated_reach, funded_by_user_id, target_action, target_value)
+       VALUES ($1,$2,$3,$4,$5,$6,70,30,$7,$8,'verified',$9,$10,$11,$12,$13,$14,NOW(),
+               $15,$16,$17,'hybrid',$18,$19,$20,$21,$22,$23,$24)
        RETURNING id`,
       [
         page.name,
@@ -154,8 +202,22 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         auth.user.sub,
         moderationStatus,
         moderationReason,
+        body.isDailyQuestEligible,
+        body.startsAt ?? null,
+        body.endsAt ?? null,
+        body.totalBudgetCredits,
+        body.dailyBudgetCredits ?? null,
+        cpmCredits,
+        estimatedReach,
+        auth.user.sub,
+        body.targetAction ?? null,
+        body.targetValue ?? null,
       ]
     );
+
+    if (body.isDailyQuestEligible && moderationStatus === "approved") {
+      await syncSponsoredQuestTemplate(db, rows[0].id);
+    }
 
     if (moderationStatus === "pending") {
       await db

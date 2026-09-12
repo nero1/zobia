@@ -21,6 +21,7 @@ import { db } from "@/lib/db";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { syncSponsoredQuestTemplate } from "@/lib/quests/sponsoredQuestPacing";
 
 interface Ctx {
   params: Promise<{ questId: string }>;
@@ -59,6 +60,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }: Ctx
        WHERE id = $4`,
       [approve ? "approved" : "rejected", body.reason ?? null, approve, questId]
     );
+    await syncSponsoredQuestTemplate(db, questId);
 
     if (quest.submitted_by) {
       await db

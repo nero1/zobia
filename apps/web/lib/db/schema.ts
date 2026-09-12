@@ -1640,6 +1640,33 @@ export const questTemplates = pgTable("quest_templates", {
   validDate: date("valid_date"),
   isActive: boolean("is_active").default(true),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  // Migration 0047: feature-gated + sponsored quest expansion.
+  // feature_key, when set, must match a manifest `features.<key>` flag
+  // (e.g. 'games', 'blogs', 'wiki') — the deck engine excludes the template
+  // when that feature is disabled. NULL means always-eligible (core quests).
+  featureKey: text("feature_key"),
+  // Set only for a quest_templates row auto-synced from a sponsored_quests
+  // row (lib/quests/sponsoredQuestPacing.ts upsertSponsoredQuestTemplate) —
+  // lets the deck engine tell sponsored slots apart from regular templates
+  // without a separate progress/decks plumbing.
+  sponsoredQuestId: uuid("sponsored_quest_id").references(() => sponsoredQuests.id, {
+    onDelete: "cascade",
+  }),
+});
+
+// Migration 0047: admin-scheduled quest-category promotion (PRD "quests"
+// feature request) — "show more blog/wiki quests for the next week". The
+// deck engine (generateDailyDeck) multiplies selection weight for templates
+// whose category/feature_key matches an active boost's feature_key.
+export const questFeatureBoosts = pgTable("quest_feature_boosts", {
+  id: uuidPk(),
+  featureKey: text("feature_key").notNull(),
+  weightMultiplier: numeric("weight_multiplier", { precision: 6, scale: 2 }).notNull().default("2.0"),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  note: text("note"),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
 // BUG-SC-02: userQuests table removed — superseded by user_quest_progress.
@@ -2816,6 +2843,60 @@ export const sponsoredQuests = pgTable("sponsored_quests", {
   moderationStatus: text("moderation_status").notNull().default("approved"),
   moderationReason: text("moderation_reason"),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
+
+  // Migration 0047: admin-assigned quest "creator" — the username admin
+  // attributes the quest to, who gets access to the quests panel (stats +
+  // revive/extend, no public-detail edits) at /quests/manage. Distinct from
+  // submittedBy (the business seat that self-submitted the quest).
+  ownerUserId: uuid("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+
+  // Lifecycle: pause/flag metadata layered on top of is_active so the admin
+  // and the quest owner can see *why* a quest stopped running.
+  pauseReason: text("pause_reason"),
+  pausedBy: uuid("paused_by").references(() => users.id, { onDelete: "set null" }),
+  pausedAt: timestamp("paused_at", { withTimezone: true }),
+  // true when the system (not an admin) paused the quest because the
+  // owning business account was banned/lapsed — the owner must explicitly
+  // restart it after fixing the underlying issue (never auto-resumed).
+  autoPaused: boolean("auto_paused").notNull().default(false),
+  flagStatus: text("flag_status").notNull().default("none"),
+  flagCategory: text("flag_category"),
+  flagReason: text("flag_reason"),
+  flaggedBy: uuid("flagged_by").references(() => users.id, { onDelete: "set null" }),
+  flaggedAt: timestamp("flagged_at", { withTimezone: true }),
+
+  // Billing (PRD "sponsored quests" — Facebook-Ads-style duration + budget
+  // UX, impression-paced under the hood). startsAt/endsAt above double as
+  // the campaign's date range. Funded from the business owner's Ad Wallet,
+  // same ledger as lib/ads (ad_wallet_ledger) — see lib/quests/sponsoredQuestPacing.ts.
+  pricingModel: text("pricing_model").notNull().default("duration"),
+  totalBudgetCredits: numeric("total_budget_credits", { precision: 14, scale: 2 }).notNull().default("0"),
+  spentCredits: numeric("spent_credits", { precision: 14, scale: 2 }).notNull().default("0"),
+  dailyBudgetCredits: numeric("daily_budget_credits", { precision: 14, scale: 2 }),
+  cpmCredits: numeric("cpm_credits", { precision: 12, scale: 2 }).notNull().default("500"),
+  estimatedReach: integer("estimated_reach"),
+  impressionsCount: bigint("impressions_count", { mode: "number" }).notNull().default(0),
+  completionsCount: bigint("completions_count", { mode: "number" }).notNull().default(0),
+  fundedByUserId: uuid("funded_by_user_id").references(() => users.id, { onDelete: "set null" }),
+  // Whether this quest should also be injected into regular users' daily
+  // quest decks (in addition to / instead of the creator-application
+  // marketplace flow). Existing pre-migration rows default to false so they
+  // keep behaving exactly as before.
+  isDailyQuestEligible: boolean("is_daily_quest_eligible").notNull().default(false),
+});
+
+// Migration 0047: append-only impression cost ledger for sponsored quests
+// injected into daily quest decks — mirrors ad_events (lib/db/schema.ts
+// adCampaigns section) so stats/spend-pacing reuse the same idiom.
+export const sponsoredQuestEvents = pgTable("sponsored_quest_events", {
+  id: uuidPk(),
+  questId: uuid("quest_id")
+    .notNull()
+    .references(() => sponsoredQuests.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+  eventType: text("event_type").notNull(),
+  costCredits: numeric("cost_credits", { precision: 12, scale: 4 }).notNull().default("0"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
 // sponsored_quest_applications uses the 001 canonical schema:

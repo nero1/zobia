@@ -11,6 +11,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 
 interface BusinessAccount {
   tier: string;
@@ -217,6 +218,7 @@ function AdCampaignsTab() {
 
 function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | null | undefined; pages: BusinessPageOption[] | undefined }) {
   const { t } = useTranslation();
+  const currency = useCurrency();
   const qc = useQueryClient();
   const { data: quests, status } = useQuery({ queryKey: ['business', 'sponsored-quests'], queryFn: fetchQuests, enabled: !!account });
 
@@ -280,7 +282,7 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
           <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('ads.quests.titlePlaceholder', 'Quest title')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
           <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('ads.quests.descriptionPlaceholder', 'Description')} rows={2} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
           <textarea value={requirements} onChange={(e) => setRequirements(e.target.value)} placeholder={t('ads.quests.requirementsPlaceholder', 'Requirements')} rows={2} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <input type="number" min={100} value={rewardCoins} onChange={(e) => setRewardCoins(Number(e.target.value))} placeholder={t('ads.quests.rewardPlaceholder', 'Reward coins')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <input type="number" min={100} value={rewardCoins} onChange={(e) => setRewardCoins(Number(e.target.value))} placeholder={t('ads.quests.rewardPlaceholder', 'Reward {{currency}}', { currency: currency.softPlural })} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
           <input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
           <button
             onClick={() => businessPageId && title && description && requirements && deadline && submitMutation.mutate()}
@@ -305,7 +307,7 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${badgeClass(q.moderation_status)}`}>{q.moderation_status}</span>
               </div>
               <p className="text-xs text-neutral-500 line-clamp-2">{q.description}</p>
-              <p className="text-xs text-neutral-400 mt-1">🪙 {t('ads.quests.rewardLabel', '{{count}} coins', { count: q.reward_coins })}</p>
+              <p className="text-xs text-neutral-400 mt-1">🪙 {t('ads.quests.rewardLabel', '{{count}} {{currency}}', { count: q.reward_coins, currency: currency.softPlural })}</p>
             </div>
           ))}
         </div>

@@ -17,6 +17,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug, listBlogPosts } from "@/lib/blogs/repo";
 import { createPost } from "@/lib/blogs/service";
 import { db } from "@/lib/db";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const listQuerySchema = z.object({
   type: z.enum(["article", "page"]).default("article"),
@@ -87,6 +88,9 @@ export const POST = withAuth<{ slug: string }>(async (req: NextRequest, { auth, 
       paywallCreditsCost: body.paywallCreditsCost,
       status: body.status,
     });
+    if (body.status === "published") {
+      void triggerActivityQuestProgress(auth.user.sub, "blog_publish", db);
+    }
     return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

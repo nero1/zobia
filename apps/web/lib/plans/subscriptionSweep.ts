@@ -34,6 +34,7 @@ import {
 import { reconcileSavesForUser } from "@/lib/games/saves";
 import { getSaveSlotLimit } from "@/lib/plans/saveSlots";
 import { deactivateGroupsForUser } from "@/lib/plans/groupChatSweep";
+import { syncSponsoredQuestTemplate } from "@/lib/quests/sponsoredQuestPacing";
 
 export interface SubscriptionSweepResult {
   personalLapsedToGrace: number;
@@ -151,11 +152,11 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
   }
 
   {
-    const { rows } = await db.query<{ user_id: string; tier: string }>(
+    const { rows } = await db.query<{ id: string; user_id: string; tier: string }>(
       `UPDATE business_accounts
        SET status = 'lapsed', updated_at = NOW()
        WHERE status = 'grace' AND grace_period_ends_at < NOW()
-       RETURNING user_id, tier`
+       RETURNING id, user_id, tier`
     );
     result.businessGraceExpired = rows.length;
 
@@ -167,6 +168,23 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
         }
       } catch (err) {
         logger.error({ err, userId: row.user_id }, "[subscriptionSweep] Failed to deactivate business group chats");
+      }
+
+      // Subscription fully lapsed (grace period elapsed without renewal) —
+      // pause running Sponsored Quests, same "must be explicitly restarted"
+      // rule as the tier-downgrade path (lib/business/downgradeSweep.ts).
+      try {
+        const { rows: stoppedQuests } = await db.query<{ id: string }>(
+          `UPDATE sponsored_quests
+           SET is_active = FALSE, auto_paused = TRUE,
+               pause_reason = 'Business subscription lapsed', paused_at = NOW(), updated_at = NOW()
+           WHERE business_account_id = $1 AND is_active = TRUE AND deleted_at IS NULL
+           RETURNING id`,
+          [row.id]
+        );
+        for (const q of stoppedQuests) await syncSponsoredQuestTemplate(db, q.id);
+      } catch (err) {
+        logger.error({ err, businessAccountId: row.id }, "[subscriptionSweep] Failed to pause sponsored quests on lapse");
       }
     }
   }

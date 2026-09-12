@@ -14,6 +14,25 @@
 import { useState, useEffect, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { useCurrency } from "@/lib/hooks/useCurrency";
+
+// Mirrors lib/quests/sponsoredQuestPacing.ts SPONSORED_QUEST_DURATION_PRESETS
+// (kept as a plain client-safe constant here — that module pulls in
+// server-only DB access and must not be imported from a "use client" page).
+const DURATION_PRESETS = [
+  { key: "3d", label: "3 days", days: 3 },
+  { key: "1w", label: "1 week", days: 7 },
+  { key: "2w", label: "2 weeks", days: 14 },
+  { key: "1m", label: "1 month", days: 30 },
+  { key: "2m", label: "2 months", days: 60 },
+] as const;
+type DurationPresetKey = (typeof DURATION_PRESETS)[number]["key"] | "custom";
+
+function presetToRange(days: number): { startsAt: string; endsAt: string } {
+  const start = new Date();
+  const end = new Date(start.getTime() + days * 86_400_000);
+  return { startsAt: start.toISOString().slice(0, 16), endsAt: end.toISOString().slice(0, 16) };
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -40,6 +59,22 @@ interface SponsoredQuest {
   moderation_reason: string | null;
   business_account_id: string | null;
   submitted_by_username: string | null;
+  owner_username: string | null;
+  auto_paused: boolean;
+  pause_reason: string | null;
+  flag_status: "none" | "flagged";
+  flag_category: string | null;
+  flag_reason: string | null;
+  is_daily_quest_eligible: boolean;
+  total_budget_credits: string;
+  spent_credits: string;
+  daily_budget_credits: string | null;
+  cpm_credits: string;
+  estimated_reach: number | null;
+  impressions_count: number;
+  completions_count: number;
+  starts_at: string | null;
+  ends_at: string | null;
 }
 
 interface FormData {
@@ -54,6 +89,16 @@ interface FormData {
   maxApplications: number;
   deadline: string;
   minCreatorTier: "verified" | "elite" | "icon";
+  ownerUsername: string;
+  isDailyQuestEligible: boolean;
+  durationPreset: DurationPresetKey;
+  startsAt: string;
+  endsAt: string;
+  totalBudgetCredits: number;
+  dailyBudgetCredits: string;
+  cpmCredits: number;
+  targetAction: string;
+  targetValue: string;
 }
 
 const EMPTY_FORM: FormData = {
@@ -68,6 +113,16 @@ const EMPTY_FORM: FormData = {
   maxApplications: 10,
   deadline: "",
   minCreatorTier: "verified",
+  ownerUsername: "",
+  isDailyQuestEligible: false,
+  durationPreset: "1w",
+  startsAt: "",
+  endsAt: "",
+  totalBudgetCredits: 5000,
+  dailyBudgetCredits: "",
+  cpmCredits: 500,
+  targetAction: "",
+  targetValue: "",
 };
 
 function formatDate(iso: string): string {
@@ -86,6 +141,7 @@ function formatDate(iso: string): string {
 
 export default function AdminSponsoredQuestsPage() {
   const { t } = useTranslation();
+  const currency = useCurrency();
 
   const [quests, setQuests] = useState<SponsoredQuest[]>([]);
   const [loading, setLoading] = useState(true);
@@ -102,6 +158,10 @@ export default function AdminSponsoredQuestsPage() {
   const [deleteTarget, setDeleteTarget] = useState<SponsoredQuest | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toggling, setToggling] = useState<string | null>(null);
+  const [pausing, setPausing] = useState<string | null>(null);
+  const [flagTarget, setFlagTarget] = useState<SponsoredQuest | null>(null);
+  const [flagCategory, setFlagCategory] = useState<"spam" | "scam" | "other">("spam");
+  const [flagReason, setFlagReason] = useState("");
   const [moderating, setModerating] = useState<string | null>(null);
   const [rejectTarget, setRejectTarget] = useState<SponsoredQuest | null>(null);
   const [rejectReason, setRejectReason] = useState("");
@@ -122,9 +182,9 @@ export default function AdminSponsoredQuestsPage() {
     fetchQuests();
   }, [fetchQuests]);
 
-  function handleFormChange(field: keyof FormData, value: string | number) {
+  function handleFormChange(field: keyof FormData, value: string | number | boolean) {
     setForm((prev) => {
-      const updated = { ...prev, [field]: value };
+      const updated = { ...prev, [field]: value } as FormData;
       // Keep shares summing to 100
       if (field === "creatorSharePercent") {
         updated.platformSharePercent = 100 - Number(value);
@@ -132,8 +192,62 @@ export default function AdminSponsoredQuestsPage() {
       if (field === "platformSharePercent") {
         updated.creatorSharePercent = 100 - Number(value);
       }
+      if (field === "durationPreset" && value !== "custom") {
+        const preset = DURATION_PRESETS.find((p) => p.key === value);
+        if (preset) {
+          const range = presetToRange(preset.days);
+          updated.startsAt = range.startsAt;
+          updated.endsAt = range.endsAt;
+        }
+      }
       return updated;
     });
+  }
+
+  const estimatedReach = form.isDailyQuestEligible && form.cpmCredits > 0
+    ? Math.floor((form.totalBudgetCredits / form.cpmCredits) * 1000)
+    : 0;
+
+  async function handlePause(q: SponsoredQuest, action: "pause" | "resume") {
+    setPausing(q.id);
+    setError(null);
+    try {
+      const reason = action === "pause" ? window.prompt("Reason for pausing (shown to the quest owner):") ?? undefined : undefined;
+      const res = await fetch(`/api/admin/sponsored-quests/${q.id}/pause`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, reason }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Failed to update");
+      setSuccess(action === "pause" ? "Quest paused" : "Quest resumed");
+      await fetchQuests();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update");
+    } finally {
+      setPausing(null);
+    }
+  }
+
+  async function handleFlag(q: SponsoredQuest, action: "flag" | "unflag") {
+    setPausing(q.id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/sponsored-quests/${q.id}/flag`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(action === "flag" ? { action, category: flagCategory, reason: flagReason.trim() || undefined } : { action }),
+      });
+      const json = await res.json();
+      if (!json.success) throw new Error(json.error?.message ?? "Failed to update");
+      setSuccess(action === "flag" ? "Quest flagged" : "Flag cleared");
+      setFlagTarget(null);
+      await fetchQuests();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to update");
+    } finally {
+      setPausing(null);
+    }
   }
 
   function openEdit(q: SponsoredQuest) {
@@ -150,6 +264,16 @@ export default function AdminSponsoredQuestsPage() {
       maxApplications: q.max_applications,
       deadline: q.deadline ? q.deadline.slice(0, 16) : "",
       minCreatorTier: q.min_creator_tier as FormData["minCreatorTier"],
+      ownerUsername: q.owner_username ?? "",
+      isDailyQuestEligible: q.is_daily_quest_eligible,
+      durationPreset: "custom",
+      startsAt: q.starts_at ? q.starts_at.slice(0, 16) : "",
+      endsAt: q.ends_at ? q.ends_at.slice(0, 16) : "",
+      totalBudgetCredits: Number(q.total_budget_credits) || 0,
+      dailyBudgetCredits: q.daily_budget_credits ?? "",
+      cpmCredits: Number(q.cpm_credits) || 500,
+      targetAction: "",
+      targetValue: "",
     });
   }
 
@@ -174,6 +298,13 @@ export default function AdminSponsoredQuestsPage() {
           maxApplications: Number(editForm.maxApplications),
           deadline: new Date(editForm.deadline).toISOString(),
           minCreatorTier: editForm.minCreatorTier,
+          ownerUsername: editForm.ownerUsername.trim() || null,
+          isDailyQuestEligible: editForm.isDailyQuestEligible,
+          startsAt: editForm.isDailyQuestEligible && editForm.startsAt ? new Date(editForm.startsAt).toISOString() : null,
+          endsAt: editForm.isDailyQuestEligible && editForm.endsAt ? new Date(editForm.endsAt).toISOString() : null,
+          totalBudgetCredits: Number(editForm.totalBudgetCredits),
+          dailyBudgetCredits: editForm.dailyBudgetCredits ? Number(editForm.dailyBudgetCredits) : null,
+          cpmCredits: Number(editForm.cpmCredits),
         }),
       });
       const json = await res.json();
@@ -268,6 +399,15 @@ export default function AdminSponsoredQuestsPage() {
           maxApplications: Number(form.maxApplications),
           deadline: new Date(form.deadline).toISOString(),
           minCreatorTier: form.minCreatorTier,
+          ownerUsername: form.ownerUsername.trim() || null,
+          isDailyQuestEligible: form.isDailyQuestEligible,
+          startsAt: form.isDailyQuestEligible && form.startsAt ? new Date(form.startsAt).toISOString() : null,
+          endsAt: form.isDailyQuestEligible && form.endsAt ? new Date(form.endsAt).toISOString() : null,
+          totalBudgetCredits: Number(form.totalBudgetCredits),
+          dailyBudgetCredits: form.dailyBudgetCredits ? Number(form.dailyBudgetCredits) : null,
+          cpmCredits: Number(form.cpmCredits),
+          targetAction: form.targetAction.trim() || null,
+          targetValue: form.targetValue ? Number(form.targetValue) : null,
         }),
       });
 
@@ -301,12 +441,17 @@ export default function AdminSponsoredQuestsPage() {
             Publish quests on behalf of brands. Verified+ creators apply and earn 70% of the reward.
           </p>
         </div>
-        <button
-          onClick={() => { setShowForm(!showForm); setError(null); setSuccess(null); }}
-          className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
-        >
-          {showForm ? "Cancel" : "+ Publish Quest"}
-        </button>
+        <div className="flex items-center gap-2">
+          <a href="/gate44/quests/boosts" className="px-4 py-2 border border-neutral-300 dark:border-neutral-600 rounded-lg text-sm font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800">
+            Campaign Boosts
+          </a>
+          <button
+            onClick={() => { setShowForm(!showForm); setError(null); setSuccess(null); }}
+            className="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700"
+          >
+            {showForm ? "Cancel" : "+ Publish Quest"}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -385,7 +530,7 @@ export default function AdminSponsoredQuestsPage() {
 
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Reward (Coins) *</label>
+              <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Reward ({currency.softPlural}) *</label>
               <input
                 required
                 type="number"
@@ -451,6 +596,88 @@ export default function AdminSponsoredQuestsPage() {
             </div>
           </div>
 
+          <div>
+            <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Quest Creator Username (optional)</label>
+            <input
+              value={form.ownerUsername}
+              onChange={(e) => handleFormChange("ownerUsername", e.target.value)}
+              className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800"
+              placeholder="e.g. mtn_official — gets a quests panel (stats, revive/extend)"
+            />
+          </div>
+
+          <div className="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-600 p-4 space-y-3">
+            <label className="flex items-center gap-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              <input
+                type="checkbox"
+                checked={form.isDailyQuestEligible}
+                onChange={(e) => handleFormChange("isDailyQuestEligible", e.target.checked)}
+              />
+              Show in regular users&apos; daily quest decks
+            </label>
+            {form.isDailyQuestEligible && (
+              <>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Duration</label>
+                  <div className="flex flex-wrap gap-2">
+                    {DURATION_PRESETS.map((p) => (
+                      <button
+                        type="button"
+                        key={p.key}
+                        onClick={() => handleFormChange("durationPreset", p.key)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${
+                          form.durationPreset === p.key
+                            ? "bg-blue-600 text-white border-blue-600"
+                            : "border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300"
+                        }`}
+                      >
+                        {p.label}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={() => handleFormChange("durationPreset", "custom")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium border ${
+                        form.durationPreset === "custom"
+                          ? "bg-blue-600 text-white border-blue-600"
+                          : "border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-300"
+                      }`}
+                    >
+                      Custom
+                    </button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Start</label>
+                    <input type="datetime-local" value={form.startsAt} onChange={(e) => handleFormChange("startsAt", e.target.value)} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">End</label>
+                    <input type="datetime-local" value={form.endsAt} onChange={(e) => handleFormChange("endsAt", e.target.value)} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" />
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Total Budget ({currency.softPlural})</label>
+                    <input type="number" min="0" value={form.totalBudgetCredits} onChange={(e) => handleFormChange("totalBudgetCredits", Number(e.target.value))} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Daily Cap ({currency.softPlural}, optional)</label>
+                    <input type="number" min="0" value={form.dailyBudgetCredits} onChange={(e) => handleFormChange("dailyBudgetCredits", e.target.value)} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" placeholder="No cap" />
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Action to complete (e.g. game_play, blog_publish)</label>
+                  <input value={form.targetAction} onChange={(e) => handleFormChange("targetAction", e.target.value)} className="w-full px-3 py-2 border border-neutral-200 dark:border-neutral-700 rounded-lg text-sm bg-white dark:bg-neutral-800" placeholder="Leave blank for a generic 'mark as done' action" />
+                </div>
+                <p className="text-xs text-neutral-500">
+                  Estimated reach: <strong>{estimatedReach.toLocaleString()}</strong> impressions across the quest&apos;s run — billed as impressions internally, paced across the date range and daily cap above.
+                </p>
+              </>
+            )}
+          </div>
+
           <button
             type="submit"
             disabled={creating}
@@ -493,20 +720,46 @@ export default function AdminSponsoredQuestsPage() {
                         Business submission{q.submitted_by_username ? ` · @${q.submitted_by_username}` : ""} · {q.moderation_status}
                       </span>
                     )}
+                    {q.owner_username && (
+                      <span className="px-2 py-0.5 rounded-full text-xs bg-purple-100 text-purple-700 font-medium">
+                        Creator: @{q.owner_username}
+                      </span>
+                    )}
+                    {q.is_daily_quest_eligible && (
+                      <span className="px-2 py-0.5 rounded-full text-xs bg-indigo-100 text-indigo-700 font-medium">
+                        In daily decks
+                      </span>
+                    )}
+                    {q.flag_status === "flagged" && (
+                      <span className="px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700 font-medium">
+                        🚩 Flagged: {q.flag_category}
+                      </span>
+                    )}
                   </div>
                   <h3 className="font-semibold text-neutral-900 dark:text-white">{q.title}</h3>
                   <p className="text-sm text-neutral-500 mt-1 line-clamp-2">{q.description}</p>
                   {q.moderation_status === "rejected" && q.moderation_reason && (
                     <p className="text-xs text-red-600 mt-1">Rejection reason: {q.moderation_reason}</p>
                   )}
+                  {q.auto_paused && q.pause_reason && (
+                    <p className="text-xs text-amber-600 mt-1">⚠️ Auto-paused: {q.pause_reason}</p>
+                  )}
+                  {!q.auto_paused && q.pause_reason && (
+                    <p className="text-xs text-neutral-500 mt-1">Paused: {q.pause_reason}</p>
+                  )}
                 </div>
                 <div className="ml-4 text-right flex-shrink-0">
                   <div className="text-lg font-bold text-neutral-900 dark:text-white">
-                    {q.reward_coins.toLocaleString()} Coins
+                    {q.reward_coins.toLocaleString()} {currency.softPlural}
                   </div>
                   <div className="text-xs text-neutral-500">
                     {q.creator_share_percent}% creator / {q.platform_share_percent}% platform
                   </div>
+                  {q.is_daily_quest_eligible && (
+                    <div className="text-xs text-neutral-400 mt-1">
+                      {Number(q.spent_credits).toLocaleString()}/{Number(q.total_budget_credits).toLocaleString()} {currency.softPlural} spent · {q.impressions_count.toLocaleString()} impressions
+                    </div>
+                  )}
                 </div>
               </div>
               <div className="mt-3 flex items-center gap-4 text-xs text-neutral-500">
@@ -540,6 +793,39 @@ export default function AdminSponsoredQuestsPage() {
                 >
                   Edit
                 </button>
+                {q.is_active ? (
+                  <button
+                    disabled={pausing === q.id}
+                    onClick={() => void handlePause(q, "pause")}
+                    className="px-3 py-1 rounded-lg bg-amber-100 text-amber-700 text-xs font-semibold hover:bg-amber-200 disabled:opacity-50"
+                  >
+                    {pausing === q.id ? "…" : "Pause (follow-up)"}
+                  </button>
+                ) : q.pause_reason && (
+                  <button
+                    disabled={pausing === q.id}
+                    onClick={() => void handlePause(q, "resume")}
+                    className="px-3 py-1 rounded-lg bg-green-100 text-green-700 text-xs font-semibold hover:bg-green-200 disabled:opacity-50"
+                  >
+                    {pausing === q.id ? "…" : "Resume"}
+                  </button>
+                )}
+                {q.flag_status === "flagged" ? (
+                  <button
+                    disabled={pausing === q.id}
+                    onClick={() => void handleFlag(q, "unflag")}
+                    className="px-3 py-1 rounded-lg bg-neutral-100 text-neutral-700 text-xs font-semibold hover:bg-neutral-200 disabled:opacity-50"
+                  >
+                    Clear flag
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => { setFlagTarget(q); setFlagCategory("spam"); setFlagReason(""); }}
+                    className="px-3 py-1 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100"
+                  >
+                    🚩 Flag
+                  </button>
+                )}
                 <button
                   disabled={toggling === q.id}
                   onClick={() => void handleToggleActive(q)}
@@ -658,6 +944,43 @@ export default function AdminSponsoredQuestsPage() {
                 className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
               >
                 {moderating === rejectTarget.id ? "…" : "Reject"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Flag modal */}
+      {flagTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-2xl bg-white p-5 dark:bg-neutral-900">
+            <h3 className="mb-1 font-semibold text-neutral-900 dark:text-white">Flag Sponsored Quest</h3>
+            <p className="mb-4 text-xs text-neutral-500">Flagging stops the quest from running until cleared.</p>
+            <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Category</label>
+            <select
+              value={flagCategory}
+              onChange={(e) => setFlagCategory(e.target.value as "spam" | "scam" | "other")}
+              className="w-full mb-3 rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+            >
+              <option value="spam">Spam</option>
+              <option value="scam">Scam</option>
+              <option value="other">Other</option>
+            </select>
+            <textarea
+              value={flagReason}
+              onChange={(e) => setFlagReason(e.target.value)}
+              placeholder="Notes (optional)"
+              rows={3}
+              className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+            />
+            <div className="mt-4 flex gap-2">
+              <button onClick={() => setFlagTarget(null)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm font-medium dark:border-neutral-700">Cancel</button>
+              <button
+                disabled={pausing === flagTarget.id}
+                onClick={() => void handleFlag(flagTarget, "flag")}
+                className="flex-1 rounded-lg bg-red-600 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
+              >
+                {pausing === flagTarget.id ? "…" : "Flag"}
               </button>
             </div>
           </div>

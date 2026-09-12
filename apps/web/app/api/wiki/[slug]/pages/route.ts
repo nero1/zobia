@@ -14,6 +14,8 @@ import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getWikiBySlug, listWikiPages } from "@/lib/wiki/repo";
 import { createPage } from "@/lib/wiki/service";
+import { db } from "@/lib/db";
+import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const listQuerySchema = z.object({
   cursor: z.string().optional(),
@@ -53,6 +55,7 @@ export const POST = withAuth<{ slug: string }>(async (req: NextRequest, { params
       contentMarkdown: body.contentMarkdown,
       contentFormat: body.contentFormat,
     });
+    void triggerActivityQuestProgress(auth.user.sub, "wiki_edit", db);
     return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

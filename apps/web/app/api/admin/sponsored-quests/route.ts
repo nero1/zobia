@@ -31,6 +31,7 @@ import { db } from "@/lib/db";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { estimateSponsoredQuestReach, syncSponsoredQuestTemplate } from "@/lib/quests/sponsoredQuestPacing";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -48,6 +49,20 @@ const createQuestSchema = z.object({
   maxApplications:     z.number().int().positive().default(10),
   deadline:            z.string().datetime(),
   minCreatorTier:      z.enum(["verified","elite","icon"]).default("verified"),
+  // Admin-assigned quest "creator"/campaign manager — gets read/manage
+  // access at /quests/manage (stats, revive/extend). Not the same as a
+  // business self-service submitter (submittedBy).
+  ownerUsername:       z.string().min(1).max(50).optional().nullable(),
+  // Daily-deck distribution + billing (Facebook-Ads-style duration+budget,
+  // impression-paced under the hood — see lib/quests/sponsoredQuestPacing.ts).
+  isDailyQuestEligible: z.boolean().default(false),
+  startsAt:            z.string().datetime().optional().nullable(),
+  endsAt:              z.string().datetime().optional().nullable(),
+  totalBudgetCredits:  z.number().min(0).default(0),
+  dailyBudgetCredits:  z.number().min(0).optional().nullable(),
+  cpmCredits:          z.number().positive().default(500),
+  targetAction:        z.string().min(1).max(100).optional().nullable(),
+  targetValue:         z.number().int().positive().optional().nullable(),
 });
 
 // ---------------------------------------------------------------------------
@@ -75,6 +90,23 @@ interface SponsoredQuestAdminRow {
   moderation_reason: string | null;
   business_account_id: string | null;
   submitted_by_username: string | null;
+  owner_username: string | null;
+  auto_paused: boolean;
+  pause_reason: string | null;
+  flag_status: string;
+  flag_category: string | null;
+  flag_reason: string | null;
+  is_daily_quest_eligible: boolean;
+  pricing_model: string;
+  total_budget_credits: string;
+  spent_credits: string;
+  daily_budget_credits: string | null;
+  cpm_credits: string;
+  estimated_reach: number | null;
+  impressions_count: number;
+  completions_count: number;
+  starts_at: string | null;
+  ends_at: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -119,13 +151,31 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
          sq.moderation_reason,
          sq.business_account_id,
          u.username AS submitted_by_username,
+         owner.username AS owner_username,
+         sq.auto_paused,
+         sq.pause_reason,
+         sq.flag_status,
+         sq.flag_category,
+         sq.flag_reason,
+         sq.is_daily_quest_eligible,
+         sq.pricing_model,
+         sq.total_budget_credits,
+         sq.spent_credits,
+         sq.daily_budget_credits,
+         sq.cpm_credits,
+         sq.estimated_reach,
+         sq.impressions_count,
+         sq.completions_count,
+         sq.starts_at,
+         sq.ends_at,
          COUNT(sqa.id)::int                                     AS application_count,
          COUNT(sqa.id) FILTER (WHERE sqa.status = 'approved')::int AS approved_count
        FROM sponsored_quests sq
        LEFT JOIN sponsored_quest_applications sqa ON sqa.quest_id = sq.id
        LEFT JOIN users u ON u.id = sq.submitted_by
+       LEFT JOIN users owner ON owner.id = sq.owner_user_id
        WHERE ${conditions.join(" AND ")}
-       GROUP BY sq.id, u.username
+       GROUP BY sq.id, u.username, owner.username
        ORDER BY (sq.moderation_status = 'pending') DESC, sq.created_at DESC`,
     );
 
@@ -162,13 +212,37 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     if (new Date(body.deadline) <= new Date()) {
       throw badRequest("deadline must be in the future");
     }
+    if (body.isDailyQuestEligible && body.startsAt && body.endsAt && new Date(body.endsAt) <= new Date(body.startsAt)) {
+      throw badRequest("endsAt must be after startsAt");
+    }
+
+    let ownerUserId: string | null = null;
+    if (body.ownerUsername) {
+      const { rows: ownerRows } = await db.query<{ id: string }>(
+        `SELECT id FROM users WHERE username = $1 AND deleted_at IS NULL LIMIT 1`,
+        [body.ownerUsername]
+      );
+      if (!ownerRows[0]) throw badRequest(`No user found with username '${body.ownerUsername}'`);
+      ownerUserId = ownerRows[0].id;
+    }
+
+    const durationDays = body.startsAt && body.endsAt
+      ? Math.max(1, Math.round((new Date(body.endsAt).getTime() - new Date(body.startsAt).getTime()) / 86_400_000))
+      : 7;
+    const estimatedReach = body.isDailyQuestEligible
+      ? estimateSponsoredQuestReach(body.totalBudgetCredits, body.cpmCredits, durationDays).totalImpressions
+      : null;
 
     const { rows } = await db.query<{ id: string }>(
       `INSERT INTO sponsored_quests
          (brand_name, brand_logo_url, title, description, requirements,
           reward_coins, creator_share_percent, platform_share_percent,
-          max_applications, deadline, min_creator_tier, is_active, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,NOW())
+          max_applications, deadline, min_creator_tier, is_active, created_at,
+          owner_user_id, is_daily_quest_eligible, starts_at, ends_at,
+          pricing_model, total_budget_credits, daily_budget_credits, cpm_credits,
+          estimated_reach, funded_by_user_id, target_action, target_value)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,NOW(),
+               $12,$13,$14,$15,'hybrid',$16,$17,$18,$19,$20,$21,$22)
        RETURNING id`,
       [
         body.brandName,
@@ -182,8 +256,23 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
         body.maxApplications,
         body.deadline,
         body.minCreatorTier,
+        ownerUserId,
+        body.isDailyQuestEligible,
+        body.startsAt ?? null,
+        body.endsAt ?? null,
+        body.totalBudgetCredits,
+        body.dailyBudgetCredits ?? null,
+        body.cpmCredits,
+        estimatedReach,
+        auth.user.sub,
+        body.targetAction ?? null,
+        body.targetValue ?? null,
       ]
     );
+
+    if (body.isDailyQuestEligible) {
+      await syncSponsoredQuestTemplate(db, rows[0].id);
+    }
 
     return NextResponse.json(
       { success: true, data: { questId: rows[0].id }, error: null },

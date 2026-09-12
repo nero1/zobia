@@ -13,6 +13,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { useCurrency } from '@/lib/hooks/useCurrency';
 import {
   AdminCard,
   AdminCardSkeleton,
@@ -103,6 +104,7 @@ function questFormToBody(form: QuestForm) {
 
 function QuestFormFields({ form, setForm }: { form: QuestForm; setForm: (updater: (f: QuestForm) => QuestForm) => void }) {
   const { t } = useTranslation();
+  const currency = useCurrency();
   return (
     <div className="space-y-3">
       <AdminField label={t('admin.sponsoredQuests.brandName', 'Brand Name')}>
@@ -121,7 +123,7 @@ function QuestFormFields({ form, setForm }: { form: QuestForm; setForm: (updater
         <textarea value={form.requirements} onChange={(e) => setForm((f) => ({ ...f, requirements: e.target.value }))} rows={2} className={`${adminInputClass} resize-none`} placeholder={t('admin.sponsoredQuests.requirementsPlaceholder', 'What must creators do?')} />
       </AdminField>
       <div className="grid grid-cols-2 gap-2">
-        <AdminField label={t('admin.sponsoredQuests.rewardCoins', 'Reward (Coins)')}>
+        <AdminField label={t('admin.sponsoredQuests.rewardCoins', 'Reward ({{currency}})', { currency: currency.softPlural })}>
           <input type="number" min="100" value={form.rewardCoins} onChange={(e) => setForm((f) => ({ ...f, rewardCoins: e.target.value }))} className={adminInputClass} />
         </AdminField>
         <AdminField label={t('admin.sponsoredQuests.creatorShare', 'Creator Share %')}>
