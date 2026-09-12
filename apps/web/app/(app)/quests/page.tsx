@@ -16,6 +16,7 @@ import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useFloatingNotification } from "@/hooks/useFloatingNotification";
+import { NewMemberQuestCard } from "@/components/home/NewMemberQuestCard";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -354,6 +355,13 @@ export default function QuestsPage() {
           )}
         </div>
       )}
+
+      {/* New Member Quest — shown below the daily quests list per the Home
+          Dashboard spec, so users who dismissed/snoozed the card on Home
+          can still always find it here. */}
+      <div className="mt-6">
+        <NewMemberQuestCard alwaysShow />
+      </div>
     </div>
   );
 }
