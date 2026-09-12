@@ -16,6 +16,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { ReferralShareDropdown } from "@/components/merch/ReferralShareDropdown";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -31,6 +32,8 @@ interface Product {
   stock: number | null; // null = unlimited
   isSoldOut: boolean;
   productType: string;
+  referralEnabled: boolean;
+  referralCommissionPct: number | null;
 }
 
 interface MerchStore {
@@ -149,10 +152,11 @@ function ConfirmModal({ product, shipping, onShippingChange, onConfirm, onCancel
 
 interface ProductCardProps {
   product: Product;
+  creatorId: string;
   onBuy: (product: Product) => void;
 }
 
-function ProductCard({ product, onBuy }: ProductCardProps) {
+function ProductCard({ product, creatorId, onBuy }: ProductCardProps) {
   return (
     <div className="flex flex-col rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm transition-shadow hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900">
       {/* Image or emoji */}
@@ -194,6 +198,13 @@ function ProductCard({ product, onBuy }: ProductCardProps) {
           >
             Buy
           </button>
+        )}
+        {product.referralEnabled && (
+          <ReferralShareDropdown
+            itemUrl={`/merch/${creatorId}`}
+            isPhysical={product.productType === "physical"}
+            commissionPct={product.referralCommissionPct}
+          />
         )}
       </div>
     </div>
@@ -237,7 +248,17 @@ export default function CreatorMerchStorePage() {
         const json = (await res.json()) as {
           data?: {
             store?: { id: string; creator_id: string; name: string; description: string | null };
-            products?: Array<{ id: string; name: string; description: string | null; image_url: string | null; priceKobo: number; stock: number | null; product_type: string }>;
+            products?: Array<{
+              id: string;
+              name: string;
+              description: string | null;
+              image_url: string | null;
+              priceKobo: number;
+              stock: number | null;
+              product_type: string;
+              referral_enabled: boolean;
+              referralCommissionPct: number | null;
+            }>;
           };
         };
         if (!json.data?.store) { setError("Store not found"); return; }
@@ -255,6 +276,8 @@ export default function CreatorMerchStorePage() {
             stock: p.stock,
             isSoldOut: p.stock !== null && p.stock <= 0,
             productType: p.product_type,
+            referralEnabled: p.referral_enabled,
+            referralCommissionPct: p.referralCommissionPct,
           })),
         });
       } catch (e) {
@@ -366,7 +389,7 @@ export default function CreatorMerchStorePage() {
       ) : (
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           {store.products.map((product) => (
-            <ProductCard key={product.id} product={product} onBuy={setConfirmProduct} />
+            <ProductCard key={product.id} product={product} creatorId={store.creatorId} onBuy={setConfirmProduct} />
           ))}
         </div>
       )}

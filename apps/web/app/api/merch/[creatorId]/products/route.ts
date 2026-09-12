@@ -17,8 +17,9 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { loadManifest } from "@/lib/manifest";
+import { loadManifest, getManifestValue } from "@/lib/manifest";
 import { getRequiredKycTier, meetsRequiredKycTier } from "@/lib/kyc/thresholds";
+import { getMerchSellerEligibility, MERCH_SELLER_INELIGIBLE_MESSAGE } from "@/lib/merch/eligibility";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -30,6 +31,11 @@ const createProductSchema = z.object({
   product_type: z.enum(["digital", "physical", "course_material"]).default("digital"),
   price_kobo: z.number().int().positive(),
   stock: z.number().int().nonnegative().nullable().optional(),
+  // Market referral program opt-in. referral_commission_pct is only used for
+  // product_type = 'physical' (digital items use the platform-wide tier1/
+  // tier2 rate, see lib/referrals/commissions.ts).
+  referral_enabled: z.boolean().optional().default(false),
+  referral_commission_pct: z.number().min(1).max(100).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -46,6 +52,8 @@ interface MerchProductRow {
   image_url: string | null;
   is_active: boolean;
   stock: number | null;
+  referral_enabled: boolean;
+  referral_commission_pct: string | null;
   created_at: string;
 }
 
@@ -69,7 +77,8 @@ export async function GET(
 
     const { rows } = await db.query<MerchProductRow>(
       `SELECT id, store_id, name, description, product_type,
-              price_kobo::TEXT AS price_kobo, image_url, is_active, stock, created_at
+              price_kobo::TEXT AS price_kobo, image_url, is_active, stock,
+              referral_enabled, referral_commission_pct::TEXT AS referral_commission_pct, created_at
        FROM merch_products
        WHERE store_id = $1 AND is_active = TRUE
        ORDER BY created_at DESC`,
@@ -79,6 +88,7 @@ export async function GET(
     const products = rows.map((p) => ({
       ...p,
       priceKobo: parseInt(p.price_kobo, 10),
+      referralCommissionPct: p.referral_commission_pct ? parseFloat(p.referral_commission_pct) : null,
     }));
 
     return NextResponse.json({
@@ -112,15 +122,11 @@ export const POST = withAuth(
         throw forbidden("You can only add products to your own store");
       }
 
-      // Verify Elite+ tier (per PRD §14: Merch Store is Elite tier+)
-      const { rows: tierRows } = await db.query<{ is_creator: boolean; creator_tier: string | null }>(
-        `SELECT is_creator, creator_tier FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      if (!tierRows[0]?.is_creator) throw forbidden("Creator account required");
-      const tier = tierRows[0]?.creator_tier ?? "";
-      if (!["elite", "icon", "zobia_icon"].includes(tier)) {
-        throw forbidden("Merch stores are available to Elite, Icon, and Zobia Icon creators only");
+      // Verify Elite+ creator OR verified Business account (per PRD §14:
+      // Merch Store is Elite tier+, extended to Business accounts).
+      const eligibility = await getMerchSellerEligibility(userId, db);
+      if (!eligibility.qualified) {
+        throw forbidden(MERCH_SELLER_INELIGIBLE_MESSAGE);
       }
 
       // Get store for creator
@@ -134,14 +140,15 @@ export const POST = withAuth(
 
       // KYC gate — high-value products require the seller to hold the
       // matching KYC tier (admin-configurable thresholds, see lib/kyc/thresholds.ts).
-      // Individual creators only, for now — business-account merch stores are
-      // out of scope for this route (business_accounts has its own verification_status).
+      // Business-account sellers use the business threshold; a verified
+      // business_account's own verification_status is a separate, already-
+      // enforced gate (checked by getMerchSellerEligibility above).
       {
         const { rows: kycRows } = await db.query<{ kyc_tier: number }>(
           `SELECT kyc_tier FROM users WHERE id = $1`,
           [userId]
         );
-        const requiredTier = await getRequiredKycTier("individual", { kobo: body.price_kobo });
+        const requiredTier = await getRequiredKycTier(eligibility.accountType, { kobo: body.price_kobo });
         if (requiredTier > 0 && !meetsRequiredKycTier(kycRows[0]?.kyc_tier ?? 0, requiredTier)) {
           throw forbidden(
             `Selling a product priced this high requires Tier ${requiredTier} identity verification. Complete it from your KYC settings first.`,
@@ -166,12 +173,39 @@ export const POST = withAuth(
         }
       }
 
+      // Market referral program opt-in validation.
+      let referralEnabled = body.referral_enabled ?? false;
+      let referralCommissionPct: number | null = null;
+      if (referralEnabled) {
+        const isPhysical = body.product_type === "physical";
+        const flagKey = isPhysical ? "market_referral_physical_enabled" : "market_referral_digital_enabled";
+        const flagValue = await getManifestValue(flagKey);
+        if (flagValue !== "true") {
+          throw forbidden("The referral program is not currently enabled for this item type");
+        }
+        if (isPhysical) {
+          const minPctStr = await getManifestValue("market_referral_physical_min_pct");
+          const minPct = minPctStr ? parseFloat(minPctStr) : 1;
+          const pct = body.referral_commission_pct ?? minPct;
+          if (pct < minPct) {
+            throw forbidden(`Referral commission on a physical item must be at least ${minPct}%`);
+          }
+          referralCommissionPct = pct;
+        }
+        // Digital items don't need a creator-set %: the platform-wide
+        // tier1/tier2 rate applies automatically (lib/referrals/commissions.ts).
+      } else {
+        referralEnabled = false;
+      }
+
       const { rows } = await db.query<MerchProductRow>(
         `INSERT INTO merch_products
-           (store_id, name, description, product_type, price_kobo, is_active, stock, created_at)
-         VALUES ($1, $2, $3, $4, $5, TRUE, $6, NOW())
+           (store_id, name, description, product_type, price_kobo, is_active, stock,
+            referral_enabled, referral_commission_pct, created_at)
+         VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8, NOW())
          RETURNING id, store_id, name, description, product_type,
-                   price_kobo::TEXT AS price_kobo, image_url, is_active, stock, created_at`,
+                   price_kobo::TEXT AS price_kobo, image_url, is_active, stock,
+                   referral_enabled, referral_commission_pct::TEXT AS referral_commission_pct, created_at`,
         [
           storeRows[0].id,
           body.name,
@@ -179,6 +213,8 @@ export const POST = withAuth(
           body.product_type,
           body.price_kobo,
           body.stock ?? null,
+          referralEnabled,
+          referralCommissionPct,
         ]
       );
 

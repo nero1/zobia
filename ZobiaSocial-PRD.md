@@ -681,6 +681,8 @@ Accessible from any screen via the wallet icon. Contains:
 
 **Boosts:** XP Booster, Quest Accelerator, Guild War Boost.
 
+**Profile Themes:** color-skin themes for the profile page (a small admin-editable catalog, mirroring the existing Blog Theme system — §32), one free-default plus several paid tiers purchasable with Credits or Stars.
+
 ### Gifting Between Users
 
 Users can send Credits directly to any friend. Credit gifts are subject to a 5% platform transaction fee. The recipient receives the full amount minus the fee. Credit gifting generates XP for both sender (Generosity Track) and receiver (Social Track).
@@ -1118,6 +1120,33 @@ Public, shareable, crawlable surfaces use short, human-readable, SEO-friendly pa
 **Domain.** The canonical domain is configured via `NEXT_PUBLIC_APP_URL` (web) and `VITE_WEB_BASE_URL` (Android). It currently points at the Vercel deployment (`zobia.vercel.app`) during development and switches to `zobia.org` once the custom domain is connected — a single env/config change, no code edits.
 
 **Commission-based referrals:** For creator affiliate scenarios, admin can configure a lifetime 5% cash commission on referred users' credit purchases, paid in Credits or cash depending on the admin's payout configuration.
+
+### Market
+
+`/market` unifies every purchasable thing on the platform into one browsable page — creator digital/physical items from the Creator Merch Store (§14.7), platform cosmetics/themes and Credit/Star packs (§11), and Boosts & Passes — so a user doesn't need to know whether something is "sold by a creator" or "sold by the platform" to find it.
+
+**Sections**, each shown as a capped preview with a "View more" link to the full paginated list:
+- **Sponsored** — creator items the creator (or admin) promoted, up to 2 grid rows.
+- **Featured** — admin-curated creator and platform items, up to 2 grid rows.
+- **Trending** — creator items only, weighted-random rotation so every active item gets discovered but items crossing a completed-order threshold show up more often — up to 2 grid rows.
+- **Platform Store** — all active platform items, up to 3 grid rows.
+
+**Categories:** Digital, Physical, Cosmetics & Themes, Boosts & Passes, Credits — filterable on the full listing.
+
+**Sort:** price, popularity, or rating — rating and popularity apply to creator items only (a coin pack has neither).
+
+**List/grid toggle**, matching the existing pattern on Rooms and Games.
+
+**Qualified sellers:** Elite+ creators (per §14's tier table) or a verified, active Business account may open a Merch Store and list items — previously Business accounts were out of scope for merch.
+
+**Referral program on individual Market items** (creator opt-in per listing, admin can enable/disable per item type platform-wide):
+- **Digital items** use the platform's standard two-tier referral commission (§15's Tier 1/Tier 2 rates), applied to the item's price.
+- **Physical items** use a creator-set commission percentage (minimum 1%) of the sale price — because unlike a digital good, the full price of a physical item isn't profit. The platform takes its standard creator-revenue cut (the same split used elsewhere, e.g. Merch Store's 80/20) out of that percentage first, and the remainder goes to the direct referrer. Example: a 1% commission pool of ₦1,000 is ₦10; the platform's 20% cut is ₦2, leaving the referrer ₦8. Physical-item referral commissions pay out to the direct referrer only (not Tier 2), since the pool is small. Awarded when the buyer confirms receipt, not at purchase, since a physical order can still be refunded before then.
+- A referral-enabled item's card shows a collapsible panel (logged-in users only) with the commission rate and a ready-to-share link — the viewer's own referral code already attached — plus a one-tap copy button.
+
+**Boosts & Passes admin catalog:** boost/multiplier types (XP Booster, Quest Accelerator, etc.) are managed from an admin catalog so new boost types can be added without a code deploy. **For the Capacitor Android app specifically:** any new purchasable product — a new boost type or any other new store item — requires a matching product to also be created in Google Play Console, since Google Play Billing only recognizes products it knows about; this is a manual step for admin whenever a new sellable item is introduced for the Android app.
+
+**Daily quest:** a "Market Run" quest (in the regular daily quest pool) is completed by any Market purchase — a creator item, a cosmetic/theme, or a boost.
 
 ---
 

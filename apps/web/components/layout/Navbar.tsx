@@ -90,6 +90,7 @@ const primaryNavItems: PrimaryNavItem[] = [
   { href: "/friends",      labelKey: "nav.friends",      icon: "👥" },
   { href: "/gifts",        labelKey: "nav.gifts",        icon: "🎁", flagKey: "gifts" },
   { href: "/wallet",       labelKey: "nav.wallet",       icon: "🪙" },
+  { href: "/market",       labelKey: "nav.market",       icon: "🏪" },
   { href: "/notifications",labelKey: "nav.notifications",icon: "🔔" },
   { href: "/events",       labelKey: "nav.events",       icon: "📅" },
   { href: "/announcements",labelKey: "nav.announcements",icon: "📬" },

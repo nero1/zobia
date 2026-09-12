@@ -492,6 +492,7 @@ export type CoinTransactionType =
   | 'bbforum_pot_refund'
   | 'blog_paywall_unlock'
   | 'blog_theme_purchase'
+  | 'profile_theme_purchase'
   | 'blog_extra_slot'
   | 'blog_treasury_fund'
   | 'blog_treasury_claim'

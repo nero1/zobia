@@ -2800,6 +2800,9 @@ export const referralCommissions = pgTable("referral_commissions", {
   commissionKobo: bigint("commission_kobo", { mode: "bigint" }).notNull(),
   commissionCoins: bigint("commission_coins", { mode: "bigint" }).notNull().default(BigInt(0)),
   status: text("status").notNull().default("pending"),
+  // Migration 0050 (db): 'coin_purchase' | 'merch_digital' | 'merch_physical'
+  sourceType: text("source_type").notNull().default("coin_purchase"),
+  referenceOrderId: uuid("reference_order_id").references(() => merchOrders.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
@@ -3000,6 +3003,16 @@ export const merchProducts = pgTable("merch_products", {
   imageUrl: text("image_url"),
   isActive: boolean("is_active").default(true),
   stock: integer("stock"),
+  // Migration 0050 (db): Market referral program opt-in. Digital items use
+  // the platform-wide tier1/tier2 rates (lib/referrals/commissions.ts);
+  // referralCommissionPct is only set for physical items (creator-chosen,
+  // minimum 1.00) — see lib/market/referrals.ts.
+  referralEnabled: boolean("referral_enabled").notNull().default(false),
+  referralCommissionPct: numeric("referral_commission_pct", { precision: 5, scale: 2 }),
+  // Migration 0050 (db): Market page promotion flags.
+  isSponsored: boolean("is_sponsored").notNull().default(false),
+  sponsoredUntil: timestamp("sponsored_until", { withTimezone: true }),
+  isAdminFeatured: boolean("is_admin_featured").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
@@ -3039,6 +3052,30 @@ export const merchOrders = pgTable("merch_orders", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 });
+
+// Migration 0050 (db): verified-purchase 1-5 star rating for merch products,
+// used by the Market page's "sort by rating" option.
+export const merchProductReviews = pgTable(
+  "merch_product_reviews",
+  {
+    id: uuidPk(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => merchProducts.id, { onDelete: "cascade" }),
+    buyerId: uuid("buyer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id").references(() => merchOrders.id, { onDelete: "set null" }),
+    rating: integer("rating").notNull(),
+    comment: text("comment"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    onePerBuyer: uniqueIndex("merch_product_reviews_one_per_buyer").on(t.productId, t.buyerId),
+    ratingRange: check("merch_product_reviews_rating_range", sql`${t.rating} BETWEEN 1 AND 5`),
+  })
+);
 
 export const classroomEnrolments = pgTable(
   "classroom_enrolments",
@@ -5219,6 +5256,8 @@ export type MerchProduct = typeof merchProducts.$inferSelect;
 export type NewMerchProduct = typeof merchProducts.$inferInsert;
 export type MerchOrder = typeof merchOrders.$inferSelect;
 export type NewMerchOrder = typeof merchOrders.$inferInsert;
+export type MerchProductReview = typeof merchProductReviews.$inferSelect;
+export type NewMerchProductReview = typeof merchProductReviews.$inferInsert;
 export type ClassroomEnrolment = typeof classroomEnrolments.$inferSelect;
 export type NewClassroomEnrolment = typeof classroomEnrolments.$inferInsert;
 export type ClassroomQuiz = typeof classroomQuizzes.$inferSelect;
@@ -5501,6 +5540,7 @@ export const schema = {
   creatorSpotlights,
   merchStores,
   merchProducts,
+  merchProductReviews,
   merchOrders,
   classroomEnrolments,
   classroomQuizzes,

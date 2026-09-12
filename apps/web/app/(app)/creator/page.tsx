@@ -457,6 +457,14 @@ export default function CreatorPage() {
     <div className="mx-auto max-w-4xl space-y-5 p-4 sm:p-6">
       <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Creator Dashboard</h1>
 
+      <div className="flex flex-wrap gap-2 text-sm">
+        <Link href="/creator/merch" className="rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300">🛍️ Merch Store</Link>
+        <Link href="/creator/wallet" className="rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300">👛 Wallet</Link>
+        <Link href="/creator/bank-account" className="rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300">🏦 Bank Account</Link>
+        <Link href="/creator/broadcasts" className="rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300">📣 Broadcasts</Link>
+        <Link href="/market" className="rounded-full border border-neutral-200 px-3 py-1.5 font-medium text-neutral-700 hover:border-blue-300 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300">🏪 Market</Link>
+      </div>
+
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-modal ${toast.type === "success" ? "bg-teal-600" : "bg-red-600"}`}>
           {toast.msg}

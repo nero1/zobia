@@ -15,6 +15,9 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
 import { sendPushNotification } from "@/lib/notifications/push";
+import { getManifestValue } from "@/lib/manifest";
+import { awardMerchPhysicalReferralCommission } from "@/lib/referrals/commissions";
+import { logger } from "@/lib/logger";
 
 export const PATCH = withAuth(
   async (
@@ -34,9 +37,10 @@ export const PATCH = withAuth(
           amount_kobo: number;
           creator_share_kobo: number;
           platform_fee_kobo: number;
+          product_id: string;
         }>(
           `SELECT id, buyer_id, creator_id, status,
-                  amount_kobo, creator_share_kobo, platform_fee_kobo
+                  amount_kobo, creator_share_kobo, platform_fee_kobo, product_id
            FROM merch_orders WHERE id = $1 FOR UPDATE`,
           [orderId]
         );
@@ -75,6 +79,33 @@ export const PATCH = withAuth(
            WHERE id = $2`,
           [order.creator_share_kobo, order.creator_id]
         );
+
+        // Physical-item referral commission — deferred to this point (not
+        // purchase time) since a physical order can still be refunded or
+        // disputed before delivery is confirmed.
+        const { rows: productRows } = await tx.query<{
+          referral_enabled: boolean;
+          referral_commission_pct: string | null;
+        }>(
+          `SELECT referral_enabled, referral_commission_pct::TEXT AS referral_commission_pct
+           FROM merch_products WHERE id = $1 LIMIT 1`,
+          [order.product_id]
+        );
+        const product = productRows[0];
+        if (product?.referral_enabled && product.referral_commission_pct) {
+          const physicalReferralsEnabled = await getManifestValue("market_referral_physical_enabled", tx);
+          if (physicalReferralsEnabled === "true") {
+            await awardMerchPhysicalReferralCommission(
+              tx,
+              order.buyer_id,
+              order.amount_kobo,
+              parseFloat(product.referral_commission_pct),
+              orderId
+            ).catch((err) => {
+              logger.error({ err, orderId }, "[merch] Physical referral commission failed (non-fatal)");
+            });
+          }
+        }
 
         // Notify seller of confirmed receipt
         void (async () => {
