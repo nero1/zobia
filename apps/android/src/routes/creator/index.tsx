@@ -26,6 +26,7 @@ import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { apiClient } from '@/lib/api/client';
 
 interface CreatorDashboard {
@@ -56,7 +57,7 @@ interface PayoutsData {
  * Shows progress toward the minimum payout threshold. Mirrors
  * apps/web/app/(app)/creator/page.tsx's `ThresholdProgressBar`.
  */
-function ThresholdProgressBar({ availableKobo, minKobo, t }: { availableKobo: number; minKobo: number; t: (key: string, def?: string) => string }) {
+function ThresholdProgressBar({ availableKobo, minKobo, t }: { availableKobo: number; minKobo: number; t: TFunction }) {
   const met = availableKobo >= minKobo;
   const pct = minKobo > 0 ? Math.min(100, Math.round((availableKobo / minKobo) * 100)) : 100;
   const remaining = Math.max(0, minKobo - availableKobo);

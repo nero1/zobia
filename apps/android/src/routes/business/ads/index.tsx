@@ -353,7 +353,7 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
                 <input type="number" min={0} value={dailyBudgetCredits} onChange={(e) => setDailyBudgetCredits(e.target.value)} placeholder={t('ads.quests.dailyCap', 'Daily Cap ({{currency}}, optional)', { currency: currency.softPlural })} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
                 <input value={targetAction} onChange={(e) => setTargetAction(e.target.value)} placeholder={t('ads.quests.targetActionPlaceholder', 'Action to complete (optional)')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
                 <p className="text-[11px] text-neutral-400">
-                  {t('ads.quests.estimatedReach', 'Estimated reach: {{count}} impressions.', { count: estimatedReach.toLocaleString() })}
+                  {t('ads.quests.estimatedReach', 'Estimated reach: {{reach}} impressions.', { reach: estimatedReach.toLocaleString() })}
                 </p>
               </>
             )}
@@ -396,7 +396,7 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
                     currency: currency.softPlural,
                     impressions: q.impressions_count.toLocaleString(),
                   })}
-                  {q.estimated_reach ? ` · ${t('ads.quests.estReach', 'est. reach {{count}}', { count: q.estimated_reach.toLocaleString() })}` : ''}
+                  {q.estimated_reach ? ` · ${t('ads.quests.estReach', 'est. reach {{reach}}', { reach: q.estimated_reach.toLocaleString() })}` : ''}
                 </p>
               )}
               {q.auto_paused && (

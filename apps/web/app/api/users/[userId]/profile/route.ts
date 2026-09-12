@@ -25,6 +25,7 @@ import { getStaffRoles } from "@/lib/auth/roles";
 import { getRankForXP } from "@/lib/xp/engine";
 import { loadManifest } from "@/lib/manifest";
 import { isFeatureAccessible } from "@/lib/manifest/featureAccess";
+import { getProfileTheme, DEFAULT_PROFILE_THEME_TOKENS } from "@/lib/profile/themes";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -142,8 +143,10 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       plan: string | null;
       is_moderator: boolean;
       is_verified: boolean;
+      active_profile_theme_id: string;
     }>(
       `SELECT id, username, display_name, bio, avatar_emoji, city,
+              COALESCE(active_profile_theme_id, 'classic') AS active_profile_theme_id,
               xp_total, COALESCE(legacy_score, 0) AS legacy_score,
               COALESCE(rank_name, 'Beginner') AS rank_name,
               COALESCE(rank_sublevel, 1) AS rank_sublevel,
@@ -407,6 +410,15 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       rows: [] as Array<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }>,
     }));
 
+    // 6b. Profile theme (color skin only — see lib/profile/themes.ts).
+    // Always shown to any viewer, like a blog's active theme, since it's the
+    // owner's chosen visual identity, not privacy-sensitive data.
+    const profileThemeRow = await getProfileTheme(user.active_profile_theme_id).catch(() => null);
+    const profileTheme = {
+      id: profileThemeRow?.id ?? "classic",
+      config: profileThemeRow?.config ?? DEFAULT_PROFILE_THEME_TOKENS,
+    };
+
     // 7. Compose rank info
     const rankInfo = getRankForXP(user.xp_total);
 
@@ -517,6 +529,8 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       // Season history — both old shape (pastSeasons) and new shape (seasonHistory)
       pastSeasons: seasonHistory,
       seasonHistory,
+      // Profile theme (color skin) — see lib/profile/themes.ts
+      profileTheme,
     };
 
     return NextResponse.json({ profile }, { status: 200 });

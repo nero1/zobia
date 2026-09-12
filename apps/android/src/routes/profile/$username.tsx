@@ -50,7 +50,10 @@ interface RichProfile {
   isVerified: boolean;
   prestige?: number;
   trackLevels: TrackLevel[];
+  profileTheme?: { id: string; config: { bg: string; card: string; accent: string; text: string; muted: string } };
 }
+
+const DEFAULT_PROFILE_THEME_TOKENS = { bg: '#0a0a0a', card: '#171717', accent: '#14b8a6', text: '#fafafa', muted: '#a3a3a3' };
 
 async function resolveUserId(username: string, selfId?: string, selfUsername?: string): Promise<string | null> {
   // Viewing your own profile: /api/users/search excludes the caller from its
@@ -137,31 +140,40 @@ function ProfilePage() {
   }
 
   const joinedYear = new Date(profile.joinedAt).getFullYear();
+  const themeTokens = profile.profileTheme?.config ?? DEFAULT_PROFILE_THEME_TOKENS;
+  const isOwnProfile = currentUser?.id === profile.id;
 
   return (
     <div className="h-full overflow-y-auto bg-white">
-      {/* Hero */}
-      <div className="px-6 pt-8 pb-6 border-b border-neutral-100">
+      {/* Hero — theme tokens applied as inline style here only, mirroring
+          the web profile page's light-touch approach. */}
+      <div className="px-6 pt-8 pb-6 border-b-4" style={{ backgroundColor: themeTokens.card, borderBottomColor: themeTokens.accent }}>
         <div className="flex flex-col items-center text-center gap-2">
           <div className="w-20 h-20 rounded-full bg-primary-100 flex items-center justify-center text-4xl">
             {profile.avatarEmoji || '👤'}
           </div>
           <div>
-            <h2 className="inline-flex items-center gap-1.5 text-xl font-bold text-neutral-900">
+            <h2 className="inline-flex items-center gap-1.5 text-xl font-bold" style={{ color: themeTokens.text }}>
               {profile.displayName ?? profile.username}
               <UserBadgeRow rank={profile.rankName as RankName} prestige={profile.prestige} verified={profile.isVerified} size="md" />
             </h2>
-            <p className="text-neutral-500 text-sm">@{profile.username}</p>
+            <p className="text-sm" style={{ color: themeTokens.muted }}>@{profile.username}</p>
           </div>
 
           {profile.bio && (
-            <p className="text-neutral-700 text-sm mt-1 max-w-xs">{profile.bio}</p>
+            <p className="text-sm mt-1 max-w-xs" style={{ color: themeTokens.text }}>{profile.bio}</p>
           )}
 
-          <div className="flex items-center gap-2 text-xs text-neutral-400 mt-1">
+          <div className="flex items-center gap-2 text-xs mt-1" style={{ color: themeTokens.muted }}>
             <span>{t('profile.joinedOn', { date: joinedYear })}</span>
             {profile.city && <><span>·</span><span>{profile.city}</span></>}
           </div>
+
+          {isOwnProfile && (
+            <Link to="/profile/theme" className="text-xs font-medium hover:underline" style={{ color: themeTokens.accent }}>
+              🎨 {t('profile.theme.link', 'Theme')}
+            </Link>
+          )}
 
           <div className="flex items-center gap-2 mt-2">
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
