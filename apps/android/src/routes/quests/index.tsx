@@ -289,6 +289,6 @@ function QuestsPage() {
   );
 }
 
-export const Route = createFileRoute('/quests')({
+export const Route = createFileRoute('/quests/')({
   component: QuestsPage,
 });

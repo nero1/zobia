@@ -28,7 +28,25 @@ interface SponsoredQuest {
   reward_coins: number;
   moderation_status: 'pending' | 'approved' | 'rejected';
   is_active: boolean;
+  is_daily_quest_eligible: boolean;
+  total_budget_credits: string;
+  spent_credits: string;
+  estimated_reach: number | null;
+  impressions_count: number;
+  auto_paused: boolean;
+  pause_reason: string | null;
 }
+
+// Mirrors lib/quests/sponsoredQuestPacing.ts SPONSORED_QUEST_DURATION_PRESETS —
+// kept as a plain constant since that module pulls in server-only DB access.
+const DURATION_PRESETS = [
+  { key: '3d', label: '3 days', days: 3 },
+  { key: '1w', label: '1 week', days: 7 },
+  { key: '2w', label: '2 weeks', days: 14 },
+  { key: '1m', label: '1 month', days: 30 },
+  { key: '2m', label: '2 months', days: 60 },
+] as const;
+type DurationPresetKey = (typeof DURATION_PRESETS)[number]['key'];
 interface AdCampaign {
   id: string;
   name: string;
@@ -231,9 +249,21 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
   const [deadline, setDeadline] = useState('');
   const [error, setError] = useState<string | null>(null);
 
+  const [runInDailyDecks, setRunInDailyDecks] = useState(false);
+  const [durationPreset, setDurationPreset] = useState<DurationPresetKey>('1w');
+  const [totalBudgetCredits, setTotalBudgetCredits] = useState(5000);
+  const [dailyBudgetCredits, setDailyBudgetCredits] = useState('');
+  const [targetAction, setTargetAction] = useState('');
+  const [restartingId, setRestartingId] = useState<string | null>(null);
+
+  const durationDays = DURATION_PRESETS.find((p) => p.key === durationPreset)?.days ?? 7;
+  const estimatedReach = runInDailyDecks ? Math.floor((totalBudgetCredits / 500) * 1000) : 0;
+
   const submitMutation = useMutation({
-    mutationFn: () =>
-      apiClient.post('/business/sponsored-quests', {
+    mutationFn: () => {
+      const startsAt = new Date();
+      const endsAt = new Date(startsAt.getTime() + durationDays * 86_400_000);
+      return apiClient.post('/business/sponsored-quests', {
         businessPageId,
         title: title.trim(),
         description: description.trim(),
@@ -241,13 +271,28 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
         rewardCoins: Number(rewardCoins),
         maxApplications: 10,
         deadline: new Date(deadline).toISOString(),
-      }),
+        isDailyQuestEligible: runInDailyDecks,
+        startsAt: runInDailyDecks ? startsAt.toISOString() : undefined,
+        endsAt: runInDailyDecks ? endsAt.toISOString() : undefined,
+        totalBudgetCredits: runInDailyDecks ? Number(totalBudgetCredits) : 0,
+        dailyBudgetCredits: runInDailyDecks && dailyBudgetCredits ? Number(dailyBudgetCredits) : undefined,
+        targetAction: runInDailyDecks && targetAction.trim() ? targetAction.trim() : undefined,
+      });
+    },
     onSuccess: () => {
       setShowForm(false);
       setTitle(''); setDescription(''); setRequirements(''); setDeadline('');
+      setRunInDailyDecks(false); setTotalBudgetCredits(5000); setDailyBudgetCredits(''); setTargetAction('');
       qc.invalidateQueries({ queryKey: ['business', 'sponsored-quests'] });
     },
     onError: (err: unknown) => setError(err instanceof Error ? err.message : t('ads.quests.submitFailed', 'Failed to submit')),
+  });
+
+  const restartMutation = useMutation({
+    mutationFn: (id: string) => apiClient.post(`/business/sponsored-quests/${id}/restart`, {}),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['business', 'sponsored-quests'] }),
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : t('ads.quests.restartFailed', 'Failed to restart')),
+    onSettled: () => setRestartingId(null),
   });
 
   const tierAllowed = account?.tier === 'growth' || account?.tier === 'enterprise';
@@ -284,6 +329,36 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
           <textarea value={requirements} onChange={(e) => setRequirements(e.target.value)} placeholder={t('ads.quests.requirementsPlaceholder', 'Requirements')} rows={2} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
           <input type="number" min={100} value={rewardCoins} onChange={(e) => setRewardCoins(Number(e.target.value))} placeholder={t('ads.quests.rewardPlaceholder', 'Reward {{currency}}', { currency: currency.softPlural })} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
           <input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+
+          <div className="rounded-lg border border-dashed border-neutral-300 p-3 space-y-2">
+            <label className="flex items-center gap-2 text-xs font-semibold text-neutral-700">
+              <input type="checkbox" checked={runInDailyDecks} onChange={(e) => setRunInDailyDecks(e.target.checked)} />
+              {t('ads.quests.dailyDeckToggle', "Also boost this in regular users' daily quest decks")}
+            </label>
+            {runInDailyDecks && (
+              <>
+                <div className="flex flex-wrap gap-1.5">
+                  {DURATION_PRESETS.map((p) => (
+                    <button
+                      key={p.key}
+                      type="button"
+                      onClick={() => setDurationPreset(p.key)}
+                      className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium ${durationPreset === p.key ? 'border-primary-600 bg-primary-600 text-white' : 'border-neutral-300 text-neutral-600'}`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+                <input type="number" min={0} value={totalBudgetCredits} onChange={(e) => setTotalBudgetCredits(Number(e.target.value))} placeholder={t('ads.quests.totalBudget', 'Total Budget ({{currency}})', { currency: currency.softPlural })} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+                <input type="number" min={0} value={dailyBudgetCredits} onChange={(e) => setDailyBudgetCredits(e.target.value)} placeholder={t('ads.quests.dailyCap', 'Daily Cap ({{currency}}, optional)', { currency: currency.softPlural })} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+                <input value={targetAction} onChange={(e) => setTargetAction(e.target.value)} placeholder={t('ads.quests.targetActionPlaceholder', 'Action to complete (optional)')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+                <p className="text-[11px] text-neutral-400">
+                  {t('ads.quests.estimatedReach', 'Estimated reach: {{count}} impressions.', { count: estimatedReach.toLocaleString() })}
+                </p>
+              </>
+            )}
+          </div>
+
           <button
             onClick={() => businessPageId && title && description && requirements && deadline && submitMutation.mutate()}
             disabled={submitMutation.isPending}
@@ -307,7 +382,32 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${badgeClass(q.moderation_status)}`}>{q.moderation_status}</span>
               </div>
               <p className="text-xs text-neutral-500 line-clamp-2">{q.description}</p>
+              {q.pause_reason && (
+                <p className="text-[11px] text-amber-600 mt-1">
+                  ⚠️ {t('ads.quests.pausedNote', 'Paused: {{reason}}. Restart it once resolved.', { reason: q.pause_reason })}
+                </p>
+              )}
               <p className="text-xs text-neutral-400 mt-1">🪙 {t('ads.quests.rewardLabel', '{{count}} {{currency}}', { count: q.reward_coins, currency: currency.softPlural })}</p>
+              {q.is_daily_quest_eligible && (
+                <p className="text-[11px] text-neutral-400 mt-0.5">
+                  {t('ads.quests.spendLine', '{{spent}}/{{total}} {{currency}} spent · {{impressions}} impressions', {
+                    spent: Number(q.spent_credits).toLocaleString(),
+                    total: Number(q.total_budget_credits).toLocaleString(),
+                    currency: currency.softPlural,
+                    impressions: q.impressions_count.toLocaleString(),
+                  })}
+                  {q.estimated_reach ? ` · ${t('ads.quests.estReach', 'est. reach {{count}}', { count: q.estimated_reach.toLocaleString() })}` : ''}
+                </p>
+              )}
+              {q.auto_paused && (
+                <button
+                  onClick={() => { setRestartingId(q.id); restartMutation.mutate(q.id); }}
+                  disabled={restartMutation.isPending}
+                  className="mt-2 rounded-lg bg-success-600 px-2.5 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                >
+                  {restartingId === q.id && restartMutation.isPending ? '…' : t('ads.quests.restart', 'Restart')}
+                </button>
+              )}
             </div>
           ))}
         </div>

@@ -3212,3 +3212,25 @@ existing Sponsored Quests keep behaving exactly as before (creator
 marketplace only) unless an admin/business explicitly opts one in.
 
 **Migration:** `db/migrations/0047_quest_system_expansion.sql`.
+
+### Android
+
+Full parity with web: `apps/android/src/routes/admin/sponsored-quests.tsx`
+gained the owner username field, daily-deck-eligibility toggle (duration
+presets, budget, daily cap, target action, reach estimate), pause
+(follow-up)/resume, and flag/unflag with a category picker; the
+`/business/ads` Sponsored Quests tab (`apps/android/src/routes/business/ads/index.tsx`)
+gained the same duration/budget/reach fields plus a paused-reason banner
+and Restart button; new `apps/android/src/routes/admin/quest-boosts.tsx`
+(in `adminNav.ts`) mirrors `/gate44/quests/boosts`; new
+`apps/android/src/routes/quests/manage.tsx` mirrors `/quests/manage`.
+
+One structural fix this required: `routes/quests.tsx` (the daily-quests
+page) had to move to `routes/quests/index.tsx` before `routes/quests/manage.tsx`
+could be added — TanStack Router's file-based routing makes a bare
+`X.tsx` alongside an `X/` directory a *parent layout* for everything in
+that directory, and `quests.tsx` rendered no `<Outlet />`, so `/quests/manage`
+would never have actually displayed. `routes/quests/index.tsx` +
+`routes/quests/manage.tsx` are siblings instead (same convention as the
+already-working `routes/business/index.tsx` + `routes/business/ads/index.tsx`),
+each rendering independently.
