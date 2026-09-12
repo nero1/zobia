@@ -28,9 +28,14 @@ const createSchema = z.object({
   advertiserType: z.enum(["personal", "business_account", "business_page"]).default("business_account"),
   businessPageId: z.string().uuid().nullable().optional(),
   name: z.string().min(3).max(150),
-  objective: z.enum(["awareness", "traffic", "boost_post", "boost_room"]).default("traffic"),
+  objective: z.enum(["awareness", "traffic", "boost_post", "boost_room", "boost_content"]).default("traffic"),
   targetPlans: z.array(z.enum(["free", "plus", "pro", "max"])).max(4).optional(),
-  boostedContentType: z.enum(["blog_post", "room"]).optional(),
+  boostedContentType: z
+    .enum([
+      "moment", "tweet", "blog_post", "forum_thread", "forum_question",
+      "room", "wiki_page", "game", "classroom", "business_page_post",
+    ])
+    .optional(),
   boostedContentId: z.string().uuid().optional(),
   startAt: z.string().datetime().optional(),
   endAt: z.string().datetime().optional(),

@@ -900,6 +900,32 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     group: "Business Accounts",
   },
 
+  // Home Feed
+  interests_onboarding_selection_enabled: {
+    label: "Onboarding Interest Selection",
+    description: "Show an interest-selection step during onboarding. When off, only implicit engagement-signal tracking is used for feed personalization.",
+    type: "boolean",
+    group: "Home Feed",
+  },
+  home_feed_cache_ttl_seconds: {
+    label: "Feed Cache TTL (seconds)",
+    description: "How long a Home Feed candidate pool (computed by the feed-refresh CRON) stays cached before the next run refreshes it. 900 = 15 minutes.",
+    type: "number",
+    group: "Home Feed",
+  },
+  home_feed_page_size: {
+    label: "Feed Page Size",
+    description: "Default number of items returned per Home Feed page.",
+    type: "number",
+    group: "Home Feed",
+  },
+  home_feed_zobian_of_month_auto_compute_enabled: {
+    label: "Auto-Compute Zobian of the Month",
+    description: "When on, the feed-refresh CRON auto-computes Zobian of the Month from monthly XP gain unless an admin has already set an override for the current month.",
+    type: "boolean",
+    group: "Home Feed",
+  },
+
   // Miscellaneous
   deep_link_base_url: {
     label: "Deep Link Base URL",
@@ -933,6 +959,7 @@ const GROUP_ORDER = [
   "Physical Goods",
   "Grace Periods & Save Slots",
   "Business Accounts",
+  "Home Feed",
   "Miscellaneous",
 ];
 

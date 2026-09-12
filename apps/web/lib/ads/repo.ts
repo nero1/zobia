@@ -26,7 +26,24 @@ import { getAdModerationModeFor, getAdAiAutoApproveThreshold, getDefaultCpmCredi
 // Types
 // ---------------------------------------------------------------------------
 
-export type AdCampaignObjective = "awareness" | "traffic" | "boost_post" | "boost_room";
+export type AdCampaignObjective = "awareness" | "traffic" | "boost_post" | "boost_room" | "boost_content";
+/**
+ * Every boostable content type on the platform. A "boost" is simply an
+ * ad_campaigns row with objective='boost_content' (or the legacy
+ * 'boost_post'/'boost_room') and boosted_content_type as the discriminator —
+ * no separate boost table. See createContentBoostCampaign() below.
+ */
+export type BoostableContentType =
+  | "moment"
+  | "tweet"
+  | "blog_post"
+  | "forum_thread"
+  | "forum_question"
+  | "room"
+  | "wiki_page"
+  | "game"
+  | "classroom"
+  | "business_page_post";
 export type AdCampaignStatus = "draft" | "pending_review" | "approved" | "rejected" | "active" | "paused" | "completed" | "stopped";
 export type AdCreativeFormat = "html" | "text" | "image" | "native" | "third_party";
 export type AdSize = "300x250" | "320x50" | "interstitial" | "rewarded" | "native";
@@ -89,7 +106,7 @@ export interface CreateCampaignInput {
   name: string;
   objective: AdCampaignObjective;
   targetPlans?: string[] | null;
-  boostedContentType?: "blog_post" | "room" | null;
+  boostedContentType?: BoostableContentType | null;
   boostedContentId?: string | null;
   startAt?: string | null;
   endAt?: string | null;
@@ -126,6 +143,191 @@ export async function createCampaign(input: CreateCampaignInput): Promise<AdCamp
     ]
   );
   return rows[0];
+}
+
+// ---------------------------------------------------------------------------
+// Generic content boost — "the boosts feature is under ads: a sponsored post
+// ad type where a user can boost any content type that is boostable" (product
+// decision). Reuses ad_campaigns/ad_creatives/submitCampaignForModeration/
+// moderateCampaign exactly as they exist — same moderation queue, same CPM
+// billing via lib/economy/adWallet.ts, same admin approval at /gate44/ads.
+// ---------------------------------------------------------------------------
+
+interface BoostableContentSummary {
+  /** The row's author/owner user id, for ownership checks by the caller. */
+  ownerId: string | null;
+  title: string;
+  body: string | null;
+  imageUrl: string | null;
+}
+
+/**
+ * Look up the minimal fields (owner, title, body/excerpt, image) needed to
+ * auto-fill a content-boost ad_creative, per content type. Column names vary
+ * across content tables (some Drizzle-typed, bbforum is raw SQL) — see the
+ * per-type schema notes in lib/db/schema.ts and lib/bbforum/repo.ts.
+ *
+ * Returns null if the content row does not exist (caller should 404).
+ */
+export async function getBoostableContentSummary(
+  contentType: BoostableContentType,
+  contentId: string
+): Promise<BoostableContentSummary | null> {
+  switch (contentType) {
+    case "moment": {
+      const { rows } = await db.query<{ user_id: string; content: string; media_url: string | null }>(
+        `SELECT user_id, content, media_url FROM moments WHERE id = $1 LIMIT 1`,
+        [contentId]
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return { ownerId: r.user_id, title: "Moment", body: r.content, imageUrl: r.media_url };
+    }
+    case "tweet": {
+      const { rows } = await db.query<{ user_id: string; content: string | null; image_url: string | null }>(
+        `SELECT user_id, content, image_url FROM tweets WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [contentId]
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return { ownerId: r.user_id, title: "Tweet", body: r.content, imageUrl: r.image_url };
+    }
+    case "blog_post": {
+      const { rows } = await db.query<{ author_id: string; title: string; excerpt: string | null; featured_image_url: string | null }>(
+        `SELECT author_id, title, excerpt, featured_image_url FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [contentId]
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return { ownerId: r.author_id, title: r.title, body: r.excerpt, imageUrl: r.featured_image_url };
+    }
+    case "forum_thread": {
+      // bb_threads — raw-SQL table (migration 0016_bbforum.sql), not in schema.ts.
+      const { rows } = await db.query<{ author_id: string; title: string }>(
+        `SELECT author_id, title FROM bb_threads WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [contentId]
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return { ownerId: r.author_id, title: r.title, body: null, imageUrl: null };
+    }
+    case "forum_question": {
+      const { rows } = await db.query<{ author_id: string; title: string; body: string }>(
+        `SELECT author_id, title, body FROM forum_questions WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [contentId]
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return { ownerId: r.author_id, title: r.title, body: r.body, imageUrl: null };
+    }
+    case "room":
+    case "classroom": {
+      const { rows } = await db.query<{ creator_id: string; name: string; description: string | null; cover_image_url: string | null }>(
+        `SELECT creator_id, name, description, cover_image_url FROM rooms WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [contentId]
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return { ownerId: r.creator_id, title: r.name, body: r.description, imageUrl: r.cover_image_url };
+    }
+    case "wiki_page": {
+      const { rows } = await db.query<{ created_by: string; title: string }>(
+        `SELECT created_by, title FROM wiki_pages WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [contentId]
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return { ownerId: r.created_by, title: r.title, body: null, imageUrl: null };
+    }
+    case "game": {
+      const { rows } = await db.query<{ creator_id: string | null; name: string; description: string | null; cover_image_url: string | null }>(
+        `SELECT creator_id, name, description, cover_image_url FROM games WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [contentId]
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return { ownerId: r.creator_id, title: r.name, body: r.description, imageUrl: r.cover_image_url };
+    }
+    case "business_page_post": {
+      const { rows } = await db.query<{ owner_id: string; title: string; body: string; image_url: string | null }>(
+        `SELECT ba.user_id AS owner_id, p.title, p.body, p.image_url
+         FROM business_page_posts p
+         JOIN business_pages bp ON bp.id = p.page_id
+         JOIN business_accounts ba ON ba.id = bp.business_account_id
+         WHERE p.id = $1 AND p.deleted_at IS NULL LIMIT 1`,
+        [contentId]
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return { ownerId: r.owner_id, title: r.title, body: r.body, imageUrl: r.image_url };
+    }
+    default:
+      return null;
+  }
+}
+
+export interface CreateContentBoostCampaignInput {
+  createdBy: string;
+  businessAccountId: string | null;
+  businessPageId: string | null;
+  advertiserType: AdvertiserType;
+  boostedContentType: BoostableContentType;
+  boostedContentId: string;
+  targetPlans?: string[] | null;
+  startAt?: string | null;
+  endAt?: string | null;
+  clickUrl: string;
+  /**
+   * Admin/mod-authored boosts are "in-house boosted" per the Home Feed
+   * ranking algorithm (lib/feed/ranking.ts tier 5) rather than tier-1
+   * "boosted content" — the caller (app/api/content/boost) determines this
+   * from the content owner's role and stores it as campaign metadata via
+   * the campaign name for now (no dedicated column — see ranking.ts for the
+   * documented simplification: in-house detection re-derives this from the
+   * content author's is_admin/is_moderator flag at read time instead).
+   */
+  isInHouse?: boolean;
+}
+
+/**
+ * Create a draft ad_campaigns row + matching ad_creatives row for a single
+ * piece of boostable content in one call — wraps createCampaign() + addCreative(),
+ * auto-filling the creative's title/body/image from the content row. Caller
+ * is responsible for ownership/eligibility checks and for calling
+ * submitCampaignForModeration() afterwards (mirrors the two-step self-service
+ * flow every other campaign type already uses).
+ */
+export async function createContentBoostCampaign(
+  input: CreateContentBoostCampaignInput
+): Promise<{ campaign: AdCampaignRow; creative: AdCreativeRow } | null> {
+  const content = await getBoostableContentSummary(input.boostedContentType, input.boostedContentId);
+  if (!content) return null;
+
+  const campaign = await createCampaign({
+    businessAccountId: input.businessAccountId,
+    businessPageId: input.businessPageId,
+    createdBy: input.createdBy,
+    advertiserType: input.advertiserType,
+    name: `Boost: ${content.title}`.slice(0, 150),
+    objective: "boost_content",
+    targetPlans: input.targetPlans ?? null,
+    boostedContentType: input.boostedContentType,
+    boostedContentId: input.boostedContentId,
+    startAt: input.startAt ?? null,
+    endAt: input.endAt ?? null,
+  });
+
+  const creative = await addCreative(campaign.id, {
+    placementKey: "content_boost",
+    format: "native",
+    size: "native",
+    title: content.title,
+    body: content.body ?? undefined,
+    imageUrl: content.imageUrl ?? undefined,
+    clickUrl: input.clickUrl,
+  });
+
+  return { campaign, creative };
 }
 
 /**
