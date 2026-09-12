@@ -669,7 +669,7 @@ Ably offers three key types in their Console:
 No new env vars — uploads go through the same `STORAGE_PROVIDER` configured above, stored under the `avatars/<userId>/...` key prefix in the bucket set up in the section above.
 
 - **Cost & cooldown are admin-configurable, not env vars**: `avatar_change_cost_credits` (default `200`) and `avatar_change_cost_stars` (default `1`) — the price a Free-plan user pays to upload a custom photo (Paid-plan users upload free) — are `x_manifest` rows, editable at `/gate44/config` under the "Profile Pictures" group. The once-a-week change cooldown is a fixed 7 days (`AVATAR_CHANGE_COOLDOWN_DAYS` in `lib/profile/avatarService.ts`), not currently admin-configurable.
-- **`sharp` (optional, for GIF avatar handling)**: `lib/storage/compress.ts` already conditionally `require("sharp")`s for image compression, degrading gracefully (stores the original buffer) when it isn't installed. The Profile Pictures feature adds one more sharp-dependent step — reducing an animated GIF avatar to its 2nd frame (`extractGifSecondFrame()`) — with the same graceful fallback (an animated GIF avatar is stored as-is, with a logged warning, if `sharp` isn't present). Install `sharp` as a dependency of `apps/web` for both compression and animated-GIF-stripping to actually take effect in production.
+- **`sharp`**: now a real dependency of `apps/web` (added alongside the Profile Pictures feature) — no install step needed. It powers both `lib/storage/compress.ts`'s image compression and `extractGifSecondFrame()` (reducing an animated GIF avatar to its 2nd frame). `compress.ts`'s conditional `require("sharp")` is a defensive fallback only (stores the original buffer, logs a warning) in case the module is ever unavailable at runtime.
 
 ---
 

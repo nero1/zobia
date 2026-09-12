@@ -57,6 +57,7 @@
     "react-easy-crop": "^5.5.7",
     "react-i18next": "^15.0.2",
     "sanitize-html": "^2.13.0",
+    "sharp": "^0.33.5",
     "tailwind-merge": "^2.5.2",
     "undici": "^6.0.0",
     "web-push": "^3.6.7",
