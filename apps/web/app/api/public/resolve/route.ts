@@ -20,6 +20,7 @@ import { handleApiError } from "@/lib/api/errors";
 import { resolvePublicRoom } from "@/lib/public/resolveRoom";
 import { resolvePublicGame } from "@/lib/public/resolveGame";
 import { resolvePublicForumQuestion } from "@/lib/public/resolveForumQuestion";
+import { resolvePublicWiki } from "@/lib/public/resolveWiki";
 import { resolveOldUsername } from "@/lib/username/availability";
 
 const ROOM_TYPES = ["free_open", "vip", "drop", "tipping", "limited"];
@@ -81,6 +82,18 @@ export async function GET(req: NextRequest) {
           id: resolved.question.id,
           slug: resolved.question.slug,
           canonicalSlug: resolved.canonicalRedirectSlug ?? resolved.question.slug,
+        }, { headers: CACHE_HEADERS });
+      }
+
+      case "wiki": {
+        const resolved = await resolvePublicWiki(identifier);
+        if (!resolved) return NextResponse.json({ found: false }, { headers: CACHE_HEADERS_SHORT });
+        return NextResponse.json({
+          found: true,
+          type,
+          id: resolved.wiki.id,
+          slug: resolved.wiki.slug,
+          canonicalSlug: resolved.canonicalRedirectSlug ?? resolved.wiki.slug,
         }, { headers: CACHE_HEADERS });
       }
 

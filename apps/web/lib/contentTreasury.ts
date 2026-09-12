@@ -25,8 +25,8 @@ import type { StarTransactionType } from "@/lib/economy/stars";
 import { badRequest } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 
-export type TreasuryContentType = "poll" | "quiz" | "room";
-export type TreasuryClaimType = "vote" | "share" | "pass" | "gift";
+export type TreasuryContentType = "poll" | "quiz" | "room" | "wiki";
+export type TreasuryClaimType = "vote" | "share" | "pass" | "gift" | "contribute";
 /** Room Custom Rewards (migration 0040) only — polls/quizzes always use "credits". */
 export type RewardAction = "credits" | "stars" | "custom_text";
 

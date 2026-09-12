@@ -26,7 +26,7 @@ interface Queryable {
 }
 
 /** Identifier types that own a slug namespace. */
-export type SlugEntity = "room" | "game" | "forum_question" | "blog" | "business_page" | "bb_thread" | "bb_board" | "help_category" | "help_doc" | "poll" | "quiz";
+export type SlugEntity = "room" | "game" | "forum_question" | "blog" | "business_page" | "bb_thread" | "bb_board" | "help_category" | "help_doc" | "poll" | "quiz" | "wiki";
 
 /**
  * The column + table each entity uses. Slugs are unique *within* an entity
@@ -47,6 +47,7 @@ const SLUG_SOURCES: Record<SlugEntity, { table: string }> = {
   help_doc: { table: "help_docs" },
   poll: { table: "polls" },
   quiz: { table: "quizzes" },
+  wiki: { table: "wikis" },
 };
 
 /**
@@ -136,6 +137,38 @@ export async function generateUniqueBlogPostSlug(
          ${excludeId ? "AND id <> $3" : ""}
        LIMIT 1`,
       excludeId ? [blogId, candidate, excludeId] : [blogId, candidate]
+    );
+    if (rows.length === 0) return candidate;
+  }
+
+  return clampSuffixed(`${base}-${fallbackId.replace(/-/g, "").slice(0, 8)}`, 1);
+}
+
+/**
+ * Generate a slug for a wiki page that is unique *within a single wiki*
+ * (wiki_pages.slug is only unique per wiki_id, not globally) — mirrors
+ * generateUniqueBlogPostSlug exactly.
+ */
+export async function generateUniqueWikiPageSlug(
+  wikiId: string,
+  title: string,
+  fallbackId: string,
+  client: Queryable = db,
+  excludeId?: string
+): Promise<string> {
+  let base = slugify(title);
+  if (!base) {
+    base = `page-${fallbackId.replace(/-/g, "").slice(0, 8)}`;
+  }
+
+  for (let i = 1; i <= 1000; i++) {
+    const candidate = clampSuffixed(base, i);
+    const { rows } = await client.query<{ id: string }>(
+      `SELECT id FROM wiki_pages
+       WHERE wiki_id = $1 AND slug = $2 AND deleted_at IS NULL
+         ${excludeId ? "AND id <> $3" : ""}
+       LIMIT 1`,
+      excludeId ? [wikiId, candidate, excludeId] : [wikiId, candidate]
     );
     if (rows.length === 0) return candidate;
   }

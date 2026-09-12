@@ -5323,6 +5323,181 @@ their defaults).
 
 ---
 
+## 38. Wikis (v2.22)
+
+Standard collaborative-wiki behaviour — any eligible user creates a wiki,
+other users contribute pages, every edit is kept as a revision anyone can
+review or restore. Discovery at `/wiki` (web/PWA and the Capacitor app)
+mirrors the Blogs/Polls/Quizzes discovery pages (§32, §36): Popular /
+Trending / New / Random tabs, search, cursor pagination. Public SEO pages
+sit at `/w/<slug>` (wiki home) and `/w/<slug>/<pageSlug>` (a page),
+following the exact `/b/<slug>` convention Blogs uses, including
+`slug_redirects` (`entity_type = 'wiki'`) for renamed wikis and readable
+sitemap inclusion.
+
+### 38.1 Who can create a wiki
+
+Creating a wiki is gated site-wide by the admin along three independent
+axes, all editable at `/gate44/wiki` (backed by `x_manifest`):
+
+- **Plan** — `wiki_create_required_plan` (default `free`).
+- **Creator level** — `wiki_create_min_level` (`users.level_creator`,
+  default 0).
+- **Staff-only mode** — `wiki_create_restricted_to_staff` (default off);
+  when on, only moderators/admins may create a wiki regardless of
+  plan/level.
+
+Moderators and admins always bypass all three checks. A user who fails the
+gate gets the specific reason back from the API (not a generic "no") so
+the client can explain exactly what's missing, same UX precedent as Guild
+creation's level/Trust Score gate (§13).
+
+Beyond the creation gate, a per-plan quota caps how many wikis a user may
+*own* at once (`wiki_max_owned_free/_plus/_pro/_max`, default 1/3/10/25)
+and how many pages a single wiki may hold, scaled by its owner's plan
+(`wiki_max_pages_free/_plus/_pro/_max`, default 20/75/250/1000) — both
+admin-configurable, mirroring Blogs' multi-blog quota shape (§32.1.1)
+without the paid-extra-slot purchase mechanic (not part of this feature's
+v1 — a wiki beyond the quota simply can't be created yet; extra-slot
+purchase can be layered on later using the same pattern if needed).
+
+### 38.2 Contributing to a wiki
+
+The wiki's owner sets a `contribute_policy` (changeable any time in
+settings):
+
+- **`everyone`** (default) — any signed-in user may create/edit pages.
+- **`friends`** — only users with an accepted friendship (`friendships`,
+  §social graph) with the owner.
+- **`selected`** — only users the owner (or a wiki moderator) explicitly
+  added as a collaborator, either directly or by accepting an invite
+  (§38.4).
+
+The owner and any wiki moderator (§38.3) may always contribute and manage
+the wiki regardless of `contribute_policy`. The first time a user actually
+creates or edits a page, they're recorded as an active `wiki_collaborators`
+row (role `contributor`) even under the `everyone`/`friends` policies —
+this is what makes them count toward `contributor_count` and appear in the
+collaborator list, without requiring the owner to pre-approve them.
+
+### 38.3 Moderators
+
+The wiki owner (or an admin) assigns per-wiki moderators from among its
+collaborators — a boolean `is_moderator` flag plus grant-audit columns
+(`moderator_granted_by`/`moderator_granted_at`) on `wiki_collaborators`,
+the exact same shape as Guilds' Forum Mods (§19, §13's `guild_members.
+is_moderator`) rather than a separate roles table. A wiki moderator may
+edit/delete any page on that wiki, manage collaborators/invites, and is
+otherwise scoped to that one wiki — sitewide Platform Mods/Admins can
+always moderate any wiki too, re-verified against the database on every
+call, never trusted from a session claim.
+
+### 38.4 Invites
+
+The owner (or a wiki moderator) generates an invite — a random token,
+optionally targeted at a specific username (or left open, for anyone with
+the link), with a configurable expiry (`wiki_invite_expiry_hours`, default
+168h/7 days) and single-use tracking, the same token/expiry/used-by shape
+as Guild invites (§13's `guild_invites`). Accepting an invite
+(`/wiki/invite/<token>` on web/PWA and the Capacitor app) adds the
+accepting user as an active `selected`-policy collaborator regardless of
+the wiki's current `contribute_policy`, and the invited user receives a
+notification through the existing notifications pipeline
+(`wiki_invite_received`) that deep-links straight to the accept screen.
+
+### 38.5 Rewards — XP, Credits, and the reward pot
+
+Creating a wiki or contributing a page each earn a small, always-on,
+admin-configurable reward — **default 1 XP / 0 Credits** for either
+action, exactly as specified for this feature, edited at `/gate44/wiki`
+(`wiki_create_reward_xp`/`_credits`, `wiki_contribute_reward_xp`/
+`_credits`). Credits rewards are capped per rolling 24h
+(`wiki_daily_reward_cap_credits`, default 50) to prevent farming, same
+mechanic as Polls/Quizzes (§36).
+
+Separately, a wiki owner may fund a **reward pot (treasury)** for their
+wiki — a Credits pot split evenly among the first N distinct people who
+either contribute a page or share the wiki, recomputed at claim time if
+the owner tops it up mid-flight. This reuses the generic `content_
+treasuries`/`content_treasury_claims`/`content_shares` tables already
+built for Polls/Quizzes (§36) rather than a bespoke `wiki_treasuries`
+table — `content_type = 'wiki'`, claim types `contribute`/`share`. Gated
+by the `wikiMonetization` sub-flag under the master `wiki` feature flag,
+same two-flag shape (`feature_x` + `xMonetization`) as every other
+monetized content type in this PRD.
+
+### 38.6 Pages & revision history
+
+A page's raw author input (Markdown or plain text — `content_format`,
+same split as Blog posts, §32) is rendered to sanitized HTML server-side
+via the existing `lib/security/htmlSanitizer.ts` (`sanitizeBlogPostHtml`/
+`plainTextToBlogPostHtml`, reused as-is — Markdown is converted to HTML
+*before* sanitizing, never after, closing the same injection gap Blogs'
+BUG-M06 fix documented) and stored as `content_html` alongside the raw
+source. Every save — creating a page or editing one — appends an
+immutable row to `wiki_page_revisions` (revision number, full content
+snapshot, editor, optional edit summary, timestamp); the live page row
+always mirrors the latest revision so a normal page read stays a single
+cheap row lookup, while the revisions table exists purely for history,
+review, and restore. Any eligible contributor can restore an older
+revision, which itself becomes a new revision (never rewrites history) —
+this is the one piece of this feature with no existing precedent
+elsewhere in the codebase (no other content type here has edit history),
+designed as an append-only ledger to match the append-only discipline
+already used for `coin_ledger`/`xp_ledger`/`blog_moderation_log`.
+
+### 38.7 Moderation & input safety
+
+Reports on a wiki or an individual page plug into the existing generic
+`reports`/`moderation_reports` tables via new `reported_wiki_id`/
+`reported_wiki_page_id` columns, the same convention as `reported_poll_id`
+(§36.4). Admins moderate at `/gate44/wiki` — suspend/ban/deactivate/pause/
+restore/delete a wiki, transfer ownership — every action logged to
+`wiki_moderation_log`, mirroring `blog_moderation_log` exactly. All
+free-text input (name, description, page title, page content, edit
+summaries, usernames used for invites) is length-capped and passed
+through the existing HTML sanitizer before storage; nothing user-authored
+on a wiki page is ever fed to an LLM in this v1, so the AI-prompt-injection
+delimiting discipline documented in §23 doesn't currently apply here — if
+a future "Ask AI to summarize this page" feature is added, it must follow
+that same pattern (user content clearly delimited from system
+instructions, never allowed to redefine the model's role).
+
+### 38.8 Redis & offline discipline
+
+Following this project's low-Redis-call constraint: wiki/page view counts
+are plain DB counter increments (no Redis, no per-view ledger row),
+deduped client-side via `localStorage` before the client even calls the
+view-record endpoint, the same `zobia_blog_viewed`-style pattern Blogs
+uses. Discovery, page content, and "my wikis" listings flow through the
+same TanStack Query persister (IndexedDB via `idb-keyval` on web/PWA) and
+Android's equivalent query-cache config that the rest of the app already
+uses for offline support, scoped per-device the same way as every other
+cached query in this app so nothing leaks between separate users of a
+shared device.
+
+### 38.9 Capacitor Android
+
+Mirrored feature-for-feature under `apps/android/src/routes/wiki/*`,
+`components/wiki/*`, and `lib/wiki/*`, hitting the exact same `/api/wiki/*`
+backend as web — no separate mobile API. Per this project's mobile-UI-
+simplification convention (the same one applied to Blogs/Rooms), the
+four-tab discovery bar collapses only if the platform's existing pattern
+elsewhere already does so; otherwise it mirrors web directly, and any
+horizontal wiki-page nav a wiki owner might configure on web still renders
+as a simple vertical list on Android.
+
+**New migration to run:** `db/migrations/0046_wiki.sql` (adds `wikis`,
+`wiki_pages`, `wiki_page_revisions`, `wiki_collaborators`, `wiki_invites`,
+`wiki_moderation_log`; extends `content_shares`/`content_treasuries`/
+`content_treasury_claims`' check constraints to accept `content_type =
+'wiki'` and `claim_type = 'contribute'`; adds `reported_wiki_id`/
+`reported_wiki_page_id` columns to `reports`/`moderation_reports`; and
+seeds `feature_wiki`, `wiki_monetization_enabled`, and all `wiki_*`
+creation-gate/reward/quota config `x_manifest` keys with their defaults).
+
+---
+
 ## Appendix: Version 2.04 Change Log
 
 ### v2.04 — Changelog
@@ -7058,6 +7233,53 @@ and four feed tabs (For You/Friends/Following/Mentions).
 
 ---
 
-*ZobiaSocial PRD v2.21*
+## Appendix: Version 2.22 Change Log
+
+### v2.22 — Changelog
+
+#### New Feature: Wikis (§38)
+
+Standard collaborative wikis at `/wiki` (discovery) and `/w/<slug>`
+(public SEO pages) — users create a wiki, other users contribute pages,
+every edit kept as a reviewable/restorable revision.
+
+- **Creation gate** (§38.1): admin-configurable by plan
+  (`wiki_create_required_plan`), creator level (`wiki_create_min_level`),
+  and an optional staff-only mode (`wiki_create_restricted_to_staff`), all
+  editable at `/gate44/wiki`. Per-plan quotas cap wikis owned and pages per
+  wiki.
+- **Contribution policy** (§38.2): the owner picks `everyone` (default),
+  `friends` (accepted friendships), or `selected` (explicit collaborators/
+  invite acceptance only).
+- **Moderators** (§38.3): the owner (or an admin) grants per-wiki
+  moderator status to a collaborator — same `is_moderator` +
+  grant-audit-column shape as Guilds' Forum Mods, scoped to that one wiki.
+- **Invites** (§38.4): token-based, optional target user, expiry
+  (`wiki_invite_expiry_hours`), single-use — same shape as Guild invites,
+  routed through the existing notifications pipeline.
+- **Rewards** (§38.5): creating a wiki or contributing a page earns
+  1 XP / 0 Credits by default, both independently admin-configurable, with
+  a rolling-24h Credits cap. A wiki owner may additionally fund a reward
+  pot split among the first N contributors/sharers, reusing the generic
+  `content_treasuries` mechanic already built for Polls/Quizzes rather
+  than a bespoke table.
+- **Revision history** (§38.6): every save appends an immutable row to
+  `wiki_page_revisions`; any eligible contributor can restore an older
+  version (itself recorded as a new revision). No other content type in
+  this codebase has edit history — this is new ground, built as an
+  append-only ledger to match the project's existing ledger discipline.
+- **Moderation & safety** (§38.7): reports plug into the existing generic
+  `reports`/`moderation_reports` tables; all free-text input is
+  length-capped and passed through the existing HTML sanitizer
+  (`lib/security/htmlSanitizer.ts`, reused as-is) before storage.
+- Mirrored feature-for-feature in the Capacitor Android app
+  (`apps/android/src/routes/wiki/*`), hitting the same `/api/wiki/*`
+  backend as web — no separate mobile API.
+
+**New migration to run:** `db/migrations/0046_wiki.sql`.
+
+---
+
+*ZobiaSocial PRD v2.22*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

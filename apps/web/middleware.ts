@@ -153,6 +153,10 @@ const PUBLIC_PREFIXES = [
   "/a/",
   "/b/",
   "/p/",
+  // Public wiki SEO pages (/w/<slug> and /w/<slug>/<pageSlug>) -- publicly
+  // readable/indexable, mirrors /b/ above. Editing still requires auth via
+  // the separate authenticated /wiki/<slug> route.
+  "/w/",
   // Public Tweet SEO page (/t/<tweetId>) — mirrors /a/ and /b/ above.
   "/t/",
   // Polls & Quizzes public SEO pages — publicly readable, indexable

@@ -198,6 +198,61 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // Blogs table absent or unavailable — skip silently
   }
 
+  // Public wikis. Served at /w/<slug>, viewable while 'active' or 'paused'
+  // (mirrors resolvePublicWiki's status check). Their published pages are
+  // also enumerated at /w/<slug>/<pageSlug>, capped per-wiki so a single
+  // huge wiki can't blow up the sitemap size, and capped overall alongside
+  // every other entity type here. The wikis table may not exist on older
+  // DBs — the catch keeps the sitemap working regardless.
+  try {
+    const { rows: wikiRows } = await db.query<{ id: string; slug: string; updated_at: string }>(
+      `SELECT id, slug, updated_at
+       FROM wikis
+       WHERE deleted_at IS NULL AND status IN ('active', 'paused')
+       ORDER BY updated_at DESC NULLS LAST
+       LIMIT 2000`
+    );
+
+    for (const w of wikiRows) {
+      entries.push({
+        url: `${BASE_URL}/w/${encodeURIComponent(w.slug)}`,
+        lastModified: new Date(w.updated_at),
+        changeFrequency: "weekly",
+        priority: 0.5,
+      });
+    }
+
+    // Published pages for those same wikis, capped at 20 per wiki to keep
+    // the overall URL count in check while still surfacing a wiki's most
+    // recently-updated content to crawlers.
+    if (wikiRows.length > 0) {
+      const { rows: wikiPageRows } = await db.query<{ wiki_slug: string; slug: string; updated_at: string }>(
+        `SELECT * FROM (
+           SELECT w.slug AS wiki_slug, p.slug, p.updated_at,
+                  ROW_NUMBER() OVER (PARTITION BY p.wiki_id ORDER BY p.updated_at DESC NULLS LAST) AS rn
+           FROM wiki_pages p
+           JOIN wikis w ON w.id = p.wiki_id
+           WHERE p.deleted_at IS NULL AND p.status = 'published'
+             AND w.deleted_at IS NULL AND w.status IN ('active', 'paused')
+         ) ranked
+         WHERE rn <= 20
+         ORDER BY updated_at DESC NULLS LAST
+         LIMIT 2000`
+      );
+
+      for (const p of wikiPageRows) {
+        entries.push({
+          url: `${BASE_URL}/w/${encodeURIComponent(p.wiki_slug)}/${encodeURIComponent(p.slug)}`,
+          lastModified: new Date(p.updated_at),
+          changeFrequency: "monthly",
+          priority: 0.45,
+        });
+      }
+    }
+  } catch {
+    // Wikis tables absent or unavailable — skip silently
+  }
+
   // Public Tweets. Served at /t/<id> — Tweets have no slug, just the uuid.
   // The table may not exist on older DBs (pre-0039-tweets migration) — the
   // catch keeps the sitemap working regardless.

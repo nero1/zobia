@@ -61,6 +61,7 @@ const adminNavItems = [
   { href: "/gate44/blogs",              label: "Blogs",              icon: "✍️" },
   { href: "/gate44/polls",              label: "Polls",              icon: "📊" },
   { href: "/gate44/quizzes",            label: "Quizzes",            icon: "🧠" },
+  { href: "/gate44/wiki",               label: "Wiki",                icon: "📖" },
   { href: "/gate44/support/queue",      label: "Support Tickets",    icon: "🎫" },
   { href: "/gate44/support/settings",   label: "Support Settings",   icon: "🛠️" },
   { href: "/gate44/help-center",        label: "Help Center",        icon: "📚" },

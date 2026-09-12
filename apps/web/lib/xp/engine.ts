@@ -118,6 +118,12 @@ export const XP_VALUES = {
   forum_answer_posted: 5,
   forum_upvote_received: 1,
   forum_best_answer_awarded: 25,
+
+  // Wikis — actual awarded amounts are manifest-driven
+  // (wiki_create_reward_xp / wiki_contribute_reward_xp, lib/wiki/limits.ts);
+  // these entries document the defaults, same convention as `forum_*` above.
+  wiki_created: 1,
+  wiki_page_contributed: 1,
 };
 
 // ─── Room message XP daily cap ───────────────────────────────────────────────

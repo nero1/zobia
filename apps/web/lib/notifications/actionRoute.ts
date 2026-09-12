@@ -69,6 +69,10 @@ export function deriveNotificationActionUrl(
       return isNonEmptyString(m.blogSlug) && isNonEmptyString(m.postSlug)
         ? `/blogs/${m.blogSlug}/${m.postSlug}`
         : null;
+    case "wiki_moderator_granted":
+      return isNonEmptyString(m.wikiId) ? `/wiki/${m.wikiId}/manage` : "/wiki";
+    case "wiki_invite_received":
+      return isNonEmptyString(m.token) ? `/wiki/invite/${m.token}` : "/wiki";
     case "gift_drop_announced":
       return "/events";
     case "kyc_submitted":
