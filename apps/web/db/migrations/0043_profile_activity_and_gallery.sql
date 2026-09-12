@@ -1,4 +1,4 @@
--- 0037_profile_activity_and_gallery.sql
+-- 0043_profile_activity_and_gallery.sql
 --
 -- Profile page additions:
 --   1. "Activities" tab — a read-only feed of a user's public activity

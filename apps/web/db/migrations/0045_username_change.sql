@@ -1,4 +1,4 @@
--- 0037_username_change.sql
+-- 0045_username_change.sql
 --
 -- Username Change feature:
 --   - username_change_history: audit-queryable record of every username

@@ -131,7 +131,7 @@ Custom avatar photo upload with a Facebook-style pan/zoom/crop step, plus a free
 - Switching to one of the **default onboarding icons** (the exact emoji set offered at onboarding Step 1, `shared/utils/defaultAvatars.ts`'s `DEFAULT_AVATAR_EMOJIS` — the single source both onboarding and the Settings picker read from) is **always free**, on any plan.
 - Charging (`debitCoins`/`debitStars`) and the `users.avatar_url`/`avatar_emoji` update happen inside one DB transaction (`lib/profile/avatarService.ts`), so a failed update never leaves a user charged for a change that didn't apply — same pattern as Moments' `createMoment()`.
 
-**Once-a-week cooldown:** every avatar change — custom upload *or* switching to a different default icon — is limited to once every 7 days, tracked via a dedicated `users.avatar_changed_at` column (migration `0037_profile_avatar_upload.sql`; kept separate from `updated_at`, which many unrelated fields touch). Within the cooldown, the server returns `429 AVATAR_CHANGE_RATE_LIMITED` with a `nextEligibleAt` timestamp; the crop modal fetches `GET /api/users/me/avatar` up front to show the cooldown/cost state before the user even picks a file.
+**Once-a-week cooldown:** every avatar change — custom upload *or* switching to a different default icon — is limited to once every 7 days, tracked via a dedicated `users.avatar_changed_at` column (migration `0044_profile_avatar_upload.sql`; kept separate from `updated_at`, which many unrelated fields touch). Within the cooldown, the server returns `429 AVATAR_CHANGE_RATE_LIMITED` with a `nextEligibleAt` timestamp; the crop modal fetches `GET /api/users/me/avatar` up front to show the cooldown/cost state before the user even picks a file.
 
 ---
 

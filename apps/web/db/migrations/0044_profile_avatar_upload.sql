@@ -1,4 +1,4 @@
--- 0037_profile_avatar_upload.sql
+-- 0044_profile_avatar_upload.sql
 --
 -- Profile Pictures feature (custom avatar upload with crop/resize):
 --   1. `users.avatar_changed_at` — dedicated timestamp separate from

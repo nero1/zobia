@@ -3,7 +3,7 @@
  *
  * Admin-configurable eligibility, cost and cooldown rules for the Username
  * Change feature (x_manifest keys seeded in
- * db/migrations/0037_username_change.sql). Mirrors the
+ * db/migrations/0045_username_change.sql). Mirrors the
  * lib/ads/limits.ts / lib/business/limits.ts convention: thin helpers over
  * getManifestValue, re-checked server-side inside the change transaction —
  * never trust a client-side eligibility gate alone.

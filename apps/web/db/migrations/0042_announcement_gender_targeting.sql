@@ -1,4 +1,4 @@
--- 0037_announcement_gender_targeting.sql
+-- 0042_announcement_gender_targeting.sql
 --
 -- Adds gender-based audience targeting to platform announcements, mirroring
 -- the existing target_plans / target_roles columns (empty array = "show to
