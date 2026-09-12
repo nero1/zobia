@@ -56,6 +56,7 @@ import { Route as AnswersIndexRouteImport } from './routes/answers/index'
 import { Route as AdsIndexRouteImport } from './routes/ads/index'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as WikiNewRouteImport } from './routes/wiki/new'
+import { Route as WikiPagesIdRouteImport } from './routes/wiki-pages/$id'
 import { Route as TweetsCreateRouteImport } from './routes/tweets/create'
 import { Route as TweetsTweetIdRouteImport } from './routes/tweets/$tweetId'
 import { Route as SupportNewRouteImport } from './routes/support/new'
@@ -78,11 +79,14 @@ import { Route as HelpSearchRouteImport } from './routes/help/search'
 import { Route as GuildsGuildIdRouteImport } from './routes/guilds/$guildId'
 import { Route as GamesSavedRouteImport } from './routes/games/saved'
 import { Route as ForumBoardSlugRouteImport } from './routes/forum/$boardSlug'
+import { Route as ForumThreadsIdRouteImport } from './routes/forum-threads/$id'
 import { Route as CreatorWalletRouteImport } from './routes/creator/wallet'
 import { Route as CreatorMarketplaceRouteImport } from './routes/creator/marketplace'
 import { Route as CreatorBroadcastsRouteImport } from './routes/creator/broadcasts'
 import { Route as CreatorBankAccountRouteImport } from './routes/creator/bank-account'
+import { Route as BusinessPostsIdRouteImport } from './routes/business-posts/$id'
 import { Route as BlogsNewRouteImport } from './routes/blogs/new'
+import { Route as BlogPostsIdRouteImport } from './routes/blog-posts/$id'
 import { Route as AuthTwoFactorRouteImport } from './routes/auth/two-factor'
 import { Route as AuthRegisterRouteImport } from './routes/auth/register'
 import { Route as AuthLoginRouteImport } from './routes/auth/login'
@@ -390,6 +394,11 @@ const WikiNewRoute = WikiNewRouteImport.update({
   path: '/wiki/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WikiPagesIdRoute = WikiPagesIdRouteImport.update({
+  id: '/wiki-pages/$id',
+  path: '/wiki-pages/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TweetsCreateRoute = TweetsCreateRouteImport.update({
   id: '/tweets/create',
   path: '/tweets/create',
@@ -500,6 +509,11 @@ const ForumBoardSlugRoute = ForumBoardSlugRouteImport.update({
   path: '/forum/$boardSlug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForumThreadsIdRoute = ForumThreadsIdRouteImport.update({
+  id: '/forum-threads/$id',
+  path: '/forum-threads/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CreatorWalletRoute = CreatorWalletRouteImport.update({
   id: '/creator/wallet',
   path: '/creator/wallet',
@@ -520,9 +534,19 @@ const CreatorBankAccountRoute = CreatorBankAccountRouteImport.update({
   path: '/creator/bank-account',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BusinessPostsIdRoute = BusinessPostsIdRouteImport.update({
+  id: '/business-posts/$id',
+  path: '/business-posts/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BlogsNewRoute = BlogsNewRouteImport.update({
   id: '/blogs/new',
   path: '/blogs/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BlogPostsIdRoute = BlogPostsIdRouteImport.update({
+  id: '/blog-posts/$id',
+  path: '/blog-posts/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AuthTwoFactorRoute = AuthTwoFactorRouteImport.update({
@@ -952,11 +976,14 @@ export interface FileRoutesByFullPath {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
+  '/blog-posts/$id': typeof BlogPostsIdRoute
   '/blogs/new': typeof BlogsNewRoute
+  '/business-posts/$id': typeof BusinessPostsIdRoute
   '/creator/bank-account': typeof CreatorBankAccountRoute
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
   '/creator/wallet': typeof CreatorWalletRoute
+  '/forum-threads/$id': typeof ForumThreadsIdRoute
   '/forum/$boardSlug': typeof ForumBoardSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
@@ -979,6 +1006,7 @@ export interface FileRoutesByFullPath {
   '/support/new': typeof SupportNewRoute
   '/tweets/$tweetId': typeof TweetsTweetIdRoute
   '/tweets/create': typeof TweetsCreateRoute
+  '/wiki-pages/$id': typeof WikiPagesIdRoute
   '/wiki/new': typeof WikiNewRoute
   '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
@@ -1099,11 +1127,14 @@ export interface FileRoutesByTo {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
+  '/blog-posts/$id': typeof BlogPostsIdRoute
   '/blogs/new': typeof BlogsNewRoute
+  '/business-posts/$id': typeof BusinessPostsIdRoute
   '/creator/bank-account': typeof CreatorBankAccountRoute
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
   '/creator/wallet': typeof CreatorWalletRoute
+  '/forum-threads/$id': typeof ForumThreadsIdRoute
   '/forum/$boardSlug': typeof ForumBoardSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
@@ -1126,6 +1157,7 @@ export interface FileRoutesByTo {
   '/support/new': typeof SupportNewRoute
   '/tweets/$tweetId': typeof TweetsTweetIdRoute
   '/tweets/create': typeof TweetsCreateRoute
+  '/wiki-pages/$id': typeof WikiPagesIdRoute
   '/wiki/new': typeof WikiNewRoute
   '/admin': typeof AdminIndexRoute
   '/ads': typeof AdsIndexRoute
@@ -1247,11 +1279,14 @@ export interface FileRoutesById {
   '/auth/login': typeof AuthLoginRoute
   '/auth/register': typeof AuthRegisterRoute
   '/auth/two-factor': typeof AuthTwoFactorRoute
+  '/blog-posts/$id': typeof BlogPostsIdRoute
   '/blogs/new': typeof BlogsNewRoute
+  '/business-posts/$id': typeof BusinessPostsIdRoute
   '/creator/bank-account': typeof CreatorBankAccountRoute
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
   '/creator/wallet': typeof CreatorWalletRoute
+  '/forum-threads/$id': typeof ForumThreadsIdRoute
   '/forum/$boardSlug': typeof ForumBoardSlugRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
@@ -1274,6 +1309,7 @@ export interface FileRoutesById {
   '/support/new': typeof SupportNewRoute
   '/tweets/$tweetId': typeof TweetsTweetIdRoute
   '/tweets/create': typeof TweetsCreateRoute
+  '/wiki-pages/$id': typeof WikiPagesIdRoute
   '/wiki/new': typeof WikiNewRoute
   '/admin/': typeof AdminIndexRoute
   '/ads/': typeof AdsIndexRoute
@@ -1396,11 +1432,14 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/two-factor'
+    | '/blog-posts/$id'
     | '/blogs/new'
+    | '/business-posts/$id'
     | '/creator/bank-account'
     | '/creator/broadcasts'
     | '/creator/marketplace'
     | '/creator/wallet'
+    | '/forum-threads/$id'
     | '/forum/$boardSlug'
     | '/games/saved'
     | '/guilds/$guildId'
@@ -1423,6 +1462,7 @@ export interface FileRouteTypes {
     | '/support/new'
     | '/tweets/$tweetId'
     | '/tweets/create'
+    | '/wiki-pages/$id'
     | '/wiki/new'
     | '/admin/'
     | '/ads/'
@@ -1543,11 +1583,14 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/two-factor'
+    | '/blog-posts/$id'
     | '/blogs/new'
+    | '/business-posts/$id'
     | '/creator/bank-account'
     | '/creator/broadcasts'
     | '/creator/marketplace'
     | '/creator/wallet'
+    | '/forum-threads/$id'
     | '/forum/$boardSlug'
     | '/games/saved'
     | '/guilds/$guildId'
@@ -1570,6 +1613,7 @@ export interface FileRouteTypes {
     | '/support/new'
     | '/tweets/$tweetId'
     | '/tweets/create'
+    | '/wiki-pages/$id'
     | '/wiki/new'
     | '/admin'
     | '/ads'
@@ -1690,11 +1734,14 @@ export interface FileRouteTypes {
     | '/auth/login'
     | '/auth/register'
     | '/auth/two-factor'
+    | '/blog-posts/$id'
     | '/blogs/new'
+    | '/business-posts/$id'
     | '/creator/bank-account'
     | '/creator/broadcasts'
     | '/creator/marketplace'
     | '/creator/wallet'
+    | '/forum-threads/$id'
     | '/forum/$boardSlug'
     | '/games/saved'
     | '/guilds/$guildId'
@@ -1717,6 +1764,7 @@ export interface FileRouteTypes {
     | '/support/new'
     | '/tweets/$tweetId'
     | '/tweets/create'
+    | '/wiki-pages/$id'
     | '/wiki/new'
     | '/admin/'
     | '/ads/'
@@ -1838,11 +1886,14 @@ export interface RootRouteChildren {
   AuthLoginRoute: typeof AuthLoginRoute
   AuthRegisterRoute: typeof AuthRegisterRoute
   AuthTwoFactorRoute: typeof AuthTwoFactorRoute
+  BlogPostsIdRoute: typeof BlogPostsIdRoute
   BlogsNewRoute: typeof BlogsNewRoute
+  BusinessPostsIdRoute: typeof BusinessPostsIdRoute
   CreatorBankAccountRoute: typeof CreatorBankAccountRoute
   CreatorBroadcastsRoute: typeof CreatorBroadcastsRoute
   CreatorMarketplaceRoute: typeof CreatorMarketplaceRoute
   CreatorWalletRoute: typeof CreatorWalletRoute
+  ForumThreadsIdRoute: typeof ForumThreadsIdRoute
   ForumBoardSlugRoute: typeof ForumBoardSlugRoute
   GamesSavedRoute: typeof GamesSavedRoute
   GuildsGuildIdRoute: typeof GuildsGuildIdRoute
@@ -1863,6 +1914,7 @@ export interface RootRouteChildren {
   SupportNewRoute: typeof SupportNewRoute
   TweetsTweetIdRoute: typeof TweetsTweetIdRoute
   TweetsCreateRoute: typeof TweetsCreateRoute
+  WikiPagesIdRoute: typeof WikiPagesIdRoute
   WikiNewRoute: typeof WikiNewRoute
   AdminIndexRoute: typeof AdminIndexRoute
   AdsIndexRoute: typeof AdsIndexRoute
@@ -2248,6 +2300,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WikiNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/wiki-pages/$id': {
+      id: '/wiki-pages/$id'
+      path: '/wiki-pages/$id'
+      fullPath: '/wiki-pages/$id'
+      preLoaderRoute: typeof WikiPagesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/tweets/create': {
       id: '/tweets/create'
       path: '/tweets/create'
@@ -2402,6 +2461,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ForumBoardSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forum-threads/$id': {
+      id: '/forum-threads/$id'
+      path: '/forum-threads/$id'
+      fullPath: '/forum-threads/$id'
+      preLoaderRoute: typeof ForumThreadsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/creator/wallet': {
       id: '/creator/wallet'
       path: '/creator/wallet'
@@ -2430,11 +2496,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CreatorBankAccountRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/business-posts/$id': {
+      id: '/business-posts/$id'
+      path: '/business-posts/$id'
+      fullPath: '/business-posts/$id'
+      preLoaderRoute: typeof BusinessPostsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/blogs/new': {
       id: '/blogs/new'
       path: '/blogs/new'
       fullPath: '/blogs/new'
       preLoaderRoute: typeof BlogsNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/blog-posts/$id': {
+      id: '/blog-posts/$id'
+      path: '/blog-posts/$id'
+      fullPath: '/blog-posts/$id'
+      preLoaderRoute: typeof BlogPostsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/auth/two-factor': {
@@ -3018,11 +3098,14 @@ const rootRouteChildren: RootRouteChildren = {
   AuthLoginRoute: AuthLoginRoute,
   AuthRegisterRoute: AuthRegisterRoute,
   AuthTwoFactorRoute: AuthTwoFactorRoute,
+  BlogPostsIdRoute: BlogPostsIdRoute,
   BlogsNewRoute: BlogsNewRoute,
+  BusinessPostsIdRoute: BusinessPostsIdRoute,
   CreatorBankAccountRoute: CreatorBankAccountRoute,
   CreatorBroadcastsRoute: CreatorBroadcastsRoute,
   CreatorMarketplaceRoute: CreatorMarketplaceRoute,
   CreatorWalletRoute: CreatorWalletRoute,
+  ForumThreadsIdRoute: ForumThreadsIdRoute,
   ForumBoardSlugRoute: ForumBoardSlugRoute,
   GamesSavedRoute: GamesSavedRoute,
   GuildsGuildIdRoute: GuildsGuildIdRoute,
@@ -3043,6 +3126,7 @@ const rootRouteChildren: RootRouteChildren = {
   SupportNewRoute: SupportNewRoute,
   TweetsTweetIdRoute: TweetsTweetIdRoute,
   TweetsCreateRoute: TweetsCreateRoute,
+  WikiPagesIdRoute: WikiPagesIdRoute,
   WikiNewRoute: WikiNewRoute,
   AdminIndexRoute: AdminIndexRoute,
   AdsIndexRoute: AdsIndexRoute,
