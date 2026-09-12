@@ -521,7 +521,9 @@ export type CoinTransactionType =
   | 'tweet_image_created'
   | 'tweet_long_created'
   | 'room_reward_fund'
-  | 'room_reward_claim';
+  | 'room_reward_claim'
+  | 'avatar_change'
+  | 'username_change';
 
 export interface CoinLedgerEntry {
   id: string;

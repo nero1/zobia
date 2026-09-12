@@ -20,7 +20,7 @@ import { AdminToast, AdminErrorState } from '@/components/admin/AdminUI';
 
 const PLAN_OPTIONS = ['free', 'plus', 'pro', 'max'] as const;
 const PRESTIGE_OPTIONS = ['prestige_1', 'prestige_2', 'prestige_5', 'prestige_10'] as const;
-const ALL_SECTIONS = ['avatar', 'bio', 'rank', 'xp', 'guild', 'seasons', 'badges'] as const;
+const ALL_SECTIONS = ['avatar', 'bio', 'rank', 'xp', 'guild', 'seasons', 'badges', 'activities'] as const;
 
 interface RawManifestEntry {
   key: string;

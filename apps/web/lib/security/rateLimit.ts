@@ -465,3 +465,14 @@ export function getClientIp(request: Request): string {
 
   return "unknown";
 }
+
+/**
+ * Extract the client's User-Agent header for session-device display (the
+ * "Active sessions" list in Settings → Security). Every login pathway
+ * (Google, Telegram, 2FA verify, session restore, mobile-bridge exchange,
+ * admin impersonation) should pass this into `createSession`/`rotateSession`
+ * — omitting it is why sessions used to always show as "Unknown device".
+ */
+export function getUserAgent(request: Request): string | undefined {
+  return request.headers.get("user-agent") ?? undefined;
+}

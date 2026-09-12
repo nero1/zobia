@@ -137,6 +137,47 @@ export async function compressImage(
 }
 
 /**
+ * Extract the second frame (index 1, 0-indexed) of an animated GIF as a
+ * static PNG buffer, so a stored avatar is never animated.
+ *
+ * Avatar-upload-specific (see app/api/users/me/avatar/route.ts) — every
+ * other upload surface (tweets/moments/forum) keeps full animated GIFs, so
+ * this is NOT wired into `compressImage`'s general pipeline.
+ *
+ * Uses the same conditional `require('sharp')` pattern as `compressImage`
+ * above (sharp reads a GIF frame via `sharp(buffer, { page: N })`, 0-indexed).
+ *
+ * @param inputBuffer - Raw GIF bytes
+ * @returns `{ buffer, mimeType: 'image/png' }` for the extracted frame, or
+ *   `null` if the GIF has only one frame (nothing to extract), sharp isn't
+ *   available, or extraction otherwise failed — callers should fall back to
+ *   storing the original buffer in that case.
+ */
+export async function extractGifSecondFrame(
+  inputBuffer: Buffer
+): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  try {
+    // eslint-disable-line
+    const sharp = require('sharp'); // eslint-disable-line
+
+    const meta = await sharp(inputBuffer).metadata() as { pages?: number };
+    if (!meta.pages || meta.pages <= 1) {
+      return null; // not actually animated — nothing to strip
+    }
+
+    const frameBuffer = await sharp(inputBuffer, { page: 1 }).png().toBuffer() as Buffer;
+    return { buffer: frameBuffer, mimeType: 'image/png' };
+  } catch (err: unknown) {
+    if ((err as NodeJS.ErrnoException).code !== 'MODULE_NOT_FOUND') {
+      logger.error({ err }, '[compress] GIF second-frame extraction failed — storing original (possibly animated) GIF');
+    } else {
+      logger.warn('[compress] Sharp not installed — cannot strip animation from GIF avatar; storing original');
+    }
+    return null;
+  }
+}
+
+/**
  * Determine if a MIME type is a compressible image format.
  */
 export function isCompressibleImage(mimeType: string): boolean {

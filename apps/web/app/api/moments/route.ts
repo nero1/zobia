@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { db, type SqlParam } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -110,6 +110,27 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
     const cursor = req.nextUrl.searchParams.get("cursor");
     const limit = Math.min(parseInt(req.nextUrl.searchParams.get("limit") ?? "20", 10), 50);
+    // Optional filters used by the profile page's photo gallery / Moments
+    // tab (app/(app)/profile/[userId]/page.tsx): scope the feed to one
+    // author, and optionally to media-bearing moments only. Both reuse this
+    // same cheap, indexed (idx_moments_user_created) query — no new endpoint,
+    // no new Redis usage.
+    const authorFilter = req.nextUrl.searchParams.get("userId");
+    const mediaOnly = req.nextUrl.searchParams.get("mediaOnly") === "1" || req.nextUrl.searchParams.get("mediaOnly") === "true";
+
+    const conditions = ["m.expires_at > NOW()"];
+    const queryParams: SqlParam[] = [userId, limit];
+    if (cursor) {
+      queryParams.push(cursor);
+      conditions.push(`m.created_at < $${queryParams.length}`);
+    }
+    if (authorFilter) {
+      queryParams.push(authorFilter);
+      conditions.push(`m.user_id = $${queryParams.length}`);
+    }
+    if (mediaOnly) {
+      conditions.push(`m.content_type <> 'text' AND m.media_url IS NOT NULL`);
+    }
 
     const { rows } = await db.query(
       `SELECT m.id, m.user_id,
@@ -137,11 +158,10 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
               ) AS reactions
        FROM moments m
        JOIN users u ON u.id = m.user_id
-       WHERE m.expires_at > NOW()
-         ${cursor ? "AND m.created_at < $3" : ""}
+       WHERE ${conditions.join(" AND ")}
        ORDER BY m.created_at DESC
        LIMIT $2`,
-      cursor ? [userId, limit, cursor] : [userId, limit]
+      queryParams
     );
 
     const nextCursor = rows.length === limit ? rows[rows.length - 1].created_at : null;

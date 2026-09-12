@@ -156,12 +156,12 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
          LIMIT 500`,
         [userId]
       ),
-      // Friends list
+      // Friends list (accepted friendships only)
       db.query<FriendRow>(
-        `SELECT f.friend_id, u.username, u.display_name, f.created_at
-         FROM friends f
-         JOIN users u ON u.id = f.friend_id
-         WHERE f.user_id = $1`,
+        `SELECT u.id AS friend_id, u.username, u.display_name, f.created_at
+         FROM friendships f
+         JOIN users u ON u.id = CASE WHEN f.requester_id = $1 THEN f.addressee_id ELSE f.requester_id END
+         WHERE (f.requester_id = $1 OR f.addressee_id = $1) AND f.status = 'accepted'`,
         [userId]
       ),
       // Guild memberships

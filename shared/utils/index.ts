@@ -10,3 +10,4 @@ export * from "./referral";
 export * from "./publicRoutes";
 export * from "./games";
 export * from "./giftTiers";
+export * from "./defaultAvatars";

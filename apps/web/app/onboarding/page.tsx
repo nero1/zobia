@@ -19,6 +19,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Script from "next/script";
 import { useTranslation } from "react-i18next";
+import { DEFAULT_AVATAR_EMOJIS } from "@/lib/profile/defaultAvatars";
 import {
   getStoredReferralCode,
   clearStoredReferralCode,
@@ -96,10 +97,7 @@ const COMMON_CITIES = [
   "Other",
 ];
 
-const AVATAR_OPTIONS = [
-  "😎", "🔥", "👑", "💎", "🦁", "🐯", "⚡", "🚀", "🎯", "💪",
-  "🌟", "🎭", "🏆", "🎪", "🌊", "🦅", "🐉", "🌙", "☀️", "🎸",
-];
+const AVATAR_OPTIONS = DEFAULT_AVATAR_EMOJIS;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -132,6 +130,7 @@ export default function OnboardingPage() {
   const [city, setCity] = useState("");
   const [citySearch, setCitySearch] = useState("");
   const [birthYear, setBirthYear] = useState("");
+  const [gender, setGender] = useState<"male" | "female" | "non_binary" | "prefer_not_to_say" | null>(null);
   const [usernameStatus, setUsernameStatus] = useState<"idle" | "checking" | "ok" | "taken" | "invalid">("idle");
 
   // Per-field validation errors — Step 1
@@ -375,6 +374,7 @@ export default function OnboardingPage() {
           avatar_emoji: avatarEmoji,
           city,
           birth_year: parseInt(birthYear, 10),
+          gender: gender ?? undefined,
           vibe_quiz_responses: vibeAnswers,
           captcha_token: captchaToken ?? undefined,
           referral_code: referralCode ?? undefined,
@@ -684,6 +684,36 @@ export default function OnboardingPage() {
                       {t("onboarding.step1.birthYearHint", { age: manifest?.minimumAge ?? 18 })}
                     </p>
                 }
+              </div>
+
+              {/* Gender (optional) */}
+              <div>
+                <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+                  {t("onboarding.step1.genderLabel", "Gender")}
+                </label>
+                <div className="flex flex-wrap gap-2">
+                  {(
+                    [
+                      { value: "male", label: t("onboarding.step1.genderMale", "Male") },
+                      { value: "female", label: t("onboarding.step1.genderFemale", "Female") },
+                      { value: "non_binary", label: t("onboarding.step1.genderOther", "Other") },
+                      { value: "prefer_not_to_say", label: t("onboarding.step1.genderPreferNotToSay", "Prefer not to say") },
+                    ] as const
+                  ).map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setGender(opt.value)}
+                      className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${
+                        gender === opt.value
+                          ? "bg-amber-400 text-neutral-900"
+                          : "border border-neutral-200 text-neutral-700 hover:border-amber-300 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               {/* Turnstile widget mount point */}

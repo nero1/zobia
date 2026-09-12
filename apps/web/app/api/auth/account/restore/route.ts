@@ -13,7 +13,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
-import { enforceRateLimit, getClientIp } from "@/lib/security/rateLimit";
+import { enforceRateLimit, getClientIp, getUserAgent } from "@/lib/security/rateLimit";
 import { initiateAccountRestore, completeAccountRestore } from "@/lib/auth/restore";
 
 const initiateSchema = z.object({
@@ -53,7 +53,10 @@ export const POST = async (req: NextRequest) => {
 export const PATCH = async (req: NextRequest) => {
   try {
     const body = await validateBody(req, completeSchema);
-    const result = await completeAccountRestore(body.token);
+    const result = await completeAccountRestore(body.token, {
+      ip: getClientIp(req),
+      ua: getUserAgent(req),
+    });
 
     if (!result.success) {
       throw badRequest(result.error ?? "Restore failed", "RESTORE_FAILED");

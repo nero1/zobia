@@ -7,16 +7,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { App } from '@capacitor/app';
 import { useAuth } from '@/lib/auth/store';
 import { apiClient } from '@/lib/api/client';
 import { restorePurchases } from '@/lib/payments/googlePlay';
 import { LOCALE_LABELS, SUPPORTED_LOCALES, type SupportedLocale } from '@zobia/shared/i18n';
+import { DEFAULT_AVATAR_EMOJIS } from '@zobia/shared/utils';
 import i18n from '@/lib/i18n';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
 import { useTweetsConfig } from '@/lib/hooks/useTweetsConfig';
 import { useTweetLengthPolicy } from '@/lib/hooks/useTweetLengthPolicy';
+import { AvatarCropModal } from '@/components/profile/AvatarCropModal';
 
 // ZB-AND-09 fix: restorePurchases() was fully implemented in
 // lib/payments/googlePlay.ts but had no UI entry point anywhere in the app —
@@ -45,6 +47,257 @@ function RestorePurchasesSection() {
       </button>
       {state === 'success' && <p className="mt-2 text-xs text-green-600">{t('settings.restorePurchases.success')}</p>}
       {state === 'error' && <p className="mt-2 text-xs text-danger-600">{t('settings.restorePurchases.error')}</p>}
+    </div>
+  );
+}
+
+// Gender sub-section — mirrors web's settings "Gender" pill selector, saved
+// via PUT /api/users/me (same endpoint web uses).
+type Gender = 'male' | 'female' | 'non_binary' | 'prefer_not_to_say';
+
+function GenderSection() {
+  const { t } = useTranslation();
+  const [gender, setGender] = useState<Gender | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiClient
+      .get<{ user?: { gender?: Gender | null } }>('/users/me')
+      .then(({ data }) => {
+        if (data.user?.gender) setGender(data.user.gender);
+      })
+      .catch(() => { /* non-fatal */ });
+  }, []);
+
+  async function save(value: Gender) {
+    const previous = gender;
+    setGender(value);
+    setSaving(true);
+    try {
+      await apiClient.put('/users/me', { gender: value });
+    } catch {
+      setGender(previous); // revert on failure
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const options: { value: Gender; label: string }[] = [
+    { value: 'male', label: t('settings.gender.male', 'Male') },
+    { value: 'female', label: t('settings.gender.female', 'Female') },
+    { value: 'non_binary', label: t('settings.gender.other', 'Other') },
+    { value: 'prefer_not_to_say', label: t('settings.gender.preferNotToSay', 'Prefer not to say') },
+  ];
+
+  return (
+    <div className="bg-white px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 mb-3">{t('settings.gender.label', 'Gender')}</h3>
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => (
+          <button
+            key={opt.value}
+            onClick={() => void save(opt.value)}
+            disabled={saving}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-40 ${
+              gender === opt.value
+                ? 'bg-primary-600 text-white'
+                : 'border border-neutral-300 text-neutral-700'
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function UsernameSection() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const [currentUsername, setCurrentUsername] = useState<string | null>(user?.username ?? null);
+  const [eligibility, setEligibility] = useState<{
+    eligible: boolean;
+    reason: string | null;
+    costCredits: number;
+    costStars: number;
+  } | null>(null);
+  const [step, setStep] = useState<'idle' | 'pick' | 'confirm'>('idle');
+  const [candidate, setCandidate] = useState('');
+  const [availability, setAvailability] = useState<{ available: boolean; reason?: string } | null>(null);
+  const [checking, setChecking] = useState(false);
+  const [currency, setCurrency] = useState<'credits' | 'stars'>('credits');
+  const [redirectEnabled, setRedirectEnabled] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiClient
+      .get<{ data: { eligible: boolean; reason: string | null; costCredits: number; costStars: number } }>('/users/me/username')
+      .then(({ data }) => setEligibility(data.data))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    if (step !== 'pick' || candidate.trim().length < 3) {
+      setAvailability(null);
+      return;
+    }
+    setChecking(true);
+    const handle = setTimeout(() => {
+      apiClient
+        .get<{ data: { available: boolean; reason?: string } }>(
+          `/users/me/username/availability?username=${encodeURIComponent(candidate.trim())}`
+        )
+        .then(({ data }) => setAvailability(data.data))
+        .catch(() => setAvailability({ available: false, reason: t('settings.username.checkFailed', "Couldn't check availability") }))
+        .finally(() => setChecking(false));
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [candidate, step, t]);
+
+  const isFree = (eligibility?.costCredits ?? 0) <= 0 && (eligibility?.costStars ?? 0) <= 0;
+
+  async function confirmChange() {
+    setSaving(true);
+    setError(null);
+    try {
+      const { data } = await apiClient.post<{ data: { newUsername: string } }>('/users/me/username', {
+        username: candidate.trim().toLowerCase(),
+        currency: isFree ? undefined : currency,
+        redirectEnabled,
+      });
+      setCurrentUsername(data.data.newUsername);
+      setSuccess(t('settings.username.changed', 'Username changed!'));
+      setStep('idle');
+      setCandidate('');
+    } catch {
+      setError(t('settings.username.changeFailed', "Couldn't change username"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-white px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 mb-1">{t('settings.username.title', 'Username')}</h3>
+      <p className="text-xs text-neutral-500 mb-3">
+        {t('settings.username.current', 'Current username')}: @{currentUsername}
+      </p>
+
+      {eligibility && !eligibility.eligible && (
+        <p className="text-xs text-neutral-500 mb-2">
+          {eligibility.reason ?? t('settings.username.notEligible', "You're not eligible to change your username right now.")}
+        </p>
+      )}
+      {error && <p className="text-xs text-danger-600 mb-2">{error}</p>}
+      {success && <p className="text-xs text-green-600 mb-2">{success}</p>}
+
+      {step === 'idle' && (
+        <button
+          onClick={() => { setStep('pick'); setSuccess(null); }}
+          disabled={!eligibility?.eligible}
+          className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+        >
+          {t('settings.username.change', 'Change username')}
+        </button>
+      )}
+
+      {step === 'pick' && (
+        <div className="space-y-3">
+          <input
+            value={candidate}
+            onChange={(e) => setCandidate(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+            placeholder={t('settings.username.placeholder', 'new_username')}
+            maxLength={30}
+            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+          />
+          {checking && <p className="text-xs text-neutral-400">{t('settings.username.checking', 'Checking availability…')}</p>}
+          {!checking && availability && (
+            <p className={`text-xs ${availability.available ? 'text-green-600' : 'text-danger-600'}`}>
+              {availability.available
+                ? t('settings.username.available', 'Available!')
+                : availability.reason ?? t('settings.username.unavailable', 'Not available')}
+            </p>
+          )}
+
+          <label className="flex items-center gap-2 text-xs text-neutral-600">
+            <input type="checkbox" checked={redirectEnabled} onChange={(e) => setRedirectEnabled(e.target.checked)} />
+            {t('settings.username.redirectTitle', 'Redirect my old username')}
+          </label>
+          <p className="text-[11px] text-neutral-500">
+            {redirectEnabled
+              ? t('settings.username.redirectOnHint', 'Visits to your old username will always redirect here.')
+              : t('settings.username.redirectOffHint', 'Your old username will be held for 1 year, then released — nobody can claim it during that year.')}
+          </p>
+
+          {!isFree && eligibility && (
+            <div className="flex gap-2">
+              {eligibility.costCredits > 0 && (
+                <button
+                  onClick={() => setCurrency('credits')}
+                  className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-semibold ${currency === 'credits' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-300 text-neutral-600'}`}
+                >
+                  {t('settings.username.costCredits', '{{amount}} Credits', { amount: eligibility.costCredits })}
+                </button>
+              )}
+              {eligibility.costStars > 0 && (
+                <button
+                  onClick={() => setCurrency('stars')}
+                  className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-semibold ${currency === 'stars' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-300 text-neutral-600'}`}
+                >
+                  {t('settings.username.costStars', '{{amount}} Stars', { amount: eligibility.costStars })}
+                </button>
+              )}
+            </div>
+          )}
+
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setStep('idle'); setCandidate(''); setAvailability(null); }}
+              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold"
+            >
+              {t('action.cancel', 'Cancel')}
+            </button>
+            <button
+              onClick={() => setStep('confirm')}
+              disabled={!availability?.available}
+              className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+            >
+              {t('common.continue', 'Continue')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'confirm' && (
+        <div className="space-y-2 rounded-lg border border-neutral-200 p-3 mt-2">
+          <p className="text-xs text-neutral-700">
+            {t('settings.username.confirmBody', 'Change @{{old}} to @{{new}}?', { old: currentUsername, new: candidate })}
+          </p>
+          <p className="text-[11px] text-neutral-500">
+            {isFree
+              ? t('settings.username.confirmFree', 'This is free.')
+              : t('settings.username.confirmCost', 'Cost: {{amount}} {{currency}}.', {
+                  amount: currency === 'credits' ? eligibility?.costCredits : eligibility?.costStars,
+                  currency: currency === 'credits' ? t('common.credits', 'Credits') : t('common.stars', 'Stars'),
+                })}
+          </p>
+          <div className="flex gap-2">
+            <button onClick={() => setStep('pick')} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold">
+              {t('common.back', 'Back')}
+            </button>
+            <button
+              onClick={() => void confirmChange()}
+              disabled={saving}
+              className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+            >
+              {saving ? t('common.saving', 'Saving…') : t('common.confirm', 'Confirm')}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -236,6 +489,123 @@ function TweetLengthSection() {
   );
 }
 
+// Profile Pictures feature — mirrors apps/web/app/(app)/settings/page.tsx's
+// avatar section. Fetches avatar_url/avatar_emoji directly (not carried on
+// the cached AuthUser) since they can change without a re-login.
+interface AvatarProfile {
+  avatar_url: string | null;
+  avatar_emoji: string | null;
+}
+
+function ProfilePhotoSection() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [cropImageSrc, setCropImageSrc] = useState<string | null>(null);
+  const [showDefaultIconPicker, setShowDefaultIconPicker] = useState(false);
+  const [savingIcon, setSavingIcon] = useState<string | null>(null);
+  const [toast, setToast] = useState<string | null>(null);
+
+  const { data } = useQuery({
+    queryKey: ['users', 'me', 'avatar-profile'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ user: AvatarProfile }>('/users/me');
+      return data.user;
+    },
+  });
+
+  async function selectDefaultIcon(emoji: string) {
+    setSavingIcon(emoji);
+    try {
+      await apiClient.put('/users/me', { avatar_emoji: emoji });
+      qc.setQueryData(['users', 'me', 'avatar-profile'], { avatar_url: null, avatar_emoji: emoji });
+      setShowDefaultIconPicker(false);
+      setToast(t('profile.avatar.iconUpdated'));
+    } catch {
+      setToast(t('profile.avatar.uploadFailed'));
+    } finally {
+      setSavingIcon(null);
+      setTimeout(() => setToast(null), 3000);
+    }
+  }
+
+  return (
+    <div className="bg-white px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 mb-3">{t('profile.avatar.sectionLabel')}</h3>
+      <div className="flex items-center gap-4">
+        {data?.avatar_url ? (
+          <img src={data.avatar_url} alt="" className="w-16 h-16 rounded-full object-cover" />
+        ) : (
+          <div className="w-16 h-16 rounded-full bg-primary-100 flex items-center justify-center text-2xl">
+            {data?.avatar_emoji ?? '👤'}
+          </div>
+        )}
+        <div className="flex flex-col gap-2">
+          <div className="flex gap-2">
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold"
+            >
+              {t('profile.avatar.uploadPhoto')}
+            </button>
+            <button
+              onClick={() => setShowDefaultIconPicker((v) => !v)}
+              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold"
+            >
+              {t('profile.avatar.useDefaultIcon')}
+            </button>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) setCropImageSrc(URL.createObjectURL(file));
+              e.target.value = '';
+            }}
+          />
+        </div>
+      </div>
+
+      {showDefaultIconPicker && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {DEFAULT_AVATAR_EMOJIS.map((emoji) => (
+            <button
+              key={emoji}
+              disabled={savingIcon !== null}
+              onClick={() => void selectDefaultIcon(emoji)}
+              className={`h-10 w-10 rounded-full text-xl disabled:opacity-50 ${
+                data?.avatar_emoji === emoji ? 'ring-2 ring-primary-500 ring-offset-2' : ''
+              }`}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {toast && <p className="mt-2 text-xs text-neutral-600">{toast}</p>}
+
+      {cropImageSrc && (
+        <AvatarCropModal
+          imageSrc={cropImageSrc}
+          onClose={() => {
+            URL.revokeObjectURL(cropImageSrc);
+            setCropImageSrc(null);
+          }}
+          onUploaded={(newUrl) => {
+            qc.setQueryData(['users', 'me', 'avatar-profile'], { avatar_url: newUrl, avatar_emoji: null });
+            setToast(t('profile.avatar.photoUpdated'));
+            setTimeout(() => setToast(null), 3000);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
 // BUG-CAP-11 fix: fallback only, used if App.getInfo() throws (e.g. running
 // in a plain browser during `npm run dev`, where the native App plugin is a
 // no-op). The real value always comes from the installed APK's manifest.
@@ -286,6 +656,9 @@ function SettingsPage() {
           </div>
         </div>
       )}
+
+      {/* Profile photo (Profile Pictures feature) */}
+      <ProfilePhotoSection />
 
       {/* Wallet & Stats */}
       <div className="bg-white px-6 py-2 mb-3">
@@ -344,6 +717,12 @@ function SettingsPage() {
 
       {/* Tweets — personal max Tweet length */}
       {tweetsConfig.enabled && <TweetLengthSection />}
+
+      {/* Gender */}
+      <GenderSection />
+
+      {/* Change username */}
+      <UsernameSection />
 
       {/* Restore Purchases (ZB-AND-09) */}
       <RestorePurchasesSection />

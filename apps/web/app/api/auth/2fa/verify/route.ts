@@ -18,7 +18,7 @@ import { db } from "@/lib/db";
 import { redis } from "@/lib/redis";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, unauthorized, forbidden } from "@/lib/api/errors";
-import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { enforceRateLimit, getClientIp, getUserAgent, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { verifyAccessToken } from "@/lib/auth/jwt";
 import { createSession, buildCookieHeaders } from "@/lib/auth/session";
 import { decryptField } from "@/lib/security/fieldEncryption";
@@ -40,6 +40,7 @@ const verifySchema = z.object({
 export async function POST(req: NextRequest) {
   try {
     const ip = getClientIp(req);
+    const ua = getUserAgent(req);
     await enforceRateLimit(ip, "ip", { ...RATE_LIMITS.apiWrite, limit: 10 });
 
     // Mobile callers (Expo app) cannot receive cookies; they need tokens in the
@@ -155,7 +156,7 @@ export async function POST(req: NextRequest) {
           is_moderator: user.is_moderator,
           is_creator: user.is_creator,
         },
-        { ip }
+        { ip, ua }
       );
 
       if (isMobile) {

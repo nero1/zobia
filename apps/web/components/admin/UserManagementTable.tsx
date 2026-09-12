@@ -140,6 +140,88 @@ export function TrustBar({ score }: { score: number }) {
 }
 
 // ---------------------------------------------------------------------------
+// Username history — collapsible, lazy-loaded on first expand
+// ---------------------------------------------------------------------------
+
+interface UsernameHistoryEntry {
+  id: string;
+  old_username: string;
+  new_username: string;
+  changed_at: string;
+  redirect_enabled: boolean;
+  reserved_until: string | null;
+  cost_paid_credits: number;
+  cost_paid_stars: number;
+}
+
+function UsernameHistorySection({ userId }: { userId: string }) {
+  const [open, setOpen] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [history, setHistory] = useState<UsernameHistoryEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  async function loadHistory() {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/users/${userId}/username-history`, { credentials: "include" });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json?.error?.message ?? "Failed to load history");
+      setHistory(json.data.history);
+      setLoaded(true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load history");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded-lg border border-neutral-200 p-3 dark:border-neutral-800">
+      <button
+        onClick={() => {
+          const next = !open;
+          setOpen(next);
+          if (next && !loaded) void loadHistory();
+        }}
+        className="flex w-full items-center justify-between text-xs font-semibold uppercase tracking-wider text-neutral-500"
+      >
+        <span>Username History</span>
+        <span>{open ? "▲" : "▼"}</span>
+      </button>
+      {open && (
+        <div className="space-y-2">
+          {loading && <p className="text-xs text-neutral-400">Loading…</p>}
+          {error && <p className="text-xs text-danger-600">{error}</p>}
+          {!loading && !error && loaded && history.length === 0 && (
+            <p className="text-xs text-neutral-400">This user has never changed their username.</p>
+          )}
+          {history.map((entry) => (
+            <div key={entry.id} className="rounded-lg border border-neutral-100 p-2 text-xs dark:border-neutral-800">
+              <p className="font-medium text-neutral-800 dark:text-neutral-200">
+                @{entry.old_username} → @{entry.new_username}
+              </p>
+              <p className="mt-0.5 text-neutral-500">{formatDate(entry.changed_at)}</p>
+              <p className="mt-0.5 text-neutral-500">
+                {entry.redirect_enabled
+                  ? "Redirect: old username permanently redirects"
+                  : entry.reserved_until
+                    ? `Reserved until ${formatDate(entry.reserved_until)} (no redirect)`
+                    : "No redirect"}
+              </p>
+              <p className="mt-0.5 text-neutral-500">
+                Paid: {entry.cost_paid_credits > 0 ? `${entry.cost_paid_credits} Credits` : entry.cost_paid_stars > 0 ? `${entry.cost_paid_stars} Stars` : "Free"}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Detail panel
 // ---------------------------------------------------------------------------
 
@@ -386,6 +468,11 @@ function DetailPanel({ user, onClose, onAction, onImpersonate, onDelete, showDel
           </div>
         </div>
 
+        {/* Username History — available to admins and moderators via the
+            dedicated endpoint (app/api/admin/users/[userId]/username-history,
+            withModeratorOrAdminAuth) */}
+        <UsernameHistorySection userId={user.id} />
+
         {/* Danger zone — soft-delete. Only shown when embedded in Data Management
             (app/(admin)/gate44/data-management/page.tsx); the standalone
             gate44/users page keeps its existing action set unchanged. */}
@@ -598,6 +685,7 @@ export default function UserManagementTable({ embedded = false, onSelectionChang
   }, [t]);
   const [query, setQuery] = useState("");
   const [debouncedQuery, setDebouncedQuery] = useState("");
+  const [genderFilter, setGenderFilter] = useState<Set<string>>(new Set());
   const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -635,6 +723,7 @@ export default function UserManagementTable({ embedded = false, onSelectionChang
     try {
       const params = new URLSearchParams({ limit: "20" });
       if (debouncedQuery) params.set("q", debouncedQuery);
+      if (genderFilter.size > 0) params.set("gender", Array.from(genderFilter).join(","));
       if (cursor) params.set("cursor", cursor);
       const res = await fetch(`/api/admin/users?${params}`, { credentials: "include" });
       if (res.status === 401 || res.status === 403) {
@@ -654,14 +743,23 @@ export default function UserManagementTable({ embedded = false, onSelectionChang
     } finally {
       setLoading(false);
     }
-  }, [debouncedQuery]);
+  }, [debouncedQuery, genderFilter]);
 
-  // Re-run search whenever the debounced query changes, resetting pagination.
+  // Re-run search whenever the debounced query or gender filter changes, resetting pagination.
   useEffect(() => {
     setCursorHistory([undefined]);
     void search(undefined, 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedQuery]);
+  }, [debouncedQuery, genderFilter]);
+
+  function toggleGenderFilter(value: string) {
+    setGenderFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }
 
   function goNext() {
     if (!nextCursor) return;
@@ -791,6 +889,40 @@ export default function UserManagementTable({ embedded = false, onSelectionChang
           {loading ? "Searching…" : "Search"}
         </button>
       </form>
+
+      {/* Gender filter — pill multi-select; "unset" is its own bucket for gender IS NULL */}
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-neutral-500">Gender:</span>
+        {[
+          { value: "male", label: "Male" },
+          { value: "female", label: "Female" },
+          { value: "non_binary", label: "Other" },
+          { value: "prefer_not_to_say", label: "Prefer not to say" },
+          { value: "unset", label: "Not set" },
+        ].map((opt) => (
+          <button
+            key={opt.value}
+            type="button"
+            onClick={() => toggleGenderFilter(opt.value)}
+            className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
+              genderFilter.has(opt.value)
+                ? "border-blue-600 bg-blue-600 text-white"
+                : "border-neutral-300 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+        {genderFilter.size > 0 && (
+          <button
+            type="button"
+            onClick={() => setGenderFilter(new Set())}
+            className="text-xs font-medium text-neutral-500 underline hover:text-neutral-700 dark:hover:text-neutral-300"
+          >
+            Clear
+          </button>
+        )}
+      </div>
 
       {/* Error */}
       {error && (

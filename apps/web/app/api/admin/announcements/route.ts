@@ -45,8 +45,9 @@ const CreateSchema = z
       .object({
         plans: z.array(z.string()).default([]),
         roles: z.array(z.string()).default([]),
+        genders: z.array(z.enum(["male", "female", "non_binary", "prefer_not_to_say"])).default([]),
       })
-      .default({ plans: [], roles: [] }),
+      .default({ plans: [], roles: [], genders: [] }),
     displayOrder: z.number().int().min(0).default(1),
     status: z.enum(["active", "inactive", "scheduled"]).default("inactive"),
   })
@@ -67,6 +68,7 @@ interface DbRow {
   is_active: boolean;
   target_plans: string[] | null;
   target_roles: string[] | null;
+  target_genders: string[] | null;
   display_order: number;
   starts_at: string | null;
   ends_at: string | null;
@@ -91,6 +93,7 @@ function toApiAnnouncement(type: "modal" | "banner", row: DbRow) {
     audience: {
       plans: row.target_plans ?? [],
       roles: row.target_roles ?? [],
+      genders: row.target_genders ?? [],
     },
     startAt: row.starts_at,
     endAt: row.ends_at,
@@ -114,6 +117,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
         ? `SELECT id, title, content, content_type, is_active,
                   COALESCE(target_plans, '{}')::text[] AS target_plans,
                   COALESCE(target_roles, '{}')::text[] AS target_roles,
+                  COALESCE(target_genders, '{}')::text[] AS target_genders,
                   display_order, starts_at, ends_at, created_at, updated_at
            FROM announcement_modals
            WHERE deleted_at IS NULL
@@ -121,6 +125,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
         : `SELECT id, title, content, content_type, link_url, is_active,
                   COALESCE(target_plans, '{}')::text[] AS target_plans,
                   COALESCE(target_roles, '{}')::text[] AS target_roles,
+                  COALESCE(target_genders, '{}')::text[] AS target_genders,
                   display_order, starts_at, ends_at, created_at, updated_at
            FROM announcement_banners
            WHERE deleted_at IS NULL
@@ -172,16 +177,17 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       const { rows } = await db.query<DbRow>(
         `INSERT INTO announcement_modals
            (title, content, content_type, is_active,
-            target_plans, target_roles, display_order,
+            target_plans, target_roles, target_genders, display_order,
             starts_at, ends_at, created_by, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW(), NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
          RETURNING id, title, content, content_type, is_active,
                    COALESCE(target_plans, '{}')::text[] AS target_plans,
                    COALESCE(target_roles, '{}')::text[] AS target_roles,
+                   COALESCE(target_genders, '{}')::text[] AS target_genders,
                    display_order, starts_at, ends_at, created_at, updated_at`,
         [
           title ?? null, content, contentType, isActive,
-          audience.plans, audience.roles,
+          audience.plans, audience.roles, audience.genders,
           displayOrder, startAt ?? null, endAt ?? null, auth.user.sub,
         ]
       );
@@ -197,16 +203,17 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       const { rows } = await db.query<DbRow>(
         `INSERT INTO announcement_banners
            (title, content, content_type, link_url, is_active,
-            target_plans, target_roles, display_order,
+            target_plans, target_roles, target_genders, display_order,
             starts_at, ends_at, created_by, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
          RETURNING id, title, content, content_type, link_url, is_active,
                    COALESCE(target_plans, '{}')::text[] AS target_plans,
                    COALESCE(target_roles, '{}')::text[] AS target_roles,
+                   COALESCE(target_genders, '{}')::text[] AS target_genders,
                    display_order, starts_at, ends_at, created_at, updated_at`,
         [
           title ?? null, content, contentType, linkUrl ?? null, isActive,
-          audience.plans, audience.roles,
+          audience.plans, audience.roles, audience.genders,
           displayOrder, startAt ?? null, endAt ?? null, auth.user.sub,
         ]
       );

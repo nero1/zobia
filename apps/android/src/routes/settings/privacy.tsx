@@ -15,6 +15,7 @@ import { apiClient } from '@/lib/api/client';
 
 interface PrivacySettings {
   profile_private: boolean;
+  profile_hidden_sections: string[];
   disable_friend_requests: boolean;
   show_online_status: boolean;
   sitemap_opt_out: boolean;
@@ -24,13 +25,16 @@ interface PrivacySettings {
 
 interface PrivacyCapabilities {
   canLockProfile: boolean;
+  canHideSections: boolean;
   canDisableFriendRequests: boolean;
   canShowOnlineStatus: boolean;
+  hideableSections: string[];
   nemesisEligible: boolean;
 }
 
 const DEFAULT_SETTINGS: PrivacySettings = {
   profile_private: false,
+  profile_hidden_sections: [],
   disable_friend_requests: false,
   show_online_status: false,
   sitemap_opt_out: false,
@@ -40,8 +44,10 @@ const DEFAULT_SETTINGS: PrivacySettings = {
 
 const DEFAULT_CAPS: PrivacyCapabilities = {
   canLockProfile: false,
+  canHideSections: false,
   canDisableFriendRequests: false,
   canShowOnlineStatus: false,
+  hideableSections: [],
   nemesisEligible: false,
 };
 
@@ -169,6 +175,35 @@ function PrivacyPage() {
             onChange={(v) => void save({ nemesis_opt_out: !v })}
             disabled={saving}
           />
+        )}
+        {caps.canHideSections && caps.hideableSections.length > 0 && (
+          <div className="py-3">
+            <p className="text-sm font-medium text-neutral-900">{t('settings.privacy.hideSections', 'Hidden profile sections')}</p>
+            <p className="text-xs text-neutral-500">{t('settings.privacy.hideSectionsDesc', 'Choose which sections to hide from other users')}</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {caps.hideableSections.map((section) => {
+                const isHidden = settings.profile_hidden_sections.includes(section);
+                const label = section.charAt(0).toUpperCase() + section.slice(1);
+                return (
+                  <button
+                    key={section}
+                    type="button"
+                    disabled={saving}
+                    onClick={() => {
+                      const current = settings.profile_hidden_sections;
+                      const next = isHidden ? current.filter((s) => s !== section) : [...current, section];
+                      void save({ profile_hidden_sections: next });
+                    }}
+                    className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                      isHidden ? 'bg-neutral-800 text-white' : 'border border-neutral-300 text-neutral-600'
+                    }`}
+                  >
+                    {isHidden ? '🙈 ' : ''}{label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         )}
         <div className="flex items-center justify-between gap-3 py-3">
           <div className="min-w-0">

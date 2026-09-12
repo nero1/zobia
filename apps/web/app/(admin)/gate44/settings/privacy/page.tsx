@@ -20,7 +20,7 @@ const PLAN_OPTIONS = ["free", "plus", "pro", "max"] as const;
 const PRESTIGE_OPTIONS = Array.from({ length: 10 }, (_, i) => `prestige_${i + 1}` as const);
 const BUSINESS_TIER_OPTIONS = ["business_starter", "business_growth", "business_enterprise"] as const;
 const ROLE_OPTIONS = ["role_admin", "role_moderator"] as const;
-const ALL_SECTIONS = ["avatar", "bio", "rank", "xp", "guild", "seasons", "badges"] as const;
+const ALL_SECTIONS = ["avatar", "bio", "rank", "xp", "guild", "seasons", "badges", "activities"] as const;
 
 type PlanOption = (typeof PLAN_OPTIONS)[number];
 type PrestigeOption = (typeof PRESTIGE_OPTIONS)[number];

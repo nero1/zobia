@@ -116,6 +116,23 @@ Tweets are a permanent (non-expiring) Twitter-style feed at `/tweets`: text + an
 
 **Offline support:** like Moments, Tweets are not queued for offline send — posting (and any image upload) requires an active connection.
 
+### Profile Pictures
+
+Custom avatar photo upload with a Facebook-style pan/zoom/crop step, plus a free "switch to a default icon" option — both entry points are `Settings → Profile Photo` on web and Android, both calling the same `POST /api/users/me/avatar` (custom photo) or `PUT /api/users/me` (`avatar_emoji`, default icon) backend routes.
+
+**Crop UI:** `components/profile/AvatarCropModal.tsx` (web) and `apps/android/src/components/profile/AvatarCropModal.tsx` (Android, ported to that app's plain `<input type="file">` + axios idiom) both use `react-easy-crop` for a circular, 1:1 aspect crop over the picked image, then render the crop to a `<canvas>` and export a 512×512 JPEG `Blob` that's POSTed as multipart form data. This client-side crop only frames the shot — the server independently re-validates, strips GIF animation, and compresses on receipt.
+
+**Animated GIF avatars:** if the uploaded file is `image/gif`, `lib/storage/compress.ts`'s `extractGifSecondFrame()` reads the GIF's frame count via `sharp`'s metadata (`{ pages }`) and, if there's more than one frame, extracts frame index 1 (the 2nd frame, 0-indexed, via `sharp(buffer, { page: 1 })`) as a static PNG before the normal `compressImage()` pass — so a stored avatar is never animated. This is specific to the avatar upload path; tweets/moments/forum image uploads are untouched and keep full animated GIFs. `sharp` is a real dependency of `apps/web` (added alongside this feature), so this always runs in production; the conditional `require("sharp")` in `compress.ts` only matters as a defensive fallback (original buffer stored as-is, logged as a warning) if the module is ever unavailable at runtime.
+
+**Paid-plan vs. free-plan (PRD-required gate):**
+- Any paid-plan user (`plan !== "free"`) uploads a custom photo for free.
+- A user who uploaded while on a paid plan and later downgrades to Free **keeps** that photo — downgrading never clears `avatar_url`; only the *upload/change action* is gated, not the stored value.
+- A Free-plan user can still upload a custom photo by paying an admin-configured cost in Credits **or** Stars (their choice, mirroring the Moments "pay with either currency" UX) — `avatar_change_cost_credits` (default `200`) / `avatar_change_cost_stars` (default `1`) in `x_manifest`, admin-editable at `/gate44/config` ("Profile Pictures" group). Set either to `0` to disable that currency.
+- Switching to one of the **default onboarding icons** (the exact emoji set offered at onboarding Step 1, `shared/utils/defaultAvatars.ts`'s `DEFAULT_AVATAR_EMOJIS` — the single source both onboarding and the Settings picker read from) is **always free**, on any plan.
+- Charging (`debitCoins`/`debitStars`) and the `users.avatar_url`/`avatar_emoji` update happen inside one DB transaction (`lib/profile/avatarService.ts`), so a failed update never leaves a user charged for a change that didn't apply — same pattern as Moments' `createMoment()`.
+
+**Once-a-week cooldown:** every avatar change — custom upload *or* switching to a different default icon — is limited to once every 7 days, tracked via a dedicated `users.avatar_changed_at` column (migration `0044_profile_avatar_upload.sql`; kept separate from `updated_at`, which many unrelated fields touch). Within the cooldown, the server returns `429 AVATAR_CHANGE_RATE_LIMITED` with a `nextEligibleAt` timestamp; the crop modal fetches `GET /api/users/me/avatar` up front to show the cooldown/cost state before the user even picks a file.
+
 ---
 
 ### Rooms
@@ -522,6 +539,32 @@ Settings are stored as five columns on the `users` table:
 | `privacy_can_show_online_status` | `["pro","max","prestige_1"]` |
 
 Changes take effect within 60 seconds (Redis cache TTL).
+
+### Username Change
+
+Eligible users can change their username from Settings ("Account" → "Username"). A user qualifies if **any** of these hold:
+
+- Account level (`users.rank_level`) is at or above the configured minimum, **or**
+- They're on an eligible plan (`users.plan`), **or**
+- They have an active Business Account (`business_accounts.status = 'active'`) on an eligible tier (`business_accounts.tier`).
+
+All three thresholds are admin-configurable via `x_manifest`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `username_change_min_level` | `5` | Minimum `rank_level` |
+| `username_change_plans` | `["max"]` | JSON array of eligible plan slugs |
+| `username_change_business_tiers` | `["growth","enterprise"]` | JSON array of eligible `business_accounts.tier` values |
+| `username_change_cost_credits` | `5000` | Credits charged (0 = not payable with Credits) |
+| `username_change_cost_stars` | `50` | Stars charged (0 = not payable with Stars) |
+| `username_change_cooldown_days` | `90` | Minimum days between changes for the same user |
+
+The user picks the new username **first**; a debounced live availability check (`GET /api/users/me/username/availability`) must return available before they're allowed to proceed to the cost/redirect step — the client never lets someone pay for a name that's already gone. On confirm, `POST /api/users/me/username` re-checks eligibility, cooldown, and availability **again inside a single DB transaction** (never trusting the client-side gate), charges Credits or Stars — the user's choice — via the existing `debitCoins`/`debitStars` ledger primitives, updates `users.username`, and records the change in `username_change_history` (queryable per-user history: old/new username, timestamp, redirect choice, reservation expiry, amount paid). `users.username` already carries a `UNIQUE` constraint (`users_username_key`), so a concurrent claim of the same name cannot slip through even under a race.
+
+**What happens to the old username** is the user's choice at confirm time:
+
+- **Redirect chosen** — `/u/<old-username>` (and the `GET /api/public/resolve?type=profile` deep-link resolver used by universal links) permanently redirect to the new username's profile, forever. The old username is held indefinitely in `username_reservations` (`redirect_to_username` set, `reserved_until = NULL`) so nobody — including the original owner — can ever re-register it.
+- **Redirect not chosen** — for exactly **one year**, `/u/<old-username>` shows a distinct "This account no longer exists" message (not the generic "profile not found" 404 — the copy explicitly distinguishes "used to exist" from "never existed"). The username is held in `username_reservations` with a real `reserved_until` timestamp and cannot be registered by anyone during that year. After the year elapses, the hold lapses automatically — every read (`checkUsernameAvailability`, `resolveOldUsername`) compares `reserved_until` against `NOW()` live, so release is correct immediately with **no cron job or cleanup task required**. Registration (`/api/onboarding/check-username`, `/api/onboarding/complete`) and the Username Change availability check both call the exact same shared helper (`lib/username/availability.ts`), so a held username is rejected identically everywhere.
 
 ### Online Friends & Presence Filtering
 

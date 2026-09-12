@@ -38,7 +38,7 @@ import {
   clearCsrfCookie,
 } from "@/lib/security/csrf";
 import { badRequest } from "@/lib/api/errors";
-import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { enforceRateLimit, getClientIp, getUserAgent, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 
@@ -333,6 +333,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   try {
     const ip = getClientIp(req);
+    const ua = getUserAgent(req);
     try {
       await enforceRateLimit(ip, "ip", RATE_LIMITS.auth);
     } catch {
@@ -474,7 +475,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         is_creator: user.is_creator,
         onboarding_completed: user.onboarding_completed,
       },
-      { ip }
+      { ip, ua }
     );
 
     // -----------------------------------------------------------------
