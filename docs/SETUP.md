@@ -349,6 +349,16 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    `0002_*.sql`, `0003_*.sql`, ... files in `db/migrations/` rather than
    editing `0001` in place.
 
+   > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
+   > `db/migrations/0049_monitoring_pg_stat_statements.sql` enables
+   > `pg_stat_statements` (a stock Postgres extension, not a third-party APM —
+   > adds no per-request overhead). On Supabase/RDS/Neon/Railway it's
+   > preloaded by default, so the migration just switches it on. On
+   > self-hosted Postgres where it isn't preloaded, add
+   > `pg_stat_statements` to `shared_preload_libraries` in `postgresql.conf`
+   > and restart the server — until then the dashboard shows "unavailable"
+   > for that stat rather than failing.
+
 7. Optional demo data (sample users/rooms/moments for local dev): `npm run migrate -- --seed`, or directly: `psql "$DIRECT_URL" < apps/web/db/seed.sql`
 
    > **Blogs feature (PRD §32):** its tables, `x_manifest` defaults, and the

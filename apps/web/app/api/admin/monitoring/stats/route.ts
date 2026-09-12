@@ -12,12 +12,17 @@ export const dynamic = 'force-dynamic';
  *  - Recent system alert feed (doubles as a lightweight system log — the
  *    platform doesn't run a separate log aggregator).
  *
+ *  - Cache hit ratio, read from Redis's own INFO stats counters (zero added
+ *    overhead — Redis already tracks these on every command it processes).
+ *  - Slow queries, read from pg_stat_statements (a stock Postgres extension
+ *    that aggregates timing in shared memory as queries run — not a
+ *    third-party APM, adds no per-query overhead). Reports "unavailable"
+ *    rather than faking data if the extension isn't enabled — see
+ *    migration 0049 and docs/SETUP.md.
+ *
  * Cached in Redis for 30 minutes (lib/admin/statsCache.ts) — pass `live=1`
  * to force a fresh computation. Deliberately NOT up-to-the-second accurate;
- * this is a dashboard, not an APM. Cache hit ratio and slow-query tracking
- * are not yet instrumented (would need pg_stat_statements or a dedicated
- * APM provider — see docs/MONITORING.md) and are reported as "unavailable"
- * rather than faked.
+ * this is a dashboard, not an APM.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -27,6 +32,8 @@ import { redis } from "@/lib/redis";
 import { withAdminAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { getCachedStats } from "@/lib/admin/statsCache";
+import { getCacheHitStats } from "@/lib/redis/stats";
+import { getSlowQueries } from "@/lib/db/slowQueries";
 import { logger } from "@/lib/logger";
 
 const querySchema = z.object({ live: z.string().optional() });
@@ -159,13 +166,15 @@ async function computeRecentLog() {
 
 async function computeMonitoringStats() {
   const now = new Date();
-  const [uptime30d, uptime24h, alertVolume, cronHealth, redisHealth, recentLog] = await Promise.all([
+  const [uptime30d, uptime24h, alertVolume, cronHealth, redisHealth, recentLog, cacheHitStats, slowQueries] = await Promise.all([
     computeUptime(UPTIME_WINDOW_DAYS, now),
     computeUptime(1, now),
     computeAlertVolume(now),
     computeCronHealth(now),
     computeRedisHealth(),
     computeRecentLog(),
+    getCacheHitStats(),
+    getSlowQueries(10),
   ]);
 
   return {
@@ -175,10 +184,8 @@ async function computeMonitoringStats() {
     cronHealth,
     redisHealth,
     recentLog,
-    unavailable: {
-      cacheHitRatio: "Not yet instrumented — requires a Redis provider that exposes INFO stats or a dedicated APM.",
-      slowQueries: "Not yet instrumented — requires pg_stat_statements or a dedicated APM (see docs/MONITORING.md).",
-    },
+    cacheHitStats,
+    slowQueries,
   };
 }
 

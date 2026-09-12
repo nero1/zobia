@@ -91,6 +91,13 @@ export interface RedisClient {
   pipeline(): RedisPipeline;
   ping(): Promise<string>;
   quit(): Promise<"OK">;
+  /**
+   * Raw `INFO [section]` output. Used ONLY for the monitoring dashboard's
+   * cache-hit-ratio stat (lib/redis/stats.ts) — reads counters Redis already
+   * maintains for every command it processes, so this adds zero ongoing
+   * overhead beyond the occasional (cached) call itself.
+   */
+  info(section?: string): Promise<string>;
 }
 
 // ---------------------------------------------------------------------------
@@ -377,6 +384,13 @@ class UpstashAdapter implements RedisClient {
   async quit(): Promise<"OK"> {
     // @upstash/redis is stateless HTTP — no persistent connection to close
     return "OK";
+  }
+
+  async info(section?: string): Promise<string> {
+    // Not a named method on the Upstash SDK — sent via its generic raw-command
+    // escape hatch (client.exec), which maps directly to the Upstash REST API.
+    const args: [command: string, ...args: string[]] = section ? ["INFO", section] : ["INFO"];
+    return this.client.exec<string>(args);
   }
 }
 

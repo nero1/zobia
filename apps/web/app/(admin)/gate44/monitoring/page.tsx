@@ -22,7 +22,8 @@ interface MonitoringData {
   cronHealth: Array<{ key: string; lastRunAt: string; ageHours: number; stale: boolean }>;
   redisHealth: { reachable: boolean; latencyMs: number | null };
   recentLog: Array<{ id: string; type: string; title: string; priorityLevel: number; category: string; resolved: boolean; createdAt: string }>;
-  unavailable: { cacheHitRatio: string; slowQueries: string };
+  cacheHitStats: { available: boolean; hits: number; misses: number; hitRatioPercent: number | null };
+  slowQueries: { available: boolean; queries: Array<{ query: string; calls: number; meanExecMs: number; maxExecMs: number; totalExecMs: number }> };
 }
 
 function StatCard({ label, value, sub, tone }: { label: string; value: string; sub?: string; tone?: "good" | "bad" | "neutral" }) {
@@ -114,7 +115,7 @@ export default function MonitoringPage() {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
             <StatCard
               label="Uptime (30d)"
               value={`${data.uptime30d.uptimePercent}%`}
@@ -138,6 +139,12 @@ export default function MonitoringPage() {
               value={String(data.cronHealth.filter((c) => c.stale).length)}
               sub={`${data.cronHealth.length} tracked`}
               tone={data.cronHealth.some((c) => c.stale) ? "bad" : "good"}
+            />
+            <StatCard
+              label="Cache Hit Ratio"
+              value={data.cacheHitStats.available ? (data.cacheHitStats.hitRatioPercent != null ? `${data.cacheHitStats.hitRatioPercent}%` : "No traffic yet") : "Unavailable"}
+              sub={data.cacheHitStats.available ? `${data.cacheHitStats.hits} hits / ${data.cacheHitStats.misses} misses` : "Redis INFO stats not supported by this provider"}
+              tone={!data.cacheHitStats.available ? "neutral" : data.cacheHitStats.hitRatioPercent != null && data.cacheHitStats.hitRatioPercent < 80 ? "bad" : "good"}
             />
           </div>
 
@@ -194,10 +201,41 @@ export default function MonitoringPage() {
             </div>
           </div>
 
-          <div className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-4 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900/50">
-            <p className="mb-1 font-semibold">Not yet instrumented</p>
-            <p>Cache hit ratio: {data.unavailable.cacheHitRatio}</p>
-            <p>Slow queries: {data.unavailable.slowQueries}</p>
+          <div>
+            <h2 className="mb-2 text-sm font-semibold uppercase tracking-wider text-neutral-500">Slowest Queries (by mean time)</h2>
+            <p className="mb-2 text-xs text-neutral-400">
+              From pg_stat_statements — normalised query text (literals replaced with $1, $2, …), safe to display.
+            </p>
+            {!data.slowQueries.available ? (
+              <div className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-4 text-xs text-neutral-500 dark:border-neutral-700 dark:bg-neutral-900/50">
+                pg_stat_statements is not enabled on this database. See migration 0049 and docs/SETUP.md.
+              </div>
+            ) : data.slowQueries.queries.length === 0 ? (
+              <div className="rounded-xl border border-neutral-200 bg-white p-4 text-center text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900">No query stats recorded yet.</div>
+            ) : (
+              <div className="overflow-x-auto rounded-xl border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+                <table className="w-full text-left text-xs">
+                  <thead>
+                    <tr className="border-b border-neutral-200 text-neutral-500 dark:border-neutral-800">
+                      <th className="px-3 py-2 font-medium">Query</th>
+                      <th className="px-3 py-2 font-medium">Calls</th>
+                      <th className="px-3 py-2 font-medium">Mean (ms)</th>
+                      <th className="px-3 py-2 font-medium">Max (ms)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.slowQueries.queries.map((q, i) => (
+                      <tr key={i} className="border-b border-neutral-100 last:border-0 dark:border-neutral-800/50">
+                        <td className="max-w-md truncate px-3 py-2 font-mono text-neutral-700 dark:text-neutral-300" title={q.query}>{q.query}</td>
+                        <td className="px-3 py-2 text-neutral-500">{q.calls}</td>
+                        <td className="px-3 py-2 font-semibold text-neutral-900 dark:text-neutral-100">{q.meanExecMs}</td>
+                        <td className="px-3 py-2 text-neutral-500">{q.maxExecMs}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </>
       )}
