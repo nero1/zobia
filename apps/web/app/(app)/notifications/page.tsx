@@ -339,7 +339,7 @@ export default function NotificationsPage() {
         setLoading(false);
       }
     })();
-  }, [fetchNotifications]);
+  }, [fetchNotifications, queryClient]);
 
   async function handleLoadMore() {
     if (loadingMore || !hasMore) return;

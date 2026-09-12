@@ -308,6 +308,14 @@ export default function GroupConversationPage() {
   const router = useRouter();
   const groupId = params.groupId as string;
   const { t } = useTranslation();
+  // Stable ref so the mount-scoped group-load effect below doesn't need `t`
+  // in its dependency array (which would re-fetch the group on every
+  // language change) — mirrors the same pattern in
+  // app/(app)/messages/groups/page.tsx.
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
 
   const [group, setGroup] = useState<GroupInfo | null>(null);
   const [messages, setMessages] = useState<GroupMessage[]>(
@@ -362,12 +370,12 @@ export default function GroupConversationPage() {
       try {
         const res = await fetch(`/api/messages/group`, { credentials: "include" });
         if (res.status === 401) { router.push("/auth/login"); return; }
-        if (!res.ok) throw new Error(t("messages.groupChat.notFound"));
+        if (!res.ok) throw new Error(tRef.current("messages.groupChat.notFound"));
         const data = (await res.json()) as { items?: GroupInfo[] };
         const found = (data.items ?? []).find((g) => g.id === groupId);
         if (found) setGroup(found);
       } catch (e) {
-        setError(e instanceof Error ? e.message : t("messages.groupChat.loadError"));
+        setError(e instanceof Error ? e.message : tRef.current("messages.groupChat.loadError"));
       } finally {
         setLoadingGroup(false);
       }

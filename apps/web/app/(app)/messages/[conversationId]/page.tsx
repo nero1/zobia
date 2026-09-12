@@ -574,6 +574,14 @@ export default function DMConversationPage() {
   const [isDraft, setIsDraft] = useState(() => searchParams.get("draft") === "1");
   const currency = useCurrency();
   const { t } = useTranslation();
+  // Stable ref so the mount-scoped conversation-load effect below doesn't need
+  // `t` in its dependency array (which would re-fetch the conversation on
+  // every language change) — mirrors the same pattern in
+  // app/(app)/messages/groups/page.tsx.
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
 
   const [conversation, setConversation] = useState<ConversationInfo | null>(null);
   const [messages, setMessages] = useState<DMMessage[]>(
@@ -647,11 +655,11 @@ export default function DMConversationPage() {
         try {
           const res = await fetch(`/api/users/${conversationId}`, { credentials: "include" });
           if (res.status === 401) { router.push("/auth/login"); return; }
-          if (!res.ok) throw new Error(t("messages.conversation.userNotFound"));
+          if (!res.ok) throw new Error(tRef.current("messages.conversation.userNotFound"));
           const data = (await res.json()) as {
             user?: { id: string; username: string | null; display_name: string | null; avatar_emoji: string | null };
           };
-          if (!data.user) throw new Error(t("messages.conversation.userNotFound"));
+          if (!data.user) throw new Error(tRef.current("messages.conversation.userNotFound"));
           setConversation({
             conversationId,
             participantUserId: data.user.id,
@@ -663,7 +671,7 @@ export default function DMConversationPage() {
           setOtherUserId(data.user.id);
           setMessages([]);
         } catch (e) {
-          setError(e instanceof Error ? e.message : t("messages.conversation.loadError"));
+          setError(e instanceof Error ? e.message : tRef.current("messages.conversation.loadError"));
         } finally {
           setLoadingConversation(false);
           setLoadingMessages(false);
@@ -676,7 +684,7 @@ export default function DMConversationPage() {
       try {
         const res = await fetch(`/api/messages/dm/${conversationId}`, { credentials: "include" });
         if (res.status === 401) { router.push("/auth/login"); return; }
-        if (!res.ok) throw new Error(t("messages.conversation.notFound"));
+        if (!res.ok) throw new Error(tRef.current("messages.conversation.notFound"));
         const data = (await res.json()) as {
           conversation?: ConversationInfo & { score?: number };
           items?: Record<string, unknown>[];
@@ -694,7 +702,7 @@ export default function DMConversationPage() {
         // PRD §5: gate link previews until recipient has replied ≥2 times
         if (typeof data.linkPreviewsEnabled === "boolean") setLinkPreviewsEnabled(data.linkPreviewsEnabled);
       } catch (e) {
-        setError(e instanceof Error ? e.message : t("messages.conversation.loadError"));
+        setError(e instanceof Error ? e.message : tRef.current("messages.conversation.loadError"));
       } finally {
         setLoadingConversation(false);
         setLoadingMessages(false);

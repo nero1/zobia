@@ -162,7 +162,7 @@ function SendGiftModal({
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data) setWallet(data); })
       .catch(() => {});
-  }, []);
+  }, [prefilledGiftId]);
 
   // Pre-fill recipient if provided
   useEffect(() => {
