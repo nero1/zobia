@@ -7424,8 +7424,47 @@ Quest flow (§14) — `is_daily_quest_eligible` defaults to `false`, so
 existing quests keep behaving exactly as before unless an admin/business
 opts one in.
 
+#### Fix: Capacitor Android parity for the quest system expansion above
+
+The initial quest system expansion shipped currency-fix parity on Android
+but left the new duration/budget creation UX, pause/flag actions, and the
+campaign-boosts/quest-manage panels web-only. Closed the gap:
+
+- `apps/android/src/routes/admin/sponsored-quests.tsx` — added the owner
+  ("Quest Creator") username field, the daily-deck-eligibility toggle with
+  duration presets/budget/daily-cap/target-action fields and a reach
+  estimate, pause (follow-up)/resume actions, flag/unflag with a
+  spam/scam/other category picker, and badges for owner, in-daily-decks,
+  and flagged state — full parity with the web admin page.
+- `apps/android/src/routes/business/ads/index.tsx`'s Sponsored Quests tab
+  — added the same duration-preset + budget + daily-cap + reach-estimate
+  fields to the submission form, a paused-reason banner, and a Restart
+  button for a system-auto-paused quest.
+- New `apps/android/src/routes/admin/quest-boosts.tsx` (added to
+  `adminNav.ts`) — mirrors `/gate44/quests/boosts`.
+- New `apps/android/src/routes/quests/manage.tsx` — mirrors
+  `/quests/manage` (the admin-assigned quest "creator" stats/revive/extend/
+  add-budget panel).
+- Fixed a routing footgun this surfaced: `routes/quests.tsx` (the existing
+  daily-quests page) had no file-based sibling directory before, so adding
+  `routes/quests/manage.tsx` would have made TanStack Router treat the
+  daily-quests page as a *parent layout* for `/quests/manage` — but it
+  renders no `<Outlet />`, so the child would never actually display.
+  Fixed by moving it to `routes/quests/index.tsx` (`createFileRoute('/quests/')`),
+  matching the working `business/index.tsx` + `business/ads/index.tsx`
+  sibling-routes convention already used elsewhere in the app, so `/quests`
+  and `/quests/manage` render independently as intended.
+- 86 new i18n keys added to `shared/i18n/locales/en.json` (English only,
+  per the existing convention where non-admin/Android UI strings on the
+  web app are not run through i18n) for every new Android-side label,
+  inserted next to their existing same-prefix blocks rather than
+  re-sorting the file, to keep the diff reviewable.
+
+No backend/schema changes — this is Android UI catching up to the API
+surface the web/PWA quest system expansion already shipped against.
+
 ---
 
-*ZobiaSocial PRD v2.24*
+*ZobiaSocial PRD v2.25*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

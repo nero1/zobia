@@ -16,7 +16,6 @@ import { Route as StatsRouteImport } from './routes/stats'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SeasonsRouteImport } from './routes/seasons'
 import { Route as ReferralsRouteImport } from './routes/referrals'
-import { Route as QuestsRouteImport } from './routes/quests'
 import { Route as PrestigeRouteImport } from './routes/prestige'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as NotificationsRouteImport } from './routes/notifications'
@@ -39,6 +38,7 @@ import { Route as TweetsIndexRouteImport } from './routes/tweets/index'
 import { Route as SupportIndexRouteImport } from './routes/support/index'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as QuizzesIndexRouteImport } from './routes/quizzes/index'
+import { Route as QuestsIndexRouteImport } from './routes/quests/index'
 import { Route as ProfileIndexRouteImport } from './routes/profile/index'
 import { Route as PollsIndexRouteImport } from './routes/polls/index'
 import { Route as MomentsIndexRouteImport } from './routes/moments/index'
@@ -64,6 +64,7 @@ import { Route as SettingsPrivacyRouteImport } from './routes/settings/privacy'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as QuizzesNewRouteImport } from './routes/quizzes/new'
 import { Route as QuizzesSlugRouteImport } from './routes/quizzes/$slug'
+import { Route as QuestsManageRouteImport } from './routes/quests/manage'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as PollsNewRouteImport } from './routes/polls/new'
 import { Route as PollsSlugRouteImport } from './routes/polls/$slug'
@@ -91,6 +92,7 @@ import { Route as AdminSeasonsRouteImport } from './routes/admin/seasons'
 import { Route as AdminRoomsRouteImport } from './routes/admin/rooms'
 import { Route as AdminRefundsRouteImport } from './routes/admin/refunds'
 import { Route as AdminQuizzesRouteImport } from './routes/admin/quizzes'
+import { Route as AdminQuestBoostsRouteImport } from './routes/admin/quest-boosts'
 import { Route as AdminPollsRouteImport } from './routes/admin/polls'
 import { Route as AdminModerationRouteImport } from './routes/admin/moderation'
 import { Route as AdminMessagesRouteImport } from './routes/admin/messages'
@@ -183,11 +185,6 @@ const SeasonsRoute = SeasonsRouteImport.update({
 const ReferralsRoute = ReferralsRouteImport.update({
   id: '/referrals',
   path: '/referrals',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const QuestsRoute = QuestsRouteImport.update({
-  id: '/quests',
-  path: '/quests',
   getParentRoute: () => rootRouteImport,
 } as any)
 const PrestigeRoute = PrestigeRouteImport.update({
@@ -298,6 +295,11 @@ const RoomsIndexRoute = RoomsIndexRouteImport.update({
 const QuizzesIndexRoute = QuizzesIndexRouteImport.update({
   id: '/quizzes/',
   path: '/quizzes/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QuestsIndexRoute = QuestsIndexRouteImport.update({
+  id: '/quests/',
+  path: '/quests/',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfileIndexRoute = ProfileIndexRouteImport.update({
@@ -423,6 +425,11 @@ const QuizzesNewRoute = QuizzesNewRouteImport.update({
 const QuizzesSlugRoute = QuizzesSlugRouteImport.update({
   id: '/quizzes/$slug',
   path: '/quizzes/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QuestsManageRoute = QuestsManageRouteImport.update({
+  id: '/quests/manage',
+  path: '/quests/manage',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfileUsernameRoute = ProfileUsernameRouteImport.update({
@@ -558,6 +565,11 @@ const AdminRefundsRoute = AdminRefundsRouteImport.update({
 const AdminQuizzesRoute = AdminQuizzesRouteImport.update({
   id: '/admin/quizzes',
   path: '/admin/quizzes',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminQuestBoostsRoute = AdminQuestBoostsRouteImport.update({
+  id: '/admin/quest-boosts',
+  path: '/admin/quest-boosts',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminPollsRoute = AdminPollsRouteImport.update({
@@ -873,7 +885,6 @@ export interface FileRoutesByFullPath {
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
   '/prestige': typeof PrestigeRoute
-  '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
   '/seasons': typeof SeasonsRoute
   '/settings': typeof SettingsRouteWithChildren
@@ -910,6 +921,7 @@ export interface FileRoutesByFullPath {
   '/admin/messages': typeof AdminMessagesRoute
   '/admin/moderation': typeof AdminModerationRoute
   '/admin/polls': typeof AdminPollsRoute
+  '/admin/quest-boosts': typeof AdminQuestBoostsRoute
   '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
@@ -937,6 +949,7 @@ export interface FileRoutesByFullPath {
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
   '/profile/$username': typeof ProfileUsernameRoute
+  '/quests/manage': typeof QuestsManageRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
@@ -962,6 +975,7 @@ export interface FileRoutesByFullPath {
   '/moments/': typeof MomentsIndexRoute
   '/polls/': typeof PollsIndexRoute
   '/profile/': typeof ProfileIndexRoute
+  '/quests/': typeof QuestsIndexRoute
   '/quizzes/': typeof QuizzesIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/support/': typeof SupportIndexRoute
@@ -1015,7 +1029,6 @@ export interface FileRoutesByTo {
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
   '/prestige': typeof PrestigeRoute
-  '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
   '/seasons': typeof SeasonsRoute
   '/settings': typeof SettingsRouteWithChildren
@@ -1052,6 +1065,7 @@ export interface FileRoutesByTo {
   '/admin/messages': typeof AdminMessagesRoute
   '/admin/moderation': typeof AdminModerationRoute
   '/admin/polls': typeof AdminPollsRoute
+  '/admin/quest-boosts': typeof AdminQuestBoostsRoute
   '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
@@ -1079,6 +1093,7 @@ export interface FileRoutesByTo {
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
   '/profile/$username': typeof ProfileUsernameRoute
+  '/quests/manage': typeof QuestsManageRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
@@ -1104,6 +1119,7 @@ export interface FileRoutesByTo {
   '/moments': typeof MomentsIndexRoute
   '/polls': typeof PollsIndexRoute
   '/profile': typeof ProfileIndexRoute
+  '/quests': typeof QuestsIndexRoute
   '/quizzes': typeof QuizzesIndexRoute
   '/rooms': typeof RoomsIndexRoute
   '/support': typeof SupportIndexRoute
@@ -1158,7 +1174,6 @@ export interface FileRoutesById {
   '/notifications': typeof NotificationsRoute
   '/onboarding': typeof OnboardingRoute
   '/prestige': typeof PrestigeRoute
-  '/quests': typeof QuestsRoute
   '/referrals': typeof ReferralsRoute
   '/seasons': typeof SeasonsRoute
   '/settings': typeof SettingsRouteWithChildren
@@ -1195,6 +1210,7 @@ export interface FileRoutesById {
   '/admin/messages': typeof AdminMessagesRoute
   '/admin/moderation': typeof AdminModerationRoute
   '/admin/polls': typeof AdminPollsRoute
+  '/admin/quest-boosts': typeof AdminQuestBoostsRoute
   '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
@@ -1222,6 +1238,7 @@ export interface FileRoutesById {
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
   '/profile/$username': typeof ProfileUsernameRoute
+  '/quests/manage': typeof QuestsManageRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
@@ -1247,6 +1264,7 @@ export interface FileRoutesById {
   '/moments/': typeof MomentsIndexRoute
   '/polls/': typeof PollsIndexRoute
   '/profile/': typeof ProfileIndexRoute
+  '/quests/': typeof QuestsIndexRoute
   '/quizzes/': typeof QuizzesIndexRoute
   '/rooms/': typeof RoomsIndexRoute
   '/support/': typeof SupportIndexRoute
@@ -1302,7 +1320,6 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/onboarding'
     | '/prestige'
-    | '/quests'
     | '/referrals'
     | '/seasons'
     | '/settings'
@@ -1339,6 +1356,7 @@ export interface FileRouteTypes {
     | '/admin/messages'
     | '/admin/moderation'
     | '/admin/polls'
+    | '/admin/quest-boosts'
     | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
@@ -1366,6 +1384,7 @@ export interface FileRouteTypes {
     | '/polls/$slug'
     | '/polls/new'
     | '/profile/$username'
+    | '/quests/manage'
     | '/quizzes/$slug'
     | '/quizzes/new'
     | '/rooms/$roomId'
@@ -1391,6 +1410,7 @@ export interface FileRouteTypes {
     | '/moments/'
     | '/polls/'
     | '/profile/'
+    | '/quests/'
     | '/quizzes/'
     | '/rooms/'
     | '/support/'
@@ -1444,7 +1464,6 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/onboarding'
     | '/prestige'
-    | '/quests'
     | '/referrals'
     | '/seasons'
     | '/settings'
@@ -1481,6 +1500,7 @@ export interface FileRouteTypes {
     | '/admin/messages'
     | '/admin/moderation'
     | '/admin/polls'
+    | '/admin/quest-boosts'
     | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
@@ -1508,6 +1528,7 @@ export interface FileRouteTypes {
     | '/polls/$slug'
     | '/polls/new'
     | '/profile/$username'
+    | '/quests/manage'
     | '/quizzes/$slug'
     | '/quizzes/new'
     | '/rooms/$roomId'
@@ -1533,6 +1554,7 @@ export interface FileRouteTypes {
     | '/moments'
     | '/polls'
     | '/profile'
+    | '/quests'
     | '/quizzes'
     | '/rooms'
     | '/support'
@@ -1586,7 +1608,6 @@ export interface FileRouteTypes {
     | '/notifications'
     | '/onboarding'
     | '/prestige'
-    | '/quests'
     | '/referrals'
     | '/seasons'
     | '/settings'
@@ -1623,6 +1644,7 @@ export interface FileRouteTypes {
     | '/admin/messages'
     | '/admin/moderation'
     | '/admin/polls'
+    | '/admin/quest-boosts'
     | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
@@ -1650,6 +1672,7 @@ export interface FileRouteTypes {
     | '/polls/$slug'
     | '/polls/new'
     | '/profile/$username'
+    | '/quests/manage'
     | '/quizzes/$slug'
     | '/quizzes/new'
     | '/rooms/$roomId'
@@ -1675,6 +1698,7 @@ export interface FileRouteTypes {
     | '/moments/'
     | '/polls/'
     | '/profile/'
+    | '/quests/'
     | '/quizzes/'
     | '/rooms/'
     | '/support/'
@@ -1729,7 +1753,6 @@ export interface RootRouteChildren {
   NotificationsRoute: typeof NotificationsRoute
   OnboardingRoute: typeof OnboardingRoute
   PrestigeRoute: typeof PrestigeRoute
-  QuestsRoute: typeof QuestsRoute
   ReferralsRoute: typeof ReferralsRoute
   SeasonsRoute: typeof SeasonsRoute
   SettingsRoute: typeof SettingsRouteWithChildren
@@ -1766,6 +1789,7 @@ export interface RootRouteChildren {
   AdminMessagesRoute: typeof AdminMessagesRoute
   AdminModerationRoute: typeof AdminModerationRoute
   AdminPollsRoute: typeof AdminPollsRoute
+  AdminQuestBoostsRoute: typeof AdminQuestBoostsRoute
   AdminQuizzesRoute: typeof AdminQuizzesRoute
   AdminRefundsRoute: typeof AdminRefundsRoute
   AdminRoomsRoute: typeof AdminRoomsRoute
@@ -1793,6 +1817,7 @@ export interface RootRouteChildren {
   PollsSlugRoute: typeof PollsSlugRoute
   PollsNewRoute: typeof PollsNewRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
+  QuestsManageRoute: typeof QuestsManageRoute
   QuizzesSlugRoute: typeof QuizzesSlugRoute
   QuizzesNewRoute: typeof QuizzesNewRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
@@ -1816,6 +1841,7 @@ export interface RootRouteChildren {
   MomentsIndexRoute: typeof MomentsIndexRoute
   PollsIndexRoute: typeof PollsIndexRoute
   ProfileIndexRoute: typeof ProfileIndexRoute
+  QuestsIndexRoute: typeof QuestsIndexRoute
   QuizzesIndexRoute: typeof QuizzesIndexRoute
   RoomsIndexRoute: typeof RoomsIndexRoute
   SupportIndexRoute: typeof SupportIndexRoute
@@ -1901,13 +1927,6 @@ declare module '@tanstack/react-router' {
       path: '/referrals'
       fullPath: '/referrals'
       preLoaderRoute: typeof ReferralsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/quests': {
-      id: '/quests'
-      path: '/quests'
-      fullPath: '/quests'
-      preLoaderRoute: typeof QuestsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/prestige': {
@@ -2062,6 +2081,13 @@ declare module '@tanstack/react-router' {
       path: '/quizzes'
       fullPath: '/quizzes/'
       preLoaderRoute: typeof QuizzesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/quests/': {
+      id: '/quests/'
+      path: '/quests'
+      fullPath: '/quests/'
+      preLoaderRoute: typeof QuestsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profile/': {
@@ -2237,6 +2263,13 @@ declare module '@tanstack/react-router' {
       path: '/quizzes/$slug'
       fullPath: '/quizzes/$slug'
       preLoaderRoute: typeof QuizzesSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/quests/manage': {
+      id: '/quests/manage'
+      path: '/quests/manage'
+      fullPath: '/quests/manage'
+      preLoaderRoute: typeof QuestsManageRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profile/$username': {
@@ -2426,6 +2459,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/quizzes'
       fullPath: '/admin/quizzes'
       preLoaderRoute: typeof AdminQuizzesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/quest-boosts': {
+      id: '/admin/quest-boosts'
+      path: '/admin/quest-boosts'
+      fullPath: '/admin/quest-boosts'
+      preLoaderRoute: typeof AdminQuestBoostsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/polls': {
@@ -2869,7 +2909,6 @@ const rootRouteChildren: RootRouteChildren = {
   NotificationsRoute: NotificationsRoute,
   OnboardingRoute: OnboardingRoute,
   PrestigeRoute: PrestigeRoute,
-  QuestsRoute: QuestsRoute,
   ReferralsRoute: ReferralsRoute,
   SeasonsRoute: SeasonsRoute,
   SettingsRoute: SettingsRouteWithChildren,
@@ -2906,6 +2945,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminMessagesRoute: AdminMessagesRoute,
   AdminModerationRoute: AdminModerationRoute,
   AdminPollsRoute: AdminPollsRoute,
+  AdminQuestBoostsRoute: AdminQuestBoostsRoute,
   AdminQuizzesRoute: AdminQuizzesRoute,
   AdminRefundsRoute: AdminRefundsRoute,
   AdminRoomsRoute: AdminRoomsRoute,
@@ -2933,6 +2973,7 @@ const rootRouteChildren: RootRouteChildren = {
   PollsSlugRoute: PollsSlugRoute,
   PollsNewRoute: PollsNewRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
+  QuestsManageRoute: QuestsManageRoute,
   QuizzesSlugRoute: QuizzesSlugRoute,
   QuizzesNewRoute: QuizzesNewRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
@@ -2956,6 +2997,7 @@ const rootRouteChildren: RootRouteChildren = {
   MomentsIndexRoute: MomentsIndexRoute,
   PollsIndexRoute: PollsIndexRoute,
   ProfileIndexRoute: ProfileIndexRoute,
+  QuestsIndexRoute: QuestsIndexRoute,
   QuizzesIndexRoute: QuizzesIndexRoute,
   RoomsIndexRoute: RoomsIndexRoute,
   SupportIndexRoute: SupportIndexRoute,
