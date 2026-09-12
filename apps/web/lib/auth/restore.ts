@@ -122,7 +122,10 @@ export interface RestoreResult {
  * Completes account restoration from a signed restore token.
  * Clears deleted_at, logs the action, and returns a new session token pair.
  */
-export async function completeAccountRestore(token: string): Promise<RestoreResult> {
+export async function completeAccountRestore(
+  token: string,
+  options: { ip?: string; ua?: string } = {}
+): Promise<RestoreResult> {
   const payload = await verifyRestoreToken(token);
   if (!payload) {
     return { success: false, error: "Invalid or expired restore token" };
@@ -174,14 +177,17 @@ export async function completeAccountRestore(token: string): Promise<RestoreResu
 
   // Issue new session tokens
   try {
-    const { accessToken, refreshToken } = await createSession({
-      id: user.id,
-      email: user.email ?? "",
-      username: user.username,
-      is_admin: user.is_admin,
-      is_moderator: user.is_moderator,
-      is_creator: user.is_creator,
-    });
+    const { accessToken, refreshToken } = await createSession(
+      {
+        id: user.id,
+        email: user.email ?? "",
+        username: user.username,
+        is_admin: user.is_admin,
+        is_moderator: user.is_moderator,
+        is_creator: user.is_creator,
+      },
+      options
+    );
     return { success: true, accessToken, refreshToken };
   } catch (err) {
     logger.error({ err, userId }, "[restore] Session creation failed after restore");

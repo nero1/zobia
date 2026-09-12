@@ -3211,6 +3211,7 @@
   "settings.push.browserBlocked": "Blocked — enable notifications for this site in your browser settings.",
   "settings.push.browserDesc": "Get background notifications even when Zobia isn't open.",
   "settings.push.browserEnabled": "Enabled for this browser.",
+  "settings.push.browserFailed": "Couldn't enable browser notifications. Please try again.",
   "settings.push.dms": "Direct message pushes",
   "settings.push.dmsDesc": "Get notified about new DMs when you are away",
   "settings.push.groups": "Group chat pushes",

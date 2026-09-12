@@ -11,6 +11,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { useTheme as useNextTheme } from "next-themes";
 import { QRCodeSVG } from "qrcode.react";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { subscribeToWebPush, unsubscribeFromWebPush, getWebPushPermission, isWebPushSupported } from "@/lib/push/webPush";
@@ -32,6 +33,7 @@ interface UserSettings {
   dmOptOut: boolean;
   plan?: string | null;
   chatTheme?: string | null;
+  isVerified?: boolean;
   hasPassword: boolean;
   hasOAuthLogin: boolean;
 }
@@ -121,11 +123,21 @@ function isProPlan(plan: string | null | undefined): boolean {
 function SimpleChatTheme({
   plan,
   initialTheme,
+  onToast,
 }: {
   plan?: string | null;
   initialTheme?: string;
+  onToast?: (msg: string, type?: "success" | "error") => void;
 }) {
   const [selected, setSelected] = useState<string>(initialTheme ?? "default");
+  // initialTheme only has its real value once the parent's async settings
+  // load finishes (it starts undefined/"default" on first mount) — a plain
+  // useState initializer never re-runs on prop change, so without this the
+  // selected swatch stays stuck on "default" even when the server has a
+  // different theme saved.
+  useEffect(() => {
+    if (initialTheme) setSelected(initialTheme);
+  }, [initialTheme]);
   const [saving, setSaving] = useState(false);
   const [tooltip, setTooltip] = useState<string | null>(null);
   const hasPro = isProPlan(plan);
@@ -139,15 +151,20 @@ function SimpleChatTheme({
     }
     setSaving(true);
     try {
-      await fetch("/api/users/me/theme", {
+      const res = await fetch("/api/users/me/theme", {
         method: "PUT",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ theme: key }),
       });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({})) as { error?: { message?: string } };
+        throw new Error(body.error?.message ?? "Failed to save chat theme");
+      }
       setSelected(key);
-    } catch { /* non-fatal */ }
-    finally { setSaving(false); }
+    } catch (err) {
+      onToast?.(err instanceof Error ? err.message : "Failed to save chat theme", "error");
+    } finally { setSaving(false); }
   };
 
   return (
@@ -213,7 +230,13 @@ export default function SettingsPage() {
   const [bio, setBio] = useState("");
   const [email, setEmail] = useState("");
   const [language, setLanguage] = useState("en");
-  const [theme, setTheme] = useState<"light" | "dark" | "system">("system");
+  // UI theme (light/dark/system) is a client-only preference handled by
+  // next-themes (persists to localStorage, no server round-trip needed) —
+  // it must never be sent to the chat-theme API (that's a separate, DB-backed
+  // Pro/Max cosmetic keyed by `chatTheme` below). Previously both were wired
+  // to the same "theme" field/endpoint, so picking light/dark/system sent an
+  // invalid value to /api/users/me/theme and always failed with 400.
+  const { theme: nextTheme, setTheme: setNextTheme } = useNextTheme();
   const [notifications, setNotifications] = useState<Record<string, boolean>>({});
   const [dmOptOut, setDmOptOut] = useState(false);
 
@@ -388,6 +411,7 @@ export default function SettingsPage() {
           dmOptOut: user.dm_privacy === "friends_only" || user.dm_privacy === "nobody",
           plan: user.plan ?? null,
           chatTheme: user.chat_theme ?? "default",
+          isVerified: user.is_verified ?? false,
           hasPassword: user.has_password ?? false,
           hasOAuthLogin: user.has_oauth_login ?? false,
         };
@@ -396,7 +420,6 @@ export default function SettingsPage() {
         setBio(mappedSettings.bio);
         setEmail(mappedSettings.email);
         setLanguage(mappedSettings.language);
-        setTheme(mappedSettings.theme);
         setNotifications(mappedSettings.notifications);
         setDmOptOut(mappedSettings.dmOptOut);
         setHasPIN(Boolean(user.hasPIN));
@@ -479,8 +502,6 @@ export default function SettingsPage() {
       } else if (field === "email") {
         showToast("Email changes require verification — coming soon", "error");
         return;
-      } else if (field === "theme") {
-        url = "/api/users/me/theme"; method = "PUT"; body = { theme: value };
       } else if (field === "language") {
         url = "/api/users/me/settings"; method = "PATCH"; body = { locale: value };
       } else if (field === "notifications") {
@@ -867,8 +888,8 @@ export default function SettingsPage() {
           {(["light", "dark", "system"] as const).map((t) => (
             <button
               key={t}
-              onClick={() => { setTheme(t); void saveField("theme", t); }}
-              className={`flex-1 rounded-xl py-2.5 text-sm font-semibold capitalize transition-colors ${theme === t ? "bg-blue-600 text-white" : "border border-neutral-300 text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}
+              onClick={() => setNextTheme(t)}
+              className={`flex-1 rounded-xl py-2.5 text-sm font-semibold capitalize transition-colors ${(nextTheme ?? "system") === t ? "bg-blue-600 text-white" : "border border-neutral-300 text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"}`}
             >
               {t === "light" ? "☀️" : t === "dark" ? "🌙" : "💻"} {t}
             </button>
@@ -901,7 +922,13 @@ export default function SettingsPage() {
                   onClick={async () => {
                     const ok = await subscribeToWebPush();
                     setWebPushPermission(getWebPushPermission());
-                    if (ok) setToast({ msg: t("settings.push.browserEnabled", "Enabled for this browser."), type: "success" });
+                    if (ok) {
+                      setToast({ msg: t("settings.push.browserEnabled", "Enabled for this browser."), type: "success" });
+                    } else if (Notification.permission === "denied") {
+                      setToast({ msg: t("settings.push.browserBlocked", "Blocked — enable notifications for this site in your browser settings."), type: "error" });
+                    } else {
+                      setToast({ msg: t("settings.push.browserFailed", "Couldn't enable browser notifications. Please try again."), type: "error" });
+                    }
                   }}
                   className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white"
                 >
@@ -1109,7 +1136,7 @@ export default function SettingsPage() {
             Customise the colour theme of your message bubbles.
             Non-default themes require Pro or Max plan.
           </p>
-          <SimpleChatTheme plan={settings?.plan ?? null} initialTheme={settings?.chatTheme ?? "default"} />
+          <SimpleChatTheme plan={settings?.plan ?? null} initialTheme={settings?.chatTheme ?? "default"} onToast={showToast} />
         </div>
       </Section>
 
@@ -1118,8 +1145,20 @@ export default function SettingsPage() {
         <Section title="Identity Verification">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">Get the blue checkmark</p>
-              <p className="text-xs text-neutral-500">Verify your identity to unlock the verified badge and higher selling limits.</p>
+              <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">
+                {settings?.isVerified ? (
+                  <span className="inline-flex items-center gap-1">
+                    You have the blue checkmark <span className="text-blue-500" aria-hidden="true">✔</span>
+                  </span>
+                ) : (
+                  "Get the blue checkmark"
+                )}
+              </p>
+              <p className="text-xs text-neutral-500">
+                {settings?.isVerified
+                  ? "Your identity is verified. Manage your KYC tier or documents anytime."
+                  : "Verify your identity to unlock the verified badge and higher selling limits."}
+              </p>
             </div>
             <Link
               href="/kyc"

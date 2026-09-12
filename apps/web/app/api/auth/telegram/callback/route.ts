@@ -35,7 +35,7 @@ import { signAccessToken } from "@/lib/auth/jwt";
 import { redis } from "@/lib/redis";
 import { db } from "@/lib/db";
 import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
-import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { enforceRateLimit, getClientIp, getUserAgent, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getManifestValue } from "@/lib/manifest";
 import { env } from "@/lib/env";
 
@@ -160,6 +160,7 @@ async function upsertTelegramUser(profile: {
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const ip = getClientIp(req);
+    const ua = getUserAgent(req);
     await enforceRateLimit(ip, "ip", RATE_LIMITS.auth);
 
     const { searchParams } = new URL(req.url);
@@ -253,7 +254,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         username: user.username ?? profile.username ?? "",
         is_admin: user.is_admin,
       },
-      { ip }
+      { ip, ua }
     );
 
     // -----------------------------------------------------------------

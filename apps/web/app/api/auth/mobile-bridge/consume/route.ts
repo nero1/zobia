@@ -19,7 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { redis } from "@/lib/redis";
 import { db } from "@/lib/db";
 import { createSession, buildCookieHeaders } from "@/lib/auth/session";
-import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { enforceRateLimit, getClientIp, getUserAgent, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { handleApiError } from "@/lib/api/errors";
 
 // Path plus an optional bounded query string (alphanumeric keys/values,
@@ -48,6 +48,7 @@ interface UserRow {
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
     const ip = getClientIp(req);
+    const ua = getUserAgent(req);
     await enforceRateLimit(ip, "ip", RATE_LIMITS.oauthCallback);
 
     const reqOrigin = new URL(req.url).origin;
@@ -75,7 +76,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       return NextResponse.redirect(new URL("/auth/login", reqOrigin), { status: 302 });
     }
 
-    const authTokens = await createSession(user, { ip });
+    const authTokens = await createSession(user, { ip, ua });
     const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
 
     const destination = new URL(safeRedirect, reqOrigin);
