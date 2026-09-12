@@ -308,6 +308,20 @@ export interface ZobiaManifest {
     /** Days of pot inactivity before an unclaimed balance auto-refunds to the OP. */
     potExpiryDays: number;
   };
+  // Home Dashboard — interest personalization (admin-editable at /gate44/config)
+  interests: {
+    /** Show an interest-selection step during onboarding. When false, only implicit engagement-signal tracking is used for feed personalization. */
+    onboardingSelectionEnabled: boolean;
+  };
+  // Home Dashboard — feed (admin-editable at /gate44/config)
+  homeFeed: {
+    /** How long a candidate pool computed by /api/cron/feed-refresh stays cached before the next run refreshes it. */
+    cacheTtlSeconds: number;
+    /** Default number of items returned per Home Feed page. */
+    pageSize: number;
+    /** When false, Zobian of the Month always requires a manual admin pick. */
+    zobianOfMonthAutoComputeEnabled: boolean;
+  };
   // Platform Advertising (PRD §17, Pillar 3) — admin-editable at /gate44/ads
   ads: {
     /** How self-service business-submitted ad campaigns are reviewed. */
@@ -697,6 +711,14 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     imageCostCredits: 0,
     imageCostStars: 0,
     potExpiryDays: 14,
+  },
+  interests: {
+    onboardingSelectionEnabled: true,
+  },
+  homeFeed: {
+    cacheTtlSeconds: 900,
+    pageSize: 20,
+    zobianOfMonthAutoComputeEnabled: true,
   },
   ads: {
     moderationMode: "manual",
@@ -1231,6 +1253,14 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       imageCostCredits:        parseInt10(kv["bbforum_image_cost_credits"],         DEFAULT_MANIFEST.bbforum.imageCostCredits),
       imageCostStars:          parseInt10(kv["bbforum_image_cost_stars"],           DEFAULT_MANIFEST.bbforum.imageCostStars),
       potExpiryDays:           parseInt10(kv["bbforum_pot_expiry_days"],            DEFAULT_MANIFEST.bbforum.potExpiryDays),
+    },
+    interests: {
+      onboardingSelectionEnabled: parseBool(kv["interests_onboarding_selection_enabled"], DEFAULT_MANIFEST.interests.onboardingSelectionEnabled),
+    },
+    homeFeed: {
+      cacheTtlSeconds: parseInt10(kv["home_feed_cache_ttl_seconds"], DEFAULT_MANIFEST.homeFeed.cacheTtlSeconds),
+      pageSize: parseInt10(kv["home_feed_page_size"], DEFAULT_MANIFEST.homeFeed.pageSize),
+      zobianOfMonthAutoComputeEnabled: parseBool(kv["home_feed_zobian_of_month_auto_compute_enabled"], DEFAULT_MANIFEST.homeFeed.zobianOfMonthAutoComputeEnabled),
     },
     ads: {
       moderationMode: kv["ad_moderation_mode"] === "ai" ? "ai" : "manual",

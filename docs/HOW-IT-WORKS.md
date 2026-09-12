@@ -1306,6 +1306,90 @@ The platform runs comfortably on a **free Redis tier + Vercel Hobby**. Because e
 
 Existing in-process caches (rate-limit L1, manifest 15s, room top-gifters 10s) and the geo-anomaly check (Redis only when the request IP actually changes) remain in place. Presence heartbeats stay at 45s and continue to free room slots automatically via short Redis TTLs.
 
+### Home Dashboard & Feed (PRD §39)
+
+The Home feed (`GET /api/feed`, `lib/feed/*`) ranks 10 content types into a
+7-tier priority order (`lib/feed/ranking.ts`) — boosted > organic popular >
+organic trending > business posts > in-house boosted > interest match >
+recency fallback — implemented as `finalScore = tierWeight*1_000_000 +
+inTierScore`, so no in-tier score can ever cross a tier boundary. Tier
+weights are spaced out (60/50/40/30/20/10/5, not 7..1) so a future tier can
+be inserted without renumbering the rest.
+
+**Two-tier cache, same shape as `lib/manifest/index.ts`.** Computing the
+`for_you`/`trending` candidate pools means scanning every content table —
+too expensive to run per request under thousands of concurrent users, and
+unnecessary given the product's own 10-15 minute staleness tolerance.
+Instead `lib/feed/cache.ts` follows the manifest cache's exact pattern:
+in-process memory (15s TTL, just long enough to absorb a burst of
+concurrent requests on one instance) → Redis (`homeFeed.cacheTtlSeconds`,
+default 900s) → single-flighted recompute-on-miss (only fires if the CRON
+has never run yet or Redis is cold — concurrent requests during that rare
+window share one computation instead of each re-running the full
+cross-table aggregation). Per-request personalization (interest tier
+re-weighting) is applied to the already-cached, already-bounded (≤500
+item) pool per viewer — cheap enough to run on every request without a
+second DB round trip.
+
+**Gotcha:** `friends` and `new` are *not* served from the cached pool —
+they run a lighter, live per-request UNION query over a curated subset of
+content types (moments, tweets, blog posts, forum questions, rooms, wiki
+pages, games; not bbforum threads or business page posts) to keep that
+query bounded and index-friendly. Only `for_you`/`trending` go through the
+CRON-refreshed cache. Extending the live UNION to the remaining two
+content types is mechanical, not a platform limitation — see the header
+comment in `lib/feed/aggregator.ts`.
+
+**`/api/cron/feed-refresh`** (`app/api/cron/feed-refresh/route.ts`) does
+three things on every run, independently try/caught so one failing step
+doesn't block the others: (1) recompute and cache the `for_you`/`trending`
+pools, (2) fold the last day's `content_engagement_signals` into weighted
+`user_interests` rows and prune signals older than 30 days, (3)
+auto-compute Zobian of the Month if enabled and no admin override exists
+for the current month. It needs to run every 10-15 minutes, which Vercel
+Hobby's daily-only native CRON can't do — like the platform's other
+sub-daily jobs, it is deliberately **not** in `apps/web/vercel.json` and
+must be added to the CRON Setup section of `docs/SETUP.md`'s external
+cron-jobs.org list. Until that external job exists, the feed still works
+(cold-cache fallback recomputes synchronously on first request) but never
+refreshes, so trending/popularity data goes stale.
+
+**Interest tracking data flow:** client interactions log an implicit
+signal (`view`/`open`/`like`/`comment`/`share`) to
+`content_engagement_signals`; the feed-refresh job aggregates same-day
+signals into `user_interests` (`source = 'implicit'`, weighted — comment/
+share weigh more than a bare view) via one `INSERT ... ON CONFLICT DO
+UPDATE` set-based query, then deletes signal rows older than 30 days.
+Onboarding-selected interests land in the same table with
+`source = 'onboarding'`, gated by the `interests.onboardingSelectionEnabled`
+manifest toggle (admin-editable at `/gate44/config`); turning it off does
+not touch existing rows, it only stops new onboarding-sourced ones.
+
+**Zobian of the Month** (`lib/feed/zobianOfMonth.ts`) uses the same
+memory→Redis→DB read pattern (30s memory / 300s Redis) since it's read on
+every Home load but changes at most once a month. `autoComputeZobianOfMonth()`
+sums `xp_events.xp_awarded` for the current calendar month, upserts the top
+user, and its `ON CONFLICT` clause is guarded with
+`WHERE zobian_of_month.is_admin_override = false` — an admin override for
+the month is structurally impossible to overwrite, not just a check the
+caller happens to make first.
+
+**Content boosts extend the existing ad system, they don't replace it**
+(see "Advertising" below and PRD §17 Pillar 3 for the base pipeline). The
+generalized boost flow adds one new `ad_campaigns.objective` value,
+`boost_content`, and widens the `boosted_content_type` CHECK constraint
+(migration `0051_home_feed.sql`) to accept any of the 10 feed content
+types; `createContentBoostCampaign()` (`lib/ads/repo.ts`) builds a campaign
+from an existing piece of content's own title/body/image rather than new
+ad creative, then runs through the same moderation queue, CPM funding, and
+`ad_events`/`ad_campaign_daily_stats` billing as any other campaign — no
+parallel billing path. `lib/feed/aggregator.ts`'s `fetchBoostedTiers()`
+reads active `boost_content`/`boost_post`/`boost_room` campaigns, splits
+them into the "boosted" vs. "in_house_boosted" tier by whether the
+content's owner is staff (`is_admin`/`is_moderator`), and re-normalizes
+each tier's in-tier score by campaign recency (newer boosts edge out
+older ones within the same tier).
+
 ### Health Check Endpoint
 
 `GET /api/health` — used by load balancers and uptime monitors.

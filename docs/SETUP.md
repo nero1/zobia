@@ -958,6 +958,20 @@ Because Vercel Hobby limits each path to once per day, sub-daily jobs must be tr
 - Header: `Authorization: Bearer YOUR_CRON_SECRET`
 - Purpose: deletes `ai_call_log` rows older than 48 hours so the AI monitoring table (Admin → AI Settings → Recent Calls) never grows unbounded.
 
+**Home Feed Refresh (every 10-15 minutes)**
+- URL: `https://your-domain.com/api/cron/feed-refresh`
+- Schedule: Every 10-15 minutes
+- HTTP Method: GET or POST
+- Header: `Authorization: Bearer YOUR_CRON_SECRET`
+- Purpose: recomputes and caches the Home Dashboard's "For You"/"Trending"/"Friends"/"New" candidate pools (see `docs/HOW-IT-WORKS.md` → "Home Dashboard & Feed"), folds recent implicit engagement signals into `user_interests` and prunes signals older than 30 days, and auto-computes Zobian of the Month for the current calendar month (skipped if an admin has already set a manual override for that month, or if `homeFeed.zobianOfMonthAutoComputeEnabled` is off). A 10-15 minute staleness window is acceptable by design — this endpoint is intentionally NOT in `apps/web/vercel.json`'s daily cron schedule. This job has not been run yet as of this writing; if Home feed tabs look empty or Zobian of the Month is missing, set up this job and trigger it once manually to confirm.
+
+### Brand Assets (Home Dashboard logo)
+
+The Home Dashboard's default/logo tab (web, PWA, and Android) renders the site's small logo mark and gracefully falls back to a text "Z" placeholder until the real file is uploaded. Upload the same square PNG (transparent background recommended, ~64-128px) to BOTH of these paths — they are separate static asset trees, one per app:
+
+- `apps/web/public/images/logosmall.png` (web + PWA)
+- `apps/android/public/images/logosmall.png` (Capacitor Android app — requires an app rebuild to take effect, not a hot-reload)
+
 ### Paystack Setup (Payments & Payouts)
 
 #### 1. Get API Keys

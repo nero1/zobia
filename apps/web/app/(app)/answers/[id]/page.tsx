@@ -18,6 +18,7 @@ import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { QuestionMiniList, type QuestionMiniListItem } from "@/components/answers/QuestionMiniList";
 import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
+import { BoostContentButton } from "@/components/ads/BoostContentButton";
 import { REPORT_REASONS } from "@/lib/moderation/reportReasons";
 
 // ---------------------------------------------------------------------------
@@ -489,6 +490,14 @@ export default function QuestionDetailPage() {
                   <button onClick={() => void handleShare()} className="font-medium text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400">
                     {shareCopied ? t("answers.linkCopied", "Link copied") : t("answers.share", "Share")}
                   </button>
+                  {question.isAuthor && (
+                    <BoostContentButton
+                      contentType="forum_question"
+                      contentId={question.id}
+                      title={question.title}
+                      className="font-medium text-neutral-400 hover:text-primary-600 dark:hover:text-primary-400"
+                    />
+                  )}
                   <button onClick={() => setReportTarget({ type: "question", id: question.id })} className="ml-auto font-medium text-neutral-400 hover:text-red-600 dark:hover:text-red-400">
                     {t("answers.report", "Report")}
                   </button>

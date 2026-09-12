@@ -28,6 +28,7 @@ import { useCurrency, currencyLabel } from "@/lib/hooks/useCurrency";
 import { useMomentsConfig } from "@/lib/hooks/useMomentsConfig";
 import { useAdsConfig } from "@/lib/hooks/useAdsConfig";
 import InStreamAd from "@/components/ads/InStreamAd";
+import { BoostContentButton } from "@/components/ads/BoostContentButton";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
 import { UserBadgeRow, RewardBadge } from "@/components/shared/UserBadges";
@@ -1888,6 +1889,15 @@ export default function RoomPage() {
         {/* Room capacity upgrade (paid) — visible to room creator only */}
         {currentUserId && room.creatorId === currentUserId && (
           <RoomCapacityPanel roomId={roomId} />
+        )}
+
+        {/* Boost this Room/ClassRoom via the platform ad system — visible to room creator only */}
+        {currentUserId && room.creatorId === currentUserId && (
+          <BoostContentButton
+            contentType={room.type === "classroom" ? "classroom" : "room"}
+            contentId={roomId}
+            title={room.name}
+          />
         )}
 
         {/* ClassRoom Curriculum (PRD §10) */}

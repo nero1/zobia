@@ -1,113 +1,108 @@
 /**
  * apps/android/src/components/ui/PullToRefresh.tsx
  *
- * Dependency-free pull-to-refresh wrapper (ZB-AND-12 fix) — neither the web/PWA
- * nor the Android app implemented this despite it being one of the most
- * expected native-feeling mobile affordances for feed-style screens (Rooms,
- * Moments, Notifications, Messages).
+ * Ported from apps/web/components/ui/PullToRefresh.tsx (also used inside
+ * that Next.js app's Capacitor WebView mirror per its own doc comment) —
+ * no existing pull-to-refresh pattern was found elsewhere in this app (see
+ * home.tsx's rebuild), so this is the same dependency-free touch-based
+ * approach, unchanged behavior. Tracks touchstart/touchmove Y-delta only
+ * when the page is already scrolled to the top (window.scrollY === 0),
+ * shows a simple arrow/spinner indicator past a threshold, and calls
+ * `onRefresh` on release past that threshold.
  *
- * Wraps a scrollable container: tracks a touch-start/touch-move delta only
- * when the container is already scrolled to the top (so it never fights
- * normal mid-list scrolling), reveals a small spinner past a threshold, and
- * calls `onRefresh` on release past that threshold.
+ * No-op (renders children plain) on non-touch input — desktop mouse drags
+ * are not supported, matching how pull-to-refresh works natively.
  */
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useRef, useState, type ReactNode, type TouchEvent } from 'react';
 
-const PULL_THRESHOLD = 64;
-const MAX_PULL = 96;
-const RESISTANCE = 0.5;
+const PULL_THRESHOLD_PX = 64;
+const MAX_PULL_PX = 110;
 
-interface PullToRefreshProps {
-  onRefresh: () => Promise<unknown> | unknown;
-  className?: string;
+export function PullToRefresh({
+  onRefresh,
+  children,
+  className,
+}: {
+  onRefresh: () => Promise<void>;
   children: ReactNode;
-}
-
-export function PullToRefresh({ onRefresh, className, children }: PullToRefreshProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const startYRef = useRef<number | null>(null);
-  const pullDistanceRef = useRef(0);
-  const refreshingRef = useRef(false);
-  const onRefreshRef = useRef(onRefresh);
-  onRefreshRef.current = onRefresh;
-
+  className?: string;
+}) {
   const [pullDistance, setPullDistance] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
+  const startYRef = useRef<number | null>(null);
+  const trackingRef = useRef(false);
 
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    const onTouchStart = (e: TouchEvent) => {
-      startYRef.current = el.scrollTop <= 0 ? e.touches[0].clientY : null;
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      if (refreshingRef.current) return;
-      // ZSB-25 fix: `startYRef` used to only ever get latched in
-      // `onTouchStart`, based on scrollTop at the *instant the touch began*.
-      // A gesture that starts mid-list (scrollTop > 0) and scrolls up to the
-      // top within the same continuous touch never armed the refresh
-      // indicator, even though the user was now at the top and pulling down.
-      // Re-check here and latch the first time scrollTop reaches 0 mid-drag.
-      if (startYRef.current === null) {
-        if (el.scrollTop <= 0) startYRef.current = e.touches[0].clientY;
+  const handleTouchStart = useCallback(
+    (e: TouchEvent) => {
+      if (window.scrollY > 0 || refreshing) {
+        trackingRef.current = false;
         return;
       }
-      const delta = e.touches[0].clientY - startYRef.current;
-      if (delta <= 0 || el.scrollTop > 0) {
-        pullDistanceRef.current = 0;
-        setPullDistance(0);
-        return;
-      }
-      const distance = Math.min(delta * RESISTANCE, MAX_PULL);
-      pullDistanceRef.current = distance;
-      setPullDistance(distance);
-    };
+      startYRef.current = e.touches[0]?.clientY ?? null;
+      trackingRef.current = true;
+    },
+    [refreshing]
+  );
 
-    const onTouchEnd = () => {
-      startYRef.current = null;
-      if (pullDistanceRef.current >= PULL_THRESHOLD && !refreshingRef.current) {
-        refreshingRef.current = true;
-        setRefreshing(true);
-        Promise.resolve(onRefreshRef.current()).finally(() => {
-          refreshingRef.current = false;
-          setRefreshing(false);
-          pullDistanceRef.current = 0;
-          setPullDistance(0);
-        });
-      } else {
-        pullDistanceRef.current = 0;
-        setPullDistance(0);
-      }
-    };
-
-    el.addEventListener('touchstart', onTouchStart, { passive: true });
-    el.addEventListener('touchmove', onTouchMove, { passive: true });
-    el.addEventListener('touchend', onTouchEnd, { passive: true });
-    return () => {
-      el.removeEventListener('touchstart', onTouchStart);
-      el.removeEventListener('touchmove', onTouchMove);
-      el.removeEventListener('touchend', onTouchEnd);
-    };
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (!trackingRef.current || startYRef.current == null) return;
+    const currentY = e.touches[0]?.clientY ?? startYRef.current;
+    const delta = currentY - startYRef.current;
+    if (delta <= 0) {
+      setPullDistance(0);
+      return;
+    }
+    // Only take over the gesture once we're confident it's a pull-down at
+    // the top of the page — otherwise let normal scrolling happen.
+    if (window.scrollY > 0) {
+      trackingRef.current = false;
+      setPullDistance(0);
+      return;
+    }
+    setPullDistance(Math.min(delta * 0.5, MAX_PULL_PX));
   }, []);
 
-  const indicatorHeight = refreshing ? PULL_THRESHOLD : pullDistance;
+  const handleTouchEnd = useCallback(async () => {
+    if (!trackingRef.current) return;
+    trackingRef.current = false;
+    startYRef.current = null;
+    if (pullDistance >= PULL_THRESHOLD_PX && !refreshing) {
+      setRefreshing(true);
+      setPullDistance(PULL_THRESHOLD_PX);
+      try {
+        await onRefresh();
+      } finally {
+        setRefreshing(false);
+        setPullDistance(0);
+      }
+    } else {
+      setPullDistance(0);
+    }
+  }, [pullDistance, refreshing, onRefresh]);
+
+  const indicatorVisible = pullDistance > 8 || refreshing;
+  const progress = Math.min(pullDistance / PULL_THRESHOLD_PX, 1);
 
   return (
-    <div ref={containerRef} className={className}>
+    <div className={className} onTouchStart={handleTouchStart} onTouchMove={handleTouchMove} onTouchEnd={handleTouchEnd}>
       <div
         aria-hidden="true"
         className="flex items-center justify-center overflow-hidden transition-[height] duration-150"
-        style={{ height: indicatorHeight }}
+        style={{ height: indicatorVisible ? Math.max(pullDistance, refreshing ? 40 : 0) : 0 }}
       >
-        {(refreshing || pullDistance > 8) && (
-          <div
-            className={`w-6 h-6 border-2 border-primary-600 border-t-transparent rounded-full ${refreshing || pullDistance >= PULL_THRESHOLD ? 'animate-spin' : ''}`}
-            style={!refreshing ? { transform: `rotate(${pullDistance * 3}deg)` } : undefined}
-          />
-        )}
+        <div
+          className={`flex h-7 w-7 items-center justify-center rounded-full border-2 border-neutral-300 text-neutral-500 ${
+            refreshing ? 'animate-spin border-t-primary-500' : ''
+          }`}
+          style={!refreshing ? { transform: `rotate(${progress * 180}deg)` } : undefined}
+        >
+          {!refreshing && (
+            <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+          )}
+        </div>
       </div>
       {children}
     </div>

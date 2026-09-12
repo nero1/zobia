@@ -13,6 +13,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { UserBadgeRow } from "@/components/shared/UserBadges";
+import { BoostContentButton } from "@/components/ads/BoostContentButton";
 import { VideoEmbed } from "./VideoEmbed";
 import { type Tweet, timeAgo } from "./types";
 
@@ -78,6 +79,7 @@ export function TweetCard({
 
         {isOwnProfile && (
           <div className="flex shrink-0 items-center gap-1">
+            <BoostContentButton contentType="tweet" contentId={tweet.id} title={tweet.content ?? undefined} imageUrl={tweet.imageUrl} />
             {tweet.isPinned ? (
               onUnpin && (
                 <button

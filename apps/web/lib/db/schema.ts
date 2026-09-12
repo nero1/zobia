@@ -5408,6 +5408,130 @@ export type AutomatedActionLog = typeof automatedActionsLog.$inferSelect;
 export type NewAutomatedActionLog = typeof automatedActionsLog.$inferInsert;
 
 // ---------------------------------------------------------------------------
+// Home Dashboard feed infrastructure (migration 0051_home_feed.sql)
+// ---------------------------------------------------------------------------
+
+/** Onboarding-selected or implicitly-inferred interest tags per user. */
+export const userInterests = pgTable(
+  "user_interests",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    interestTag: text("interest_tag").notNull(),
+    source: text("source").notNull(),
+    weight: numeric("weight", { precision: 10, scale: 4 }).notNull().default("1"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check("user_interests_source_check", sql`${t.source} = ANY (ARRAY['onboarding'::text, 'implicit'::text])`),
+    uniqueIndex("user_interests_user_tag_source_unique").on(t.userId, t.interestTag, t.source),
+    index("idx_user_interests_user").on(t.userId),
+  ]
+);
+
+/**
+ * Lightweight implicit-interest event log — write-heavy, batch client-side.
+ * Folded into user_interests (source='implicit') and pruned (30-day TTL) by
+ * /api/cron/feed-refresh.
+ */
+export const contentEngagementSignals = pgTable(
+  "content_engagement_signals",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    contentType: text("content_type").notNull(),
+    interestTag: text("interest_tag"),
+    eventType: text("event_type").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [
+    check(
+      "content_engagement_signals_event_type_check",
+      sql`${t.eventType} = ANY (ARRAY['view'::text, 'like'::text, 'comment'::text, 'share'::text, 'open'::text])`
+    ),
+    index("idx_content_engagement_signals_user_created").on(t.userId, t.createdAt),
+  ]
+);
+
+/** One row per calendar month: the auto-computed (or admin-overridden) Zobian of the Month pick. */
+export const zobianOfMonth = pgTable(
+  "zobian_of_month",
+  {
+    id: uuidPk(),
+    month: date("month").notNull(),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    score: numeric("score", { precision: 18, scale: 4 }),
+    isAdminOverride: boolean("is_admin_override").notNull().default(false),
+    overriddenBy: uuid("overridden_by").references(() => users.id, { onDelete: "set null" }),
+    note: text("note"),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("zobian_of_month_month_unique").on(t.month)]
+);
+
+/**
+ * Durable server-side fallback for the "don't remind again" New Member Quest
+ * nudge. localStorage (scoped per-user-id) is the client's fast path; this
+ * row only gets written after several local dismissals or an explicit
+ * "don't remind again" to keep DB/Redis load low.
+ */
+export const newMemberQuestDismissals = pgTable("new_member_quest_dismissals", {
+  id: uuidPk(),
+  userId: uuid("user_id").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  dismissCount: integer("dismiss_count").notNull().default(0),
+  lastDismissedAt: timestamp("last_dismissed_at", { withTimezone: true }),
+  dontRemindAgain: boolean("dont_remind_again").notNull().default(false),
+  createdAt: createdAt(),
+  updatedAt: updatedAt(),
+});
+
+/**
+ * Admin-manageable notices for the Home carousel. Merged at query time
+ * (see /api/notices) with active platformEvents and announcementBanners
+ * rows rather than duplicating that data here.
+ */
+export const notices = pgTable(
+  "notices",
+  {
+    id: uuidPk(),
+    noticeType: text("notice_type").notNull().default("custom"),
+    title: text("title").notNull(),
+    body: text("body"),
+    icon: text("icon"),
+    imageUrl: text("image_url"),
+    ctaLabel: text("cta_label"),
+    ctaUrl: text("cta_url"),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: createdAt(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [
+    check(
+      "notices_notice_type_check",
+      sql`${t.noticeType} = ANY (ARRAY['season'::text, 'event'::text, 'admin_news'::text, 'custom'::text])`
+    ),
+    index("idx_notices_active_window").on(t.isActive, t.startsAt, t.endsAt),
+  ]
+);
+
+export type UserInterest = typeof userInterests.$inferSelect;
+export type NewUserInterest = typeof userInterests.$inferInsert;
+export type ContentEngagementSignal = typeof contentEngagementSignals.$inferSelect;
+export type NewContentEngagementSignal = typeof contentEngagementSignals.$inferInsert;
+export type ZobianOfMonth = typeof zobianOfMonth.$inferSelect;
+export type NewZobianOfMonth = typeof zobianOfMonth.$inferInsert;
+export type NewMemberQuestDismissal = typeof newMemberQuestDismissals.$inferSelect;
+export type NewNewMemberQuestDismissal = typeof newMemberQuestDismissals.$inferInsert;
+export type Notice = typeof notices.$inferSelect;
+export type NewNotice = typeof notices.$inferInsert;
+
+// ---------------------------------------------------------------------------
 // Schema namespace — pass to drizzle(pool, { schema }) for relational queries
 // ---------------------------------------------------------------------------
 
@@ -5624,4 +5748,11 @@ export const schema = {
   failedWebhooks,
   refunds,
   automatedActionsLog,
+
+  // Home Dashboard feed infrastructure
+  userInterests,
+  contentEngagementSignals,
+  zobianOfMonth,
+  newMemberQuestDismissals,
+  notices,
 } as const;

@@ -5559,6 +5559,222 @@ creation-gate/reward/quota config `x_manifest` keys with their defaults).
 
 ---
 
+## 39. Home Dashboard (v2.26)
+
+The logged-in Home page (`/home`) is the app's default post-login landing
+surface: a personalized feed of platform content plus a "logo tab" hub of
+at-a-glance widgets (Zobian of the Month, quests, presence, guild
+discovery, leaderboard position). It is powered by a new cross-content-type
+feed pipeline (`lib/feed/*`) and reuses — rather than duplicates — the
+existing Platform Advertising system (§17 Pillar 3) to let any user boost
+their own content into that feed.
+
+### 39.1 UI guidelines
+
+Top-to-bottom layout: a platform ad slot (`home_top`) → an auto-advancing
+**Notices** carousel (random start position, ~5s auto-advance, pauses on
+user interaction) → a second ad slot (`home_mid`) → the tab bar → tab
+content. This ordering is fixed and not admin-configurable.
+
+**Tab bar:** an unlabeled default **logo tab** (the site logo/wordmark;
+active on a fresh login) plus four labeled feed tabs — **For You** (FU),
+**Trending** (TR), **Friends/Followers** (FF), **New** (NE). Desktop shows
+the full tab names; mobile web/PWA and the Android app show the acronyms
+only, to keep the bar compact on narrow screens. Selecting a feed tab shows
+a small header naming that tab. The logo image is read from
+`public/images/logosmall.png` on each platform (web and Android each keep
+their own copy — see §39.7); until an image is uploaded, a text/emoji
+fallback renders so the tab bar never breaks.
+
+**Logo tab (default) content:** Zobian of the Month spotlight card (§39.5),
+site news/announcements, the Daily Quest deck plus the New Member Quest
+card (§39.4), a Nemesis/Challenge card, a Presence sub-section (Online
+Friends / Recently Active tabs), and the pre-existing Leaderboard position
+card, Guild Discovery panel, and Plan Expiry banner.
+
+**The four feed tabs** each show a paginated ("Load more") list of feed
+cards, with native ad slots (`home_feed_native`) interleaved roughly every
+6 items. Pull-to-refresh is supported on touch devices via a small
+dependency-free handler.
+
+### 39.2 The feed ranking pipeline
+
+`GET /api/feed?tab=for_you|trending|friends|new&cursor=&limit=` serves
+paginated feed pages. The `for_you` and `trending` tabs are backed by a
+precomputed, cached **candidate pool** (see §39.3) rather than a live
+per-request query, so the ranking below only has to run occasionally, not
+on every page load. `friends` and `new` are lighter, live per-request
+queries over a curated subset of content types (moments, tweets, blog
+posts, forum questions, rooms, wiki pages, games — not bbforum threads or
+business page posts, to keep the query bounded); extending that subset to
+full parity is straightforward future work.
+
+Feed content types: moments, tweets, blog posts, bbforum threads, Answers
+questions (forum_question), rooms, classrooms, wiki pages, games, and
+business page posts.
+
+For `for_you`, every candidate item is scored into exactly one of seven
+priority tiers (an item can only appear in the highest tier it qualifies
+for — a lower tier never lets it outrank a higher one, however strong its
+in-tier score):
+
+1. **Boosted content** — any content actively boosted through the
+   generalized content-boost system (§39.6), authored by a regular (non
+   admin/mod) user. Ranked by boost recency.
+2. **Organic popular** — all-time engagement (views, likes, replies, etc.,
+   per content type's own counters), independent of any boost.
+3. **Organic trending** — recent-engagement *velocity* (engagement decayed
+   by content age, same "hot" formula used elsewhere on the platform, e.g.
+   `/api/tweets` for_you), so fast-rising fresh content surfaces even
+   before it accumulates enough all-time engagement to win tier 2.
+4. **Business page posts** — non-boosted business page posts, weighted by
+   the posting business's account tier (starter/growth/enterprise).
+5. **In-house boosted content** — the same boost mechanism as tier 1, but
+   authored by an admin or moderator (kept in a lower, separate tier so
+   staff-authored boosts never crowd out ordinary users' boosted content).
+6. **Interest-based personalization** — scored against the viewing user's
+   weighted interests (§39.4), matched against each candidate's content
+   type and any category/tag it carries.
+7. **Recency fallback** — when an item has no interest match at all, a
+   small decayed recency score (30-day half-life) stands in, so a
+   personalized feed is never empty for a user with no tracked interests
+   yet; this score is deliberately capped low enough that it can never
+   outrank a real interest match.
+
+`trending` is a separate, single-tier tab: every content type's recent
+engagement velocity, normalized and ranked with no other tiering applied.
+
+**Known simplification:** tier 2 (organic popular) does not currently
+subtract engagement a piece of content earned while it was boosted, since
+the platform does not yet attribute ad impressions/clicks back to a piece
+of content's own counters — a boosted item's popularity score can
+therefore double-count its boosted-era engagement. Documented as future
+work, not a defect to silently fix.
+
+### 39.3 Candidate pool caching & the feed-refresh job
+
+Because the ranking pipeline above touches every content table, it is not
+run per page load. Instead, a new CRON endpoint,
+`POST /api/cron/feed-refresh`, recomputes the `for_you` and `trending`
+candidate pools and writes them into a two-tier cache (in-process memory,
+then Redis) with a configurable TTL —
+`homeFeed.cacheTtlSeconds` (x_manifest, default 900s / 15 minutes,
+admin-editable at `/gate44/config`). Per-request reads always hit the
+cache; personalization (tier 6/7, and light re-weighting elsewhere) is
+applied to the already-cached pool per viewer at read time, which is cheap
+enough to run on every request.
+
+**This job is intentionally not registered in `apps/web/vercel.json`** —
+Vercel's Hobby plan only allows daily CRON schedules, and this job needs to
+run every 10–15 minutes. The site owner must add it as an external cron
+job (the same cron-jobs.org mechanism already used for the platform's other
+sub-daily jobs — see the CRON Setup section of `docs/SETUP.md`) hitting
+`POST /api/cron/feed-refresh` with an `Authorization: Bearer <CRON_SECRET>`
+header. Until that external job is configured, the feed still works (a
+cold cache falls back to a synchronous recompute on first request) but
+will not refresh, so trending/popularity data will grow stale.
+
+The same job also folds implicit interest signals into `user_interests`
+(§39.4) and auto-computes Zobian of the Month (§39.5).
+
+### 39.4 Interest-based personalization
+
+Each user accumulates weighted interest rows (`user_interests`, tag +
+source + weight) from two sources:
+
+- **Onboarding selection** — an interest-picker step shown during
+  onboarding, gated by a new admin toggle,
+  `interests.onboardingSelectionEnabled` (x_manifest, default **on**,
+  admin-editable at `/gate44/config`). When an admin turns this off, new
+  users skip the picker and personalization relies entirely on implicit
+  signals until enough accumulate.
+- **Implicit engagement signals** — lightweight events (`view`, `open`,
+  `like`, `comment`, `share`) logged to `content_engagement_signals` as
+  users interact with content. The feed-refresh job (§39.3) aggregates the
+  last day's signals into weighted `user_interests` rows (source
+  `implicit`; heavier weight for comment/share than a bare view) and prunes
+  signal rows older than 30 days, so the raw signal log never grows
+  unbounded.
+
+### 39.5 Zobian of the Month
+
+A monthly spotlight (`zobian_of_month` table, one row per calendar month)
+shown on the logo tab. By default it is **auto-computed** by the
+feed-refresh job as the user with the highest total XP gained that
+calendar month — but an admin can set a manual override at any time via
+`POST /api/admin/zobian-of-month`, which the auto-compute job will never
+overwrite for that month once set. Auto-compute itself can also be turned
+off platform-wide via `homeFeed.zobianOfMonthAutoComputeEnabled`
+(x_manifest, default on). Read publicly via
+`GET /api/feed/zobian-of-month`.
+
+### 39.6 Generalized content boosts
+
+`ad_campaigns` already had a `boosted_content_type`/`boosted_content_id`
+shape (originally scoped to `boost_post`/`boost_room` objectives) that had
+never been fully wired up. This work generalizes it into a real "boost any
+content type" flow, conceptually a **Sponsored Post** ad objective — a user
+boosts their own (or, for admins/moderators, anyone's) existing content
+rather than uploading new ad creative from scratch:
+
+- A new objective, `boost_content`, whose `boosted_content_type` accepts
+  any of: `moment`, `tweet`, `blog_post`, `forum_thread`,
+  `forum_question`, `room`, `wiki_page`, `game`, `classroom`,
+  `business_page_post`.
+- `createContentBoostCampaign()` (`lib/ads/repo.ts`) builds the campaign
+  from an existing piece of content's own metadata (title/body/image),
+  exposed via `POST /api/content/boost`; `GET /api/ads/boostable` lists
+  what a given user is allowed to boost.
+- **This reuses the exact existing ad campaign pipeline as-is** — the same
+  moderation queue/AI review, the same Credits-CPM funding and billing
+  ledger, the same `ad_events`/`ad_campaign_daily_stats` tracking described
+  in §17 Pillar 3. No parallel billing or moderation system was built for
+  boosts.
+- A boosted item ranks at the top tier of the Home feed for its content
+  type (§39.2, tier 1, or tier 5 for staff-authored boosts).
+- A **Boost** button was added to the owner-facing action row of tweets,
+  blog posts (dashboard), Answers questions, bbforum threads, wiki pages,
+  business page posts, and room/classroom creator panels. **Not yet
+  available** for moments or games (neither has owner-management UI on web
+  yet) or on the Capacitor Android app at all (web-only for now) — both
+  noted as follow-up work, not oversights.
+
+### 39.7 Notices, quests, and platform coverage
+
+**Notices carousel:** `GET /api/notices` merges three sources into one
+feed for the carousel — the new admin-manageable `notices` table, the
+existing `platform_events` engine, and the existing `announcement_banners`
+system — so admins are never asked to re-enter data that already exists
+elsewhere.
+
+**New Member Quest dismissal:** primarily client-side (localStorage,
+scoped per user id, so a shared device doesn't leak one user's dismissal
+state to another). A durable server-side fallback
+(`new_member_quest_dismissals` table, `POST /api/quests/new-member/dismiss`)
+is written only after 4 local dismissals or an explicit "don't remind me
+again," to keep this low-traffic. Dismissing the card from Home does not
+remove the New Member Quest section from the Quests page (`/quests`) — it
+still appears there below the daily quest list.
+
+**Platform coverage:** the Android (Capacitor) app mirrors the web Home
+page's structure and behavior with its own component implementations
+(`apps/android/src/routes/home.tsx`, `apps/android/src/components/home/*`);
+since it is phone-only it always shows the FU/TR/FF/NE acronyms rather than
+switching between full names and acronyms by viewport. Its logo image is a
+separate file from web's, at `apps/android/public/images/logosmall.png`.
+
+**New migrations to run:** `db/migrations/0051_home_feed.sql` (adds
+`user_interests`, `content_engagement_signals`, `zobian_of_month`,
+`new_member_quest_dismissals`, `notices`; widens the `ad_campaigns`
+objective/`boosted_content_type` CHECK constraints for the generalized
+boost flow; seeds a `content_boost` native ad placement and the
+`interests`/`homeFeed` `x_manifest` keys) and
+`db/migrations/0052_home_ad_placements.sql` (seeds the `home_top`,
+`home_mid`, and `home_feed_native` ad placements used by the Home
+Dashboard layout).
+
+---
+
 ## Appendix: Version 2.04 Change Log
 
 ### v2.04 — Changelog
@@ -7526,6 +7742,58 @@ surface the web/PWA quest system expansion already shipped against.
 
 ---
 
-*ZobiaSocial PRD v2.25*
+## Appendix: Version 2.26 Change Log
+
+### v2.26 — Changelog
+
+#### New Feature: Home Dashboard & generalized content boosts (§39)
+
+Redesigned the logged-in Home page (`/home`) around a new cross-content-type
+feed pipeline and generalized the pre-existing (but never fully wired up)
+`ad_campaigns` content-boost columns into a real "boost any content type"
+flow, reusing the existing Platform Advertising pipeline (§17) as-is.
+
+- **Home feed** (§39.2): `GET /api/feed` ranks moments, tweets, blog posts,
+  bbforum threads, Answers questions, rooms, classrooms, wiki pages, games,
+  and business page posts into a 7-tier priority order (boosted > organic
+  popular > organic trending > business posts > in-house boosted > interest
+  match > recency fallback) across four tabs (For You / Trending / Friends /
+  New).
+- **Candidate pool caching** (§39.3): `for_you`/`trending` pools are
+  precomputed by a new `POST /api/cron/feed-refresh` job into a two-tier
+  memory+Redis cache (`homeFeed.cacheTtlSeconds`, default 900s). This job
+  runs every 10-15 minutes and, like other sub-daily jobs, is deliberately
+  **not** registered in `vercel.json` (Vercel Hobby only allows daily
+  schedules) — requires external cron-jobs.org setup, documented in
+  `docs/SETUP.md`.
+- **Interest personalization** (§39.4): new `user_interests` table fed by
+  an onboarding interest-picker (gated by new admin toggle
+  `interests.onboardingSelectionEnabled`, default on) and implicit
+  engagement signals (`content_engagement_signals`, aggregated and pruned
+  by the feed-refresh job).
+- **Zobian of the Month** (§39.5): new `zobian_of_month` table,
+  auto-computed monthly from top XP gain unless an admin sets a manual
+  override (`POST /api/admin/zobian-of-month`) or auto-compute is disabled
+  (`homeFeed.zobianOfMonthAutoComputeEnabled`).
+- **Generalized content boosts** (§39.6): new `boost_content` ad objective
+  and `createContentBoostCampaign()` (`lib/ads/repo.ts`) let a user boost
+  their own existing content — via `POST /api/content/boost` — through the
+  exact same moderation/CPM-billing pipeline as any other ad. A **Boost**
+  button was added to tweets, blog posts, Answers questions, bbforum
+  threads, wiki pages, business page posts, and room/classroom panels.
+  Not yet available for moments/games or on Android (follow-up work).
+- **Notices carousel** (§39.7): `GET /api/notices` merges a new
+  admin-manageable `notices` table with existing `platform_events` and
+  `announcement_banners` rows.
+- Mirrored feature-for-feature in the Capacitor Android app
+  (`apps/android/src/routes/home.tsx`, `components/home/*`), phone-only so
+  it always shows the FU/TR/FF/NE tab acronyms.
+
+**New migrations to run:** `db/migrations/0051_home_feed.sql`,
+`db/migrations/0052_home_ad_placements.sql`.
+
+---
+
+*ZobiaSocial PRD v2.26*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
