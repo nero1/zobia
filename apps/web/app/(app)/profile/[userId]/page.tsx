@@ -8,14 +8,17 @@
  * prestige stars, guild badge, season history, and action buttons.
  */
 
-import { useState, useEffect, useRef } from "react";
-import { useParams } from "next/navigation";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { OnlineRing } from "@/components/ui/OnlineRing";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
 import { XpLevelBadge } from "@/components/shared/UserBadges";
+import { PhotoGallery } from "@/components/profile/PhotoGallery";
+import { ActivityFeed, useProfileActivity } from "@/components/profile/ActivityFeed";
+import { ProfileMoments, useProfileMoments } from "@/components/profile/ProfileMoments";
 import type { RankName } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -170,7 +173,17 @@ function SeasonCard({ season }: { season: SeasonSummary }) {
  * Public user profile page.
  */
 export default function ProfilePage() {
+  return (
+    <Suspense fallback={<div className="p-4 sm:p-6"><ProfileSkeleton /></div>}>
+      <ProfilePageInner />
+    </Suspense>
+  );
+}
+
+function ProfilePageInner() {
   const params = useParams();
+  const searchParams = useSearchParams();
+  const router = useRouter();
   const { t } = useTranslation();
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
@@ -184,6 +197,46 @@ export default function ProfilePage() {
   const [followBusy, setFollowBusy] = useState(false);
   const [isFriend, setIsFriend] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+
+  // Moments | Activities tabs (see components/profile/ProfileMoments.tsx and
+  // ActivityFeed.tsx). Tab state is reflected in ?tab= so a direct link to a
+  // specific tab works. "activities" fetch 403s (ACTIVITIES_HIDDEN) when the
+  // owner has hidden that section — the tab is then not rendered at all,
+  // never merely disabled.
+  type ProfileTab = "moments" | "activities";
+  const moments = useProfileMoments(userId);
+  const { activities, forbidden: activitiesHidden } = useProfileActivity(userId);
+  const hasMoments = moments !== null && moments.length > 0;
+  const showMomentsTab = moments === null || hasMoments;
+  const showActivitiesTab = !activitiesHidden;
+  const tabParam = searchParams.get("tab") as ProfileTab | null;
+  const [activeTab, setActiveTab] = useState<ProfileTab>(
+    tabParam === "activities" || tabParam === "moments" ? tabParam : "moments"
+  );
+
+  // Once both tabs have resolved, correct the default: Moments is active by
+  // default, but if the profile has zero moments the Moments tab is hidden
+  // entirely and Activities becomes the default instead — unless the URL
+  // already asked for a specific (still-visible) tab.
+  useEffect(() => {
+    if (tabParam === "activities" || tabParam === "moments") return; // explicit deep link wins
+    if (moments === null) return; // wait for the moments fetch to resolve
+    if (!hasMoments && showActivitiesTab) setActiveTab("activities");
+  }, [moments, hasMoments, showActivitiesTab, tabParam]);
+
+  // Defensive fallback: never leave the UI on a tab that just became hidden
+  // (e.g. a deep link to ?tab=activities when the owner has it hidden).
+  useEffect(() => {
+    if (activeTab === "activities" && !showActivitiesTab && showMomentsTab) setActiveTab("moments");
+    else if (activeTab === "moments" && !showMomentsTab && showActivitiesTab) setActiveTab("activities");
+  }, [activeTab, showActivitiesTab, showMomentsTab]);
+
+  const selectTab = useCallback((tab: ProfileTab) => {
+    setActiveTab(tab);
+    const next = new URLSearchParams(searchParams.toString());
+    next.set("tab", tab);
+    router.replace(`?${next.toString()}`, { scroll: false });
+  }, [router, searchParams]);
 
   useEffect(() => {
     if (!userId || userId === "undefined") {
@@ -397,10 +450,18 @@ export default function ProfilePage() {
 
       {/* Track levels */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <h2 className="mb-4 text-sm font-semibold uppercase tracking-wider text-neutral-500">Track Levels</h2>
+        <div className="mb-4 flex items-center justify-between">
+          <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Track Levels</h2>
+          <Link
+            href={`/leaderboards?scope=global&track=main`}
+            className="text-xs font-semibold text-blue-600 hover:underline dark:text-blue-400"
+          >
+            🏆 {t("profile.leaderboard.view", "View Leaderboard")} →
+          </Link>
+        </div>
         <div className="space-y-3">
-          {profile.tracks.map((t) => (
-            <TrackBar key={t.track} track={t} />
+          {profile.tracks.map((tr) => (
+            <TrackBar key={tr.track} track={tr} />
           ))}
         </div>
       </div>
@@ -486,6 +547,50 @@ export default function ProfilePage() {
               </span>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Photo gallery — sourced from Moments (see components/profile/PhotoGallery.tsx) */}
+      <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-500">
+          📷 {t("profile.gallery.title", "Photo Gallery")}
+        </h2>
+        <PhotoGallery userId={userId} />
+      </div>
+
+      {/* Moments | Activities tabs */}
+      {(showMomentsTab || showActivitiesTab) && (
+        <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <div className="mb-3 flex gap-4 border-b border-neutral-200 dark:border-neutral-800">
+            {showMomentsTab && (
+              <button
+                type="button"
+                onClick={() => selectTab("moments")}
+                className={`-mb-px border-b-2 px-1 pb-2 text-sm font-semibold ${
+                  activeTab === "moments"
+                    ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                    : "border-transparent text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                }`}
+              >
+                {t("profile.tabs.moments", "Moments")}
+              </button>
+            )}
+            {showActivitiesTab && (
+              <button
+                type="button"
+                onClick={() => selectTab("activities")}
+                className={`-mb-px border-b-2 px-1 pb-2 text-sm font-semibold ${
+                  activeTab === "activities"
+                    ? "border-blue-600 text-blue-600 dark:text-blue-400"
+                    : "border-transparent text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
+                }`}
+              >
+                {t("profile.tabs.activities", "Activities")}
+              </button>
+            )}
+          </div>
+          {activeTab === "moments" && showMomentsTab && <ProfileMoments moments={moments} />}
+          {activeTab === "activities" && showActivitiesTab && <ActivityFeed activities={activities} />}
         </div>
       )}
     </div>

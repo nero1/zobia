@@ -13,13 +13,23 @@
  * endpoint's actual field names/shape either, so a local type is used here.
  */
 
+import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { UserBadgeRow } from '@/components/shared/UserBadges';
+import { PhotoGallery } from '@/components/profile/PhotoGallery';
+import { ProfileMoments, useProfileMomentsQuery } from '@/components/profile/ProfileMoments';
+import { ActivityFeed, useProfileActivityQuery } from '@/components/profile/ActivityFeed';
 import type { RankName } from '@zobia/shared/types';
+
+// Product decision: this codebase has no "Tweets"/status-post feature (no
+// ProfileTweets component, no /api/tweets route). Moments is the closest
+// existing analog — short public posts with optional media — and is reused
+// here as the "Moments" tab, mirroring apps/web's substitution.
+type ProfileTab = 'moments' | 'activities';
 
 interface TrackLevel {
   track: string;
@@ -70,6 +80,8 @@ async function fetchProfile(username: string, selfId?: string, selfUsername?: st
 function ProfilePage() {
   const { t } = useTranslation();
   const { username } = Route.useParams();
+  const { tab: tabParam } = Route.useSearch();
+  const navigate = Route.useNavigate();
   const { user: currentUser } = useAuth();
 
   const { data: profile, status } = useQuery({
@@ -77,6 +89,31 @@ function ProfilePage() {
     queryFn: () => fetchProfile(username, currentUser?.id, currentUser?.username),
     staleTime: 5 * 60_000,
   });
+
+  const userId = profile?.id ?? '';
+  const { data: moments, isLoading: momentsLoading } = useProfileMomentsQuery(userId);
+  const { data: activities, isLoading: activitiesLoading, forbidden: activitiesHidden } = useProfileActivityQuery(userId);
+  const hasMoments = !momentsLoading && !!moments && moments.length > 0;
+  const showMomentsTab = momentsLoading || hasMoments;
+  const showActivitiesTab = !activitiesHidden;
+
+  const [activeTab, setActiveTab] = useState<ProfileTab>(tabParam === 'activities' ? 'activities' : 'moments');
+
+  useEffect(() => {
+    if (tabParam === 'activities' || tabParam === 'moments') return; // explicit deep link wins
+    if (momentsLoading) return;
+    if (!hasMoments && showActivitiesTab) setActiveTab('activities');
+  }, [momentsLoading, hasMoments, showActivitiesTab, tabParam]);
+
+  useEffect(() => {
+    if (activeTab === 'activities' && !showActivitiesTab && showMomentsTab) setActiveTab('moments');
+    else if (activeTab === 'moments' && !showMomentsTab && showActivitiesTab) setActiveTab('activities');
+  }, [activeTab, showActivitiesTab, showMomentsTab]);
+
+  function selectTab(tab: ProfileTab) {
+    setActiveTab(tab);
+    void navigate({ search: (prev) => ({ ...prev, tab }) });
+  }
 
   if (status === 'pending') {
     return (
@@ -162,7 +199,12 @@ function ProfilePage() {
       {/* Track levels */}
       {profile.trackLevels.length > 0 && (
         <div className="px-6 py-4">
-          <h3 className="font-semibold text-neutral-900 text-sm mb-3">{t('profile.progressionTracks')}</h3>
+          <div className="mb-3 flex items-center justify-between">
+            <h3 className="font-semibold text-neutral-900 text-sm">{t('profile.progressionTracks')}</h3>
+            <Link to="/leaderboards" className="text-xs font-semibold text-primary-600">
+              🏆 {t('profile.leaderboard.view', 'View Leaderboard')} →
+            </Link>
+          </div>
           <div className="grid grid-cols-2 gap-3">
             {profile.trackLevels.map((track) => (
               <div key={track.track} className="flex items-center justify-between bg-neutral-50 rounded-lg px-3 py-2">
@@ -173,10 +215,51 @@ function ProfilePage() {
           </div>
         </div>
       )}
+
+      {/* Photo gallery — sourced from Moments */}
+      <div className="px-6 py-4 border-t border-neutral-100">
+        <h3 className="font-semibold text-neutral-900 text-sm mb-3">📷 {t('profile.gallery.title', 'Photo Gallery')}</h3>
+        <PhotoGallery userId={userId} />
+      </div>
+
+      {/* Moments | Activities tabs */}
+      {(showMomentsTab || showActivitiesTab) && (
+        <div className="px-6 py-4 border-t border-neutral-100">
+          <div className="mb-3 flex gap-4 border-b border-neutral-100">
+            {showMomentsTab && (
+              <button
+                type="button"
+                onClick={() => selectTab('moments')}
+                className={`-mb-px border-b-2 px-1 pb-2 text-sm font-semibold ${
+                  activeTab === 'moments' ? 'border-primary-600 text-primary-600' : 'border-transparent text-neutral-500'
+                }`}
+              >
+                {t('profile.tabs.moments', 'Moments')}
+              </button>
+            )}
+            {showActivitiesTab && (
+              <button
+                type="button"
+                onClick={() => selectTab('activities')}
+                className={`-mb-px border-b-2 px-1 pb-2 text-sm font-semibold ${
+                  activeTab === 'activities' ? 'border-primary-600 text-primary-600' : 'border-transparent text-neutral-500'
+                }`}
+              >
+                {t('profile.tabs.activities', 'Activities')}
+              </button>
+            )}
+          </div>
+          {activeTab === 'moments' && showMomentsTab && <ProfileMoments moments={moments} loading={momentsLoading} />}
+          {activeTab === 'activities' && showActivitiesTab && <ActivityFeed activities={activities} loading={activitiesLoading} />}
+        </div>
+      )}
     </div>
   );
 }
 
 export const Route = createFileRoute('/profile/$username')({
+  validateSearch: (search: Record<string, unknown>): { tab?: ProfileTab } => ({
+    tab: search.tab === 'activities' || search.tab === 'moments' ? search.tab : undefined,
+  }),
   component: ProfilePage,
 });
