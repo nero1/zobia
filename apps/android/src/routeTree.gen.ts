@@ -23,6 +23,7 @@ import { Route as NemesisRouteImport } from './routes/nemesis'
 import { Route as LeaderboardsRouteImport } from './routes/leaderboards'
 import { Route as KycRouteImport } from './routes/kyc'
 import { Route as HomeRouteImport } from './routes/home'
+import { Route as GuildDiscoveryRouteImport } from './routes/guild-discovery'
 import { Route as GuildRouteImport } from './routes/guild'
 import { Route as GiftsRouteImport } from './routes/gifts'
 import { Route as FriendsRouteImport } from './routes/friends'
@@ -94,18 +95,22 @@ import { Route as AnswersAskRouteImport } from './routes/answers/ask'
 import { Route as AnswersQuestionIdRouteImport } from './routes/answers/$questionId'
 import { Route as AdminWikiRouteImport } from './routes/admin/wiki'
 import { Route as AdminUsersRouteImport } from './routes/admin/users'
+import { Route as AdminSupportRouteImport } from './routes/admin/support'
 import { Route as AdminSponsoredQuestsRouteImport } from './routes/admin/sponsored-quests'
 import { Route as AdminSeasonsRouteImport } from './routes/admin/seasons'
 import { Route as AdminRoomsRouteImport } from './routes/admin/rooms'
 import { Route as AdminRefundsRouteImport } from './routes/admin/refunds'
 import { Route as AdminQuizzesRouteImport } from './routes/admin/quizzes'
 import { Route as AdminQuestBoostsRouteImport } from './routes/admin/quest-boosts'
+import { Route as AdminProfileThemesRouteImport } from './routes/admin/profile-themes'
 import { Route as AdminPollsRouteImport } from './routes/admin/polls'
 import { Route as AdminModerationRouteImport } from './routes/admin/moderation'
 import { Route as AdminMessagesRouteImport } from './routes/admin/messages'
+import { Route as AdminMarketRouteImport } from './routes/admin/market'
 import { Route as AdminLeaderboardsRouteImport } from './routes/admin/leaderboards'
 import { Route as AdminLeaderboardBannersRouteImport } from './routes/admin/leaderboard-banners'
 import { Route as AdminKycRouteImport } from './routes/admin/kyc'
+import { Route as AdminHelpCenterRouteImport } from './routes/admin/help-center'
 import { Route as AdminGuildsRouteImport } from './routes/admin/guilds'
 import { Route as AdminGiftsRouteImport } from './routes/admin/gifts'
 import { Route as AdminGiftDropRouteImport } from './routes/admin/gift-drop'
@@ -118,6 +123,7 @@ import { Route as AdminFeatureFlagsRouteImport } from './routes/admin/feature-fl
 import { Route as AdminEventsRouteImport } from './routes/admin/events'
 import { Route as AdminDataManagementRouteImport } from './routes/admin/data-management'
 import { Route as AdminCreatorSpotlightRouteImport } from './routes/admin/creator-spotlight'
+import { Route as AdminContactMessagesRouteImport } from './routes/admin/contact-messages'
 import { Route as AdminConfigRouteImport } from './routes/admin/config'
 import { Route as AdminCommunityNotesRouteImport } from './routes/admin/community-notes'
 import { Route as AdminBusinessRouteImport } from './routes/admin/business'
@@ -227,6 +233,11 @@ const KycRoute = KycRouteImport.update({
 const HomeRoute = HomeRouteImport.update({
   id: '/home',
   path: '/home',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GuildDiscoveryRoute = GuildDiscoveryRouteImport.update({
+  id: '/guild-discovery',
+  path: '/guild-discovery',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GuildRoute = GuildRouteImport.update({
@@ -584,6 +595,11 @@ const AdminUsersRoute = AdminUsersRouteImport.update({
   path: '/admin/users',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminSupportRoute = AdminSupportRouteImport.update({
+  id: '/admin/support',
+  path: '/admin/support',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminSponsoredQuestsRoute = AdminSponsoredQuestsRouteImport.update({
   id: '/admin/sponsored-quests',
   path: '/admin/sponsored-quests',
@@ -614,6 +630,11 @@ const AdminQuestBoostsRoute = AdminQuestBoostsRouteImport.update({
   path: '/admin/quest-boosts',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminProfileThemesRoute = AdminProfileThemesRouteImport.update({
+  id: '/admin/profile-themes',
+  path: '/admin/profile-themes',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminPollsRoute = AdminPollsRouteImport.update({
   id: '/admin/polls',
   path: '/admin/polls',
@@ -629,6 +650,11 @@ const AdminMessagesRoute = AdminMessagesRouteImport.update({
   path: '/admin/messages',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminMarketRoute = AdminMarketRouteImport.update({
+  id: '/admin/market',
+  path: '/admin/market',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminLeaderboardsRoute = AdminLeaderboardsRouteImport.update({
   id: '/admin/leaderboards',
   path: '/admin/leaderboards',
@@ -642,6 +668,11 @@ const AdminLeaderboardBannersRoute = AdminLeaderboardBannersRouteImport.update({
 const AdminKycRoute = AdminKycRouteImport.update({
   id: '/admin/kyc',
   path: '/admin/kyc',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminHelpCenterRoute = AdminHelpCenterRouteImport.update({
+  id: '/admin/help-center',
+  path: '/admin/help-center',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminGuildsRoute = AdminGuildsRouteImport.update({
@@ -702,6 +733,11 @@ const AdminDataManagementRoute = AdminDataManagementRouteImport.update({
 const AdminCreatorSpotlightRoute = AdminCreatorSpotlightRouteImport.update({
   id: '/admin/creator-spotlight',
   path: '/admin/creator-spotlight',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminContactMessagesRoute = AdminContactMessagesRouteImport.update({
+  id: '/admin/contact-messages',
+  path: '/admin/contact-messages',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminConfigRoute = AdminConfigRouteImport.update({
@@ -920,6 +956,7 @@ export interface FileRoutesByFullPath {
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
+  '/guild-discovery': typeof GuildDiscoveryRoute
   '/home': typeof HomeRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
@@ -945,6 +982,7 @@ export interface FileRoutesByFullPath {
   '/admin/business': typeof AdminBusinessRoute
   '/admin/community-notes': typeof AdminCommunityNotesRoute
   '/admin/config': typeof AdminConfigRoute
+  '/admin/contact-messages': typeof AdminContactMessagesRoute
   '/admin/creator-spotlight': typeof AdminCreatorSpotlightRoute
   '/admin/data-management': typeof AdminDataManagementRoute
   '/admin/events': typeof AdminEventsRoute
@@ -957,18 +995,22 @@ export interface FileRoutesByFullPath {
   '/admin/gift-drop': typeof AdminGiftDropRoute
   '/admin/gifts': typeof AdminGiftsRoute
   '/admin/guilds': typeof AdminGuildsRoute
+  '/admin/help-center': typeof AdminHelpCenterRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/leaderboard-banners': typeof AdminLeaderboardBannersRoute
   '/admin/leaderboards': typeof AdminLeaderboardsRoute
+  '/admin/market': typeof AdminMarketRoute
   '/admin/messages': typeof AdminMessagesRoute
   '/admin/moderation': typeof AdminModerationRoute
   '/admin/polls': typeof AdminPollsRoute
+  '/admin/profile-themes': typeof AdminProfileThemesRoute
   '/admin/quest-boosts': typeof AdminQuestBoostsRoute
   '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/seasons': typeof AdminSeasonsRoute
   '/admin/sponsored-quests': typeof AdminSponsoredQuestsRoute
+  '/admin/support': typeof AdminSupportRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wiki': typeof AdminWikiRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
@@ -1071,6 +1113,7 @@ export interface FileRoutesByTo {
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
+  '/guild-discovery': typeof GuildDiscoveryRoute
   '/home': typeof HomeRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
@@ -1096,6 +1139,7 @@ export interface FileRoutesByTo {
   '/admin/business': typeof AdminBusinessRoute
   '/admin/community-notes': typeof AdminCommunityNotesRoute
   '/admin/config': typeof AdminConfigRoute
+  '/admin/contact-messages': typeof AdminContactMessagesRoute
   '/admin/creator-spotlight': typeof AdminCreatorSpotlightRoute
   '/admin/data-management': typeof AdminDataManagementRoute
   '/admin/events': typeof AdminEventsRoute
@@ -1108,18 +1152,22 @@ export interface FileRoutesByTo {
   '/admin/gift-drop': typeof AdminGiftDropRoute
   '/admin/gifts': typeof AdminGiftsRoute
   '/admin/guilds': typeof AdminGuildsRoute
+  '/admin/help-center': typeof AdminHelpCenterRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/leaderboard-banners': typeof AdminLeaderboardBannersRoute
   '/admin/leaderboards': typeof AdminLeaderboardsRoute
+  '/admin/market': typeof AdminMarketRoute
   '/admin/messages': typeof AdminMessagesRoute
   '/admin/moderation': typeof AdminModerationRoute
   '/admin/polls': typeof AdminPollsRoute
+  '/admin/profile-themes': typeof AdminProfileThemesRoute
   '/admin/quest-boosts': typeof AdminQuestBoostsRoute
   '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/seasons': typeof AdminSeasonsRoute
   '/admin/sponsored-quests': typeof AdminSponsoredQuestsRoute
+  '/admin/support': typeof AdminSupportRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wiki': typeof AdminWikiRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
@@ -1223,6 +1271,7 @@ export interface FileRoutesById {
   '/friends': typeof FriendsRoute
   '/gifts': typeof GiftsRoute
   '/guild': typeof GuildRoute
+  '/guild-discovery': typeof GuildDiscoveryRoute
   '/home': typeof HomeRoute
   '/kyc': typeof KycRoute
   '/leaderboards': typeof LeaderboardsRoute
@@ -1248,6 +1297,7 @@ export interface FileRoutesById {
   '/admin/business': typeof AdminBusinessRoute
   '/admin/community-notes': typeof AdminCommunityNotesRoute
   '/admin/config': typeof AdminConfigRoute
+  '/admin/contact-messages': typeof AdminContactMessagesRoute
   '/admin/creator-spotlight': typeof AdminCreatorSpotlightRoute
   '/admin/data-management': typeof AdminDataManagementRoute
   '/admin/events': typeof AdminEventsRoute
@@ -1260,18 +1310,22 @@ export interface FileRoutesById {
   '/admin/gift-drop': typeof AdminGiftDropRoute
   '/admin/gifts': typeof AdminGiftsRoute
   '/admin/guilds': typeof AdminGuildsRoute
+  '/admin/help-center': typeof AdminHelpCenterRoute
   '/admin/kyc': typeof AdminKycRoute
   '/admin/leaderboard-banners': typeof AdminLeaderboardBannersRoute
   '/admin/leaderboards': typeof AdminLeaderboardsRoute
+  '/admin/market': typeof AdminMarketRoute
   '/admin/messages': typeof AdminMessagesRoute
   '/admin/moderation': typeof AdminModerationRoute
   '/admin/polls': typeof AdminPollsRoute
+  '/admin/profile-themes': typeof AdminProfileThemesRoute
   '/admin/quest-boosts': typeof AdminQuestBoostsRoute
   '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
   '/admin/seasons': typeof AdminSeasonsRoute
   '/admin/sponsored-quests': typeof AdminSponsoredQuestsRoute
+  '/admin/support': typeof AdminSupportRoute
   '/admin/users': typeof AdminUsersRoute
   '/admin/wiki': typeof AdminWikiRoute
   '/answers/$questionId': typeof AnswersQuestionIdRoute
@@ -1376,6 +1430,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/gifts'
     | '/guild'
+    | '/guild-discovery'
     | '/home'
     | '/kyc'
     | '/leaderboards'
@@ -1401,6 +1456,7 @@ export interface FileRouteTypes {
     | '/admin/business'
     | '/admin/community-notes'
     | '/admin/config'
+    | '/admin/contact-messages'
     | '/admin/creator-spotlight'
     | '/admin/data-management'
     | '/admin/events'
@@ -1413,18 +1469,22 @@ export interface FileRouteTypes {
     | '/admin/gift-drop'
     | '/admin/gifts'
     | '/admin/guilds'
+    | '/admin/help-center'
     | '/admin/kyc'
     | '/admin/leaderboard-banners'
     | '/admin/leaderboards'
+    | '/admin/market'
     | '/admin/messages'
     | '/admin/moderation'
     | '/admin/polls'
+    | '/admin/profile-themes'
     | '/admin/quest-boosts'
     | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
     | '/admin/seasons'
     | '/admin/sponsored-quests'
+    | '/admin/support'
     | '/admin/users'
     | '/admin/wiki'
     | '/answers/$questionId'
@@ -1527,6 +1587,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/gifts'
     | '/guild'
+    | '/guild-discovery'
     | '/home'
     | '/kyc'
     | '/leaderboards'
@@ -1552,6 +1613,7 @@ export interface FileRouteTypes {
     | '/admin/business'
     | '/admin/community-notes'
     | '/admin/config'
+    | '/admin/contact-messages'
     | '/admin/creator-spotlight'
     | '/admin/data-management'
     | '/admin/events'
@@ -1564,18 +1626,22 @@ export interface FileRouteTypes {
     | '/admin/gift-drop'
     | '/admin/gifts'
     | '/admin/guilds'
+    | '/admin/help-center'
     | '/admin/kyc'
     | '/admin/leaderboard-banners'
     | '/admin/leaderboards'
+    | '/admin/market'
     | '/admin/messages'
     | '/admin/moderation'
     | '/admin/polls'
+    | '/admin/profile-themes'
     | '/admin/quest-boosts'
     | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
     | '/admin/seasons'
     | '/admin/sponsored-quests'
+    | '/admin/support'
     | '/admin/users'
     | '/admin/wiki'
     | '/answers/$questionId'
@@ -1678,6 +1744,7 @@ export interface FileRouteTypes {
     | '/friends'
     | '/gifts'
     | '/guild'
+    | '/guild-discovery'
     | '/home'
     | '/kyc'
     | '/leaderboards'
@@ -1703,6 +1770,7 @@ export interface FileRouteTypes {
     | '/admin/business'
     | '/admin/community-notes'
     | '/admin/config'
+    | '/admin/contact-messages'
     | '/admin/creator-spotlight'
     | '/admin/data-management'
     | '/admin/events'
@@ -1715,18 +1783,22 @@ export interface FileRouteTypes {
     | '/admin/gift-drop'
     | '/admin/gifts'
     | '/admin/guilds'
+    | '/admin/help-center'
     | '/admin/kyc'
     | '/admin/leaderboard-banners'
     | '/admin/leaderboards'
+    | '/admin/market'
     | '/admin/messages'
     | '/admin/moderation'
     | '/admin/polls'
+    | '/admin/profile-themes'
     | '/admin/quest-boosts'
     | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
     | '/admin/seasons'
     | '/admin/sponsored-quests'
+    | '/admin/support'
     | '/admin/users'
     | '/admin/wiki'
     | '/answers/$questionId'
@@ -1830,6 +1902,7 @@ export interface RootRouteChildren {
   FriendsRoute: typeof FriendsRoute
   GiftsRoute: typeof GiftsRoute
   GuildRoute: typeof GuildRoute
+  GuildDiscoveryRoute: typeof GuildDiscoveryRoute
   HomeRoute: typeof HomeRoute
   KycRoute: typeof KycRoute
   LeaderboardsRoute: typeof LeaderboardsRoute
@@ -1855,6 +1928,7 @@ export interface RootRouteChildren {
   AdminBusinessRoute: typeof AdminBusinessRoute
   AdminCommunityNotesRoute: typeof AdminCommunityNotesRoute
   AdminConfigRoute: typeof AdminConfigRoute
+  AdminContactMessagesRoute: typeof AdminContactMessagesRoute
   AdminCreatorSpotlightRoute: typeof AdminCreatorSpotlightRoute
   AdminDataManagementRoute: typeof AdminDataManagementRoute
   AdminEventsRoute: typeof AdminEventsRoute
@@ -1867,18 +1941,22 @@ export interface RootRouteChildren {
   AdminGiftDropRoute: typeof AdminGiftDropRoute
   AdminGiftsRoute: typeof AdminGiftsRoute
   AdminGuildsRoute: typeof AdminGuildsRoute
+  AdminHelpCenterRoute: typeof AdminHelpCenterRoute
   AdminKycRoute: typeof AdminKycRoute
   AdminLeaderboardBannersRoute: typeof AdminLeaderboardBannersRoute
   AdminLeaderboardsRoute: typeof AdminLeaderboardsRoute
+  AdminMarketRoute: typeof AdminMarketRoute
   AdminMessagesRoute: typeof AdminMessagesRoute
   AdminModerationRoute: typeof AdminModerationRoute
   AdminPollsRoute: typeof AdminPollsRoute
+  AdminProfileThemesRoute: typeof AdminProfileThemesRoute
   AdminQuestBoostsRoute: typeof AdminQuestBoostsRoute
   AdminQuizzesRoute: typeof AdminQuizzesRoute
   AdminRefundsRoute: typeof AdminRefundsRoute
   AdminRoomsRoute: typeof AdminRoomsRoute
   AdminSeasonsRoute: typeof AdminSeasonsRoute
   AdminSponsoredQuestsRoute: typeof AdminSponsoredQuestsRoute
+  AdminSupportRoute: typeof AdminSupportRoute
   AdminUsersRoute: typeof AdminUsersRoute
   AdminWikiRoute: typeof AdminWikiRoute
   AnswersQuestionIdRoute: typeof AnswersQuestionIdRoute
@@ -2067,6 +2145,13 @@ declare module '@tanstack/react-router' {
       path: '/home'
       fullPath: '/home'
       preLoaderRoute: typeof HomeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/guild-discovery': {
+      id: '/guild-discovery'
+      path: '/guild-discovery'
+      fullPath: '/guild-discovery'
+      preLoaderRoute: typeof GuildDiscoveryRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/guild': {
@@ -2566,6 +2651,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/support': {
+      id: '/admin/support'
+      path: '/admin/support'
+      fullPath: '/admin/support'
+      preLoaderRoute: typeof AdminSupportRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/sponsored-quests': {
       id: '/admin/sponsored-quests'
       path: '/admin/sponsored-quests'
@@ -2608,6 +2700,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminQuestBoostsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/profile-themes': {
+      id: '/admin/profile-themes'
+      path: '/admin/profile-themes'
+      fullPath: '/admin/profile-themes'
+      preLoaderRoute: typeof AdminProfileThemesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/polls': {
       id: '/admin/polls'
       path: '/admin/polls'
@@ -2629,6 +2728,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminMessagesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/market': {
+      id: '/admin/market'
+      path: '/admin/market'
+      fullPath: '/admin/market'
+      preLoaderRoute: typeof AdminMarketRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/leaderboards': {
       id: '/admin/leaderboards'
       path: '/admin/leaderboards'
@@ -2648,6 +2754,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/kyc'
       fullPath: '/admin/kyc'
       preLoaderRoute: typeof AdminKycRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/help-center': {
+      id: '/admin/help-center'
+      path: '/admin/help-center'
+      fullPath: '/admin/help-center'
+      preLoaderRoute: typeof AdminHelpCenterRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/guilds': {
@@ -2732,6 +2845,13 @@ declare module '@tanstack/react-router' {
       path: '/admin/creator-spotlight'
       fullPath: '/admin/creator-spotlight'
       preLoaderRoute: typeof AdminCreatorSpotlightRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/contact-messages': {
+      id: '/admin/contact-messages'
+      path: '/admin/contact-messages'
+      fullPath: '/admin/contact-messages'
+      preLoaderRoute: typeof AdminContactMessagesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/config': {
@@ -3042,6 +3162,7 @@ const rootRouteChildren: RootRouteChildren = {
   FriendsRoute: FriendsRoute,
   GiftsRoute: GiftsRoute,
   GuildRoute: GuildRoute,
+  GuildDiscoveryRoute: GuildDiscoveryRoute,
   HomeRoute: HomeRoute,
   KycRoute: KycRoute,
   LeaderboardsRoute: LeaderboardsRoute,
@@ -3067,6 +3188,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminBusinessRoute: AdminBusinessRoute,
   AdminCommunityNotesRoute: AdminCommunityNotesRoute,
   AdminConfigRoute: AdminConfigRoute,
+  AdminContactMessagesRoute: AdminContactMessagesRoute,
   AdminCreatorSpotlightRoute: AdminCreatorSpotlightRoute,
   AdminDataManagementRoute: AdminDataManagementRoute,
   AdminEventsRoute: AdminEventsRoute,
@@ -3079,18 +3201,22 @@ const rootRouteChildren: RootRouteChildren = {
   AdminGiftDropRoute: AdminGiftDropRoute,
   AdminGiftsRoute: AdminGiftsRoute,
   AdminGuildsRoute: AdminGuildsRoute,
+  AdminHelpCenterRoute: AdminHelpCenterRoute,
   AdminKycRoute: AdminKycRoute,
   AdminLeaderboardBannersRoute: AdminLeaderboardBannersRoute,
   AdminLeaderboardsRoute: AdminLeaderboardsRoute,
+  AdminMarketRoute: AdminMarketRoute,
   AdminMessagesRoute: AdminMessagesRoute,
   AdminModerationRoute: AdminModerationRoute,
   AdminPollsRoute: AdminPollsRoute,
+  AdminProfileThemesRoute: AdminProfileThemesRoute,
   AdminQuestBoostsRoute: AdminQuestBoostsRoute,
   AdminQuizzesRoute: AdminQuizzesRoute,
   AdminRefundsRoute: AdminRefundsRoute,
   AdminRoomsRoute: AdminRoomsRoute,
   AdminSeasonsRoute: AdminSeasonsRoute,
   AdminSponsoredQuestsRoute: AdminSponsoredQuestsRoute,
+  AdminSupportRoute: AdminSupportRoute,
   AdminUsersRoute: AdminUsersRoute,
   AdminWikiRoute: AdminWikiRoute,
   AnswersQuestionIdRoute: AnswersQuestionIdRoute,
