@@ -12,6 +12,7 @@
 
 import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import { feedItemPath } from '@/lib/feed/deeplink';
 import type { FeedContentType, FeedItem } from '@/lib/feed/types';
 
 const CONTENT_TYPE_ICON: Record<FeedContentType, string> = {
@@ -40,10 +41,11 @@ function timeAgo(iso: string): string {
 export function FeedItemCard({ item }: { item: FeedItem }) {
   const { t } = useTranslation();
   const metricEntries = item.metrics ? Object.entries(item.metrics).slice(0, 3) : [];
+  const to = feedItemPath(item.contentType, item.contentId, item.url);
 
   return (
     <Link
-      to={item.url as never}
+      to={to as never}
       className="flex gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-sm transition-colors active:bg-neutral-50 dark:active:bg-neutral-800"
     >
       {item.imageUrl ? (

@@ -44,3 +44,34 @@ const IN_APP_ROUTE_CONTENT_TYPES: ReadonlySet<FeedContentType> = new Set([
 export function isInAppFeedRoute(contentType: FeedContentType): boolean {
   return IN_APP_ROUTE_CONTENT_TYPES.has(contentType);
 }
+
+/** Where an unrecognised/missing content type navigates to. */
+const FALLBACK_PATH = '/home';
+
+/**
+ * Resolve a feed card's navigation path, mirroring apps/web's
+ * deepLinkPathFor. MUST always return a non-empty string.
+ *
+ * The server already computes `FeedItem.url`, but it is a raw string over
+ * the wire: a server-side `undefined` is dropped entirely by JSON.stringify,
+ * so the field can simply be absent. Passing that undefined straight into a
+ * router Link is what blanked the web Home Dashboard (see the note in
+ * apps/web/lib/feed/deeplink.ts), so resolve defensively here too instead of
+ * trusting the payload.
+ */
+export function feedItemPath(contentType: FeedContentType, contentId: string, url?: string | null): string {
+  if (typeof url === 'string' && url) return url;
+  switch (contentType) {
+    case 'moment': return '/moments';
+    case 'tweet': return `/tweets/${contentId}`;
+    case 'blog_post': return `/blog-posts/${contentId}`;
+    case 'forum_thread': return `/forum-threads/${contentId}`;
+    case 'forum_question': return `/answers/${contentId}`;
+    case 'room': return `/rooms/${contentId}`;
+    case 'classroom': return `/rooms/${contentId}`;
+    case 'wiki_page': return `/wiki-pages/${contentId}`;
+    case 'game': return '/games';
+    case 'business_page_post': return `/business-posts/${contentId}`;
+    default: return FALLBACK_PATH;
+  }
+}

@@ -11,6 +11,7 @@
 
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { deepLinkPathFor } from "@/lib/feed/deeplink";
 import type { FeedContentType } from "@/lib/feed/types";
 
 export interface FeedItemView {
@@ -53,10 +54,16 @@ function timeAgo(iso: string): string {
 export function FeedItemCard({ item }: { item: FeedItemView }) {
   const { t } = useTranslation();
   const metricEntries = item.metrics ? Object.entries(item.metrics).slice(0, 3) : [];
+  // `url` is typed as string but arrives over the wire — a server-side
+  // undefined is dropped entirely by JSON.stringify, so the field can be
+  // absent here. Next's <Link> throws from inside formatUrl() on an
+  // undefined href (see lib/feed/deeplink.ts), so recompute rather than
+  // trust the payload.
+  const href = typeof item.url === "string" && item.url ? item.url : deepLinkPathFor(item.contentType, item.contentId);
 
   return (
     <Link
-      href={item.url}
+      href={href}
       className="flex gap-3 rounded-xl border border-neutral-200 bg-white p-4 shadow-card transition-colors hover:border-neutral-300 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700"
     >
       {item.imageUrl ? (

@@ -41,6 +41,27 @@
 
 import type { FeedContentType } from "./types";
 
+/** Where an unrecognised content type links to. Never an empty string or
+ *  undefined — see the exhaustiveness note on deepLinkPathFor below. */
+const FALLBACK_PATH = "/home";
+
+/**
+ * MUST always return a non-empty string.
+ *
+ * `contentType` is typed as FeedContentType, but at runtime it is a raw
+ * string read straight out of Postgres — `content_type` literals in the
+ * aggregator's UNION queries, and crucially `ad_campaigns.boosted_content_type`,
+ * which is a free-text column. A value outside the union (an older row, a
+ * content type added to the boost flow before this map, a typo) therefore
+ * reaches this switch even though TypeScript believes it cannot.
+ *
+ * Without the default clause the switch returned `undefined` for such a
+ * value, which flowed through FeedItem.url into `<Link href={undefined}>`.
+ * Next.js's internal formatUrl() does `let { auth, hostname } = urlObj`, so
+ * an undefined href threw "Cannot destructure property 'auth' of 'e' as it
+ * is undefined" (Chrome) / "TypeError: e is undefined" (Firefox) from inside
+ * Next's own frames, blanking the whole Home Dashboard. Keep this total.
+ */
 export function deepLinkPathFor(contentType: FeedContentType, contentId: string): string {
   switch (contentType) {
     case "moment": return `/moments`;
@@ -53,5 +74,6 @@ export function deepLinkPathFor(contentType: FeedContentType, contentId: string)
     case "wiki_page": return `/wiki-pages/${contentId}`;
     case "game": return `/games`;
     case "business_page_post": return `/business-posts/${contentId}`;
+    default: return FALLBACK_PATH;
   }
 }
