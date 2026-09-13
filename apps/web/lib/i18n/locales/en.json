@@ -4359,5 +4359,21 @@
   "wallet.boosters.active": "Active",
   "wallet.boosters.left": "left",
   "wallet.boosters.purchaseFailed": "Failed to purchase booster",
-  "wallet.boosters.title": "Boosts & Passes"
+  "wallet.boosters.title": "Boosts & Passes",
+  "settings.business": "Business Account",
+  "business.updateSuccess": "Business info updated!",
+  "business.verify.submitted": "Verification request submitted! We'll review it soon.",
+  "business.verify.cancelled": "Verification request cancelled.",
+  "business.verify.rejected": "Your verification was rejected. Update your business details and resubmit.",
+  "business.verify.pending": "Your business is under review. We'll notify you once verified.",
+  "business.verify.request": "Request Verification",
+  "business.verify.cancel": "Cancel Request",
+  "business.editInfo": "Edit Info",
+  "business.tier.label": "Tier",
+  "business.tier.renewsEnds": "Renews/ends",
+  "business.tier.active": "Active Plan",
+  "business.createHint": "Fill in your business details, then pick a plan below — you'll be charged via Google Play.",
+  "business.suspended": "Your business account is suspended. Contact support for more information.",
+  "action.submitting": "Submitting…",
+  "action.cancelling": "Cancelling…"
 }

@@ -62,8 +62,11 @@ import { Route as TweetsCreateRouteImport } from './routes/tweets/create'
 import { Route as TweetsTweetIdRouteImport } from './routes/tweets/$tweetId'
 import { Route as SupportNewRouteImport } from './routes/support/new'
 import { Route as SupportTicketIdRouteImport } from './routes/support/$ticketId'
+import { Route as SettingsSubscriptionRouteImport } from './routes/settings/subscription'
 import { Route as SettingsSecurityRouteImport } from './routes/settings/security'
 import { Route as SettingsPrivacyRouteImport } from './routes/settings/privacy'
+import { Route as SettingsNotificationsRouteImport } from './routes/settings/notifications'
+import { Route as SettingsBusinessRouteImport } from './routes/settings/business'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as QuizzesNewRouteImport } from './routes/quizzes/new'
 import { Route as QuizzesSlugRouteImport } from './routes/quizzes/$slug'
@@ -435,6 +438,11 @@ const SupportTicketIdRoute = SupportTicketIdRouteImport.update({
   path: '/support/$ticketId',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SettingsSubscriptionRoute = SettingsSubscriptionRouteImport.update({
+  id: '/subscription',
+  path: '/subscription',
+  getParentRoute: () => SettingsRoute,
+} as any)
 const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
   id: '/security',
   path: '/security',
@@ -443,6 +451,16 @@ const SettingsSecurityRoute = SettingsSecurityRouteImport.update({
 const SettingsPrivacyRoute = SettingsPrivacyRouteImport.update({
   id: '/privacy',
   path: '/privacy',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsNotificationsRoute = SettingsNotificationsRouteImport.update({
+  id: '/notifications',
+  path: '/notifications',
+  getParentRoute: () => SettingsRoute,
+} as any)
+const SettingsBusinessRoute = SettingsBusinessRouteImport.update({
+  id: '/business',
+  path: '/business',
   getParentRoute: () => SettingsRoute,
 } as any)
 const RoomsRoomIdRoute = RoomsRoomIdRouteImport.update({
@@ -1075,8 +1093,11 @@ export interface FileRoutesByFullPath {
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/settings/business': typeof SettingsBusinessRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/privacy': typeof SettingsPrivacyRoute
   '/settings/security': typeof SettingsSecurityRoute
+  '/settings/subscription': typeof SettingsSubscriptionRoute
   '/support/$ticketId': typeof SupportTicketIdRoute
   '/support/new': typeof SupportNewRoute
   '/tweets/$tweetId': typeof TweetsTweetIdRoute
@@ -1237,8 +1258,11 @@ export interface FileRoutesByTo {
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/settings/business': typeof SettingsBusinessRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/privacy': typeof SettingsPrivacyRoute
   '/settings/security': typeof SettingsSecurityRoute
+  '/settings/subscription': typeof SettingsSubscriptionRoute
   '/support/$ticketId': typeof SupportTicketIdRoute
   '/support/new': typeof SupportNewRoute
   '/tweets/$tweetId': typeof TweetsTweetIdRoute
@@ -1400,8 +1424,11 @@ export interface FileRoutesById {
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
+  '/settings/business': typeof SettingsBusinessRoute
+  '/settings/notifications': typeof SettingsNotificationsRoute
   '/settings/privacy': typeof SettingsPrivacyRoute
   '/settings/security': typeof SettingsSecurityRoute
+  '/settings/subscription': typeof SettingsSubscriptionRoute
   '/support/$ticketId': typeof SupportTicketIdRoute
   '/support/new': typeof SupportNewRoute
   '/tweets/$tweetId': typeof TweetsTweetIdRoute
@@ -1564,8 +1591,11 @@ export interface FileRouteTypes {
     | '/quizzes/$slug'
     | '/quizzes/new'
     | '/rooms/$roomId'
+    | '/settings/business'
+    | '/settings/notifications'
     | '/settings/privacy'
     | '/settings/security'
+    | '/settings/subscription'
     | '/support/$ticketId'
     | '/support/new'
     | '/tweets/$tweetId'
@@ -1726,8 +1756,11 @@ export interface FileRouteTypes {
     | '/quizzes/$slug'
     | '/quizzes/new'
     | '/rooms/$roomId'
+    | '/settings/business'
+    | '/settings/notifications'
     | '/settings/privacy'
     | '/settings/security'
+    | '/settings/subscription'
     | '/support/$ticketId'
     | '/support/new'
     | '/tweets/$tweetId'
@@ -1888,8 +1921,11 @@ export interface FileRouteTypes {
     | '/quizzes/$slug'
     | '/quizzes/new'
     | '/rooms/$roomId'
+    | '/settings/business'
+    | '/settings/notifications'
     | '/settings/privacy'
     | '/settings/security'
+    | '/settings/subscription'
     | '/support/$ticketId'
     | '/support/new'
     | '/tweets/$tweetId'
@@ -2485,6 +2521,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SupportTicketIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/settings/subscription': {
+      id: '/settings/subscription'
+      path: '/subscription'
+      fullPath: '/settings/subscription'
+      preLoaderRoute: typeof SettingsSubscriptionRouteImport
+      parentRoute: typeof SettingsRoute
+    }
     '/settings/security': {
       id: '/settings/security'
       path: '/security'
@@ -2497,6 +2540,20 @@ declare module '@tanstack/react-router' {
       path: '/privacy'
       fullPath: '/settings/privacy'
       preLoaderRoute: typeof SettingsPrivacyRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/notifications': {
+      id: '/settings/notifications'
+      path: '/notifications'
+      fullPath: '/settings/notifications'
+      preLoaderRoute: typeof SettingsNotificationsRouteImport
+      parentRoute: typeof SettingsRoute
+    }
+    '/settings/business': {
+      id: '/settings/business'
+      path: '/business'
+      fullPath: '/settings/business'
+      preLoaderRoute: typeof SettingsBusinessRouteImport
       parentRoute: typeof SettingsRoute
     }
     '/rooms/$roomId': {
@@ -3238,13 +3295,19 @@ declare module '@tanstack/react-router' {
 }
 
 interface SettingsRouteChildren {
+  SettingsBusinessRoute: typeof SettingsBusinessRoute
+  SettingsNotificationsRoute: typeof SettingsNotificationsRoute
   SettingsPrivacyRoute: typeof SettingsPrivacyRoute
   SettingsSecurityRoute: typeof SettingsSecurityRoute
+  SettingsSubscriptionRoute: typeof SettingsSubscriptionRoute
 }
 
 const SettingsRouteChildren: SettingsRouteChildren = {
+  SettingsBusinessRoute: SettingsBusinessRoute,
+  SettingsNotificationsRoute: SettingsNotificationsRoute,
   SettingsPrivacyRoute: SettingsPrivacyRoute,
   SettingsSecurityRoute: SettingsSecurityRoute,
+  SettingsSubscriptionRoute: SettingsSubscriptionRoute,
 }
 
 const SettingsRouteWithChildren = SettingsRoute._addFileChildren(

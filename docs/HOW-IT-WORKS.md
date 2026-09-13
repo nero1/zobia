@@ -3420,3 +3420,65 @@ would never have actually displayed. `routes/quests/index.tsx` +
 `routes/quests/manage.tsx` are siblings instead (same convention as the
 already-working `routes/business/index.tsx` + `routes/business/ads/index.tsx`),
 each rendering independently.
+
+## Android Settings parity: theme, notifications, subscription, business
+
+An audit found Android's Settings area missing four things web already had.
+All four are now ported, each reusing web's existing backend as-is:
+
+- **Theme toggle.** Android had zero dark-mode infrastructure before this —
+  Tailwind's `darkMode: "class"` was configured in
+  `apps/android/tailwind.config.ts` but nothing ever set the `dark` class,
+  and no component used a `dark:` variant. New
+  `apps/android/src/lib/theme/store.ts` + `ThemeProvider.tsx` add a
+  light/dark/system preference exactly like web's `next-themes` usage in
+  `app/(app)/settings/page.tsx` — a pure client-side setting persisted via
+  `@capacitor/preferences` (with a synchronous `localStorage` mirror so it
+  applies before first paint, same two-tier pattern as `lib/i18n`'s language
+  handling), never sent to the server. `ThemeProvider` wraps the app in
+  `main.tsx`; the picker lives at the top of `routes/settings.tsx`. Because
+  no other Android screen has `dark:` styling yet, toggling it only affects
+  the `<html>` class today — retrofitting every existing screen's colors was
+  out of scope here.
+- **Per-category push notifications.** New `routes/settings/notifications.tsx`
+  reads/writes `GET`/`PATCH /api/users/me/settings` — the same endpoint and
+  same ten fields (`dm_notifications`, `group_notifications`,
+  `room_mention_notifications`, `notify_new_message`, `notify_friend_request`,
+  `notify_gift_received`, `notify_rank_up`, `notify_war_start`,
+  `notify_season_end`, `notify_announcement`) web's Settings → Notifications
+  section uses. No backend change.
+- **Subscription & Billing.** New `routes/settings/subscription.tsx` reads
+  plan/renewal/cancellation state from `GET /api/users/me` +
+  `GET /api/economy/subscriptions`, same as web. Cancelling calls
+  `DELETE /api/economy/subscriptions/:id` directly (a plain status write,
+  no payment processor involved). Upgrading calls
+  `lib/payments/googlePlay.ts`'s `purchaseSubscription()` instead of
+  following web's Paystack/DodoPayments checkout link, per the Play Store
+  policy already documented for this app (§18 in the PRD). There is no
+  tier-swap PUT the way web has for already-paid users — a Play
+  subscription can't be changed that way, so a tier switch on Android is
+  just another Play purchase (Play retires the old entitlement itself).
+- **Business Account.** New `routes/settings/business.tsx` mirrors web's
+  `app/(app)/settings/business/page.tsx`: info editing
+  (`PATCH /api/business`) and the verification request/cancel flow
+  (`POST`/`DELETE /api/business/verify`) are plain DB writes, reused as-is.
+  Creating the account or changing its tier are payment actions, so they go
+  through `purchaseBusinessTier()`, which posts the verified purchase to
+  `POST /api/business/iap/verify` — an endpoint that already existed
+  (built for exactly this) but had no calling UI anywhere in the app until
+  now. No manual "Renew" action exists on Android, since a Play
+  subscription renews itself automatically (unlike web's one-off Paystack
+  charge model that needs a manual renew click).
+
+All four link from the Settings hub (`routes/settings.tsx`, next to the
+existing Privacy/Security/Help links) and needed no new i18n keys beyond a
+handful of small gaps (`settings.business`, a few `business.*` strings,
+`action.submitting`/`action.cancelling`) — most of the required
+`settings.theme*`, `settings.push.*`, `settings.notification*`,
+`subscription.*`, and `business.*` keys already existed in
+`shared/i18n/locales/en.json`, apparently added in anticipation of this
+work. Note: `shared/i18n/locales/en.json` and
+`apps/web/lib/i18n/locales/en.json` were already out of sync with each
+other in unrelated key ranges before this change (pre-existing drift, not
+touched here) — the keys this work actually added are identical in both
+files.
