@@ -15,6 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
 import { adminNavItems } from '@/components/admin/adminNav';
 import { AdminGuard } from '@/components/admin/AdminGuard';
+import { ImpersonationBanner } from '@/components/admin/ImpersonationBanner';
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
@@ -70,6 +71,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1 overflow-y-auto">
           <div className="page-slide-in h-full">{children}</div>
         </main>
+
+        <ImpersonationBanner />
 
         {drawerOpen && (
           <div className="fixed inset-0 z-40 bg-black/40" aria-hidden="true" onClick={closeDrawer} />

@@ -261,7 +261,7 @@ The user is shown a panel: "Crews near you are recruiting." Three local guilds a
 - Admin can toggle which provider is active in the admin panel without a deployment (`captcha_provider` manifest key).
 - Android (Capacitor WebView) renders the same CAPTCHA widget as web/PWA for any surface it shares a screen with (e.g. Signup) — it is not API-only rate limiting; the widget loading code is duplicated per-app (no shared React runtime between web and Android) but talks to the same `/api/manifest` and verification backend.
 - **Per-surface toggles:** on top of the master provider switch, admins can independently enable/disable CAPTCHA on 11 distinct surfaces via the `captcha_active_surfaces` manifest key (JSON array of surface keys, admin panel renders it as a checkbox group next to the provider selector): Login, Admin Login, Signup, Create Blog, Create Room, Contact Us page, Blog Comments, Create Question, Submit Answer, Reply to Answer/Comment, and Blog Contact Form. A surface only requires/verifies a CAPTCHA token when BOTH the master provider is not "None" AND that surface's key is present in the enabled-surfaces list — see `apps/web/lib/security/captchaSurfaces.ts` (registry) and `apps/web/lib/security/captcha.ts` (`isCaptchaSurfaceEnabled`). All 11 surfaces are enabled by default so behavior is unchanged for existing deployments once a provider is selected.
-- **Contact Us page:** a new site-wide `/contact` page (distinct from the pre-existing per-blog Contact form) lets any visitor — logged in or not — send a message to platform admins; submissions are stored in `site_contact_messages` and notify all admins in-app.
+- **Contact Us page:** a new site-wide `/contact` page (distinct from the pre-existing per-blog Contact form) lets any visitor — logged in or not — send a message to platform admins; submissions are stored in `site_contact_messages` and notify all admins in-app. Admin inbox: `/gate44/contact-messages` (web) and `admin/contact-messages.tsx` (Capacitor Android), both listing/marking-read against the same `/api/admin/contact-messages` endpoint.
 
 ### Seed Content
 
@@ -681,7 +681,7 @@ Accessible from any screen via the wallet icon. Contains:
 
 **Boosts:** XP Booster, Quest Accelerator, Guild War Boost.
 
-**Profile Themes:** color-skin themes for the profile page (a small admin-editable catalog, mirroring the existing Blog Theme system — §32), one free-default plus several paid tiers purchasable with Credits or Stars.
+**Profile Themes:** color-skin themes for the profile page (a small admin-editable catalog, mirroring the existing Blog Theme system — §32), one free-default plus several paid tiers purchasable with Credits or Stars. Admin catalog management: `/gate44/profile-themes` (web) and `admin/profile-themes.tsx` (Capacitor Android), both against `/api/admin/profile-themes`.
 
 ### Gifting Between Users
 
@@ -764,6 +764,12 @@ To create a Guild, a user must also: hold account rank level 4 (Baller) or above
 ### Guild Discovery & Access
 
 The Guilds menu is visible to every user, not just Guild members — Browse Guilds (`/guilds`) is an open directory anyone can search, independent of whether they belong to a Guild.
+
+**Capacitor Android:** `routes/guilds/index.tsx` mirrors the web directory,
+and `routes/guild-discovery.tsx` mirrors the dedicated `/guild-discovery`
+onboarding page (tier XP-boost badges, "Near you" badge, solo/"too new"
+states) against the same `GET /guilds/discovery` and `POST /guilds/:id/join`
+endpoints, linked from the guild directory header.
 
 ### Guild Roles
 
@@ -1136,6 +1142,11 @@ Public, shareable, crawlable surfaces use short, human-readable, SEO-friendly pa
 **Sort:** price, popularity, or rating — rating and popularity apply to creator items only (a coin pack has neither).
 
 **List/grid toggle**, matching the existing pattern on Rooms and Games.
+
+**Admin:** `/gate44/market` (web) and `admin/market.tsx` (Capacitor
+Android) manage Creator and Platform items — search, Featured/Sponsored
+toggles — against the same `/api/admin/market` and `/api/admin/store-items`
+endpoints.
 
 **Qualified sellers:** Elite+ creators (per §14's tier table) or a verified, active Business account may open a Merch Store and list items — previously Business accounts were out of scope for merch.
 
@@ -3399,6 +3410,9 @@ tickets go straight to the human queue with no AI involvement.
   `/gate44/support/tickets/:id` (reply, assign, escalate, change status),
   `/gate44/support/settings` (every toggle/cost/model above, same
   `x_manifest`-key-editing pattern as `/admin/forum/settings`).
+  **Capacitor Android:** `admin/support.tsx` mirrors both the ticket
+  queue/detail overlay (reply/status/escalate) and the settings tab against
+  the same `/api/admin/support/**` endpoints.
 
 ---
 
@@ -3459,6 +3473,8 @@ to `/help/search`; results link straight to the doc.
 `/gate44/help-center` — category list (create/publish-toggle/delete) and doc
 list; `/gate44/help-center/docs/new` and `/gate44/help-center/docs/:id` for
 the markdown editor, mirroring the Blogs/Answers admin CRUD shape.
+**Capacitor Android:** `admin/help-center.tsx` mirrors the same
+category/doc CRUD against the same `/api/admin/help-center/**` endpoints.
 
 ### 34.4 "Ask AI"
 
@@ -6175,6 +6191,11 @@ deep links now resolve the target user and preselect them on the
 existing `/gifts` screen (via a new `recipientId`/`username` search
 param), mirroring the web `/gift/[userId]` page's own
 resolve-and-redirect behavior rather than duplicating a screen.
+`profile/$username.tsx` also gained a "🎁 Gift" action button (shown
+whenever viewing another user's profile) that links into the same
+`/gifts?recipientId=&username=` flow — previously that flow was only
+reachable via a deep link on Android, with no in-app entry point from a
+profile page itself, unlike web/PWA.
 
 As with the prior two batches, building this surface out surfaced
 several pre-existing contract bugs, all fixed:
@@ -6814,6 +6835,13 @@ own session in a short-lived cookie pair; "Return to Admin"
 non-HttpOnly marker cookie so it costs zero extra Redis reads for everyone
 else) restores it (`POST /api/auth/impersonate/end`). Cannot target another
 admin account. Both start and end are written to `admin_audit_log`.
+**Capacitor Android:** the impersonate endpoint is cookie-session-based, not
+Bearer-JWT-based, so `admin/users.tsx`'s "Impersonate" button opens the
+web admin in the app's existing authenticated in-app browser bridge (the
+same one used for KYC) rather than switching the native client's own
+session; `components/admin/ImpersonationBanner.tsx` (Android) is wired into
+`AdminShell` and will start rendering automatically once/if the backend is
+extended to also expose `impersonated_by` over Bearer sessions.
 
 **Mods/admins can edit forum content.** `/gate44/forum/posts` gained an
 Edit action (question title+body, or answer body) via a new `edit` action

@@ -175,6 +175,16 @@ function ProfilePage() {
             </Link>
           )}
 
+          {!isOwnProfile && (
+            <Link
+              to="/gifts"
+              search={{ recipientId: profile.id, username: profile.username }}
+              className="mt-1 inline-flex items-center gap-1.5 rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-600 hover:bg-amber-50"
+            >
+              🎁 {t('profile.sendGift', 'Gift')}
+            </Link>
+          )}
+
           <div className="flex items-center gap-2 mt-2">
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
               profile.plan === 'free' ? 'bg-neutral-100 text-neutral-600' :

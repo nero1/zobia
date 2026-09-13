@@ -234,7 +234,10 @@ function GuildsIndexPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-3">
-      <div className="flex justify-end">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Link to="/guild-discovery" className="text-xs font-semibold text-primary-600">
+          {t('guildDiscovery.seeRecommendations')} →
+        </Link>
         <CreateGuildButton />
       </div>
       <input

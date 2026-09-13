@@ -230,6 +230,22 @@ function UserDetailOverlay({
           </button>
         </div>
 
+        {!user.isModerator && (
+          <div className="space-y-1.5 rounded-lg border border-purple-200 bg-purple-50 p-3">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-purple-700">{t('admin.users.detail.impersonation', 'Impersonation')}</p>
+            <p className="text-[10px] text-purple-600">
+              {t('admin.users.detail.impersonationHint', 'Opens the web admin users page in an authenticated in-app browser, where impersonation (a cookie-backed web session) is available — the native app has no impersonated bearer session.')}
+            </p>
+            <button
+              type="button"
+              onClick={() => void openAuthenticatedWebLink('/admin/users')}
+              className="w-full rounded-lg bg-purple-600 px-3 py-2 text-xs font-semibold text-white"
+            >
+              {t('admin.users.detail.impersonate', '🎭 Impersonate (opens web)')}
+            </button>
+          </div>
+        )}
+
         <div className="space-y-2.5 rounded-lg border border-neutral-200 p-3">
           <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.users.detail.accountSecurity', 'Account Security')}</p>
           <p className="text-[10px] text-neutral-400">
