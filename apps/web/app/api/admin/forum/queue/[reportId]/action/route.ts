@@ -20,7 +20,7 @@ import { handleApiError, notFound, badRequest, forbidden } from "@/lib/api/error
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 import { deleteQuestion, deleteAnswer } from "@/lib/forum/service";
-import { invalidateAllSessions } from "@/lib/auth/session";
+import { revokeUserAccess } from "@/lib/auth/session";
 
 const ActionBodySchema = z.object({
   action: z.enum(["dismiss", "warn", "remove_content", "suspend_user", "ban_user"]),
@@ -121,7 +121,7 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(async (req: N
     }
 
     if (targetUserId && (action === "ban_user" || action === "suspend_user")) {
-      await invalidateAllSessions(targetUserId).catch(() => {});
+      await revokeUserAccess(targetUserId, "forum_moderation");
     }
 
     return NextResponse.json({ success: true, data: { reportId, action }, error: null });

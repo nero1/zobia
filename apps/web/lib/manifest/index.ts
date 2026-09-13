@@ -917,14 +917,47 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
 // Cache
 // ---------------------------------------------------------------------------
 
-const CACHE_KEY = "app:manifest:v3";
-/** Raw key→value map cache — used by getManifestValue to avoid DB reads. */
-const CACHE_KV_KEY = "app:manifest:kv:v3";
-const CACHE_TTL_SECONDS = 60; // 1 minute
+/**
+ * REDIS-COST-01 — manifest caching.
+ *
+ * This used to keep TWO Redis keys: `app:manifest:v3` (the fully built
+ * `ZobiaManifest` object, ~10 KB) and `app:manifest:kv:v3` (the raw key/value
+ * map it is built from, ~12 KB). Both were written on every cache fill, both
+ * expired after 60 seconds, and the first is entirely derivable from the
+ * second. That is ~22 KB of a 256 MB free tier rewritten roughly once a minute,
+ * forever, plus two SETEX commands per fill instead of one.
+ *
+ * Now only the raw KV map is stored. `buildManifest()` is a pure, cheap
+ * function over that map, so the full object is reconstructed in-process and
+ * held in the memory cache. Halves both the storage and the write commands.
+ *
+ * The TTL is also far longer than it was. A 60-second TTL was doing no real
+ * work: `invalidateManifestCache()` is called explicitly whenever an admin
+ * saves a setting (see the /gate44 config routes), so the TTL is a safety net
+ * for a missed invalidation, not the propagation mechanism. Ten minutes is a
+ * reasonable safety net and costs a tenth as many refills.
+ */
+/** Raw key→value map cache — the single source the manifest is rebuilt from. */
+const CACHE_KV_KEY = "app:manifest:kv:v4";
+/**
+ * Legacy keys from before the single-key consolidation. Still deleted on
+ * invalidation so a deploy that rolls back mid-flight cannot serve a stale
+ * manifest from them. Safe to remove once no v3-era instance is running.
+ */
+const LEGACY_CACHE_KEYS = ["app:manifest:v3", "app:manifest:kv:v3"] as const;
+const CACHE_TTL_SECONDS = 600; // 10 minutes — explicit invalidation does the real work
 
-/** In-process manifest cache — avoids Redis on every API request within the same instance. */
-const MEM_CACHE_KEY = "manifest:v3";
-const MEM_CACHE_TTL_MS = 15_000; // 15 seconds
+/** In-process built-manifest cache — avoids Redis on every API request within the same instance. */
+const MEM_CACHE_KEY = "manifest:v4";
+/** In-process raw-KV cache — backs getManifestValue() without a Redis read. */
+const MEM_KV_CACHE_KEY = "manifest:kv:v4";
+/**
+ * Warm instances serve the manifest from memory for this long before
+ * revalidating against Redis. Admin changes still propagate immediately to the
+ * instance that made them (it calls `invalidateManifestCache`) and within this
+ * window everywhere else.
+ */
+const MEM_CACHE_TTL_MS = 30_000; // 30 seconds
 
 // ---------------------------------------------------------------------------
 // Single-flight deduplication
@@ -1558,11 +1591,15 @@ export async function loadManifest(): Promise<ZobiaManifest> {
   const memCached = memGet<ZobiaManifest>(MEM_CACHE_KEY);
   if (memCached) return memCached;
 
-  // 1. Try Redis cache (fast path — no single-flight needed, Redis read is cheap)
+  // 1. Try Redis cache (fast path — no single-flight needed, Redis read is cheap).
+  //    Only the raw KV map is stored; the manifest object is rebuilt from it
+  //    in-process, which is far cheaper than a second Redis key (REDIS-COST-01).
   try {
-    const cached = await redis.get(CACHE_KEY);
-    if (cached) {
-      const manifest = JSON.parse(cached) as ZobiaManifest;
+    const cachedKv = await redis.get(CACHE_KV_KEY);
+    if (cachedKv) {
+      const kv = JSON.parse(cachedKv) as Record<string, string>;
+      const manifest = buildManifest(kv);
+      memSet(MEM_KV_CACHE_KEY, kv, MEM_CACHE_TTL_MS);
       memSet(MEM_CACHE_KEY, manifest, MEM_CACHE_TTL_MS);
       return manifest;
     }
@@ -1595,15 +1632,13 @@ export async function loadManifest(): Promise<ZobiaManifest> {
         kv = {};
       }
 
-      // Write to in-process cache first (synchronous, zero-cost)
+      // Write to in-process caches first (synchronous, zero-cost)
       memSet(MEM_CACHE_KEY, manifest, MEM_CACHE_TTL_MS);
+      memSet(MEM_KV_CACHE_KEY, kv, MEM_CACHE_TTL_MS);
 
-      // Write both the full manifest and the raw KV map to Redis (best-effort)
+      // One Redis write, not two: the built manifest is derived from this map.
       try {
-        await Promise.all([
-          redis.setex(CACHE_KEY, CACHE_TTL_SECONDS, JSON.stringify(manifest)),
-          redis.setex(CACHE_KV_KEY, CACHE_TTL_SECONDS, JSON.stringify(kv)),
-        ]);
+        await redis.setex(CACHE_KV_KEY, CACHE_TTL_SECONDS, JSON.stringify(kv));
       } catch {
         // Ignore cache write errors
       }
@@ -1628,8 +1663,9 @@ export async function loadManifest(): Promise<ZobiaManifest> {
  */
 export async function invalidateManifestCache(): Promise<void> {
   memDel(MEM_CACHE_KEY);
+  memDel(MEM_KV_CACHE_KEY);
   try {
-    await redis.del(CACHE_KEY, CACHE_KV_KEY);
+    await redis.del(CACHE_KV_KEY, ...LEGACY_CACHE_KEYS);
   } catch {
     // Ignore Redis errors during invalidation
   }
@@ -1657,11 +1693,21 @@ export async function getManifestValue(
   key: string,
   dbClient: Pick<DatabaseAdapter, "query"> | TransactionClient = db
 ): Promise<string | null> {
-  // 1. Try the KV cache first
+  // 1. In-process KV cache — zero Redis calls on a warm instance. loadManifest()
+  //    populates this on every fill, so any request that has already touched the
+  //    manifest makes this free (REDIS-COST-01).
+  const memKv = memGet<Record<string, string>>(MEM_KV_CACHE_KEY);
+  if (memKv) {
+    const memVal = memKv[key];
+    return memVal === undefined ? null : unquote(memVal);
+  }
+
+  // 2. Redis KV cache
   try {
     const cachedKv = await redis.get(CACHE_KV_KEY);
     if (cachedKv) {
       const kv = JSON.parse(cachedKv) as Record<string, string>;
+      memSet(MEM_KV_CACHE_KEY, kv, MEM_CACHE_TTL_MS);
       const cachedVal = kv[key];
       return cachedVal === undefined ? null : unquote(cachedVal);
     }
@@ -1669,7 +1715,7 @@ export async function getManifestValue(
     // Redis unavailable – fall through to DB
   }
 
-  // 2. Cache miss — query the DB directly (via the caller's client, if given)
+  // 3. Cache miss — query the DB directly (via the caller's client, if given)
   try {
     const { rows } = await dbClient.query<{ value: string }>(
       "SELECT value FROM x_manifest WHERE key = $1 LIMIT 1",

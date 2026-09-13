@@ -29,7 +29,7 @@ import { env } from "@/lib/env";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { invalidateAllSessions } from "@/lib/auth/session";
+import { revokeUserAccess } from "@/lib/auth/session";
 import { sendEmail } from "@/lib/notifications/email";
 import { logger } from "@/lib/logger";
 import { syncSponsoredQuestTemplate } from "@/lib/quests/sponsoredQuestPacing";
@@ -325,9 +325,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
       body.action === "reset_password" ||
       body.action === "downgrade_moderator"
     ) {
-      await invalidateAllSessions(userId).catch((err) => {
-        logger.error({ err: err }, "[admin:actions] Failed to invalidate sessions");
-      });
+      await revokeUserAccess(userId, `admin:${body.action}`);
     }
 
     // Banning a business owner or an admin-assigned quest "creator" pauses

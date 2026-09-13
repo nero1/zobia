@@ -636,7 +636,7 @@ Settings are stored as five columns on the `users` table:
 | `privacy_hideable_sections` | `["avatar","bio","rank","xp","guild","seasons","badges"]` |
 | `privacy_can_show_online_status` | `["pro","max","prestige_1"]` |
 
-Changes take effect within 60 seconds (Redis cache TTL).
+Changes take effect immediately — saving calls `invalidateManifestCache()`; the 10-minute Redis TTL is only a safety net for a missed invalidation (see "Redis Cost Controls").
 
 ### Username Change
 
@@ -669,11 +669,11 @@ The user picks the new username **first**; a debounced live availability check (
 The Home page "Online Friends" row previously listed **every** accepted friendship regardless of whether the friend was actually online — it called the same `GET /api/friends` endpoint used by the full Friends list page, which has no presence filter at all. Fixed by adding a dedicated `GET /api/friends/online` endpoint that only returns friends who:
 
 1. Have opted in via `show_online_status = TRUE` (see Profile Privacy above — off by default, Pro/Max gated), **and**
-2. Have `last_active_at` within the last hour ("recently active"; within 5 minutes is flagged `isOnline: true` and rendered as the "online" presence ring, matching the 5-minute TTL used by the Redis presence heartbeat key).
+2. Have `last_active_at` within the last hour ("recently active"; within 5 minutes is flagged `isOnline: true` and rendered as the "online" presence ring — `last_active_at` is now the single source of truth for sitewide presence, see "Redis Cost Controls").
 
-This is a pure SQL filter on `users.last_active_at` — it adds **zero** additional Redis calls. The Home page passes the already-known `isOnline` flag into `<OnlineRing knownStatus=... />`, which skips its usual per-avatar `GET /api/presence/[userId]` fetch (an avoidable Redis `GET` per rendered friend) when a known status is supplied.
+This is a pure SQL filter on `users.last_active_at` — it adds **zero** Redis calls. The Home page passes the already-known `isOnline` flag into `<OnlineRing knownStatus=... />`, which skips its usual per-avatar `GET /api/presence/[userId]` fetch when a known status is supplied. As of REDIS-COST-01 that endpoint costs no Redis command either; it reads the same indexed column.
 
-**Follow-up fix (v2.03):** `users.last_active_at` is only useful if something actually keeps it warm. `POST /api/presence` (which writes it, plus a 5-minute Redis TTL key) existed but was never called by any client — the only write path was login. Friends went stale within an hour of signing in and dropped out of the "recently active" window, so this row could look empty even for genuinely active, opted-in friends. Fixed with an app-wide heartbeat: `PresenceHeartbeatProvider` (web, `app/(app)/layout.tsx`) and `usePresenceHeartbeat` (Capacitor Android, `routes/__root.tsx`) call `POST /api/presence` on mount and every 3 minutes while foregrounded/visible. No new endpoint or Redis calls — just invoking the existing one. This has nothing to do with CRON; it only needed a normal deploy.
+**Follow-up fix (v2.03):** `users.last_active_at` is only useful if something actually keeps it warm. `POST /api/presence` (which writes it) existed but was never called by any client — the only write path was login. Friends went stale within an hour of signing in and dropped out of the "recently active" window, so this row could look empty even for genuinely active, opted-in friends. Fixed with an app-wide heartbeat: `PresenceHeartbeatProvider` (web, `app/(app)/layout.tsx`) and `usePresenceHeartbeat` (Capacitor Android, `routes/__root.tsx`) call `POST /api/presence` on mount and every 3 minutes while foregrounded/visible. No new endpoint or Redis calls — just invoking the existing one. Since REDIS-COST-01 the heartbeat is throttled across tabs via shared storage and again server-side, so rapid tab-switching no longer produces a burst of writes. This has nothing to do with CRON; it only needed a normal deploy.
 
 ### Profile Components (PRD §15)
 
@@ -1095,7 +1095,7 @@ Two tables record XP; they must be kept in sync at all times:
 Location: `lib/quests/questEngine.ts` (daily quest deck) and `lib/quests/newMemberQuestEngine.ts` (New Member Quest steps).
 
 **Daily quest deck (PRD §7):**
-1. `GET /api/quests/daily` calls `generateDailyDeck(userId, plan, db)`, which persists the user's plan-sized deck (3/4/5/6 quests for free/plus/pro/max) into `user_quest_decks` for the day (CSPRNG shuffle, Redis lock to avoid duplicate decks from concurrent tab opens). **This persistence step is load-bearing** — action routes advance progress via `triggerActivityQuestProgress(userId, actionType, db)`, which only matches quests present in `user_quest_decks` for today. A previous version of `GET /api/quests/daily` queried `quest_templates` directly without writing to `user_quest_decks`, so every progress-tracking call silently no-opped with a "not in user's deck" error — daily quests always showed 0/x. Any future quest-listing endpoint must go through `generateDailyDeck`, not a parallel query.
+1. `GET /api/quests/daily` calls `generateDailyDeck(userId, plan, db)`, which persists the user's plan-sized deck (3/4/5/6 quests for free/plus/pro/max) into `user_quest_decks` for the day (CSPRNG shuffle, Redis lock to avoid duplicate decks from concurrent tab opens — since REDIS-COST-01 the lock is taken **only when no deck exists yet**, i.e. once per user per day rather than on every home-dashboard load). **This persistence step is load-bearing** — action routes advance progress via `triggerActivityQuestProgress(userId, actionType, db)`, which only matches quests present in `user_quest_decks` for today. A previous version of `GET /api/quests/daily` queried `quest_templates` directly without writing to `user_quest_decks`, so every progress-tracking call silently no-opped with a "not in user's deck" error — daily quests always showed 0/x. Any future quest-listing endpoint must go through `generateDailyDeck`, not a parallel query.
 2. `triggerActivityQuestProgress(userId, actionType, db, increment?)` is called fire-and-forget from action routes whenever a quest-relevant action happens. `actionType` **must match** `quest_templates.action_type` exactly — the canonical values seeded in `0001_consolidated_schema.sql` are `messages`, `room_join`, `gift`, `login_streak`, `guild_quest`, `xp_meta`. Wired call sites: room/DM/group message send (`messages`), room join (`room_join`), gift send — both `/api/economy/gifts/send` and the DM gift path (`gift`), guild quest contribution (`guild_quest`), daily login claim (`login_streak`), and generically inside `safeAwardXP` for the `xp_meta` "earn N XP today" meta-quest (increment = XP amount awarded; skipped when no ambient DB transaction is in flight, and excluded for `quest_complete`/`deck_completion`/`deck_bonus`/`mentorship_bonus` sources to avoid a quest's own payout re-triggering itself).
 3. `updateQuestProgress` also awards a **10% Elder mentorship bonus** to the user's active `elder_mentorships` mentor on quest completion (PRD §7) — this now lives in the shared engine (previously only implemented in an endpoint no client ever called, so mentorship bonuses were never actually paid out).
 4. `POST /api/quests/daily/[questId]/progress` (available for direct client-driven progress claims) delegates to `updateQuestProgress` / `checkDeckCompletion` rather than maintaining a second, divergent implementation.
@@ -1279,12 +1279,12 @@ Deletion is batched by joining the `messages` table against the sender's **curre
 
 1. **Login** → backend issues two tokens:
    - **Access token** (JWT, 15-minute TTL) signed with `JWT_SECRET`. Stored in HttpOnly cookie (web) or Expo SecureStore (Android).
-   - **Refresh token** (JWT, 30-day TTL) signed with `JWT_REFRESH_SECRET`. Stored in Redis under key `session:<refreshToken>` with a 30-day expiry. (The `sessions` DB table was dropped during schema cleanup; all session state lives in Redis.)
+   - **Refresh token** (JWT, 30-day TTL) signed with `JWT_REFRESH_SECRET`. Stored in Redis under key `session:<sid>` with a 30-day expiry. (The `sessions` DB table was dropped during schema cleanup; all session state lives in Redis.)
 
 **Key rotation for refresh tokens:** Both access tokens and refresh tokens embed a `kid` (key ID) in their JWT header. During a key rotation, verification looks up the matching secret from a registry keyed by `kid` (built from `JWT_REFRESH_SECRET` and any `JWT_REFRESH_SECRET_v{N}` env vars). This allows old refresh tokens to remain valid through the rotation grace period without requiring forced logouts. See `SETUP.md` → Environment Variables Reference for rotation procedure.
 2. **API call with valid access token** → validates JWT → proceeds.
-3. **API call with expired access token + valid refresh token** → backend validates refresh token against Redis key → issues new access token → delivers both via `Set-Cookie` (HttpOnly, Secure, SameSite=Strict). Tokens are never exposed in response headers.
-4. **Logout** → deletes the Redis `session:*` key → immediate invalidation. The old access token will still parse as valid until its 15-minute TTL expires, but the refresh token can no longer be used to extend sessions.
+3. **API call with expired access token + valid refresh token** → backend validates refresh token against Redis key, **and re-checks the account is still in good standing** (banned/suspended/deleted — the same row it already reads for email and staff flags, so at no extra cost) → issues new access token → delivers both via `Set-Cookie` (HttpOnly, Secure, SameSite=Strict). Tokens are never exposed in response headers.
+4. **Logout** → deletes the Redis `session:*` key → immediate invalidation. The old access token will still parse as valid until its 15-minute TTL expires, but the refresh token can no longer be used to extend sessions, and every sensitive surface (payments, payouts, transfers, gifting, KYC, 2FA/PIN, session management) plus all `/gate44` admin and moderator routes re-verify against Redis on each request — see `requiresLiveVerification` and "Redis Cost Controls".
 5. **Ban or suspension** → admin action deletes all `session:*` keys for the user → all devices logged out immediately, without waiting for JWT expiry.
 6. **Admin sessions** → separate shorter-lived JWT (5-minute TTL), re-verified against `is_admin` in the database on every admin route call.
 
@@ -1298,18 +1298,194 @@ Deletion is batched by joining the `messages` table against the sender's **curre
 
 **Expo mobile auth hardening:** On an irrecoverable 401, the Expo auth context clears all three SecureStore keys (`zobia_jwt`, `zobia_rt`, `zobia_user`) before transitioning to the signed-out state, so stale credentials cannot cause a re-authentication loop on the next app restart. After a successful silent token refresh, the Axios interceptor fetches `/api/users/me` and fires an `onUserUpdated` event; the auth context subscribes to this event and updates the in-memory user object with fresh XP, rank, and city — fields that are not embedded in the JWT payload and would otherwise go stale until re-login.
 
-### Redis Cost Controls
+### Redis Cost Controls (REDIS-COST-01)
 
-The platform runs comfortably on a **free Redis tier + Vercel Hobby**. Because every authenticated request is a serverless invocation that previously made several Redis reads, two layers keep both command volume and invocation count low without degrading perceived latency:
+The platform targets a **free Redis tier + Vercel Hobby** while scaling to tens
+of thousands of concurrent users. Reaching that required treating Redis as a
+scarce resource rather than a default cache: on a managed serverless Redis you
+are billed **per command**, so pipelining reduces latency but not quota — only
+*removing* commands reduces quota.
 
-1. **Per-instance L1 cache in front of Redis** (`lib/cache/memory.ts`):
-   - **Session validation** — `getSession()` runs on *every* authenticated request. Its `session:{sid}` lookup is cached in-process for **3s** (`SESSION_CACHE_TTL_MS` in `lib/auth/session.ts`), and the entry is evicted immediately on this instance whenever the session is rotated (refresh) or revoked (logout/ban/eviction). Cross-instance revocation is bounded by the 3s TTL; account-status (ban) enforcement is independent and unaffected.
-   - **Account status** — the banned/suspended/deleted check in `withAuth` (`lib/api/middleware.ts`) now uses L1 (15s) → Redis (30s) → DB. Sensitive mutations (payments, payouts, gifts, transfers) always bypass L1 and confirm against Redis/DB.
-   - Net effect: a warm instance serving a steady chat poll makes **~0 Redis reads** for auth instead of ~3–4 per request.
+The audit found the bill was not caused by caching at all. It was caused by four
+things that ran on **every single request**, none of which needed Redis. Fixing
+them took the cost of a typical page view from ~150 Redis commands to under 10.
 
-2. **Activity-based chat-poll backoff** (`lib/hooks/useAdaptiveChatPoll.ts`): when no realtime provider is connected the baseline poll starts fast (3s) but **backs off geometrically up to 15s while the conversation is idle**, snapping back to 3s the instant new messages arrive or the user sends. A backgrounded tab stops polling entirely. An idle 1:1 chat therefore costs ~4 polls/minute instead of ~20.
+#### 1. The database circuit breaker (the single largest offender)
 
-Existing in-process caches (rate-limit L1, manifest 15s, room top-gifters 10s) and the geo-anomaly check (Redis only when the request IP actually changes) remain in place. Presence heartbeats stay at 45s and continue to free room slots automatically via short Redis TTLs.
+`withCircuitBreaker` wraps every `db.query()` and every `db.transaction()`
+(`lib/db/providers/*.ts`). It used to be backed by `RedisCircuitBreaker`, so each
+wrapped call cost a `GET circuit:database` plus an `EVAL` that itself did a
+`GET` and a `SET` — a route issuing three queries spent ~12 Redis commands
+purely asking "is Postgres healthy?", with every instance in the fleet
+read-modify-writing one hot key.
+
+`lib/db/circuit.ts` now uses the **in-process** `CircuitBreaker`. On serverless,
+where instances are cold and short-lived, shared breaker state bought almost
+nothing: a cold instance simply discovers the outage itself within a request or
+two, and Postgres connection failures are fast. Set `DB_CIRCUIT_DISTRIBUTED=1`
+to opt back into the Redis-backed breaker if the app ever moves to a long-lived
+runtime with few, long-running instances. The payments breakers
+(Paystack/DodoPayments) are low-volume and stay Redis-backed.
+
+#### 2. Per-request session and account-status reads
+
+`withAuth` used to run two Redis reads on every authenticated request
+(`GET session:<sid>` and `GET user:status:<uid>`) plus a `SETEX` whenever the
+10-second status cache lapsed. Both are gone from the hot path.
+
+Ordinary routes now trust the **signed, short-lived access token**. Live Redis +
+database verification happens only where acting on a stale credential could be
+materially harmful — see `requiresLiveVerification` in `lib/api/middleware.ts`,
+which covers payments, payouts, transfers, gifting, KYC, 2FA/PIN, bank accounts
+and session management, plus every `/gate44` admin and moderator route (which
+already used `getSessionFresh`).
+
+Revocation is therefore **push-based**, not poll-based:
+
+- Every ban/suspend/delete/downgrade path calls `revokeUserAccess(uid, reason)`
+  (`lib/auth/session.ts`), which destroys the user's session records
+  immediately and logs the reason. That kills them instantly on refresh and on
+  every sensitive request.
+- **Token refresh re-validates account standing.** `refreshAccessToken` already
+  read the user row for email and staff flags; it now also checks
+  `is_banned`/`is_suspended`/`deleted_at` in the same query and revokes on
+  failure. Costs nothing extra and bounds the worst case to one access-token
+  lifetime.
+- Geo-anomaly detection survived the change by carrying the login IP as a
+  signed `lip` claim on the access token instead of reading it out of the Redis
+  session record.
+
+**Why the access-token TTL was NOT shortened.** Shortening it *increases* Redis
+cost. Once the per-request session read is gone, the only Redis traffic in the
+auth path is the refresh (~6 commands). A one-hour browsing session costs ~4
+refreshes at a 15-minute TTL but ~12 at a 5-minute TTL — three times the
+commands for a revocation window that push-based revocation has already closed
+on every path that matters. TTLs stay admin-configurable per role via
+`manifest.sessionTtls`.
+
+#### 3. The rate limiter
+
+The old sliding window kept a Redis sorted set per subject: four commands AND a
+unique ~40-byte member **per request**. At the `apiRead` preset of 300/min that
+is up to 12 KB of Redis memory per active user per minute just to count. It was
+simultaneously the second-largest command consumer and the largest storage
+consumer.
+
+`lib/security/rateLimit.ts` now has two tiers:
+
+- **`tier: "local"`** — counted entirely in-process, **zero Redis commands**.
+  Applied to the high-volume, low-harm limiters: `apiRead` and the idempotent
+  vote limiters (`forumVote`, `blogVote`, `pollQuizVote`, `wikiVote`), whose
+  underlying actions are already constrained by unique indexes and ownership
+  checks. The effective ceiling becomes `limit x warm instances`, which is an
+  accepted and documented trade for a runaway-client guard.
+- **`tier: "exact"`** (the default) — an approximate sliding window over two
+  fixed-window counters, weighted by position within the current window. This is
+  the standard Cloudflare-style approximation: it costs an `MGET` + `INCR` (+ a
+  `PEXPIRE` only on window creation) and stores two small integers per subject,
+  and it does **not** reintroduce the 2x boundary burst that BUG-RATE-01
+  originally fixed — weighting the previous window is exactly what smooths the
+  boundary. Both bucket keys share a `{...}` hash tag so the Lua script stays
+  valid on Redis Cluster.
+
+Authentication, login, registration, PIN, payouts, purchases, gifting and
+contact lookup all remain exact and `bypassL1`. On a Redis outage, exact
+limiters marked `bypassL1` fail **closed** (a brief outage beats unbounded
+brute-force attempts); ordinary limiters fail **open** so a cache blip cannot
+take the app down. Pinned by `lib/security/__tests__/rateLimit.test.ts`.
+
+#### 4. Global values that belonged in the CDN, not Redis
+
+Several cached values are identical for every user, yet were costing a Redis
+read per user:
+
+- **App manifest** — was stored twice (`app:manifest:v3`, the built object, and
+  `app:manifest:kv:v3`, the raw map it is derived from), ~22 KB rewritten every
+  60 seconds forever. Now a **single** key (`app:manifest:kv:v4`) with a
+  10-minute TTL; the built object is reconstructed in-process. The TTL is a
+  safety net, not the propagation mechanism — admin saves call
+  `invalidateManifestCache()`. `GET /api/manifest` dropped `force-dynamic` and
+  serves `s-maxage=300`, so the CDN absorbs nearly every client fetch.
+- **Notices, Zobian of the Month, leaderboard totals** — TTLs raised to match
+  how often they actually change, an in-process tier added to the leaderboard
+  count (it had none), and `s-maxage` headers added so the edge answers most
+  requests. Note `s-maxage` is what makes the *CDN* hold a response; the
+  previous `max-age`-only headers cached in the browser but left cold browsers
+  and native Capacitor clients hitting the origin every time.
+- **Sitewide presence** — `presence:online:<uid>` was pure duplication of
+  `users.last_active_at`, which the same heartbeat already writes and which is
+  indexed. Presence is now derived from that column (`lib/presence/keys.ts`),
+  removing one Redis write per heartbeat, one read per lookup, and one command
+  **per recipient** on every chat-push fan-out. *This also fixed a live bug:*
+  the old bulk check destructured pipeline results as ioredis `[error, value]`
+  tuples, which is not the shape Upstash returns — so on Upstash every
+  recipient looked online and DM/group pushes were silently dropped.
+  Per-room and per-group-chat live presence is a genuinely different problem (a
+  bounded, short-TTL membership set with capacity admission) and correctly
+  stays in Redis.
+- **Daily quest deck lock** — `generateDailyDeck` took a `SET NX` lock, then a
+  `GET`, then a `DEL` on *every home-dashboard load*, to guard an insert that
+  happens once per user per day. It now checks for an existing deck first and
+  only locks on a genuine miss; the release is a single compare-and-delete Lua
+  script instead of `GET`-then-`DEL` (atomic, and one round-trip).
+
+#### Provider portability
+
+`REDIS_PROVIDER` selects `ioredis` or `upstash` and both are now equally
+optimised. ioredis is wrapped in a real `IoRedisAdapter` rather than cast
+straight to the interface, which fixes two silent divergences: `pipeline().exec()`
+returning `[error, value]` tuples (Upstash returns bare values) and `hgetall`
+returning `{}` rather than null for a missing key. The client gained `mget`,
+`pexpire` and `pttl`, and the pipeline gained `get`/`set`/`incr`/`ttl`/`zrem`,
+so remaining multi-key reads are one round-trip on either provider. Switching
+providers is an env-var change with no code edits.
+
+#### Latency batching
+
+Separate from quota: on Upstash each command is an HTTPS request from the
+lambda (~80 ms), so sequential calls dominate p95. Session creation was five
+sequential commands (`SETEX`, `ZADD`, `EVAL`, `ZRANGE`, `ZREMRANGEBYRANK`) and
+is now one Lua script; `listUserSessions` was N sequential `GET`s and is now one
+`MGET`; the refresh path batches its two writes into one pipeline. Evicted
+session keys are still deleted outside the script, because their names are
+derived from data rather than passed as `KEYS`, and deleting them inside Lua
+would be unsafe on Redis Cluster.
+
+#### Client-side (web, PWA, Capacitor Android)
+
+Every request the client does not make costs no lambda, no database query and no
+Redis command — the cheapest lever available, and it improves perceived
+performance at the same time.
+
+- **Offline-first rehydration.** Web/PWA persists the TanStack Query cache to
+  `localStorage` (`lib/offline/queryPersist.ts`); Capacitor persists per-query
+  entries to IndexedDB (`apps/android/src/lib/query/client.ts`). A cold launch
+  paints from disk and then revalidates only what is genuinely stale.
+- **Per-user scoping (security).** Both caches are now namespaced by user id,
+  following the existing `zobia:<feature>:<userId>` convention. This matters on
+  shared devices. The web implementation previously used one global key plus a
+  denylist of "sensitive" query-key fragments, which fails **open**: any query
+  whose key did not happen to contain a listed word (a DM thread, a private
+  profile, a guild roster) was written to disk and rehydrated for whoever signed
+  in next. Scoping by user id fails **closed** instead, and switching or
+  clearing the owner purges every other account's snapshot from the device.
+  Credential- and balance-shaped caches are still never persisted even for the
+  owning user.
+- **Presence heartbeat throttling.** The hook beats on mount, on a 3-minute
+  interval *and* on every `visibilitychange`, so tab-switching produced bursts
+  of writes seconds apart. A shared-storage timestamp now de-duplicates across
+  all tabs, and the server applies its own per-user throttle.
+
+The activity-based chat-poll backoff (`lib/hooks/useAdaptiveChatPoll.ts`) is
+unchanged: when no realtime provider is connected the poll starts at 3s and
+backs off geometrically to 15s while idle, snapping back the instant new
+messages arrive. A backgrounded tab stops polling entirely, so an idle 1:1 chat
+costs ~4 polls/minute instead of ~20.
+
+The geo-anomaly check still touches Redis only when the request IP actually
+changes. Room/group presence heartbeats stay at 45s and continue to free slots
+automatically via short Redis TTLs.
+
 
 ### Home Dashboard & Feed (PRD §39)
 
@@ -1411,7 +1587,7 @@ older ones within the same tier).
 
 Returns HTTP 200 when all checks pass. Returns HTTP 503 when one or more checks fail (status will be `"degraded"`; `errors` is only present when at least one check failed). Load balancers should poll this endpoint and remove the instance from rotation when a 503 is received.
 
-`checks.dbCircuit` reports the shared database circuit breaker's state (BUG-CAP-02 fix — `lib/db/circuit.ts`'s `dbCircuit`/`withCircuitBreaker` previously had no callers at all, so a degraded database had no fail-fast path; every DB provider adapter's `query()`/`transaction()` now routes through it, reusing the same `RedisCircuitBreaker` class already wired into the Paystack/DodoPayments HTTP clients — see "AI Provider Fallback" below for the equivalent circuit-breaker pattern already used for DeepSeek/Gemini). `checks.dbCircuit` reads `"error"` only when the circuit is fully OPEN (fast-failing every call); `HALF_OPEN` still reports `"ok"` since it's actively probing for recovery. Because this health check's own `db.query("SELECT 1")` call goes through the same circuit breaker, a monitoring poll against `/api/health` doubles as the breaker's periodic recovery probe once the reset timeout elapses.
+`checks.dbCircuit` reports the shared database circuit breaker's state (BUG-CAP-02 fix — `lib/db/circuit.ts`'s `dbCircuit`/`withCircuitBreaker` previously had no callers at all, so a degraded database had no fail-fast path; every DB provider adapter's `query()`/`transaction()` now routes through it — see "AI Provider Fallback" below for the equivalent circuit-breaker pattern already used for DeepSeek/Gemini). Since REDIS-COST-01 the DB breaker is **in-process** rather than Redis-backed: wrapping every query in a distributed breaker cost two to three Redis commands per query and was by far our largest single consumer, for state that short-lived serverless instances barely benefit from. Set `DB_CIRCUIT_DISTRIBUTED=1` to restore the Redis-backed breaker on a long-lived runtime. The Paystack/DodoPayments breakers are low-volume and remain Redis-backed. `checks.dbCircuit` reads `"error"` only when the circuit is fully OPEN (fast-failing every call); `HALF_OPEN` still reports `"ok"` since it's actively probing for recovery. Because this health check's own `db.query("SELECT 1")` call goes through the same circuit breaker, a monitoring poll against `/api/health` doubles as the breaker's periodic recovery probe once the reset timeout elapses.
 
 ### Graceful Shutdown
 

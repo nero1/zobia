@@ -18,8 +18,7 @@
 import { db } from "@/lib/db";
 import { logger } from "@/lib/logger";
 import { sendPushNotification, sendPushNotificationBatch } from "@/lib/notifications/push";
-import { presenceRedisKey } from "@/lib/presence/keys";
-import { redis } from "@/lib/redis";
+import { getOnlineUserIds } from "@/lib/presence/keys";
 
 /**
  * Per-category push preference columns on the `users` table. Each chat surface
@@ -53,22 +52,16 @@ async function eligibleRecipients(
   const allowed = rows.map((r) => r.id);
   if (allowed.length === 0) return [];
 
-  // BUG-PERF-02: batch presence check via Redis pipeline — O(1) round trips
-  // instead of one EXISTS call per user.
-  let offlineIds: string[] = allowed;
-  try {
-    const pipeline = redis.pipeline();
-    for (const id of allowed) pipeline.exists(presenceRedisKey(id));
-    const results = await pipeline.exec();
-    offlineIds = allowed.filter((_, i) => {
-      const tuple = (results?.[i] ?? [null, 0]) as [Error | null, number];
-      const [err, count] = tuple;
-      return !err && count === 0;
-    });
-  } catch {
-    // Redis unavailable — fail open (send to all pref-enabled users)
-  }
-  return offlineIds;
+  // BUG-PERF-02 / REDIS-COST-01: one indexed SQL predicate for the whole batch.
+  //
+  // This previously issued one Redis EXISTS per recipient through a pipeline.
+  // Besides the per-recipient command cost, it read the results as ioredis
+  // `[error, value]` tuples — which is not the shape the Upstash provider
+  // returns — so on Upstash `count` was always undefined, every recipient
+  // looked online, and these pushes were silently dropped. Presence is now
+  // derived from `users.last_active_at`; see lib/presence/keys.ts.
+  const onlineIds = await getOnlineUserIds(allowed);
+  return allowed.filter((id) => !onlineIds.has(id));
 }
 
 /** Push a DM to the recipient if they are offline and have DM pushes enabled. */

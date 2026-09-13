@@ -19,7 +19,12 @@ const mockRedisGet = jest.fn<Promise<string | null>, [string]>();
 const mockDbQuery = jest.fn();
 
 jest.mock("@/lib/redis", () => ({
-  redis: { get: (k: string) => mockRedisGet(k) },
+  redis: {
+    get: (k: string) => mockRedisGet(k),
+    // invalidateManifestCache() deletes the KV key; the tests below call it to
+    // reset the in-process manifest caches between cases.
+    del: jest.fn().mockResolvedValue(1),
+  },
 }));
 
 jest.mock("@/lib/db", () => ({
@@ -30,7 +35,7 @@ jest.mock("@/lib/logger", () => ({
   logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() },
 }));
 
-import { getManifestValue } from "@/lib/manifest";
+import { getManifestValue, invalidateManifestCache } from "@/lib/manifest";
 import { getCaptchaProvider } from "@/lib/security/captcha";
 
 /** Make getManifestValue read from the DB by forcing a Redis cache miss. */
@@ -39,10 +44,22 @@ function seedDbValue(value: string | null) {
   mockDbQuery.mockResolvedValue({ rows: value === null ? [] : [{ value }] });
 }
 
+/**
+ * REDIS-COST-01 added an in-process cache of the raw manifest KV map, so a warm
+ * instance answers getManifestValue() without touching Redis at all. That
+ * cache is module-level and therefore shared between test cases — clear it in
+ * beforeEach so each case genuinely exercises the path it is asserting on,
+ * rather than a value a previous case happened to warm.
+ */
+async function resetManifestCaches() {
+  await invalidateManifestCache();
+}
+
 describe("getManifestValue — JSON-quote normalization", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     mockRedisGet.mockReset();
     mockDbQuery.mockReset();
+    await resetManifestCaches();
   });
 
   it("strips surrounding quotes from a legacy quoted value (the prod bug)", async () => {
@@ -78,9 +95,10 @@ describe("getManifestValue — JSON-quote normalization", () => {
 });
 
 describe("getCaptchaProvider — resolves through the normalized read", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     mockRedisGet.mockReset();
     mockDbQuery.mockReset();
+    await resetManifestCaches();
   });
 
   it("honours a legacy quoted '\"none\"' so the admin captcha-off toggle works", async () => {

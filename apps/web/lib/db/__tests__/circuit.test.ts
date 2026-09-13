@@ -3,17 +3,32 @@
  *
  * `withCircuitBreaker` previously had no test coverage at all (it also had no
  * callers, which was the bug). These tests cover the one piece of logic this
- * module owns: converting the shared `RedisCircuitBreaker`'s own OPEN/timeout
- * rejections into a 503-shaped plain Error, while leaving errors thrown by the
- * wrapped function (real Postgres errors) completely untouched.
+ * module owns: converting the breaker's own OPEN/timeout rejections into a
+ * 503-shaped plain Error, while leaving errors thrown by the wrapped function
+ * (real Postgres errors) completely untouched.
+ *
+ * REDIS-COST-01: the default breaker is now the in-process `CircuitBreaker`
+ * rather than the Redis-backed one (the Redis variant is still selectable via
+ * DB_CIRCUIT_DISTRIBUTED=1). Both are mocked here so these tests keep
+ * exercising only this module's error translation, whichever is wired up.
  */
 
 const mockExecute = jest.fn();
 
+const breakerImpl = () => ({
+  execute: (fn: () => Promise<unknown>) => mockExecute(fn),
+  getMetrics: () => ({
+    name: "database",
+    state: "CLOSED" as const,
+    failureRate: 0,
+    openedAt: null,
+    windowSize: 0,
+  }),
+});
+
 jest.mock("@/lib/payments/circuit", () => ({
-  RedisCircuitBreaker: jest.fn().mockImplementation(() => ({
-    execute: (fn: () => Promise<unknown>) => mockExecute(fn),
-  })),
+  CircuitBreaker: jest.fn().mockImplementation(breakerImpl),
+  RedisCircuitBreaker: jest.fn().mockImplementation(breakerImpl),
 }));
 
 import { withCircuitBreaker } from "@/lib/db/circuit";

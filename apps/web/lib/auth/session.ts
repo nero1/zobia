@@ -26,6 +26,7 @@ import {
 } from "./jwt";
 import { loadManifest } from "@/lib/manifest";
 import { randomUUID, createHash } from "crypto";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -80,10 +81,19 @@ const userSessionsKey = (uid: string) => `user_sessions:${uid}`;
 // ---------------------------------------------------------------------------
 // In-process session cache (L1)
 //
-// getSession() runs on EVERY authenticated request (the withAuth middleware
-// calls it to confirm the session has not been revoked). On chat surfaces that
-// poll every few seconds this is the single highest-volume Redis read in the
-// app — one GET per request, per user, indefinitely.
+// REDIS-COST-01 — getSession() USED to run on every authenticated request (the
+// withAuth middleware called it to confirm the session had not been revoked),
+// making it the single highest-volume Redis read in the app: one GET per
+// request, per user, indefinitely. It no longer does. withAuth now trusts the
+// signed access token on ordinary routes and only reads live session state on
+// sensitive paths, admin/moderator routes and token refresh (see
+// `requiresLiveVerification` in lib/api/middleware.ts).
+//
+// getSession() remains the right call for the handful of routes that read the
+// session record for its CONTENTS rather than merely to prove liveness
+// (/api/auth/me, the room SSE stream, TOTP setup, stickers). Those are
+// once-per-page or once-per-connection, so the L1 cache below still earns its
+// keep without the old per-request volume.
 //
 // We front the Redis GET with a tiny per-instance TTL cache. The trade-off is a
 // bounded staleness window: a session revoked on another instance (logout, ban,
@@ -112,6 +122,61 @@ const sessionCacheKey = (sid: string) => `sess:${sid}`;
 function evictSessionCache(sid: string): void {
   memDel(sessionCacheKey(sid));
 }
+
+// ---------------------------------------------------------------------------
+// Session limits
+// ---------------------------------------------------------------------------
+
+/**
+ * Maximum concurrent sessions retained per user. Creating session N+1 evicts
+ * the oldest by creation time, so a user signing in on an eleventh device
+ * silently signs out their first.
+ */
+const MAX_SESSIONS = 10;
+
+/**
+ * Atomically establish a session in one round-trip (REDIS-COST-01).
+ *
+ * KEYS[1] = session:{sid}
+ * KEYS[2] = user_sessions:{uid}   (sorted set, scored by creation time)
+ * ARGV[1] = serialised SessionRecord
+ * ARGV[2] = refresh TTL in seconds
+ * ARGV[3] = now (ms) — the sorted-set score
+ * ARGV[4] = sid — the sorted-set member
+ * ARGV[5] = max concurrent sessions to retain
+ *
+ * Returns: array of evicted SIDs (possibly empty). Their `session:{sid}` keys
+ * are deleted by the caller — see the note at the call site for why that is not
+ * done in here.
+ *
+ * The TTL on the sorted set is only ever extended, never shortened, so an
+ * active device cannot have its session index expire out from under the other
+ * sessions sharing it. Doing the TTL read and the conditional EXPIRE inside the
+ * script closes the TOCTOU race the previous two-step version had.
+ */
+const CREATE_SESSION_LUA = `
+local sessionKey = KEYS[1]
+local indexKey = KEYS[2]
+local record = ARGV[1]
+local ttl = tonumber(ARGV[2])
+local now = tonumber(ARGV[3])
+local sid = ARGV[4]
+local maxSessions = tonumber(ARGV[5])
+
+redis.call('SET', sessionKey, record, 'EX', ttl)
+redis.call('ZADD', indexKey, now, sid)
+
+-- Extend the index TTL only when the new lifetime is longer than what is set.
+local current = redis.call('TTL', indexKey)
+if current < ttl then redis.call('EXPIRE', indexKey, ttl) end
+
+-- Trim to the newest maxSessions entries, returning whatever fell off.
+local evicted = redis.call('ZRANGE', indexKey, 0, -(maxSessions + 1))
+if #evicted > 0 then
+  redis.call('ZREMRANGEBYRANK', indexKey, 0, -(maxSessions + 1))
+end
+return evicted
+`;
 
 // ---------------------------------------------------------------------------
 // Session creation
@@ -185,6 +250,9 @@ export async function createSession(
         ? { onboarding_completed: user.onboarding_completed }
         : {}),
       ...(options.impersonatedBy ? { impersonated_by: options.impersonatedBy } : {}),
+      // REDIS-COST-01: carry the login IP as a signed claim so the per-request
+      // geo-anomaly comparison no longer needs to read the Redis session record.
+      ...(options.ip ? { lip: options.ip } : {}),
     }, accessTtl),
     signRefreshToken(user.id, sid, refreshTtl),
   ]);
@@ -208,13 +276,6 @@ export async function createSession(
     impersonatedBy: options.impersonatedBy,
   };
 
-  // Write session with TTL matching the refresh token lifetime
-  await redis.setex(
-    sessionKey(sid),
-    refreshTtl,
-    JSON.stringify(record)
-  );
-
   // Record daily login for Creator Fund active-day tracking (BUG-027)
   await db.query(
     `INSERT INTO user_daily_logins (user_id, login_date)
@@ -223,35 +284,39 @@ export async function createSession(
     [user.id]
   ).catch(() => {}); // non-fatal
 
-  // Track session in per-user sorted set, scored by creation time.
-  // Atomically extend TTL only when the new lifetime would exceed the current one
-  // (Lua avoids a TTL→EXPIRE TOCTOU race).
-  await redis.zadd(userSessionsKey(user.id), Date.now(), sid);
-  await redis.eval(
-    `local current = redis.call('TTL', KEYS[1])
-     local newTtl = tonumber(ARGV[1])
-     if current < newTtl then redis.call('EXPIRE', KEYS[1], newTtl) end`,
-    1,
+  // REDIS-COST-01: session establishment used to cost five sequential Redis
+  // round-trips (SETEX, ZADD, EVAL for the TTL extension, ZRANGE, and
+  // ZREMRANGEBYRANK). On Upstash each of those is a separate HTTPS request from
+  // the lambda — roughly 80 ms apiece — so login alone spent ~400 ms waiting on
+  // Redis. CREATE_SESSION_LUA does all five atomically in a single round-trip
+  // and hands back the SIDs that were evicted by the per-user session cap, so
+  // the caller only pays a second round-trip in the rare case where an
+  // eviction actually happened.
+  const evictedSids = (await redis.eval(
+    CREATE_SESSION_LUA,
+    2,
+    sessionKey(sid),
     userSessionsKey(user.id),
-    String(refreshTtl)
-  );
+    JSON.stringify(record),
+    String(refreshTtl),
+    String(Date.now()),
+    sid,
+    String(MAX_SESSIONS)
+  )) as string[] | null;
 
-  // Enforce per-user session limit: evict oldest sessions beyond MAX_SESSIONS.
-  // Both the session-key deletions and the sorted-set trim run in one atomic
-  // pipeline so there is no window where a just-deleted SID still appears in the
-  // sorted set (or vice-versa) — SESSION-EVICT-01.
-  const MAX_SESSIONS = 10;
-  const evictedSids = await redis.zrange(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
-  if (evictedSids.length > 0) {
+  // Evicted session records are deleted outside the script. Their key names are
+  // derived from data (the evicted SIDs) rather than passed in as KEYS, so
+  // deleting them inside Lua would be unsafe on Redis Cluster, where every key
+  // a script touches must be declared up front and hash to the same slot.
+  // Doing it here keeps the hot path at one round-trip and keeps us
+  // cluster-correct for the ioredis provider — SESSION-EVICT-01.
+  if (evictedSids && evictedSids.length > 0) {
     const pipeline = redis.pipeline();
-    for (const sid of evictedSids) {
-      evictSessionCache(sid);
-      pipeline.del(sessionKey(sid));
+    for (const evictedSid of evictedSids) {
+      evictSessionCache(evictedSid);
+      pipeline.del(sessionKey(evictedSid));
     }
-    pipeline.zremrangebyrank(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
     await pipeline.exec();
-  } else {
-    await redis.zremrangebyrank(userSessionsKey(user.id), 0, -(MAX_SESSIONS + 1));
   }
 
   return { accessToken, refreshToken, expiresIn: accessTtl, refreshTtl };
@@ -414,11 +479,36 @@ export async function refreshAccessToken(
     email: string | null;
     is_support: boolean;
     is_senior_support: boolean;
+    is_banned: boolean;
+    is_suspended: boolean;
+    suspended_until: string | null;
   }>(
-    `SELECT email, COALESCE(is_support, false) AS is_support, COALESCE(is_senior_support, false) AS is_senior_support
+    `SELECT email,
+            COALESCE(is_support, false) AS is_support,
+            COALESCE(is_senior_support, false) AS is_senior_support,
+            COALESCE(is_banned, false) AS is_banned,
+            COALESCE(is_suspended, false) AS is_suspended,
+            suspended_until
      FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
     [session.uid]
   );
+
+  // REDIS-COST-01: the per-request `user:status:<uid>` Redis read is gone from
+  // the hot path (see lib/api/middleware.ts). Token refresh is now the periodic
+  // re-validation point for account standing: it already reads this exact row,
+  // so checking it here costs nothing extra and guarantees that a banned,
+  // suspended or deleted account cannot extend its session past the current
+  // access token's lifetime — even in the (impossible-by-design) case where
+  // some future ban path forgets to call `revokeUserAccess`.
+  const statusRow = staffRows[0];
+  const suspensionActive =
+    !!statusRow?.is_suspended &&
+    (!statusRow.suspended_until || new Date(statusRow.suspended_until) > new Date());
+  if (!statusRow || statusRow.is_banned || suspensionActive) {
+    await invalidateAllSessions(session.uid).catch(() => {});
+    throw new Error("Account is not active. Please contact support.");
+  }
+
   const currentEmail = staffRows[0]?.email ?? null;
   const currentIsSupport = Boolean(staffRows[0]?.is_support);
   const currentIsSeniorSupport = Boolean(staffRows[0]?.is_senior_support);
@@ -434,6 +524,10 @@ export async function refreshAccessToken(
       ...(currentIsSupport ? { is_support: currentIsSupport } : {}),
       ...(currentIsSeniorSupport ? { is_senior_support: currentIsSeniorSupport } : {}),
       sid: session.sid,
+      // Carry the original login IP forward so geo-anomaly detection keeps
+      // working across refreshes without a Redis session read.
+      ...(session.ip ? { lip: session.ip } : {}),
+      ...(session.impersonatedBy ? { impersonated_by: session.impersonatedBy } : {}),
     }, accessTtl),
     signRefreshToken(session.uid, session.sid, refreshTtl),
   ]);
@@ -448,16 +542,18 @@ export async function refreshAccessToken(
     prevRefreshTokenHash: session.refreshTokenHash,
     prevRefreshValidUntil: Date.now() + 30_000,
   };
-  await redis.setex(sessionKey(session.sid), refreshTtl, JSON.stringify(updatedRecord)).catch(() => {});
+  // One round-trip instead of two: rewrite the session record and extend the
+  // per-user session-index TTL together, so active users are not evicted
+  // (BUG-16) without paying a second sequential Upstash request (REDIS-COST-01).
+  await redis
+    .pipeline()
+    .setex(sessionKey(session.sid), refreshTtl, JSON.stringify(updatedRecord))
+    .expire(userSessionsKey(session.uid), refreshTtl)
+    .exec()
+    .catch(() => {});
   // Refresh the L1 cache so the rotated record (new hash) is served immediately
   // and the stale pre-rotation copy can never linger on this instance.
   memSet(sessionCacheKey(session.sid), updatedRecord, SESSION_CACHE_TTL_MS);
-
-  // Extend the per-user session-set TTL so active users don't get evicted (BUG-16)
-  await redis.expire(
-    userSessionsKey(session.uid),
-    refreshTtl
-  ).catch(() => {});
 
   return { accessToken, expiresIn: accessTtl, newRefreshToken, refreshTtl };
   } finally {
@@ -513,17 +609,18 @@ export async function listUserSessions(uid: string): Promise<SessionSummary[]> {
   const sids = await redis.zrange(userSessionsKey(uid), 0, -1);
   if (sids.length === 0) return [];
 
-  const records = await Promise.all(
-    sids.map(async (sid) => {
-      const raw = await redis.get(sessionKey(sid));
-      if (!raw) return null;
-      try {
-        return JSON.parse(raw) as SessionRecord;
-      } catch {
-        return null;
-      }
-    })
-  );
+  // REDIS-COST-01: one MGET instead of N sequential GETs. A user with ten
+  // active sessions previously cost ten billed commands and ten sequential
+  // round-trips here; it is now one of each.
+  const raws = await redis.mget(...sids.map(sessionKey));
+  const records = raws.map((raw) => {
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as SessionRecord;
+    } catch {
+      return null;
+    }
+  });
 
   return records
     .filter((r): r is SessionRecord => r !== null)
@@ -566,6 +663,37 @@ export async function invalidateAllSessions(uid: string): Promise<void> {
   }
   pipeline.del(userSessionsKey(uid));
   await pipeline.exec();
+}
+
+/**
+ * Revoke every active session for a user and record why.
+ *
+ * REDIS-COST-01 — this is the load-bearing half of push-based revocation.
+ * `withAuth` no longer reads `user:status:<uid>` from Redis on every request;
+ * instead, the moment an account stops being in good standing (ban, suspend,
+ * forced 2FA, password reset, role downgrade, deletion) we destroy its
+ * sessions. Because the access token is useless without a session on every
+ * path that actually matters — refresh, admin/moderator routes and sensitive
+ * mutations all re-verify against Redis — the user is cut off immediately
+ * there, and at worst finishes out the current access-token lifetime on
+ * harmless read endpoints.
+ *
+ * ALWAYS call this (rather than `invalidateAllSessions` directly) from any code
+ * path that changes a user's standing, so the reason is captured in structured
+ * logs and every such path stays greppable from one place.
+ *
+ * @param uid    - User whose access is being revoked
+ * @param reason - Short machine-readable cause, e.g. "ban", "suspend", "deleted"
+ */
+export async function revokeUserAccess(uid: string, reason: string): Promise<void> {
+  try {
+    await invalidateAllSessions(uid);
+    logger.info({ userId: uid, reason }, "[auth] user access revoked — all sessions invalidated");
+  } catch (err) {
+    // Never let revocation bookkeeping fail the caller's transaction, but make
+    // the failure loud: a missed revocation is a security-relevant event.
+    logger.error({ err, userId: uid, reason }, "[auth] FAILED to revoke user sessions");
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -13,7 +13,12 @@ import {
   QueryClientProvider,
 } from "@tanstack/react-query";
 import { ReactQueryDevtools } from "@tanstack/react-query-devtools";
-import { hydrateQueryClient, persistQueryClient } from "@/lib/offline/queryPersist";
+import {
+  hydrateQueryClient,
+  persistQueryClient,
+  setQueryCacheOwner,
+} from "@/lib/offline/queryPersist";
+import { useCurrentUserId } from "@/lib/hooks/useCurrentUserId";
 
 interface ReactQueryProviderProps {
   children: React.ReactNode;
@@ -24,6 +29,7 @@ interface ReactQueryProviderProps {
  * Client is created once per React tree mount so it persists across navigations.
  */
 export function ReactQueryProvider({ children }: ReactQueryProviderProps) {
+  const currentUserId = useCurrentUserId();
   const [queryClient] = useState(
     () =>
       new QueryClient({
@@ -47,6 +53,13 @@ export function ReactQueryProvider({ children }: ReactQueryProviderProps) {
 
   // Offline-first: rehydrate the last persisted cache on mount (synchronously
   // before paint where possible) and keep persisting changes thereafter.
+  //
+  // The first hydration happens against the anonymous bucket because the
+  // signed-in user is not known until /api/users/me resolves. As soon as it
+  // does, `setQueryCacheOwner` below switches buckets: it clears whatever was
+  // hydrated, purges other accounts' snapshots from this device and rehydrates
+  // the right one. See lib/offline/queryPersist.ts for why scoping per user
+  // rather than denylisting "sensitive" keys is the correct shape of defence.
   const [hydrated] = useState(() => {
     hydrateQueryClient(queryClient);
     return true;
@@ -55,6 +68,14 @@ export function ReactQueryProvider({ children }: ReactQueryProviderProps) {
     void hydrated;
     return persistQueryClient(queryClient);
   }, [queryClient, hydrated]);
+
+  // `undefined` means the identity lookup is still in flight — do not switch
+  // buckets yet, or we would clear the cache on every mount. `null` is a
+  // settled answer ("signed out") and is handled like any other owner change.
+  useEffect(() => {
+    if (currentUserId === undefined) return;
+    setQueryCacheOwner(queryClient, currentUserId);
+  }, [queryClient, currentUserId]);
 
   return (
     <QueryClientProvider client={queryClient}>

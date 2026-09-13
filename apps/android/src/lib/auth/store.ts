@@ -29,6 +29,9 @@ async function migrateLegacyPlaintextToken(key: string): Promise<string | null> 
   return legacy;
 }
 
+import { queryClient } from '@/lib/query/client';
+import { setQueryCacheOwner } from '@/lib/query/cacheOwner';
+
 const USER_KEY = 'zobia_user';
 /**
  * Marker for "this session is currently impersonating another user" — holds
@@ -98,8 +101,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setCachedToken(token);
           resetUnauthenticatedFlag();
         }
+        // Adopt the restored user as the persisted-cache owner before any
+        // query runs, so a boot never reads another account's IndexedDB
+        // entries (see lib/query/cacheOwner.ts).
+        await setQueryCacheOwner(user?.id ?? null);
         setState({ token: token ?? null, user, isLoaded: true, impersonatedBy: impersonatedBy ?? null });
       } catch {
+        await setQueryCacheOwner(null);
         setState({ token: null, user: null, isLoaded: true, impersonatedBy: null });
       }
     })();
@@ -120,6 +128,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await Promise.all(writes);
     setCachedToken(token);
     resetUnauthenticatedFlag();
+    // Switch the persisted-cache namespace to this user and drop anything the
+    // previous owner left behind, in memory and on disk. Impersonation counts
+    // as a different owner for this purpose — an admin acting as someone else
+    // must not see their own cached data attributed to the target account.
+    //
+    // Cleared unconditionally here (unlike the web provider's first-adopt case)
+    // because setAuth only ever runs on an explicit sign-in, impersonation
+    // switch, or token restore — never mid-render — so there is no in-flight
+    // page load whose results we would be throwing away.
+    queryClient.clear();
+    await setQueryCacheOwner(user.id);
     setState((prev) => ({ ...prev, token, user, impersonatedBy: nextImpersonatedBy }));
   };
 
@@ -133,6 +152,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       Preferences.remove({ key: IMPERSONATED_BY_KEY }),
     ]);
     setCachedToken(null);
+    // Sign-out must leave nothing readable for the next person to use this
+    // device: clear the in-memory cache and purge the signed-out account's
+    // persisted entries.
+    queryClient.clear();
+    await setQueryCacheOwner(null);
     setState((prev) => ({ ...prev, token: null, user: null, impersonatedBy: null }));
   };
 

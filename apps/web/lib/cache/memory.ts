@@ -1,7 +1,12 @@
 /**
  * lib/cache/memory.ts
  *
- * Lightweight in-process TTL cache for server-side use.
+ * Lightweight in-process LRU + TTL cache for server-side use.
+ *
+ * REDIS-COST-01: this is the primary defence against Redis command volume.
+ * Every Redis read in the app should sit behind it, and `tier: "local"` rate
+ * limiters live here exclusively. See docs/HOW-IT-WORKS.md -> Redis Cost
+ * Controls.
  *
  * Persists across requests within the same serverless instance lifetime,
  * reducing repeated Redis / DB round-trips for frequently-read data
@@ -16,8 +21,19 @@ interface CacheEntry<T> {
   expiresAt: number;
 }
 
-/** Maximum number of entries before LRU eviction kicks in. */
-const MAX_SIZE = 500;
+/**
+ * Maximum number of entries before LRU eviction kicks in.
+ *
+ * REDIS-COST-01 raised this from 500. This cache is now load-bearing for cost,
+ * not just latency: it is the sole counter for `tier: "local"` rate limiters
+ * (one entry per subject per window) as well as the L1 in front of every Redis
+ * read. At 500 entries a burst of distinct users could evict the manifest and
+ * other hot singletons within their TTL, sending those reads back to Redis —
+ * the exact opposite of the intent. Entries are small (counters and short JSON
+ * blobs), so a larger ceiling costs little lambda memory and removes that
+ * failure mode.
+ */
+const MAX_SIZE = 5_000;
 
 const _store = new Map<string, CacheEntry<unknown>>();
 
@@ -50,6 +66,13 @@ export function memGet<T>(key: string): T | undefined {
     _store.delete(key);
     return undefined;
   }
+  // Genuine LRU, not FIFO: re-inserting moves the key to the end of the Map's
+  // insertion order, which is what `pruneExpired` evicts from. Without this a
+  // frequently-READ but infrequently-WRITTEN entry (the app manifest being the
+  // important one) ages out purely because newer keys arrived, even though it
+  // is the hottest thing in the cache (REDIS-COST-01).
+  _store.delete(key);
+  _store.set(key, entry);
   return entry.value;
 }
 

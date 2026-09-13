@@ -17,6 +17,7 @@
 
 import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
 import { redis } from "@/lib/redis";
+import { memGet, memSet } from "@/lib/cache/memory";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -279,23 +280,39 @@ export async function getLeaderboard(
   const countWhere = `WHERE ${countConditions.join(" AND ")}`;
   const countParams = params.slice(0, params.length - (cursor ? 2 : 0));
 
-  // Cache the total count in Redis for 60 s to avoid a full-table count on every page flip.
+  // Cache the total count to avoid a full-table count on every page flip.
+  //
+  // REDIS-COST-01: this is a GLOBAL value — the row count for a given
+  // track/scope is identical for every user looking at that leaderboard — but
+  // it had no in-process tier, so every leaderboard view from every user cost
+  // at least one Redis GET (and a SET whenever the 60 s TTL lapsed). A warm
+  // instance now answers from memory. The Redis tier is kept so a cold
+  // instance still avoids the expensive COUNT(*), and its TTL is raised to
+  // five minutes: a leaderboard's total row count barely moves, and a slightly
+  // stale total only affects the reported page count, never the rows shown.
   const countCacheKey = `lb:count:${track}:${dbScope}:${city ?? ""}:${options?.seasonId ?? ""}:${options?.guildId ?? ""}`;
-  let total = 0;
-  try {
-    const cached = await redis.get(countCacheKey);
-    if (cached !== null) {
-      total = parseInt(cached, 10);
-    } else {
-      const { rows: countRows } = await db.query<{ count: string }>(
-        `SELECT COUNT(*) AS count FROM leaderboard_snapshots ls JOIN users u ON u.id = ls.user_id ${countWhere}`,
-        countParams
-      );
-      total = parseInt(countRows[0]?.count ?? "0", 10);
-      await redis.set(countCacheKey, String(total), "EX", 60);
+  const countMemKey = `mem:${countCacheKey}`;
+  const COUNT_MEM_TTL_MS = 60_000;
+  const COUNT_REDIS_TTL_SECONDS = 300;
+
+  let total = memGet<number>(countMemKey) ?? 0;
+  if (!memGet<number>(countMemKey)) {
+    try {
+      const cached = await redis.get(countCacheKey);
+      if (cached !== null) {
+        total = parseInt(cached, 10);
+      } else {
+        const { rows: countRows } = await db.query<{ count: string }>(
+          `SELECT COUNT(*) AS count FROM leaderboard_snapshots ls JOIN users u ON u.id = ls.user_id ${countWhere}`,
+          countParams
+        );
+        total = parseInt(countRows[0]?.count ?? "0", 10);
+        await redis.set(countCacheKey, String(total), "EX", COUNT_REDIS_TTL_SECONDS);
+      }
+      memSet(countMemKey, total, COUNT_MEM_TTL_MS);
+    } catch {
+      // Redis unavailable — fall through to 0; pagination will still work
     }
-  } catch {
-    // Redis unavailable — fall through to 0; pagination will still work
   }
 
   const where = `WHERE ${conditions.join(" AND ")}`;
