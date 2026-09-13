@@ -90,7 +90,7 @@ export function LevelUpCelebration({ data, onDone }: { data: LevelUpCelebrationD
       onClick={dismiss}
     >
       <div
-        className="mx-4 flex flex-col items-center rounded-3xl bg-white px-8 py-10 text-center shadow-2xl"
+        className="mx-4 flex flex-col items-center rounded-3xl bg-white dark:bg-neutral-800 px-8 py-10 text-center shadow-2xl"
         style={{ animation: 'zobia-levelup-pop 0.5s cubic-bezier(0.34,1.56,0.64,1)' }}
       >
         <div
@@ -99,13 +99,13 @@ export function LevelUpCelebration({ data, onDone }: { data: LevelUpCelebrationD
         >
           🎉
         </div>
-        <p className="text-sm font-semibold uppercase tracking-widest text-neutral-400">Level Up!</p>
-        <h2 className="mt-1 text-3xl font-black text-neutral-900">
+        <p className="text-sm font-semibold uppercase tracking-widest text-neutral-400 dark:text-neutral-500">Level Up!</p>
+        <h2 className="mt-1 text-3xl font-black text-neutral-900 dark:text-neutral-100">
           {data.rankTo}
           {typeof data.sublevelTo === 'number' && data.sublevelTo > 0 ? ` ${data.sublevelTo}` : ''}
         </h2>
         {data.rankFrom && data.rankFrom !== data.rankTo && (
-          <p className="mt-1 text-sm text-neutral-500">Up from {data.rankFrom}</p>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Up from {data.rankFrom}</p>
         )}
         <button
           type="button"

@@ -24,10 +24,10 @@ const SCOPE_ORDER: Scope[] = ['global', 'city', 'guild', 'season'];
 const TRACK_ORDER: Track[] = ['main', 'social', 'creator', 'competitor', 'generosity', 'gaming', 'knowledge', 'explorer'];
 
 const PLAN_BADGE: Record<Plan, string> = {
-  free: 'bg-neutral-100 text-neutral-600',
-  basic: 'bg-primary-100 text-primary-700',
-  pro: 'bg-success-100 text-success-700',
-  vip: 'bg-amber-100 text-amber-700',
+  free: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400',
+  basic: 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300',
+  pro: 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300',
+  vip: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
 };
 
 interface LeaderboardEntry {
@@ -89,28 +89,28 @@ function EntryRow({ entry, highlight, showPlan }: { entry: LeaderboardEntry; hig
     <Link
       to="/profile/$username"
       params={{ username: entry.username }}
-      className={`flex items-center gap-3 px-4 py-3 border-b border-neutral-100 last:border-0 ${highlight ? 'bg-primary-50' : ''}`}
+      className={`flex items-center gap-3 px-4 py-3 border-b border-neutral-100 dark:border-neutral-800 last:border-0 ${highlight ? 'bg-primary-50 dark:bg-primary-900/30' : ''}`}
     >
-      <div className="flex w-10 shrink-0 items-center gap-0.5 text-sm font-bold tabular-nums text-neutral-700">
+      <div className="flex w-10 shrink-0 items-center gap-0.5 text-sm font-bold tabular-nums text-neutral-700 dark:text-neutral-300">
         <span>{rankMedal(entry.rank)}</span>
         <span>{entry.rank}</span>
       </div>
-      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-lg">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-lg">
         {entry.avatarEmoji}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-neutral-900 truncate">{entry.displayName}</p>
-        <p className="text-xs text-neutral-400 truncate">@{entry.username}{entry.city ? ` · ${entry.city}` : ''}</p>
+        <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 truncate">{entry.displayName}</p>
+        <p className="text-xs text-neutral-400 dark:text-neutral-500 truncate">@{entry.username}{entry.city ? ` · ${entry.city}` : ''}</p>
       </div>
       <div className="shrink-0 text-right">
-        <p className="text-sm font-semibold tabular-nums text-neutral-800">{entry.xp.toLocaleString()}</p>
+        <p className="text-sm font-semibold tabular-nums text-neutral-800 dark:text-neutral-200">{entry.xp.toLocaleString()}</p>
         {showPlan && entry.plan && (
           <span className={`inline-block mt-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${PLAN_BADGE[entry.plan]}`}>
             {entry.plan}
           </span>
         )}
         {rankChange !== 0 && (
-          <p className={`text-xs font-semibold ${rankChange > 0 ? 'text-success-600' : 'text-danger-500'}`}>
+          <p className={`text-xs font-semibold ${rankChange > 0 ? 'text-success-600 dark:text-success-300' : 'text-danger-500'}`}>
             {rankChange > 0 ? `▲${rankChange}` : `▼${Math.abs(rankChange)}`}
           </p>
         )}
@@ -147,15 +147,15 @@ function LeaderboardsPage() {
   const isCurrentUserVisible = currentUser == null || (data?.entries ?? []).some((e) => e.isCurrentUser);
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-xl font-bold text-neutral-900 mb-3">{t('leaderboards.title')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-3">{t('leaderboards.title')}</h1>
 
-      <div className="flex gap-1 rounded-xl border border-neutral-200 bg-neutral-100 p-1 mb-3">
+      <div className="flex gap-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-1 mb-3">
         {SCOPE_ORDER.map((s) => (
           <button
             key={s}
             onClick={() => changeScope(s)}
-            className={`flex-1 rounded-lg py-2 text-xs font-semibold ${scope === s ? 'bg-white text-neutral-900 shadow-card' : 'text-neutral-500'}`}
+            className={`flex-1 rounded-lg py-2 text-xs font-semibold ${scope === s ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-card' : 'text-neutral-500 dark:text-neutral-400'}`}
           >
             {t(`leaderboards.scope.${s}`)}
           </button>
@@ -167,24 +167,24 @@ function LeaderboardsPage() {
           <button
             key={tr}
             onClick={() => changeTrack(tr)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${track === tr ? 'bg-primary-600 text-white' : 'bg-neutral-100 text-neutral-700'}`}
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${track === tr ? 'bg-primary-600 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'}`}
           >
             {t(`leaderboards.track.${tr}`)}
           </button>
         ))}
       </div>
 
-      <div className="bg-white rounded-xl shadow-card mb-3">
+      <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-card mb-3">
         {status === 'pending' && (
-          <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>
+          <div className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('common.loading')}</div>
         )}
 
         {status === 'error' && (
-          <div className="py-8 text-center text-sm text-neutral-500">{t('error.generic')}</div>
+          <div className="py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('error.generic')}</div>
         )}
 
         {status === 'success' && data.entries.length === 0 && (
-          <div className="py-8 text-center text-sm text-neutral-500">{t('leaderboards.empty')}</div>
+          <div className="py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('leaderboards.empty')}</div>
         )}
 
         {status === 'success' && data.entries.length > 0 && (
@@ -197,13 +197,13 @@ function LeaderboardsPage() {
       </div>
 
       {status === 'success' && totalPages > 1 && (
-        <div className="flex items-center justify-between gap-3 text-sm text-neutral-500 mb-3">
+        <div className="flex items-center justify-between gap-3 text-sm text-neutral-500 dark:text-neutral-400 mb-3">
           <span>{t('leaderboards.players', { count: data.total })}</span>
           <div className="flex items-center gap-2">
             <button
               disabled={page === 1}
               onClick={() => setPage((p) => p - 1)}
-              className="rounded-lg border border-neutral-200 px-3 py-1.5 text-xs disabled:opacity-40"
+              className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-xs disabled:opacity-40"
             >
               {t('leaderboards.prevPage')}
             </button>
@@ -211,7 +211,7 @@ function LeaderboardsPage() {
             <button
               disabled={page >= totalPages}
               onClick={() => setPage((p) => p + 1)}
-              className="rounded-lg border border-neutral-200 px-3 py-1.5 text-xs disabled:opacity-40"
+              className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-xs disabled:opacity-40"
             >
               {t('leaderboards.nextPage')}
             </button>
@@ -220,8 +220,8 @@ function LeaderboardsPage() {
       )}
 
       {currentUser && !isCurrentUserVisible && (
-        <div className="sticky bottom-4 rounded-xl border border-primary-300 bg-primary-50 px-3 py-2 shadow-modal">
-          <p className="mb-1.5 text-xs font-semibold text-primary-600">{t('leaderboards.yourPosition')}</p>
+        <div className="sticky bottom-4 rounded-xl border border-primary-300 bg-primary-50 dark:bg-primary-900/30 px-3 py-2 shadow-modal">
+          <p className="mb-1.5 text-xs font-semibold text-primary-600 dark:text-primary-300">{t('leaderboards.yourPosition')}</p>
           <EntryRow entry={currentUser} highlight showPlan={canSeePlan} />
         </div>
       )}

@@ -42,7 +42,7 @@ function HomePage() {
   }, [queryClient]);
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       <div className="mx-auto w-full max-w-3xl space-y-4 p-4">
         <MysteryDropToast />
 
@@ -56,10 +56,10 @@ function HomePage() {
           {isFeedTab ? (
             <div className="space-y-4">
               <div className="flex items-baseline gap-3">
-                <span className="rounded-full bg-primary-100 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-primary-700">
+                <span className="rounded-full bg-primary-100 dark:bg-primary-900/40 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-primary-700 dark:text-primary-300">
                   {TAB_ACRONYM[tab as FeedTab]}
                 </span>
-                <h1 className="text-xl font-bold text-neutral-900">{t(feedTabFullNameKey(tab as FeedTab))}</h1>
+                <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t(feedTabFullNameKey(tab as FeedTab))}</h1>
               </div>
               <FeedTabContent tab={tab as FeedTab} />
             </div>

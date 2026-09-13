@@ -86,8 +86,8 @@ function AdminProfileThemesPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-1 text-xl font-bold text-neutral-900">{t('admin.nav.profileThemes', 'Profile Themes')}</h1>
-      <p className="mb-4 text-xs text-neutral-500">
+      <h1 className="mb-1 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.profileThemes', 'Profile Themes')}</h1>
+      <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">
         {t('admin.profileThemes.subtitle', 'One free-default theme is always available. Everything else is gated by plan/business tier, or purchasable with credits/stars.')}
       </p>
 
@@ -105,13 +105,13 @@ function AdminProfileThemesPage() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <p className="font-semibold text-neutral-900">{th.name}</p>
+                      <p className="font-semibold text-neutral-900 dark:text-neutral-100">{th.name}</p>
                       {th.is_free_default && <AdminBadge label={t('admin.profileThemes.freeDefault', 'Free default')} color="teal" />}
                     </div>
-                    {th.description && <p className="mt-0.5 text-xs text-neutral-500">{th.description}</p>}
+                    {th.description && <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{th.description}</p>}
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
-                    <span className="text-xs font-medium text-neutral-600">{t('admin.profileThemes.enabled', 'Enabled')}</span>
+                    <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">{t('admin.profileThemes.enabled', 'Enabled')}</span>
                     <AdminToggle checked={th.enabled} disabled={isBusy} onChange={(v) => patch.mutate({ id: th.id, body: { enabled: v } })} />
                   </div>
                 </div>
@@ -119,7 +119,7 @@ function AdminProfileThemesPage() {
                 {!th.is_free_default && (
                   <div className="mt-3 space-y-3">
                     <div>
-                      <p className="mb-1 text-[11px] font-semibold uppercase text-neutral-500">{t('admin.profileThemes.freeForPlans', 'Free for plans')}</p>
+                      <p className="mb-1 text-[11px] font-semibold uppercase text-neutral-500 dark:text-neutral-400">{t('admin.profileThemes.freeForPlans', 'Free for plans')}</p>
                       <div className="flex flex-wrap gap-1.5">
                         {PLANS.map((p) => (
                           <button
@@ -127,7 +127,7 @@ function AdminProfileThemesPage() {
                             type="button"
                             disabled={isBusy}
                             onClick={() => toggleTier(th, 'plan', p)}
-                            className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${th.included_for_plans.includes(p) ? 'bg-primary-600 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${th.included_for_plans.includes(p) ? 'bg-primary-600 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
                           >
                             {p}
                           </button>
@@ -135,7 +135,7 @@ function AdminProfileThemesPage() {
                       </div>
                     </div>
                     <div>
-                      <p className="mb-1 text-[11px] font-semibold uppercase text-neutral-500">{t('admin.profileThemes.freeForTiers', 'Free for business tiers')}</p>
+                      <p className="mb-1 text-[11px] font-semibold uppercase text-neutral-500 dark:text-neutral-400">{t('admin.profileThemes.freeForTiers', 'Free for business tiers')}</p>
                       <div className="flex flex-wrap gap-1.5">
                         {BUSINESS_TIERS.map((tier) => (
                           <button
@@ -143,7 +143,7 @@ function AdminProfileThemesPage() {
                             type="button"
                             disabled={isBusy}
                             onClick={() => toggleTier(th, 'tier', tier)}
-                            className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${th.included_for_business_tiers.includes(tier) ? 'bg-primary-600 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+                            className={`rounded-full px-2.5 py-1 text-xs font-semibold capitalize ${th.included_for_business_tiers.includes(tier) ? 'bg-primary-600 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
                           >
                             {tier}
                           </button>
@@ -151,12 +151,12 @@ function AdminProfileThemesPage() {
                       </div>
                     </div>
                     <div>
-                      <p className="mb-1 text-[11px] font-semibold uppercase text-neutral-500">{t('admin.profileThemes.priceForOthers', 'Price for everyone else')}</p>
+                      <p className="mb-1 text-[11px] font-semibold uppercase text-neutral-500 dark:text-neutral-400">{t('admin.profileThemes.priceForOthers', 'Price for everyone else')}</p>
                       {!th.store_item_id ? (
-                        <p className="text-xs text-neutral-500">{t('admin.profileThemes.notPurchasable', 'Not purchasable (no linked store item).')}</p>
+                        <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('admin.profileThemes.notPurchasable', 'Not purchasable (no linked store item).')}</p>
                       ) : (
                         <div className="flex items-center gap-3">
-                          <label className="flex items-center gap-1.5 text-xs text-neutral-600">
+                          <label className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-400">
                             {t('admin.profileThemes.credits', 'Credits')}
                             <input
                               type="number"
@@ -167,7 +167,7 @@ function AdminProfileThemesPage() {
                               className={`${adminInputClass} w-20 py-1.5`}
                             />
                           </label>
-                          <label className="flex items-center gap-1.5 text-xs text-neutral-600">
+                          <label className="flex items-center gap-1.5 text-xs text-neutral-600 dark:text-neutral-400">
                             {t('admin.profileThemes.stars', 'Stars')}
                             <input
                               type="number"

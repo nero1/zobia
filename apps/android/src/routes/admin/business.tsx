@@ -94,7 +94,7 @@ function FilterChips<T extends string>({ options, active, onChange, labels }: { 
           key={o}
           type="button"
           onClick={() => onChange(o)}
-          className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${active === o ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+          className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${active === o ? 'bg-neutral-900 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
         >
           {labels[o]}
         </button>
@@ -151,7 +151,7 @@ function AccountsTab({ showToast }: { showToast: (msg: string, type?: 'success' 
 
   return (
     <div>
-      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('admin.business.filters.tier', 'Filter by tier')}</p>
+      <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.business.filters.tier', 'Filter by tier')}</p>
       <FilterChips options={['all', 'pending', 'verified', 'rejected', 'unverified']} active={verFilter} onChange={(v) => { setVerFilter(v); setPage(1); }} labels={verLabels} />
       <FilterChips options={['all', 'starter', 'growth', 'enterprise']} active={tierFilter} onChange={(v) => { setTierFilter(v); setPage(1); }} labels={tierLabels} />
 
@@ -164,14 +164,14 @@ function AccountsTab({ showToast }: { showToast: (msg: string, type?: 'success' 
           data.businesses.map((biz) => (
             <AdminCard key={biz.id}>
               <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                <p className="font-semibold text-neutral-900">{biz.business_name}</p>
+                <p className="font-semibold text-neutral-900 dark:text-neutral-100">{biz.business_name}</p>
                 <AdminBadge label={biz.tier} color={TIER_COLOR[biz.tier] ?? 'neutral'} />
                 <AdminBadge label={biz.verification_status} color={VER_COLOR[biz.verification_status] ?? 'neutral'} />
                 <AdminBadge label={biz.status} color={biz.status === 'active' ? 'green' : 'red'} />
               </div>
-              {biz.business_type && <p className="mb-0.5 text-xs capitalize text-neutral-400">{biz.business_type}</p>}
-              <p className="mb-0.5 text-xs text-neutral-500">@{biz.username}{biz.email ? ` · ${biz.email}` : ''}</p>
-              <p className="mb-2.5 text-[10px] text-neutral-400">
+              {biz.business_type && <p className="mb-0.5 text-xs capitalize text-neutral-400 dark:text-neutral-500">{biz.business_type}</p>}
+              <p className="mb-0.5 text-xs text-neutral-500 dark:text-neutral-400">@{biz.username}{biz.email ? ` · ${biz.email}` : ''}</p>
+              <p className="mb-2.5 text-[10px] text-neutral-400 dark:text-neutral-500">
                 {t('admin.business.table.created', 'Created')}: {fmtDate(biz.created_at)}
                 {biz.verification_requested_at ? ` · ${t('admin.business.table.verification', 'Verification')} ${fmtDate(biz.verification_requested_at)}` : ''}
               </p>
@@ -182,7 +182,7 @@ function AccountsTab({ showToast }: { showToast: (msg: string, type?: 'success' 
                       type="button"
                       disabled={action.isPending}
                       onClick={() => action.mutate({ id: biz.id, actionType: 'verify' })}
-                      className="rounded-lg bg-success-100 px-2.5 py-1 text-xs font-semibold text-success-700 disabled:opacity-50"
+                      className="rounded-lg bg-success-100 dark:bg-success-900/40 px-2.5 py-1 text-xs font-semibold text-success-700 dark:text-success-300 disabled:opacity-50"
                     >
                       {t('admin.business.action.verify', 'Verify')}
                     </button>
@@ -190,7 +190,7 @@ function AccountsTab({ showToast }: { showToast: (msg: string, type?: 'success' 
                       type="button"
                       disabled={action.isPending}
                       onClick={() => { setRejectTarget(biz); setReason(''); }}
-                      className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50"
+                      className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50"
                     >
                       {t('admin.business.action.reject', 'Reject')}
                     </button>
@@ -201,7 +201,7 @@ function AccountsTab({ showToast }: { showToast: (msg: string, type?: 'success' 
                     type="button"
                     disabled={action.isPending}
                     onClick={() => action.mutate({ id: biz.id, actionType: 'suspend' })}
-                    className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50"
+                    className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
                   >
                     {t('admin.business.action.suspend', 'Suspend')}
                   </button>
@@ -210,7 +210,7 @@ function AccountsTab({ showToast }: { showToast: (msg: string, type?: 'success' 
                     type="button"
                     disabled={action.isPending}
                     onClick={() => action.mutate({ id: biz.id, actionType: 'restore' })}
-                    className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50"
+                    className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
                   >
                     {t('admin.business.action.restore', 'Restore')}
                   </button>
@@ -222,11 +222,11 @@ function AccountsTab({ showToast }: { showToast: (msg: string, type?: 'success' 
 
       {status === 'success' && totalPages > 1 && (
         <div className="mt-4 flex items-center justify-between">
-          <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40">
+          <button type="button" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page <= 1} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40">
             {t('admin.pagination.prev', 'Prev')}
           </button>
-          <span className="text-xs text-neutral-500">{page} / {totalPages}</span>
-          <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40">
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">{page} / {totalPages}</span>
+          <button type="button" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page >= totalPages} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40">
             {t('admin.pagination.next', 'Next')}
           </button>
         </div>
@@ -308,13 +308,13 @@ function PagesTab({ showToast }: { showToast: (msg: string, type?: 'success' | '
           data.pages.map((p) => (
             <AdminCard key={p.id}>
               <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                <p className="font-semibold text-neutral-900">{p.name}</p>
+                <p className="font-semibold text-neutral-900 dark:text-neutral-100">{p.name}</p>
                 <AdminBadge label={p.status} color={STATUS_COLOR[p.status] ?? 'neutral'} />
               </div>
-              <p className="mb-0.5 text-xs text-neutral-400">/p/{p.slug}</p>
-              <p className="mb-0.5 text-xs text-neutral-500">{p.business_name} · @{p.owner_username}</p>
-              <p className="mb-1.5 text-xs text-neutral-500">👁 {p.view_count.toLocaleString()} · 📝 {p.post_count.toLocaleString()} · {fmtDate(p.created_at)}</p>
-              {p.status_reason && <p className="mb-2 text-xs text-neutral-400">{p.status_reason}</p>}
+              <p className="mb-0.5 text-xs text-neutral-400 dark:text-neutral-500">/p/{p.slug}</p>
+              <p className="mb-0.5 text-xs text-neutral-500 dark:text-neutral-400">{p.business_name} · @{p.owner_username}</p>
+              <p className="mb-1.5 text-xs text-neutral-500 dark:text-neutral-400">👁 {p.view_count.toLocaleString()} · 📝 {p.post_count.toLocaleString()} · {fmtDate(p.created_at)}</p>
+              {p.status_reason && <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">{p.status_reason}</p>}
               <div className="flex flex-wrap gap-1.5">
                 {p.status === 'active' ? (
                   <>
@@ -322,7 +322,7 @@ function PagesTab({ showToast }: { showToast: (msg: string, type?: 'success' | '
                       type="button"
                       disabled={action.isPending}
                       onClick={() => { setConfirmTarget({ page: p, action: 'suspend' }); setReason(''); }}
-                      className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50"
+                      className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
                     >
                       {t('admin.rooms.suspend', 'Suspend')}
                     </button>
@@ -340,7 +340,7 @@ function PagesTab({ showToast }: { showToast: (msg: string, type?: 'success' | '
                     type="button"
                     disabled={action.isPending}
                     onClick={() => action.mutate({ id: p.id, actionType: 'restore' })}
-                    className="rounded-lg bg-success-100 px-2.5 py-1 text-xs font-semibold text-success-700 disabled:opacity-50"
+                    className="rounded-lg bg-success-100 dark:bg-success-900/40 px-2.5 py-1 text-xs font-semibold text-success-700 dark:text-success-300 disabled:opacity-50"
                   >
                     {t('admin.business.action.restore', 'Restore')}
                   </button>
@@ -349,7 +349,7 @@ function PagesTab({ showToast }: { showToast: (msg: string, type?: 'success' | '
                   type="button"
                   disabled={action.isPending}
                   onClick={() => { setConfirmTarget({ page: p, action: 'delete' }); setReason(''); }}
-                  className="rounded-lg border border-danger-300 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50"
+                  className="rounded-lg border border-danger-300 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50"
                 >
                   {t('admin.rooms.delete', 'Delete')}
                 </button>
@@ -360,11 +360,11 @@ function PagesTab({ showToast }: { showToast: (msg: string, type?: 'success' | '
 
       {status === 'success' && totalPages > 1 && (
         <div className="mt-4 flex items-center justify-between">
-          <button type="button" onClick={() => setPage((v) => Math.max(1, v - 1))} disabled={page <= 1} className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40">
+          <button type="button" onClick={() => setPage((v) => Math.max(1, v - 1))} disabled={page <= 1} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40">
             {t('admin.pagination.prev', 'Prev')}
           </button>
-          <span className="text-xs text-neutral-500">{page} / {totalPages}</span>
-          <button type="button" onClick={() => setPage((v) => Math.min(totalPages, v + 1))} disabled={page >= totalPages} className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40">
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">{page} / {totalPages}</span>
+          <button type="button" onClick={() => setPage((v) => Math.min(totalPages, v + 1))} disabled={page >= totalPages} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40">
             {t('admin.pagination.next', 'Next')}
           </button>
         </div>
@@ -415,7 +415,7 @@ function AdminBusinessPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.business', 'Business Accounts')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.business', 'Business Accounts')}</h1>
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
       <AdminTabs tabs={tabs} active={tab} onChange={setTab} />

@@ -60,7 +60,7 @@ function AdminAutomatedActionsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.automatedActions', 'Auto Actions')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.automatedActions', 'Auto Actions')}</h1>
       {toast && <AdminToast message={toast} />}
 
       <div className="space-y-2.5">
@@ -68,21 +68,21 @@ function AdminAutomatedActionsPage() {
         {status === 'success' && (data?.items.length ?? 0) === 0 && <AdminEmptyState icon="🤖" title={t('admin.actionsLog.empty', 'No actions logged yet')} />}
         {status === 'success' &&
           data?.items.map((item) => (
-            <div key={item.id} className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
+            <div key={item.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
               <div className="mb-1.5 flex items-center gap-1.5 text-xs">
                 <AdminBadge label={item.action_type.replace(/_/g, ' ')} color="blue" />
                 {item.target_type && <AdminBadge label={item.target_type} />}
                 {item.reversed_at && <AdminBadge label={t('admin.actionsLog.reversed', 'Reversed')} color="gold" />}
-                <span className="ml-auto text-neutral-400">{timeAgo(item.created_at)}</span>
+                <span className="ml-auto text-neutral-400 dark:text-neutral-500">{timeAgo(item.created_at)}</span>
               </div>
-              {item.target_id && <p className="mb-2 truncate text-xs text-neutral-500">{t('admin.actionsLog.target', 'Target')}: {item.target_id}</p>}
+              {item.target_id && <p className="mb-2 truncate text-xs text-neutral-500 dark:text-neutral-400">{t('admin.actionsLog.target', 'Target')}: {item.target_id}</p>}
               {!item.reversed_at && (
-                <button onClick={() => setReversing(item)} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700">
+                <button onClick={() => setReversing(item)} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
                   {t('admin.actionsLog.reverse', 'Reverse')}
                 </button>
               )}
               {item.reversed_at && item.reverse_note && (
-                <p className="text-[11px] text-neutral-400">{t('admin.actionsLog.note', 'Note')}: {item.reverse_note}</p>
+                <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{t('admin.actionsLog.note', 'Note')}: {item.reverse_note}</p>
               )}
             </div>
           ))}
@@ -93,7 +93,7 @@ function AdminAutomatedActionsPage() {
           <button
             onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
             disabled={pageIndex === 0}
-            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40"
+            className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40"
           >
             {t('admin.pagination.prev', 'Prev')}
           </button>
@@ -104,7 +104,7 @@ function AdminAutomatedActionsPage() {
               setPageIndex((i) => i + 1);
             }}
             disabled={!data?.next_cursor}
-            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40"
+            className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40"
           >
             {t('admin.pagination.next', 'Next')}
           </button>

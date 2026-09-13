@@ -78,34 +78,34 @@ function CreatorMarketplacePage() {
 
   if (status === 'pending') {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
         <div className="grid grid-cols-1 gap-3">
-          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-40 animate-pulse rounded-2xl bg-neutral-200" />)}
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-40 animate-pulse rounded-2xl bg-neutral-200 dark:bg-neutral-700" />)}
         </div>
       </div>
     );
   }
 
   if (status === 'error') {
-    return <div className="p-6 text-sm text-red-600">{t('error.generic')}</div>;
+    return <div className="p-6 text-sm text-red-600 dark:text-red-300">{t('error.generic')}</div>;
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-3 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-3 px-4 py-4">
       <div>
-        <h1 className="text-xl font-bold text-neutral-900">{t('creator.marketplace.title', 'Creator Marketplace')}</h1>
-        <p className="mt-0.5 text-sm text-neutral-500">{t('creator.marketplace.subtitle', 'Apply for sponsored quests and earn from brand campaigns.')}</p>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('creator.marketplace.title', 'Creator Marketplace')}</h1>
+        <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">{t('creator.marketplace.subtitle', 'Apply for sponsored quests and earn from brand campaigns.')}</p>
       </div>
 
       {myRooms && myRooms.length > 0 && (
-        <div className="rounded-xl border border-neutral-200 bg-white p-3">
-          <label className="mb-1 block text-xs font-semibold text-neutral-500">
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3">
+          <label className="mb-1 block text-xs font-semibold text-neutral-500 dark:text-neutral-400">
             {t('creator.marketplace.roomLabel', 'Apply with Room')}
           </label>
           <select
             value={selectedRoomId}
             onChange={(e) => setSelectedRoomId(e.target.value)}
-            className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-900"
+            className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100"
           >
             <option value="">{t('creator.marketplace.roomSelectPrompt', 'Select a Room…')}</option>
             {myRooms.map((r) => (
@@ -116,16 +116,16 @@ function CreatorMarketplacePage() {
       )}
 
       {myRooms && myRooms.length === 0 && (
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+        <p className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
           {t('creator.marketplace.noRooms', 'Create a Room first to apply for sponsored quests.')}
         </p>
       )}
 
       {!quests || quests.length === 0 ? (
-        <div className="flex flex-col items-center rounded-2xl border border-neutral-200 bg-white py-16">
+        <div className="flex flex-col items-center rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-16">
           <span className="text-5xl">📋</span>
-          <p className="mt-3 font-semibold text-neutral-700">{t('creator.marketplace.empty', 'No quests available')}</p>
-          <p className="mt-1 text-sm text-neutral-500">{t('creator.marketplace.emptyHint', 'New brand campaigns will appear here. Check back soon!')}</p>
+          <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">{t('creator.marketplace.empty', 'No quests available')}</p>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('creator.marketplace.emptyHint', 'New brand campaigns will appear here. Check back soon!')}</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -135,40 +135,40 @@ function CreatorMarketplacePage() {
             const canApply = status === 'open' && !applied && !!selectedRoomId;
             const creatorPayout = Math.round((q.reward_coins * q.creator_share_percent) / 100);
             return (
-              <div key={q.id} className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+              <div key={q.id} className="rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-sm">
                 <div className="mb-2 flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-lg">🏷️</div>
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900/40 text-lg">🏷️</div>
                   <div className="min-w-0 flex-1">
-                    <p className="text-xs font-medium text-neutral-500">{q.brand_name}</p>
-                    <p className="font-semibold text-neutral-900">{q.title}</p>
+                    <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{q.brand_name}</p>
+                    <p className="font-semibold text-neutral-900 dark:text-neutral-100">{q.title}</p>
                   </div>
-                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${status === 'open' ? 'bg-teal-100 text-teal-700' : status === 'full' ? 'bg-amber-100 text-amber-700' : 'bg-neutral-100 text-neutral-600'}`}>
+                  <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${status === 'open' ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300' : status === 'full' ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}>
                     {status}
                   </span>
                 </div>
-                <p className="mb-2 text-sm text-neutral-600 line-clamp-2">{q.description}</p>
-                <div className="mb-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2">
-                  <p className="text-xs font-semibold text-neutral-500">{t('creator.marketplace.requiredAction', 'Required Action')}</p>
-                  <p className="text-sm text-neutral-800">{q.requirements}</p>
+                <p className="mb-2 text-sm text-neutral-600 dark:text-neutral-400 line-clamp-2">{q.description}</p>
+                <div className="mb-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3 py-2">
+                  <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">{t('creator.marketplace.requiredAction', 'Required Action')}</p>
+                  <p className="text-sm text-neutral-800 dark:text-neutral-200">{q.requirements}</p>
                 </div>
                 <div className="mb-3 grid grid-cols-2 gap-2">
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center">
-                    <p className="text-xs text-amber-600">{t('creator.marketplace.userReward', 'User Reward')}</p>
-                    <p className="font-bold text-amber-700">🪙 {q.reward_coins.toLocaleString()}</p>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/30 p-2 text-center">
+                    <p className="text-xs text-amber-600 dark:text-amber-300">{t('creator.marketplace.userReward', 'User Reward')}</p>
+                    <p className="font-bold text-amber-700 dark:text-amber-300">🪙 {q.reward_coins.toLocaleString()}</p>
                   </div>
-                  <div className="rounded-lg border border-teal-200 bg-teal-50 p-2 text-center">
-                    <p className="text-xs text-teal-600">{t('creator.marketplace.creatorPayout', 'Creator Payout')}</p>
-                    <p className="font-bold text-teal-700">🪙 {creatorPayout.toLocaleString()}</p>
+                  <div className="rounded-lg border border-teal-200 bg-teal-50 dark:bg-teal-900/30 p-2 text-center">
+                    <p className="text-xs text-teal-600 dark:text-teal-300">{t('creator.marketplace.creatorPayout', 'Creator Payout')}</p>
+                    <p className="font-bold text-teal-700 dark:text-teal-300">🪙 {creatorPayout.toLocaleString()}</p>
                   </div>
                 </div>
-                <p className="mb-3 text-xs text-neutral-500">{q.application_count} / {q.max_applications} {t('creator.marketplace.applicants', 'applicants')}</p>
+                <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">{q.application_count} / {q.max_applications} {t('creator.marketplace.applicants', 'applicants')}</p>
                 {applied ? (
-                  <div className="rounded-xl bg-teal-50 py-2 text-center text-sm font-semibold text-teal-700">✓ {t('creator.marketplace.applied', 'Applied')}</div>
+                  <div className="rounded-xl bg-teal-50 dark:bg-teal-900/30 py-2 text-center text-sm font-semibold text-teal-700 dark:text-teal-300">✓ {t('creator.marketplace.applied', 'Applied')}</div>
                 ) : (
                   <button
                     onClick={() => canApply && applyMutation.mutate({ questId: q.id, roomId: selectedRoomId })}
                     disabled={!canApply || applyingId === q.id}
-                    className={`w-full rounded-xl py-2.5 text-sm font-semibold ${canApply ? 'bg-primary-600 text-white disabled:opacity-60' : 'cursor-not-allowed bg-neutral-100 text-neutral-400'}`}
+                    className={`w-full rounded-xl py-2.5 text-sm font-semibold ${canApply ? 'bg-primary-600 text-white disabled:opacity-60' : 'cursor-not-allowed bg-neutral-100 dark:bg-neutral-800 text-neutral-400 dark:text-neutral-500'}`}
                   >
                     {applyingId === q.id
                       ? t('creator.marketplace.applying', 'Applying…')
@@ -187,7 +187,7 @@ function CreatorMarketplacePage() {
         </div>
       )}
 
-      <Link to="/creator" className="block text-center text-sm text-primary-600">
+      <Link to="/creator" className="block text-center text-sm text-primary-600 dark:text-primary-300">
         ← {t('creator.title', 'Creator Dashboard')}
       </Link>
     </div>

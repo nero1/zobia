@@ -37,23 +37,23 @@ function WikiPageRevisionsPage() {
   const canContribute = pageQuery.data?.canContribute ?? false;
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-3">
-      <h1 className="text-lg font-bold text-neutral-900">{t('wiki.revisions.title', 'Revision history')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-3">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('wiki.revisions.title', 'Revision history')}</h1>
 
       {revisionsQuery.isPending ? (
-        <div className="h-16 rounded bg-neutral-200 animate-pulse" />
+        <div className="h-16 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" />
       ) : (revisionsQuery.data ?? []).length === 0 ? (
-        <p className="text-sm text-neutral-500 text-center py-10">{t('wiki.revisions.empty', 'No revisions yet.')}</p>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 text-center py-10">{t('wiki.revisions.empty', 'No revisions yet.')}</p>
       ) : (
         <div className="space-y-1.5">
           {revisionsQuery.data!.map((r, i) => (
-            <div key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-white p-2.5">
+            <div key={r.id} className="flex items-center justify-between gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-2.5">
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-neutral-900">
+                <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
                   {t('wiki.revisions.number', 'Revision #{{n}}', { n: r.revision_number })}
-                  {i === 0 && <span className="ml-1.5 text-[10px] font-semibold uppercase text-primary-600">{t('wiki.revisions.current', 'Current')}</span>}
+                  {i === 0 && <span className="ml-1.5 text-[10px] font-semibold uppercase text-primary-600 dark:text-primary-300">{t('wiki.revisions.current', 'Current')}</span>}
                 </p>
-                <p className="text-[11px] text-neutral-400">
+                <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
                   {r.editor_username ? `@${r.editor_username}` : t('wiki.pages.unknownAuthor', 'someone')} · {formatShortDate(r.created_at)}
                   {r.edit_summary && ` · ${r.edit_summary}`}
                 </p>
@@ -62,7 +62,7 @@ function WikiPageRevisionsPage() {
                 <button
                   disabled={restore.isPending}
                   onClick={() => { setRestoringNumber(r.revision_number); restore.mutate(r.revision_number); }}
-                  className="flex-shrink-0 rounded-lg bg-neutral-100 px-2.5 py-1.5 text-xs font-semibold text-neutral-700 disabled:opacity-50"
+                  className="flex-shrink-0 rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
                 >
                   {restoringNumber === r.revision_number ? t('wiki.revisions.restoring', 'Restoring…') : t('wiki.revisions.restore', 'Restore')}
                 </button>

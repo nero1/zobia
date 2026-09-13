@@ -97,7 +97,7 @@ function AdminGiftDropPage() {
   return (
     <div className="px-4 py-5">
       <div className="mb-1 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.giftDrop', 'Monthly Mystery Gift Drop')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.giftDrop', 'Monthly Mystery Gift Drop')}</h1>
         <button
           type="button"
           onClick={() => setShowForm((v) => !v)}
@@ -106,7 +106,7 @@ function AdminGiftDropPage() {
           {showForm ? t('common.cancel') : t('admin.giftDrop.schedule', '+ Schedule Drop')}
         </button>
       </div>
-      <p className="mb-4 text-xs text-neutral-500">
+      <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">
         {t('admin.giftDrop.subtitle', 'Limited-edition gifts available for 48 hours only — announced 24 hours in advance, then retired permanently.')}
       </p>
 
@@ -158,15 +158,15 @@ function AdminGiftDropPage() {
             return (
               <AdminCard key={drop.id}>
                 <div className="flex items-start justify-between gap-2">
-                  <p className="min-w-0 truncate font-semibold text-neutral-900">
+                  <p className="min-w-0 truncate font-semibold text-neutral-900 dark:text-neutral-100">
                     {drop.gift_item_name ?? drop.gift_item_id.slice(0, 8)}
                     {drop.gift_item_retired && <span className="ml-1.5"><AdminBadge label={t('admin.giftDrop.retired', 'Retired')} color="red" /></span>}
                   </p>
                   <AdminBadge label={s.label} color={s.color} />
                 </div>
-                <p className="mt-1.5 text-xs text-neutral-500">{t('admin.giftDrop.from', 'From')}: {fmtDate(drop.available_from)}</p>
-                <p className="text-xs text-neutral-500">{t('admin.giftDrop.until', 'Until')}: {fmtDate(drop.available_until)}</p>
-                {drop.announced_at && <p className="text-xs text-neutral-400">{t('admin.giftDrop.announced', 'Announced')}: {fmtDate(drop.announced_at)}</p>}
+                <p className="mt-1.5 text-xs text-neutral-500 dark:text-neutral-400">{t('admin.giftDrop.from', 'From')}: {fmtDate(drop.available_from)}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('admin.giftDrop.until', 'Until')}: {fmtDate(drop.available_until)}</p>
+                {drop.announced_at && <p className="text-xs text-neutral-400 dark:text-neutral-500">{t('admin.giftDrop.announced', 'Announced')}: {fmtDate(drop.announced_at)}</p>}
               </AdminCard>
             );
           })}

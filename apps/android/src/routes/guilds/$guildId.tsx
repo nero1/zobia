@@ -65,9 +65,9 @@ function GuildProfilePage() {
 
   if (status === 'pending') {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6 animate-pulse space-y-4">
-        <div className="h-32 bg-neutral-200 rounded-xl" />
-        <div className="h-48 bg-neutral-200 rounded-xl" />
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-6 animate-pulse space-y-4">
+        <div className="h-32 bg-neutral-200 dark:bg-neutral-700 rounded-xl" />
+        <div className="h-48 bg-neutral-200 dark:bg-neutral-700 rounded-xl" />
       </div>
     );
   }
@@ -76,7 +76,7 @@ function GuildProfilePage() {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4 px-6 text-center">
         <span className="text-5xl">🏰</span>
-        <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+        <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
         <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">
           {t('android.error.retry')}
         </button>
@@ -85,18 +85,18 @@ function GuildProfilePage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4">
       <GuildDetailView
         guild={guild}
         backTo="/guild"
         actions={
           <>
-            {actionMsg && <p className="mb-2 text-xs font-medium text-danger-600">{actionMsg}</p>}
+            {actionMsg && <p className="mb-2 text-xs font-medium text-danger-600 dark:text-danger-300">{actionMsg}</p>}
             {guild.isMember ? (
               <button
                 onClick={handleLeave}
                 disabled={actionPending || guild.isCaptain}
-                className="w-full rounded-xl border border-neutral-300 px-5 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60"
+                className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 px-5 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
               >
                 {actionPending ? '…' : guild.isCaptain ? t('guild.captainLabel') : t('guild.leave')}
               </button>
@@ -109,7 +109,7 @@ function GuildProfilePage() {
                 {actionPending ? t('guildDiscovery.joining') : t('guild.join')}
               </button>
             ) : (
-              <span className="block w-full rounded-xl border border-neutral-300 px-5 py-2.5 text-center text-sm font-semibold text-neutral-400">
+              <span className="block w-full rounded-xl border border-neutral-300 dark:border-neutral-600 px-5 py-2.5 text-center text-sm font-semibold text-neutral-400 dark:text-neutral-500">
                 {guild.recruitmentMode === 'invite_only' ? t('guild.inviteOnly') : t('guild.applicationRequired')}
               </span>
             )}

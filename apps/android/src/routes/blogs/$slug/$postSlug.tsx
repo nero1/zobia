@@ -165,8 +165,8 @@ function PostViewPage() {
 
   const data = postQuery.data;
 
-  if (postQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
-  if (!data) return <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center text-sm text-neutral-500">{t('blogs.notFound', 'Post not found.')}</div>;
+  if (postQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4"><div className="h-24 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" /></div>;
+  if (!data) return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('blogs.notFound', 'Post not found.')}</div>;
 
   const { post, locked, isLiked, isAuthor, blog } = data;
   const isArticle = post.type === 'article';
@@ -174,29 +174,29 @@ function PostViewPage() {
   const isContactPage = post.page_key === 'contact';
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
       {isAuthor && <BlogOwnerToolbar blogSlug={slug} isDraft={isDraft} />}
       {menuQuery.data && <BlogMenu blogSlug={slug} menuConfig={menuQuery.data} />}
 
-      <div className="rounded-xl border border-neutral-200 bg-white p-4">
-        <h1 className="text-lg font-bold text-neutral-900">{post.title}</h1>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{post.title}</h1>
         {isArticle && post.published_at && (
-          <p className="text-xs text-neutral-400 mt-1">{formatShortDate(post.published_at)}</p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">{formatShortDate(post.published_at)}</p>
         )}
         {isArticle && treasuryQuery.data && treasuryQuery.data.status === 'active' && treasuryQuery.data.claimantCount < treasuryQuery.data.maxClaimants && (
-          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <div className="mt-2 rounded-lg border border-amber-200 bg-amber-50 dark:bg-amber-900/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
             🎁 {t('blogs.post.rewardPotBadge', 'Reward pot: {{amount}} credits each for the next {{slots}} people who comment or share!', { amount: treasuryQuery.data.rewardPerClaimant, slots: treasuryQuery.data.maxClaimants - treasuryQuery.data.claimantCount })}
           </div>
         )}
         {isArticle && !blog.hideAuthorInfo && (
-          <p className="text-xs text-neutral-500 mt-2">
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-2">
             {post.author_display_name ?? `@${post.author_username}`}
           </p>
         )}
 
         {isContactPage ? (
           contactSent ? (
-            <p className="mt-3 text-sm text-neutral-700">{t('blogs.contact.sent', 'Your message has been sent. Thanks for reaching out!')}</p>
+            <p className="mt-3 text-sm text-neutral-700 dark:text-neutral-300">{t('blogs.contact.sent', 'Your message has been sent. Thanks for reaching out!')}</p>
           ) : (
             <div className="mt-3 space-y-2">
               <textarea
@@ -204,7 +204,7 @@ function PostViewPage() {
                 onChange={(e) => setContactMessage(e.target.value.slice(0, 4000))}
                 rows={4}
                 placeholder={t('blogs.contact.messagePlaceholder', 'What would you like to say?')}
-                className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+                className="w-full resize-none rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
               />
               <button
                 onClick={() => submitContact.mutate()}
@@ -221,8 +221,8 @@ function PostViewPage() {
         )}
 
         {locked && (
-          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
-            <p className="text-sm text-amber-800 mb-2">
+          <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 p-4 text-center">
+            <p className="text-sm text-amber-800 dark:text-amber-300 mb-2">
               {t('blogs.post.paywallNotice', 'Pay {{cost}} credits to read the rest of the article.', { cost: post.paywall_credits_cost })}
             </p>
             <button
@@ -240,7 +240,7 @@ function PostViewPage() {
             <button
               onClick={() => toggleLike.mutate(!isLiked)}
               disabled={toggleLike.isPending}
-              className="flex items-center gap-1 rounded-lg border border-neutral-200 px-3 py-1.5 text-sm"
+              className="flex items-center gap-1 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-sm"
             >
               <span>{isLiked ? '❤️' : '🤍'}</span>
               <span>{post.like_count}</span>
@@ -248,26 +248,26 @@ function PostViewPage() {
             <button
               onClick={() => share.mutate()}
               disabled={share.isPending}
-              className="flex items-center gap-1 rounded-lg border border-neutral-200 px-3 py-1.5 text-sm"
+              className="flex items-center gap-1 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-sm"
             >
               <span>🔗</span>
               <span>{t('blogs.post.share', 'Share')}</span>
             </button>
-            <span className="text-xs text-neutral-400">👁 {post.view_count} views</span>
+            <span className="text-xs text-neutral-400 dark:text-neutral-500">👁 {post.view_count} views</span>
           </div>
         )}
-        {shareNotice && <p className="mt-2 text-xs text-amber-600">{shareNotice}</p>}
+        {shareNotice && <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">{shareNotice}</p>}
       </div>
 
       {isArticle && (
-        <div className="rounded-xl border border-neutral-200 bg-white p-4">
-          <h2 className="text-sm font-bold text-neutral-900 mb-2">{t('blogs.post.comments', 'Comments')}</h2>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
+          <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 mb-2">{t('blogs.post.comments', 'Comments')}</h2>
           <textarea
             value={commentText}
             onChange={(e) => setCommentText(e.target.value.slice(0, 2000))}
             rows={3}
             placeholder={t('blogs.post.commentPlaceholder', 'Add a comment…')}
-            className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+            className="w-full resize-none rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           />
           <CommentWidgetSlot />
           <div className="mt-2 flex justify-end">
@@ -282,17 +282,17 @@ function PostViewPage() {
 
           <div className="mt-3 space-y-2">
             {(commentsQuery.data ?? []).map((c) => (
-              <div key={c.id} className="rounded-lg border border-neutral-100 bg-neutral-50 p-2.5">
-                <p className="text-xs font-semibold text-neutral-700 flex items-center gap-1.5">
+              <div key={c.id} className="rounded-lg border border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 p-2.5">
+                <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
                   {c.author_display_name ?? `@${c.author_username}`}
                   {c.author_is_vip && (
-                    <span className="inline-flex items-center rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700">
+                    <span className="inline-flex items-center rounded-full bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-amber-700 dark:text-amber-300">
                       {t('blogs.gifts.vipBadge', 'VIP')}
                     </span>
                   )}
                   <RewardBadge label={c.author_reward_label} />
                 </p>
-                <p className="text-sm text-neutral-800 mt-0.5">{c.body}</p>
+                <p className="text-sm text-neutral-800 dark:text-neutral-200 mt-0.5">{c.body}</p>
               </div>
             ))}
           </div>

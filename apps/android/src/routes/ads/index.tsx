@@ -49,25 +49,25 @@ function AdsHubPage() {
 
   if (status === 'pending' || data?.eligible) {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-        <div className="h-40 animate-pulse rounded-2xl bg-neutral-200" />
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+        <div className="h-40 animate-pulse rounded-2xl bg-neutral-200 dark:bg-neutral-700" />
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-lg font-bold text-neutral-900 mb-1">{t('ads.hubTitle', 'Advertise on Zobia')}</h1>
-      <p className="text-sm text-neutral-500 mb-4">{t('ads.hubSubtitle', 'Reach the Zobia community with banners, native placements, interstitials, and rewarded video — billed by CPM.')}</p>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-1">{t('ads.hubTitle', 'Advertise on Zobia')}</h1>
+      <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">{t('ads.hubSubtitle', 'Reach the Zobia community with banners, native placements, interstitials, and rewarded video — billed by CPM.')}</p>
 
-      <div className="bg-white rounded-xl p-4 shadow-card mb-4">
-        <p className="text-sm text-neutral-600">{data?.reason ?? t('ads.eligibilityDefault', 'You need a verified Business Account with identity verification to place ads.')}</p>
+      <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card mb-4">
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">{data?.reason ?? t('ads.eligibilityDefault', 'You need a verified Business Account with identity verification to place ads.')}</p>
         <div className="mt-3 flex gap-2">
           <Link to="/business" className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white">{t('ads.createBusinessAccount', 'Create a Business Account')}</Link>
           {kycEnabled && (
             <button
               onClick={() => void openAuthenticatedWebLink('/kyc')}
-              className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700"
+              className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300"
             >
               {t('ads.completeKyc', 'Complete identity verification')}
             </button>
@@ -77,10 +77,10 @@ function AdsHubPage() {
 
       <div className="grid grid-cols-2 gap-2">
         {FEATURES.map((f) => (
-          <div key={f.titleKey} className="bg-white rounded-xl p-3 shadow-card">
+          <div key={f.titleKey} className="bg-white dark:bg-neutral-800 rounded-xl p-3 shadow-card">
             <span className="text-xl">{f.emoji}</span>
-            <p className="mt-1 text-xs font-semibold text-neutral-900">{t(f.titleKey)}</p>
-            <p className="mt-0.5 text-[11px] text-neutral-500">{t(f.bodyKey)}</p>
+            <p className="mt-1 text-xs font-semibold text-neutral-900 dark:text-neutral-100">{t(f.titleKey)}</p>
+            <p className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400">{t(f.bodyKey)}</p>
           </div>
         ))}
       </div>

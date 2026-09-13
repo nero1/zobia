@@ -84,10 +84,10 @@ function SavedGamesPage() {
   const over = Math.max(0, saves.length - limit);
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-neutral-900">{t('games.savedGames.title', 'Saved Games')}</h1>
-        <Link to="/games" className="text-sm text-primary-600">
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('games.savedGames.title', 'Saved Games')}</h1>
+        <Link to="/games" className="text-sm text-primary-600 dark:text-primary-300">
           ← {t('games.title', 'Games')}
         </Link>
       </div>
@@ -95,27 +95,27 @@ function SavedGamesPage() {
       {status === 'pending' && (
         <div className="space-y-3 animate-pulse">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="h-16 rounded-xl bg-white" />
+            <div key={i} className="h-16 rounded-xl bg-white dark:bg-neutral-800" />
           ))}
         </div>
       )}
 
       {status === 'success' && limit === 0 && (
-        <div className="mb-4 rounded-xl bg-white p-4 text-sm text-neutral-500">
+        <div className="mb-4 rounded-xl bg-white dark:bg-neutral-800 p-4 text-sm text-neutral-500 dark:text-neutral-400">
           {t('games.savedGames.noSlots', "Your plan doesn't include save slots. Upgrade to Plus, Pro, or Max to save in-progress games.")}
         </div>
       )}
 
       {status === 'success' && limit > 0 && (
-        <p className="mb-3 text-xs text-neutral-400">
+        <p className="mb-3 text-xs text-neutral-400 dark:text-neutral-500">
           {t('games.savedGames.slotsUsed', '{{count}} of {{limit}} slots used', { count: saves.length, limit })}
         </p>
       )}
 
       {over > 0 && (
-        <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 flex flex-col gap-3">
-          <h2 className="text-sm font-bold text-amber-700">{t('games.savedGames.overageTitle', 'You have more saves than your plan allows')}</h2>
-          <p className="text-xs text-amber-800">
+        <div className="mb-4 rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-900/30 p-4 flex flex-col gap-3">
+          <h2 className="text-sm font-bold text-amber-700 dark:text-amber-300">{t('games.savedGames.overageTitle', 'You have more saves than your plan allows')}</h2>
+          <p className="text-xs text-amber-800 dark:text-amber-300">
             {t('games.savedGames.overageDescription', "Your plan allows {{limit}} save slot(s), but you have {{count}}. Select which to delete, or we'll remove the oldest {{over}} automatically.", { limit, count: saves.length, over })}
           </p>
           <div className="flex flex-wrap gap-2">
@@ -123,7 +123,7 @@ function SavedGamesPage() {
               type="button"
               disabled={selected.size === 0}
               onClick={() => setConfirming('selected')}
-              className="rounded-lg border border-amber-400 px-3 py-1.5 text-xs font-semibold text-amber-700 disabled:opacity-40"
+              className="rounded-lg border border-amber-400 px-3 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300 disabled:opacity-40"
             >
               {t('games.savedGames.selectToDelete', 'Select saves to delete')} ({selected.size})
             </button>
@@ -140,14 +140,14 @@ function SavedGamesPage() {
 
       {confirming && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl flex flex-col gap-4">
-            <p className="text-base font-bold text-neutral-900">{t('games.savedGames.proceed', 'Proceed?')}</p>
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-6 shadow-xl flex flex-col gap-4">
+            <p className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('games.savedGames.proceed', 'Proceed?')}</p>
             <div className="flex gap-3">
               <button
                 type="button"
                 onClick={() => setConfirming(null)}
                 disabled={reconcile.isPending}
-                className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60"
+                className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
               >
                 {t('games.savedGames.proceedCancel', 'No, cancel')}
               </button>
@@ -165,7 +165,7 @@ function SavedGamesPage() {
       )}
 
       {status === 'success' && saves.length === 0 && (
-        <p className="py-10 text-center text-sm text-neutral-500">
+        <p className="py-10 text-center text-sm text-neutral-500 dark:text-neutral-400">
           {t('games.savedGames.empty', 'No saved games yet. Pause a game and choose "Save & Quit" to save your progress here.')}
         </p>
       )}
@@ -173,7 +173,7 @@ function SavedGamesPage() {
       {saves.length > 0 && (
         <div className="flex flex-col gap-2">
           {saves.map((s) => (
-            <div key={s.id} className="flex items-center gap-3 rounded-xl bg-white p-3 shadow-card">
+            <div key={s.id} className="flex items-center gap-3 rounded-xl bg-white dark:bg-neutral-800 p-3 shadow-card">
               {over > 0 && (
                 <input
                   type="checkbox"
@@ -184,8 +184,8 @@ function SavedGamesPage() {
               )}
               <span className="text-2xl">{s.cover_emoji}</span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold text-neutral-900">{s.label ?? s.game_name}</p>
-                <p className="text-xs text-neutral-400">
+                <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{s.label ?? s.game_name}</p>
+                <p className="text-xs text-neutral-400 dark:text-neutral-500">
                   {t('games.score', 'Score')}: {s.score} · {new Date(s.updated_at).toLocaleDateString()}
                 </p>
               </div>
@@ -199,7 +199,7 @@ function SavedGamesPage() {
               <button
                 type="button"
                 onClick={() => deleteOne.mutate(s.id)}
-                className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600"
+                className="rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-600 dark:text-red-300"
               >
                 {t('games.savedGames.delete', 'Delete')}
               </button>

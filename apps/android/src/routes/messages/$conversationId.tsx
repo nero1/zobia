@@ -154,7 +154,7 @@ function DmChatPage() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-neutral-50">
+    <div className="h-full flex flex-col bg-neutral-50 dark:bg-neutral-800">
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {messages?.map((msg) => {
@@ -165,7 +165,7 @@ function DmChatPage() {
                 className={`max-w-[75%] px-4 py-2 rounded-2xl text-sm ${
                   isMine
                     ? 'bg-primary-600 text-white rounded-br-sm'
-                    : 'bg-white text-neutral-900 shadow-card rounded-bl-sm'
+                    : 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-card rounded-bl-sm'
                 } ${msg.id.startsWith('optimistic-') ? 'opacity-70' : ''}`}
               >
                 {msg.content}
@@ -177,14 +177,14 @@ function DmChatPage() {
       </div>
 
       {/* Input */}
-      <div className="bg-white border-t border-neutral-200 px-4 py-3 flex items-center gap-3">
+      <div className="bg-white dark:bg-neutral-800 border-t border-neutral-200 dark:border-neutral-700 px-4 py-3 flex items-center gap-3">
         <input
           type="text"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
           placeholder={t('messages.typeHere')}
-          className="flex-1 px-4 py-2 bg-neutral-100 rounded-full text-sm focus:outline-none"
+          className="flex-1 px-4 py-2 bg-neutral-100 dark:bg-neutral-800 rounded-full text-sm focus:outline-none"
           data-selectable
         />
         <button

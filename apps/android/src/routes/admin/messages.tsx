@@ -122,16 +122,16 @@ function UserSearchInput({ selected, onAdd, onRemove }: { selected: UserSearchRe
         />
         {searching && <span className="absolute right-3 top-2.5 h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />}
         {results.length > 0 && (
-          <div className="absolute z-10 mt-1 w-full rounded-lg border border-neutral-200 bg-white shadow-modal">
+          <div className="absolute z-10 mt-1 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-modal">
             {results.map((u) => (
               <button
                 key={u.id}
                 type="button"
                 onClick={() => { onAdd(u); setQ(''); setResults([]); }}
-                className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-neutral-50"
+                className="flex w-full items-center gap-2 px-3 py-2 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-800"
               >
                 <span>{u.avatarEmoji || '👤'}</span>
-                <span className="font-medium text-neutral-900">@{u.username}</span>
+                <span className="font-medium text-neutral-900 dark:text-neutral-100">@{u.username}</span>
               </button>
             ))}
           </div>
@@ -140,7 +140,7 @@ function UserSearchInput({ selected, onAdd, onRemove }: { selected: UserSearchRe
       {selected.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
           {selected.map((u) => (
-            <span key={u.id} className="flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800">
+            <span key={u.id} className="flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-medium text-blue-800">
               {u.avatarEmoji} @{u.username}
               <button type="button" onClick={() => onRemove(u.id)} className="ml-1">✕</button>
             </span>
@@ -160,43 +160,43 @@ function MessageDetailOverlay({ id, onClose }: { id: string; onClose: () => void
   const { data, status } = useQuery({ queryKey: ['admin', 'messages', 'detail', id], queryFn: () => fetchMessageDetail(id) });
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
-      <div className="flex-none flex items-center justify-between border-b border-neutral-200 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
-        <h2 className="text-base font-semibold text-neutral-900">{t('admin.messages.detailTitle', 'Message Detail')}</h2>
-        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100">✕</button>
+    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
+      <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.messages.detailTitle', 'Message Detail')}</h2>
+        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
       </div>
       <div className="flex-1 overflow-y-auto space-y-4 p-4" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
-        {status === 'pending' && <div className="h-24 animate-pulse rounded-xl bg-neutral-100" />}
-        {status === 'error' && <p className="text-sm text-neutral-500">{t('error.generic')}</p>}
+        {status === 'pending' && <div className="h-24 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />}
+        {status === 'error' && <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('error.generic')}</p>}
         {status === 'success' && data && (
           <>
             <div>
-              <p className="text-xs text-neutral-500">{t('admin.messages.subject', 'Subject')}</p>
-              <p className="font-semibold text-neutral-900">{data.message.subject}</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('admin.messages.subject', 'Subject')}</p>
+              <p className="font-semibold text-neutral-900 dark:text-neutral-100">{data.message.subject}</p>
             </div>
             <div>
-              <p className="text-xs text-neutral-500">{t('admin.messages.body', 'Body')}</p>
-              <p className="whitespace-pre-wrap text-sm text-neutral-700">{data.message.body}</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('admin.messages.body', 'Body')}</p>
+              <p className="whitespace-pre-wrap text-sm text-neutral-700 dark:text-neutral-300">{data.message.body}</p>
             </div>
             <div className="grid grid-cols-2 gap-2.5">
-              <div className="rounded-lg border border-neutral-200 p-2.5">
-                <p className="text-xs text-neutral-500">{t('admin.messages.recipients', 'Recipients')}</p>
-                <p className="text-lg font-bold text-neutral-900">{data.message.recipient_count.toLocaleString()}</p>
+              <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-2.5">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('admin.messages.recipients', 'Recipients')}</p>
+                <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{data.message.recipient_count.toLocaleString()}</p>
               </div>
-              <div className="rounded-lg border border-neutral-200 p-2.5">
-                <p className="text-xs text-neutral-500">{t('admin.messages.delivered', 'Delivered')}</p>
-                <p className="text-lg font-bold text-success-600">{data.receipts.filter((r) => r.delivered_at).length.toLocaleString()}</p>
+              <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-2.5">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('admin.messages.delivered', 'Delivered')}</p>
+                <p className="text-lg font-bold text-success-600 dark:text-success-300">{data.receipts.filter((r) => r.delivered_at).length.toLocaleString()}</p>
               </div>
             </div>
             {data.receipts.length > 0 && (
               <div>
-                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.messages.deliveryStatus', 'Delivery Status')}</p>
+                <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.messages.deliveryStatus', 'Delivery Status')}</p>
                 <div className="space-y-1.5">
                   {data.receipts.map((r) => (
-                    <div key={r.recipient_id} className="flex items-center justify-between rounded-lg border border-neutral-100 px-3 py-2 text-xs">
-                      <span className="font-medium text-neutral-900">@{r.username ?? 'unknown'}</span>
-                      <span className="text-neutral-500">{r.delivered_at ? fmtDate(r.delivered_at) : '—'}</span>
-                      <span className="text-neutral-500">{r.read_at ? fmtDate(r.read_at) : t('admin.messages.unread', 'Unread')}</span>
+                    <div key={r.recipient_id} className="flex items-center justify-between rounded-lg border border-neutral-100 dark:border-neutral-800 px-3 py-2 text-xs">
+                      <span className="font-medium text-neutral-900 dark:text-neutral-100">@{r.username ?? 'unknown'}</span>
+                      <span className="text-neutral-500 dark:text-neutral-400">{r.delivered_at ? fmtDate(r.delivered_at) : '—'}</span>
+                      <span className="text-neutral-500 dark:text-neutral-400">{r.read_at ? fmtDate(r.read_at) : t('admin.messages.unread', 'Unread')}</span>
                     </div>
                   ))}
                 </div>
@@ -267,25 +267,25 @@ function AdminMessagesPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.messages', 'Admin Messaging')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.messages', 'Admin Messaging')}</h1>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
       <form
         onSubmit={(e) => { e.preventDefault(); if (canSend) sendMutation.mutate(); }}
-        className="mb-6 space-y-3.5 rounded-xl border border-neutral-200 bg-white p-4 shadow-card"
+        className="mb-6 space-y-3.5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card"
       >
-        <h2 className="text-sm font-semibold text-neutral-700">{t('admin.messages.compose', 'Compose Message')}</h2>
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('admin.messages.compose', 'Compose Message')}</h2>
 
         <div>
-          <p className="mb-1.5 text-xs font-semibold text-neutral-700">{t('admin.messages.to', 'To')}</p>
+          <p className="mb-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t('admin.messages.to', 'To')}</p>
           <div className="flex flex-wrap gap-1.5">
             {(['all', 'by_plan', 'by_role', 'direct'] as RecipientMode[]).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => setRecipientMode(m)}
-                className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${recipientMode === m ? 'bg-primary-600 text-white' : 'bg-neutral-100 text-neutral-700'}`}
+                className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${recipientMode === m ? 'bg-primary-600 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'}`}
               >
                 {MODE_LABEL[m]}
               </button>
@@ -297,7 +297,7 @@ function AdminMessagesPage() {
           <div className="flex flex-wrap gap-2">
             {PLAN_OPTIONS.map((p) => (
               <label key={p} className="flex items-center gap-1.5 text-xs capitalize">
-                <input type="checkbox" checked={selectedPlans.includes(p)} onChange={() => toggleArr(selectedPlans, setSelectedPlans, p)} className="rounded border-neutral-300" />
+                <input type="checkbox" checked={selectedPlans.includes(p)} onChange={() => toggleArr(selectedPlans, setSelectedPlans, p)} className="rounded border-neutral-300 dark:border-neutral-600" />
                 {p}
               </label>
             ))}
@@ -308,7 +308,7 @@ function AdminMessagesPage() {
           <div className="flex flex-wrap gap-2">
             {ROLE_OPTIONS.map((r) => (
               <label key={r} className="flex items-center gap-1.5 text-xs capitalize">
-                <input type="checkbox" checked={selectedRoles.includes(r)} onChange={() => toggleArr(selectedRoles, setSelectedRoles, r)} className="rounded border-neutral-300" />
+                <input type="checkbox" checked={selectedRoles.includes(r)} onChange={() => toggleArr(selectedRoles, setSelectedRoles, r)} className="rounded border-neutral-300 dark:border-neutral-600" />
                 {r}
               </label>
             ))}
@@ -332,23 +332,23 @@ function AdminMessagesPage() {
         </button>
       </form>
 
-      <h2 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.messages.sentMessages', 'Sent Messages')}</h2>
+      <h2 className="mb-2.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.messages.sentMessages', 'Sent Messages')}</h2>
 
       {status === 'error' && <AdminErrorState onRetry={() => refetch()} />}
 
       <div className="space-y-2.5">
-        {status === 'pending' && Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-neutral-100" />)}
+        {status === 'pending' && Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-20 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />)}
 
         {status === 'success' && messages.length === 0 && <AdminEmptyState icon="💬" title={t('admin.messages.empty', 'No messages sent yet')} />}
 
         {status === 'success' &&
           messages.map((m) => (
-            <button key={m.id} type="button" onClick={() => setDetailId(m.id)} className="w-full rounded-xl border border-neutral-200 bg-white p-4 text-left shadow-card active:bg-neutral-50">
+            <button key={m.id} type="button" onClick={() => setDetailId(m.id)} className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 text-left shadow-card active:bg-neutral-50 dark:active:bg-neutral-800">
               <div className="flex items-start justify-between gap-2">
-                <p className="truncate text-sm font-semibold text-neutral-900">{m.subject}</p>
+                <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{m.subject}</p>
                 <AdminBadge label={MODE_LABEL[m.broadcast_type] ?? m.broadcast_type} color={MODE_COLOR[m.broadcast_type] ?? 'neutral'} />
               </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] text-neutral-400">
+              <div className="mt-1.5 flex flex-wrap items-center gap-3 text-[11px] text-neutral-400 dark:text-neutral-500">
                 <span>{m.recipient_count.toLocaleString()} {t('admin.messages.recipients', 'recipients')}</span>
                 <span>{m.delivered_count.toLocaleString()} {t('admin.messages.delivered', 'delivered')}</span>
                 <span className="ml-auto">{fmtDate(m.created_at)}</span>

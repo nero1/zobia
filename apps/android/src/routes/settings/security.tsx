@@ -67,21 +67,21 @@ function ActiveSessions() {
   }
 
   return (
-    <div className="rounded-xl bg-white p-4 shadow-card">
-      <h2 className="mb-1 text-sm font-semibold text-neutral-700">{t('settings.sessions.title', 'Active Sessions')}</h2>
-      <p className="mb-3 text-xs text-neutral-500">
+    <div className="rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
+      <h2 className="mb-1 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('settings.sessions.title', 'Active Sessions')}</h2>
+      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
         {t('settings.sessions.description', 'Devices currently signed into your account. Lost a device? Sign it out here.')}
       </p>
       {sessions === null ? (
-        <p className="text-sm text-neutral-400">{t('action.loading', 'Loading…')}</p>
+        <p className="text-sm text-neutral-400 dark:text-neutral-500">{t('action.loading', 'Loading…')}</p>
       ) : sessions.length === 0 ? (
-        <p className="text-sm text-neutral-400">{t('settings.sessions.empty', 'No active sessions found.')}</p>
+        <p className="text-sm text-neutral-400 dark:text-neutral-500">{t('settings.sessions.empty', 'No active sessions found.')}</p>
       ) : (
-        <ul className="divide-y divide-neutral-100">
+        <ul className="divide-y divide-neutral-100 dark:divide-neutral-700">
           {sessions.map((s) => (
             <li key={s.sid} className="flex items-center justify-between gap-3 py-2.5">
               <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-neutral-900">
+                <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
                   {describeDevice(s.ua)}
                   {s.isCurrent && (
                     <span className="ml-2 rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-700">
@@ -89,13 +89,13 @@ function ActiveSessions() {
                     </span>
                   )}
                 </p>
-                <p className="truncate text-xs text-neutral-500">{new Date(s.createdAt).toLocaleDateString()}</p>
+                <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{new Date(s.createdAt).toLocaleDateString()}</p>
               </div>
               {!s.isCurrent && (
                 <button
                   onClick={() => void handleRevoke(s.sid)}
                   disabled={revokingSid === s.sid}
-                  className="flex-shrink-0 rounded-lg border border-danger-300 px-3 py-1.5 text-xs font-semibold text-danger-600 disabled:opacity-40"
+                  className="flex-shrink-0 rounded-lg border border-danger-300 px-3 py-1.5 text-xs font-semibold text-danger-600 dark:text-danger-300 disabled:opacity-40"
                 >
                   {revokingSid === s.sid ? t('settings.sessions.revoking', 'Signing out…') : t('settings.sessions.revoke', 'Sign out')}
                 </button>
@@ -169,19 +169,19 @@ function PinSection() {
   }
 
   return (
-    <div className="rounded-xl bg-white p-4 shadow-card">
-      <h2 className="mb-1 text-sm font-semibold text-neutral-700">{t('settings.pin.title', 'Security PIN')}</h2>
-      <p className="mb-3 text-xs text-neutral-500">
+    <div className="rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
+      <h2 className="mb-1 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('settings.pin.title', 'Security PIN')}</h2>
+      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
         {t('settings.pin.description', 'A 4-digit PIN adds an extra layer of protection to payments and payout requests.')}
       </p>
 
       {mode === 'idle' && (
         <div className="flex gap-2">
-          <button onClick={() => setMode('set')} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold">
+          <button onClick={() => setMode('set')} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold">
             {hasPin ? t('settings.pin.change', 'Change PIN') : t('settings.pin.set', 'Set PIN')}
           </button>
           {hasPin && (
-            <button onClick={() => setMode('remove')} className="rounded-lg border border-danger-300 px-3 py-1.5 text-xs font-semibold text-danger-600">
+            <button onClick={() => setMode('remove')} className="rounded-lg border border-danger-300 px-3 py-1.5 text-xs font-semibold text-danger-600 dark:text-danger-300">
               {t('settings.pin.remove', 'Remove PIN')}
             </button>
           )}
@@ -190,27 +190,27 @@ function PinSection() {
 
       {mode === 'set' && (
         <div className="space-y-2">
-          <input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} placeholder={t('settings.pin.newPlaceholder', 'New 4-digit PIN')} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
-          <input type="password" inputMode="numeric" maxLength={4} value={confirmPin} onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))} placeholder={t('settings.pin.confirmPlaceholder', 'Confirm PIN')} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
-          {error && <p className="text-xs text-danger-600">{error}</p>}
+          <input type="password" inputMode="numeric" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))} placeholder={t('settings.pin.newPlaceholder', 'New 4-digit PIN')} className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm" />
+          <input type="password" inputMode="numeric" maxLength={4} value={confirmPin} onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, ''))} placeholder={t('settings.pin.confirmPlaceholder', 'Confirm PIN')} className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm" />
+          {error && <p className="text-xs text-danger-600 dark:text-danger-300">{error}</p>}
           <div className="flex gap-2">
             <button onClick={() => void handleSet()} disabled={saving} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
               {saving ? t('action.saving', 'Saving…') : t('action.save', 'Save')}
             </button>
-            <button onClick={reset} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold">{t('action.cancel', 'Cancel')}</button>
+            <button onClick={reset} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold">{t('action.cancel', 'Cancel')}</button>
           </div>
         </div>
       )}
 
       {mode === 'remove' && (
         <div className="space-y-2">
-          <input type="password" inputMode="numeric" maxLength={4} value={currentPin} onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ''))} placeholder={t('settings.pin.currentPlaceholder', 'Enter current PIN')} className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm" />
-          {error && <p className="text-xs text-danger-600">{error}</p>}
+          <input type="password" inputMode="numeric" maxLength={4} value={currentPin} onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, ''))} placeholder={t('settings.pin.currentPlaceholder', 'Enter current PIN')} className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm" />
+          {error && <p className="text-xs text-danger-600 dark:text-danger-300">{error}</p>}
           <div className="flex gap-2">
             <button onClick={() => void handleRemove()} disabled={saving} className="rounded-lg bg-danger-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
               {saving ? t('settings.pin.removing', 'Removing…') : t('settings.pin.remove', 'Remove PIN')}
             </button>
-            <button onClick={reset} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold">{t('action.cancel', 'Cancel')}</button>
+            <button onClick={reset} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold">{t('action.cancel', 'Cancel')}</button>
           </div>
         </div>
       )}
@@ -287,9 +287,9 @@ function TwoFactorSection() {
   }
 
   return (
-    <div className="rounded-xl bg-white p-4 shadow-card">
-      <h2 className="mb-1 text-sm font-semibold text-neutral-700">{t('settings.twoFa.title', 'Two-Factor Authentication')}</h2>
-      <p className="mb-3 text-xs text-neutral-500">
+    <div className="rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
+      <h2 className="mb-1 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('settings.twoFa.title', 'Two-Factor Authentication')}</h2>
+      <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
         {enabled
           ? t('settings.twoFa.enabledDesc', 'Two-factor authentication is currently enabled.')
           : t('settings.twoFa.disabledDesc', 'Add an extra layer of security to your account.')}
@@ -298,7 +298,7 @@ function TwoFactorSection() {
       {mode === 'idle' && (
         <button
           onClick={() => (enabled ? setMode('disable') : void handleOpenSetup())}
-          className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${enabled ? 'border-danger-300 text-danger-600' : 'border-neutral-300'}`}
+          className={`rounded-lg border px-3 py-1.5 text-xs font-semibold ${enabled ? 'border-danger-300 text-danger-600 dark:text-danger-300' : 'border-neutral-300 dark:border-neutral-600'}`}
         >
           {enabled ? t('settings.twoFa.disable', 'Disable 2FA') : t('settings.twoFa.enable', 'Enable 2FA')}
         </button>
@@ -306,13 +306,13 @@ function TwoFactorSection() {
 
       {mode === 'setup' && (
         <div className="space-y-2">
-          <p className="text-xs text-neutral-600">
+          <p className="text-xs text-neutral-600 dark:text-neutral-400">
             {t('settings.twoFa.manualKeyHint', 'Add this key manually in your authenticator app (Google Authenticator, Authy, etc.):')}
           </p>
           {secret ? (
-            <p className="select-all rounded-lg bg-neutral-100 px-3 py-2 text-center font-mono text-sm tracking-wider">{secret}</p>
+            <p className="select-all rounded-lg bg-neutral-100 dark:bg-neutral-800 px-3 py-2 text-center font-mono text-sm tracking-wider">{secret}</p>
           ) : (
-            <p className="text-xs text-neutral-400">{t('action.loading', 'Loading…')}</p>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">{t('action.loading', 'Loading…')}</p>
           )}
           <input
             type="text"
@@ -321,14 +321,14 @@ function TwoFactorSection() {
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
             placeholder={t('settings.twoFa.codePlaceholder', '6-digit code')}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-center font-mono text-sm tracking-widest"
+            className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-center font-mono text-sm tracking-widest"
           />
-          {error && <p className="text-xs text-danger-600">{error}</p>}
+          {error && <p className="text-xs text-danger-600 dark:text-danger-300">{error}</p>}
           <div className="flex gap-2">
             <button onClick={() => void handleConfirmSetup()} disabled={code.length !== 6 || saving} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
               {saving ? t('action.saving', 'Saving…') : t('settings.twoFa.confirm', 'Confirm')}
             </button>
-            <button onClick={reset} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold">{t('action.cancel', 'Cancel')}</button>
+            <button onClick={reset} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold">{t('action.cancel', 'Cancel')}</button>
           </div>
         </div>
       )}
@@ -342,14 +342,14 @@ function TwoFactorSection() {
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
             placeholder={t('settings.twoFa.codePlaceholder', '6-digit code')}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-center font-mono text-sm tracking-widest"
+            className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-center font-mono text-sm tracking-widest"
           />
-          {error && <p className="text-xs text-danger-600">{error}</p>}
+          {error && <p className="text-xs text-danger-600 dark:text-danger-300">{error}</p>}
           <div className="flex gap-2">
             <button onClick={() => void handleDisable()} disabled={code.length !== 6 || saving} className="rounded-lg bg-danger-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40">
               {saving ? t('settings.twoFa.disabling', 'Disabling…') : t('settings.twoFa.disable', 'Disable 2FA')}
             </button>
-            <button onClick={reset} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold">{t('action.cancel', 'Cancel')}</button>
+            <button onClick={reset} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold">{t('action.cancel', 'Cancel')}</button>
           </div>
         </div>
       )}
@@ -361,7 +361,7 @@ function TwoFactorSection() {
 
 function SecurityPage() {
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4 space-y-3">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4 space-y-3">
       <ActiveSessions />
       <PinSection />
       <TwoFactorSection />

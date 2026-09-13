@@ -49,29 +49,29 @@ function AppealCard({ appeal, onApprove, onDismiss, busy }: {
     <AdminCard>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-semibold text-neutral-900">@{appeal.creator.username}</p>
-          {appeal.creator.email && <p className="truncate text-xs text-neutral-400">{appeal.creator.email}</p>}
+          <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">@{appeal.creator.username}</p>
+          {appeal.creator.email && <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">{appeal.creator.email}</p>}
         </div>
         <div className="shrink-0 text-right">
-          <p className="font-bold text-neutral-900">{fmtCurrency(koboToNgn(appeal.netKobo))}</p>
-          <p className="text-[10px] text-neutral-400">{t('admin.payouts.gross', 'gross')} {fmtCurrency(koboToNgn(appeal.grossKobo))}</p>
+          <p className="font-bold text-neutral-900 dark:text-neutral-100">{fmtCurrency(koboToNgn(appeal.netKobo))}</p>
+          <p className="text-[10px] text-neutral-400 dark:text-neutral-500">{t('admin.payouts.gross', 'gross')} {fmtCurrency(koboToNgn(appeal.grossKobo))}</p>
         </div>
       </div>
 
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-neutral-500">
-        <span className="rounded-full bg-neutral-100 px-2 py-0.5">{appeal.method.replace(/_/g, ' ')}</span>
-        <span className="rounded-full bg-neutral-100 px-2 py-0.5">{appeal.region}</span>
+      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] text-neutral-500 dark:text-neutral-400">
+        <span className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5">{appeal.method.replace(/_/g, ' ')}</span>
+        <span className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5">{appeal.region}</span>
         <span className="self-center">{timeAgo(appeal.createdAt)}</span>
       </div>
 
       {appeal.rejectionReason && (
-        <div className="mt-2.5 rounded-lg bg-danger-50 p-2.5 text-xs text-danger-700">
+        <div className="mt-2.5 rounded-lg bg-danger-50 dark:bg-danger-900/30 p-2.5 text-xs text-danger-700 dark:text-danger-300">
           <p className="mb-0.5 font-semibold">{t('admin.payouts.appeals.originalReason', 'Original rejection reason:')}</p>
           <p>{appeal.rejectionReason}</p>
         </div>
       )}
       {appeal.appealReason && (
-        <div className="mt-2 rounded-lg bg-blue-50 p-2.5 text-xs text-blue-700">
+        <div className="mt-2 rounded-lg bg-blue-50 dark:bg-blue-900/30 p-2.5 text-xs text-blue-700 dark:text-blue-300">
           <p className="mb-0.5 font-semibold">{t('admin.payouts.appeals.creatorReason', "Creator's appeal reason:")}</p>
           <p>{appeal.appealReason}</p>
         </div>
@@ -82,7 +82,7 @@ function AppealCard({ appeal, onApprove, onDismiss, busy }: {
           type="button"
           disabled={busy}
           onClick={onDismiss}
-          className="flex-1 rounded-lg border border-neutral-300 py-2 text-xs font-semibold text-neutral-700 disabled:opacity-50"
+          className="flex-1 rounded-lg border border-neutral-300 dark:border-neutral-600 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
         >
           {t('admin.payouts.appeals.dismiss', 'Dismiss')}
         </button>
@@ -123,13 +123,13 @@ function AdminPayoutAppealsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.payoutAppeals', 'Payout Appeals')}</h1>
-      <p className="mb-4 mt-1 text-sm text-neutral-500">{t('admin.payouts.appeals.subtitle', 'Review creator appeals for rejected payouts.')}</p>
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.payoutAppeals', 'Payout Appeals')}</h1>
+      <p className="mb-4 mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('admin.payouts.appeals.subtitle', 'Review creator appeals for rejected payouts.')}</p>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
       {status === 'success' && (
-        <p className="mb-3 text-sm text-neutral-500">
+        <p className="mb-3 text-sm text-neutral-500 dark:text-neutral-400">
           {t('admin.payouts.appeals.count', '{{count}} pending appeal', { count: data?.length ?? 0 })}
           {(data?.length ?? 0) !== 1 ? 's' : ''}
         </p>

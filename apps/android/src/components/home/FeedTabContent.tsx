@@ -67,8 +67,8 @@ export function FeedTabContent({ tab }: { tab: FeedTab }) {
 
   if (status === 'error') {
     return (
-      <div className="flex flex-col items-center gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-8 text-center">
-        <p className="text-sm text-red-700">{t('feedTabs.loadError')}</p>
+      <div className="flex flex-col items-center gap-3 rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 px-4 py-8 text-center">
+        <p className="text-sm text-red-700 dark:text-red-300">{t('feedTabs.loadError')}</p>
         <button
           type="button"
           onClick={() => refetch()}
@@ -82,9 +82,9 @@ export function FeedTabContent({ tab }: { tab: FeedTab }) {
 
   if (items.length === 0 && !isRefetching) {
     return (
-      <div className="flex flex-col items-center rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-10 text-center">
+      <div className="flex flex-col items-center rounded-xl border border-dashed border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 p-10 text-center">
         <div className="mb-2 text-3xl">🗂️</div>
-        <p className="text-sm text-neutral-500">{t('feedTabs.empty')}</p>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('feedTabs.empty')}</p>
       </div>
     );
   }

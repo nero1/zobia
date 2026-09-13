@@ -52,16 +52,16 @@ function TwoFactorPage() {
   };
 
   return (
-    <div className="min-h-full flex flex-col items-center justify-center px-6 py-12 bg-white">
+    <div className="min-h-full flex flex-col items-center justify-center px-6 py-12 bg-white dark:bg-neutral-800">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-neutral-900">{t('auth.2fa.title')}</h1>
-          <p className="text-neutral-500 mt-1">{t('auth.2fa.prompt')}</p>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{t('auth.2fa.title')}</h1>
+          <p className="text-neutral-500 dark:text-neutral-400 mt-1">{t('auth.2fa.prompt')}</p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {error && (
-            <div className="bg-danger-50 text-danger-700 px-4 py-3 rounded-lg text-sm">
+            <div className="bg-danger-50 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300 px-4 py-3 rounded-lg text-sm">
               {error}
             </div>
           )}
@@ -75,7 +75,7 @@ function TwoFactorPage() {
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
               placeholder="000000"
-              className="w-full px-4 py-3 border border-neutral-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-neutral-900 text-center text-2xl tracking-widest"
+              className="w-full px-4 py-3 border border-neutral-300 dark:border-neutral-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-primary-500 text-neutral-900 dark:text-neutral-100 text-center text-2xl tracking-widest"
               autoComplete="one-time-code"
               data-selectable
             />

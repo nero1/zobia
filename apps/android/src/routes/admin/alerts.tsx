@@ -55,10 +55,10 @@ function AdminAlertsPage() {
   return (
     <div className="px-4 py-5">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.alerts', 'Alerts')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.alerts', 'Alerts')}</h1>
         <button
           onClick={() => setShowResolved((v) => !v)}
-          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${showResolved ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+          className={`rounded-full px-3 py-1.5 text-xs font-semibold ${showResolved ? 'bg-neutral-900 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
         >
           {t('admin.alerts.showResolved', 'Show Resolved')}
         </button>
@@ -70,14 +70,14 @@ function AdminAlertsPage() {
         {status === 'success' && (data?.length ?? 0) === 0 && <AdminEmptyState icon="✅" title={t('admin.alerts.empty', 'No active alerts')} />}
         {status === 'success' &&
           data?.map((alert) => (
-            <div key={alert.id} className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
+            <div key={alert.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
               <div className="mb-1.5 flex items-center gap-1.5 text-xs">
                 <AdminBadge label={alert.severity} color={SEVERITY_COLOR[alert.severity]} />
                 <AdminBadge label={alert.type.replace(/_/g, ' ')} />
                 {alert.resolved && <AdminBadge label={t('admin.alerts.resolved', 'Resolved')} color="green" />}
-                <span className="ml-auto text-neutral-400">{timeAgo(alert.createdAt)}</span>
+                <span className="ml-auto text-neutral-400 dark:text-neutral-500">{timeAgo(alert.createdAt)}</span>
               </div>
-              <p className="mb-2.5 text-sm text-neutral-800">{alert.message}</p>
+              <p className="mb-2.5 text-sm text-neutral-800 dark:text-neutral-200">{alert.message}</p>
               {!alert.resolved && (
                 <button onClick={() => resolve.mutate(alert.id)} disabled={resolve.isPending} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60">
                   {t('admin.alerts.resolve', 'Resolve')}

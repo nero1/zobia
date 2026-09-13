@@ -67,7 +67,7 @@ export function HomeTabs({ active, onChange }: { active: HomeTabKey; onChange: (
     <div
       role="tablist"
       aria-label={t('home.tabs.ariaLabel')}
-      className="flex items-stretch gap-1 rounded-xl border border-neutral-200 bg-white p-1"
+      className="flex items-stretch gap-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-1"
     >
       <button
         type="button"
@@ -75,7 +75,7 @@ export function HomeTabs({ active, onChange }: { active: HomeTabKey; onChange: (
         aria-selected={active === 'logo'}
         onClick={() => onChange('logo')}
         className={`flex flex-1 items-center justify-center rounded-lg px-2 py-2 transition-colors ${
-          active === 'logo' ? 'bg-primary-600' : 'text-neutral-500 hover:bg-neutral-100'
+          active === 'logo' ? 'bg-primary-600' : 'text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'
         }`}
         aria-label={t('home.tabs.home')}
       >
@@ -89,7 +89,7 @@ export function HomeTabs({ active, onChange }: { active: HomeTabKey; onChange: (
           aria-selected={active === feedTab}
           onClick={() => onChange(feedTab)}
           className={`flex flex-1 items-center justify-center gap-1.5 whitespace-nowrap rounded-lg px-2 py-2 text-sm font-semibold transition-colors ${
-            active === feedTab ? 'bg-primary-600 text-white' : 'text-neutral-600 hover:bg-neutral-100'
+            active === feedTab ? 'bg-primary-600 text-white' : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'
           }`}
         >
           <span aria-hidden="true">{TAB_ICON[feedTab]}</span>

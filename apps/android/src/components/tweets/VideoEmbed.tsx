@@ -33,7 +33,7 @@ export function VideoEmbed({
 }) {
   if (provider === 'youtube') {
     return (
-      <div className="mt-3 aspect-video w-full overflow-hidden rounded-xl border border-neutral-200">
+      <div className="mt-3 aspect-video w-full overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700">
         <iframe
           src={`https://www.youtube-nocookie.com/embed/${videoEmbedId}`}
           title="YouTube video"
@@ -49,14 +49,14 @@ export function VideoEmbed({
     <button
       type="button"
       onClick={() => void Browser.open({ url: videoUrl })}
-      className="mt-3 flex w-full items-center gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-left"
+      className="mt-3 flex w-full items-center gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-3 text-left"
     >
       <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-black text-xl text-white">🎵</div>
       <div className="min-w-0 flex-1">
-        <p className="text-sm font-semibold text-neutral-900">Watch on TikTok</p>
-        <p className="truncate text-xs text-neutral-500">{videoUrl}</p>
+        <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Watch on TikTok</p>
+        <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{videoUrl}</p>
       </div>
-      <span className="shrink-0 text-neutral-400">↗</span>
+      <span className="shrink-0 text-neutral-400 dark:text-neutral-500">↗</span>
     </button>
   );
 }

@@ -49,7 +49,7 @@ export function BottomNav() {
     // it, so the last bit of page content could sit behind the nav on
     // devices with a bottom gesture-nav inset. In-flow layout needs no offset.
     <nav
-      className="relative z-40 flex-none border-t border-neutral-200 bg-white"
+      className="relative z-40 flex-none border-t border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800"
       aria-label="Mobile navigation"
       style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
     >
@@ -64,7 +64,7 @@ export function BottomNav() {
               key={item.label}
               type="button"
               onClick={() => navigate({ to: item.href as never })}
-              className={`flex flex-col items-center justify-center gap-0.5 py-2.5 text-xs font-medium transition-colors ${isActive ? 'text-primary-600' : 'text-neutral-500 hover:text-neutral-700'}`}
+              className={`flex flex-col items-center justify-center gap-0.5 py-2.5 text-xs font-medium transition-colors ${isActive ? 'text-primary-600 dark:text-primary-300' : 'text-neutral-500 dark:text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-300'}`}
               aria-current={isActive ? 'page' : undefined}
             >
               <TabIcon label={item.label} isActive={isActive} />

@@ -97,15 +97,15 @@ function CreateGroupPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-white px-4 py-4 space-y-5">
-      <h1 className="text-lg font-bold text-neutral-900">{t('messages.groupCreate.title')}</h1>
+    <div className="h-full overflow-y-auto bg-white dark:bg-neutral-800 px-4 py-4 space-y-5">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('messages.groupCreate.title')}</h1>
 
       {error && (
-        <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-xl bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</div>
       )}
 
       <div>
-        <label className="mb-1.5 block text-sm font-semibold text-neutral-700">
+        <label className="mb-1.5 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           {t('messages.groupCreate.nameLabel')}
         </label>
         <input
@@ -114,13 +114,13 @@ function CreateGroupPage() {
           onChange={(e) => setGroupName(e.target.value)}
           placeholder={t('messages.groupCreate.namePlaceholder')}
           maxLength={100}
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm focus:outline-none"
+          className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 text-sm focus:outline-none"
           data-selectable
         />
       </div>
 
       <div>
-        <label className="mb-1.5 block text-sm font-semibold text-neutral-700">
+        <label className="mb-1.5 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           {t('messages.groupCreate.typeLabel')}
         </label>
         <div className="flex flex-wrap gap-2">
@@ -131,8 +131,8 @@ function CreateGroupPage() {
               onClick={() => setTag(tagOption === tag ? '' : tagOption)}
               className={`rounded-full px-3 py-1.5 text-xs transition-all ${
                 tag === tagOption
-                  ? 'bg-amber-400 font-semibold text-neutral-900'
-                  : 'border border-neutral-200 text-neutral-600'
+                  ? 'bg-amber-400 font-semibold text-neutral-900 dark:text-neutral-100'
+                  : 'border border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400'
               }`}
             >
               {t(`messages.groupTypes.${tagOption.toLowerCase().replace(/\s+/g, '')}`, tagOption)}
@@ -142,39 +142,39 @@ function CreateGroupPage() {
       </div>
 
       <div>
-        <label className="mb-1.5 block text-sm font-semibold text-neutral-700">
-          {t('messages.groupCreate.addMembers')} {selected.size > 0 && <span className="text-amber-600">({selected.size} {t('messages.groupCreate.selected')})</span>}
+        <label className="mb-1.5 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+          {t('messages.groupCreate.addMembers')} {selected.size > 0 && <span className="text-amber-600 dark:text-amber-300">({selected.size} {t('messages.groupCreate.selected')})</span>}
         </label>
         <input
           type="text"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t('messages.groupCreate.searchFriendsPlaceholder')}
-          className="mb-2 w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm focus:outline-none"
+          className="mb-2 w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm focus:outline-none"
           data-selectable
         />
 
         {status === 'pending' ? (
-          <div className="py-8 text-center text-sm text-neutral-400">{t('messages.groupCreate.loadingFriends')}</div>
+          <div className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('messages.groupCreate.loadingFriends')}</div>
         ) : (friends ?? []).length === 0 ? (
-          <div className="py-8 text-center text-sm text-neutral-400">{t('messages.groupCreate.noFriendsYet')}</div>
+          <div className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('messages.groupCreate.noFriendsYet')}</div>
         ) : filteredFriends.length === 0 ? (
-          <div className="py-4 text-center text-sm text-neutral-400">{t('messages.groupCreate.noFriendsMatch', { query: search })}</div>
+          <div className="py-4 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('messages.groupCreate.noFriendsMatch', { query: search })}</div>
         ) : (
-          <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-neutral-200 p-2">
+          <div className="max-h-72 space-y-1 overflow-y-auto rounded-xl border border-neutral-200 dark:border-neutral-700 p-2">
             {filteredFriends.map((f) => (
               <button
                 key={f.userId}
                 type="button"
                 onClick={() => toggleMember(f.userId)}
                 className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-all ${
-                  selected.has(f.userId) ? 'bg-amber-50' : 'active:bg-neutral-50'
+                  selected.has(f.userId) ? 'bg-amber-50 dark:bg-amber-900/30' : 'active:bg-neutral-50 dark:active:bg-neutral-800'
                 }`}
               >
                 <span className="text-xl">{f.avatarEmoji || '👤'}</span>
                 <div className="flex-1 min-w-0">
-                  <p className="truncate text-sm font-semibold text-neutral-900">{f.displayName}</p>
-                  <p className="truncate text-xs text-neutral-500">@{f.username}</p>
+                  <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{f.displayName}</p>
+                  <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">@{f.username}</p>
                 </div>
                 {selected.has(f.userId) && <span className="font-bold text-amber-500">✓</span>}
               </button>
@@ -187,7 +187,7 @@ function CreateGroupPage() {
         type="button"
         onClick={() => void handleCreate()}
         disabled={creating || !groupName.trim() || selected.size === 0}
-        className="w-full rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 disabled:opacity-40"
+        className="w-full rounded-xl bg-amber-400 py-3.5 text-sm font-bold text-neutral-900 dark:text-neutral-100 disabled:opacity-40"
       >
         {creating ? t('messages.groupCreate.creating') : t('messages.groupCreate.submit')}
       </button>

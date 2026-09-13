@@ -65,15 +65,15 @@ function ThresholdProgressBar({ availableKobo, minKobo, t }: { availableKobo: nu
   return (
     <div className="mt-3">
       <div className="flex items-center justify-between text-xs">
-        <span className={`font-semibold ${met ? 'text-teal-700' : 'text-amber-700'}`}>
+        <span className={`font-semibold ${met ? 'text-teal-700 dark:text-teal-300' : 'text-amber-700 dark:text-amber-300'}`}>
           {met ? t('creator.thresholdMet', '✅ Withdrawal threshold reached') : `${formatNgn(remaining)} ${t('creator.thresholdRemaining', 'more to reach the minimum payout')}`}
         </span>
-        <span className="tabular-nums text-neutral-400">
+        <span className="tabular-nums text-neutral-400 dark:text-neutral-500">
           {formatNgn(availableKobo)} / {formatNgn(minKobo)}
         </span>
       </div>
       <div
-        className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-neutral-200"
+        className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700"
         role="progressbar"
         aria-valuenow={pct}
         aria-valuemin={0}
@@ -159,8 +159,8 @@ function CreatorDashboardPage() {
 
   if (status === 'pending') {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-        <div className="h-64 animate-pulse rounded-xl bg-neutral-200" />
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+        <div className="h-64 animate-pulse rounded-xl bg-neutral-200 dark:bg-neutral-700" />
       </div>
     );
   }
@@ -168,76 +168,76 @@ function CreatorDashboardPage() {
   if (status === 'error' || !data) {
     return (
       <div className="p-6">
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{t('error.generic')}</div>
-        <Link to="/home" className="mt-3 inline-block text-sm text-primary-600">← {t('android.nav.home', 'Home')}</Link>
+        <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">{t('error.generic')}</div>
+        <Link to="/home" className="mt-3 inline-block text-sm text-primary-600 dark:text-primary-300">← {t('android.nav.home', 'Home')}</Link>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-3 px-4 py-4">
-      <h1 className="text-xl font-bold text-neutral-900">{t('creator.title', 'Creator Dashboard')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-3 px-4 py-4">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('creator.title', 'Creator Dashboard')}</h1>
 
       <div className="grid grid-cols-2 gap-2">
-        <div className="rounded-xl border border-neutral-200 bg-white p-3">
-          <p className="text-xs font-medium uppercase text-neutral-500">{t('creator.revenueToday', 'Today')}</p>
-          <p className="mt-1 text-lg font-bold text-neutral-900">{formatNgn(data.revenue.today)}</p>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3">
+          <p className="text-xs font-medium uppercase text-neutral-500 dark:text-neutral-400">{t('creator.revenueToday', 'Today')}</p>
+          <p className="mt-1 text-lg font-bold text-neutral-900 dark:text-neutral-100">{formatNgn(data.revenue.today)}</p>
         </div>
-        <div className="rounded-xl border border-neutral-200 bg-white p-3">
-          <p className="text-xs font-medium uppercase text-neutral-500">{t('creator.revenueWeek', 'This Week')}</p>
-          <p className="mt-1 text-lg font-bold text-neutral-900">{formatNgn(data.revenue.week)}</p>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3">
+          <p className="text-xs font-medium uppercase text-neutral-500 dark:text-neutral-400">{t('creator.revenueWeek', 'This Week')}</p>
+          <p className="mt-1 text-lg font-bold text-neutral-900 dark:text-neutral-100">{formatNgn(data.revenue.week)}</p>
         </div>
-        <div className="rounded-xl border border-neutral-200 bg-white p-3">
-          <p className="text-xs font-medium uppercase text-neutral-500">{t('creator.revenueMonth', 'This Month')}</p>
-          <p className="mt-1 text-lg font-bold text-neutral-900">{formatNgn(data.revenue.month)}</p>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3">
+          <p className="text-xs font-medium uppercase text-neutral-500 dark:text-neutral-400">{t('creator.revenueMonth', 'This Month')}</p>
+          <p className="mt-1 text-lg font-bold text-neutral-900 dark:text-neutral-100">{formatNgn(data.revenue.month)}</p>
         </div>
-        <div className="rounded-xl border border-neutral-200 bg-white p-3">
-          <p className="text-xs font-medium uppercase text-neutral-500">{t('creator.revenueAllTime', 'All Time')}</p>
-          <p className="mt-1 text-lg font-bold text-neutral-900">{formatNgn(data.revenue.allTime)}</p>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3">
+          <p className="text-xs font-medium uppercase text-neutral-500 dark:text-neutral-400">{t('creator.revenueAllTime', 'All Time')}</p>
+          <p className="mt-1 text-lg font-bold text-neutral-900 dark:text-neutral-100">{formatNgn(data.revenue.allTime)}</p>
         </div>
       </div>
 
-      <div className="rounded-xl border border-neutral-200 bg-white shadow-card">
-        <div className="border-b border-neutral-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-neutral-700">{t('creator.revenueByStream', 'Revenue by Stream')}</h2>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-card">
+        <div className="border-b border-neutral-100 dark:border-neutral-800 px-4 py-3">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('creator.revenueByStream', 'Revenue by Stream')}</h2>
         </div>
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
           {Object.entries(data.revenue.byStream).filter(([, v]) => v > 0).map(([key, value]) => (
             <div key={key} className="flex items-center justify-between px-4 py-2.5 text-sm">
-              <span className="text-neutral-700">{STREAM_LABEL[key] ?? key}</span>
-              <span className="font-semibold text-neutral-900">{formatNgn(value)}</span>
+              <span className="text-neutral-700 dark:text-neutral-300">{STREAM_LABEL[key] ?? key}</span>
+              <span className="font-semibold text-neutral-900 dark:text-neutral-100">{formatNgn(value)}</span>
             </div>
           ))}
         </div>
-        <Link to="/creator/merch" className="flex items-center justify-between border-t border-neutral-100 px-4 py-3 text-sm font-semibold text-primary-600">
+        <Link to="/creator/merch" className="flex items-center justify-between border-t border-neutral-100 dark:border-neutral-800 px-4 py-3 text-sm font-semibold text-primary-600 dark:text-primary-300">
           🛍️ {t('creator.manageMerchStore', 'Manage Merch Store')}
           <span>→</span>
         </Link>
       </div>
 
-      <div className="rounded-xl border border-neutral-200 bg-white shadow-card p-4">
-        <h2 className="mb-3 text-sm font-semibold text-neutral-700">{t('creator.members', 'Members')}</h2>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-card p-4">
+        <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('creator.members', 'Members')}</h2>
         <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-lg border border-neutral-200 p-2.5">
-            <p className="text-xs text-neutral-500">{t('creator.totalMembers', 'Total Members')}</p>
-            <p className="text-lg font-bold text-neutral-900">{data.members.total.toLocaleString()}</p>
+          <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-2.5">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('creator.totalMembers', 'Total Members')}</p>
+            <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{data.members.total.toLocaleString()}</p>
           </div>
-          <div className="rounded-lg border border-neutral-200 p-2.5">
-            <p className="text-xs text-neutral-500">{t('creator.active30d', 'Active (7d)')}</p>
-            <p className="text-lg font-bold text-teal-600">{data.members.active.toLocaleString()}</p>
+          <div className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-2.5">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('creator.active30d', 'Active (7d)')}</p>
+            <p className="text-lg font-bold text-teal-600 dark:text-teal-300">{data.members.active.toLocaleString()}</p>
           </div>
         </div>
 
         {data.topGifters.length > 0 && (
           <>
-            <p className="mb-2 mt-4 text-xs font-semibold uppercase text-neutral-500">{t('creator.topGifters', 'Top Gifters')}</p>
+            <p className="mb-2 mt-4 text-xs font-semibold uppercase text-neutral-500 dark:text-neutral-400">{t('creator.topGifters', 'Top Gifters')}</p>
             <div className="space-y-1.5">
               {data.topGifters.map((g, i) => (
-                <Link key={g.user_id} to="/profile/$username" params={{ username: g.username }} className="flex items-center gap-2.5 rounded-lg border border-neutral-100 p-2">
-                  <span className="w-4 text-center text-xs font-bold text-neutral-400">#{i + 1}</span>
-                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-100 text-lg">{g.avatar_emoji}</span>
-                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900">@{g.username}</span>
-                  <span className="text-sm font-bold text-amber-600">{g.total_coins.toLocaleString()} 🪙</span>
+                <Link key={g.user_id} to="/profile/$username" params={{ username: g.username }} className="flex items-center gap-2.5 rounded-lg border border-neutral-100 dark:border-neutral-800 p-2">
+                  <span className="w-4 text-center text-xs font-bold text-neutral-400 dark:text-neutral-500">#{i + 1}</span>
+                  <span className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-lg">{g.avatar_emoji}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">@{g.username}</span>
+                  <span className="text-sm font-bold text-amber-600 dark:text-amber-300">{g.total_coins.toLocaleString()} 🪙</span>
                 </Link>
               ))}
             </div>
@@ -245,20 +245,20 @@ function CreatorDashboardPage() {
         )}
       </div>
 
-      <div className="rounded-xl border border-neutral-200 bg-white shadow-card">
-        <div className="border-b border-neutral-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-neutral-700">{t('creator.payouts', 'Payouts')}</h2>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-card">
+        <div className="border-b border-neutral-100 dark:border-neutral-800 px-4 py-3">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('creator.payouts', 'Payouts')}</h2>
         </div>
         <div className="p-4">
           {payoutsStatus === 'pending' ? (
-            <div className="h-16 animate-pulse rounded-lg bg-neutral-100" />
+            <div className="h-16 animate-pulse rounded-lg bg-neutral-100 dark:bg-neutral-800" />
           ) : payouts ? (
             <>
-              <div className="mb-3 rounded-xl border border-teal-200 bg-teal-50 p-3">
+              <div className="mb-3 rounded-xl border border-teal-200 bg-teal-50 dark:bg-teal-900/30 p-3">
                 <div className="flex items-center justify-between">
                   <div>
-                    <p className="text-xs text-teal-700">{t('creator.availableBalance', 'Available Balance')}</p>
-                    <p className="text-xl font-bold text-teal-700">{formatNgn(payouts.availableEarningsKobo)}</p>
+                    <p className="text-xs text-teal-700 dark:text-teal-300">{t('creator.availableBalance', 'Available Balance')}</p>
+                    <p className="text-xl font-bold text-teal-700 dark:text-teal-300">{formatNgn(payouts.availableEarningsKobo)}</p>
                   </div>
                   {!payouts.pendingPayout && payouts.payoutConfig && (
                     <div className="flex gap-1.5">
@@ -271,7 +271,7 @@ function CreatorDashboardPage() {
                         <button
                           onClick={() => requestPayout('bank_transfer')}
                           disabled={requesting || payouts.availableEarningsKobo < payouts.minPayoutKobo}
-                          className="rounded-lg border border-teal-600 px-3 py-2 text-xs font-semibold text-teal-700 disabled:opacity-60"
+                          className="rounded-lg border border-teal-600 px-3 py-2 text-xs font-semibold text-teal-700 dark:text-teal-300 disabled:opacity-60"
                         >
                           {t('creator.requestPayout', 'Request')} (Bank)
                         </button>
@@ -284,18 +284,18 @@ function CreatorDashboardPage() {
                 )}
               </div>
               {payouts.pendingPayout && (
-                <p className="mb-3 text-xs text-neutral-500">{t('creator.requested', 'A payout is already in progress')} ({payouts.pendingPayout.method}).</p>
+                <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">{t('creator.requested', 'A payout is already in progress')} ({payouts.pendingPayout.method}).</p>
               )}
-              {error && <p className="mb-3 text-xs text-red-600">{error}</p>}
+              {error && <p className="mb-3 text-xs text-red-600 dark:text-red-300">{error}</p>}
               {payouts.payouts.length > 0 && (
                 <div className="space-y-2">
                   {payouts.payouts.slice(0, 10).map((p) => (
                     <div key={p.id} className="flex items-center justify-between text-sm">
                       <div>
-                        <p className="font-medium text-neutral-900">{formatNgn(p.netKobo)}</p>
-                        <p className="text-xs text-neutral-400">{new Date(p.createdAt).toLocaleDateString()}</p>
+                        <p className="font-medium text-neutral-900 dark:text-neutral-100">{formatNgn(p.netKobo)}</p>
+                        <p className="text-xs text-neutral-400 dark:text-neutral-500">{new Date(p.createdAt).toLocaleDateString()}</p>
                       </div>
-                      <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold capitalize text-neutral-600">{p.status}</span>
+                      <span className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 text-xs font-semibold capitalize text-neutral-600 dark:text-neutral-400">{p.status}</span>
                     </div>
                   ))}
                 </div>
@@ -308,19 +308,19 @@ function CreatorDashboardPage() {
       {showPin && (
         <>
           <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowPin(false)} />
-          <div className="fixed left-4 right-4 top-1/2 z-50 -translate-y-1/2 rounded-2xl bg-white p-5 shadow-2xl">
-            <h3 className="mb-3 text-base font-bold text-neutral-900">{t('android.pin.title')}</h3>
+          <div className="fixed left-4 right-4 top-1/2 z-50 -translate-y-1/2 rounded-2xl bg-white dark:bg-neutral-800 p-5 shadow-2xl">
+            <h3 className="mb-3 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('android.pin.title')}</h3>
             <input
               type="password"
               inputMode="numeric"
               maxLength={6}
               value={pin}
               onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-              className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-center text-xl tracking-widest focus:border-primary-500 focus:outline-none"
+              className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 px-4 py-3 text-center text-xl tracking-widest focus:border-primary-500 focus:outline-none"
               autoFocus
             />
             <div className="mt-4 flex gap-3">
-              <button onClick={() => setShowPin(false)} className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700">
+              <button onClick={() => setShowPin(false)} className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
                 {t('gifts.send.cancel')}
               </button>
               <button onClick={handlePinVerify} disabled={requesting || pin.length < 4} className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-60">

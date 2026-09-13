@@ -162,10 +162,10 @@ function DetailOverlay({
   const canReview = detail && ['pending', 'ai_review', 'manual_review'].includes(detail.status);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
-      <div className="flex-none flex items-center justify-between border-b border-neutral-200 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
-        <h2 className="text-base font-semibold text-neutral-900">{t('admin.kyc.detail.title', 'Submission Review')}</h2>
-        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100">✕</button>
+    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
+      <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.kyc.detail.title', 'Submission Review')}</h2>
+        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-4 p-4" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
@@ -174,64 +174,64 @@ function DetailOverlay({
         {status === 'success' && detail && (
           <>
             <div>
-              <p className="font-semibold text-neutral-900">{detail.display_name} (@{detail.username})</p>
-              <p className="text-xs text-neutral-500">{detail.email}</p>
-              <p className="mt-1 text-xs capitalize text-neutral-500">
+              <p className="font-semibold text-neutral-900 dark:text-neutral-100">{detail.display_name} (@{detail.username})</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">{detail.email}</p>
+              <p className="mt-1 text-xs capitalize text-neutral-500 dark:text-neutral-400">
                 {detail.account_type} · {t('admin.kyc.tier', 'Tier')} {detail.tier} · {detail.review_mode} {t('admin.kyc.review', 'review')}
               </p>
               <div className="mt-1.5"><AdminBadge label={detail.status.replace(/_/g, ' ')} color={STATUS_COLOR[detail.status] ?? 'neutral'} /></div>
             </div>
 
             {detail.tier === 1 && (
-              <div className="space-y-1 rounded-lg border border-neutral-200 p-3">
-                <p className="text-sm font-medium text-neutral-800">{t('admin.kyc.tier1', 'Tier 1 — Identity')}</p>
-                <p className="text-xs text-neutral-500">{t('admin.kyc.citizenship', 'Citizenship')}: {detail.citizenship_country ?? '—'}</p>
+              <div className="space-y-1 rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
+                <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{t('admin.kyc.tier1', 'Tier 1 — Identity')}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('admin.kyc.citizenship', 'Citizenship')}: {detail.citizenship_country ?? '—'}</p>
                 {detail.bvn_last4 && (
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
                     BVN: •••{detail.bvn_last4} ({detail.paystack_verification_status === 'failed' ? t('admin.kyc.paystackFailed', 'Paystack contact failed — review manually') : detail.paystack_verification_status ?? t('admin.kyc.notContacted', 'not yet contacted')})
                   </p>
                 )}
-                {detail.id_type && <p className="text-xs text-neutral-500">{t('admin.kyc.idType', 'ID type')}: {detail.id_type} — {detail.id_number ?? '—'}</p>}
-                <p className="text-xs text-neutral-500">{t('admin.kyc.submittedName', 'Submitted name')}: {detail.submitted_full_name ?? '—'}</p>
+                {detail.id_type && <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('admin.kyc.idType', 'ID type')}: {detail.id_type} — {detail.id_number ?? '—'}</p>}
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('admin.kyc.submittedName', 'Submitted name')}: {detail.submitted_full_name ?? '—'}</p>
                 {detail.ai_name_match_score !== null && (
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
                     {t('admin.kyc.ai', 'AI')}: {Math.round(Number(detail.ai_name_match_score) * 100)}% {t('admin.kyc.nameMatch', 'name match')}, {Math.round(Number(detail.ai_document_confidence ?? 0) * 100)}% {t('admin.kyc.docConfidence', 'document confidence')} ({detail.ai_provider ?? '—'})
                   </p>
                 )}
-                {detail.ai_notes && <p className="text-xs italic text-neutral-500">&quot;{detail.ai_notes}&quot;</p>}
+                {detail.ai_notes && <p className="text-xs italic text-neutral-500 dark:text-neutral-400">&quot;{detail.ai_notes}&quot;</p>}
               </div>
             )}
 
             {detail.tier === 2 && (
-              <div className="space-y-1 rounded-lg border border-neutral-200 p-3">
-                <p className="text-sm font-medium text-neutral-800">{t('admin.kyc.tier2', 'Tier 2 — Video + Liveness')}</p>
+              <div className="space-y-1 rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
+                <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{t('admin.kyc.tier2', 'Tier 2 — Video + Liveness')}</p>
                 {detail.video_url && (
-                  <a href={detail.video_url} target="_blank" rel="noreferrer" className="block text-xs text-blue-600 underline">
+                  <a href={detail.video_url} target="_blank" rel="noreferrer" className="block text-xs text-blue-600 dark:text-blue-300 underline">
                     {t('admin.kyc.watchVideo', 'Watch statement video →')}
                   </a>
                 )}
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   {t('admin.kyc.livenessHeuristic', 'Liveness heuristic')}: {detail.liveness_status ?? t('admin.kyc.pending', 'pending')}{detail.liveness_score ? ` (${Math.round(Number(detail.liveness_score) * 100)}%)` : ''}
                 </p>
-                {detail.liveness_notes && <p className="text-xs italic text-neutral-500">&quot;{detail.liveness_notes}&quot;</p>}
+                {detail.liveness_notes && <p className="text-xs italic text-neutral-500 dark:text-neutral-400">&quot;{detail.liveness_notes}&quot;</p>}
               </div>
             )}
 
             {detail.tier === 3 && (
-              <div className="space-y-2 rounded-lg border border-neutral-200 p-3">
-                <p className="text-sm font-medium text-neutral-800">{t('admin.kyc.tier3', 'Tier 3 — Physical KYC')}</p>
-                <p className="text-xs text-neutral-500">
+              <div className="space-y-2 rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
+                <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{t('admin.kyc.tier3', 'Tier 3 — Physical KYC')}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   {detail.reuse_previous_address
                     ? t('admin.kyc.reuseAddress', 'Reusing previous address on file.')
                     : `${t('admin.kyc.updatedAddress', 'Updated address')}: ${JSON.stringify(detail.updated_address)}`}
                 </p>
-                <p className="text-xs text-amber-600">{t('admin.kyc.physicalHint', 'Schedule and complete the physical check out-of-band, then approve/reject here.')}</p>
+                <p className="text-xs text-amber-600 dark:text-amber-300">{t('admin.kyc.physicalHint', 'Schedule and complete the physical check out-of-band, then approve/reject here.')}</p>
                 {detail.physical_verification_scheduled_at && (
-                  <p className="text-xs text-neutral-600">{t('admin.kyc.scheduled', 'Scheduled')}: {new Date(detail.physical_verification_scheduled_at).toLocaleString()}</p>
+                  <p className="text-xs text-neutral-600 dark:text-neutral-400">{t('admin.kyc.scheduled', 'Scheduled')}: {new Date(detail.physical_verification_scheduled_at).toLocaleString()}</p>
                 )}
                 {canReview && (
-                  <div className="space-y-1.5 rounded-lg bg-neutral-50 p-2">
-                    <label className="block text-xs font-medium text-neutral-600">
+                  <div className="space-y-1.5 rounded-lg bg-neutral-50 dark:bg-neutral-800 p-2">
+                    <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400">
                       {t('admin.kyc.scheduleDateTime', 'Physical check date/time')}
                       <input
                         type="datetime-local"
@@ -240,7 +240,7 @@ function DetailOverlay({
                         className={`${adminInputClass} mt-1 text-xs`}
                       />
                     </label>
-                    <label className="block text-xs font-medium text-neutral-600">
+                    <label className="block text-xs font-medium text-neutral-600 dark:text-neutral-400">
                       {t('admin.kyc.scheduleNotes', 'Notes')}
                       <textarea
                         value={scheduleNotes}
@@ -265,17 +265,17 @@ function DetailOverlay({
 
             {detail.documents.length > 0 && (
               <div>
-                <p className="mb-2 text-sm font-medium text-neutral-800">{t('admin.kyc.documents', 'Documents')}</p>
+                <p className="mb-2 text-sm font-medium text-neutral-800 dark:text-neutral-200">{t('admin.kyc.documents', 'Documents')}</p>
                 <div className="space-y-3">
                   {detail.documents.map((doc) => (
-                    <div key={doc.id} className="overflow-hidden rounded-lg border border-neutral-200">
-                      <p className="border-b border-neutral-100 bg-neutral-50 px-2.5 py-1.5 text-xs font-medium capitalize text-neutral-600">
+                    <div key={doc.id} className="overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700">
+                      <p className="border-b border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 px-2.5 py-1.5 text-xs font-medium capitalize text-neutral-600 dark:text-neutral-400">
                         {doc.docType.replace(/_/g, ' ')}
                       </p>
                       {doc.signedUrl ? (
                         <img src={doc.signedUrl} alt={doc.docType} className="rounded-b-lg w-full" />
                       ) : (
-                        <p className="p-3 text-xs text-neutral-400">{t('admin.kyc.imageUnavailable', 'Image unavailable')}</p>
+                        <p className="p-3 text-xs text-neutral-400 dark:text-neutral-500">{t('admin.kyc.imageUnavailable', 'Image unavailable')}</p>
                       )}
                     </div>
                   ))}
@@ -284,11 +284,11 @@ function DetailOverlay({
             )}
 
             {detail.status === 'rejected' && detail.rejection_reason && (
-              <p className="text-xs text-danger-600">{t('admin.kyc.rejected', 'Rejected')}: {detail.rejection_reason}</p>
+              <p className="text-xs text-danger-600 dark:text-danger-300">{t('admin.kyc.rejected', 'Rejected')}: {detail.rejection_reason}</p>
             )}
 
             {canReview && (
-              <div className="space-y-2 border-t border-neutral-200 pt-4">
+              <div className="space-y-2 border-t border-neutral-200 dark:border-neutral-700 pt-4">
                 {!showReject ? (
                   <div className="flex gap-2">
                     <button
@@ -303,7 +303,7 @@ function DetailOverlay({
                       type="button"
                       disabled={approve.isPending}
                       onClick={() => setShowReject(true)}
-                      className="flex-1 rounded-lg border border-danger-600 px-3 py-2.5 text-sm font-semibold text-danger-600 disabled:opacity-50"
+                      className="flex-1 rounded-lg border border-danger-600 px-3 py-2.5 text-sm font-semibold text-danger-600 dark:text-danger-300 disabled:opacity-50"
                     >
                       {t('admin.kyc.reject', '✕ Reject')}
                     </button>
@@ -326,7 +326,7 @@ function DetailOverlay({
                       >
                         {reject.isPending ? '…' : t('admin.kyc.confirmReject', 'Confirm reject')}
                       </button>
-                      <button type="button" onClick={() => setShowReject(false)} className="rounded-lg border border-neutral-300 px-3 py-2.5 text-sm">
+                      <button type="button" onClick={() => setShowReject(false)} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2.5 text-sm">
                         {t('common.cancel', 'Cancel')}
                       </button>
                     </div>
@@ -376,14 +376,14 @@ function AdminKycPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-1 text-xl font-bold text-neutral-900">{t('admin.nav.kyc', 'Identity KYC')}</h1>
-      {pendingCount > 0 && <p className="mb-3 text-xs font-medium text-amber-600">{t('admin.kyc.awaitingReview', '{{count}} awaiting review', { count: pendingCount })}</p>}
+      <h1 className="mb-1 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.kyc', 'Identity KYC')}</h1>
+      {pendingCount > 0 && <p className="mb-3 text-xs font-medium text-amber-600 dark:text-amber-300">{t('admin.kyc.awaitingReview', '{{count}} awaiting review', { count: pendingCount })}</p>}
 
       {toast && <AdminToast message={toast} />}
 
       {userId && (
         <div className="mb-3 flex items-center gap-2">
-          <span className="inline-flex items-center gap-2 rounded-full bg-blue-100 px-3 py-1.5 text-xs font-medium text-blue-700">
+          <span className="inline-flex items-center gap-2 rounded-full bg-blue-100 dark:bg-blue-900/40 px-3 py-1.5 text-xs font-medium text-blue-700 dark:text-blue-300">
             {t('admin.kyc.filteredToUser', 'Filtered to one user')}
             <button type="button" onClick={() => navigate({ to: '/admin/kyc', search: {} })} aria-label={t('nav.closeMenu')} className="rounded-full p-0.5 hover:bg-blue-200">✕</button>
           </span>
@@ -396,7 +396,7 @@ function AdminKycPage() {
             key={s}
             type="button"
             onClick={() => { setStatusFilter(s); setCursorHistory([undefined]); setPageIndex(0); }}
-            className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusFilter === s ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+            className={`rounded-full px-3 py-1 text-xs font-semibold capitalize ${statusFilter === s ? 'bg-neutral-900 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
           >
             {t(`admin.kyc.status.${s}`, s.replace(/_/g, ' '))}
           </button>
@@ -413,19 +413,19 @@ function AdminKycPage() {
             <AdminCard key={item.id} onClick={() => setSelectedId(item.id)}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate font-semibold text-neutral-900">{item.display_name}</p>
-                  <p className="truncate text-xs text-neutral-500">@{item.username}</p>
+                  <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">{item.display_name}</p>
+                  <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">@{item.username}</p>
                 </div>
                 <AdminBadge label={item.status.replace(/_/g, ' ')} color={STATUS_COLOR[item.status] ?? 'neutral'} />
               </div>
-              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-neutral-500">
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
                 <span>{t('admin.kyc.tier', 'Tier')} {item.tier}</span>
                 <span className="capitalize">· {item.account_type}</span>
-                {item.ai_escalated && <span className="text-amber-600">⚠ {t('admin.kyc.escalated', 'escalated')}</span>}
+                {item.ai_escalated && <span className="text-amber-600 dark:text-amber-300">⚠ {t('admin.kyc.escalated', 'escalated')}</span>}
                 <span className="ml-auto">{fmtDate(item.submitted_at)}</span>
               </div>
               {item.ai_name_match_score !== null && (
-                <p className="mt-1 text-[10px] text-neutral-400">
+                <p className="mt-1 text-[10px] text-neutral-400 dark:text-neutral-500">
                   {Math.round(Number(item.ai_name_match_score) * 100)}% {t('admin.kyc.nameMatch', 'name match')} / {Math.round(Number(item.ai_document_confidence ?? 0) * 100)}% {t('admin.kyc.docConfidence', 'document confidence')}
                 </p>
               )}
@@ -439,7 +439,7 @@ function AdminKycPage() {
             type="button"
             onClick={() => setPageIndex((i) => Math.max(0, i - 1))}
             disabled={pageIndex === 0}
-            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40"
+            className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40"
           >
             {t('admin.pagination.prev', 'Prev')}
           </button>
@@ -451,7 +451,7 @@ function AdminKycPage() {
               setPageIndex((i) => i + 1);
             }}
             disabled={!data?.hasMore}
-            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40"
+            className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40"
           >
             {t('admin.pagination.next', 'Next')}
           </button>

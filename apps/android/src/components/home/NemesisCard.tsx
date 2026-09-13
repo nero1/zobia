@@ -45,12 +45,12 @@ async function fetchNemesis(): Promise<NemesisData | null> {
 }
 
 function SkeletonBlock({ className }: { className: string }) {
-  return <div className={`animate-pulse rounded bg-neutral-200 ${className}`} />;
+  return <div className={`animate-pulse rounded bg-neutral-200 dark:bg-neutral-700 ${className}`} />;
 }
 
 function NemesisSkeleton() {
   return (
-    <div className="animate-pulse rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+    <div className="animate-pulse rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-5 shadow-sm">
       <SkeletonBlock className="mb-3 h-4 w-24" />
       <div className="flex items-center gap-4">
         <SkeletonBlock className="h-12 w-12 rounded-full" />
@@ -89,34 +89,34 @@ export function NemesisCard() {
   const diff = Math.abs(nemesis.myXP - nemesis.rivalXP);
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
-      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('home.nemesis.title')}</h2>
-      {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-5 shadow-sm">
+      <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('home.nemesis.title')}</h2>
+      {error && <p className="mb-2 text-xs text-red-600 dark:text-red-300">{error}</p>}
       <div className="flex items-center gap-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 text-2xl">🧑</div>
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-2xl">🧑</div>
         <div className="min-w-0 flex-1">
-          <div className="mb-1 flex items-center justify-between text-xs text-neutral-500">
-            <span className="font-semibold text-primary-600">{t('home.nemesis.you')}</span>
-            <span className="font-semibold text-red-600">@{nemesis.rivalUsername}</span>
+          <div className="mb-1 flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
+            <span className="font-semibold text-primary-600 dark:text-primary-300">{t('home.nemesis.you')}</span>
+            <span className="font-semibold text-red-600 dark:text-red-300">@{nemesis.rivalUsername}</span>
           </div>
-          <div className="h-3 overflow-hidden rounded-full bg-red-100">
+          <div className="h-3 overflow-hidden rounded-full bg-red-100 dark:bg-red-900/40">
             <div className="h-full rounded-full bg-primary-500 transition-all" style={{ width: `${myPct}%` }} />
           </div>
-          <p className="mt-1.5 text-center text-xs font-semibold text-neutral-600">
+          <p className="mt-1.5 text-center text-xs font-semibold text-neutral-600 dark:text-neutral-400">
             {ahead ? (
-              <span className="text-teal-600">{t('home.nemesis.ahead', { diff: diff.toLocaleString() })}</span>
+              <span className="text-teal-600 dark:text-teal-300">{t('home.nemesis.ahead', { diff: diff.toLocaleString() })}</span>
             ) : (
-              <span className="text-red-600">{t('home.nemesis.behind', { diff: diff.toLocaleString() })}</span>
+              <span className="text-red-600 dark:text-red-300">{t('home.nemesis.behind', { diff: diff.toLocaleString() })}</span>
             )}
           </p>
         </div>
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 text-2xl">{nemesis.rivalAvatarEmoji}</div>
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/40 text-2xl">{nemesis.rivalAvatarEmoji}</div>
       </div>
       <button
         type="button"
         onClick={() => challenge.mutate()}
         disabled={challenge.isPending}
-        className="mt-4 w-full rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60"
+        className="mt-4 w-full rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
       >
         {challenge.isPending ? t('home.nemesis.challenging') : t('home.nemesis.challenge')}
       </button>

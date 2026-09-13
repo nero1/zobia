@@ -52,9 +52,9 @@ function AdminDashboardPage() {
   return (
     <div className="px-4 py-5 space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.dashboard', 'Dashboard')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.dashboard', 'Dashboard')}</h1>
         {stats && (
-          <p className="text-[11px] text-neutral-400">
+          <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
             {t('admin.updated', 'Updated')} {new Date(stats.generated_at).toLocaleTimeString('en-GB')}
           </p>
         )}
@@ -127,13 +127,13 @@ function AdminDashboardPage() {
                 <Link
                   key={qa.href}
                   to={qa.href}
-                  className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white p-4 shadow-card active:bg-neutral-50"
+                  className="flex items-center justify-between rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card active:bg-neutral-50 dark:active:bg-neutral-800"
                 >
                   <div className="min-w-0">
-                    <p className="text-sm font-semibold text-neutral-900">{t(qa.titleKey, qa.titleDefault)}</p>
-                    <p className="mt-0.5 text-xs text-neutral-500">{t(qa.descKey, qa.descDefault)}</p>
+                    <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t(qa.titleKey, qa.titleDefault)}</p>
+                    <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{t(qa.descKey, qa.descDefault)}</p>
                   </div>
-                  <span className="shrink-0 text-neutral-400">→</span>
+                  <span className="shrink-0 text-neutral-400 dark:text-neutral-500">→</span>
                 </Link>
               ))}
             </div>

@@ -91,16 +91,16 @@ function PayoutCard({ payout, showActions, onApprove, onReject, busy }: {
     <AdminCard>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-semibold text-neutral-900">@{payout.creator.username}</p>
-          {payout.creator.email && <p className="truncate text-xs text-neutral-400">{payout.creator.email}</p>}
+          <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">@{payout.creator.username}</p>
+          {payout.creator.email && <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">{payout.creator.email}</p>}
         </div>
         <AdminBadge label={payout.status.replace(/_/g, ' ')} color={STATUS_BADGE[payout.status] ?? 'blue'} />
       </div>
       <div className="mt-2 flex items-center justify-between text-sm">
-        <span className="font-bold text-neutral-900">{fmtCurrency(koboToNgn(payout.netKobo))}</span>
-        <span className="text-xs text-neutral-400">{t('admin.payouts.gross', 'gross')} {fmtCurrency(koboToNgn(payout.grossKobo))}</span>
+        <span className="font-bold text-neutral-900 dark:text-neutral-100">{fmtCurrency(koboToNgn(payout.netKobo))}</span>
+        <span className="text-xs text-neutral-400 dark:text-neutral-500">{t('admin.payouts.gross', 'gross')} {fmtCurrency(koboToNgn(payout.grossKobo))}</span>
       </div>
-      <div className="mt-1.5 flex items-center justify-between text-xs text-neutral-500">
+      <div className="mt-1.5 flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
         <span>{payout.method.replace(/_/g, ' ')}{payout.bankAccountLast4 ? ` · ••••${payout.bankAccountLast4}` : ''}</span>
         <span>{timeAgo(payout.createdAt)}</span>
       </div>
@@ -110,7 +110,7 @@ function PayoutCard({ payout, showActions, onApprove, onReject, busy }: {
             type="button"
             disabled={busy}
             onClick={() => onApprove(payout.id)}
-            className="flex-1 rounded-lg bg-success-100 px-3 py-2 text-xs font-semibold text-success-700 disabled:opacity-50"
+            className="flex-1 rounded-lg bg-success-100 dark:bg-success-900/40 px-3 py-2 text-xs font-semibold text-success-700 dark:text-success-300 disabled:opacity-50"
           >
             {t('admin.payouts.approve', 'Approve')}
           </button>
@@ -118,7 +118,7 @@ function PayoutCard({ payout, showActions, onApprove, onReject, busy }: {
             type="button"
             disabled={busy}
             onClick={() => onReject(payout)}
-            className="flex-1 rounded-lg bg-danger-100 px-3 py-2 text-xs font-semibold text-danger-700 disabled:opacity-50"
+            className="flex-1 rounded-lg bg-danger-100 dark:bg-danger-900/40 px-3 py-2 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50"
           >
             {t('admin.payouts.reject', 'Reject')}
           </button>
@@ -135,25 +135,25 @@ function DlqCard({ item, onRetry, busy }: { item: DlqItem; onRetry: (id: string)
     <AdminCard>
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <p className="truncate font-semibold text-neutral-900">@{item.creator.username}</p>
-          {item.creator.email && <p className="truncate text-xs text-neutral-400">{item.creator.email}</p>}
+          <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">@{item.creator.username}</p>
+          {item.creator.email && <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">{item.creator.email}</p>}
         </div>
         <AdminBadge label={resolved ? t('admin.payouts.resolved', 'Resolved') : t('admin.payouts.unresolved', 'Unresolved')} color={resolved ? 'teal' : 'red'} />
       </div>
-      <p className="mt-2 font-bold text-neutral-900">{fmtCurrency(koboToNgn(item.payout.grossKobo))}</p>
-      {item.failureReason && <p className="mt-1 truncate text-xs text-danger-700">{item.failureReason}</p>}
-      <div className="mt-1.5 flex items-center justify-between text-xs text-neutral-500">
+      <p className="mt-2 font-bold text-neutral-900 dark:text-neutral-100">{fmtCurrency(koboToNgn(item.payout.grossKobo))}</p>
+      {item.failureReason && <p className="mt-1 truncate text-xs text-danger-700 dark:text-danger-300">{item.failureReason}</p>}
+      <div className="mt-1.5 flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
         <span>{t('admin.payouts.retries', 'Retries')}: {item.retryCount}</span>
         <span>{timeAgo(item.createdAt)}</span>
       </div>
       {resolved ? (
-        item.resolutionNote && <p className="mt-2 text-[11px] italic text-neutral-400">{item.resolutionNote}</p>
+        item.resolutionNote && <p className="mt-2 text-[11px] italic text-neutral-400 dark:text-neutral-500">{item.resolutionNote}</p>
       ) : (
         <button
           type="button"
           disabled={busy}
           onClick={() => onRetry(item.id)}
-          className="mt-3 w-full rounded-lg bg-amber-100 px-3 py-2 text-xs font-semibold text-amber-700 disabled:opacity-50"
+          className="mt-3 w-full rounded-lg bg-amber-100 dark:bg-amber-900/40 px-3 py-2 text-xs font-semibold text-amber-700 dark:text-amber-300 disabled:opacity-50"
         >
           {t('admin.payouts.requeue', 'Re-queue')}
         </button>
@@ -223,7 +223,7 @@ function AdminPayoutsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.payouts', 'Creator Payouts')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.payouts', 'Creator Payouts')}</h1>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 

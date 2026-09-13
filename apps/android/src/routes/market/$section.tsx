@@ -54,15 +54,15 @@ function MarketSectionPage() {
   const items = data?.pages.flat() ?? [];
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-3 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-3 px-4 py-4">
       <div className="flex items-center justify-between">
         <div>
-          <Link to="/market" className="text-xs text-neutral-500">← Market</Link>
-          <h1 className="text-lg font-bold text-neutral-900">{SECTION_TITLE[section] ?? section}</h1>
+          <Link to="/market" className="text-xs text-neutral-500 dark:text-neutral-400">← Market</Link>
+          <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{SECTION_TITLE[section] ?? section}</h1>
         </div>
-        <div className="flex gap-0.5 rounded-lg border border-neutral-200 bg-white p-0.5">
-          <button onClick={() => setView('list')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'list' ? 'bg-primary-600 text-white' : 'text-neutral-500'}`}>☰</button>
-          <button onClick={() => setView('grid')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'grid' ? 'bg-primary-600 text-white' : 'text-neutral-500'}`}>⊞</button>
+        <div className="flex gap-0.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-0.5">
+          <button onClick={() => setView('list')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'list' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>☰</button>
+          <button onClick={() => setView('grid')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'grid' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>⊞</button>
         </div>
       </div>
 
@@ -71,7 +71,7 @@ function MarketSectionPage() {
           <button
             key={c.value}
             onClick={() => setCategory(c.value)}
-            className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium ${category === c.value ? 'border-primary-600 bg-primary-600 text-white' : 'border-neutral-200 text-neutral-600'}`}
+            className={`shrink-0 rounded-full border px-2.5 py-1 text-[11px] font-medium ${category === c.value ? 'border-primary-600 bg-primary-600 text-white' : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400'}`}
           >
             {c.label}
           </button>
@@ -80,12 +80,12 @@ function MarketSectionPage() {
 
       {isCreatorSortable && (
         <div className="flex items-center gap-1.5 text-xs">
-          <span className="text-neutral-500">Sort:</span>
+          <span className="text-neutral-500 dark:text-neutral-400">Sort:</span>
           {(['popularity', 'price', 'rating'] as MarketSort[]).map((s) => (
             <button
               key={s}
               onClick={() => setSort(s)}
-              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${sort === s ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+              className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${sort === s ? 'bg-neutral-900 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
             >
               {s === 'popularity' ? 'Popular' : s === 'price' ? 'Price' : 'Rating'}
             </button>
@@ -95,10 +95,10 @@ function MarketSectionPage() {
 
       {status === 'pending' ? (
         <div className="grid grid-cols-2 gap-3">
-          {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-40 animate-pulse rounded-2xl bg-neutral-200" />)}
+          {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-40 animate-pulse rounded-2xl bg-neutral-200 dark:bg-neutral-700" />)}
         </div>
       ) : items.length === 0 ? (
-        <p className="py-12 text-center text-sm text-neutral-500">Nothing here yet.</p>
+        <p className="py-12 text-center text-sm text-neutral-500 dark:text-neutral-400">Nothing here yet.</p>
       ) : (
         <>
           <div className={view === 'grid' ? 'grid grid-cols-2 gap-3' : 'space-y-2'}>
@@ -109,7 +109,7 @@ function MarketSectionPage() {
               <button
                 onClick={() => fetchNextPage()}
                 disabled={isFetchingNextPage}
-                className="rounded-xl border border-neutral-300 px-4 py-2 text-xs font-semibold text-neutral-700 disabled:opacity-60"
+                className="rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
               >
                 {isFetchingNextPage ? 'Loading…' : 'Load more'}
               </button>

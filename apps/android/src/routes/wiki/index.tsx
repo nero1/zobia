@@ -41,13 +41,13 @@ function WikiDiscoveryPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       <div className="mb-3 flex justify-between items-center">
-        <h1 className="text-lg font-bold text-neutral-900">{t('wiki.title', 'Wikis')}</h1>
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('wiki.title', 'Wikis')}</h1>
         <Link
           to={myFirstWiki ? '/wiki/$slug' : '/wiki/new'}
           params={myFirstWiki ? { slug: myFirstWiki.slug } : undefined}
-          className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700"
+          className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300"
         >
           {myFirstWiki ? t('wiki.myWikis', 'My Wikis') : t('wiki.startWiki', 'Start a Wiki')}
         </Link>
@@ -58,16 +58,16 @@ function WikiDiscoveryPage() {
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder={t('wiki.search.placeholder', 'Search wikis…')}
-        className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 mb-3 focus:border-primary-500 focus:outline-none"
+        className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 mb-3 focus:border-primary-500 focus:outline-none"
       />
 
-      <div className="mb-4 flex gap-1 rounded-xl border border-neutral-200 bg-white p-1 w-fit overflow-x-auto max-w-full">
+      <div className="mb-4 flex gap-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-1 w-fit overflow-x-auto max-w-full">
         {TABS.map((tb) => (
           <button
             key={tb}
             type="button"
             onClick={() => setTab(tb)}
-            className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold ${tab === tb ? 'bg-primary-600 text-white' : 'text-neutral-600'}`}
+            className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold ${tab === tb ? 'bg-primary-600 text-white' : 'text-neutral-600 dark:text-neutral-400'}`}
           >
             {tabLabel[tb]}
           </button>
@@ -82,7 +82,7 @@ function WikiDiscoveryPage() {
 
       {status === 'success' && (data?.wikis.length ?? 0) === 0 && (
         <div className="flex items-center justify-center py-20">
-          <p className="text-neutral-500 text-sm">{t('wiki.empty', 'No wikis yet — be the first to start one.')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('wiki.empty', 'No wikis yet — be the first to start one.')}</p>
         </div>
       )}
 

@@ -68,14 +68,14 @@ function TransferModal({ blog, onClose, onSave, saving }: { blog: BlogRow; onClo
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-        <p className="text-base font-bold text-neutral-900">{t('admin.blogs.transferTitle', 'Transfer "{{title}}"', { title: blog.title })}</p>
-        <p className="mt-1 text-sm text-neutral-500">{t('admin.blogs.transferDesc', 'Enter the username of the new owner.')}</p>
+      <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-6 shadow-xl">
+        <p className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('admin.blogs.transferTitle', 'Transfer "{{title}}"', { title: blog.title })}</p>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('admin.blogs.transferDesc', 'Enter the username of the new owner.')}</p>
         <AdminField label={t('admin.blogs.newOwnerUsername', 'New Owner Username')}>
           <input type="text" value={username} onChange={(e) => setUsername(e.target.value)} placeholder="username" className={`${adminInputClass} mt-3`} />
         </AdminField>
         <div className="mt-4 flex gap-3">
-          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60">
+          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60">
             {t('common.cancel')}
           </button>
           <button
@@ -193,7 +193,7 @@ function AdminBlogsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.blogs', 'Blogs')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.blogs', 'Blogs')}</h1>
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
       <input
@@ -216,39 +216,39 @@ function AdminBlogsPage() {
             return (
               <AdminCard key={b.id}>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <p className="font-semibold text-neutral-900 truncate">{b.title}</p>
+                  <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">{b.title}</p>
                   <AdminBadge label={b.status} color={STATUS_COLOR[b.status] ?? 'neutral'} />
                 </div>
-                {b.status_reason && <p className="mt-0.5 text-[11px] text-neutral-500 line-clamp-1">{b.status_reason}</p>}
-                <p className="mt-1 text-xs text-neutral-500">
+                {b.status_reason && <p className="mt-0.5 text-[11px] text-neutral-500 dark:text-neutral-400 line-clamp-1">{b.status_reason}</p>}
+                <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
                   @{b.owner_username} · {b.post_count} {t('admin.blogs.posts', 'posts')} · {b.subscriber_count} {t('admin.blogs.subscribers', 'subscribers')} · {fmtDate(b.created_at)}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {b.status !== 'active' && (
-                    <button disabled={busy} onClick={() => runAction(b.id, 'restore')} className="rounded-lg bg-success-100 px-2.5 py-1 text-xs font-semibold text-success-700 disabled:opacity-50">
+                    <button disabled={busy} onClick={() => runAction(b.id, 'restore')} className="rounded-lg bg-success-100 dark:bg-success-900/40 px-2.5 py-1 text-xs font-semibold text-success-700 dark:text-success-300 disabled:opacity-50">
                       {t('admin.blogs.restore', 'Restore')}
                     </button>
                   )}
                   {b.status === 'active' && (
                     <>
-                      <button disabled={busy} onClick={() => runAction(b.id, 'pause')} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50">
+                      <button disabled={busy} onClick={() => runAction(b.id, 'pause')} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50">
                         {t('admin.blogs.pause', 'Pause')}
                       </button>
                       <button disabled={busy} onClick={() => setReasonAction({ blog: b, action: 'suspend' })} className="rounded-lg bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-700 disabled:opacity-50">
                         {t('admin.blogs.suspend', 'Suspend')}
                       </button>
-                      <button disabled={busy} onClick={() => setReasonAction({ blog: b, action: 'ban' })} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50">
+                      <button disabled={busy} onClick={() => setReasonAction({ blog: b, action: 'ban' })} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
                         {t('admin.blogs.ban', 'Ban')}
                       </button>
-                      <button disabled={busy} onClick={() => runAction(b.id, 'deactivate')} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50">
+                      <button disabled={busy} onClick={() => runAction(b.id, 'deactivate')} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50">
                         {t('admin.blogs.deactivate', 'Deactivate')}
                       </button>
                     </>
                   )}
-                  <button disabled={busy} onClick={() => setTransferring(b)} className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700 disabled:opacity-50">
+                  <button disabled={busy} onClick={() => setTransferring(b)} className="rounded-lg bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300 disabled:opacity-50">
                     {t('admin.blogs.transfer', 'Transfer')}
                   </button>
-                  <button disabled={busy} onClick={() => setDeleting(b)} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50">
+                  <button disabled={busy} onClick={() => setDeleting(b)} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
                     {t('common.delete', 'Delete')}
                   </button>
                 </div>

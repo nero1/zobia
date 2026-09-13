@@ -33,33 +33,33 @@ export function TweetCard({
   const [quoteDraft, setQuoteDraft] = useState('');
 
   return (
-    <article className="bg-white border-b border-neutral-100 p-4">
+    <article className="bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800 p-4">
       {tweet.retweetedByUsername && (
-        <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-neutral-500">
+        <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
           <span aria-hidden="true">🔁</span>
           {t('tweets.retweetedBy', { username: tweet.retweetedByUsername })}
         </div>
       )}
       {tweet.retweetQuoteContent && (
-        <p className="mb-2 whitespace-pre-line text-sm text-neutral-700">{tweet.retweetQuoteContent}</p>
+        <p className="mb-2 whitespace-pre-line text-sm text-neutral-700 dark:text-neutral-300">{tweet.retweetQuoteContent}</p>
       )}
       {tweet.isPinned && (
-        <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-neutral-500">
+        <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
           <span aria-hidden="true">📌</span>
           {t('tweets.pinned')}
         </div>
       )}
 
       <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-lg">
+        <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-lg">
           {tweet.authorAvatarEmoji}
         </div>
         <div className="min-w-0 flex-1">
-          <Link to="/profile/$username" params={{ username: tweet.authorUsername }} className="inline-flex items-center gap-1 font-semibold text-neutral-900 text-sm">
+          <Link to="/profile/$username" params={{ username: tweet.authorUsername }} className="inline-flex items-center gap-1 font-semibold text-neutral-900 dark:text-neutral-100 text-sm">
             <span>@{tweet.authorUsername}</span>
             <UserBadgeRow totalXp={tweet.authorXpTotal} prestige={tweet.authorPrestigeCount} verified={tweet.authorIsVerified} />
           </Link>
-          <Link to="/tweets/$tweetId" params={{ tweetId: tweet.id }} className="text-neutral-400 text-xs">
+          <Link to="/tweets/$tweetId" params={{ tweetId: tweet.id }} className="text-neutral-400 dark:text-neutral-500 text-xs">
             {tweet.parentTweetId ? `${t('tweets.reply')} · ` : ''}
             {timeAgo(tweet.createdAt)} ago
           </Link>
@@ -68,17 +68,17 @@ export function TweetCard({
           <div className="flex shrink-0 items-center gap-1">
             {tweet.isPinned
               ? onUnpin && (
-                  <button onClick={() => onUnpin(tweet.id)} className="rounded-lg px-2 py-1 text-xs font-semibold text-neutral-500">
+                  <button onClick={() => onUnpin(tweet.id)} className="rounded-lg px-2 py-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
                     {t('tweets.unpin')}
                   </button>
                 )
               : onPin && (
-                  <button onClick={() => onPin(tweet.id)} className="rounded-lg px-2 py-1 text-xs font-semibold text-neutral-500">
+                  <button onClick={() => onPin(tweet.id)} className="rounded-lg px-2 py-1 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
                     {t('tweets.pin')}
                   </button>
                 )}
             {onDelete && (
-              <button onClick={() => onDelete(tweet.id)} className="rounded-lg px-2 py-1 text-xs font-semibold text-danger-600">
+              <button onClick={() => onDelete(tweet.id)} className="rounded-lg px-2 py-1 text-xs font-semibold text-danger-600 dark:text-danger-300">
                 {t('tweets.delete')}
               </button>
             )}
@@ -86,10 +86,10 @@ export function TweetCard({
         )}
       </div>
 
-      {tweet.content && <p className="text-neutral-800 text-sm leading-relaxed whitespace-pre-line">{tweet.content}</p>}
+      {tweet.content && <p className="text-neutral-800 dark:text-neutral-200 text-sm leading-relaxed whitespace-pre-line">{tweet.content}</p>}
 
       {tweet.imageUrl && (
-        <div className="mt-3 max-h-[420px] overflow-hidden rounded-xl border border-neutral-200">
+        <div className="mt-3 max-h-[420px] overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700">
           <img src={tweet.imageUrl} alt="Tweet image" className="w-full object-cover" loading="lazy" decoding="async" />
         </div>
       )}
@@ -102,7 +102,7 @@ export function TweetCard({
         <Link
           to="/tweets/$tweetId"
           params={{ tweetId: tweet.id }}
-          className="flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600"
+          className="flex items-center gap-1.5 rounded-full border border-neutral-200 dark:border-neutral-700 px-3 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-400"
         >
           <span>💬</span>
           <span>{tweet.repliesCount}</span>
@@ -116,20 +116,20 @@ export function TweetCard({
                 else setShowQuoteBox((v) => !v);
               }}
               className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
-                tweet.retweeted ? 'border-green-300 bg-green-50 text-green-600' : 'border-neutral-200 text-neutral-600'
+                tweet.retweeted ? 'border-green-300 bg-green-50 dark:bg-green-900/30 text-green-600 dark:text-green-300' : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400'
               }`}
             >
               <span>🔁</span>
               <span>{tweet.retweetsCount}</span>
             </button>
             {showQuoteBox && (
-              <div className="absolute bottom-full left-0 z-20 mb-1 w-64 rounded-xl border border-neutral-200 bg-white p-2 shadow-lg">
+              <div className="absolute bottom-full left-0 z-20 mb-1 w-64 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-2 shadow-lg">
                 <button
                   onClick={() => {
                     onToggleRetweet(tweet.id, false);
                     setShowQuoteBox(false);
                   }}
-                  className="mb-1.5 w-full rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-neutral-700"
+                  className="mb-1.5 w-full rounded-lg px-2 py-1.5 text-left text-xs font-semibold text-neutral-700 dark:text-neutral-300"
                 >
                   🔁 {t('tweets.retweet')}
                 </button>
@@ -138,7 +138,7 @@ export function TweetCard({
                   onChange={(e) => setQuoteDraft(e.target.value)}
                   placeholder={t('tweets.addComment')}
                   rows={2}
-                  className="w-full resize-none rounded-lg border border-neutral-200 bg-neutral-50 px-2 py-1.5 text-xs focus:outline-none"
+                  className="w-full resize-none rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-2 py-1.5 text-xs focus:outline-none"
                 />
                 <button
                   onClick={() => {
@@ -159,7 +159,7 @@ export function TweetCard({
         <button
           onClick={() => onToggleLike(tweet.id, tweet.liked)}
           className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${
-            tweet.liked ? 'border-red-300 bg-red-50 text-red-600' : 'border-neutral-200 text-neutral-600'
+            tweet.liked ? 'border-red-300 bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-300' : 'border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400'
           }`}
         >
           <span>{tweet.liked ? '❤️' : '🤍'}</span>

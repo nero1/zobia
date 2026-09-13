@@ -46,23 +46,23 @@ export function ActivityFeed({ activities, loading }: { activities: ActivityItem
     return (
       <div className="space-y-2">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="h-10 animate-pulse rounded-lg bg-neutral-200" />
+          <div key={i} className="h-10 animate-pulse rounded-lg bg-neutral-200 dark:bg-neutral-700" />
         ))}
       </div>
     );
   }
 
   if (!activities || activities.length === 0) {
-    return <p className="py-6 text-center text-sm text-neutral-500">{t('profile.activities.empty', 'No activity yet')}</p>;
+    return <p className="py-6 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('profile.activities.empty', 'No activity yet')}</p>;
   }
 
   return (
     <ul className="space-y-2">
       {activities.map((a, i) => (
-        <li key={`${a.type}-${a.occurredAt}-${i}`} className="flex items-center gap-3 rounded-lg border border-neutral-200 px-3 py-2">
+        <li key={`${a.type}-${a.occurredAt}-${i}`} className="flex items-center gap-3 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2">
           <span className="text-lg">{a.emoji}</span>
-          <span className="min-w-0 flex-1 truncate text-sm text-neutral-700">{a.label}</span>
-          <span className="shrink-0 text-xs text-neutral-400">{new Date(a.occurredAt).toLocaleDateString()}</span>
+          <span className="min-w-0 flex-1 truncate text-sm text-neutral-700 dark:text-neutral-300">{a.label}</span>
+          <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">{new Date(a.occurredAt).toLocaleDateString()}</span>
         </li>
       ))}
     </ul>

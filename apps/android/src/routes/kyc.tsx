@@ -25,10 +25,10 @@ function KycPage() {
   }, []);
 
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 bg-neutral-50 px-6 text-center">
+    <div className="flex h-full flex-col items-center justify-center gap-4 bg-neutral-50 dark:bg-neutral-800 px-6 text-center">
       <span className="text-4xl">🪪</span>
-      <h1 className="text-lg font-bold text-neutral-900">{t('kyc.title')}</h1>
-      <p className="text-sm text-neutral-500">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('kyc.title')}</h1>
+      <p className="text-sm text-neutral-500 dark:text-neutral-400">
         {t('kyc.androidWrapperDesc', 'Identity verification opens in a secure browser tab.')}
       </p>
       <button
@@ -37,7 +37,7 @@ function KycPage() {
       >
         {t('kyc.startTier')}
       </button>
-      <button onClick={() => router.history.back()} className="text-sm text-neutral-500">
+      <button onClick={() => router.history.back()} className="text-sm text-neutral-500 dark:text-neutral-400">
         {t('action.back')}
       </button>
     </div>

@@ -56,14 +56,14 @@ function EditWikiPagePage() {
     },
   });
 
-  if (pageQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
+  if (pageQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4"><div className="h-24 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" /></div>;
   if (!pageQuery.data?.canContribute) {
-    return <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center text-sm text-neutral-500">{t('wiki.pages.editNotAllowed', "You don't have permission to edit this page.")}</div>;
+    return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('wiki.pages.editNotAllowed', "You don't have permission to edit this page.")}</div>;
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-lg font-bold text-neutral-900 mb-4">{t('wiki.pages.edit.title', 'Edit page')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-4">{t('wiki.pages.edit.title', 'Edit page')}</h1>
       <WikiPageEditor
         title={title}
         onTitleChange={setTitle}
@@ -75,7 +75,7 @@ function EditWikiPagePage() {
         onEditSummaryChange={setEditSummary}
         showEditSummary
       />
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-sm text-red-600 dark:text-red-300">{error}</p>}
       <button
         disabled={!title.trim() || !content.trim() || save.isPending}
         onClick={() => save.mutate()}

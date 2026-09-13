@@ -3436,10 +3436,32 @@ All four are now ported, each reusing web's existing backend as-is:
   `@capacitor/preferences` (with a synchronous `localStorage` mirror so it
   applies before first paint, same two-tier pattern as `lib/i18n`'s language
   handling), never sent to the server. `ThemeProvider` wraps the app in
-  `main.tsx`; the picker lives at the top of `routes/settings.tsx`. Because
-  no other Android screen has `dark:` styling yet, toggling it only affects
-  the `<html>` class today — retrofitting every existing screen's colors was
-  out of scope here.
+  `main.tsx`; the picker lives at the top of `routes/settings.tsx`.
+
+  **Full app-wide retrofit (follow-up pass).** The toggle initially only
+  flipped the `<html>` class, since no screen had any `dark:` styling.
+  Closed in a single mechanical pass: `apps/android/src/styles/globals.css`
+  gained a `.dark { ... }` block with the exact same HSL values as
+  `apps/web/app/globals.css`'s (so the shadcn-style semantic tokens —
+  `bg-card`, `text-foreground`, `border-border`, etc. — already used in a
+  few places auto-adapt), and a codemod walked every `.tsx`/`.ts` file under
+  `apps/android/src` appending the matching `dark:` variant next to each
+  occurrence of the app's ~30-class light-mode color vocabulary (structural
+  neutrals — `bg-white`/`bg-neutral-50/100/200`, `text-neutral-400..900`,
+  `border-neutral-100/200/300` — plus the light-tint badge/callout
+  backgrounds — `bg-{primary,teal,amber,blue,success,danger,red,gold,green,
+  purple}-50/100` — each mapped to a `dark:bg-{color}-900/30` or `/40` tint
+  with a lighter `dark:text-{color}-300` pairing). Solid/saturated accent
+  colors (button backgrounds like `bg-primary-600`) were deliberately left
+  alone — they already read fine on a dark background. ~4,500 `dark:`
+  variants were inserted across 195 files in one pass; a second pass fixed
+  31 occurrences across 18 files where a state-modified source class
+  (`hover:`, `active:`, `focus:`) had been paired with a bare `dark:` class
+  instead of a matching `dark:hover:`/`dark:active:`/`dark:focus:` one —
+  the first pass's naive token match dropped the modifier, which would have
+  made the dark-mode color apply unconditionally instead of only on that
+  state, silently breaking the intended hover/active/focus effect whenever
+  dark mode was on.
 - **Per-category push notifications.** New `routes/settings/notifications.tsx`
   reads/writes `GET`/`PATCH /api/users/me/settings` — the same endpoint and
   same ten fields (`dm_notifications`, `group_notifications`,

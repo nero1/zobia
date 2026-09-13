@@ -64,7 +64,7 @@ async function fetchStore(userId: string): Promise<StoreData> {
   }
 }
 
-const inputClass = 'w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-900';
+const inputClass = 'w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-900 dark:text-neutral-100';
 
 function CreatorMerchPage() {
   const { t } = useTranslation();
@@ -153,9 +153,9 @@ function CreatorMerchPage() {
 
   if (status === 'pending') {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4 space-y-3">
-        <div className="h-24 animate-pulse rounded-xl bg-neutral-200" />
-        <div className="h-48 animate-pulse rounded-xl bg-neutral-200" />
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4 space-y-3">
+        <div className="h-24 animate-pulse rounded-xl bg-neutral-200 dark:bg-neutral-700" />
+        <div className="h-48 animate-pulse rounded-xl bg-neutral-200 dark:bg-neutral-700" />
       </div>
     );
   }
@@ -166,13 +166,13 @@ function CreatorMerchPage() {
     return (
       <div className="flex flex-col items-center py-16 px-6 text-center">
         <span className="text-5xl">🔒</span>
-        <p className="mt-4 font-semibold text-neutral-700">
+        <p className="mt-4 font-semibold text-neutral-700 dark:text-neutral-300">
           {t('creator.merch.ineligibleTitle', 'Merch stores are for Elite+ creators and verified Business accounts')}
         </p>
-        <p className="mt-1 text-sm text-neutral-500">
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           {t('creator.merch.ineligibleDesc', 'Reach Elite tier or verify your Business account to open a store.')}
         </p>
-        <Link to="/creator" className="mt-4 text-sm font-semibold text-primary-600">
+        <Link to="/creator" className="mt-4 text-sm font-semibold text-primary-600 dark:text-primary-300">
           ← {t('creator.title', 'Creator Dashboard')}
         </Link>
       </div>
@@ -180,21 +180,21 @@ function CreatorMerchPage() {
   }
 
   if (status === 'error' || !data) {
-    return <div className="p-6 text-sm text-red-600">{t('error.generic')}</div>;
+    return <div className="p-6 text-sm text-red-600 dark:text-red-300">{t('error.generic')}</div>;
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-3 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-3 px-4 py-4">
       {toast && (
         <div className={`fixed bottom-6 left-4 right-4 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.type === 'success' ? 'bg-teal-600' : 'bg-red-600'}`}>
           {toast.msg}
         </div>
       )}
 
-      <h1 className="text-xl font-bold text-neutral-900">🛍️ {t('creator.merch.title', 'My Merch Store')}</h1>
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">🛍️ {t('creator.merch.title', 'My Merch Store')}</h1>
 
-      <form onSubmit={handleSaveStore} className="space-y-2 rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
-        <p className="text-sm font-semibold text-neutral-800">{t('creator.merch.storeDetails', 'Store details')}</p>
+      <form onSubmit={handleSaveStore} className="space-y-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
+        <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">{t('creator.merch.storeDetails', 'Store details')}</p>
         <input
           value={nameValue}
           onChange={(e) => { setStoreFormTouched(true); setStoreForm({ name: e.target.value, description: descValue }); }}
@@ -225,8 +225,8 @@ function CreatorMerchPage() {
 
       {store && (
         <>
-          <form onSubmit={handleAddProduct} className="space-y-2 rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
-            <p className="text-sm font-semibold text-neutral-800">{t('creator.merch.addProduct', 'Add a product')}</p>
+          <form onSubmit={handleAddProduct} className="space-y-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
+            <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">{t('creator.merch.addProduct', 'Add a product')}</p>
             <input
               value={productForm.name}
               onChange={(e) => setProductForm({ ...productForm, name: e.target.value })}
@@ -272,7 +272,7 @@ function CreatorMerchPage() {
               className={inputClass}
             />
 
-            <label className="flex items-center gap-2 text-sm text-neutral-700">
+            <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
               <input
                 type="checkbox"
                 checked={productForm.referral_enabled}
@@ -292,13 +292,13 @@ function CreatorMerchPage() {
                   placeholder={t('creator.merch.commissionPlaceholder', 'Commission % (min 1%)')}
                   className={inputClass}
                 />
-                <p className="mt-1 text-xs text-neutral-500">
+                <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
                   {t('creator.merch.commissionHint', "This % of the sale price is set aside for referrals. The platform takes its standard cut of that amount; the rest goes to whoever referred the buyer.")}
                 </p>
               </div>
             )}
             {productForm.referral_enabled && productForm.product_type !== 'physical' && (
-              <p className="text-xs text-neutral-500">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
                 {t('creator.merch.digitalReferralHint', "Digital items use the platform's standard referral commission rate — no % to set.")}
               </p>
             )}
@@ -313,17 +313,17 @@ function CreatorMerchPage() {
           </form>
 
           <div className="space-y-2">
-            <p className="text-sm font-semibold text-neutral-800">
+            <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
               {t('creator.merch.yourProducts', 'Your products ({{count}})', { count: data.products.length })}
             </p>
             {data.products.map((p) => (
-              <div key={p.id} className="flex items-center justify-between rounded-xl border border-neutral-200 bg-white p-3 text-sm shadow-card">
+              <div key={p.id} className="flex items-center justify-between rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3 text-sm shadow-card">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-neutral-900">{p.name}</p>
-                  <p className="text-xs text-neutral-500">
+                  <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{p.name}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
                     {p.product_type} · ₦{(p.priceKobo / 100).toLocaleString()}
                     {p.referral_enabled && (
-                      <span className="ml-2 text-teal-600">
+                      <span className="ml-2 text-teal-600 dark:text-teal-300">
                         · {t('creator.merch.referralLabel', 'referral')} {p.product_type === 'physical' ? `${p.referralCommissionPct}%` : t('creator.merch.referralOn', 'on')}
                       </span>
                     )}
@@ -335,7 +335,7 @@ function CreatorMerchPage() {
         </>
       )}
 
-      <Link to="/creator" className="block text-center text-sm text-primary-600">
+      <Link to="/creator" className="block text-center text-sm text-primary-600 dark:text-primary-300">
         ← {t('creator.title', 'Creator Dashboard')}
       </Link>
     </div>

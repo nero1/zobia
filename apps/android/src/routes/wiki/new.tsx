@@ -51,15 +51,15 @@ function NewWikiPage() {
   });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-lg font-bold text-neutral-900 mb-4">{t('wiki.new.title', 'Start a Wiki')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-4">{t('wiki.new.title', 'Start a Wiki')}</h1>
       <div className="space-y-3">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={100}
           placeholder={t('wiki.new.namePlaceholder', "e.g. Muna's Lore Wiki")}
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+          className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
         />
         <textarea
           value={description}
@@ -67,11 +67,11 @@ function NewWikiPage() {
           maxLength={2000}
           rows={3}
           placeholder={t('wiki.new.descriptionPlaceholder', 'Description (optional)')}
-          className="w-full resize-none rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+          className="w-full resize-none rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
         />
 
         <div>
-          <p className="mb-1.5 text-xs font-semibold text-neutral-500">{t('wiki.new.policyLabel', 'Who can contribute?')}</p>
+          <p className="mb-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">{t('wiki.new.policyLabel', 'Who can contribute?')}</p>
           <div className="flex flex-col gap-1.5">
             {POLICIES.map((p) => (
               <button
@@ -79,7 +79,7 @@ function NewWikiPage() {
                 type="button"
                 onClick={() => setPolicy(p)}
                 className={`rounded-xl border px-3 py-2 text-left text-sm ${
-                  policy === p ? 'border-primary-500 bg-primary-50 text-primary-700 font-medium' : 'border-neutral-200 bg-white text-neutral-700'
+                  policy === p ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium' : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
                 }`}
               >
                 {policyLabel[p]}
@@ -88,7 +88,7 @@ function NewWikiPage() {
           </div>
         </div>
 
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-red-600 dark:text-red-300">{error}</p>}
         <button
           disabled={!name.trim() || createWiki.isPending}
           onClick={() => createWiki.mutate()}

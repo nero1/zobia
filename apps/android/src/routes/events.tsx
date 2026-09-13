@@ -112,12 +112,12 @@ function eventTypeLabel(t: (k: string) => string, type: EventType): string {
 
 function eventTypeColor(type: EventType): string {
   const map: Record<string, string> = {
-    flash_xp: 'bg-amber-100 text-amber-700',
-    guild_war: 'bg-red-100 text-red-700',
-    cultural: 'bg-teal-100 text-teal-700',
-    mystery_drop: 'bg-neutral-100 text-neutral-700',
+    flash_xp: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
+    guild_war: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300',
+    cultural: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300',
+    mystery_drop: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300',
   };
-  return map[type] ?? 'bg-neutral-100 text-neutral-700';
+  return map[type] ?? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300';
 }
 
 function relativeStartTime(t: (k: string, o?: Record<string, unknown>) => string, startsAt: string): string {
@@ -136,27 +136,27 @@ function GiftDropCard({ drop }: { drop: GiftDrop }) {
   const countdown = useCountdown(drop.endsAt);
 
   return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-5 mb-3">
+    <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 p-5 mb-3">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <span className="text-xl">🎁</span>
-            <h2 className="text-sm font-semibold text-amber-700">{t('events.giftDrop.title')}</h2>
+            <h2 className="text-sm font-semibold text-amber-700 dark:text-amber-300">{t('events.giftDrop.title')}</h2>
           </div>
-          <p className="mt-1 text-lg font-bold text-neutral-900">{drop.name}</p>
-          {drop.description && <p className="mt-0.5 text-sm text-neutral-600">{drop.description}</p>}
+          <p className="mt-1 text-lg font-bold text-neutral-900 dark:text-neutral-100">{drop.name}</p>
+          {drop.description && <p className="mt-0.5 text-sm text-neutral-600 dark:text-neutral-400">{drop.description}</p>}
         </div>
         <div className="text-right">
-          <p className="text-xs font-semibold text-amber-600">{t('events.giftDrop.endsIn')}</p>
-          <p className="text-lg font-bold tabular-nums text-amber-700">{countdown}</p>
+          <p className="text-xs font-semibold text-amber-600 dark:text-amber-300">{t('events.giftDrop.endsIn')}</p>
+          <p className="text-lg font-bold tabular-nums text-amber-700 dark:text-amber-300">{countdown}</p>
         </div>
       </div>
       <div className="mt-4 flex items-center gap-3">
         {drop.coinCost > 0 && (
-          <span className="text-sm font-semibold text-neutral-700">{drop.coinCost.toLocaleString()} 🪙</span>
+          <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{drop.coinCost.toLocaleString()} 🪙</span>
         )}
         {drop.owned ? (
-          <span className="rounded-full bg-teal-100 px-3 py-1 text-sm font-semibold text-teal-700">
+          <span className="rounded-full bg-teal-100 dark:bg-teal-900/40 px-3 py-1 text-sm font-semibold text-teal-700 dark:text-teal-300">
             {t('events.giftDrop.owned')}
           </span>
         ) : (
@@ -169,7 +169,7 @@ function GiftDropCard({ drop }: { drop: GiftDrop }) {
           </button>
         )}
       </div>
-      <p className="mt-2 text-xs text-neutral-400">
+      <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
         {t('events.giftDrop.androidUnavailable')}
       </p>
     </div>
@@ -181,7 +181,7 @@ function EventCard({ event }: { event: PlatformEvent }) {
   const countdown = useCountdown(event.isActive ? event.endsAt : null);
 
   return (
-    <div className={`rounded-xl border bg-white p-5 mb-3 ${event.isActive ? 'border-blue-300' : 'border-neutral-200'}`}>
+    <div className={`rounded-xl border bg-white dark:bg-neutral-800 p-5 mb-3 ${event.isActive ? 'border-blue-300' : 'border-neutral-200 dark:border-neutral-700'}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -189,34 +189,34 @@ function EventCard({ event }: { event: PlatformEvent }) {
               {eventTypeLabel(t, event.type)}
             </span>
             {event.isActive && (
-              <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-bold text-red-700">
+              <span className="rounded-full bg-red-100 dark:bg-red-900/40 px-2 py-0.5 text-xs font-bold text-red-700 dark:text-red-300">
                 {t('events.live')}
               </span>
             )}
           </div>
-          <h3 className="mt-2 text-base font-semibold text-neutral-900">{event.title}</h3>
-          <p className="mt-0.5 text-sm text-neutral-600">{event.description}</p>
+          <h3 className="mt-2 text-base font-semibold text-neutral-900 dark:text-neutral-100">{event.title}</h3>
+          <p className="mt-0.5 text-sm text-neutral-600 dark:text-neutral-400">{event.description}</p>
           {event.xpMultiplier && event.xpMultiplier > 1 && (
-            <p className="mt-1 text-xs font-semibold text-amber-600">
+            <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-300">
               {t('events.xpMultiplier', { multiplier: event.xpMultiplier })}
             </p>
           )}
-          {event.rewardDescription && <p className="mt-1 text-xs text-neutral-500">{event.rewardDescription}</p>}
+          {event.rewardDescription && <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{event.rewardDescription}</p>}
         </div>
         <div className="shrink-0 text-right">
           {event.isActive && event.type === 'flash_xp' && countdown && (
             <div>
-              <p className="text-xs font-semibold text-neutral-500">{t('events.giftDrop.endsIn')}</p>
-              <p className="font-bold tabular-nums text-red-600">{countdown}</p>
+              <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">{t('events.giftDrop.endsIn')}</p>
+              <p className="font-bold tabular-nums text-red-600 dark:text-red-300">{countdown}</p>
             </div>
           )}
           {event.isActive && event.type !== 'flash_xp' && (
-            <p className="text-xs text-neutral-500">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">
               {new Date(event.endsAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
             </p>
           )}
           {!event.isActive && (
-            <p className="text-xs font-semibold text-neutral-500">{relativeStartTime(t, event.startsAt)}</p>
+            <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">{relativeStartTime(t, event.startsAt)}</p>
           )}
         </div>
       </div>
@@ -241,13 +241,13 @@ function EventsPage() {
 
   if (eventsStatus === 'pending') {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6">
-        <h1 className="text-xl font-bold text-neutral-900 mb-4">{t('events.title')}</h1>
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-6">
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-4">{t('events.title')}</h1>
         {Array.from({ length: 3 }).map((_, i) => (
-          <div key={i} className="rounded-xl border border-neutral-200 bg-white p-5 mb-3 animate-pulse">
-            <div className="h-4 bg-neutral-200 rounded w-32 mb-2" />
-            <div className="h-3 bg-neutral-100 rounded w-full mb-1" />
-            <div className="h-3 bg-neutral-100 rounded w-2/3" />
+          <div key={i} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-5 mb-3 animate-pulse">
+            <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-32 mb-2" />
+            <div className="h-3 bg-neutral-100 dark:bg-neutral-800 rounded w-full mb-1" />
+            <div className="h-3 bg-neutral-100 dark:bg-neutral-800 rounded w-2/3" />
           </div>
         ))}
       </div>
@@ -257,7 +257,7 @@ function EventsPage() {
   if (eventsStatus === 'error') {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
-        <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+        <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
         <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">
           {t('android.error.retry')}
         </button>
@@ -269,14 +269,14 @@ function EventsPage() {
   const upcomingEvents = (events ?? []).filter((e) => !e.isActive);
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6">
-      <h1 className="text-xl font-bold text-neutral-900 mb-4">{t('events.title')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-6">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-4">{t('events.title')}</h1>
 
       {giftDrop && <GiftDropCard drop={giftDrop} />}
 
       {activeEvents.length > 0 && (
         <section className="mb-4">
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-500">{t('events.activeNow')}</h2>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('events.activeNow')}</h2>
           {activeEvents.map((e) => (
             <EventCard key={e.id} event={e} />
           ))}
@@ -285,7 +285,7 @@ function EventsPage() {
 
       {upcomingEvents.length > 0 && (
         <section>
-          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-500">{t('events.upcoming')}</h2>
+          <h2 className="mb-3 text-sm font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('events.upcoming')}</h2>
           {upcomingEvents.map((e) => (
             <EventCard key={e.id} event={e} />
           ))}
@@ -295,8 +295,8 @@ function EventsPage() {
       {activeEvents.length === 0 && upcomingEvents.length === 0 && !giftDrop && (
         <div className="flex flex-col items-center py-16 text-center">
           <span className="text-5xl">📅</span>
-          <h2 className="mt-4 text-lg font-semibold text-neutral-900">{t('events.noEvents')}</h2>
-          <p className="mt-1 text-sm text-neutral-500">{t('events.noEventsHint')}</p>
+          <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('events.noEvents')}</h2>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('events.noEventsHint')}</p>
         </div>
       )}
     </div>

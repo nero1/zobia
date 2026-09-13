@@ -80,9 +80,9 @@ function WikiManagePage() {
     setSuggestions(await searchUsers(q));
   }
 
-  if (wikiQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
+  if (wikiQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4"><div className="h-24 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" /></div>;
   if (!canManage) {
-    return <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center text-sm text-neutral-500">{t('wiki.manage.notAllowed', "You don't have access to manage this wiki.")}</div>;
+    return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('wiki.manage.notAllowed', "You don't have access to manage this wiki.")}</div>;
   }
 
   const collaborators = collaboratorsQuery.data ?? [];
@@ -90,17 +90,17 @@ function WikiManagePage() {
   const contributors = collaborators.filter((c) => !c.is_moderator);
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-5">
-      <h1 className="text-lg font-bold text-neutral-900">{t('wiki.manage.title', 'Manage collaborators')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-5">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('wiki.manage.title', 'Manage collaborators')}</h1>
 
       <div>
-        <h2 className="text-sm font-bold text-neutral-900 mb-2">{t('wiki.manage.inviteTitle', 'Invite link')}</h2>
+        <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 mb-2">{t('wiki.manage.inviteTitle', 'Invite link')}</h2>
         <div className="flex gap-2">
           <input
             value={inviteUsername}
             onChange={(e) => setInviteUsername(e.target.value)}
             placeholder={t('wiki.manage.inviteUsernamePlaceholder', 'Username (optional — leave blank for anyone)')}
-            className="flex-1 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+            className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           />
           <button
             disabled={createInvite.isPending}
@@ -110,12 +110,12 @@ function WikiManagePage() {
             {createInvite.isPending ? t('wiki.manage.creatingInvite', 'Creating…') : t('wiki.manage.createInvite', 'Create')}
           </button>
         </div>
-        {copiedToken && <p className="mt-1.5 text-xs text-teal-600">{t('wiki.manage.linkCopied', 'Invite link copied to clipboard.')}</p>}
+        {copiedToken && <p className="mt-1.5 text-xs text-teal-600 dark:text-teal-300">{t('wiki.manage.linkCopied', 'Invite link copied to clipboard.')}</p>}
         {(invitesQuery.data ?? []).length > 0 && (
           <div className="mt-2 space-y-1.5">
             {invitesQuery.data!.slice(0, 5).map((inv) => (
-              <div key={inv.id} className="flex items-center justify-between rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs">
-                <span className="truncate text-neutral-600">
+              <div key={inv.id} className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-xs">
+                <span className="truncate text-neutral-600 dark:text-neutral-400">
                   {inv.invited_username ? `@${inv.invited_username}` : t('wiki.manage.anyoneInvite', 'Anyone')}
                   {inv.used_at && ` · ${t('wiki.manage.inviteUsed', 'used')}`}
                 </span>
@@ -127,12 +127,12 @@ function WikiManagePage() {
 
       {isSelectedPolicy && (
         <div>
-          <h2 className="text-sm font-bold text-neutral-900 mb-2">{t('wiki.manage.addCollaboratorTitle', 'Add a collaborator')}</h2>
+          <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 mb-2">{t('wiki.manage.addCollaboratorTitle', 'Add a collaborator')}</h2>
           <input
             value={addQuery}
             onChange={(e) => void runAddQuery(e.target.value)}
             placeholder={t('wiki.manage.addCollaboratorPlaceholder', 'Search by username…')}
-            className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           />
           {suggestions.length > 0 && (
             <div className="mt-1.5 space-y-1">
@@ -141,10 +141,10 @@ function WikiManagePage() {
                   key={u.id}
                   disabled={addCollaborator.isPending}
                   onClick={() => addCollaborator.mutate(u.id)}
-                  className="flex w-full items-center justify-between rounded-lg border border-neutral-200 bg-white px-3 py-2 text-left text-sm disabled:opacity-50"
+                  className="flex w-full items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-left text-sm disabled:opacity-50"
                 >
                   <span>{u.display_name ?? `@${u.username}`}</span>
-                  <span className="text-xs text-primary-600">{t('wiki.manage.add', 'Add')}</span>
+                  <span className="text-xs text-primary-600 dark:text-primary-300">{t('wiki.manage.add', 'Add')}</span>
                 </button>
               ))}
             </div>
@@ -153,9 +153,9 @@ function WikiManagePage() {
       )}
 
       <div>
-        <h2 className="text-sm font-bold text-neutral-900 mb-2">{t('wiki.manage.moderatorsTitle', 'Moderators')}</h2>
+        <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 mb-2">{t('wiki.manage.moderatorsTitle', 'Moderators')}</h2>
         {moderators.length === 0 ? (
-          <p className="text-sm text-neutral-500">{t('wiki.manage.noModerators', 'No moderators yet.')}</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('wiki.manage.noModerators', 'No moderators yet.')}</p>
         ) : (
           <div className="space-y-1.5">
             {moderators.map((c) => (
@@ -171,9 +171,9 @@ function WikiManagePage() {
       </div>
 
       <div>
-        <h2 className="text-sm font-bold text-neutral-900 mb-2">{t('wiki.manage.contributorsTitle', 'Contributors')}</h2>
+        <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 mb-2">{t('wiki.manage.contributorsTitle', 'Contributors')}</h2>
         {contributors.length === 0 ? (
-          <p className="text-sm text-neutral-500">{t('wiki.manage.noContributors', 'No other contributors yet.')}</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('wiki.manage.noContributors', 'No other contributors yet.')}</p>
         ) : (
           <div className="space-y-1.5">
             {contributors.map((c) => (

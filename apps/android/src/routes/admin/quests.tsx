@@ -222,18 +222,18 @@ function AdminQuestsPage() {
   return (
     <div className="px-4 py-5">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.quests', 'Quests')}</h1>
-        <button type="button" onClick={openCreate} className="shrink-0 rounded-lg bg-amber-400 px-3 py-2 text-xs font-bold text-neutral-900">
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.quests', 'Quests')}</h1>
+        <button type="button" onClick={openCreate} className="shrink-0 rounded-lg bg-amber-400 px-3 py-2 text-xs font-bold text-neutral-900 dark:text-neutral-100">
           {t('admin.questsCatalog.new', '+ New Quest')}
         </button>
       </div>
-      <p className="mb-4 text-xs text-neutral-500">
+      <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">
         {t(
           'admin.questsCatalog.subtitle',
           'The catalog of quest templates the daily deck engine draws from. See also Quest Boosts (temporary per-feature weighting) and Sponsored Quests (advertiser-funded, managed separately).'
         )}
       </p>
-      <div className="mb-4 rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-600">
+      <div className="mb-4 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-3 text-xs text-neutral-600 dark:text-neutral-400">
         {t(
           'admin.questsCatalog.hardcodedNote',
           'Not editable here: daily deck size per plan (free 3 / plus 4 / pro 5 / max 6) and the 500 XP full-deck bonus are hardcoded constants. Each quest’s action type is fixed once created — it’s the string feature code calls to advance progress.'
@@ -255,24 +255,24 @@ function AdminQuestsPage() {
                 <span className="text-2xl">{q.icon ?? '⭐'}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <p className="font-semibold text-neutral-900">{q.title}</p>
+                    <p className="font-semibold text-neutral-900 dark:text-neutral-100">{q.title}</p>
                     {q.feature_key && <AdminBadge label={FEATURE_LABELS[q.feature_key] ?? q.feature_key} color="blue" />}
                     {!q.is_active && <AdminBadge label={t('admin.questsCatalog.inactive', 'Inactive')} color="neutral" />}
                   </div>
-                  <p className="text-xs text-neutral-500">{q.description}</p>
-                  <p className="mt-1 text-xs text-neutral-500">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">{q.description}</p>
+                  <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
                     {q.xp_reward} XP · {q.coin_reward} {t('admin.questsCatalog.credits', 'Credits')} · {t('admin.questsCatalog.target', 'Target')} {q.target_count} ·{' '}
                     {t('admin.questsCatalog.minPlan', 'Min')} {q.plan_required ?? 'free'} · {completionRate(q)} {t('admin.questsCatalog.rate30d', '(30d)')}
                   </p>
-                  <p className="mt-0.5 font-mono text-[10px] text-neutral-400">{q.action_type}</p>
+                  <p className="mt-0.5 font-mono text-[10px] text-neutral-400 dark:text-neutral-500">{q.action_type}</p>
                 </div>
               </div>
               <div className="mt-3 flex items-center justify-between gap-2">
-                <label className="flex items-center gap-2 text-xs text-neutral-600">
+                <label className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
                   <AdminToggle checked={q.is_active} onChange={() => toggleMutation.mutate(q)} disabled={toggleMutation.isPending} />
                   {t('admin.questsCatalog.active', 'Active')}
                 </label>
-                <button type="button" onClick={() => openEdit(q)} className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                <button type="button" onClick={() => openEdit(q)} className="rounded-lg bg-blue-50 dark:bg-blue-900/30 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
                   {t('admin.questsCatalog.edit', 'Edit')}
                 </button>
               </div>
@@ -282,8 +282,8 @@ function AdminQuestsPage() {
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-5 max-h-[85vh] overflow-y-auto">
-            <h3 className="mb-4 font-semibold text-neutral-900">
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-5 max-h-[85vh] overflow-y-auto">
+            <h3 className="mb-4 font-semibold text-neutral-900 dark:text-neutral-100">
               {editTarget ? t('admin.questsCatalog.editTitle', 'Edit "{{name}}"', { name: editTarget.title }) : t('admin.questsCatalog.newTitle', 'New Quest Template')}
             </h3>
             <div className="space-y-3">
@@ -347,14 +347,14 @@ function AdminQuestsPage() {
               </AdminField>
             </div>
             <div className="mt-4 flex gap-2">
-              <button type="button" onClick={() => setShowForm(false)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm font-medium text-neutral-700">
+              <button type="button" onClick={() => setShowForm(false)} className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
                 {t('common.cancel')}
               </button>
               <button
                 type="button"
                 onClick={handleSubmit}
                 disabled={saveMutation.isPending}
-                className="flex-1 rounded-lg bg-amber-400 py-2 text-sm font-bold text-neutral-900 disabled:opacity-50"
+                className="flex-1 rounded-lg bg-amber-400 py-2 text-sm font-bold text-neutral-900 dark:text-neutral-100 disabled:opacity-50"
               >
                 {saveMutation.isPending ? '…' : editTarget ? t('admin.questsCatalog.saveChanges', 'Save Changes') : t('admin.questsCatalog.create', 'Create Quest')}
               </button>

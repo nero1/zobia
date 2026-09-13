@@ -108,7 +108,7 @@ function StatsSection({ tab, cards }: { tab: Tab; cards: (data: Record<string, u
 
   return (
     <div className="mb-4">
-      <div className="mb-2 flex items-center justify-between text-xs text-neutral-500">
+      <div className="mb-2 flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
         <span>
           {data ? (data.isLive ? `${t('admin.dataManagement.liveAsOf', 'Live as of')} ${timeAgo(data.cachedAt)}` : `${t('admin.dataManagement.cachedAgo', 'Cached')} ${timeAgo(data.cachedAt)}`) : ''}
         </span>
@@ -116,7 +116,7 @@ function StatsSection({ tab, cards }: { tab: Tab; cards: (data: Record<string, u
           type="button"
           onClick={() => { setLive(true); void refetch(); }}
           disabled={isFetching}
-          className="rounded-lg border border-neutral-300 px-3 py-1.5 font-semibold text-neutral-700 disabled:opacity-50"
+          className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
         >
           {isFetching ? t('admin.dataManagement.refreshing', 'Refreshing…') : t('admin.dataManagement.refreshLiveData', 'Refresh live data')}
         </button>
@@ -166,13 +166,13 @@ function CreateUserSheet({ onClose, onCreated }: { onClose: () => void; onCreate
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
-      <div className="flex-none flex items-center justify-between border-b border-neutral-200 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
-        <h2 className="text-base font-semibold text-neutral-900">{t('admin.dataManagement.createUser', 'Create User')}</h2>
-        <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100">✕</button>
+    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
+      <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.dataManagement.createUser', 'Create User')}</h2>
+        <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
       </div>
       <div className="flex-1 overflow-y-auto space-y-3 p-4">
-        {error && <div className="rounded-lg border border-danger-200 bg-danger-50 px-3 py-2 text-xs text-danger-700">{error}</div>}
+        {error && <div className="rounded-lg border border-danger-200 bg-danger-50 dark:bg-danger-900/30 px-3 py-2 text-xs text-danger-700 dark:text-danger-300">{error}</div>}
         <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder={t('admin.dataManagement.username', 'Username *')} className={adminInputClass} />
         <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t('admin.dataManagement.emailOptional', 'Email (optional)')} className={adminInputClass} />
         <input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder={t('admin.dataManagement.displayNameOptional', 'Display name (optional)')} className={adminInputClass} />
@@ -214,24 +214,24 @@ function UserDetailOverlay({
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
-      <div className="flex-none flex items-center justify-between border-b border-neutral-200 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
-        <h2 className="text-base font-semibold text-neutral-900">{t('admin.users.detail.title', 'User Detail')}</h2>
-        <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100">✕</button>
+    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
+      <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.users.detail.title', 'User Detail')}</h2>
+        <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
       </div>
       <div className="flex-1 overflow-y-auto space-y-5 p-4">
         <div className="flex items-center gap-3">
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-neutral-100 text-3xl">{user.avatarEmoji || '👤'}</span>
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-3xl">{user.avatarEmoji || '👤'}</span>
           <div className="min-w-0">
-            <p className="font-semibold text-neutral-900 truncate">@{user.username}</p>
-            <p className="text-xs text-neutral-500 truncate">{user.email}</p>
+            <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">@{user.username}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate">{user.email}</p>
           </div>
         </div>
 
         <button
           type="button"
           onClick={() => Browser.open({ url: `${env.VITE_WEB_BASE_URL}/profile/${user.id}` })}
-          className="w-full rounded-lg bg-neutral-100 px-3 py-2.5 text-xs font-semibold text-neutral-700"
+          className="w-full rounded-lg bg-neutral-100 dark:bg-neutral-800 px-3 py-2.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300"
         >
           {t('admin.users.detail.viewProfile', 'View Profile ↗')}
         </button>
@@ -247,13 +247,13 @@ function UserDetailOverlay({
         <button
           type="button"
           onClick={() => void openAuthenticatedWebLink(`/gate44/users`)}
-          className="w-full rounded-lg bg-blue-100 px-3 py-2.5 text-xs font-semibold text-blue-700"
+          className="w-full rounded-lg bg-blue-100 dark:bg-blue-900/40 px-3 py-2.5 text-xs font-semibold text-blue-700 dark:text-blue-300"
         >
           {t('admin.dataManagement.moreActionsOnWeb', 'More actions (suspend/ban/mod) on web →')}
         </button>
 
-        <div className="space-y-2 rounded-lg border border-danger-200 bg-danger-50 p-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-danger-700">{t('admin.dataManagement.dangerZone', 'Danger Zone')}</p>
+        <div className="space-y-2 rounded-lg border border-danger-200 bg-danger-50 dark:bg-danger-900/30 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-danger-700 dark:text-danger-300">{t('admin.dataManagement.dangerZone', 'Danger Zone')}</p>
           <button
             type="button"
             onClick={() => setConfirmDelete(true)}
@@ -358,7 +358,7 @@ function UsersTab() {
         <button type="button" onClick={() => setShowCreate(true)} className="flex-1 rounded-lg bg-primary-600 px-3 py-2.5 text-xs font-semibold text-white">
           + {t('admin.dataManagement.createUser', 'Create User')}
         </button>
-        <button type="button" onClick={() => void openAuthenticatedWebLink('/gate44/data-management?tab=users')} className="flex-1 rounded-lg border border-neutral-300 px-3 py-2.5 text-xs font-semibold text-neutral-700">
+        <button type="button" onClick={() => void openAuthenticatedWebLink('/gate44/data-management?tab=users')} className="flex-1 rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
           {t('admin.dataManagement.exportImportOnWeb', 'Export / Import (web) →')}
         </button>
       </div>
@@ -386,15 +386,15 @@ function UsersTab() {
           data.users.map((u) => (
             <AdminCard key={u.id} onClick={() => setSelected(u)}>
               <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xl">{u.avatarEmoji || '👤'}</span>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-xl">{u.avatarEmoji || '👤'}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <p className="font-semibold text-neutral-900 truncate">@{u.username}</p>
+                    <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">@{u.username}</p>
                     <AdminBadge label={u.plan.toUpperCase()} color={PLAN_COLOR[u.plan]} />
                     <AdminBadge label={u.status} color={STATUS_COLOR[u.status]} />
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-neutral-500">{u.email}</p>
-                  <span className="text-[10px] text-neutral-400">{fmtDate(u.joinedAt)}</span>
+                  <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">{u.email}</p>
+                  <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{fmtDate(u.joinedAt)}</span>
                 </div>
               </div>
             </AdminCard>
@@ -403,10 +403,10 @@ function UsersTab() {
 
       {status === 'success' && (data.users.length > 0 || pageIndex > 0) && (
         <div className="mt-4 flex items-center justify-between">
-          <button type="button" onClick={goPrev} disabled={pageIndex === 0} className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40">
+          <button type="button" onClick={goPrev} disabled={pageIndex === 0} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40">
             {t('admin.pagination.prev', 'Prev')}
           </button>
-          <button type="button" onClick={goNext} disabled={!data.hasMore} className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40">
+          <button type="button" onClick={goNext} disabled={!data.hasMore} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40">
             {t('admin.pagination.next', 'Next')}
           </button>
         </div>
@@ -452,10 +452,10 @@ function FinancialTab() {
         }}
       />
       <div className="space-y-2">
-        <button type="button" onClick={() => void openAuthenticatedWebLink('/gate44/financial')} className="w-full rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-semibold text-neutral-700">
+        <button type="button" onClick={() => void openAuthenticatedWebLink('/gate44/financial')} className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           {t('admin.dataManagement.openFinancial', 'Open Financial Dashboard →')}
         </button>
-        <button type="button" onClick={() => void openAuthenticatedWebLink('/gate44/payouts')} className="w-full rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-semibold text-neutral-700">
+        <button type="button" onClick={() => void openAuthenticatedWebLink('/gate44/payouts')} className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           {t('admin.dataManagement.openPayouts', 'Open Payouts Queue →')}
         </button>
       </div>
@@ -492,8 +492,8 @@ function DataManagementPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-1 text-xl font-bold text-neutral-900">{t('admin.dataManagement.title', 'Data Management')}</h1>
-      <p className="mb-4 text-xs text-neutral-500">{t('admin.dataManagement.subtitle', 'Search, export, import, and manage user accounts, plus platform-wide financial and statistical snapshots.')}</p>
+      <h1 className="mb-1 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.dataManagement.title', 'Data Management')}</h1>
+      <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">{t('admin.dataManagement.subtitle', 'Search, export, import, and manage user accounts, plus platform-wide financial and statistical snapshots.')}</p>
 
       <AdminTabs
         tabs={[

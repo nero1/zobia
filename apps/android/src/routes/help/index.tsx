@@ -43,7 +43,7 @@ function HelpHomePage() {
         {(data ?? []).map((cat) => (
           <Link key={cat.id} to="/help/$category" params={{ category: cat.slug }} className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
             <p className="font-semibold text-white">{cat.name}</p>
-            {cat.description && <p className="mt-1 text-sm text-neutral-400">{cat.description}</p>}
+            {cat.description && <p className="mt-1 text-sm text-neutral-400 dark:text-neutral-500">{cat.description}</p>}
           </Link>
         ))}
       </div>

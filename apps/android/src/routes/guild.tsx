@@ -62,49 +62,49 @@ function GuildDiscoveryPanel({ guilds, loading }: { guilds: GuildSummary[]; load
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <div className="text-center">
-        <h1 className="text-xl font-bold text-neutral-900">{t('guild.joinTitle')}</h1>
-        <p className="mt-1 text-sm text-neutral-500">{t('guild.joinSubtitle')}</p>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('guild.joinTitle')}</h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('guild.joinSubtitle')}</p>
       </div>
 
-      {error && <p className="text-center text-sm text-danger-600">{error}</p>}
+      {error && <p className="text-center text-sm text-danger-600 dark:text-danger-300">{error}</p>}
 
       {loading ? (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, i) => (
-            <div key={i} className="animate-pulse rounded-xl border border-neutral-200 bg-white p-5">
+            <div key={i} className="animate-pulse rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-5">
               <div className="flex gap-4">
-                <div className="h-12 w-12 rounded-full bg-neutral-200" />
+                <div className="h-12 w-12 rounded-full bg-neutral-200 dark:bg-neutral-700" />
                 <div className="flex-1 space-y-2">
-                  <div className="h-5 w-32 rounded bg-neutral-200" />
-                  <div className="h-3 w-48 rounded bg-neutral-200" />
+                  <div className="h-5 w-32 rounded bg-neutral-200 dark:bg-neutral-700" />
+                  <div className="h-3 w-48 rounded bg-neutral-200 dark:bg-neutral-700" />
                 </div>
               </div>
             </div>
           ))}
         </div>
       ) : guilds.length === 0 ? (
-        <div className="rounded-xl border border-neutral-200 bg-white px-4 py-10 text-center">
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-10 text-center">
           <p className="text-4xl">🏛️</p>
-          <p className="mt-3 text-sm text-neutral-500">{t('guildDiscovery.empty')}</p>
+          <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">{t('guildDiscovery.empty')}</p>
         </div>
       ) : (
         guilds.map((g) => {
           const { classes, label } = TIER_BADGE[tierBase(g.tier)];
           return (
-            <div key={g.id} className="flex flex-wrap items-center gap-4 rounded-xl border border-neutral-200 bg-white p-5">
+            <div key={g.id} className="flex flex-wrap items-center gap-4 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-5">
               <Link to="/guilds/$guildId" params={{ guildId: g.id }}>
-                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-neutral-100 text-3xl">
+                <span className="flex h-14 w-14 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-3xl">
                   {g.crestEmoji}
                 </span>
               </Link>
               <div className="min-w-0 flex-1">
                 <div className="flex flex-wrap items-center gap-2">
                   <Link to="/guilds/$guildId" params={{ guildId: g.id }}>
-                    <h3 className="font-bold text-neutral-900">{g.name}</h3>
+                    <h3 className="font-bold text-neutral-900 dark:text-neutral-100">{g.name}</h3>
                   </Link>
                   <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${classes}`}>{label}</span>
                 </div>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   {g.city ? `${g.city} · ` : ''}
                   {t('guildDiscovery.members', { count: g.memberCount })} · {t('guildDiscovery.warsWon', { count: g.warWins })}
                 </p>
@@ -165,10 +165,10 @@ function MyGuildPage() {
 
   if (idStatus === 'pending' || (guildId && guildStatus === 'pending')) {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6 animate-pulse space-y-4">
-        <div className="h-8 w-40 bg-neutral-200 rounded" />
-        <div className="h-32 bg-neutral-200 rounded-xl" />
-        <div className="h-48 bg-neutral-200 rounded-xl" />
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-6 animate-pulse space-y-4">
+        <div className="h-8 w-40 bg-neutral-200 dark:bg-neutral-700 rounded" />
+        <div className="h-32 bg-neutral-200 dark:bg-neutral-700 rounded-xl" />
+        <div className="h-48 bg-neutral-200 dark:bg-neutral-700 rounded-xl" />
       </div>
     );
   }
@@ -176,7 +176,7 @@ function MyGuildPage() {
   if (idStatus === 'error' || (guildId && guildStatus === 'error')) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
-        <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+        <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
         <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">
           {t('android.error.retry')}
         </button>
@@ -185,18 +185,18 @@ function MyGuildPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4">
       {guildId && guild ? (
         <GuildDetailView
           guild={guild}
           backTo="/guild"
           actions={
             <>
-              {leaveError && <p className="mb-2 text-xs font-medium text-danger-600">{leaveError}</p>}
+              {leaveError && <p className="mb-2 text-xs font-medium text-danger-600 dark:text-danger-300">{leaveError}</p>}
               <button
                 onClick={handleLeave}
                 disabled={leaving || guild.isCaptain}
-                className="w-full rounded-xl border border-neutral-300 px-5 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60"
+                className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 px-5 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
               >
                 {leaving ? '…' : guild.isCaptain ? t('guild.captainLabel') : t('guild.leave')}
               </button>

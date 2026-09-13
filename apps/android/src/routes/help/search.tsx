@@ -32,13 +32,13 @@ function HelpSearchPage() {
       <Link to="/help" className="text-sm text-primary-400 underline">&larr; {t('help.homeTitle', 'Help Center')}</Link>
       <h1 className="mt-2 mb-4 text-lg font-bold text-white">{t('help.searchResults', 'Search results')}{q ? ` for "${q}"` : ''}</h1>
 
-      {q && data && data.length === 0 && <p className="text-sm text-neutral-400">{t('help.noResults', 'No results found. Try a different search, or ask the AI on any doc page.')}</p>}
+      {q && data && data.length === 0 && <p className="text-sm text-neutral-400 dark:text-neutral-500">{t('help.noResults', 'No results found. Try a different search, or ask the AI on any doc page.')}</p>}
 
       <div className="space-y-2">
         {(data ?? []).map((r) => (
           <Link key={r.id} to="/help/$category/$doc" params={{ category: r.category_slug, doc: r.slug }} className="block rounded-xl border border-neutral-800 bg-neutral-900 p-3">
             <p className="font-medium text-white">{r.title}</p>
-            <p className="mt-1 text-sm text-neutral-400" dangerouslySetInnerHTML={{ __html: r.snippet }} />
+            <p className="mt-1 text-sm text-neutral-400 dark:text-neutral-500" dangerouslySetInnerHTML={{ __html: r.snippet }} />
           </Link>
         ))}
       </div>

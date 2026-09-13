@@ -126,12 +126,12 @@ function QuestSkeleton() {
   return (
     <div className="space-y-3 px-4">
       {[1, 2, 3, 4].map((i) => (
-        <div key={i} className="bg-neutral-100 rounded-xl p-4 animate-pulse">
+        <div key={i} className="bg-neutral-100 dark:bg-neutral-800 rounded-xl p-4 animate-pulse">
           <div className="flex justify-between mb-2">
             <div className="h-4 bg-neutral-300 rounded w-2/3" />
             <div className="h-4 bg-neutral-300 rounded w-16" />
           </div>
-          <div className="h-2 bg-neutral-200 rounded-full mt-3" />
+          <div className="h-2 bg-neutral-200 dark:bg-neutral-700 rounded-full mt-3" />
         </div>
       ))}
     </div>
@@ -145,7 +145,7 @@ function QuestCard({ quest }: { quest: Quest }) {
   return (
     <div
       className={`rounded-xl border p-4 ${
-        quest.isCompleted ? 'bg-success-50 border-success-200' : 'bg-white border-neutral-200'
+        quest.isCompleted ? 'bg-success-50 dark:bg-success-900/30 border-success-200' : 'bg-white dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700'
       }`}
     >
       <div className="flex items-start justify-between gap-3">
@@ -153,21 +153,21 @@ function QuestCard({ quest }: { quest: Quest }) {
           <span className="text-xl mt-0.5">{TRACK_EMOJIS[quest.track]}</span>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className={`text-sm font-semibold truncate ${quest.isCompleted ? 'line-through text-neutral-400' : 'text-neutral-900'}`}>
+              <span className={`text-sm font-semibold truncate ${quest.isCompleted ? 'line-through text-neutral-400 dark:text-neutral-500' : 'text-neutral-900 dark:text-neutral-100'}`}>
                 {quest.title}
               </span>
               {quest.isSponsored && (
-                <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                <span className="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-2 py-0.5 rounded-full font-medium">
                   {t('quests.sponsored')} · {quest.sponsorName}
                 </span>
               )}
             </div>
-            <p className="text-xs text-neutral-500 mt-0.5">{quest.description}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">{quest.description}</p>
           </div>
         </div>
 
         <div className="text-right shrink-0">
-          {quest.xpReward > 0 && <div className="text-xs font-bold text-primary-600">+{quest.xpReward} XP</div>}
+          {quest.xpReward > 0 && <div className="text-xs font-bold text-primary-600 dark:text-primary-300">+{quest.xpReward} XP</div>}
           {quest.coinReward > 0 && <div className="text-xs font-bold text-amber-500">+{quest.coinReward} 🪙</div>}
         </div>
       </div>
@@ -179,12 +179,12 @@ function QuestCard({ quest }: { quest: Quest }) {
         >
           {quest.difficulty.charAt(0).toUpperCase() + quest.difficulty.slice(1)}
         </span>
-        <span className="text-xs text-neutral-400">
+        <span className="text-xs text-neutral-400 dark:text-neutral-500">
           {quest.currentProgress} / {quest.targetProgress}
         </span>
       </div>
 
-      <div className="mt-2 h-2 bg-neutral-200 rounded-full overflow-hidden">
+      <div className="mt-2 h-2 bg-neutral-200 dark:bg-neutral-700 rounded-full overflow-hidden">
         <div
           className="h-full rounded-full transition-all duration-500"
           style={{ width: `${progress}%`, backgroundColor: quest.isCompleted ? '#22c55e' : '#2563eb' }}
@@ -214,30 +214,30 @@ function QuestsPage() {
   const sponsored = data?.quests.filter((q) => q.isSponsored) ?? [];
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       <div className="flex items-center justify-between px-4 pt-4 pb-2">
         <div>
-          <h1 className="text-xl font-bold text-neutral-900">{t('quests.title')}</h1>
-          <p className="text-sm text-neutral-500 mt-0.5">{t('quests.subtitle')}</p>
+          <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('quests.title')}</h1>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">{t('quests.subtitle')}</p>
         </div>
         {data && (
           <div className="text-right shrink-0">
-            <div className="text-xs text-neutral-400 font-medium">{t('quests.resetsIn')}</div>
-            <div className="text-base font-mono font-bold text-neutral-700">{timeLeft}</div>
+            <div className="text-xs text-neutral-400 dark:text-neutral-500 font-medium">{t('quests.resetsIn')}</div>
+            <div className="text-base font-mono font-bold text-neutral-700 dark:text-neutral-300">{timeLeft}</div>
           </div>
         )}
       </div>
 
       {data && (
-        <div className="mx-4 mb-4 bg-blue-50 border border-blue-200 rounded-xl p-4">
+        <div className="mx-4 mb-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-200 rounded-xl p-4">
           <div className="flex items-center justify-between">
             <div>
-              <div className="text-sm font-semibold text-blue-700">
+              <div className="text-sm font-semibold text-blue-700 dark:text-blue-300">
                 {t('quests.completed', { count: data.completedCount, total: data.totalCount })}
               </div>
               {data.bonusUnlocked && <div className="text-xs text-blue-500 mt-0.5">🎉 {t('quests.bonusUnlocked')}</div>}
             </div>
-            <div className="text-2xl font-extrabold text-blue-600">
+            <div className="text-2xl font-extrabold text-blue-600 dark:text-blue-300">
               {data.totalCount > 0 ? Math.round((data.completedCount / data.totalCount) * 100) : 0}%
             </div>
           </div>
@@ -255,7 +255,7 @@ function QuestsPage() {
       ) : status === 'error' ? (
         <div className="text-center py-12 px-4">
           <div className="text-4xl mb-3">⚠️</div>
-          <p className="text-neutral-500">{t('error.generic')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400">{t('error.generic')}</p>
           <button onClick={() => refetch()} className="mt-4 px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-semibold">
             {t('quests.retry')}
           </button>
@@ -263,7 +263,7 @@ function QuestsPage() {
       ) : data?.quests.length === 0 ? (
         <div className="text-center py-12 px-4">
           <div className="text-4xl mb-3">🎯</div>
-          <p className="text-neutral-500">{t('quests.noQuests')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400">{t('quests.noQuests')}</p>
         </div>
       ) : (
         <div className="space-y-3 px-4 pb-6">
@@ -274,9 +274,9 @@ function QuestsPage() {
           {sponsored.length > 0 && (
             <>
               <div className="flex items-center gap-3 my-4">
-                <div className="flex-1 h-px bg-neutral-200" />
-                <span className="text-xs font-semibold text-neutral-400 uppercase tracking-wider">{t('quests.sponsoredQuests')}</span>
-                <div className="flex-1 h-px bg-neutral-200" />
+                <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700" />
+                <span className="text-xs font-semibold text-neutral-400 dark:text-neutral-500 uppercase tracking-wider">{t('quests.sponsoredQuests')}</span>
+                <div className="flex-1 h-px bg-neutral-200 dark:bg-neutral-700" />
               </div>
               {sponsored.map((q) => (
                 <QuestCard key={q.id} quest={q} />

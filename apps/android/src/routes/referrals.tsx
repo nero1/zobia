@@ -83,13 +83,13 @@ function ReferralLinkCard({ url }: { url: string }) {
   }
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-card mb-3">
-      <h2 className="mb-3 text-sm font-semibold text-neutral-700">{t('referrals.linkCard.title')}</h2>
+    <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card mb-3">
+      <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('referrals.linkCard.title')}</h2>
       <div className="flex gap-2">
         <input
           readOnly
           value={url}
-          className="flex-1 truncate rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm text-neutral-600"
+          className="flex-1 truncate rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-600 dark:text-neutral-400"
         />
         <button
           onClick={handleCopy}
@@ -98,14 +98,14 @@ function ReferralLinkCard({ url }: { url: string }) {
           {copied ? t('referrals.linkCard.copied') : t('referrals.linkCard.copy')}
         </button>
       </div>
-      <p className="mt-2 text-xs text-neutral-500">{t('referrals.linkCard.hint')}</p>
+      <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">{t('referrals.linkCard.hint')}</p>
 
       {/* QR code — lets people scan the link on your screen instead of typing it. */}
-      <div className="mt-4 flex flex-col items-center gap-2 border-t border-neutral-100 pt-4">
-        <div className="rounded-xl bg-white p-3">
+      <div className="mt-4 flex flex-col items-center gap-2 border-t border-neutral-100 dark:border-neutral-800 pt-4">
+        <div className="rounded-xl bg-white dark:bg-neutral-800 p-3">
           <QRCodeSVG value={url} size={160} level="M" />
         </div>
-        <p className="text-xs text-neutral-500">{t('referrals.linkCard.scanHint', 'Scan to open your referral link')}</p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('referrals.linkCard.scanHint', 'Scan to open your referral link')}</p>
       </div>
     </div>
   );
@@ -123,10 +123,10 @@ function StatsGrid({ stats }: { stats: ReferralStats }) {
   return (
     <div className="grid grid-cols-2 gap-2 mb-3">
       {items.map((item) => (
-        <div key={item.label} className="bg-white rounded-xl p-3 shadow-card">
-          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{item.label}</p>
-          <p className="mt-1 text-lg font-bold text-neutral-900">{item.value}</p>
-          <p className="text-xs text-neutral-400">{item.sub}</p>
+        <div key={item.label} className="bg-white dark:bg-neutral-800 rounded-xl p-3 shadow-card">
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{item.label}</p>
+          <p className="mt-1 text-lg font-bold text-neutral-900 dark:text-neutral-100">{item.value}</p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">{item.sub}</p>
         </div>
       ))}
     </div>
@@ -136,20 +136,20 @@ function StatsGrid({ stats }: { stats: ReferralStats }) {
 function TwoTierExplainer() {
   const { t } = useTranslation();
   return (
-    <div className="bg-white rounded-xl p-4 shadow-card mb-3">
-      <h2 className="mb-3 text-sm font-semibold text-neutral-700">{t('referrals.explainer.title')}</h2>
-      <div className="space-y-3 text-sm text-neutral-600">
+    <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card mb-3">
+      <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('referrals.explainer.title')}</h2>
+      <div className="space-y-3 text-sm text-neutral-600 dark:text-neutral-400">
         <div className="flex gap-3">
-          <span className="mt-0.5 shrink-0 rounded-full bg-primary-100 px-2 py-0.5 text-xs font-bold text-primary-700">T1</span>
+          <span className="mt-0.5 shrink-0 rounded-full bg-primary-100 dark:bg-primary-900/40 px-2 py-0.5 text-xs font-bold text-primary-700 dark:text-primary-300">T1</span>
           <div>
-            <p className="font-semibold text-neutral-900">{t('referrals.explainer.tier1Title')}</p>
+            <p className="font-semibold text-neutral-900 dark:text-neutral-100">{t('referrals.explainer.tier1Title')}</p>
             <p className="mt-0.5 text-xs">{t('referrals.explainer.tier1Body')}</p>
           </div>
         </div>
         <div className="flex gap-3">
-          <span className="mt-0.5 shrink-0 rounded-full bg-success-100 px-2 py-0.5 text-xs font-bold text-success-700">T2</span>
+          <span className="mt-0.5 shrink-0 rounded-full bg-success-100 dark:bg-success-900/40 px-2 py-0.5 text-xs font-bold text-success-700 dark:text-success-300">T2</span>
           <div>
-            <p className="font-semibold text-neutral-900">{t('referrals.explainer.tier2Title')}</p>
+            <p className="font-semibold text-neutral-900 dark:text-neutral-100">{t('referrals.explainer.tier2Title')}</p>
             <p className="mt-0.5 text-xs">{t('referrals.explainer.tier2Body')}</p>
           </div>
         </div>
@@ -161,29 +161,29 @@ function TwoTierExplainer() {
 function ReferredUserRow({ u }: { u: ReferredUser }) {
   const { t } = useTranslation();
   return (
-    <div className="px-4 py-3 border-b border-neutral-100 last:border-0">
+    <div className="px-4 py-3 border-b border-neutral-100 dark:border-neutral-800 last:border-0">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="font-semibold text-sm text-neutral-900 truncate">{u.displayName}</p>
-          <p className="text-xs text-neutral-400">@{u.username}</p>
+          <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 truncate">{u.displayName}</p>
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">@{u.username}</p>
         </div>
-        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${u.tier === 1 ? 'bg-primary-100 text-primary-700' : 'bg-success-100 text-success-700'}`}>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold ${u.tier === 1 ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300' : 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'}`}>
           {t('referrals.table.tier', { tier: u.tier })}
         </span>
       </div>
       <div className="mt-2 flex items-center justify-between text-xs">
-        <span className="text-neutral-500">
+        <span className="text-neutral-500 dark:text-neutral-400">
           {new Date(u.joinedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
         </span>
         {u.qualifyingActionCompleted ? (
-          <span className="text-success-600">{t('referrals.table.qualified')}</span>
+          <span className="text-success-600 dark:text-success-300">{t('referrals.table.qualified')}</span>
         ) : (
-          <span className="text-neutral-400">{t('referrals.table.pending')}</span>
+          <span className="text-neutral-400 dark:text-neutral-500">{t('referrals.table.pending')}</span>
         )}
       </div>
       <div className="mt-1 text-right">
-        <p className="text-xs font-semibold text-neutral-900">+{u.xpEarned.toLocaleString()} XP</p>
-        <p className="text-xs text-neutral-500">+{u.coinsEarned.toLocaleString()} 🪙</p>
+        <p className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">+{u.xpEarned.toLocaleString()} XP</p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">+{u.coinsEarned.toLocaleString()} 🪙</p>
       </div>
     </div>
   );
@@ -192,12 +192,12 @@ function ReferredUserRow({ u }: { u: ReferredUser }) {
 function ReferredUsersTable({ users }: { users: ReferredUser[] }) {
   const { t } = useTranslation();
   return (
-    <div className="bg-white rounded-xl shadow-card mb-3">
-      <div className="border-b border-neutral-100 px-4 py-3">
-        <h2 className="text-sm font-semibold text-neutral-700">{t('referrals.table.title')}</h2>
+    <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-card mb-3">
+      <div className="border-b border-neutral-100 dark:border-neutral-800 px-4 py-3">
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('referrals.table.title')}</h2>
       </div>
       {users.length === 0 ? (
-        <div className="px-4 py-8 text-center text-sm text-neutral-500">{t('referrals.table.empty')}</div>
+        <div className="px-4 py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('referrals.table.empty')}</div>
       ) : (
         users.map((u) => <ReferredUserRow key={u.userId} u={u} />)
       )}
@@ -210,15 +210,15 @@ function ReferralsPage() {
   const { data, status } = useQuery({ queryKey: ['referrals'], queryFn: fetchReferrals });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-xl font-bold text-neutral-900 mb-4">{t('referrals.title')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-4">{t('referrals.title')}</h1>
 
       {status === 'pending' && (
-        <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>
+        <div className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('common.loading')}</div>
       )}
 
       {status === 'error' && (
-        <div className="py-8 text-center text-sm text-neutral-500">{t('error.generic')}</div>
+        <div className="py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('error.generic')}</div>
       )}
 
       {status === 'success' && (

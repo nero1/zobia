@@ -169,7 +169,7 @@ function ModerationCenterPage() {
 
   return (
     <div className="p-4">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('moderation.title', 'Moderation Center')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('moderation.title', 'Moderation Center')}</h1>
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
       <AdminTabs tabs={tabs} active={activeQueue} onChange={setQueue} />
@@ -180,7 +180,7 @@ function ModerationCenterPage() {
             <button
               key={s}
               onClick={() => setStatus(s)}
-              className={`rounded-full px-3 py-1 font-semibold capitalize ${status === s ? 'bg-primary-600 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+              className={`rounded-full px-3 py-1 font-semibold capitalize ${status === s ? 'bg-primary-600 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
             >
               {s}
             </button>
@@ -196,15 +196,15 @@ function ModerationCenterPage() {
             <AdminEmptyState title={t('moderation.noAuditEntries', 'No moderation activity yet.')} />
           ) : (
             auditItems.map((a) => (
-              <div key={a.id} className="rounded-xl border border-neutral-200 bg-white p-3 text-xs">
+              <div key={a.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3 text-xs">
                 <p>
                   <span className="font-semibold capitalize">{a.action_type.replace(/_/g, ' ')}</span>
                   {a.target_username && <> on @{a.target_username}</>}
                   {a.moderator_username && <> by @{a.moderator_username}</>}
-                  <span className="text-neutral-400"> · {timeAgo(a.created_at)}</span>
+                  <span className="text-neutral-400 dark:text-neutral-500"> · {timeAgo(a.created_at)}</span>
                 </p>
                 {a.reversed_at && (
-                  <p className="mt-1 text-amber-600">
+                  <p className="mt-1 text-amber-600 dark:text-amber-300">
                     {t('moderation.reversedBy', 'Reversed')}{a.reversed_by_username && <> by @{a.reversed_by_username}</>}
                   </p>
                 )}
@@ -221,17 +221,17 @@ function ModerationCenterPage() {
               : activeQueue === 'guild' ? item.guild_message_content ?? '(guild content)'
               : item.reported_user_username ?? '(target)';
             return (
-              <div key={item.id} className="rounded-xl border border-neutral-200 bg-white p-4">
+              <div key={item.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
                 <div className="mb-2 flex flex-wrap items-center gap-2 text-xs">
-                  <span className="font-semibold text-neutral-700">@{item.reporter_username ?? 'unknown'}</span>
-                  <span className="rounded-full bg-neutral-100 px-2 py-0.5 font-semibold text-neutral-700">{item.report_type.replace(/_/g, ' ')}</span>
+                  <span className="font-semibold text-neutral-700 dark:text-neutral-300">@{item.reporter_username ?? 'unknown'}</span>
+                  <span className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 font-semibold text-neutral-700 dark:text-neutral-300">{item.report_type.replace(/_/g, ' ')}</span>
                   {item.guild_name && <span className="rounded-full bg-indigo-100 px-2 py-0.5 font-semibold text-indigo-700">{item.guild_name}</span>}
                   {!!item.duplicate_count && item.duplicate_count > 1 && (
                     <span className="rounded-full bg-rose-100 px-2 py-0.5 font-semibold text-rose-700">{item.duplicate_count} reports</span>
                   )}
-                  <span className="ml-auto text-neutral-400">{timeAgo(item.created_at)}</span>
+                  <span className="ml-auto text-neutral-400 dark:text-neutral-500">{timeAgo(item.created_at)}</span>
                 </div>
-                <p className="mb-3 truncate text-sm text-neutral-700">{title}</p>
+                <p className="mb-3 truncate text-sm text-neutral-700 dark:text-neutral-300">{title}</p>
                 {item.status === 'pending' ? (
                   <div className="flex flex-wrap gap-1.5">
                     {actions.map(({ label, action, durationHours }) => (
@@ -242,21 +242,21 @@ function ModerationCenterPage() {
                           const markMalicious = action === 'dismiss' ? window.confirm(t('moderation.confirmMalicious', 'Was this report malicious or spammy? OK = yes, dock reporter Trust Score.')) : undefined;
                           actionMutation.mutate({ item, action, durationHours, markMalicious });
                         }}
-                        className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50"
+                        className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
                       >
                         {label}
                       </button>
                     ))}
                   </div>
                 ) : (
-                  <div className="rounded-lg border border-neutral-100 bg-neutral-50 p-2 text-xs text-neutral-500">
+                  <div className="rounded-lg border border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 p-2 text-xs text-neutral-500 dark:text-neutral-400">
                     <span className="font-medium capitalize">{item.status}</span>
                     {item.resolved_by_username && <> · by @{item.resolved_by_username}</>}
                     {item.action_id && (
                       <button
                         disabled={isBusy}
                         onClick={() => reverseMutation.mutate(item)}
-                        className="ml-2 rounded-full bg-neutral-200 px-2 py-0.5 font-semibold text-neutral-700 disabled:opacity-50"
+                        className="ml-2 rounded-full bg-neutral-200 dark:bg-neutral-700 px-2 py-0.5 font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
                       >
                         Reverse
                       </button>

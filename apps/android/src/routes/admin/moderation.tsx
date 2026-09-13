@@ -68,10 +68,10 @@ function ConfidenceBar({ value }: { value: number }) {
   const color = value >= 80 ? 'bg-danger-500' : value >= 50 ? 'bg-amber-500' : 'bg-teal-500';
   return (
     <div className="flex items-center gap-2">
-      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-200">
+      <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${value}%` }} />
       </div>
-      <span className="w-8 text-right text-[10px] tabular-nums text-neutral-500">{value}%</span>
+      <span className="w-8 text-right text-[10px] tabular-nums text-neutral-500 dark:text-neutral-400">{value}%</span>
     </div>
   );
 }
@@ -79,29 +79,29 @@ function ConfidenceBar({ value }: { value: number }) {
 function ReportCard({ report, onAction, busy }: { report: Report; onAction: (id: string, action: string, durationHours?: number) => void; busy: boolean }) {
   const { t } = useTranslation();
   const actions: { label: string; action: string; durationHours?: number; classes: string }[] = [
-    { label: t('admin.moderation.action.dismiss', 'Dismiss'), action: 'dismiss', classes: 'bg-neutral-100 text-neutral-700' },
-    { label: t('admin.moderation.action.warn', 'Warn User'), action: 'warn', classes: 'bg-amber-100 text-amber-700' },
+    { label: t('admin.moderation.action.dismiss', 'Dismiss'), action: 'dismiss', classes: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300' },
+    { label: t('admin.moderation.action.warn', 'Warn User'), action: 'warn', classes: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' },
     { label: t('admin.moderation.action.remove', 'Remove Content'), action: 'remove_content', classes: 'bg-orange-100 text-orange-700' },
-    { label: t('admin.moderation.action.suspend24h', 'Suspend 24h'), action: 'suspend_user', durationHours: 24, classes: 'bg-danger-100 text-danger-700' },
+    { label: t('admin.moderation.action.suspend24h', 'Suspend 24h'), action: 'suspend_user', durationHours: 24, classes: 'bg-danger-100 dark:bg-danger-900/40 text-danger-700 dark:text-danger-300' },
     { label: t('admin.moderation.action.suspend7d', 'Suspend 7d'), action: 'suspend_user', durationHours: 168, classes: 'bg-danger-200 text-danger-800' },
     { label: t('admin.moderation.action.ban', 'Ban'), action: 'ban_user', classes: 'bg-danger-600 text-white' },
   ];
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
       <div className="mb-2.5 flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="font-semibold text-neutral-700">@{report.reporter_username}</span>
-        <span className="text-neutral-400">{t('admin.moderation.reported', 'reported')}</span>
+        <span className="font-semibold text-neutral-700 dark:text-neutral-300">@{report.reporter_username}</span>
+        <span className="text-neutral-400 dark:text-neutral-500">{t('admin.moderation.reported', 'reported')}</span>
         <AdminBadge label={reportTarget(report)} color={TARGET_BADGE[reportTarget(report)]} />
-        <span className="ml-auto text-neutral-400">{timeAgo(report.created_at)}</span>
+        <span className="ml-auto text-neutral-400 dark:text-neutral-500">{timeAgo(report.created_at)}</span>
       </div>
-      <p className="mb-1 text-xs text-neutral-500">
-        {t('admin.moderation.type', 'Type')}: <span className="font-medium text-neutral-800">{report.report_type.replace(/_/g, ' ')}</span>
+      <p className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">
+        {t('admin.moderation.type', 'Type')}: <span className="font-medium text-neutral-800 dark:text-neutral-200">{report.report_type.replace(/_/g, ' ')}</span>
       </p>
       {report.ai_category && (
         <div className="mb-2.5 space-y-1">
-          <p className="text-xs text-neutral-500">
-            {t('admin.moderation.ai', 'AI')}: <span className="font-medium text-neutral-800">{report.ai_category}</span>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            {t('admin.moderation.ai', 'AI')}: <span className="font-medium text-neutral-800 dark:text-neutral-200">{report.ai_category}</span>
           </p>
           <ConfidenceBar value={report.ai_confidence ?? 0} />
         </div>
@@ -121,7 +121,7 @@ function ReportCard({ report, onAction, busy }: { report: Report; onAction: (id:
           ))}
         </div>
       ) : (
-        <div className="rounded-lg border border-neutral-100 bg-neutral-50 p-2 text-xs text-neutral-500">
+        <div className="rounded-lg border border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 p-2 text-xs text-neutral-500 dark:text-neutral-400">
           <span className="font-medium capitalize">{report.status}</span>
           {report.resolved_at && <> · {fmtDate(report.resolved_at)}</>}
         </div>
@@ -133,21 +133,21 @@ function ReportCard({ report, onAction, busy }: { report: Report; onAction: (id:
 function FlaggedRoomCard({ room, onAction, busy }: { room: FlaggedRoom; onAction: (id: string, action: string, extra?: Record<string, unknown>) => void; busy: boolean }) {
   const { t } = useTranslation();
   return (
-    <div className="rounded-xl border border-orange-200 bg-white p-4">
+    <div className="rounded-xl border border-orange-200 bg-white dark:bg-neutral-800 p-4">
       <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs">
-        <span className="font-semibold text-neutral-900">{room.name}</span>
+        <span className="font-semibold text-neutral-900 dark:text-neutral-100">{room.name}</span>
         <AdminBadge label={room.type} color="neutral" />
         <AdminBadge label={t('admin.moderation.flagged', 'Flagged')} color="gold" />
       </div>
-      <p className="mb-1 text-xs text-neutral-500">
+      <p className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">
         @{room.creator_username ?? 'unknown'} · {room.member_count} {t('admin.moderation.members', 'members')} · {timeAgo(room.flagged_at)}
       </p>
       {room.flag_reason && <p className="mb-2.5 text-xs text-orange-700">{t('admin.moderation.flagReason', 'Reason')}: {room.flag_reason}</p>}
       <div className="flex flex-wrap gap-1.5">
-        <button disabled={busy} onClick={() => onAction(room.id, 'unflag')} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50">
+        <button disabled={busy} onClick={() => onAction(room.id, 'unflag')} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50">
           {t('admin.moderation.unflag', 'Unflag')}
         </button>
-        <button disabled={busy} onClick={() => onAction(room.id, 'suspend', { reason: room.flag_reason ?? 'Flagged content' })} className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 disabled:opacity-50">
+        <button disabled={busy} onClick={() => onAction(room.id, 'suspend', { reason: room.flag_reason ?? 'Flagged content' })} className="rounded-lg bg-amber-100 dark:bg-amber-900/40 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300 disabled:opacity-50">
           {t('admin.rooms.suspend', 'Suspend')}
         </button>
         <button disabled={busy} onClick={() => onAction(room.id, 'ban')} className="rounded-lg bg-danger-600 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-50">
@@ -203,7 +203,7 @@ function AdminModerationPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.moderation', 'Moderation Queue')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.moderation', 'Moderation Queue')}</h1>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 

@@ -81,10 +81,10 @@ function DocEditorOverlay({
   const [d, setD] = useState(draft);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
-      <div className="flex-none flex items-center justify-between border-b border-neutral-200 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
-        <h2 className="text-base font-semibold text-neutral-900">{d.id ? t('admin.helpCenter.editDoc', 'Edit Doc') : t('admin.helpCenter.newDoc', 'New Doc')}</h2>
-        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100">✕</button>
+    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
+      <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{d.id ? t('admin.helpCenter.editDoc', 'Edit Doc') : t('admin.helpCenter.newDoc', 'New Doc')}</h2>
+        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
       </div>
       <div className="flex-1 overflow-y-auto space-y-3 p-4" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
         <select value={d.categoryId} onChange={(e) => setD({ ...d, categoryId: e.target.value })} className={adminInputClass}>
@@ -101,7 +101,7 @@ function DocEditorOverlay({
           rows={12}
           className={`${adminInputClass} resize-none font-mono text-xs`}
         />
-        <label className="flex items-center gap-2 text-sm text-neutral-700">
+        <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
           <input type="checkbox" checked={d.published} onChange={(e) => setD({ ...d, published: e.target.checked })} />
           {t('admin.helpCenter.published', 'Published')}
         </label>
@@ -119,7 +119,7 @@ function DocEditorOverlay({
             type="button"
             disabled={deleting}
             onClick={onDelete}
-            className="w-full rounded-lg bg-danger-100 py-2.5 text-sm font-semibold text-danger-700 disabled:opacity-50"
+            className="w-full rounded-lg bg-danger-100 dark:bg-danger-900/40 py-2.5 text-sm font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50"
           >
             {deleting ? '…' : t('admin.helpCenter.deleteDoc', 'Delete Doc')}
           </button>
@@ -202,12 +202,12 @@ function AdminHelpCenterPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.helpCenter', 'Help Center')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.helpCenter', 'Help Center')}</h1>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
       <section className="mb-6">
-        <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.helpCenter.categories', 'Categories')}</h2>
+        <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.helpCenter.categories', 'Categories')}</h2>
         <div className="mb-3 flex gap-2">
           <input
             value={newCatName}
@@ -228,15 +228,15 @@ function AdminHelpCenterPage() {
           {catStatus === 'pending' && Array.from({ length: 2 }).map((_, i) => <AdminCardSkeleton key={i} />)}
           {catStatus === 'success' &&
             categories?.map((c) => (
-              <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white p-3.5 shadow-card">
+              <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3.5 shadow-card">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-neutral-900">{c.name} <span className="text-xs text-neutral-500">/{c.slug}</span></p>
+                  <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{c.name} <span className="text-xs text-neutral-500 dark:text-neutral-400">/{c.slug}</span></p>
                 </div>
                 <div className="flex shrink-0 items-center gap-1.5">
                   <button
                     type="button"
                     onClick={() => toggleCategoryPublished.mutate(c)}
-                    className={`rounded-full px-2.5 py-1 text-xs font-semibold ${c.published ? 'bg-success-100 text-success-700' : 'bg-neutral-100 text-neutral-600'}`}
+                    className={`rounded-full px-2.5 py-1 text-xs font-semibold ${c.published ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
                   >
                     {c.published ? t('admin.helpCenter.published', 'Published') : t('admin.helpCenter.draft', 'Draft')}
                   </button>
@@ -244,7 +244,7 @@ function AdminHelpCenterPage() {
                     type="button"
                     onClick={() => deleteCategory.mutate(c.id)}
                     disabled={deleteCategory.isPending}
-                    className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50"
+                    className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50"
                   >
                     {t('admin.helpCenter.deleteCategory', 'Delete')}
                   </button>
@@ -256,7 +256,7 @@ function AdminHelpCenterPage() {
 
       <section>
         <div className="mb-2 flex items-center justify-between">
-          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.helpCenter.docs', 'Docs')}</h2>
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.helpCenter.docs', 'Docs')}</h2>
           <button
             type="button"
             onClick={() => {
@@ -278,11 +278,11 @@ function AdminHelpCenterPage() {
                 key={doc.id}
                 type="button"
                 onClick={() => openDocEditor(doc)}
-                className="flex w-full items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white p-3.5 text-left shadow-card active:bg-neutral-50"
+                className="flex w-full items-center justify-between gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3.5 text-left shadow-card active:bg-neutral-50 dark:active:bg-neutral-800"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-neutral-900">{doc.title}</p>
-                  <p className="text-xs text-neutral-500">{doc.category_name} · {doc.difficulty}</p>
+                  <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{doc.title}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">{doc.category_name} · {doc.difficulty}</p>
                 </div>
                 <AdminBadge label={doc.published ? t('admin.helpCenter.published', 'Published') : t('admin.helpCenter.draft', 'Draft')} color={doc.published ? 'green' : 'neutral'} />
               </button>

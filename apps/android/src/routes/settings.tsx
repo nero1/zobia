@@ -41,8 +41,8 @@ function ThemeSection() {
   const { theme, setTheme } = useTheme();
 
   return (
-    <div className="bg-white px-6 py-4 mb-3">
-      <h3 className="text-sm font-semibold text-neutral-700 mb-3">{t('settings.theme', 'Theme')}</h3>
+    <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">{t('settings.theme', 'Theme')}</h3>
       <div className="flex gap-2">
         {THEME_OPTIONS.map(({ value, emoji }) => (
           <button
@@ -50,7 +50,7 @@ function ThemeSection() {
             type="button"
             onClick={() => setTheme(value)}
             className={`flex-1 rounded-lg py-2.5 text-sm font-semibold capitalize transition-colors ${
-              theme === value ? 'bg-primary-600 text-white' : 'border border-neutral-300 text-neutral-700'
+              theme === value ? 'bg-primary-600 text-white' : 'border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300'
             }`}
           >
             {emoji} {t(`settings.theme.${value}`, value)}
@@ -72,18 +72,18 @@ function RestorePurchasesSection() {
   }
 
   return (
-    <div className="bg-white px-6 py-4 mb-3">
-      <h3 className="text-sm font-semibold text-neutral-700 mb-1">{t('settings.restorePurchases.title')}</h3>
-      <p className="text-xs text-neutral-500 mb-3">{t('settings.restorePurchases.desc')}</p>
+    <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-1">{t('settings.restorePurchases.title')}</h3>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">{t('settings.restorePurchases.desc')}</p>
       <button
         onClick={() => void handleRestore()}
         disabled={state === 'restoring'}
-        className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+        className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
       >
         {state === 'restoring' ? t('settings.restorePurchases.restoring') : t('settings.restorePurchases.button')}
       </button>
-      {state === 'success' && <p className="mt-2 text-xs text-green-600">{t('settings.restorePurchases.success')}</p>}
-      {state === 'error' && <p className="mt-2 text-xs text-danger-600">{t('settings.restorePurchases.error')}</p>}
+      {state === 'success' && <p className="mt-2 text-xs text-green-600 dark:text-green-300">{t('settings.restorePurchases.success')}</p>}
+      {state === 'error' && <p className="mt-2 text-xs text-danger-600 dark:text-danger-300">{t('settings.restorePurchases.error')}</p>}
     </div>
   );
 }
@@ -127,8 +127,8 @@ function GenderSection() {
   ];
 
   return (
-    <div className="bg-white px-6 py-4 mb-3">
-      <h3 className="text-sm font-semibold text-neutral-700 mb-3">{t('settings.gender.label', 'Gender')}</h3>
+    <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">{t('settings.gender.label', 'Gender')}</h3>
       <div className="flex flex-wrap gap-2">
         {options.map((opt) => (
           <button
@@ -138,7 +138,7 @@ function GenderSection() {
             className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-40 ${
               gender === opt.value
                 ? 'bg-primary-600 text-white'
-                : 'border border-neutral-300 text-neutral-700'
+                : 'border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300'
             }`}
           >
             {opt.label}
@@ -217,25 +217,25 @@ function UsernameSection() {
   }
 
   return (
-    <div className="bg-white px-6 py-4 mb-3">
-      <h3 className="text-sm font-semibold text-neutral-700 mb-1">{t('settings.username.title', 'Username')}</h3>
-      <p className="text-xs text-neutral-500 mb-3">
+    <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-1">{t('settings.username.title', 'Username')}</h3>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
         {t('settings.username.current', 'Current username')}: @{currentUsername}
       </p>
 
       {eligibility && !eligibility.eligible && (
-        <p className="text-xs text-neutral-500 mb-2">
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
           {eligibility.reason ?? t('settings.username.notEligible', "You're not eligible to change your username right now.")}
         </p>
       )}
-      {error && <p className="text-xs text-danger-600 mb-2">{error}</p>}
-      {success && <p className="text-xs text-green-600 mb-2">{success}</p>}
+      {error && <p className="text-xs text-danger-600 dark:text-danger-300 mb-2">{error}</p>}
+      {success && <p className="text-xs text-green-600 dark:text-green-300 mb-2">{success}</p>}
 
       {step === 'idle' && (
         <button
           onClick={() => { setStep('pick'); setSuccess(null); }}
           disabled={!eligibility?.eligible}
-          className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+          className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
         >
           {t('settings.username.change', 'Change username')}
         </button>
@@ -248,22 +248,22 @@ function UsernameSection() {
             onChange={(e) => setCandidate(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
             placeholder={t('settings.username.placeholder', 'new_username')}
             maxLength={30}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm"
           />
-          {checking && <p className="text-xs text-neutral-400">{t('settings.username.checking', 'Checking availability…')}</p>}
+          {checking && <p className="text-xs text-neutral-400 dark:text-neutral-500">{t('settings.username.checking', 'Checking availability…')}</p>}
           {!checking && availability && (
-            <p className={`text-xs ${availability.available ? 'text-green-600' : 'text-danger-600'}`}>
+            <p className={`text-xs ${availability.available ? 'text-green-600 dark:text-green-300' : 'text-danger-600 dark:text-danger-300'}`}>
               {availability.available
                 ? t('settings.username.available', 'Available!')
                 : availability.reason ?? t('settings.username.unavailable', 'Not available')}
             </p>
           )}
 
-          <label className="flex items-center gap-2 text-xs text-neutral-600">
+          <label className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400">
             <input type="checkbox" checked={redirectEnabled} onChange={(e) => setRedirectEnabled(e.target.checked)} />
             {t('settings.username.redirectTitle', 'Redirect my old username')}
           </label>
-          <p className="text-[11px] text-neutral-500">
+          <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
             {redirectEnabled
               ? t('settings.username.redirectOnHint', 'Visits to your old username will always redirect here.')
               : t('settings.username.redirectOffHint', 'Your old username will be held for 1 year, then released — nobody can claim it during that year.')}
@@ -274,7 +274,7 @@ function UsernameSection() {
               {eligibility.costCredits > 0 && (
                 <button
                   onClick={() => setCurrency('credits')}
-                  className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-semibold ${currency === 'credits' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-300 text-neutral-600'}`}
+                  className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-semibold ${currency === 'credits' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400'}`}
                 >
                   {t('settings.username.costCredits', '{{amount}} Credits', { amount: eligibility.costCredits })}
                 </button>
@@ -282,7 +282,7 @@ function UsernameSection() {
               {eligibility.costStars > 0 && (
                 <button
                   onClick={() => setCurrency('stars')}
-                  className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-semibold ${currency === 'stars' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-300 text-neutral-600'}`}
+                  className={`flex-1 rounded-lg border px-3 py-1.5 text-xs font-semibold ${currency === 'stars' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400'}`}
                 >
                   {t('settings.username.costStars', '{{amount}} Stars', { amount: eligibility.costStars })}
                 </button>
@@ -293,7 +293,7 @@ function UsernameSection() {
           <div className="flex gap-2">
             <button
               onClick={() => { setStep('idle'); setCandidate(''); setAvailability(null); }}
-              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold"
+              className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold"
             >
               {t('action.cancel', 'Cancel')}
             </button>
@@ -309,11 +309,11 @@ function UsernameSection() {
       )}
 
       {step === 'confirm' && (
-        <div className="space-y-2 rounded-lg border border-neutral-200 p-3 mt-2">
-          <p className="text-xs text-neutral-700">
+        <div className="space-y-2 rounded-lg border border-neutral-200 dark:border-neutral-700 p-3 mt-2">
+          <p className="text-xs text-neutral-700 dark:text-neutral-300">
             {t('settings.username.confirmBody', 'Change @{{old}} to @{{new}}?', { old: currentUsername, new: candidate })}
           </p>
-          <p className="text-[11px] text-neutral-500">
+          <p className="text-[11px] text-neutral-500 dark:text-neutral-400">
             {isFree
               ? t('settings.username.confirmFree', 'This is free.')
               : t('settings.username.confirmCost', 'Cost: {{amount}} {{currency}}.', {
@@ -322,7 +322,7 @@ function UsernameSection() {
                 })}
           </p>
           <div className="flex gap-2">
-            <button onClick={() => setStep('pick')} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold">
+            <button onClick={() => setStep('pick')} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold">
               {t('common.back', 'Back')}
             </button>
             <button
@@ -400,39 +400,39 @@ function DataAndAccountSection() {
   }
 
   return (
-    <div className="bg-white px-6 py-4 mb-3">
-      <h3 className="text-sm font-semibold text-neutral-700 mb-3">{t('settings.dataAccount.title', 'Data & Account')}</h3>
+    <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">{t('settings.dataAccount.title', 'Data & Account')}</h3>
 
       <div className="mb-4">
-        <p className="text-xs text-neutral-500 mb-2">
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
           {t('settings.dataAccount.exportDesc', 'Download a copy of your account data.')}
         </p>
         <button
           onClick={() => void handleExport()}
           disabled={exporting}
-          className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
+          className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold disabled:opacity-40"
         >
           {exporting ? t('settings.dataAccount.exporting', 'Preparing…') : t('settings.dataAccount.export', 'Request my data')}
         </button>
         {exportedJson && (
           <div className="mt-2">
-            <pre className="max-h-40 overflow-auto rounded-lg bg-neutral-100 p-2 text-[10px] text-neutral-700 select-all">{exportedJson}</pre>
-            <button onClick={() => void handleCopy()} className="mt-1 text-xs font-semibold text-primary-600">
+            <pre className="max-h-40 overflow-auto rounded-lg bg-neutral-100 dark:bg-neutral-800 p-2 text-[10px] text-neutral-700 dark:text-neutral-300 select-all">{exportedJson}</pre>
+            <button onClick={() => void handleCopy()} className="mt-1 text-xs font-semibold text-primary-600 dark:text-primary-300">
               {copyState === 'copied' ? t('settings.dataAccount.copied', 'Copied!') : t('settings.dataAccount.copy', 'Copy to clipboard')}
             </button>
           </div>
         )}
       </div>
 
-      <div className="border-t border-neutral-100 pt-4">
-        <p className="text-xs text-neutral-500 mb-2">{t('settings.dataAccount.deleteDesc', 'Permanently delete your account and all associated data.')}</p>
+      <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4">
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">{t('settings.dataAccount.deleteDesc', 'Permanently delete your account and all associated data.')}</p>
         {!showDeleteConfirm ? (
-          <button onClick={() => setShowDeleteConfirm(true)} className="rounded-lg border border-danger-300 px-3 py-1.5 text-xs font-semibold text-danger-600">
+          <button onClick={() => setShowDeleteConfirm(true)} className="rounded-lg border border-danger-300 px-3 py-1.5 text-xs font-semibold text-danger-600 dark:text-danger-300">
             {t('settings.dataAccount.delete', 'Delete account')}
           </button>
         ) : (
           <div className="space-y-2">
-            <p className="text-xs text-neutral-600">
+            <p className="text-xs text-neutral-600 dark:text-neutral-400">
               {t('settings.dataAccount.deleteConfirmHint', 'Type DELETE to confirm — this cannot be undone.')}
             </p>
             <input
@@ -440,7 +440,7 @@ function DataAndAccountSection() {
               value={deleteConfirmText}
               onChange={(e) => setDeleteConfirmText(e.target.value)}
               placeholder="DELETE"
-              className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+              className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm"
             />
             <div className="flex gap-2">
               <button
@@ -452,7 +452,7 @@ function DataAndAccountSection() {
               </button>
               <button
                 onClick={() => { setShowDeleteConfirm(false); setDeleteConfirmText(''); }}
-                className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold"
+                className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold"
               >
                 {t('action.cancel', 'Cancel')}
               </button>
@@ -500,12 +500,12 @@ function TweetLengthSection() {
   }
 
   return (
-    <div className="bg-white px-6 py-4 mb-3">
-      <h3 className="text-sm font-semibold text-neutral-700 mb-1">{t('tweets.title')}</h3>
-      <label className="mb-1 mt-2 block text-xs font-semibold text-neutral-700">
+    <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-1">{t('tweets.title')}</h3>
+      <label className="mb-1 mt-2 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
         {t('settings.tweetMaxLength.label')}
       </label>
-      <p className="mb-2 text-xs text-neutral-500">
+      <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
         {policy.isLongFormExempt
           ? t('settings.tweetMaxLength.hintExempt', { max: policy.longMaxLengthChars })
           : t('settings.tweetMaxLength.hint', { default: policy.defaultMaxLength, cost: policy.longTweetCostCredits })}
@@ -519,7 +519,7 @@ function TweetLengthSection() {
           onChange={(e) => setInput(e.target.value)}
           onBlur={() => void handleSave()}
           disabled={saving}
-          className="w-28 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm disabled:opacity-40"
+          className="w-28 rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-sm disabled:opacity-40"
         />
       </div>
     </div>
@@ -567,13 +567,13 @@ function ProfilePhotoSection() {
   }
 
   return (
-    <div className="bg-white px-6 py-4 mb-3">
-      <h3 className="text-sm font-semibold text-neutral-700 mb-3">{t('profile.avatar.sectionLabel')}</h3>
+    <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">{t('profile.avatar.sectionLabel')}</h3>
       <div className="flex items-center gap-4">
         {data?.avatar_url ? (
           <img src={data.avatar_url} alt="" className="w-16 h-16 rounded-full object-cover" />
         ) : (
-          <div className="w-16 h-16 rounded-full bg-primary-100 flex items-center justify-center text-2xl">
+          <div className="w-16 h-16 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-2xl">
             {data?.avatar_emoji ?? '👤'}
           </div>
         )}
@@ -581,13 +581,13 @@ function ProfilePhotoSection() {
           <div className="flex gap-2">
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold"
+              className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold"
             >
               {t('profile.avatar.uploadPhoto')}
             </button>
             <button
               onClick={() => setShowDefaultIconPicker((v) => !v)}
-              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold"
+              className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold"
             >
               {t('profile.avatar.useDefaultIcon')}
             </button>
@@ -623,7 +623,7 @@ function ProfilePhotoSection() {
         </div>
       )}
 
-      {toast && <p className="mt-2 text-xs text-neutral-600">{toast}</p>}
+      {toast && <p className="mt-2 text-xs text-neutral-600 dark:text-neutral-400">{toast}</p>}
 
       {cropImageSrc && (
         <AvatarCropModal
@@ -680,16 +680,16 @@ function SettingsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       {/* Current user */}
       {user && (
-        <div className="bg-white px-6 py-4 mb-3 flex items-center gap-3">
-          <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center text-2xl">
+        <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3 flex items-center gap-3">
+          <div className="w-12 h-12 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-2xl">
             👤
           </div>
           <div>
-            <p className="font-semibold text-neutral-900">{user.username}</p>
-            <p className="text-sm text-neutral-500">{user.email}</p>
+            <p className="font-semibold text-neutral-900 dark:text-neutral-100">{user.username}</p>
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{user.email}</p>
           </div>
         </div>
       )}
@@ -698,44 +698,44 @@ function SettingsPage() {
       <ProfilePhotoSection />
 
       {/* Wallet & Stats */}
-      <div className="bg-white px-6 py-2 mb-3">
-        <Link to="/wallet" className="flex items-center justify-between py-2.5 border-b border-neutral-100">
-          <span className="text-sm text-neutral-700">🪙 {t('wallet.title')}</span>
-          <span className="text-neutral-400">→</span>
+      <div className="bg-white dark:bg-neutral-800 px-6 py-2 mb-3">
+        <Link to="/wallet" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
+          <span className="text-sm text-neutral-700 dark:text-neutral-300">🪙 {t('wallet.title')}</span>
+          <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
         {statsAccess.accessible && (
           <Link to="/stats" className="flex items-center justify-between py-2.5">
-            <span className="text-sm text-neutral-700">📊 {t('profile.actions.stats')}</span>
-            <span className="text-neutral-400">→</span>
+            <span className="text-sm text-neutral-700 dark:text-neutral-300">📊 {t('profile.actions.stats')}</span>
+            <span className="text-neutral-400 dark:text-neutral-500">→</span>
           </Link>
         )}
       </div>
 
       {/* Privacy, Security, Notifications, Subscription, Business & Help (BUG-CAP-07) */}
-      <div className="bg-white px-6 py-2 mb-3">
-        <Link to="/settings/privacy" className="flex items-center justify-between py-2.5 border-b border-neutral-100">
-          <span className="text-sm text-neutral-700">🔒 {t('settings.privacy.title', 'Privacy')}</span>
-          <span className="text-neutral-400">→</span>
+      <div className="bg-white dark:bg-neutral-800 px-6 py-2 mb-3">
+        <Link to="/settings/privacy" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
+          <span className="text-sm text-neutral-700 dark:text-neutral-300">🔒 {t('settings.privacy.title', 'Privacy')}</span>
+          <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
-        <Link to="/settings/security" className="flex items-center justify-between py-2.5 border-b border-neutral-100">
-          <span className="text-sm text-neutral-700">🛡️ {t('settings.security.title', 'Security')}</span>
-          <span className="text-neutral-400">→</span>
+        <Link to="/settings/security" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
+          <span className="text-sm text-neutral-700 dark:text-neutral-300">🛡️ {t('settings.security.title', 'Security')}</span>
+          <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
-        <Link to="/settings/notifications" className="flex items-center justify-between py-2.5 border-b border-neutral-100">
-          <span className="text-sm text-neutral-700">🔔 {t('settings.notifications', 'Notifications')}</span>
-          <span className="text-neutral-400">→</span>
+        <Link to="/settings/notifications" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
+          <span className="text-sm text-neutral-700 dark:text-neutral-300">🔔 {t('settings.notifications', 'Notifications')}</span>
+          <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
-        <Link to="/settings/subscription" className="flex items-center justify-between py-2.5 border-b border-neutral-100">
-          <span className="text-sm text-neutral-700">💳 {t('settings.subscriptionBilling', 'Subscription & Billing')}</span>
-          <span className="text-neutral-400">→</span>
+        <Link to="/settings/subscription" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
+          <span className="text-sm text-neutral-700 dark:text-neutral-300">💳 {t('settings.subscriptionBilling', 'Subscription & Billing')}</span>
+          <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
-        <Link to="/settings/business" className="flex items-center justify-between py-2.5 border-b border-neutral-100">
-          <span className="text-sm text-neutral-700">🏢 {t('settings.business', 'Business Account')}</span>
-          <span className="text-neutral-400">→</span>
+        <Link to="/settings/business" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
+          <span className="text-sm text-neutral-700 dark:text-neutral-300">🏢 {t('settings.business', 'Business Account')}</span>
+          <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
         <Link to="/help" className="flex items-center justify-between py-2.5">
-          <span className="text-sm text-neutral-700">❓ {t('help.title', 'Help & Support')}</span>
-          <span className="text-neutral-400">→</span>
+          <span className="text-sm text-neutral-700 dark:text-neutral-300">❓ {t('help.title', 'Help & Support')}</span>
+          <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
       </div>
 
@@ -743,8 +743,8 @@ function SettingsPage() {
       <ThemeSection />
 
       {/* Language */}
-      <div className="bg-white px-6 py-4 mb-3">
-        <h3 className="text-sm font-semibold text-neutral-700 mb-3">{t('android.settings.language')}</h3>
+      <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+        <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-3">{t('android.settings.language')}</h3>
         <div className="space-y-2">
           {SUPPORTED_LOCALES.map((locale) => (
             <button
@@ -752,8 +752,8 @@ function SettingsPage() {
               onClick={() => handleLanguageChange(locale)}
               className={`w-full flex items-center justify-between py-2 px-3 rounded-lg ${
                 i18n.language === locale
-                  ? 'bg-primary-50 text-primary-600'
-                  : 'text-neutral-700 hover:bg-neutral-50'
+                  ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-600 dark:text-primary-300'
+                  : 'text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800'
               }`}
             >
               <span className="text-sm">{LOCALE_LABELS[locale as SupportedLocale]}</span>
@@ -783,10 +783,10 @@ function SettingsPage() {
       <DataAndAccountSection />
 
       {/* App version */}
-      <div className="bg-white px-6 py-4 mb-3">
+      <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-neutral-700">{t('android.settings.version')}</span>
-          <span className="text-sm text-neutral-400">{appVersion}</span>
+          <span className="text-sm text-neutral-700 dark:text-neutral-300">{t('android.settings.version')}</span>
+          <span className="text-sm text-neutral-400 dark:text-neutral-500">{appVersion}</span>
         </div>
       </div>
 
@@ -794,7 +794,7 @@ function SettingsPage() {
       <div className="px-6 py-4">
         <button
           onClick={handleLogout}
-          className="w-full py-3 border border-danger-300 text-danger-600 font-semibold rounded-lg"
+          className="w-full py-3 border border-danger-300 text-danger-600 dark:text-danger-300 font-semibold rounded-lg"
         >
           {t('android.settings.logout')}
         </button>

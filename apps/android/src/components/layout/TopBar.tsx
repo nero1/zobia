@@ -137,7 +137,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
         made the top of the app look cut off under the status bar.
       */}
       <header
-        className="relative z-50 flex-none bg-white border-b border-neutral-200"
+        className="relative z-50 flex-none bg-white dark:bg-neutral-800 border-b border-neutral-200 dark:border-neutral-700"
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
       >
         <div className="h-14 flex items-center justify-between px-4">
@@ -147,7 +147,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
               aria-label={t('nav.openMenu')}
               aria-expanded={drawerOpen}
               onClick={() => setDrawerOpen(true)}
-              className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
+              className="rounded-lg p-2 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300"
             >
               <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
                 <rect x="2" y="4" width="16" height="2" rx="1" />
@@ -159,7 +159,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
             {showBack && (
               <button
                 onClick={() => router.history.back()}
-                className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700"
+                className="rounded-lg p-2 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300"
                 aria-label={t('action.back')}
               >
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -168,7 +168,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
               </button>
             )}
 
-            <Link to="/home" className="text-lg font-bold text-primary-600">
+            <Link to="/home" className="text-lg font-bold text-primary-600 dark:text-primary-300">
               Zobia
             </Link>
           </div>
@@ -179,7 +179,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
             <Link
               to="/notifications"
               aria-label={unreadCount > 0 ? `${t('notifications.title')}, ${t('notifications.unread', { count: unreadCount })}` : t('notifications.title')}
-              className="relative rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+              className="relative rounded-full p-2 text-neutral-500 dark:text-neutral-400 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300"
             >
               <span aria-hidden="true" className="text-lg leading-none">🔔</span>
               {hasNewNotifications && (
@@ -201,14 +201,14 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
       <div
         role="dialog"
         aria-label={t('nav.userArea')}
-        className={`fixed inset-y-0 left-0 z-50 w-72 flex-col bg-white shadow-xl transition-transform duration-300 ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`}
+        className={`fixed inset-y-0 left-0 z-50 w-72 flex-col bg-white dark:bg-neutral-800 shadow-xl transition-transform duration-300 ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`}
         style={{ paddingTop: 'calc(3.5rem + env(safe-area-inset-top))' }}
       >
         <button
           type="button"
           onClick={closeDrawer}
           aria-label={t('nav.closeMenu')}
-          className="absolute right-4 rounded-full p-2 text-neutral-500 hover:bg-neutral-100"
+          className="absolute right-4 rounded-full p-2 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700"
           style={{ top: 'calc(1rem + env(safe-area-inset-top))' }}
         >
           <span aria-hidden="true" className="text-xl leading-none">✕</span>
@@ -221,7 +221,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                 to="/admin"
                 onClick={closeDrawer}
                 className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                  pathname.startsWith('/admin') ? 'bg-primary-50 text-primary-700' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
+                  pathname.startsWith('/admin') ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100'
                 }`}
                 aria-current={pathname.startsWith('/admin') ? 'page' : undefined}
               >
@@ -234,7 +234,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                 to="/watch56"
                 onClick={closeDrawer}
                 className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                  pathname.startsWith('/watch56') ? 'bg-primary-50 text-primary-700' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
+                  pathname.startsWith('/watch56') ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100'
                 }`}
                 aria-current={pathname.startsWith('/watch56') ? 'page' : undefined}
               >
@@ -249,7 +249,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                   key={item.href}
                   to={item.href}
                   onClick={closeDrawer}
-                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
+                  className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-600 dark:text-neutral-400 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100"
                 >
                   <span className="relative w-5 text-center text-base leading-none" aria-hidden="true">
                     {item.icon}
@@ -266,7 +266,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
             })}
           </nav>
 
-          <div className="my-3 border-t border-neutral-200" />
+          <div className="my-3 border-t border-neutral-200 dark:border-neutral-700" />
 
           <nav className="space-y-0.5" aria-label="Secondary">
             {secondaryNavItems.map((item) => (
@@ -274,7 +274,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                 key={item.href}
                 to={item.href}
                 onClick={closeDrawer}
-                className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-600 transition-colors hover:bg-neutral-100 hover:text-neutral-900"
+                className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-neutral-600 dark:text-neutral-400 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100"
               >
                 <span className="w-5 text-center text-base leading-none" aria-hidden="true">{item.icon}</span>
                 {t(item.labelKey)}
@@ -287,7 +287,7 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
           <button
             type="button"
             onClick={handleLogout}
-            className="mt-4 w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50"
+            className="mt-4 w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-600 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/30"
           >
             🚪 {t('nav.logout')}
           </button>

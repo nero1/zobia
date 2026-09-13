@@ -23,17 +23,17 @@ export function tierBase(tier: string): GuildTierBase {
 
 // No purple/gradients (PRD Appendix B) — Legend uses primary blue, not web's purple.
 export const TIER_BADGE: Record<GuildTierBase, { classes: string; label: string; emoji: string }> = {
-  bronze: { classes: 'bg-amber-100 text-amber-700', label: 'Bronze', emoji: '🥉' },
-  silver: { classes: 'bg-neutral-200 text-neutral-700', label: 'Silver', emoji: '🥈' },
-  gold: { classes: 'bg-amber-200 text-amber-800', label: 'Gold', emoji: '🥇' },
-  platinum: { classes: 'bg-teal-100 text-teal-700', label: 'Platinum', emoji: '💎' },
-  legend: { classes: 'bg-primary-100 text-primary-700', label: 'Legend', emoji: '👑' },
+  bronze: { classes: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300', label: 'Bronze', emoji: '🥉' },
+  silver: { classes: 'bg-neutral-200 dark:bg-neutral-700 text-neutral-700 dark:text-neutral-300', label: 'Silver', emoji: '🥈' },
+  gold: { classes: 'bg-amber-200 text-amber-800 dark:text-amber-300', label: 'Gold', emoji: '🥇' },
+  platinum: { classes: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300', label: 'Platinum', emoji: '💎' },
+  legend: { classes: 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300', label: 'Legend', emoji: '👑' },
 };
 
 const ROLE_BADGE: Record<GuildMemberRole, string> = {
-  captain: 'bg-amber-100 text-amber-700',
-  veteran: 'bg-blue-100 text-blue-700',
-  recruiter: 'bg-teal-100 text-teal-700',
+  captain: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
+  veteran: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
+  recruiter: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300',
   member: '',
 };
 
@@ -54,9 +54,9 @@ function formatCountdown(secs: number): string {
 
 function SectionCard({ title, children }: { title: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white">
-      <div className="border-b border-neutral-200 px-5 py-4">
-        <h2 className="text-sm font-semibold text-neutral-700">{title}</h2>
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800">
+      <div className="border-b border-neutral-200 dark:border-neutral-700 px-5 py-4">
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{title}</h2>
       </div>
       {children}
     </div>
@@ -102,28 +102,28 @@ function ForumModsSection({ guildId, isCaptain, members }: { guildId: string; is
   return (
     <SectionCard title={`🛡️ ${t('guild.forumMods')}`}>
       <div className="px-5 py-4">
-        <p className="mb-3 text-xs text-neutral-500">
+        <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
           {t('guild.forumModsDescription')}{' '}
-          <Link to="/watch56" className="font-medium text-primary-600">
+          <Link to="/watch56" className="font-medium text-primary-600 dark:text-primary-300">
             {t('guild.forumModsOpenQueue')}
           </Link>
         </p>
-        {msg && <p className="mb-2 text-xs text-danger-600">{msg}</p>}
+        {msg && <p className="mb-2 text-xs text-danger-600 dark:text-danger-300">{msg}</p>}
         {isCaptain ? (
-          <div className="divide-y divide-neutral-100">
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
             {nonCaptainMembers.length === 0 ? (
-              <p className="py-3 text-xs text-neutral-400">{t('guild.forumModsNoMembers')}</p>
+              <p className="py-3 text-xs text-neutral-400 dark:text-neutral-500">{t('guild.forumModsNoMembers')}</p>
             ) : (
               nonCaptainMembers.slice(0, 30).map((m) => {
                 const isMod = modIds.has(m.userId);
                 return (
                   <div key={m.userId} className="flex items-center justify-between gap-3 py-2.5">
-                    <span className="truncate text-sm text-neutral-700">{m.displayName ?? `@${m.username}`}</span>
+                    <span className="truncate text-sm text-neutral-700 dark:text-neutral-300">{m.displayName ?? `@${m.username}`}</span>
                     <button
                       disabled={pendingUserId === m.userId}
                       onClick={() => toggleMod(m.userId, !isMod)}
                       className={`shrink-0 rounded-full px-3 py-1 text-xs font-semibold disabled:opacity-50 ${
-                        isMod ? 'bg-primary-100 text-primary-700' : 'bg-neutral-100 text-neutral-600'
+                        isMod ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
                       }`}
                     >
                       {isMod ? t('guild.forumModsRevoke') : t('guild.forumModsGrant')}
@@ -136,7 +136,7 @@ function ForumModsSection({ guildId, isCaptain, members }: { guildId: string; is
         ) : (
           <div className="space-y-1">
             {members.filter((m) => modIds.has(m.userId)).map((m) => (
-              <p key={m.userId} className="text-sm text-neutral-700">{m.displayName ?? `@${m.username}`}</p>
+              <p key={m.userId} className="text-sm text-neutral-700 dark:text-neutral-300">{m.displayName ?? `@${m.username}`}</p>
             ))}
           </div>
         )}
@@ -168,53 +168,53 @@ export function GuildDetailView({
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       {backTo && (
-        <Link to={backTo} className="inline-flex items-center gap-1.5 text-sm text-neutral-500">
+        <Link to={backTo} className="inline-flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-400">
           ← {t('guild.guildLabel')}
         </Link>
       )}
 
       {/* Header */}
-      <div className="rounded-xl border border-neutral-200 bg-white p-5">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-5">
         <div className="flex flex-wrap items-start gap-4">
-          <span className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-4xl ${guild.tier === 'legend' ? 'animate-pulse' : ''}`}>
+          <span className={`flex h-16 w-16 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-4xl ${guild.tier === 'legend' ? 'animate-pulse' : ''}`}>
             {guild.crestEmoji}
           </span>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold text-neutral-900">{guild.name}</h1>
+              <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{guild.name}</h1>
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${classes}`}>{emoji} {label}</span>
             </div>
-            {guild.city && <p className="text-sm text-neutral-500">📍 {guild.city}</p>}
-            {guild.description && <p className="mt-1 text-sm text-neutral-600">{guild.description}</p>}
-            <p className="text-sm text-neutral-500">{t('guild.members', { count: guild.memberCount })} / {guild.maxMembers}</p>
+            {guild.city && <p className="text-sm text-neutral-500 dark:text-neutral-400">📍 {guild.city}</p>}
+            {guild.description && <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">{guild.description}</p>}
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('guild.members', { count: guild.memberCount })} / {guild.maxMembers}</p>
 
             <div className="mt-3">
-              <div className="mb-1 flex items-center justify-between text-xs text-neutral-500">
+              <div className="mb-1 flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
                 <span>{t('guild.tierXP')}</span>
                 <span className="tabular-nums">{guild.guildXp.toLocaleString()} / {guild.tierXpRequired.toLocaleString()}</span>
               </div>
-              <div className="h-2 overflow-hidden rounded-full bg-neutral-200">
+              <div className="h-2 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
                 <div className="h-full rounded-full bg-primary-500" style={{ width: `${tierPct}%` }} />
               </div>
             </div>
           </div>
           <div className="text-right">
-            <p className="text-xs text-neutral-500">{t('guild.treasury')}</p>
-            <p className="text-lg font-bold text-amber-600">
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('guild.treasury')}</p>
+            <p className="text-lg font-bold text-amber-600 dark:text-amber-300">
               {guild.treasuryBalance !== null ? guild.treasuryBalance.toLocaleString() : '—'} <span className="text-sm font-normal">🪙</span>
             </p>
           </div>
         </div>
 
-        <div className="mt-4 grid grid-cols-3 divide-x divide-neutral-200 rounded-xl border border-neutral-200">
+        <div className="mt-4 grid grid-cols-3 divide-x divide-neutral-200 dark:divide-neutral-700 rounded-xl border border-neutral-200 dark:border-neutral-700">
           {[
             { label: t('guild.warsWon', { count: guild.warWins }), value: guild.warWins.toLocaleString() },
             { label: t('guild.warsLost', { count: guild.warLosses }), value: guild.warLosses.toLocaleString() },
             { label: t('guild.members', { count: guild.memberCount }), value: `${guild.memberCount}/${guild.maxMembers}` },
           ].map((s, i) => (
             <div key={i} className="flex flex-col items-center py-3">
-              <span className="text-sm font-bold text-neutral-900">{s.value}</span>
-              <span className="text-xs text-neutral-400">{s.label}</span>
+              <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{s.value}</span>
+              <span className="text-xs text-neutral-400 dark:text-neutral-500">{s.label}</span>
             </div>
           ))}
         </div>
@@ -224,24 +224,24 @@ export function GuildDetailView({
 
       {/* Active war */}
       {guild.activeWar && (
-        <div className="rounded-xl border border-red-200 bg-red-50 p-5">
+        <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 p-5">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-bold text-red-700">{t('guild.activeWar')}</h2>
-            <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700">
+            <h2 className="font-bold text-red-700 dark:text-red-300">{t('guild.activeWar')}</h2>
+            <span className="rounded-full bg-red-100 dark:bg-red-900/40 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:text-red-300">
               {t('guild.endsIn', { time: formatCountdown(warSecs) })}
             </span>
           </div>
           <div className="flex items-center justify-between">
             <div className="text-center">
               <span className="text-3xl">{guild.crestEmoji}</span>
-              <p className="mt-1 text-sm font-bold text-neutral-900">{guild.name}</p>
-              <p className="text-2xl font-bold text-primary-600">{guild.activeWar.myScore}</p>
+              <p className="mt-1 text-sm font-bold text-neutral-900 dark:text-neutral-100">{guild.name}</p>
+              <p className="text-2xl font-bold text-primary-600 dark:text-primary-300">{guild.activeWar.myScore}</p>
             </div>
-            <span className="text-xl font-bold text-neutral-400">VS</span>
+            <span className="text-xl font-bold text-neutral-400 dark:text-neutral-500">VS</span>
             <div className="text-center">
               <span className="text-3xl">{guild.activeWar.opponentCrestEmoji}</span>
-              <p className="mt-1 text-sm font-bold text-neutral-900">{guild.activeWar.opponentName}</p>
-              <p className="text-2xl font-bold text-red-600">{guild.activeWar.opponentScore}</p>
+              <p className="mt-1 text-sm font-bold text-neutral-900 dark:text-neutral-100">{guild.activeWar.opponentName}</p>
+              <p className="text-2xl font-bold text-red-600 dark:text-red-300">{guild.activeWar.opponentScore}</p>
             </div>
           </div>
         </div>
@@ -250,20 +250,20 @@ export function GuildDetailView({
       {/* Active quests */}
       {guild.activeQuests.length > 0 && (
         <SectionCard title="🎯 Guild Quests">
-          <div className="divide-y divide-neutral-100">
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
             {guild.activeQuests.map((q) => (
               <div key={q.id} className="px-5 py-4">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-neutral-900">{q.title}</p>
-                    {q.description && <p className="mt-0.5 text-xs text-neutral-500">{q.description}</p>}
+                    <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{q.title}</p>
+                    {q.description && <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{q.description}</p>}
                     <div className="mt-2">
-                      <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
+                      <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
                         <div className="h-full rounded-full bg-primary-500" style={{ width: `${Math.min(100, Math.round(q.progressPct))}%` }} />
                       </div>
                     </div>
                   </div>
-                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                  <span className="shrink-0 rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
                     +{q.rewardXp.toLocaleString()} XP
                   </span>
                 </div>
@@ -275,28 +275,28 @@ export function GuildDetailView({
 
       {/* Members */}
       <SectionCard title={`👥 ${t('guild.membersSection')} (${guild.memberCount})`}>
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
           {guild.members.slice(0, 20).map((m) => (
             <Link
               key={m.userId}
               to="/profile/$username"
               params={{ username: m.username }}
-              className="flex items-center gap-3 px-5 py-3 active:bg-neutral-50"
+              className="flex items-center gap-3 px-5 py-3 active:bg-neutral-50 dark:active:bg-neutral-800"
             >
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xl">{m.avatarEmoji}</span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-xl">{m.avatarEmoji}</span>
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-semibold text-neutral-900 truncate">{m.displayName ?? `@${m.username}`}</span>
+                  <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100 truncate">{m.displayName ?? `@${m.username}`}</span>
                   {m.role !== 'member' && (
                     <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${ROLE_BADGE[m.role]}`}>{m.role}</span>
                   )}
                 </div>
-                <p className="text-xs text-neutral-500">{t('guild.xpContributed', { xp: m.contributionScore.toLocaleString() })}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('guild.xpContributed', { xp: m.contributionScore.toLocaleString() })}</p>
               </div>
             </Link>
           ))}
           {guild.memberCount > 20 && (
-            <div className="px-5 py-3 text-center text-xs text-neutral-400">+{guild.memberCount - 20} more</div>
+            <div className="px-5 py-3 text-center text-xs text-neutral-400 dark:text-neutral-500">+{guild.memberCount - 20} more</div>
           )}
         </div>
       </SectionCard>
@@ -309,20 +309,20 @@ export function GuildDetailView({
       {/* War history */}
       {guild.warHistory.length > 0 && (
         <SectionCard title={t('guild.warHistory')}>
-          <div className="divide-y divide-neutral-100">
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
             {guild.warHistory.map((w) => (
               <div key={w.id} className="flex items-center gap-4 px-5 py-3">
                 <span
                   className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ${
-                    w.result === 'win' ? 'bg-teal-100 text-teal-700' : w.result === 'loss' ? 'bg-red-100 text-red-700' : 'bg-neutral-100 text-neutral-600'
+                    w.result === 'win' ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300' : w.result === 'loss' ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
                   }`}
                 >
                   {w.result === 'win' ? 'W' : w.result === 'loss' ? 'L' : 'D'}
                 </span>
                 <span className="text-xl">{w.opponentCrestEmoji}</span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-neutral-900 truncate">vs {w.opponentName}</p>
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">vs {w.opponentName}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
                     {w.myScore.toLocaleString()} – {w.opponentScore.toLocaleString()} · {formatDate(w.endedAt)}
                   </p>
                 </div>
@@ -335,13 +335,13 @@ export function GuildDetailView({
       {/* Alliance */}
       {guild.allianceHistory.length > 0 && (
         <SectionCard title={t('guild.allianceHistory')}>
-          <div className="divide-y divide-neutral-100">
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
             {guild.allianceHistory.map((a) => (
               <div key={a.id} className="flex items-center gap-4 px-5 py-3">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-100 text-sm">🤝</span>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-100 dark:bg-teal-900/40 text-sm">🤝</span>
                 <div className="min-w-0 flex-1">
-                  <p className="text-sm font-medium text-neutral-900">{a.allianceName}</p>
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{a.allianceName}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
                     {a.role === 'initiator' ? t('guild.allianceFounded') : t('guild.allianceJoined')} {formatDate(a.joinedAt)}
                     {a.leftAt ? ` · ${t('guild.allianceLeft', { date: formatDate(a.leftAt) })}` : ` · ${t('guild.allianceActive')}`}
                   </p>
@@ -352,7 +352,7 @@ export function GuildDetailView({
         </SectionCard>
       )}
 
-      <p className="text-center text-xs text-neutral-400">Founded {formatDate(guild.createdAt)}</p>
+      <p className="text-center text-xs text-neutral-400 dark:text-neutral-500">Founded {formatDate(guild.createdAt)}</p>
     </div>
   );
 }

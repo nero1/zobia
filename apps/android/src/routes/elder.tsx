@@ -71,59 +71,59 @@ function ElderDashboard({ data, onRemove, removing }: { data: ElderData; onRemov
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3">
-        <div className="rounded-xl border border-neutral-200 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('elder.dashboard.menteesLabel')}</p>
-          <p className="mt-1 text-2xl font-bold text-neutral-900">{mentees.length} / {data.maxMentees ?? 5}</p>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('elder.dashboard.menteesLabel')}</p>
+          <p className="mt-1 text-2xl font-bold text-neutral-900 dark:text-neutral-100">{mentees.length} / {data.maxMentees ?? 5}</p>
         </div>
-        <div className="rounded-xl border border-neutral-200 bg-white p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('elder.dashboard.mentorshipXpLabel')}</p>
-          <p className="mt-1 text-2xl font-bold text-neutral-900">{(data.mentorshipXpEarned ?? 0).toLocaleString()}</p>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('elder.dashboard.mentorshipXpLabel')}</p>
+          <p className="mt-1 text-2xl font-bold text-neutral-900 dark:text-neutral-100">{(data.mentorshipXpEarned ?? 0).toLocaleString()}</p>
         </div>
-        <div className="col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-xs font-semibold uppercase tracking-wider text-amber-600">{t('elder.dashboard.statusLabel')}</p>
-          <p className="mt-1 text-sm font-bold text-amber-700">{t('elder.dashboard.statusValue')}</p>
-          <p className="text-xs text-amber-600">{t('elder.dashboard.prestige', { level: data.prestigeLevel ?? 0 })}</p>
+        <div className="col-span-2 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 p-4">
+          <p className="text-xs font-semibold uppercase tracking-wider text-amber-600 dark:text-amber-300">{t('elder.dashboard.statusLabel')}</p>
+          <p className="mt-1 text-sm font-bold text-amber-700 dark:text-amber-300">{t('elder.dashboard.statusValue')}</p>
+          <p className="text-xs text-amber-600 dark:text-amber-300">{t('elder.dashboard.prestige', { level: data.prestigeLevel ?? 0 })}</p>
         </div>
       </div>
 
-      <div className="rounded-xl border border-neutral-200 bg-white">
-        <div className="border-b border-neutral-200 px-4 py-3">
-          <h2 className="text-sm font-semibold text-neutral-700">{t('elder.dashboard.yourMentees')}</h2>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800">
+        <div className="border-b border-neutral-200 dark:border-neutral-700 px-4 py-3">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('elder.dashboard.yourMentees')}</h2>
         </div>
         {mentees.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-neutral-500">{t('elder.dashboard.noMentees')}</div>
+          <div className="px-4 py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('elder.dashboard.noMentees')}</div>
         ) : (
-          <div className="divide-y divide-neutral-100">
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
             {mentees.map((m) => (
               <div key={m.userId} className="flex items-center gap-3 px-4 py-4">
-                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xl">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-xl">
                   {m.avatarEmoji ?? '👤'}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <Link to="/profile/$username" params={{ username: m.username }} className="text-sm font-semibold text-neutral-900">
+                    <Link to="/profile/$username" params={{ username: m.username }} className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                       {m.displayName}
                     </Link>
                     <span
                       className={`rounded-full px-1.5 py-0.5 text-xs font-medium ${
                         m.status === 'active'
-                          ? 'bg-teal-100 text-teal-700'
+                          ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300'
                           : m.status === 'pending'
-                          ? 'bg-amber-100 text-amber-700'
-                          : 'bg-neutral-100 text-neutral-600'
+                          ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+                          : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
                       }`}
                     >
                       {m.status}
                     </span>
                   </div>
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
                     @{m.username} · {m.rankName} · {t('elder.dashboard.xpEarned', { xp: m.xpEarned.toLocaleString() })}
                   </p>
                 </div>
                 <button
                   onClick={() => onRemove(m.userId)}
                   disabled={removing === m.userId}
-                  className="shrink-0 rounded-lg border border-danger-300 px-2.5 py-1 text-xs font-semibold text-danger-600 disabled:opacity-50"
+                  className="shrink-0 rounded-lg border border-danger-300 px-2.5 py-1 text-xs font-semibold text-danger-600 dark:text-danger-300 disabled:opacity-50"
                 >
                   {removing === m.userId ? '…' : t('elder.dashboard.remove')}
                 </button>
@@ -140,16 +140,16 @@ function EligibilityView({ data }: { data: ElderData }) {
   const { t } = useTranslation();
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-5">
-        <h2 className="text-lg font-bold text-amber-700">{t('elder.eligibility.title')}</h2>
-        <p className="mt-2 text-sm text-amber-600">{t('elder.eligibility.body')}</p>
+      <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 p-5">
+        <h2 className="text-lg font-bold text-amber-700 dark:text-amber-300">{t('elder.eligibility.title')}</h2>
+        <p className="mt-2 text-sm text-amber-600 dark:text-amber-300">{t('elder.eligibility.body')}</p>
         {data.eligibilityReason && <p className="mt-2 text-xs text-amber-500">{data.eligibilityReason}</p>}
       </div>
-      <div className="rounded-xl border border-neutral-200 bg-white p-4">
-        <h3 className="mb-3 text-sm font-semibold text-neutral-700">{t('elder.eligibility.requirements')}</h3>
-        <ul className="space-y-2 text-sm text-neutral-600">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
+        <h3 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('elder.eligibility.requirements')}</h3>
+        <ul className="space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
           <li className="flex items-center gap-2">
-            <span className={data.prestigeLevel && data.prestigeLevel >= 3 ? 'text-teal-500' : 'text-neutral-400'}>
+            <span className={data.prestigeLevel && data.prestigeLevel >= 3 ? 'text-teal-500' : 'text-neutral-400 dark:text-neutral-500'}>
               {data.prestigeLevel && data.prestigeLevel >= 3 ? '✓' : '○'}
             </span>
             {t('elder.eligibility.prestige', { level: data.prestigeLevel ?? 0 })}
@@ -180,41 +180,41 @@ function NonEligibleView({
   const { t } = useTranslation();
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-neutral-200 bg-white p-5">
-        <h2 className="text-lg font-bold text-neutral-900">{t('elder.nonEligible.title')}</h2>
-        <p className="mt-2 text-sm text-neutral-600">{t('elder.nonEligible.body')}</p>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-5">
+        <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('elder.nonEligible.title')}</h2>
+        <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">{t('elder.nonEligible.body')}</p>
       </div>
 
-      <div className="rounded-xl border border-neutral-200 bg-white p-4">
-        <h3 className="mb-3 text-sm font-semibold text-neutral-700">{t('elder.nonEligible.howToTitle')}</h3>
-        <ul className="space-y-2 text-sm text-neutral-600">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
+        <h3 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('elder.nonEligible.howToTitle')}</h3>
+        <ul className="space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
           <li className="flex items-center gap-2">
-            <span className="text-neutral-400">○</span>
+            <span className="text-neutral-400 dark:text-neutral-500">○</span>
             {t('elder.nonEligible.step1')}
           </li>
           <li className="flex items-center gap-2">
-            <span className="text-neutral-400">○</span>
+            <span className="text-neutral-400 dark:text-neutral-500">○</span>
             {t('elder.nonEligible.step2')}
           </li>
         </ul>
       </div>
 
       {data.canRequestMentor && (
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-          <h3 className="mb-2 text-sm font-semibold text-blue-700">{t('elder.nonEligible.wantMentor')}</h3>
-          <p className="mb-4 text-xs text-blue-600">{t('elder.nonEligible.wantMentorBody')}</p>
-          {requestError && <p className="mb-3 text-xs font-medium text-danger-600">{requestError}</p>}
+        <div className="rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-900/30 p-4">
+          <h3 className="mb-2 text-sm font-semibold text-blue-700 dark:text-blue-300">{t('elder.nonEligible.wantMentor')}</h3>
+          <p className="mb-4 text-xs text-blue-600 dark:text-blue-300">{t('elder.nonEligible.wantMentorBody')}</p>
+          {requestError && <p className="mb-3 text-xs font-medium text-danger-600 dark:text-danger-300">{requestError}</p>}
           {requested ? (
-            <p className="text-sm font-semibold text-teal-600">{t('elder.nonEligible.requestSent')}</p>
+            <p className="text-sm font-semibold text-teal-600 dark:text-teal-300">{t('elder.nonEligible.requestSent')}</p>
           ) : data.availableElders && data.availableElders.length > 0 ? (
             <div className="space-y-2">
               {data.availableElders.map((elder) => (
-                <div key={elder.id} className="flex items-center justify-between gap-3 rounded-lg border border-blue-100 bg-white px-3 py-2">
+                <div key={elder.id} className="flex items-center justify-between gap-3 rounded-lg border border-blue-100 bg-white dark:bg-neutral-800 px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
                     <span className="text-lg leading-none" aria-hidden="true">{elder.avatarEmoji ?? '🎓'}</span>
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-neutral-900">{elder.displayName}</p>
-                      <p className="truncate text-xs text-neutral-500">
+                      <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{elder.displayName}</p>
+                      <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
                         {elder.rankName} · {elder.menteeCount}/{data.maxMentees ?? 5} {t('elder.dashboard.menteesLabel')}
                       </p>
                     </div>
@@ -230,7 +230,7 @@ function NonEligibleView({
               ))}
             </div>
           ) : (
-            <p className="text-xs text-neutral-500">{t('elder.nonEligible.noneAvailable')}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('elder.nonEligible.noneAvailable')}</p>
           )}
         </div>
       )}
@@ -269,10 +269,10 @@ function ElderPage() {
 
   if (status === 'pending') {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6 animate-pulse space-y-4">
-        <div className="h-8 w-40 bg-neutral-200 rounded" />
-        <div className="h-32 bg-neutral-200 rounded-xl" />
-        <div className="h-48 bg-neutral-200 rounded-xl" />
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-6 animate-pulse space-y-4">
+        <div className="h-8 w-40 bg-neutral-200 dark:bg-neutral-700 rounded" />
+        <div className="h-32 bg-neutral-200 dark:bg-neutral-700 rounded-xl" />
+        <div className="h-48 bg-neutral-200 dark:bg-neutral-700 rounded-xl" />
       </div>
     );
   }
@@ -280,7 +280,7 @@ function ElderPage() {
   if (status === 'error' || !data) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
-        <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+        <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
         <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">
           {t('android.error.retry')}
         </button>
@@ -289,8 +289,8 @@ function ElderPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6">
-      <h1 className="text-xl font-bold text-neutral-900 mb-4">{t('elder.title')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-6">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-4">{t('elder.title')}</h1>
 
       {data.isElder ? (
         <ElderDashboard data={data} onRemove={(id) => removeMutation.mutate(id)} removing={removing} />

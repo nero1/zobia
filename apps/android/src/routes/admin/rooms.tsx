@@ -83,30 +83,30 @@ function EditOverlay({ room, onClose, onSave, pending }: { room: AdminRoom; onCl
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl">
-        <h3 className="mb-4 text-base font-bold text-neutral-900">{t('admin.rooms.editDetails', 'Edit Details')}</h3>
+      <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-5 shadow-xl">
+        <h3 className="mb-4 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('admin.rooms.editDetails', 'Edit Details')}</h3>
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('admin.rooms.edit.name', 'Room Name')}</label>
+            <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('admin.rooms.edit.name', 'Room Name')}</label>
             <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className={adminInputClass} />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('admin.rooms.edit.description', 'Description')}</label>
+            <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('admin.rooms.edit.description', 'Description')}</label>
             <textarea rows={2} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} className={`${adminInputClass} resize-none`} />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('admin.rooms.edit.type', 'Type')}</label>
+            <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('admin.rooms.edit.type', 'Type')}</label>
             <select value={form.type} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as RoomType }))} className={adminInputClass}>
               {ROOM_TYPES.map((rt) => <option key={rt} value={rt}>{rt}</option>)}
             </select>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('admin.rooms.edit.maxMembers', 'Max Members')}</label>
+            <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('admin.rooms.edit.maxMembers', 'Max Members')}</label>
             <input type="number" min={2} max={10000} value={form.max_members} onChange={(e) => setForm((f) => ({ ...f, max_members: e.target.value }))} className={adminInputClass} />
           </div>
         </div>
         <div className="mt-4 flex gap-2">
-          <button type="button" onClick={onClose} disabled={pending} className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60">
+          <button type="button" onClick={onClose} disabled={pending} className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60">
             {t('common.cancel', 'Cancel')}
           </button>
           <button
@@ -195,7 +195,7 @@ function AdminRoomsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.rooms.title', 'Room Management')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.rooms.title', 'Room Management')}</h1>
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
       <input
@@ -212,7 +212,7 @@ function AdminRoomsPage() {
             key={s}
             type="button"
             onClick={() => setStatusFilter(s)}
-            className={`rounded-full px-3 py-1 text-xs font-semibold ${statusFilter === s ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${statusFilter === s ? 'bg-neutral-900 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
           >
             {t(`admin.rooms.status.${s}`, s)}
           </button>
@@ -228,48 +228,48 @@ function AdminRoomsPage() {
           data.rooms.map((room) => (
             <AdminCard key={room.id}>
               <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
-                <p className="font-semibold text-neutral-900 truncate">{room.name}</p>
+                <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">{room.name}</p>
                 <RoomStatusBadge room={room} />
                 <AdminBadge label={room.type} color="neutral" />
                 {room.monetization_disabled && <AdminBadge label={t('admin.rooms.monetizationDisabled', 'Monetization disabled')} color="blue" />}
               </div>
-              <p className="mb-1 text-xs text-neutral-500">
+              <p className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">
                 @{room.creator_username ?? 'unknown'} · {room.member_count} · {fmtDate(room.created_at)}
               </p>
-              {room.suspension_reason && <p className="mb-1 text-xs text-amber-600">{t('admin.rooms.suspendReason', 'Suspension reason')}: {room.suspension_reason}</p>}
+              {room.suspension_reason && <p className="mb-1 text-xs text-amber-600 dark:text-amber-300">{t('admin.rooms.suspendReason', 'Suspension reason')}: {room.suspension_reason}</p>}
               {room.flag_reason && <p className="mb-1 text-xs text-orange-600">{t('admin.rooms.flagReason', 'Flag reason')}: {room.flag_reason}</p>}
 
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <button
                   type="button"
                   onClick={() => Browser.open({ url: `${env.VITE_WEB_BASE_URL}/rooms/${room.id}` })}
-                  className="rounded-lg bg-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-700"
+                  className="rounded-lg bg-teal-100 dark:bg-teal-900/40 px-2.5 py-1 text-xs font-semibold text-teal-700 dark:text-teal-300"
                 >
                   {t('admin.rooms.viewRoom', 'View ↗')}
                 </button>
-                <button type="button" disabled={patchAction.isPending} onClick={() => setEditTarget(room)} className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700 disabled:opacity-50">
+                <button type="button" disabled={patchAction.isPending} onClick={() => setEditTarget(room)} className="rounded-lg bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300 disabled:opacity-50">
                   {t('admin.rooms.editDetails', 'Edit Details')}
                 </button>
                 {room.is_active ? (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(room, 'set_inactive')} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(room, 'set_inactive')} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50">
                     {t('admin.rooms.deactivate', 'Deactivate')}
                   </button>
                 ) : (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(room, 'set_active')} className="rounded-lg bg-success-100 px-2.5 py-1 text-xs font-semibold text-success-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(room, 'set_active')} className="rounded-lg bg-success-100 dark:bg-success-900/40 px-2.5 py-1 text-xs font-semibold text-success-700 dark:text-success-300 disabled:opacity-50">
                     {t('admin.rooms.activate', 'Activate')}
                   </button>
                 )}
                 {room.is_suspended ? (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(room, 'unsuspend')} className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(room, 'unsuspend')} className="rounded-lg bg-amber-100 dark:bg-amber-900/40 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300 disabled:opacity-50">
                     {t('admin.rooms.unsuspend', 'Unsuspend')}
                   </button>
                 ) : !room.is_banned && (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => { setReasonTarget({ room, action: 'suspend' }); setReason(''); }} className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => { setReasonTarget({ room, action: 'suspend' }); setReason(''); }} className="rounded-lg bg-amber-100 dark:bg-amber-900/40 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300 disabled:opacity-50">
                     {t('admin.rooms.suspend', 'Suspend')}
                   </button>
                 )}
                 {!room.is_banned && (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => setBanTarget(room)} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => setBanTarget(room)} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
                     {t('admin.rooms.ban', 'Ban')}
                   </button>
                 )}
@@ -283,11 +283,11 @@ function AdminRoomsPage() {
                   </button>
                 )}
                 {room.monetization_disabled ? (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(room, 'enable_monetization')} className="rounded-lg bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(room, 'enable_monetization')} className="rounded-lg bg-purple-100 dark:bg-purple-900/40 px-2.5 py-1 text-xs font-semibold text-purple-700 dark:text-purple-300 disabled:opacity-50">
                     {t('admin.rooms.enableMonetization', 'Enable Monetization')}
                   </button>
                 ) : (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(room, 'disable_monetization')} className="rounded-lg bg-purple-100 px-2.5 py-1 text-xs font-semibold text-purple-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(room, 'disable_monetization')} className="rounded-lg bg-purple-100 dark:bg-purple-900/40 px-2.5 py-1 text-xs font-semibold text-purple-700 dark:text-purple-300 disabled:opacity-50">
                     {t('admin.rooms.disableMonetization', 'Disable Monetization')}
                   </button>
                 )}
@@ -301,7 +301,7 @@ function AdminRoomsPage() {
 
       {status === 'success' && (data.rooms.length > 0 || pageIndex > 0) && (
         <div className="mt-4 flex items-center justify-between">
-          <button type="button" onClick={() => setPageIndex((i) => Math.max(0, i - 1))} disabled={pageIndex === 0} className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40">
+          <button type="button" onClick={() => setPageIndex((i) => Math.max(0, i - 1))} disabled={pageIndex === 0} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40">
             {t('admin.pagination.prev', 'Prev')}
           </button>
           <button
@@ -312,7 +312,7 @@ function AdminRoomsPage() {
               setPageIndex((i) => i + 1);
             }}
             disabled={!data?.hasNextPage}
-            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40"
+            className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40"
           >
             {t('admin.pagination.next', 'Next')}
           </button>

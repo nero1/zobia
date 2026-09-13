@@ -40,7 +40,7 @@ function AskAi({ docId, docTitle }: { docId: string; docTitle: string }) {
   if (!isAuthenticated) {
     return (
       <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4 text-center">
-        <p className="mb-3 text-sm text-neutral-400">{t('help.askAi.loggedOutPrompt', "Can't find what you're looking for? Log in or sign up to ask the AI assistant or contact a support staff member.")}</p>
+        <p className="mb-3 text-sm text-neutral-400 dark:text-neutral-500">{t('help.askAi.loggedOutPrompt', "Can't find what you're looking for? Log in or sign up to ask the AI assistant or contact a support staff member.")}</p>
         <Link to="/auth/login" className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white">{t('auth.login', 'Log in')}</Link>
       </div>
     );
@@ -49,7 +49,7 @@ function AskAi({ docId, docTitle }: { docId: string; docTitle: string }) {
   return (
     <div className="rounded-xl border border-neutral-800 bg-neutral-900 p-4">
       <p className="mb-1 text-sm font-semibold text-white">{t('help.askAi.title', 'Ask AI')}</p>
-      <p className="mb-3 text-xs text-neutral-400">{t('help.askAi.subtext', "Can't find what you're looking for? Try asking the AI.")}</p>
+      <p className="mb-3 text-xs text-neutral-400 dark:text-neutral-500">{t('help.askAi.subtext', "Can't find what you're looking for? Try asking the AI.")}</p>
       {!answer ? (
         <div className="flex gap-2">
           <input value={question} onChange={(e) => setQuestion(e.target.value)} placeholder={t('help.askAi.placeholder', 'Ask a question about this topic…')} className="flex-1 rounded-lg border border-neutral-700 bg-neutral-950 px-3 py-2 text-sm text-white" />

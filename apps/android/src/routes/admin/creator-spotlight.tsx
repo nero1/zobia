@@ -91,16 +91,16 @@ function AdminCreatorSpotlightPage() {
   return (
     <div className="px-4 py-5">
       <div className="mb-1 flex items-center gap-2">
-        <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.creatorSpotlight', 'Creator of the Month')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.creatorSpotlight', 'Creator of the Month')}</h1>
       </div>
-      <p className="mb-4 text-xs text-neutral-500">
+      <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">
         {t('admin.creatorSpotlight.subtitle', 'Highlight one creator per month on the Discover page.')}
       </p>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
-      <div className="mb-5 rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
-        <p className="mb-3 text-sm font-semibold text-neutral-900">{t('admin.creatorSpotlight.addNew', 'Add New Spotlight')}</p>
+      <div className="mb-5 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
+        <p className="mb-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.creatorSpotlight.addNew', 'Add New Spotlight')}</p>
         <div className="space-y-3">
           <AdminField label={t('admin.creatorSpotlight.creatorId', 'Creator User ID (UUID)')}>
             <input
@@ -148,23 +148,23 @@ function AdminCreatorSpotlightPage() {
                 {s.creator_avatar_url ? (
                   <img src={s.creator_avatar_url} alt={s.creator_username ?? 'Creator'} className="h-10 w-10 shrink-0 rounded-full object-cover" />
                 ) : (
-                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 text-sm font-semibold text-primary-700">
+                  <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-sm font-semibold text-primary-700 dark:text-primary-300">
                     {(s.creator_display_name ?? s.creator_username ?? '?').charAt(0).toUpperCase()}
                   </span>
                 )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <p className="font-semibold text-neutral-900 truncate">{s.creator_display_name ?? s.creator_username ?? '—'}</p>
+                    <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">{s.creator_display_name ?? s.creator_username ?? '—'}</p>
                     {s.is_active ? (
                       <AdminBadge label={t('admin.creatorSpotlight.current', 'Creator of the Month')} color="gold" />
                     ) : (
                       <AdminBadge label={t('admin.creatorSpotlight.past', 'Past')} color="neutral" />
                     )}
                   </div>
-                  {s.creator_username && <p className="text-xs text-neutral-500">@{s.creator_username}</p>}
-                  <p className="mt-1 text-[11px] text-neutral-400">{formatMonthYear(s.month_year)}</p>
-                  {s.blurb && <p className="mt-1.5 text-xs text-neutral-600 line-clamp-2">{s.blurb}</p>}
-                  <p className="mt-1.5 text-[10px] text-neutral-400">
+                  {s.creator_username && <p className="text-xs text-neutral-500 dark:text-neutral-400">@{s.creator_username}</p>}
+                  <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">{formatMonthYear(s.month_year)}</p>
+                  {s.blurb && <p className="mt-1.5 text-xs text-neutral-600 dark:text-neutral-400 line-clamp-2">{s.blurb}</p>}
+                  <p className="mt-1.5 text-[10px] text-neutral-400 dark:text-neutral-500">
                     {t('admin.creatorSpotlight.addedBy', 'Added by')} {s.admin_username ? `@${s.admin_username}` : '—'} · {fmtDate(s.created_at)}
                   </p>
                 </div>

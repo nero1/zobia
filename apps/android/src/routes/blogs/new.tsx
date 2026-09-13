@@ -37,25 +37,25 @@ function NewBlogPage() {
   });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-lg font-bold text-neutral-900 mb-4">{t('blogs.new.title', 'Start a Blog')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-4">{t('blogs.new.title', 'Start a Blog')}</h1>
       <div className="space-y-3">
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           maxLength={100}
           placeholder={t('blogs.new.titlePlaceholder', "e.g. Muna's World")}
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+          className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
         />
         <input
           value={tagline}
           onChange={(e) => setTagline(e.target.value)}
           maxLength={160}
           placeholder={t('blogs.new.taglineLabel', 'Tagline (optional)')}
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+          className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
         />
         <WidgetSlot />
-        {error && <p className="text-sm text-red-600">{error}</p>}
+        {error && <p className="text-sm text-red-600 dark:text-red-300">{error}</p>}
         <button
           disabled={!title.trim() || createBlog.isPending}
           onClick={() => createBlog.mutate()}

@@ -32,29 +32,29 @@ function CreatorWalletPage() {
   const { data: wallet, status } = useQuery({ queryKey: ['creator', 'wallet-address'], queryFn: fetchWallet });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-3 px-4 py-4">
-      <h1 className="text-xl font-bold text-neutral-900">{t('creator.wallet.title', 'USDT Wallet Address')}</h1>
-      <p className="text-sm text-neutral-500">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-3 px-4 py-4">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('creator.wallet.title', 'USDT Wallet Address')}</h1>
+      <p className="text-sm text-neutral-500 dark:text-neutral-400">
         {t('creator.wallet.desc', 'Add your Tron (TRC20) wallet address to receive USDT crypto payouts, processed manually by our team.')}
       </p>
 
-      <div className="rounded-xl border-2 border-red-300 bg-red-50 p-4">
+      <div className="rounded-xl border-2 border-red-300 bg-red-50 dark:bg-red-900/30 p-4">
         <p className="text-sm text-red-800">
           <strong>{t('creator.wallet.warningTitle', 'Important')}</strong> — {t('creator.wallet.warningBody', 'this must be a Tron (TRC20) address. Funds sent to an incorrect address cannot be recovered.')}
         </p>
       </div>
 
-      <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
         {status === 'pending' ? (
-          <div className="h-10 animate-pulse rounded-lg bg-neutral-100" />
+          <div className="h-10 animate-pulse rounded-lg bg-neutral-100 dark:bg-neutral-800" />
         ) : wallet?.hasWallet ? (
           <>
-            <p className="mb-1 text-xs font-semibold uppercase text-neutral-500">{t('creator.wallet.currentWallet', 'Current Wallet')}</p>
-            <p className="font-mono text-sm text-neutral-900">{wallet.addressMasked}</p>
-            <p className="text-xs text-neutral-500">{wallet.network?.toUpperCase()} — {wallet.currency}</p>
+            <p className="mb-1 text-xs font-semibold uppercase text-neutral-500 dark:text-neutral-400">{t('creator.wallet.currentWallet', 'Current Wallet')}</p>
+            <p className="font-mono text-sm text-neutral-900 dark:text-neutral-100">{wallet.addressMasked}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{wallet.network?.toUpperCase()} — {wallet.currency}</p>
           </>
         ) : (
-          <p className="text-sm text-neutral-500">{t('creator.wallet.noWallet', 'No wallet address on file yet.')}</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('creator.wallet.noWallet', 'No wallet address on file yet.')}</p>
         )}
         <button
           onClick={() => void openAuthenticatedWebLink('/creator/wallet')}

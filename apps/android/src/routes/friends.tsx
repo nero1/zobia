@@ -144,10 +144,10 @@ function ProfileLink({
 }) {
   return (
     <Link to="/profile/$username" params={{ username }} className="flex min-w-0 flex-1 items-center gap-3">
-      <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-lg shrink-0">{emoji || '🙂'}</div>
+      <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-lg shrink-0">{emoji || '🙂'}</div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-neutral-900">{name}</p>
-        <p className="text-xs text-neutral-500">@{username}</p>
+        <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{name}</p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">@{username}</p>
       </div>
       {children}
     </Link>
@@ -170,25 +170,25 @@ function FriendsTab() {
     },
   });
 
-  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>;
+  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('common.loading')}</div>;
 
   if (!friends || friends.length === 0) {
     return (
       <div className="py-12 text-center px-4">
-        <p className="text-neutral-500">{t('friends.empty.noFriends')}</p>
+        <p className="text-neutral-500 dark:text-neutral-400">{t('friends.empty.noFriends')}</p>
       </div>
     );
   }
 
   return (
-    <ul className="divide-y divide-neutral-100">
+    <ul className="divide-y divide-neutral-100 dark:divide-neutral-700">
       {friends.map((f) => (
         <li key={f.id} className="flex items-center gap-3 py-3 px-4">
           <ProfileLink username={f.username} name={f.displayName ?? f.username} emoji={f.avatarEmoji} />
           <button
             onClick={() => removeMutation.mutate(f.id)}
             disabled={removeMutation.isPending && removeMutation.variables === f.id}
-            className="shrink-0 rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600 disabled:opacity-50"
+            className="shrink-0 rounded-full border border-neutral-200 dark:border-neutral-700 px-3 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-400 disabled:opacity-50"
           >
             {t('friends.removeFriend')}
           </button>
@@ -221,13 +221,13 @@ function ReceivedRequestsList() {
     },
   });
 
-  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>;
+  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('common.loading')}</div>;
   if (!requests || requests.length === 0) {
-    return <div className="py-10 text-center px-4"><p className="text-neutral-500">{t('friends.empty.noReceivedRequests')}</p></div>;
+    return <div className="py-10 text-center px-4"><p className="text-neutral-500 dark:text-neutral-400">{t('friends.empty.noReceivedRequests')}</p></div>;
   }
 
   return (
-    <ul className="divide-y divide-neutral-100">
+    <ul className="divide-y divide-neutral-100 dark:divide-neutral-700">
       {requests.map((r) => (
         <li key={r.id} className="flex items-center gap-3 py-3 px-4">
           <ProfileLink username={r.username} name={r.displayName ?? r.username} emoji={r.avatarEmoji} />
@@ -242,7 +242,7 @@ function ReceivedRequestsList() {
             <button
               onClick={() => respondMutation.mutate({ requestId: r.id, action: 'reject' })}
               disabled={respondMutation.isPending && respondMutation.variables?.requestId === r.id}
-              className="rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600 disabled:opacity-50"
+              className="rounded-full border border-neutral-200 dark:border-neutral-700 px-3 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-400 disabled:opacity-50"
             >
               {t('friends.decline')}
             </button>
@@ -265,20 +265,20 @@ function SentRequestsList() {
     },
   });
 
-  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>;
+  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('common.loading')}</div>;
   if (!requests || requests.length === 0) {
-    return <div className="py-10 text-center px-4"><p className="text-neutral-500">{t('friends.empty.noSentRequests')}</p></div>;
+    return <div className="py-10 text-center px-4"><p className="text-neutral-500 dark:text-neutral-400">{t('friends.empty.noSentRequests')}</p></div>;
   }
 
   return (
-    <ul className="divide-y divide-neutral-100">
+    <ul className="divide-y divide-neutral-100 dark:divide-neutral-700">
       {requests.map((r) => (
         <li key={r.id} className="flex items-center gap-3 py-3 px-4">
           <ProfileLink username={r.username} name={r.displayName ?? r.username} emoji={r.avatarEmoji} />
           <button
             onClick={() => withdrawMutation.mutate(r.id)}
             disabled={withdrawMutation.isPending && withdrawMutation.variables === r.id}
-            className="shrink-0 rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600 disabled:opacity-50"
+            className="shrink-0 rounded-full border border-neutral-200 dark:border-neutral-700 px-3 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-400 disabled:opacity-50"
           >
             {withdrawMutation.isPending && withdrawMutation.variables === r.id ? t('friends.requests.withdrawing') : t('friends.requests.withdraw')}
           </button>
@@ -299,13 +299,13 @@ function RequestsTab() {
 
   return (
     <div>
-      <div className="flex gap-1 rounded-lg bg-neutral-100 p-1 mx-4 mt-3">
+      <div className="flex gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 p-1 mx-4 mt-3">
         {subTabs.map((st) => (
           <button
             key={st.id}
             onClick={() => setSubTab(st.id)}
             className={`flex-1 rounded-md py-1.5 text-xs font-semibold ${
-              subTab === st.id ? 'bg-white text-neutral-900' : 'text-neutral-500'
+              subTab === st.id ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'
             }`}
           >
             {st.label}
@@ -325,18 +325,18 @@ function RecentChatsTab() {
   const { t } = useTranslation();
   const { data: chats, status } = useQuery({ queryKey: ['friends', 'recent-chats'], queryFn: fetchRecentChats });
 
-  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>;
+  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('common.loading')}</div>;
   if (!chats || chats.length === 0) {
     return (
       <div className="py-12 text-center px-4">
-        <p className="text-neutral-500">{t('friends.recent.empty', 'No recent chats yet.')}</p>
-        <p className="mt-1 text-sm text-neutral-400">{t('friends.recent.emptyHint', 'People you message will show up here.')}</p>
+        <p className="text-neutral-500 dark:text-neutral-400">{t('friends.recent.empty', 'No recent chats yet.')}</p>
+        <p className="mt-1 text-sm text-neutral-400 dark:text-neutral-500">{t('friends.recent.emptyHint', 'People you message will show up here.')}</p>
       </div>
     );
   }
 
   return (
-    <ul className="divide-y divide-neutral-100">
+    <ul className="divide-y divide-neutral-100 dark:divide-neutral-700">
       {chats.map((c) => (
         <li key={c.conversationId} className="flex items-center gap-3 py-3 px-4">
           <ProfileLink
@@ -344,12 +344,12 @@ function RecentChatsTab() {
             name={c.participantDisplayName ?? c.participantUsername}
             emoji={c.participantAvatarEmoji}
           >
-            <span className="ml-2 shrink-0 text-[10px] text-neutral-400">{relativeTime(c.lastMessageAt)}</span>
+            <span className="ml-2 shrink-0 text-[10px] text-neutral-400 dark:text-neutral-500">{relativeTime(c.lastMessageAt)}</span>
           </ProfileLink>
           <Link
             to="/messages/$conversationId"
             params={{ conversationId: c.conversationId }}
-            className="shrink-0 rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600"
+            className="shrink-0 rounded-full border border-neutral-200 dark:border-neutral-700 px-3 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-400"
           >
             💬 {t('friends.recent.message', 'Message')}
           </Link>
@@ -373,18 +373,18 @@ function DiscoverTab() {
     onSuccess: (_res, userId) => setSent((prev) => new Set(prev).add(userId)),
   });
 
-  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>;
+  if (status === 'pending') return <div className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('common.loading')}</div>;
   if (!suggestions || suggestions.length === 0) {
-    return <div className="py-12 text-center px-4"><p className="text-neutral-500">{t('friends.empty.noSuggestions')}</p></div>;
+    return <div className="py-12 text-center px-4"><p className="text-neutral-500 dark:text-neutral-400">{t('friends.empty.noSuggestions')}</p></div>;
   }
 
   return (
-    <ul className="divide-y divide-neutral-100">
+    <ul className="divide-y divide-neutral-100 dark:divide-neutral-700">
       {suggestions.map((s) => (
         <li key={s.id} className="flex items-center gap-3 py-3 px-4">
           <ProfileLink username={s.username} name={s.displayName ?? s.username} emoji={s.avatarEmoji}>
             {s.mutualFriendCount > 0 && (
-              <span className="ml-2 shrink-0 text-xs text-neutral-400">
+              <span className="ml-2 shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
                 · {s.mutualFriendCount} {s.mutualFriendCount === 1 ? t('friends.mutualFriend') : t('friends.mutualFriends')}
               </span>
             )}
@@ -418,18 +418,18 @@ function FriendsPage() {
   ];
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       <div className="px-4 pt-4 pb-2">
-        <h1 className="text-xl font-bold text-neutral-900">{t('friends.title')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('friends.title')}</h1>
       </div>
 
-      <div className="flex gap-1 rounded-xl border border-neutral-200 bg-white p-1 mx-4">
+      <div className="flex gap-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-1 mx-4">
         {tabs.map((tItem) => (
           <button
             key={tItem.id}
             onClick={() => setTab(tItem.id)}
             className={`flex-1 rounded-lg py-2 text-sm font-medium ${
-              tab === tItem.id ? 'bg-primary-600 text-white' : 'text-neutral-500'
+              tab === tItem.id ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'
             }`}
           >
             {tItem.label}
@@ -437,7 +437,7 @@ function FriendsPage() {
         ))}
       </div>
 
-      <div className="mt-3 bg-white">
+      <div className="mt-3 bg-white dark:bg-neutral-800">
         {tab === 'friends' && <FriendsTab />}
         {tab === 'requests' && <RequestsTab />}
         {tab === 'recent' && <RecentChatsTab />}

@@ -76,14 +76,14 @@ function balanceFontSizeClass(value: number): string {
 function BalanceBox({ label, value }: { label: string; value: string | number }) {
   const formatted = typeof value === 'number' ? value.toLocaleString() : value;
   return (
-    <div className="min-w-[7rem] flex-1 basis-[7rem] bg-white rounded-xl p-3 text-center">
+    <div className="min-w-[7rem] flex-1 basis-[7rem] bg-white dark:bg-neutral-800 rounded-xl p-3 text-center">
       <p
-        className={`font-bold tabular-nums text-neutral-900 ${typeof value === 'number' ? balanceFontSizeClass(value) : 'text-lg'}`}
+        className={`font-bold tabular-nums text-neutral-900 dark:text-neutral-100 ${typeof value === 'number' ? balanceFontSizeClass(value) : 'text-lg'}`}
         title={formatted}
       >
         {formatted}
       </p>
-      <p className="text-xs text-neutral-500">{label}</p>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">{label}</p>
     </div>
   );
 }
@@ -114,23 +114,23 @@ function CreatorEarningsCard({ payouts }: { payouts: CreatorPayoutsSummary }) {
   const remaining = Math.max(0, payouts.minPayoutKobo - payouts.availableEarningsKobo);
 
   return (
-    <div className="mx-6 mb-3 rounded-xl border border-neutral-200 bg-white p-4">
+    <div className="mx-6 mb-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
       <div className="flex items-center justify-between">
-        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
           {t('creator.availableBalance', 'Available Balance')}
         </p>
-        <Link to="/creator" className="text-xs font-semibold text-blue-600">
+        <Link to="/creator" className="text-xs font-semibold text-blue-600 dark:text-blue-300">
           {t('creator.manageAndWithdraw', 'Manage & Withdraw →')}
         </Link>
       </div>
-      <p className="mt-1 text-xl font-bold text-neutral-900">{formatNgn(payouts.availableEarningsKobo)}</p>
+      <p className="mt-1 text-xl font-bold text-neutral-900 dark:text-neutral-100">{formatNgn(payouts.availableEarningsKobo)}</p>
       <div className="mt-3">
         <div className="flex items-center justify-between text-xs">
-          <span className={`font-semibold ${met ? 'text-teal-700' : 'text-amber-700'}`}>
+          <span className={`font-semibold ${met ? 'text-teal-700 dark:text-teal-300' : 'text-amber-700 dark:text-amber-300'}`}>
             {met ? t('creator.thresholdMet', '✅ Withdrawal threshold reached') : `${formatNgn(remaining)} ${t('creator.thresholdRemaining', 'more to reach the minimum payout')}`}
           </span>
         </div>
-        <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-neutral-200" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
+        <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
           <div className={`h-full rounded-full transition-all duration-500 ${met ? 'bg-teal-500' : 'bg-amber-400'}`} style={{ width: `${pct}%` }} />
         </div>
       </div>
@@ -142,27 +142,27 @@ function RankBadgesSummary({ me }: { me: MeSummary }) {
   const { t } = useTranslation();
   const subLabel = `${me.rank_name} ${['I', 'II', 'III'][me.rank_sublevel - 1] ?? 'I'}`;
   return (
-    <Link to="/stats" className="flex items-center justify-between gap-3 bg-white px-6 py-4 mb-3">
+    <Link to="/stats" className="flex items-center justify-between gap-3 bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
       <div className="flex min-w-0 items-center gap-2">
         <span className="rounded-full bg-primary-600 px-2.5 py-1 text-xs font-bold text-white">{subLabel}</span>
         {me.prestige_count > 0 && (
           <span className="text-amber-500 text-sm">{'★'.repeat(Math.min(me.prestige_count, 5))}</span>
         )}
-        <span className="text-sm text-neutral-500">🏆 {t('profile.stats.badgeCount', { count: me.badge_count })}</span>
+        <span className="text-sm text-neutral-500 dark:text-neutral-400">🏆 {t('profile.stats.badgeCount', { count: me.badge_count })}</span>
       </div>
-      <span className="shrink-0 text-xs font-semibold text-primary-600">{t('wallet.viewFullStats')}</span>
+      <span className="shrink-0 text-xs font-semibold text-primary-600 dark:text-primary-300">{t('wallet.viewFullStats')}</span>
     </Link>
   );
 }
 
 function TxRow({ tx }: { tx: Transaction }) {
   return (
-    <div className="flex items-center justify-between px-6 py-3 border-b border-neutral-100 last:border-0">
+    <div className="flex items-center justify-between px-6 py-3 border-b border-neutral-100 dark:border-neutral-800 last:border-0">
       <div className="min-w-0">
-        <p className="text-sm font-medium text-neutral-900 capitalize truncate">{tx.description ?? tx.type.replace(/_/g, ' ')}</p>
-        <p className="text-xs text-neutral-500">{new Date(tx.createdAt).toLocaleDateString()}</p>
+        <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 capitalize truncate">{tx.description ?? tx.type.replace(/_/g, ' ')}</p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">{new Date(tx.createdAt).toLocaleDateString()}</p>
       </div>
-      <span className={`ml-3 shrink-0 font-bold text-sm ${tx.amount >= 0 ? 'text-success-600' : 'text-danger-500'}`}>
+      <span className={`ml-3 shrink-0 font-bold text-sm ${tx.amount >= 0 ? 'text-success-600 dark:text-success-300' : 'text-danger-500'}`}>
         {tx.amount >= 0 ? '+' : ''}{tx.amount.toLocaleString()}
       </span>
     </div>
@@ -198,26 +198,26 @@ function BuyCurrencyPanel({ onPurchased }: { onPurchased: () => void }) {
   const products = tab === 'coins' ? COIN_PRODUCTS : STAR_PRODUCTS;
 
   return (
-    <div className="bg-white mb-3">
-      <div className="flex items-center justify-between px-6 py-3 border-b border-neutral-100">
-        <h2 className="text-sm font-semibold text-neutral-700">{t('wallet.buyCurrency', 'Buy Credits & Stars')}</h2>
-        <div className="flex gap-1 rounded-lg bg-neutral-100 p-0.5">
+    <div className="bg-white dark:bg-neutral-800 mb-3">
+      <div className="flex items-center justify-between px-6 py-3 border-b border-neutral-100 dark:border-neutral-800">
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('wallet.buyCurrency', 'Buy Credits & Stars')}</h2>
+        <div className="flex gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 p-0.5">
           <button
             onClick={() => setTab('coins')}
-            className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'coins' ? 'bg-white text-neutral-900' : 'text-neutral-500'}`}
+            className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'coins' ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'}`}
           >
             {t('wallet.coinsBalance')}
           </button>
           <button
             onClick={() => setTab('stars')}
-            className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'stars' ? 'bg-white text-neutral-900' : 'text-neutral-500'}`}
+            className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'stars' ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'}`}
           >
             {t('wallet.starsBalance')}
           </button>
         </div>
       </div>
 
-      {error && <p className="px-6 pt-3 text-xs text-red-600">{error}</p>}
+      {error && <p className="px-6 pt-3 text-xs text-red-600 dark:text-red-300">{error}</p>}
 
       <div className="grid grid-cols-2 gap-2 p-4">
         {products.map((p) => (
@@ -225,18 +225,18 @@ function BuyCurrencyPanel({ onPurchased }: { onPurchased: () => void }) {
             key={p.id}
             onClick={() => handleBuy(p.id)}
             disabled={purchasingId !== null}
-            className="rounded-xl border border-neutral-200 p-3 text-left disabled:opacity-60"
+            className="rounded-xl border border-neutral-200 dark:border-neutral-700 p-3 text-left disabled:opacity-60"
           >
-            <p className="text-sm font-bold text-neutral-900">
+            <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
               {tab === 'coins' ? `🪙 ${(p as (typeof COIN_PRODUCTS)[number]).coins.toLocaleString()}` : `⭐ ${(p as (typeof STAR_PRODUCTS)[number]).stars.toLocaleString()}`}
             </p>
-            <p className="mt-1 text-xs text-neutral-500">
+            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
               {purchasingId === p.id ? t('common.loading', 'Loading…') : p.price}
             </p>
           </button>
         ))}
       </div>
-      <p className="px-6 pb-4 text-xs text-neutral-400">{t('business.intro.playBilling', 'Payment is handled securely by Google Play.')}</p>
+      <p className="px-6 pb-4 text-xs text-neutral-400 dark:text-neutral-500">{t('business.intro.playBilling', 'Payment is handled securely by Google Play.')}</p>
     </div>
   );
 }
@@ -307,20 +307,20 @@ function BoosterPacksPanel({ onPurchased }: { onPurchased: () => void }) {
   const activeTypes = new Set(data.activeBoosters.map((b) => b.booster_type));
 
   return (
-    <div className="bg-white mb-3">
-      <div className="px-6 py-3 border-b border-neutral-100">
-        <h2 className="text-sm font-semibold text-neutral-700">{t('wallet.boosters.title', 'Boosts & Passes')}</h2>
+    <div className="bg-white dark:bg-neutral-800 mb-3">
+      <div className="px-6 py-3 border-b border-neutral-100 dark:border-neutral-800">
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('wallet.boosters.title', 'Boosts & Passes')}</h2>
       </div>
 
       {data.activeBoosters.length > 0 && (
-        <div className="divide-y divide-neutral-100 border-b border-neutral-100">
+        <div className="divide-y divide-neutral-100 dark:divide-neutral-700 border-b border-neutral-100 dark:border-neutral-800">
           {data.activeBoosters.map((b) => (
             <div key={b.id} className="flex items-start justify-between px-6 py-3">
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-neutral-900">{b.label ?? b.booster_type}</p>
-                {b.description && <p className="text-xs text-neutral-500">{b.description}</p>}
+                <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{b.label ?? b.booster_type}</p>
+                {b.description && <p className="text-xs text-neutral-500 dark:text-neutral-400">{b.description}</p>}
               </div>
-              <span className="ml-3 shrink-0 text-xs font-semibold tabular-nums text-teal-600">
+              <span className="ml-3 shrink-0 text-xs font-semibold tabular-nums text-teal-600 dark:text-teal-300">
                 {boosterCountdown(b.expires_at)} {t('wallet.boosters.left', 'left')}
               </span>
             </div>
@@ -328,7 +328,7 @@ function BoosterPacksPanel({ onPurchased }: { onPurchased: () => void }) {
         </div>
       )}
 
-      {error && <p className="px-6 pt-3 text-xs text-red-600">{error}</p>}
+      {error && <p className="px-6 pt-3 text-xs text-red-600 dark:text-red-300">{error}</p>}
 
       {data.boosts.length > 0 && (
         <div className="grid grid-cols-2 gap-2 p-4">
@@ -339,11 +339,11 @@ function BoosterPacksPanel({ onPurchased }: { onPurchased: () => void }) {
                 key={b.id}
                 onClick={() => purchaseMutation.mutate(b.key)}
                 disabled={purchaseMutation.isPending || alreadyActive}
-                className="rounded-xl border border-neutral-200 p-3 text-left disabled:opacity-60"
+                className="rounded-xl border border-neutral-200 dark:border-neutral-700 p-3 text-left disabled:opacity-60"
               >
-                <p className="text-sm font-bold text-neutral-900">{b.label}</p>
-                <p className="mt-0.5 text-xs text-neutral-500">{b.description}</p>
-                <p className="mt-1 text-xs font-semibold text-amber-600">
+                <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{b.label}</p>
+                <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{b.description}</p>
+                <p className="mt-1 text-xs font-semibold text-amber-600 dark:text-amber-300">
                   {alreadyActive
                     ? t('wallet.boosters.active', 'Active')
                     : purchaseMutation.isPending && purchaseMutation.variables === b.key
@@ -393,9 +393,9 @@ function WalletPage() {
       : (data?.pages.flatMap((p) => p.starTransactions) ?? []);
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       <div className="px-6 pt-4 pb-2">
-        <h1 className="text-xl font-bold text-neutral-900">{t('wallet.title')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('wallet.title')}</h1>
       </div>
 
       {/*
@@ -442,19 +442,19 @@ function WalletPage() {
       />
 
       {/* Transaction history */}
-      <div className="bg-white mb-3">
-        <div className="flex items-center justify-between px-6 py-3 border-b border-neutral-100">
-          <h2 className="text-sm font-semibold text-neutral-700">{t('wallet.transactionHistory')}</h2>
-          <div className="flex gap-1 rounded-lg bg-neutral-100 p-0.5">
+      <div className="bg-white dark:bg-neutral-800 mb-3">
+        <div className="flex items-center justify-between px-6 py-3 border-b border-neutral-100 dark:border-neutral-800">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('wallet.transactionHistory')}</h2>
+          <div className="flex gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 p-0.5">
             <button
               onClick={() => setTab('coins')}
-              className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'coins' ? 'bg-white text-neutral-900' : 'text-neutral-500'}`}
+              className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'coins' ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'}`}
             >
               {t('wallet.coinTransactions')}
             </button>
             <button
               onClick={() => setTab('stars')}
-              className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'stars' ? 'bg-white text-neutral-900' : 'text-neutral-500'}`}
+              className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'stars' ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'}`}
             >
               {t('wallet.starTransactions')}
             </button>
@@ -462,9 +462,9 @@ function WalletPage() {
         </div>
 
         {status === 'pending' ? (
-          <div className="px-6 py-8 text-center text-sm text-neutral-400">…</div>
+          <div className="px-6 py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">…</div>
         ) : list.length === 0 ? (
-          <div className="px-6 py-8 text-center text-sm text-neutral-500">
+          <div className="px-6 py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">
             {tab === 'coins' ? t('wallet.noCoinTransactions') : t('wallet.noStarTransactions')}
           </div>
         ) : (
@@ -476,7 +476,7 @@ function WalletPage() {
             <button
               onClick={() => fetchNextPage()}
               disabled={isFetchingNextPage}
-              className="rounded-xl border border-neutral-300 px-5 py-2 text-xs font-semibold text-neutral-700 disabled:opacity-60"
+              className="rounded-xl border border-neutral-300 dark:border-neutral-600 px-5 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
             >
               {isFetchingNextPage ? t('wallet.loadingMore') : t('wallet.loadMore')}
             </button>

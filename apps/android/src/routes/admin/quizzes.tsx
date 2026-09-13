@@ -109,7 +109,7 @@ function AdminQuizzesPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.quizzes', 'Quizzes')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.quizzes', 'Quizzes')}</h1>
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
       <input
@@ -132,29 +132,29 @@ function AdminQuizzesPage() {
             return (
               <AdminCard key={p.id}>
                 <div className="flex flex-wrap items-center gap-1.5">
-                  <p className="font-semibold text-neutral-900 truncate">{p.title}</p>
+                  <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">{p.title}</p>
                   <AdminBadge label={p.status} color={STATUS_COLOR[p.status] ?? 'neutral'} />
                 </div>
-                <p className="mt-1 text-xs text-neutral-500">
+                <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
                   @{p.creator_username} · {p.attempt_count} {t('admin.quizzes.attempts', 'attempts')} · {p.share_count} {t('admin.quizzes.shares', 'shares')} · {fmtDate(p.created_at)}
                 </p>
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {p.status !== 'active' && (
-                    <button disabled={busy} onClick={() => runStatus(p.id, 'active')} className="rounded-lg bg-success-100 px-2.5 py-1 text-xs font-semibold text-success-700 disabled:opacity-50">
+                    <button disabled={busy} onClick={() => runStatus(p.id, 'active')} className="rounded-lg bg-success-100 dark:bg-success-900/40 px-2.5 py-1 text-xs font-semibold text-success-700 dark:text-success-300 disabled:opacity-50">
                       {t('admin.quizzes.activate', 'Activate')}
                     </button>
                   )}
                   {p.status !== 'closed' && (
-                    <button disabled={busy} onClick={() => runStatus(p.id, 'closed')} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50">
+                    <button disabled={busy} onClick={() => runStatus(p.id, 'closed')} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50">
                       {t('admin.quizzes.close', 'Close')}
                     </button>
                   )}
                   {p.status !== 'disabled' && (
-                    <button disabled={busy} onClick={() => runStatus(p.id, 'disabled')} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50">
+                    <button disabled={busy} onClick={() => runStatus(p.id, 'disabled')} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
                       {t('admin.quizzes.disable', 'Disable')}
                     </button>
                   )}
-                  <button disabled={busy} onClick={() => setDeleting(p)} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50">
+                  <button disabled={busy} onClick={() => setDeleting(p)} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
                     {t('common.delete', 'Delete')}
                   </button>
                 </div>

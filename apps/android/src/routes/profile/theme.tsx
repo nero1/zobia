@@ -63,11 +63,11 @@ function ProfileThemePage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-4 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-4 px-4 py-4">
       <div>
-        <Link to="/settings" className="text-sm text-neutral-500">← Settings</Link>
-        <h1 className="text-xl font-bold text-neutral-900">🎨 Profile Theme</h1>
-        <p className="mt-1 text-sm text-neutral-500">Pick a color skin for your profile. More themes are sold on the Market.</p>
+        <Link to="/settings" className="text-sm text-neutral-500 dark:text-neutral-400">← Settings</Link>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">🎨 Profile Theme</h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Pick a color skin for your profile. More themes are sold on the Market.</p>
       </div>
 
       {toast && (
@@ -78,7 +78,7 @@ function ProfileThemePage() {
 
       {status === 'pending' ? (
         <div className="grid grid-cols-2 gap-3">
-          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-28 animate-pulse rounded-2xl bg-neutral-200" />)}
+          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-28 animate-pulse rounded-2xl bg-neutral-200 dark:bg-neutral-700" />)}
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">

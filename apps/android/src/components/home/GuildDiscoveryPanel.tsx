@@ -28,15 +28,15 @@ async function fetchDiscoveryGuilds(): Promise<DiscoveryGuild[]> {
 
 function GuildDiscoverySkeleton() {
   return (
-    <div className="animate-pulse rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-      <div className="mb-3 h-4 w-40 rounded bg-neutral-200" />
+    <div className="animate-pulse rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-sm">
+      <div className="mb-3 h-4 w-40 rounded bg-neutral-200 dark:bg-neutral-700" />
       <div className="space-y-3">
         {Array.from({ length: 3 }).map((_, i) => (
           <div key={i} className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-full bg-neutral-200" />
+            <div className="h-10 w-10 rounded-full bg-neutral-200 dark:bg-neutral-700" />
             <div className="flex-1 space-y-1.5">
-              <div className="h-3 w-28 rounded bg-neutral-200" />
-              <div className="h-2.5 w-20 rounded bg-neutral-200" />
+              <div className="h-3 w-28 rounded bg-neutral-200 dark:bg-neutral-700" />
+              <div className="h-2.5 w-20 rounded bg-neutral-200 dark:bg-neutral-700" />
             </div>
           </div>
         ))}
@@ -53,20 +53,20 @@ export function GuildDiscoveryPanel() {
   if (!guilds || guilds.length === 0) return null;
 
   return (
-    <div className="rounded-xl border border-primary-200 bg-white p-4 shadow-sm">
+    <div className="rounded-xl border border-primary-200 bg-white dark:bg-neutral-800 p-4 shadow-sm">
       <div className="mb-3 flex items-center justify-between">
-        <h2 className="text-sm font-semibold text-neutral-700">{t('home.guildDiscovery.title')}</h2>
-        <Link to="/guild" className="text-xs font-semibold text-primary-600">
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('home.guildDiscovery.title')}</h2>
+        <Link to="/guild" className="text-xs font-semibold text-primary-600 dark:text-primary-300">
           {t('home.guildDiscovery.seeAll')}
         </Link>
       </div>
       <div className="space-y-3">
         {guilds.map((guild) => (
           <div key={guild.id} className="flex items-center gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-50 text-xl">{guild.crestEmoji}</div>
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-primary-50 dark:bg-primary-900/30 text-xl">{guild.crestEmoji}</div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold text-neutral-900">{guild.name}</p>
-              <p className="text-xs text-neutral-500">
+              <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{guild.name}</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">
                 <span className="capitalize">{guild.tier.replace('_', ' ')}</span>
                 {' · '}
                 {guild.memberCount} members
@@ -78,7 +78,7 @@ export function GuildDiscoveryPanel() {
               <Link
                 to="/guilds/$guildId"
                 params={{ guildId: guild.id }}
-                className="rounded-lg border border-neutral-300 px-2.5 py-1.5 text-xs font-semibold text-neutral-700"
+                className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-2.5 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300"
               >
                 {t('home.guildDiscovery.view')}
               </Link>

@@ -46,16 +46,16 @@ export function WikiPageEditor({
         value={title}
         onChange={(e) => onTitleChange(e.target.value.slice(0, 150))}
         placeholder={t('wiki.editor.titlePlaceholder', 'Page title')}
-        className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+        className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
       />
 
-      <div className="flex gap-1 rounded-xl border border-neutral-200 bg-white p-1 w-fit">
+      <div className="flex gap-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-1 w-fit">
         {(['markdown', 'plaintext'] as ContentFormat[]).map((f) => (
           <button
             key={f}
             type="button"
             onClick={() => onFormatChange(f)}
-            className={`rounded-lg px-3 py-1 text-xs font-semibold capitalize ${format === f ? 'bg-primary-600 text-white' : 'text-neutral-600'}`}
+            className={`rounded-lg px-3 py-1 text-xs font-semibold capitalize ${format === f ? 'bg-primary-600 text-white' : 'text-neutral-600 dark:text-neutral-400'}`}
           >
             {f === 'markdown' ? t('wiki.editor.formatMarkdown', 'Markdown') : t('wiki.editor.formatPlaintext', 'Plain text')}
           </button>
@@ -67,7 +67,7 @@ export function WikiPageEditor({
         onChange={(e) => onContentChange(e.target.value.slice(0, 50_000))}
         rows={14}
         placeholder={t('wiki.editor.contentPlaceholder', 'Write the page content…')}
-        className="w-full resize-y rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 font-mono focus:border-primary-500 focus:outline-none"
+        className="w-full resize-y rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 text-sm text-neutral-900 dark:text-neutral-100 font-mono focus:border-primary-500 focus:outline-none"
       />
 
       {showEditSummary && (
@@ -75,7 +75,7 @@ export function WikiPageEditor({
           value={editSummary ?? ''}
           onChange={(e) => onEditSummaryChange?.(e.target.value.slice(0, 300))}
           placeholder={t('wiki.editor.editSummaryPlaceholder', 'What did you change? (optional)')}
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+          className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
         />
       )}
     </div>

@@ -37,24 +37,24 @@ function CreatorBankAccountPage() {
   const { data: bank, status } = useQuery({ queryKey: ['creator', 'bank-account'], queryFn: fetchBankAccount });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-3 px-4 py-4">
-      <h1 className="text-xl font-bold text-neutral-900">{t('creator.bankAccount.title', 'Bank Account')}</h1>
-      <p className="text-sm text-neutral-500">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-3 px-4 py-4">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('creator.bankAccount.title', 'Bank Account')}</h1>
+      <p className="text-sm text-neutral-500 dark:text-neutral-400">
         {t('creator.bankAccount.desc', 'Add your Nigerian bank account to receive payout transfers via Paystack. Adding, updating, or removing it opens the secure web flow.')}
       </p>
 
-      <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
         {status === 'pending' ? (
-          <div className="h-10 animate-pulse rounded-lg bg-neutral-100" />
+          <div className="h-10 animate-pulse rounded-lg bg-neutral-100 dark:bg-neutral-800" />
         ) : bank?.hasAccount ? (
           <>
-            <p className="mb-1 text-xs font-semibold uppercase text-neutral-500">{t('creator.bankAccount.currentAccount', 'Current Account')}</p>
-            <p className="font-semibold text-neutral-900">{bank.accountName}</p>
-            <p className="text-sm text-neutral-600">{bank.bankName} ····{bank.accountNumberLast4}</p>
+            <p className="mb-1 text-xs font-semibold uppercase text-neutral-500 dark:text-neutral-400">{t('creator.bankAccount.currentAccount', 'Current Account')}</p>
+            <p className="font-semibold text-neutral-900 dark:text-neutral-100">{bank.accountName}</p>
+            <p className="text-sm text-neutral-600 dark:text-neutral-400">{bank.bankName} ····{bank.accountNumberLast4}</p>
             <span className="mt-1 inline-block rounded px-2 py-0.5 text-xs bg-emerald-100 text-emerald-700">{t('creator.bankAccount.verified', 'Verified')}</span>
           </>
         ) : (
-          <p className="text-sm text-neutral-500">{t('creator.bankAccount.noAccount', 'No bank account on file yet.')}</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('creator.bankAccount.noAccount', 'No bank account on file yet.')}</p>
         )}
         <button
           onClick={() => void openAuthenticatedWebLink('/creator/bank-account')}

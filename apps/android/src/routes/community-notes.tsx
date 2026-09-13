@@ -53,9 +53,9 @@ interface NotesPage {
 type FilterStatus = 'all' | NoteStatus;
 
 const STATUS_BADGE: Record<NoteStatus, string> = {
-  shown: 'bg-teal-100 text-teal-700',
-  hidden: 'bg-danger-100 text-danger-700',
-  needs_review: 'bg-amber-100 text-amber-700',
+  shown: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300',
+  hidden: 'bg-danger-100 dark:bg-danger-900/40 text-danger-700 dark:text-danger-300',
+  needs_review: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
 };
 
 function timeAgo(iso: string): string {
@@ -145,18 +145,18 @@ function CommunityNotesPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6 space-y-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-6 space-y-4">
       <div>
-        <h1 className="text-xl font-bold text-neutral-900">{t('communityNotes.title')}</h1>
-        <p className="mt-1 text-sm text-neutral-500">{t('communityNotes.subtitle')}</p>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('communityNotes.title')}</h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('communityNotes.subtitle')}</p>
       </div>
 
-      <div className="flex gap-1 overflow-x-auto rounded-xl bg-neutral-100 p-1">
+      <div className="flex gap-1 overflow-x-auto rounded-xl bg-neutral-100 dark:bg-neutral-800 p-1">
         {FILTERS.map((f) => (
           <button
             key={f.value}
             onClick={() => setFilter(f.value)}
-            className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium ${filter === f.value ? 'bg-white text-neutral-900 shadow-card' : 'text-neutral-500'}`}
+            className={`shrink-0 rounded-lg px-3 py-1.5 text-sm font-medium ${filter === f.value ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-card' : 'text-neutral-500 dark:text-neutral-400'}`}
           >
             {f.label}
           </button>
@@ -166,47 +166,47 @@ function CommunityNotesPage() {
       {status === 'pending' ? (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-28 animate-pulse rounded-xl border border-neutral-100 bg-white" />
+            <div key={i} className="h-28 animate-pulse rounded-xl border border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-800" />
           ))}
         </div>
       ) : status === 'error' ? (
         <div className="py-12 text-center">
-          <p className="text-danger-600 text-sm font-medium">{t('error.generic')}</p>
-          <button onClick={() => refetch()} className="mt-3 text-sm text-primary-600">
+          <p className="text-danger-600 dark:text-danger-300 text-sm font-medium">{t('error.generic')}</p>
+          <button onClick={() => refetch()} className="mt-3 text-sm text-primary-600 dark:text-primary-300">
             {t('communityNotes.tryAgain')}
           </button>
         </div>
       ) : notes.length === 0 ? (
         <div className="py-12 text-center">
           <p className="text-4xl mb-3">📝</p>
-          <p className="font-semibold text-neutral-700">{t('communityNotes.noNotes')}</p>
-          <p className="mt-1 text-sm text-neutral-500">{t('communityNotes.noNotesHint')}</p>
+          <p className="font-semibold text-neutral-700 dark:text-neutral-300">{t('communityNotes.noNotes')}</p>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('communityNotes.noNotesHint')}</p>
         </div>
       ) : (
         <div className="space-y-3">
           {notes.map((note) => {
             const net = note.helpful_votes - note.unhelpful_votes;
             return (
-              <div key={note.id} className="rounded-xl border border-neutral-100 bg-white p-4 space-y-3">
+              <div key={note.id} className="rounded-xl border border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-800 p-4 space-y-3">
                 <div className="flex items-start gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-base">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-base">
                     {note.author_avatar_emoji || '👤'}
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-semibold text-sm text-neutral-900">@{note.author_username}</span>
+                      <span className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">@{note.author_username}</span>
                       <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_BADGE[note.status]}`}>
                         {note.status.replace(/_/g, ' ')}
                       </span>
-                      <span className="text-xs text-neutral-400">{timeAgo(note.created_at)}</span>
+                      <span className="text-xs text-neutral-400 dark:text-neutral-500">{timeAgo(note.created_at)}</span>
                     </div>
                   </div>
-                  <span className={`shrink-0 text-sm font-bold tabular-nums ${net > 0 ? 'text-success-600' : net < 0 ? 'text-danger-500' : 'text-neutral-400'}`}>
+                  <span className={`shrink-0 text-sm font-bold tabular-nums ${net > 0 ? 'text-success-600 dark:text-success-300' : net < 0 ? 'text-danger-500' : 'text-neutral-400 dark:text-neutral-500'}`}>
                     {net > 0 ? '+' : ''}{net}
                   </span>
                 </div>
 
-                <p className="text-sm text-neutral-700 leading-relaxed">{note.content}</p>
+                <p className="text-sm text-neutral-700 dark:text-neutral-300 leading-relaxed">{note.content}</p>
 
                 {note.status !== 'hidden' && (
                   <div className="flex items-center gap-2 pt-1">
@@ -214,7 +214,7 @@ function CommunityNotesPage() {
                       onClick={() => handleVote(note.id, true)}
                       disabled={votingId === note.id}
                       className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
-                        note.user_helpful === true ? 'bg-success-100 text-success-700' : 'bg-neutral-100 text-neutral-600'
+                        note.user_helpful === true ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
                       }`}
                     >
                       👍 {t('communityNotes.helpful', { count: note.helpful_votes })}
@@ -223,7 +223,7 @@ function CommunityNotesPage() {
                       onClick={() => handleVote(note.id, false)}
                       disabled={votingId === note.id}
                       className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium disabled:opacity-50 ${
-                        note.user_helpful === false ? 'bg-danger-100 text-danger-700' : 'bg-neutral-100 text-neutral-600'
+                        note.user_helpful === false ? 'bg-danger-100 dark:bg-danger-900/40 text-danger-700 dark:text-danger-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
                       }`}
                     >
                       👎 {t('communityNotes.notHelpful', { count: note.unhelpful_votes })}
@@ -239,7 +239,7 @@ function CommunityNotesPage() {
               <button
                 onClick={() => fetchNextPage()}
                 disabled={isFetchingNextPage}
-                className="rounded-xl border border-neutral-300 px-5 py-2 text-xs font-semibold text-neutral-700 disabled:opacity-60"
+                className="rounded-xl border border-neutral-300 dark:border-neutral-600 px-5 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
               >
                 {isFetchingNextPage ? t('communityNotes.loading') : t('communityNotes.loadMore')}
               </button>

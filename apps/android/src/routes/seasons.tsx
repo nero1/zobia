@@ -110,32 +110,32 @@ function SeasonsPage() {
 
   if (status === 'pending') {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-        <div className="h-40 animate-pulse rounded-xl bg-neutral-200" />
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+        <div className="h-40 animate-pulse rounded-xl bg-neutral-200 dark:bg-neutral-700" />
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-3 px-4 py-4">
-      <h1 className="text-xl font-bold text-neutral-900">{t('seasons.title', 'Seasons')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-3 px-4 py-4">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('seasons.title', 'Seasons')}</h1>
 
       {season ? (
-        <div className="rounded-xl border border-blue-200 bg-white p-5 shadow-card">
+        <div className="rounded-xl border border-blue-200 bg-white dark:bg-neutral-800 p-5 shadow-card">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
+              <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-300">
                 {t('seasons.activeSeason', 'Active Season')}
               </span>
-              <h2 className="mt-2 text-lg font-bold text-neutral-900">{season.name}</h2>
-              <p className="text-sm text-neutral-500">{season.theme}</p>
+              <h2 className="mt-2 text-lg font-bold text-neutral-900 dark:text-neutral-100">{season.name}</h2>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">{season.theme}</p>
             </div>
             <div className="text-right shrink-0">
-              <p className="text-2xl font-bold text-primary-600">{daysRemaining(season.ends_at)}</p>
-              <p className="text-xs text-neutral-500">{t('seasons.daysLeft', 'days left')}</p>
+              <p className="text-2xl font-bold text-primary-600 dark:text-primary-300">{daysRemaining(season.ends_at)}</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('seasons.daysLeft', 'days left')}</p>
             </div>
           </div>
-          <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-neutral-200">
+          <div className="mt-4 h-2.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
             <div
               className="h-full rounded-full bg-primary-500"
               style={{
@@ -145,22 +145,22 @@ function SeasonsPage() {
           </div>
         </div>
       ) : (
-        <div className="rounded-xl border border-neutral-200 bg-white p-8 text-center">
-          <p className="text-neutral-500">{t('seasons.noActiveSeason', 'No active season right now. Check back soon!')}</p>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-8 text-center">
+          <p className="text-neutral-500 dark:text-neutral-400">{t('seasons.noActiveSeason', 'No active season right now. Check back soon!')}</p>
         </div>
       )}
 
       {season && (
-        <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card">
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-5 shadow-card">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('seasons.seasonPass', 'Season Pass')}</h2>
+              <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('seasons.seasonPass', 'Season Pass')}</h2>
               {passData?.pass.is_paid ? (
-                <span className="mt-1 inline-block rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700">
+                <span className="mt-1 inline-block rounded-full bg-amber-100 dark:bg-amber-900/40 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
                   {t('seasons.paidPass', 'Paid Pass')} ⭐
                 </span>
               ) : (
-                <span className="mt-1 inline-block rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-semibold text-neutral-600">
+                <span className="mt-1 inline-block rounded-full bg-neutral-100 dark:bg-neutral-800 px-2.5 py-0.5 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
                   {t('seasons.freePass', 'Free Pass')}
                 </span>
               )}
@@ -179,7 +179,7 @@ function SeasonsPage() {
           </div>
 
           {passData && (
-            <p className="mt-3 text-xs text-neutral-400">
+            <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500">
               {t('seasons.yourXp', 'Your XP')}: {passData.pass.season_xp.toLocaleString()}
               {passData.pass.season_rank && ` · ${t('seasons.rank', 'Rank')} #${passData.pass.season_rank}`}
             </p>
@@ -188,24 +188,24 @@ function SeasonsPage() {
       )}
 
       {leaderboard && leaderboard.length > 0 && (
-        <div className="rounded-xl border border-neutral-200 bg-white shadow-card">
-          <div className="border-b border-neutral-100 px-5 py-3">
-            <h2 className="text-sm font-semibold text-neutral-700">{t('seasons.seasonTop10', 'Season Top 10')}</h2>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-card">
+          <div className="border-b border-neutral-100 dark:border-neutral-800 px-5 py-3">
+            <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('seasons.seasonTop10', 'Season Top 10')}</h2>
           </div>
-          <div className="divide-y divide-neutral-100">
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
             {leaderboard.map((entry) => (
               <div key={entry.userId} className="flex items-center gap-3 px-4 py-2.5">
-                <span className="w-6 shrink-0 text-center text-xs font-bold text-neutral-500">
+                <span className="w-6 shrink-0 text-center text-xs font-bold text-neutral-500 dark:text-neutral-400">
                   {entry.rank <= 3 ? ['🥇', '🥈', '🥉'][entry.rank - 1] : `#${entry.rank}`}
                 </span>
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-sm">{entry.avatarEmoji}</span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900">@{entry.username}</span>
-                <span className="shrink-0 text-sm font-semibold text-neutral-700">{entry.seasonXP.toLocaleString()}</span>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-sm">{entry.avatarEmoji}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">@{entry.username}</span>
+                <span className="shrink-0 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{entry.seasonXP.toLocaleString()}</span>
               </div>
             ))}
           </div>
-          <div className="border-t border-neutral-100 px-4 py-3">
-            <Link to="/leaderboards" className="text-sm font-semibold text-primary-600">
+          <div className="border-t border-neutral-100 dark:border-neutral-800 px-4 py-3">
+            <Link to="/leaderboards" className="text-sm font-semibold text-primary-600 dark:text-primary-300">
               {t('seasons.viewFullLeaderboard', 'View full leaderboard →')}
             </Link>
           </div>
@@ -214,13 +214,13 @@ function SeasonsPage() {
 
       {data && data.past.length > 0 && (
         <div>
-          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('seasons.seasonHistory', 'Season History')}</h2>
+          <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('seasons.seasonHistory', 'Season History')}</h2>
           <div className="grid grid-cols-2 gap-2">
             {data.past.map((s) => (
-              <div key={s.id} className="rounded-xl border border-neutral-200 bg-white p-3">
-                <p className="text-xs text-neutral-400">{new Date(s.ends_at).getFullYear()}</p>
-                <p className="mt-0.5 truncate text-sm font-bold text-neutral-900">{s.name}</p>
-                <p className="text-xs text-neutral-500">{s.theme}</p>
+              <div key={s.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3">
+                <p className="text-xs text-neutral-400 dark:text-neutral-500">{new Date(s.ends_at).getFullYear()}</p>
+                <p className="mt-0.5 truncate text-sm font-bold text-neutral-900 dark:text-neutral-100">{s.name}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{s.theme}</p>
               </div>
             ))}
           </div>

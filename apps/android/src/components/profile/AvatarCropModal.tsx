@@ -140,10 +140,10 @@ export function AvatarCropModal({ imageSrc, onClose, onUploaded }: AvatarCropMod
         if (e.target === e.currentTarget) onClose();
       }}
     >
-      <div className="w-full max-w-md rounded-2xl bg-white p-4 shadow-xl">
+      <div className="w-full max-w-md rounded-2xl bg-white dark:bg-neutral-800 p-4 shadow-xl">
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-neutral-900">{t('profile.avatar.modalTitle')}</h2>
-          <button onClick={onClose} aria-label={t('action.close')} className="rounded-full p-1 text-neutral-500">
+          <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('profile.avatar.modalTitle')}</h2>
+          <button onClick={onClose} aria-label={t('action.close')} className="rounded-full p-1 text-neutral-500 dark:text-neutral-400">
             ✕
           </button>
         </div>
@@ -174,14 +174,14 @@ export function AvatarCropModal({ imageSrc, onClose, onUploaded }: AvatarCropMod
         />
 
         {onCooldown && eligibility?.nextEligibleAt && (
-          <p className="mt-3 text-xs text-amber-600" role="alert">
+          <p className="mt-3 text-xs text-amber-600 dark:text-amber-300" role="alert">
             {t('profile.avatar.cooldownActive', { date: new Date(eligibility.nextEligibleAt).toLocaleDateString() })}
           </p>
         )}
 
         {needsPayment && !onCooldown && (
-          <div className="mt-3 rounded-xl bg-neutral-50 p-3 text-xs">
-            <p className="mb-2 text-neutral-600">
+          <div className="mt-3 rounded-xl bg-neutral-50 dark:bg-neutral-800 p-3 text-xs">
+            <p className="mb-2 text-neutral-600 dark:text-neutral-400">
               {t('profile.avatar.freePlanCostNotice', { credits: eligibility?.costCredits, stars: eligibility?.costStars })}
             </p>
             <div className="flex gap-2">
@@ -190,7 +190,7 @@ export function AvatarCropModal({ imageSrc, onClose, onUploaded }: AvatarCropMod
                 disabled={!canPayCredits}
                 onClick={() => setCurrency('credits')}
                 className={`flex-1 rounded-lg border px-2 py-1.5 font-semibold disabled:opacity-40 ${
-                  currency === 'credits' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-300'
+                  currency === 'credits' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'border-neutral-300 dark:border-neutral-600'
                 }`}
               >
                 {t('profile.avatar.payWithCredits', { cost: eligibility?.costCredits })}
@@ -200,24 +200,24 @@ export function AvatarCropModal({ imageSrc, onClose, onUploaded }: AvatarCropMod
                 disabled={!canPayStars}
                 onClick={() => setCurrency('stars')}
                 className={`flex-1 rounded-lg border px-2 py-1.5 font-semibold disabled:opacity-40 ${
-                  currency === 'stars' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-300'
+                  currency === 'stars' ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'border-neutral-300 dark:border-neutral-600'
                 }`}
               >
                 {t('profile.avatar.payWithStars', { cost: eligibility?.costStars })}
               </button>
             </div>
-            {!canAffordChange && <p className="mt-2 text-danger-600">{t('profile.avatar.cannotAfford')}</p>}
+            {!canAffordChange && <p className="mt-2 text-danger-600 dark:text-danger-300">{t('profile.avatar.cannotAfford')}</p>}
           </div>
         )}
 
         {error && (
-          <p className="mt-3 text-xs text-danger-600" role="alert">
+          <p className="mt-3 text-xs text-danger-600 dark:text-danger-300" role="alert">
             {error}
           </p>
         )}
 
         <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-semibold text-neutral-600">
+          <button onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-semibold text-neutral-600 dark:text-neutral-400">
             {t('action.cancel')}
           </button>
           <button

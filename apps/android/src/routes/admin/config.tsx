@@ -364,10 +364,10 @@ function ConfigRow({
   const [draft, setDraft] = useState(String(Array.isArray(item.value) ? '' : item.value));
 
   return (
-    <div className="border-b border-neutral-100 py-3.5 last:border-0">
-      <p className="font-mono text-[10px] text-neutral-400">{item.key}</p>
-      <p className="text-sm font-semibold text-neutral-900">{t(item.meta.labelKey, item.meta.labelDefault)}</p>
-      <p className="mb-2.5 text-xs text-neutral-500">{t(item.meta.descKey, item.meta.descDefault)}</p>
+    <div className="border-b border-neutral-100 dark:border-neutral-800 py-3.5 last:border-0">
+      <p className="font-mono text-[10px] text-neutral-400 dark:text-neutral-500">{item.key}</p>
+      <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t(item.meta.labelKey, item.meta.labelDefault)}</p>
+      <p className="mb-2.5 text-xs text-neutral-500 dark:text-neutral-400">{t(item.meta.descKey, item.meta.descDefault)}</p>
 
       {item.meta.type === 'boolean' && (
         <AdminToggle checked={item.value as boolean} onChange={(v) => onSave(item.key, v)} disabled={saving} />
@@ -394,7 +394,7 @@ function ConfigRow({
             const list = Array.isArray(item.value) ? item.value : [];
             const checked = list.includes(opt.value);
             return (
-              <label key={opt.value} className="flex items-center gap-2 text-xs text-neutral-700">
+              <label key={opt.value} className="flex items-center gap-2 text-xs text-neutral-700 dark:text-neutral-300">
                 <input
                   type="checkbox"
                   checked={checked}
@@ -403,7 +403,7 @@ function ConfigRow({
                     const next = e.target.checked ? [...list, opt.value] : list.filter((v) => v !== opt.value);
                     onSave(item.key, next);
                   }}
-                  className="h-3.5 w-3.5 rounded border-neutral-300"
+                  className="h-3.5 w-3.5 rounded border-neutral-300 dark:border-neutral-600"
                 />
                 {opt.labelDefault}
               </label>
@@ -436,18 +436,18 @@ function ConfigRow({
             <button
               type="button"
               onClick={() => { setEditing(false); setDraft(String(item.value)); }}
-              className="shrink-0 rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700"
+              className="shrink-0 rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300"
             >
               {t('common.cancel', 'Cancel')}
             </button>
           </div>
         ) : (
           <div className="flex items-center gap-2">
-            <span className="rounded-lg bg-neutral-100 px-2.5 py-1 font-mono text-xs text-neutral-700">{String(item.value)}</span>
+            <span className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 font-mono text-xs text-neutral-700 dark:text-neutral-300">{String(item.value)}</span>
             <button
               type="button"
               onClick={() => setEditing(true)}
-              className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700"
+              className="rounded-lg bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300"
             >
               {t('admin.config.edit', 'Edit')}
             </button>
@@ -475,16 +475,16 @@ function ConfigGroupCard({
   const { t } = useTranslation();
   const [open, setOpen] = useState(true);
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white shadow-card">
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-card">
       <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between px-4 py-3.5 text-left">
         <div>
-          <p className="text-sm font-semibold text-neutral-900">{t(GROUP_LABEL[group] ?? group, group)}</p>
-          <p className="text-[11px] text-neutral-500">{t('admin.config.settingsCount', '{{count}} settings', { count: items.length })}</p>
+          <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t(GROUP_LABEL[group] ?? group, group)}</p>
+          <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{t('admin.config.settingsCount', '{{count}} settings', { count: items.length })}</p>
         </div>
-        <span className="text-neutral-400">{open ? '▲' : '▼'}</span>
+        <span className="text-neutral-400 dark:text-neutral-500">{open ? '▲' : '▼'}</span>
       </button>
       {open && (
-        <div className="border-t border-neutral-100 px-4">
+        <div className="border-t border-neutral-100 dark:border-neutral-800 px-4">
           {items.map((item) => (
             <ConfigRow key={item.key} item={item} saving={savingKey === item.key} onSave={onSave} />
           ))}
@@ -529,7 +529,7 @@ function AdminConfigPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.config', 'Platform Configuration')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.config', 'Platform Configuration')}</h1>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
@@ -538,9 +538,9 @@ function AdminConfigPage() {
       {status === 'pending' && (
         <div className="space-y-3">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="animate-pulse rounded-xl border border-neutral-200 bg-white p-4">
-              <div className="h-4 w-32 rounded bg-neutral-200" />
-              <div className="mt-3 h-3 w-full rounded bg-neutral-100" />
+            <div key={i} className="animate-pulse rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
+              <div className="h-4 w-32 rounded bg-neutral-200 dark:bg-neutral-700" />
+              <div className="mt-3 h-3 w-full rounded bg-neutral-100 dark:bg-neutral-800" />
             </div>
           ))}
         </div>

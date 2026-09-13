@@ -105,13 +105,13 @@ function CreateGuildButton() {
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={() => setOpen(false)}>
-          <div className="max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-3 text-base font-bold text-neutral-900">{t('guild.create.title', 'Create a Guild')}</h3>
+          <div className="max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-white dark:bg-neutral-800 p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+            <h3 className="mb-3 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('guild.create.title', 'Create a Guild')}</h3>
 
             {loadingEligibility ? (
-              <p className="text-sm text-neutral-500">{t('guild.create.checking', 'Checking eligibility…')}</p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('guild.create.checking', 'Checking eligibility…')}</p>
             ) : eligibility && !eligibility.canCreate ? (
-              <div className="mb-4 space-y-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <div className="mb-4 space-y-2 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 p-3 text-sm text-amber-800 dark:text-amber-300">
                 <p className="font-semibold">{t('guild.create.notEligible', "You're not eligible to create a guild yet")}</p>
                 {eligibility.alreadyInGuild && <p>{t('guild.create.alreadyInGuild', 'You already belong to a guild.')}</p>}
                 {eligibility.currentLevel < eligibility.minLevel && (
@@ -127,43 +127,43 @@ function CreateGuildButton() {
             ) : (
               <div className="space-y-3">
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.name', 'Guild Name')}</label>
+                  <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.name', 'Guild Name')}</label>
                   <input value={name} onChange={(e) => setName(e.target.value)} maxLength={40} className={adminInputClass} data-selectable />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.crest', 'Crest Emoji')}</label>
+                  <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.crest', 'Crest Emoji')}</label>
                   <input value={crestEmoji} onChange={(e) => setCrestEmoji(e.target.value)} maxLength={4} className={`${adminInputClass} w-20 text-center text-lg`} data-selectable />
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.description', 'Description')}</label>
+                  <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.description', 'Description')}</label>
                   <textarea rows={2} value={description} onChange={(e) => setDescription(e.target.value)} maxLength={300} className={`${adminInputClass} resize-none`} data-selectable />
                 </div>
                 <div className="flex gap-3">
                   <div className="flex-1">
-                    <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.city', 'City')}</label>
+                    <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.city', 'City')}</label>
                     <input value={city} onChange={(e) => setCity(e.target.value)} maxLength={80} className={adminInputClass} data-selectable />
                   </div>
                   <div className="w-20">
-                    <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.country', 'Country')}</label>
+                    <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.country', 'Country')}</label>
                     <input value={country} onChange={(e) => setCountry(e.target.value.toUpperCase())} maxLength={2} placeholder="NG" className={`${adminInputClass} uppercase`} data-selectable />
                   </div>
                 </div>
                 <div>
-                  <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.recruitment', 'Recruitment')}</label>
+                  <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.recruitment', 'Recruitment')}</label>
                   <select value={recruitmentType} onChange={(e) => setRecruitmentType(e.target.value as typeof recruitmentType)} className={adminInputClass}>
                     <option value="open">{t('guild.create.recruitmentOpen', 'Open — anyone can join')}</option>
                     <option value="approval">{t('guild.create.recruitmentApproval', 'Approval required')}</option>
                     <option value="invite_only">{t('guild.create.recruitmentInviteOnly', 'Invite only')}</option>
                   </select>
                 </div>
-                <p className="text-xs text-neutral-500">{t('guild.create.costNote', 'Creating a guild costs {{cost}} coins.', { cost: 500 })}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('guild.create.costNote', 'Creating a guild costs {{cost}} coins.', { cost: 500 })}</p>
               </div>
             )}
 
-            {error && <p className="mt-3 text-sm text-danger-600">{error}</p>}
+            {error && <p className="mt-3 text-sm text-danger-600 dark:text-danger-300">{error}</p>}
 
             <div className="mt-4 flex gap-2">
-              <button onClick={() => setOpen(false)} className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700">
+              <button onClick={() => setOpen(false)} className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
                 {t('common.cancel', 'Cancel')}
               </button>
               {(!eligibility || eligibility.canCreate) && (
@@ -234,9 +234,9 @@ function GuildsIndexPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-3">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <Link to="/guild-discovery" className="text-xs font-semibold text-primary-600">
+        <Link to="/guild-discovery" className="text-xs font-semibold text-primary-600 dark:text-primary-300">
           {t('guildDiscovery.seeRecommendations')} →
         </Link>
         <CreateGuildButton />
@@ -246,37 +246,37 @@ function GuildsIndexPage() {
         value={city}
         onChange={(e) => setCity(e.target.value)}
         placeholder={t('guilds.filterByCity')}
-        className="w-full rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-sm focus:outline-none"
+        className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm focus:outline-none"
         data-selectable
       />
 
       {status === 'pending' ? (
         <div className="space-y-3">
           {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-20 animate-pulse rounded-xl border border-neutral-200 bg-white" />
+            <div key={i} className="h-20 animate-pulse rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800" />
           ))}
         </div>
       ) : status === 'error' ? (
-        <p className="py-8 text-center text-sm text-danger-600">{t('error.generic')}</p>
+        <p className="py-8 text-center text-sm text-danger-600 dark:text-danger-300">{t('error.generic')}</p>
       ) : guilds.length === 0 ? (
-        <p className="py-12 text-center text-sm text-neutral-500">{t('guildDiscovery.empty')}</p>
+        <p className="py-12 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('guildDiscovery.empty')}</p>
       ) : (
         <>
           {guilds.map((g) => {
             const { classes } = TIER_BADGE[tierBase(g.tier)];
             return (
-              <div key={g.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4">
+              <div key={g.id} className="flex flex-wrap items-center gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
                 <Link to="/guilds/$guildId" params={{ guildId: g.id }}>
-                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100 text-2xl">{g.crest_emoji}</span>
+                  <span className="flex h-12 w-12 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-2xl">{g.crest_emoji}</span>
                 </Link>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link to="/guilds/$guildId" params={{ guildId: g.id }} className="font-bold text-neutral-900">
+                    <Link to="/guilds/$guildId" params={{ guildId: g.id }} className="font-bold text-neutral-900 dark:text-neutral-100">
                       {g.name}
                     </Link>
                     <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${classes}`}>{g.tier.split('_')[0]}</span>
                   </div>
-                  <p className="text-xs text-neutral-500">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">
                     {g.city ? `${g.city} · ` : ''}
                     {t('guildDiscovery.members', { count: g.member_count })} · {t('guildDiscovery.warsWon', { count: g.wars_won })}
                   </p>
@@ -297,7 +297,7 @@ function GuildsIndexPage() {
               <button
                 onClick={() => fetchNextPage()}
                 disabled={isFetchingNextPage}
-                className="rounded-xl border border-neutral-300 px-5 py-2 text-xs font-semibold text-neutral-700 disabled:opacity-60"
+                className="rounded-xl border border-neutral-300 dark:border-neutral-600 px-5 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
               >
                 {isFetchingNextPage ? t('wallet.loadingMore') : t('wallet.loadMore')}
               </button>

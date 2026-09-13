@@ -138,25 +138,25 @@ function TweetDetailPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
-      <div className="bg-white border-b border-neutral-100 px-4 py-3 flex items-center justify-between">
-        <Link to="/tweets" className="text-sm font-semibold text-neutral-500">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
+      <div className="bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800 px-4 py-3 flex items-center justify-between">
+        <Link to="/tweets" className="text-sm font-semibold text-neutral-500 dark:text-neutral-400">
           ← {t('tweets.title')}
         </Link>
         {tweet && (
-          <button onClick={() => void handleShare()} className="text-sm font-semibold text-neutral-500">
+          <button onClick={() => void handleShare()} className="text-sm font-semibold text-neutral-500 dark:text-neutral-400">
             {shareCopied ? t('tweets.linkCopied', 'Link copied') : t('tweets.share', 'Share')}
           </button>
         )}
       </div>
 
       {isLoading && (
-        <div className="bg-white p-4 animate-pulse">
-          <div className="h-24 w-full rounded bg-neutral-200" />
+        <div className="bg-white dark:bg-neutral-800 p-4 animate-pulse">
+          <div className="h-24 w-full rounded bg-neutral-200 dark:bg-neutral-700" />
         </div>
       )}
 
-      {!isLoading && !tweet && <div className="p-8 text-center text-sm text-neutral-500">{t('tweets.notFound')}</div>}
+      {!isLoading && !tweet && <div className="p-8 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('tweets.notFound')}</div>}
 
       {tweet && (
         <>
@@ -170,14 +170,14 @@ function TweetDetailPage() {
             isOwnProfile={user?.id === tweet.authorId}
           />
 
-          <div className="bg-white border-b border-neutral-100 p-4">
-            {replyError && <p className="mb-2 text-xs text-danger-600">{replyError}</p>}
+          <div className="bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800 p-4">
+            {replyError && <p className="mb-2 text-xs text-danger-600 dark:text-danger-300">{replyError}</p>}
             <textarea
               value={replyDraft}
               onChange={(e) => setReplyDraft(e.target.value)}
               placeholder={t('tweets.replyPlaceholder')}
               rows={2}
-              className="w-full resize-none rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
+              className="w-full resize-none rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-4 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
             />
             <div className="mt-2 flex justify-end">
               <button
@@ -202,7 +202,7 @@ function TweetDetailPage() {
           ))}
           {hasNextPage && (
             <div className="flex justify-center py-4">
-              <button onClick={() => fetchNextPage()} className="rounded-xl border border-neutral-300 px-5 py-2 text-sm font-semibold text-neutral-700">
+              <button onClick={() => fetchNextPage()} className="rounded-xl border border-neutral-300 dark:border-neutral-600 px-5 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
                 {t('tweets.loadMore')}
               </button>
             </div>

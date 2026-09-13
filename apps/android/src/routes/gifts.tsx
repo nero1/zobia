@@ -62,10 +62,10 @@ interface WalletBalance {
 type Tab = 'catalog' | 'received' | 'sent';
 
 const TIER_COLOUR: Record<number, string> = {
-  1: 'bg-neutral-100 text-neutral-600',
-  2: 'bg-success-50 text-success-600',
-  3: 'bg-amber-100 text-amber-700',
-  4: 'bg-blue-100 text-blue-700',
+  1: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400',
+  2: 'bg-success-50 dark:bg-success-900/30 text-success-600 dark:text-success-300',
+  3: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
+  4: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
   5: 'bg-yellow-100 text-yellow-700',
 };
 
@@ -248,19 +248,19 @@ function SendGiftPanel({
   if (showPin) {
     return (
       <div className="flex flex-col gap-4 px-4 py-4">
-        <h3 className="text-base font-bold text-neutral-900">{t('android.pin.title')}</h3>
+        <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('android.pin.title')}</h3>
         <input
           type="password"
           inputMode="numeric"
           maxLength={6}
           value={pin}
           onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
-          className="w-full rounded-xl border border-neutral-200 px-4 py-3 text-center text-xl tracking-widest focus:border-primary-500 focus:outline-none"
+          className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 px-4 py-3 text-center text-xl tracking-widest focus:border-primary-500 focus:outline-none"
           autoFocus
         />
-        {pinError && <p className="text-sm text-red-600">{pinError}</p>}
+        {pinError && <p className="text-sm text-red-600 dark:text-red-300">{pinError}</p>}
         <div className="flex gap-3">
-          <button onClick={() => setShowPin(false)} className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700">
+          <button onClick={() => setShowPin(false)} className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
             {t('gifts.send.cancel')}
           </button>
           <button
@@ -279,8 +279,8 @@ function SendGiftPanel({
     return (
       <div className="flex flex-col items-center gap-4 py-8 px-4 text-center">
         <span className="text-5xl">{selectedGift?.emoji}</span>
-        <p className="text-lg font-semibold text-neutral-900">{t('gifts.send.success', { username: recipient?.username })}</p>
-        <p className="text-sm text-neutral-500">{t('gifts.send.successHint', { name: selectedGift?.name })}</p>
+        <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('gifts.send.success', { username: recipient?.username })}</p>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('gifts.send.successHint', { name: selectedGift?.name })}</p>
         <button onClick={onSent} className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white">
           {t('gifts.send.done')}
         </button>
@@ -291,17 +291,17 @@ function SendGiftPanel({
   return (
     <div className="space-y-4 px-4 py-4">
       <div>
-        <label className="mb-1.5 block text-sm font-medium text-neutral-700">{t('gifts.send.recipientLabel')}</label>
+        <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('gifts.send.recipientLabel')}</label>
         {recipient ? (
-          <div className="flex items-center justify-between rounded-xl border border-primary-300 bg-primary-50 px-3 py-2.5">
+          <div className="flex items-center justify-between rounded-xl border border-primary-300 bg-primary-50 dark:bg-primary-900/30 px-3 py-2.5">
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-sm">{recipient.avatarEmoji || '🙂'}</div>
-              <span className="text-sm font-medium text-neutral-900">@{recipient.username}</span>
+              <div className="w-7 h-7 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-sm">{recipient.avatarEmoji || '🙂'}</div>
+              <span className="text-sm font-medium text-neutral-900 dark:text-neutral-100">@{recipient.username}</span>
             </div>
             <button
               onClick={() => { setRecipient(null); setSearch(''); setSelectedGift(null); }}
               disabled={sendMutation.isPending}
-              className="text-xs text-neutral-500 disabled:opacity-50"
+              className="text-xs text-neutral-500 dark:text-neutral-400 disabled:opacity-50"
             >
               {t('gifts.send.change')}
             </button>
@@ -313,21 +313,21 @@ function SendGiftPanel({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder={t('gifts.send.recipientSearch')}
-              className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+              className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
             />
             {(suggestions.length > 0 || searching) && (
-              <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-card">
-                {searching && <div className="px-4 py-3 text-sm text-neutral-500">{t('gifts.send.searching')}</div>}
+              <div className="absolute z-10 mt-1 w-full overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-card">
+                {searching && <div className="px-4 py-3 text-sm text-neutral-500 dark:text-neutral-400">{t('gifts.send.searching')}</div>}
                 {suggestions.map((u) => (
                   <button
                     key={u.id}
                     onClick={() => { setRecipient(u); setSearch(u.username); setSuggestions([]); }}
                     className="flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm"
                   >
-                    <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-sm">{u.avatarEmoji || '🙂'}</div>
+                    <div className="w-7 h-7 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-sm">{u.avatarEmoji || '🙂'}</div>
                     <div>
-                      <p className="font-medium text-neutral-900">{u.displayName ?? u.username}</p>
-                      <p className="text-xs text-neutral-500">@{u.username}</p>
+                      <p className="font-medium text-neutral-900 dark:text-neutral-100">{u.displayName ?? u.username}</p>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400">@{u.username}</p>
                     </div>
                   </button>
                 ))}
@@ -339,7 +339,7 @@ function SendGiftPanel({
 
       {catalogue && recipient && (
         <>
-          {wallet && <p className="text-xs text-neutral-500">{t('gifts.send.walletBalance', { amount: wallet.coins.toLocaleString() })}</p>}
+          {wallet && <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('gifts.send.walletBalance', { amount: wallet.coins.toLocaleString() })}</p>}
 
           <div className="flex gap-2 overflow-x-auto pb-1">
             {catalogue.tiers.map((tr) => (
@@ -348,7 +348,7 @@ function SendGiftPanel({
                 onClick={() => { setActiveTier(tr.tier); setSelectedGift(null); }}
                 disabled={sendMutation.isPending}
                 className={`shrink-0 rounded-full border-2 px-3 py-1 text-xs font-semibold disabled:opacity-50 ${
-                  activeTier === tr.tier ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-200 bg-white text-neutral-600'
+                  activeTier === tr.tier ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
                 }`}
               >
                 {tr.label}
@@ -367,14 +367,14 @@ function SendGiftPanel({
                   disabled={!canAfford || sendMutation.isPending}
                   className={`flex flex-col items-center gap-1 rounded-xl border-2 p-2.5 text-center ${
                     isSelected
-                      ? 'border-primary-500 bg-primary-50'
+                      ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30'
                       : canAfford
-                        ? 'border-neutral-200 bg-neutral-50'
-                        : 'border-neutral-100 bg-neutral-50 opacity-40'
+                        ? 'border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800'
+                        : 'border-neutral-100 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800 opacity-40'
                   }`}
                 >
                   <span className="text-2xl leading-none">{gift.emoji}</span>
-                  <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700">{gift.name}</span>
+                  <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700 dark:text-neutral-300">{gift.name}</span>
                   <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${tierColour(gift.tier)}`}>
                     🪙 {gift.coinCost.toLocaleString()}
                   </span>
@@ -385,10 +385,10 @@ function SendGiftPanel({
         </>
       )}
 
-      {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+      {error && <p className="rounded-lg bg-red-50 dark:bg-red-900/30 px-3 py-2 text-sm text-red-600 dark:text-red-300">{error}</p>}
 
-      <div className="flex justify-end gap-2 border-t border-neutral-100 pt-4">
-        <button onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-medium text-neutral-600">
+      <div className="flex justify-end gap-2 border-t border-neutral-100 dark:border-neutral-800 pt-4">
+        <button onClick={onClose} className="rounded-xl px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-400">
           {t('gifts.send.cancel')}
         </button>
         <button
@@ -419,8 +419,8 @@ function GiftRow({ gift, tab }: { gift: GiftRecord; tab: Tab }) {
     <div className="flex items-center gap-3 px-4 py-3">
       <span className="text-2xl leading-none">{gift.giftItem.emoji}</span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-neutral-900">{gift.giftItem.name}</p>
-        <p className="truncate text-xs text-neutral-500">
+        <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{gift.giftItem.name}</p>
+        <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
           {tab === 'sent' ? t('gifts.row.to') : t('gifts.row.from')} @{other.username ?? 'unknown'}
         </p>
       </div>
@@ -428,7 +428,7 @@ function GiftRow({ gift, tab }: { gift: GiftRecord; tab: Tab }) {
         <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${tierColour(gift.giftItem.tier)}`}>
           {t('gifts.send.tierLabel', { tier: gift.giftItem.tier })}
         </span>
-        <span className="text-[10px] text-neutral-400">{relativeTime(gift.createdAt)}</span>
+        <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{relativeTime(gift.createdAt)}</span>
       </div>
     </div>
   );
@@ -481,11 +481,11 @@ function GiftsPage() {
   };
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-2">
         <div>
-          <h1 className="text-xl font-bold text-neutral-900">🎁 {t('gifts.title')}</h1>
-          <p className="mt-0.5 text-sm text-neutral-500">{t('gifts.subtitle')}</p>
+          <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">🎁 {t('gifts.title')}</h1>
+          <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">{t('gifts.subtitle')}</p>
         </div>
         <button
           onClick={() => { setSelectedCatalogGiftId(undefined); setShowModal(true); }}
@@ -495,12 +495,12 @@ function GiftsPage() {
         </button>
       </div>
 
-      <div className="flex gap-1 rounded-xl border border-neutral-200 bg-white p-1 mx-4 mb-3">
+      <div className="flex gap-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-1 mx-4 mb-3">
         {(['catalog', 'received', 'sent'] as const).map((tb) => (
           <button
             key={tb}
             onClick={() => setTab(tb)}
-            className={`flex-1 rounded-lg py-2 text-sm font-medium ${tab === tb ? 'bg-primary-600 text-white' : 'text-neutral-500'}`}
+            className={`flex-1 rounded-lg py-2 text-sm font-medium ${tab === tb ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}
           >
             {t(`gifts.tabs.${tb}`)}
           </button>
@@ -508,21 +508,21 @@ function GiftsPage() {
       </div>
 
       {tab === 'catalog' && (
-        <div className="bg-white mx-4 rounded-2xl border border-neutral-200 mb-6 p-3">
+        <div className="bg-white dark:bg-neutral-800 mx-4 rounded-2xl border border-neutral-200 dark:border-neutral-700 mb-6 p-3">
           {catalogueStatus === 'pending' ? (
             <div className="grid grid-cols-3 gap-2">
               {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="aspect-square animate-pulse rounded-xl bg-neutral-200" />
+                <div key={i} className="aspect-square animate-pulse rounded-xl bg-neutral-200 dark:bg-neutral-700" />
               ))}
             </div>
           ) : catalogueStatus === 'error' ? (
             <div className="flex flex-col items-center gap-3 py-10">
-              <p className="text-sm text-neutral-500">{t('error.generic')}</p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('error.generic')}</p>
             </div>
           ) : allCatalogueGifts.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-10 text-center">
               <span className="text-4xl">🎁</span>
-              <p className="text-sm text-neutral-500">{t('error.generic')}</p>
+              <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('error.generic')}</p>
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-2">
@@ -530,14 +530,14 @@ function GiftsPage() {
                 <button
                   key={gift.id}
                   onClick={() => openCatalogGift(gift)}
-                  className="flex flex-col items-center gap-1 rounded-xl border-2 border-neutral-200 bg-neutral-50 p-2.5 text-center"
+                  className="flex flex-col items-center gap-1 rounded-xl border-2 border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-2.5 text-center"
                 >
                   <span className="text-2xl leading-none">{gift.emoji}</span>
-                  <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700">{gift.name}</span>
+                  <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700 dark:text-neutral-300">{gift.name}</span>
                   <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${tierColour(gift.tier)}`}>
                     {GIFT_TIER_LABELS[gift.tier] ?? `Tier ${gift.tier}`}
                   </span>
-                  <span className="text-[11px] font-semibold text-neutral-600">
+                  <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400">
                     🪙 {gift.coinCost.toLocaleString()}
                   </span>
                 </button>
@@ -548,23 +548,23 @@ function GiftsPage() {
       )}
 
       {tab !== 'catalog' && (
-      <div className="bg-white mx-4 rounded-2xl border border-neutral-200 mb-6">
+      <div className="bg-white dark:bg-neutral-800 mx-4 rounded-2xl border border-neutral-200 dark:border-neutral-700 mb-6">
         {status === 'pending' ? (
-          <div className="divide-y divide-neutral-100">
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
             {Array.from({ length: 5 }).map((_, i) => (
               <div key={i} className="flex items-center gap-3 px-4 py-3 animate-pulse">
-                <div className="h-8 w-8 rounded-full bg-neutral-200" />
+                <div className="h-8 w-8 rounded-full bg-neutral-200 dark:bg-neutral-700" />
                 <div className="flex-1 space-y-1.5">
-                  <div className="h-3 w-32 rounded bg-neutral-200" />
-                  <div className="h-2.5 w-20 rounded bg-neutral-100" />
+                  <div className="h-3 w-32 rounded bg-neutral-200 dark:bg-neutral-700" />
+                  <div className="h-2.5 w-20 rounded bg-neutral-100 dark:bg-neutral-800" />
                 </div>
               </div>
             ))}
           </div>
         ) : status === 'error' ? (
           <div className="flex flex-col items-center gap-3 py-10">
-            <p className="text-sm text-neutral-500">{t('error.generic')}</p>
-            <button onClick={() => refetch()} className="rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700">
+            <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('error.generic')}</p>
+            <button onClick={() => refetch()} className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-4 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
               {t('android.error.retry')}
             </button>
           </div>
@@ -572,8 +572,8 @@ function GiftsPage() {
           <div className="flex flex-col items-center gap-4 py-12 text-center px-4">
             <span className="text-4xl">🎁</span>
             <div>
-              <p className="font-semibold text-neutral-900">{tab === 'received' ? t('gifts.empty.received') : t('gifts.empty.sent')}</p>
-              <p className="mt-1 text-sm text-neutral-500">{tab === 'received' ? t('gifts.empty.receivedHint') : t('gifts.empty.sentHint')}</p>
+              <p className="font-semibold text-neutral-900 dark:text-neutral-100">{tab === 'received' ? t('gifts.empty.received') : t('gifts.empty.sent')}</p>
+              <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{tab === 'received' ? t('gifts.empty.receivedHint') : t('gifts.empty.sentHint')}</p>
             </div>
             {tab === 'sent' && (
               <button onClick={() => setShowModal(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white">
@@ -582,7 +582,7 @@ function GiftsPage() {
             )}
           </div>
         ) : (
-          <div className="divide-y divide-neutral-100">
+          <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
             {gifts?.map((gift) => (
               <GiftRow key={gift.id} gift={gift} tab={tab} />
             ))}
@@ -594,10 +594,10 @@ function GiftsPage() {
       {showModal && (
         <>
           <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowModal(false)} />
-          <div className="fixed left-4 right-4 top-1/2 z-50 max-h-[85vh] -translate-y-1/2 overflow-y-auto rounded-2xl bg-white shadow-2xl">
-            <div className="sticky top-0 flex items-center justify-between border-b border-neutral-100 bg-white px-4 py-4">
-              <h2 className="text-base font-semibold text-neutral-900">{t('gifts.send.title')}</h2>
-              <button onClick={() => setShowModal(false)} className="rounded-full p-2 text-neutral-500">
+          <div className="fixed left-4 right-4 top-1/2 z-50 max-h-[85vh] -translate-y-1/2 overflow-y-auto rounded-2xl bg-white dark:bg-neutral-800 shadow-2xl">
+            <div className="sticky top-0 flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-800 px-4 py-4">
+              <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t('gifts.send.title')}</h2>
+              <button onClick={() => setShowModal(false)} className="rounded-full p-2 text-neutral-500 dark:text-neutral-400">
                 <span className="text-lg leading-none">✕</span>
               </button>
             </div>

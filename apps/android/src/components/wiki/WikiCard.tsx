@@ -15,20 +15,20 @@ export function WikiCard({ wiki }: { wiki: WikiSummary }) {
     <Link
       to="/wiki/$slug"
       params={{ slug: wiki.slug }}
-      className="block bg-white rounded-xl p-4 shadow-card active:scale-95 transition-transform"
+      className="block bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card active:scale-95 transition-transform"
     >
-      <div className="flex items-center justify-center h-16 rounded-xl bg-neutral-100 text-3xl mb-2 overflow-hidden">
+      <div className="flex items-center justify-center h-16 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-3xl mb-2 overflow-hidden">
         {wiki.avatar_url ? (
           <img src={wiki.avatar_url} alt="" className="h-full w-full object-cover" />
         ) : (
           '📖'
         )}
       </div>
-      <p className="font-semibold text-neutral-900 text-sm truncate">{wiki.name}</p>
-      {wiki.description && <p className="text-neutral-500 text-xs mt-0.5 truncate">{wiki.description}</p>}
+      <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm truncate">{wiki.name}</p>
+      {wiki.description && <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-0.5 truncate">{wiki.description}</p>}
       <div className="flex items-center gap-2 mt-2 flex-wrap">
-        <span className="text-xs text-neutral-400">{wiki.page_count} pages</span>
-        <span className="text-xs text-neutral-400">{wiki.contributor_count} contributors</span>
+        <span className="text-xs text-neutral-400 dark:text-neutral-500">{wiki.page_count} pages</span>
+        <span className="text-xs text-neutral-400 dark:text-neutral-500">{wiki.contributor_count} contributors</span>
       </div>
     </Link>
   );
@@ -36,10 +36,10 @@ export function WikiCard({ wiki }: { wiki: WikiSummary }) {
 
 export function WikiCardSkeleton() {
   return (
-    <div className="bg-white rounded-xl p-4 shadow-card animate-pulse">
-      <div className="w-full h-16 rounded-xl bg-neutral-200 mb-3" />
-      <div className="h-4 bg-neutral-200 rounded w-3/4 mb-2" />
-      <div className="h-3 bg-neutral-100 rounded w-1/2" />
+    <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card animate-pulse">
+      <div className="w-full h-16 rounded-xl bg-neutral-200 dark:bg-neutral-700 mb-3" />
+      <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-3/4 mb-2" />
+      <div className="h-3 bg-neutral-100 dark:bg-neutral-800 rounded w-1/2" />
     </div>
   );
 }

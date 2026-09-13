@@ -62,21 +62,21 @@ function AskQuestionPage() {
   });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
-      <h1 className="text-lg font-bold text-neutral-900">{t('answers.ask.title')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('answers.ask.title')}</h1>
 
       {errorMessage && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>
+        <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">{errorMessage}</div>
       )}
       {levelTooLow && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
           {t('answers.ask.levelTooLow', { level: levelTooLow.minLevel, current: levelTooLow.currentLevel })}
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-card">
-        <div className="border-b border-neutral-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-neutral-700">{t('answers.ask.titleLabel')}</h2>
+      <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-card">
+        <div className="border-b border-neutral-100 dark:border-neutral-800 px-4 py-3">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('answers.ask.titleLabel')}</h2>
         </div>
         <div className="p-4">
           <input
@@ -85,14 +85,14 @@ function AskQuestionPage() {
             onChange={(e) => setTitle(e.target.value.slice(0, MAX_TITLE))}
             placeholder={t('answers.ask.titlePlaceholder')}
             maxLength={MAX_TITLE}
-            className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
           />
         </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-card">
-        <div className="border-b border-neutral-100 px-4 py-3">
-          <h2 className="text-sm font-semibold text-neutral-700">{t('answers.ask.bodyLabel')}</h2>
+      <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-card">
+        <div className="border-b border-neutral-100 dark:border-neutral-800 px-4 py-3">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('answers.ask.bodyLabel')}</h2>
         </div>
         <div className="p-4">
           <textarea
@@ -101,7 +101,7 @@ function AskQuestionPage() {
             placeholder={t('answers.ask.bodyPlaceholder')}
             rows={8}
             maxLength={MAX_BODY}
-            className="w-full resize-none rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
+            className="w-full resize-none rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
           />
         </div>
       </div>
@@ -109,7 +109,7 @@ function AskQuestionPage() {
       <WidgetSlot />
 
       <div className="flex gap-3">
-        <Link to="/answers" className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-center text-sm font-semibold text-neutral-700">
+        <Link to="/answers" className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-center text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           {t('answers.ask.cancel')}
         </Link>
         <button

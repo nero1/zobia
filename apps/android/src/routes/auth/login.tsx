@@ -93,21 +93,21 @@ function LoginPage() {
   };
 
   return (
-    <div className="min-h-full flex flex-col items-center justify-center px-6 py-12 bg-white">
+    <div className="min-h-full flex flex-col items-center justify-center px-6 py-12 bg-white dark:bg-neutral-800">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <h1 className="text-2xl font-bold text-neutral-900">{t('app.name')}</h1>
-          <p className="text-neutral-500 mt-1">{t('auth.signInTagline')}</p>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{t('app.name')}</h1>
+          <p className="text-neutral-500 dark:text-neutral-400 mt-1">{t('auth.signInTagline')}</p>
         </div>
 
         {reason === 'session_expired' && (
-          <div className="bg-amber-50 text-amber-800 px-4 py-3 rounded-lg text-sm mb-4">
+          <div className="bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300 px-4 py-3 rounded-lg text-sm mb-4">
             {t('auth.sessionExpired.banner', 'Your session has expired. Please sign in again.')}
           </div>
         )}
 
         {error && (
-          <div className="bg-danger-50 text-danger-700 px-4 py-3 rounded-lg text-sm mb-4">
+          <div className="bg-danger-50 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300 px-4 py-3 rounded-lg text-sm mb-4">
             {error}
           </div>
         )}
@@ -117,10 +117,10 @@ function LoginPage() {
             type="button"
             onClick={handleGoogleLogin}
             disabled={googleLoading || telegramLoading}
-            className="w-full flex items-center justify-center gap-3 py-3 border border-neutral-300 rounded-lg bg-white text-neutral-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center gap-3 py-3 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {googleLoading ? (
-              <span className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-primary-600" />
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 dark:border-neutral-600 border-t-primary-600" />
             ) : (
               <GoogleIcon />
             )}
@@ -131,10 +131,10 @@ function LoginPage() {
             type="button"
             onClick={handleTelegramLogin}
             disabled={googleLoading || telegramLoading}
-            className="w-full flex items-center justify-center gap-3 py-3 border border-neutral-300 rounded-lg bg-white text-neutral-700 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full flex items-center justify-center gap-3 py-3 border border-neutral-300 dark:border-neutral-600 rounded-lg bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 font-medium disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {telegramLoading ? (
-              <span className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 border-t-primary-600" />
+              <span className="h-5 w-5 animate-spin rounded-full border-2 border-neutral-300 dark:border-neutral-600 border-t-primary-600" />
             ) : (
               <TelegramIcon />
             )}
@@ -142,21 +142,21 @@ function LoginPage() {
           </button>
         </div>
 
-        <p className="text-center text-xs text-neutral-400 mt-6">
+        <p className="text-center text-xs text-neutral-400 dark:text-neutral-500 mt-6">
           By continuing you agree to our{' '}
-          <a href={`${env.VITE_API_BASE_URL}/terms`} className="text-primary-600 underline">
+          <a href={`${env.VITE_API_BASE_URL}/terms`} className="text-primary-600 dark:text-primary-300 underline">
             Terms of Service
           </a>{' '}
           and{' '}
-          <a href={`${env.VITE_API_BASE_URL}/privacy`} className="text-primary-600 underline">
+          <a href={`${env.VITE_API_BASE_URL}/privacy`} className="text-primary-600 dark:text-primary-300 underline">
             Privacy Policy
           </a>
           .
         </p>
 
-        <p className="text-center text-sm text-neutral-500 mt-4">
+        <p className="text-center text-sm text-neutral-500 dark:text-neutral-400 mt-4">
           {t('auth.noAccount')}{' '}
-          <Link to="/auth/register" className="text-primary-600 font-medium">
+          <Link to="/auth/register" className="text-primary-600 dark:text-primary-300 font-medium">
             {t('auth.signUp')}
           </Link>
         </p>
@@ -166,8 +166,8 @@ function LoginPage() {
             Terms/Privacy above; the page itself already exists on web
             (app/auth/restore/page.tsx) but nothing linked to it on any
             platform. */}
-        <p className="text-center text-xs text-neutral-400 mt-2">
-          <a href={`${env.VITE_API_BASE_URL}/auth/restore`} className="text-primary-600 underline">
+        <p className="text-center text-xs text-neutral-400 dark:text-neutral-500 mt-2">
+          <a href={`${env.VITE_API_BASE_URL}/auth/restore`} className="text-primary-600 dark:text-primary-300 underline">
             {t('auth.restoreAccount', 'Deleted your account? Restore it')}
           </a>
         </p>

@@ -133,10 +133,10 @@ function TicketDetailOverlay({ id, onClose }: { id: string; onClose: () => void 
   });
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
-      <div className="flex-none flex items-center justify-between border-b border-neutral-200 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
-        <h2 className="truncate text-base font-semibold text-neutral-900">{data?.ticket.subject ?? t('admin.support.ticket', 'Ticket')}</h2>
-        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100">✕</button>
+    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
+      <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
+        <h2 className="truncate text-base font-semibold text-neutral-900 dark:text-neutral-100">{data?.ticket.subject ?? t('admin.support.ticket', 'Ticket')}</h2>
+        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
@@ -149,9 +149,9 @@ function TicketDetailOverlay({ id, onClose }: { id: string; onClose: () => void 
             </div>
 
             <div className="mb-4 flex flex-wrap gap-1.5">
-              <button onClick={() => setStatus.mutate('pending')} className="rounded-lg bg-amber-100 px-2.5 py-1.5 text-xs font-semibold text-amber-700">{t('admin.support.markPending', 'Mark Pending')}</button>
-              <button onClick={() => setStatus.mutate('resolved')} className="rounded-lg bg-success-100 px-2.5 py-1.5 text-xs font-semibold text-success-700">{t('admin.support.markResolved', 'Mark Resolved')}</button>
-              <button onClick={() => setStatus.mutate('closed')} className="rounded-lg bg-neutral-100 px-2.5 py-1.5 text-xs font-semibold text-neutral-700">{t('action.close', 'Close')}</button>
+              <button onClick={() => setStatus.mutate('pending')} className="rounded-lg bg-amber-100 dark:bg-amber-900/40 px-2.5 py-1.5 text-xs font-semibold text-amber-700 dark:text-amber-300">{t('admin.support.markPending', 'Mark Pending')}</button>
+              <button onClick={() => setStatus.mutate('resolved')} className="rounded-lg bg-success-100 dark:bg-success-900/40 px-2.5 py-1.5 text-xs font-semibold text-success-700 dark:text-success-300">{t('admin.support.markResolved', 'Mark Resolved')}</button>
+              <button onClick={() => setStatus.mutate('closed')} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t('action.close', 'Close')}</button>
             </div>
 
             <div className="mb-4 flex gap-2">
@@ -164,7 +164,7 @@ function TicketDetailOverlay({ id, onClose }: { id: string; onClose: () => void 
               <button
                 onClick={() => escalate.mutate()}
                 disabled={!escalateTarget.trim() || escalate.isPending}
-                className="shrink-0 rounded-lg bg-danger-100 px-3 py-1.5 text-xs font-semibold text-danger-700 disabled:opacity-50"
+                className="shrink-0 rounded-lg bg-danger-100 dark:bg-danger-900/40 px-3 py-1.5 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50"
               >
                 {t('admin.support.escalate', 'Escalate')}
               </button>
@@ -175,7 +175,7 @@ function TicketDetailOverlay({ id, onClose }: { id: string; onClose: () => void 
                 <div
                   key={m.id}
                   className={`rounded-xl p-3 text-sm ${
-                    m.sender_type === 'ai' ? 'bg-purple-50 text-purple-900' : m.sender_type === 'staff' ? 'bg-primary-50 text-primary-900' : 'bg-neutral-100 text-neutral-900'
+                    m.sender_type === 'ai' ? 'bg-purple-50 dark:bg-purple-900/30 text-purple-900' : m.sender_type === 'staff' ? 'bg-primary-50 dark:bg-primary-900/30 text-primary-900' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100'
                   }`}
                 >
                   <p className="mb-1 text-[10px] font-semibold uppercase opacity-70">
@@ -189,7 +189,7 @@ function TicketDetailOverlay({ id, onClose }: { id: string; onClose: () => void 
         )}
       </div>
 
-      <div className="flex-none flex items-end gap-2 border-t border-neutral-200 p-3" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
+      <div className="flex-none flex items-end gap-2 border-t border-neutral-200 dark:border-neutral-700 p-3" style={{ paddingBottom: 'calc(0.75rem + env(safe-area-inset-bottom))' }}>
         <textarea
           value={reply}
           onChange={(e) => setReply(e.target.value)}
@@ -239,7 +239,7 @@ function AdminSupportPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.support', 'Support Tickets')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.support', 'Support Tickets')}</h1>
 
       <AdminTabs tabs={tabs} active={tab} onChange={setTab} />
 
@@ -251,7 +251,7 @@ function AdminSupportPage() {
                 key={v}
                 type="button"
                 onClick={() => setStatusFilter(v)}
-                className={`rounded-full px-3 py-1.5 text-xs font-semibold ${statusFilter === v ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+                className={`rounded-full px-3 py-1.5 text-xs font-semibold ${statusFilter === v ? 'bg-neutral-900 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
               >
                 {v === 'all' ? t('admin.support.tabAll', 'All') : t(`support.status.${v}`, v)}
               </button>
@@ -270,11 +270,11 @@ function AdminSupportPage() {
                   key={ticket.id}
                   type="button"
                   onClick={() => setOpenTicketId(ticket.id)}
-                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white p-3.5 text-left shadow-card active:bg-neutral-50"
+                  className="flex w-full items-center justify-between gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3.5 text-left shadow-card active:bg-neutral-50 dark:active:bg-neutral-800"
                 >
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-medium text-neutral-900">{ticket.subject}</p>
-                    <p className="text-xs text-neutral-500">
+                    <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{ticket.subject}</p>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400">
                       {t('support.messageCount', '{{count}} message', { count: ticket.message_count })} · {ticket.is_ai_handled ? t('admin.support.aiTriaged', 'AI-triaged') : t('admin.support.human', 'Human')}
                     </p>
                   </div>
@@ -293,8 +293,8 @@ function AdminSupportPage() {
               const raw = config?.[field.key] ?? '';
               const isSaving = savingKey === field.key;
               return (
-                <div key={field.key} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white p-3.5 shadow-card">
-                  <p className="pr-2 text-sm font-medium text-neutral-800">{field.label}</p>
+                <div key={field.key} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3.5 shadow-card">
+                  <p className="pr-2 text-sm font-medium text-neutral-800 dark:text-neutral-200">{field.label}</p>
                   {field.type === 'boolean' ? (
                     <AdminToggle checked={raw === 'true'} disabled={isSaving} onChange={(v) => saveConfig.mutate({ key: field.key, value: v ? 'true' : 'false' })} />
                   ) : (
@@ -303,7 +303,7 @@ function AdminSupportPage() {
                       defaultValue={raw}
                       disabled={isSaving}
                       onBlur={(e) => { if (e.target.value !== raw) saveConfig.mutate({ key: field.key, value: e.target.value }); }}
-                      className={`rounded-lg border border-neutral-300 bg-white px-2 py-1.5 text-sm text-neutral-900 disabled:opacity-50 ${field.type === 'number' ? 'w-20 text-right' : 'w-36'}`}
+                      className={`rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-2 py-1.5 text-sm text-neutral-900 dark:text-neutral-100 disabled:opacity-50 ${field.type === 'number' ? 'w-20 text-right' : 'w-36'}`}
                     />
                   )}
                 </div>

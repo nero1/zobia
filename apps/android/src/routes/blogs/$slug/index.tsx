@@ -76,26 +76,26 @@ function BlogHomePage() {
   const isMagazine = blog?.active_theme_id === 'editorial';
   const [featured, ...restArticles] = articlesQuery.data ?? [];
 
-  if (blogQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
-  if (!blog) return <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center text-sm text-neutral-500">{t('blogs.notFound', 'Blog not found.')}</div>;
+  if (blogQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4"><div className="h-24 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" /></div>;
+  if (!blog) return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('blogs.notFound', 'Blog not found.')}</div>;
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
       {isOwner && <BlogOwnerToolbar blogSlug={slug} />}
       <BlogMenu blogSlug={slug} menuConfig={blog.menu_config ?? DEFAULT_MENU_CONFIG} />
 
-      <div className="rounded-xl border border-neutral-200 bg-white p-4">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <h1 className="text-lg font-bold text-neutral-900">{blog.title}</h1>
-            {blog.tagline && <p className="text-sm text-neutral-500 mt-0.5">{blog.tagline}</p>}
-            <p className="text-xs text-neutral-400 mt-1">@{blog.owner_username}</p>
+            <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{blog.title}</h1>
+            {blog.tagline && <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">{blog.tagline}</p>}
+            <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">@{blog.owner_username}</p>
           </div>
           <div className="flex flex-shrink-0 flex-col items-end gap-1">
             <button
               onClick={() => toggleSubscribe.mutate(!isSubscribed)}
               disabled={toggleSubscribe.isPending}
-              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${isSubscribed ? 'border border-neutral-300 text-neutral-700' : 'bg-primary-600 text-white'}`}
+              className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${isSubscribed ? 'border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300' : 'bg-primary-600 text-white'}`}
             >
               {isSubscribed ? t('blogs.subscribed', 'Subscribed ✓') : t('blogs.subscribe', 'Subscribe')}
             </button>
@@ -103,7 +103,7 @@ function BlogHomePage() {
               <button
                 onClick={() => toggleSubscribe.mutate(false)}
                 disabled={toggleSubscribe.isPending}
-                className="text-[11px] text-neutral-400 underline underline-offset-2"
+                className="text-[11px] text-neutral-400 dark:text-neutral-500 underline underline-offset-2"
               >
                 {t('blogs.unsubscribe', 'Unsubscribe')}
               </button>
@@ -112,9 +112,9 @@ function BlogHomePage() {
         </div>
 
         {pagesQuery.data && pagesQuery.data.length > 0 && (
-          <div className="mt-3 flex flex-wrap gap-2 border-t border-neutral-100 pt-3">
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-neutral-100 dark:border-neutral-800 pt-3">
             {pagesQuery.data.map((p) => (
-              <Link key={p.id} to="/blogs/$slug/$postSlug" params={{ slug, postSlug: p.slug }} className="rounded-full bg-neutral-100 px-3 py-1 text-xs font-medium text-neutral-700">
+              <Link key={p.id} to="/blogs/$slug/$postSlug" params={{ slug, postSlug: p.slug }} className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-3 py-1 text-xs font-medium text-neutral-700 dark:text-neutral-300">
                 {p.title}
               </Link>
             ))}
@@ -123,29 +123,29 @@ function BlogHomePage() {
       </div>
 
       {articlesQuery.isPending ? (
-        <div className="h-16 rounded bg-neutral-200 animate-pulse" />
+        <div className="h-16 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" />
       ) : (articlesQuery.data?.length ?? 0) === 0 ? (
-        <p className="text-sm text-neutral-500 text-center py-10">{t('blogs.dashboard.empty', 'Nothing here yet.')}</p>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 text-center py-10">{t('blogs.dashboard.empty', 'Nothing here yet.')}</p>
       ) : (
         <div className="space-y-2">
           {isMagazine && featured && (
-            <Link to="/blogs/$slug/$postSlug" params={{ slug, postSlug: featured.slug }} className="block overflow-hidden rounded-xl border border-neutral-200 bg-white">
+            <Link to="/blogs/$slug/$postSlug" params={{ slug, postSlug: featured.slug }} className="block overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800">
               <div className="h-32 w-full bg-gradient-to-br from-neutral-200 to-neutral-100" />
               <div className="p-3">
-                <span className="text-[10px] font-semibold uppercase tracking-wide text-primary-600">{t('blogs.featured', 'Featured')}</span>
-                <h2 className="font-bold text-neutral-900">{featured.title}</h2>
-                {featured.excerpt && <p className="text-xs text-neutral-500 mt-1 line-clamp-2">{featured.excerpt}</p>}
+                <span className="text-[10px] font-semibold uppercase tracking-wide text-primary-600 dark:text-primary-300">{t('blogs.featured', 'Featured')}</span>
+                <h2 className="font-bold text-neutral-900 dark:text-neutral-100">{featured.title}</h2>
+                {featured.excerpt && <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 line-clamp-2">{featured.excerpt}</p>}
               </div>
             </Link>
           )}
           {(isMagazine ? restArticles : articlesQuery.data!).map((a) => (
-            <Link key={a.id} to="/blogs/$slug/$postSlug" params={{ slug, postSlug: a.slug }} className="block rounded-xl border border-neutral-200 bg-white p-3">
+            <Link key={a.id} to="/blogs/$slug/$postSlug" params={{ slug, postSlug: a.slug }} className="block rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3">
               <div className="flex items-center gap-1.5">
-                <h2 className="font-semibold text-sm text-neutral-900">{a.title}</h2>
-                {a.is_paywalled && <span className="text-[10px] rounded-full bg-amber-100 text-amber-700 px-1.5 py-0.5">🔒</span>}
+                <h2 className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">{a.title}</h2>
+                {a.is_paywalled && <span className="text-[10px] rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300 px-1.5 py-0.5">🔒</span>}
               </div>
-              {a.excerpt && <p className="text-xs text-neutral-500 mt-1 line-clamp-2">{a.excerpt}</p>}
-              <div className="mt-1.5 flex items-center gap-3 text-[11px] text-neutral-400">
+              {a.excerpt && <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 line-clamp-2">{a.excerpt}</p>}
+              <div className="mt-1.5 flex items-center gap-3 text-[11px] text-neutral-400 dark:text-neutral-500">
                 {a.published_at && <span>{formatShortDate(a.published_at)}</span>}
                 <span>👁 {a.view_count}</span>
                 <span>❤️ {a.like_count}</span>

@@ -83,10 +83,10 @@ function TrustBar({ score }: { score: number }) {
   const color = score >= 70 ? 'bg-success-500' : score >= 40 ? 'bg-gold-500' : 'bg-danger-500';
   return (
     <div className="flex items-center gap-1.5">
-      <div className="h-1.5 w-14 overflow-hidden rounded-full bg-neutral-200">
+      <div className="h-1.5 w-14 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
         <div className={`h-full rounded-full ${color}`} style={{ width: `${score}%` }} />
       </div>
-      <span className="text-[10px] tabular-nums text-neutral-500">{score}</span>
+      <span className="text-[10px] tabular-nums text-neutral-500 dark:text-neutral-400">{score}</span>
     </div>
   );
 }
@@ -141,40 +141,40 @@ function UserDetailOverlay({
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
-      <div className="flex-none flex items-center justify-between border-b border-neutral-200 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
-        <h2 className="text-base font-semibold text-neutral-900">{t('admin.users.detail.title', 'User Detail')}</h2>
-        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100">✕</button>
+    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
+      <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.users.detail.title', 'User Detail')}</h2>
+        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
       </div>
 
       <div className="flex-1 overflow-y-auto space-y-5 p-4" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
         <div className="flex items-center gap-3">
-          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-neutral-100 text-3xl">{user.avatarEmoji || '👤'}</span>
+          <span className="flex h-14 w-14 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-3xl">{user.avatarEmoji || '👤'}</span>
           <div className="min-w-0">
-            <p className="font-semibold text-neutral-900 truncate">@{user.username}</p>
-            <p className="text-xs text-neutral-500 truncate">{user.email}</p>
-            <p className="text-[10px] text-neutral-400 truncate">ID: {user.id}</p>
+            <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">@{user.username}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 truncate">{user.email}</p>
+            <p className="text-[10px] text-neutral-400 dark:text-neutral-500 truncate">ID: {user.id}</p>
           </div>
         </div>
 
         <div className="grid grid-cols-2 gap-2.5">
           {stats.map((s) => (
-            <div key={s.label} className="rounded-lg border border-neutral-200 p-2.5">
-              <p className="text-[11px] text-neutral-500">{s.label}</p>
-              <p className="mt-0.5 text-sm font-medium text-neutral-900">{s.value}</p>
+            <div key={s.label} className="rounded-lg border border-neutral-200 dark:border-neutral-700 p-2.5">
+              <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{s.label}</p>
+              <p className="mt-0.5 text-sm font-medium text-neutral-900 dark:text-neutral-100">{s.value}</p>
             </div>
           ))}
         </div>
 
-        <div className="space-y-2.5 rounded-lg border border-neutral-200 p-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.users.detail.suspendOptions', 'Suspend Options')}</p>
+        <div className="space-y-2.5 rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.users.detail.suspendOptions', 'Suspend Options')}</p>
           <div className="flex flex-wrap gap-1.5">
             {(['1h', '24h', '7d', '30d'] as SuspendDuration[]).map((d) => (
               <button
                 key={d}
                 type="button"
                 onClick={() => setSuspendDuration(d)}
-                className={`rounded-lg px-2.5 py-1 text-xs font-medium ${suspendDuration === d ? 'bg-primary-600 text-white' : 'bg-neutral-100 text-neutral-700'}`}
+                className={`rounded-lg px-2.5 py-1 text-xs font-medium ${suspendDuration === d ? 'bg-primary-600 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'}`}
               >
                 {d}
               </button>
@@ -195,26 +195,26 @@ function UserDetailOverlay({
             onClick={() => onAction('suspend', { reason, duration_hours: String(DURATION_HOURS[suspendDuration]) })}
             loading={actionPending === 'suspend'}
             disabled={!reason}
-            className="bg-gold-100 text-gold-800"
+            className="bg-gold-100 dark:bg-gold-900/40 text-gold-800"
           />
           <ActionButton
             label={t('admin.users.action.ban', 'Ban')}
             onClick={() => onAction('ban', { reason })}
             loading={actionPending === 'ban'}
             disabled={!reason}
-            className="bg-danger-100 text-danger-700"
+            className="bg-danger-100 dark:bg-danger-900/40 text-danger-700 dark:text-danger-300"
           />
           <ActionButton
             label={t('admin.users.action.restore', 'Restore')}
             onClick={() => onAction('restore')}
             loading={actionPending === 'restore'}
-            className="bg-success-100 text-success-700"
+            className="bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300"
           />
           <ActionButton
             label={user.isModerator ? t('admin.users.action.revokeMod', 'Revoke Mod') : t('admin.users.action.makeMod', 'Make Mod')}
             onClick={() => onAction(user.isModerator ? 'downgrade_moderator' : 'upgrade_moderator')}
             loading={actionPending === 'upgrade_moderator' || actionPending === 'downgrade_moderator'}
-            className="bg-blue-100 text-blue-700"
+            className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
           />
         </div>
 
@@ -222,14 +222,14 @@ function UserDetailOverlay({
           <button
             type="button"
             onClick={() => Browser.open({ url: `${env.VITE_WEB_BASE_URL}/profile/${user.id}` })}
-            className="flex items-center justify-center rounded-lg bg-neutral-100 px-3 py-2 text-xs font-semibold text-neutral-700"
+            className="flex items-center justify-center rounded-lg bg-neutral-100 dark:bg-neutral-800 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300"
           >
             {t('admin.users.detail.viewProfile', 'View Profile ↗')}
           </button>
           <button
             type="button"
             onClick={() => void openAuthenticatedWebLink(`/admin/kyc?userId=${user.id}`)}
-            className="flex items-center justify-center rounded-lg bg-teal-100 px-3 py-2 text-xs font-semibold text-teal-700"
+            className="flex items-center justify-center rounded-lg bg-teal-100 dark:bg-teal-900/40 px-3 py-2 text-xs font-semibold text-teal-700 dark:text-teal-300"
           >
             {t('admin.users.detail.viewKyc', 'View KYC Submissions →')}
           </button>
@@ -248,9 +248,9 @@ function UserDetailOverlay({
           </button>
         )}
 
-        <div className="space-y-2.5 rounded-lg border border-neutral-200 p-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.users.detail.accountSecurity', 'Account Security')}</p>
-          <p className="text-[10px] text-neutral-400">
+        <div className="space-y-2.5 rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.users.detail.accountSecurity', 'Account Security')}</p>
+          <p className="text-[10px] text-neutral-400 dark:text-neutral-500">
             {t('admin.users.detail.verifyEmailHint', '"Mark Email Verified" only flags the login email as confirmed — it is unrelated to identity KYC. Use "View KYC Submissions" above for identity verification.')}
           </p>
           <div className="grid grid-cols-1 gap-2">
@@ -258,7 +258,7 @@ function UserDetailOverlay({
               label={t('admin.users.action.resetPassword', 'Reset Password')}
               onClick={() => onAction('reset_password')}
               loading={actionPending === 'reset_password'}
-              className="bg-amber-100 text-amber-700"
+              className="bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
             />
             <ActionButton
               label={t('admin.users.action.force2fa', 'Force 2FA Setup')}
@@ -270,7 +270,7 @@ function UserDetailOverlay({
               label={t('admin.users.action.verifyEmail', 'Mark Email Verified')}
               onClick={() => onAction('verify_account')}
               loading={actionPending === 'verify_account'}
-              className="bg-teal-100 text-teal-700"
+              className="bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300"
             />
           </div>
         </div>
@@ -344,7 +344,7 @@ function AdminUsersPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.users.title', 'User Management')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.users.title', 'User Management')}</h1>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
@@ -377,18 +377,18 @@ function AdminUsersPage() {
           data.users.map((u) => (
             <AdminCard key={u.id} onClick={() => setSelected(u)}>
               <div className="flex items-start gap-3">
-                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xl">{u.avatarEmoji || '👤'}</span>
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-xl">{u.avatarEmoji || '👤'}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <p className="font-semibold text-neutral-900 truncate">@{u.username}</p>
+                    <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">@{u.username}</p>
                     <AdminBadge label={u.plan.toUpperCase()} color={PLAN_COLOR[u.plan]} />
                     <AdminBadge label={u.status} color={STATUS_COLOR[u.status]} />
                     {u.isModerator && <AdminBadge label={t('admin.users.mod', 'MOD')} color="blue" />}
                   </div>
-                  <p className="mt-0.5 truncate text-xs text-neutral-500">{u.email}</p>
+                  <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">{u.email}</p>
                   <div className="mt-1.5 flex items-center gap-3">
                     <TrustBar score={u.trustScore} />
-                    <span className="text-[10px] text-neutral-400">{fmtDate(u.joinedAt)}</span>
+                    <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{fmtDate(u.joinedAt)}</span>
                   </div>
                 </div>
               </div>
@@ -402,7 +402,7 @@ function AdminUsersPage() {
             type="button"
             onClick={goPrev}
             disabled={pageIndex === 0}
-            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40"
+            className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40"
           >
             {t('admin.pagination.prev', 'Prev')}
           </button>
@@ -410,7 +410,7 @@ function AdminUsersPage() {
             type="button"
             onClick={goNext}
             disabled={!data.hasMore}
-            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40"
+            className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40"
           >
             {t('admin.pagination.next', 'Next')}
           </button>

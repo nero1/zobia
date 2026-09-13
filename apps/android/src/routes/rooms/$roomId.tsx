@@ -211,9 +211,9 @@ function RoomChatPage() {
   };
 
   return (
-    <div className="h-full flex flex-col bg-neutral-50">
+    <div className="h-full flex flex-col bg-neutral-50 dark:bg-neutral-800">
       {/* Live activity pulse bar — PRD §2.2, mirrors web room screen */}
-      <div className="border-b border-neutral-200 bg-white px-4 py-2">
+      <div className="border-b border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2">
         <LiveRoomPulseBar roomId={roomId} />
       </div>
 
@@ -224,13 +224,13 @@ function RoomChatPage() {
             <div key={msg.id}>
               <div className={`flex items-end gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
                 {!isMine && (
-                  <div className="w-7 h-7 rounded-full bg-primary-100 flex items-center justify-center text-xs flex-shrink-0">
+                  <div className="w-7 h-7 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-xs flex-shrink-0">
                     {msg.sender?.avatarEmoji ?? '👤'}
                   </div>
                 )}
                 <div>
                   {!isMine && msg.sender && (
-                    <p className="flex items-center gap-1 text-xs text-neutral-400 mb-0.5 ml-1">
+                    <p className="flex items-center gap-1 text-xs text-neutral-400 dark:text-neutral-500 mb-0.5 ml-1">
                       <span>@{msg.sender.username}</span>
                       <UserBadgeRow totalXp={msg.sender.xpTotal} prestige={msg.sender.prestigeCount} verified={msg.sender.isVerified} />
                       <RewardBadge label={msg.sender.rewardLabel} />
@@ -239,14 +239,14 @@ function RoomChatPage() {
                   <div
                     className={`max-w-[75vw] px-4 py-2 rounded-2xl text-sm ${
                       msg.messageType === 'moment'
-                        ? 'border-2 border-purple-400 bg-purple-50 text-purple-900'
+                        ? 'border-2 border-purple-400 bg-purple-50 dark:bg-purple-900/30 text-purple-900'
                         : isMine
                           ? 'bg-primary-600 text-white rounded-br-sm'
-                          : 'bg-white text-neutral-900 shadow-card rounded-bl-sm'
+                          : 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-card rounded-bl-sm'
                     } ${msg.id.startsWith('optimistic-') ? 'opacity-70' : ''}`}
                   >
                     {msg.messageType === 'moment' && (
-                      <p className="mb-0.5 text-[10px] font-semibold text-purple-600">⚡ {t('room.moment24h', { defaultValue: 'Moment · 24h' })}</p>
+                      <p className="mb-0.5 text-[10px] font-semibold text-purple-600 dark:text-purple-300">⚡ {t('room.moment24h', { defaultValue: 'Moment · 24h' })}</p>
                     )}
                     {msg.content}
                   </div>
@@ -261,11 +261,11 @@ function RoomChatPage() {
 
       {/* Moment mode indicator */}
       {isMoment && (
-        <div className="flex flex-wrap items-center gap-1.5 border-t border-purple-200 bg-purple-50 px-4 py-1.5">
+        <div className="flex flex-wrap items-center gap-1.5 border-t border-purple-200 bg-purple-50 dark:bg-purple-900/30 px-4 py-1.5">
           <span className="text-sm">⚡</span>
-          <span className="text-xs font-semibold text-purple-700">Moment · 24h</span>
+          <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Moment · 24h</span>
           {!momentsConfig.isFree && (
-            <span className="text-xs text-purple-600">
+            <span className="text-xs text-purple-600 dark:text-purple-300">
               · {momentCurrency === 'credits' ? momentsConfig.costCredits : momentsConfig.costStars}{' '}
               {momentCurrency === 'credits' ? currency.softPlural : currency.premiumPlural}
             </span>
@@ -275,14 +275,14 @@ function RoomChatPage() {
               <button
                 type="button"
                 onClick={() => setMomentCurrency('credits')}
-                className={`px-2 py-0.5 font-semibold ${momentCurrency === 'credits' ? 'bg-purple-600 text-white' : 'bg-white text-purple-700'}`}
+                className={`px-2 py-0.5 font-semibold ${momentCurrency === 'credits' ? 'bg-purple-600 text-white' : 'bg-white dark:bg-neutral-800 text-purple-700 dark:text-purple-300'}`}
               >
                 {currency.softPlural}
               </button>
               <button
                 type="button"
                 onClick={() => setMomentCurrency('stars')}
-                className={`px-2 py-0.5 font-semibold ${momentCurrency === 'stars' ? 'bg-purple-600 text-white' : 'bg-white text-purple-700'}`}
+                className={`px-2 py-0.5 font-semibold ${momentCurrency === 'stars' ? 'bg-purple-600 text-white' : 'bg-white dark:bg-neutral-800 text-purple-700 dark:text-purple-300'}`}
               >
                 {currency.premiumPlural}
               </button>
@@ -293,24 +293,24 @@ function RoomChatPage() {
       )}
 
       {momentError && (
-        <div className="flex items-center justify-between gap-3 border-t border-amber-200 bg-amber-50 px-4 py-2">
-          <p className="text-xs text-amber-800">{momentError}</p>
+        <div className="flex items-center justify-between gap-3 border-t border-amber-200 bg-amber-50 dark:bg-amber-900/30 px-4 py-2">
+          <p className="text-xs text-amber-800 dark:text-amber-300">{momentError}</p>
           <div className="flex shrink-0 items-center gap-2">
             <Link to="/settings" onClick={() => setMomentError(null)} className="rounded-lg bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white">
               Buy {currency.softPlural}
             </Link>
-            <button onClick={() => setMomentError(null)} className="text-xs text-amber-600">✕</button>
+            <button onClick={() => setMomentError(null)} className="text-xs text-amber-600 dark:text-amber-300">✕</button>
           </div>
         </div>
       )}
 
-      <div className="bg-white border-t border-neutral-200 px-4 py-3 flex items-center gap-3">
+      <div className="bg-white dark:bg-neutral-800 border-t border-neutral-200 dark:border-neutral-700 px-4 py-3 flex items-center gap-3">
         <button
           type="button"
           onClick={() => { setIsMoment((v) => !v); setMomentError(null); }}
           title="Moment (24h)"
           aria-label="Toggle Moment mode"
-          className={`w-9 h-9 flex-shrink-0 rounded-full flex items-center justify-center text-lg ${isMoment ? 'bg-purple-100 text-purple-700' : 'text-neutral-400'}`}
+          className={`w-9 h-9 flex-shrink-0 rounded-full flex items-center justify-center text-lg ${isMoment ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300' : 'text-neutral-400 dark:text-neutral-500'}`}
         >
           ⚡
         </button>
@@ -320,7 +320,7 @@ function RoomChatPage() {
           onChange={(e) => setText(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && handleSend()}
           placeholder={isMoment ? 'Send a moment (24h)…' : t('room.typeMessage')}
-          className={`flex-1 px-4 py-2 rounded-full text-sm focus:outline-none ${isMoment ? 'bg-purple-50 border border-purple-300' : 'bg-neutral-100'}`}
+          className={`flex-1 px-4 py-2 rounded-full text-sm focus:outline-none ${isMoment ? 'bg-purple-50 dark:bg-purple-900/30 border border-purple-300' : 'bg-neutral-100 dark:bg-neutral-800'}`}
           data-selectable
         />
         <button

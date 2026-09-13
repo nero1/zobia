@@ -37,7 +37,7 @@ function WikiTreasuryPage() {
     },
   });
 
-  if (wikiQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
+  if (wikiQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4"><div className="h-24 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" /></div>;
 
   const isOwner = wikiQuery.data?.isOwner ?? false;
   const treasury = treasuryQuery.data;
@@ -45,39 +45,39 @@ function WikiTreasuryPage() {
   const validMax = /^\d+$/.test(maxClaimants) && parseInt(maxClaimants, 10) > 0;
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
-      <h1 className="text-lg font-bold text-neutral-900">{t('wiki.treasury.title', 'Reward pot')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('wiki.treasury.title', 'Reward pot')}</h1>
 
       {treasury && treasury.status === 'active' ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 p-4 text-sm text-amber-800 dark:text-amber-300">
           🎁 {t('wiki.treasury.activeSummary', '{{amount}} credits each for the next {{slots}} contributors or sharers.', {
             amount: treasury.rewardPerClaimant,
             slots: Math.max(treasury.maxClaimants - treasury.claimantCount, 0),
           })}
-          <p className="mt-1 text-xs text-amber-700">
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
             {t('wiki.treasury.claimedSoFar', '{{claimed}} of {{max}} claimed so far.', { claimed: treasury.claimantCount, max: treasury.maxClaimants })}
           </p>
         </div>
       ) : (
-        <p className="text-sm text-neutral-500">{t('wiki.treasury.empty', 'No active reward pot right now.')}</p>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('wiki.treasury.empty', 'No active reward pot right now.')}</p>
       )}
 
       {isOwner && (
-        <div className="rounded-xl border border-neutral-200 bg-white p-4 space-y-2.5">
-          <h2 className="text-sm font-bold text-neutral-900">{t('wiki.treasury.fundTitle', 'Fund the pot')}</h2>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 space-y-2.5">
+          <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{t('wiki.treasury.fundTitle', 'Fund the pot')}</h2>
           <input
             inputMode="numeric"
             value={amount}
             onChange={(e) => setAmount(e.target.value.replace(/[^\d]/g, ''))}
             placeholder={t('wiki.treasury.amountPlaceholder', 'Total credits to fund')}
-            className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           />
           <input
             inputMode="numeric"
             value={maxClaimants}
             onChange={(e) => setMaxClaimants(e.target.value.replace(/[^\d]/g, ''))}
             placeholder={t('wiki.treasury.maxClaimantsPlaceholder', 'Number of people who can claim')}
-            className="w-full rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
           />
           <button
             disabled={!validAmount || !validMax || fund.isPending}
@@ -86,7 +86,7 @@ function WikiTreasuryPage() {
           >
             {fund.isPending ? t('wiki.treasury.funding', 'Funding…') : t('wiki.treasury.fund', 'Fund pot')}
           </button>
-          {fund.isError && <p className="text-xs text-red-600">{t('error.generic')}</p>}
+          {fund.isError && <p className="text-xs text-red-600 dark:text-red-300">{t('error.generic')}</p>}
         </div>
       )}
     </div>

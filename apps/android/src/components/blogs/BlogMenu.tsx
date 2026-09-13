@@ -27,13 +27,13 @@ export function BlogMenu({ blogSlug, menuConfig }: { blogSlug: string; menuConfi
         type="button"
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
-        className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700"
+        className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300"
       >
         <span aria-hidden="true">☰</span>
         {t('blogs.menu.title', 'Menu')}
       </button>
       {open && (
-        <nav className="mt-2 flex flex-col gap-1 rounded-xl border border-neutral-200 bg-white p-2">
+        <nav className="mt-2 flex flex-col gap-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-2">
           {menuConfig.items.map((item) => {
             const target = resolveMenuItemTarget(blogSlug, item);
             if (target.kind === 'external') {
@@ -41,7 +41,7 @@ export function BlogMenu({ blogSlug, menuConfig }: { blogSlug: string; menuConfi
                 <button
                   key={item.id}
                   onClick={() => { setOpen(false); void Browser.open({ url: target.url }); }}
-                  className="rounded-lg px-3 py-2 text-left text-sm text-neutral-800 hover:bg-neutral-50"
+                  className="rounded-lg px-3 py-2 text-left text-sm text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800"
                 >
                   {item.label}
                 </button>
@@ -54,7 +54,7 @@ export function BlogMenu({ blogSlug, menuConfig }: { blogSlug: string; menuConfi
                 to={target.to}
                 params={target.params as never}
                 onClick={() => setOpen(false)}
-                className="rounded-lg px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50"
+                className="rounded-lg px-3 py-2 text-sm text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800"
               >
                 {item.label}
               </Link>

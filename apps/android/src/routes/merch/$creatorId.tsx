@@ -121,9 +121,9 @@ function CreatorMerchStorePage() {
 
   if (status === 'pending') {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
         <div className="grid grid-cols-2 gap-3">
-          {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-48 animate-pulse rounded-2xl bg-neutral-200" />)}
+          {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-48 animate-pulse rounded-2xl bg-neutral-200 dark:bg-neutral-700" />)}
         </div>
       </div>
     );
@@ -132,14 +132,14 @@ function CreatorMerchStorePage() {
   if (status === 'error' || !store) {
     return (
       <div className="flex flex-col items-center p-12">
-        <p className="text-neutral-500">{t('merch.storeNotFound', 'Store not found')}</p>
-        <Link to="/merch" className="mt-3 text-sm text-primary-600">← {t('merch.backToStores', 'Back to Stores')}</Link>
+        <p className="text-neutral-500 dark:text-neutral-400">{t('merch.storeNotFound', 'Store not found')}</p>
+        <Link to="/merch" className="mt-3 text-sm text-primary-600 dark:text-primary-300">← {t('merch.backToStores', 'Back to Stores')}</Link>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-3 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-3 px-4 py-4">
       {toast && (
         <div className={`fixed bottom-6 left-4 right-4 z-50 rounded-xl px-4 py-3 text-center text-sm font-medium text-white shadow-lg ${toast.type === 'success' ? 'bg-teal-600' : 'bg-red-600'}`}>
           {toast.msg}
@@ -147,32 +147,32 @@ function CreatorMerchStorePage() {
       )}
 
       <div>
-        <h1 className="text-xl font-bold text-neutral-900">{store.storeName}</h1>
-        {store.description && <p className="mt-1 text-sm text-neutral-600">{store.description}</p>}
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{store.storeName}</h1>
+        {store.description && <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">{store.description}</p>}
       </div>
 
       {store.products.length === 0 ? (
-        <div className="flex flex-col items-center rounded-2xl border border-neutral-200 bg-white py-16">
+        <div className="flex flex-col items-center rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-16">
           <span className="text-5xl">📦</span>
-          <p className="mt-3 font-semibold text-neutral-700">{t('merch.noProducts', 'No products yet')}</p>
+          <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">{t('merch.noProducts', 'No products yet')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-2 gap-3">
           {store.products.map((product) => (
-            <div key={product.id} className="flex flex-col rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm">
+            <div key={product.id} className="flex flex-col rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3 shadow-sm">
               {product.imageUrl ? (
                 <img src={product.imageUrl} alt={product.name} className="mb-2 h-24 w-full rounded-xl object-cover" />
               ) : (
-                <div className="mb-2 flex h-24 items-center justify-center rounded-xl bg-neutral-100 text-3xl">🛍️</div>
+                <div className="mb-2 flex h-24 items-center justify-center rounded-xl bg-neutral-100 dark:bg-neutral-800 text-3xl">🛍️</div>
               )}
-              <p className="text-sm font-semibold text-neutral-900">{product.name}</p>
+              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{product.name}</p>
               {product.stock !== null && product.stock <= 5 && !product.isSoldOut && (
-                <p className="text-xs font-semibold text-red-600">{t('merch.lowStock', 'Only {{count}} left!', { count: product.stock })}</p>
+                <p className="text-xs font-semibold text-red-600 dark:text-red-300">{t('merch.lowStock', 'Only {{count}} left!', { count: product.stock })}</p>
               )}
               <div className="mt-auto space-y-1.5 pt-2">
-                <p className="text-base font-bold text-amber-600">🪙 {product.priceCoin.toLocaleString()}</p>
+                <p className="text-base font-bold text-amber-600 dark:text-amber-300">🪙 {product.priceCoin.toLocaleString()}</p>
                 {product.isSoldOut ? (
-                  <div className="rounded-xl bg-neutral-100 py-1.5 text-center text-xs font-semibold text-neutral-500">{t('merch.soldOut', 'Sold Out')}</div>
+                  <div className="rounded-xl bg-neutral-100 dark:bg-neutral-800 py-1.5 text-center text-xs font-semibold text-neutral-500 dark:text-neutral-400">{t('merch.soldOut', 'Sold Out')}</div>
                 ) : (
                   <button onClick={() => setConfirmProduct(product)} className="w-full rounded-xl bg-primary-600 py-1.5 text-xs font-semibold text-white">
                     {t('merch.buy', 'Buy')}
@@ -187,46 +187,46 @@ function CreatorMerchStorePage() {
       {confirmProduct && (
         <>
           <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setConfirmProduct(null)} />
-          <div className="fixed left-4 right-4 top-1/2 z-50 -translate-y-1/2 rounded-2xl bg-white p-5 shadow-2xl">
-            <h3 className="text-lg font-bold text-neutral-900">{t('merch.confirmPurchase', 'Confirm Purchase')}</h3>
-            <p className="mt-2 text-sm text-neutral-600">
+          <div className="fixed left-4 right-4 top-1/2 z-50 -translate-y-1/2 rounded-2xl bg-white dark:bg-neutral-800 p-5 shadow-2xl">
+            <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('merch.confirmPurchase', 'Confirm Purchase')}</h3>
+            <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
               {t('merch.confirmMessage', 'You are about to buy {{name}} for 🪙 {{price}} coins.', { name: confirmProduct.name, price: confirmProduct.priceCoin.toLocaleString() })}
             </p>
 
             {isPhysical && (
               <div className="mt-4 space-y-2">
-                <p className="text-xs font-semibold text-neutral-500">{t('merch.shippingDetails', 'Shipping Details')}</p>
+                <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">{t('merch.shippingDetails', 'Shipping Details')}</p>
                 <input
                   value={shippingName}
                   onChange={(e) => setShippingName(e.target.value)}
                   placeholder={t('merch.shippingName', 'Full name')}
-                  className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm"
                 />
                 <input
                   value={shippingAddress}
                   onChange={(e) => setShippingAddress(e.target.value)}
                   placeholder={t('merch.shippingAddress', 'Street address')}
-                  className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm"
                 />
                 <div className="flex gap-2">
                   <input
                     value={shippingCity}
                     onChange={(e) => setShippingCity(e.target.value)}
                     placeholder={t('merch.shippingCity', 'City')}
-                    className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm"
                   />
                   <input
                     value={shippingCountry}
                     onChange={(e) => setShippingCountry(e.target.value)}
                     placeholder={t('merch.shippingCountry', 'Country')}
-                    className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+                    className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm"
                   />
                 </div>
               </div>
             )}
 
             <div className="mt-5 flex gap-3">
-              <button onClick={() => setConfirmProduct(null)} disabled={buyMutation.isPending} className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60">
+              <button onClick={() => setConfirmProduct(null)} disabled={buyMutation.isPending} className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60">
                 {t('common.cancel')}
               </button>
               <button

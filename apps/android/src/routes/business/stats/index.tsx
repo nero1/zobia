@@ -38,16 +38,16 @@ function BusinessStatsPage() {
   const { t } = useTranslation();
   const { data, status } = useQuery({ queryKey: ['business', 'stats'], queryFn: fetchStats, staleTime: 30_000 });
 
-  if (status === 'pending') return <div className="p-6 text-center text-neutral-400">{t('action.loading', 'Loading…')}</div>;
+  if (status === 'pending') return <div className="p-6 text-center text-neutral-400 dark:text-neutral-500">{t('action.loading', 'Loading…')}</div>;
 
   const totals = data?.totals;
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       <div className="flex items-center gap-2 mb-3">
-        <Link to="/business" className="text-sm text-neutral-500">← {t('business.title', 'Business')}</Link>
+        <Link to="/business" className="text-sm text-neutral-500 dark:text-neutral-400">← {t('business.title', 'Business')}</Link>
       </div>
-      <h1 className="text-lg font-bold text-neutral-900 mb-3">{t('business.stats.title', 'Stats')}</h1>
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-3">{t('business.stats.title', 'Stats')}</h1>
 
       {totals && (
         <div className="grid grid-cols-2 gap-2 mb-4">
@@ -57,31 +57,31 @@ function BusinessStatsPage() {
             { label: t('business.stats.postViews', 'Post views'), value: totals.total_post_views },
             { label: t('business.stats.adImpressions', 'Ad impressions'), value: totals.total_ad_impressions },
           ].map((s) => (
-            <div key={s.label} className="bg-white rounded-xl p-3 shadow-card">
-              <p className="text-xs text-neutral-500">{s.label}</p>
-              <p className="text-lg font-bold text-neutral-900">{s.value.toLocaleString()}</p>
+            <div key={s.label} className="bg-white dark:bg-neutral-800 rounded-xl p-3 shadow-card">
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">{s.label}</p>
+              <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{s.value.toLocaleString()}</p>
             </div>
           ))}
         </div>
       )}
 
       {data?.tier === 'basic' && (
-        <p className="text-xs text-neutral-500 mb-3">{t('business.stats.upgradeHint', 'Upgrade to Growth for a per-page breakdown, or Enterprise for a 90-day daily drill-down and CSV export.')}</p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">{t('business.stats.upgradeHint', 'Upgrade to Growth for a per-page breakdown, or Enterprise for a 90-day daily drill-down and CSV export.')}</p>
       )}
 
       {data?.pageBreakdown && data.pageBreakdown.length > 0 && (
         <div className="space-y-2">
           {data.pageBreakdown.map((p) => (
-            <div key={p.id} className="bg-white rounded-xl p-3 shadow-card flex items-center justify-between">
-              <p className="text-sm font-medium text-neutral-900 truncate">{p.name}</p>
-              <p className="text-xs text-neutral-400">👁 {p.view_count} · 📝 {p.post_count}</p>
+            <div key={p.id} className="bg-white dark:bg-neutral-800 rounded-xl p-3 shadow-card flex items-center justify-between">
+              <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">{p.name}</p>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">👁 {p.view_count} · 📝 {p.post_count}</p>
             </div>
           ))}
         </div>
       )}
 
       {data?.canExport && (
-        <p className="mt-4 text-xs text-neutral-400 text-center">{t('business.stats.exportOnWeb', 'CSV export is available on web/PWA under Business → Stats.')}</p>
+        <p className="mt-4 text-xs text-neutral-400 dark:text-neutral-500 text-center">{t('business.stats.exportOnWeb', 'CSV export is available on web/PWA under Business → Stats.')}</p>
       )}
     </div>
   );

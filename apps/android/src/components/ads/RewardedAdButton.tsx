@@ -104,8 +104,8 @@ export default function RewardedAdButton({ onRewarded }: { onRewarded?: (coinsAw
 
   if (phase === 'capped') {
     return (
-      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-center">
-        <p className="text-sm font-medium text-neutral-500">{t('wallet.rewardedAd.capped', "You've claimed all your rewarded ads today. Come back tomorrow!")}</p>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-4 text-center">
+        <p className="text-sm font-medium text-neutral-500 dark:text-neutral-400">{t('wallet.rewardedAd.capped', "You've claimed all your rewarded ads today. Come back tomorrow!")}</p>
       </div>
     );
   }

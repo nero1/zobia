@@ -140,7 +140,7 @@ function AnnForm({
         e.preventDefault();
         onSave({ title, content, contentType: 'plain', linkUrl, startsAt, endsAt, targetPlans, targetRoles, displayOrder });
       }}
-      className="space-y-3.5 rounded-xl border border-blue-200 bg-blue-50 p-4"
+      className="space-y-3.5 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-900/30 p-4"
     >
       <AdminField label={t('admin.announcements.form.title', 'Title')}>
         <input required value={title} onChange={(e) => setTitle(e.target.value)} className={adminInputClass} placeholder={t('admin.announcements.form.titlePlaceholder', 'Announcement title')} />
@@ -172,11 +172,11 @@ function AnnForm({
       )}
 
       <div>
-        <p className="mb-1.5 text-xs font-semibold text-neutral-700">{t('admin.announcements.form.plans', 'Plans')}</p>
+        <p className="mb-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t('admin.announcements.form.plans', 'Plans')}</p>
         <div className="flex flex-wrap gap-2">
           {PLAN_OPTIONS.map((p) => (
             <label key={p} className="flex items-center gap-1.5 text-xs">
-              <input type="checkbox" checked={targetPlans.includes(p)} onChange={() => toggle(targetPlans, setTargetPlans, p)} className="rounded border-neutral-300" />
+              <input type="checkbox" checked={targetPlans.includes(p)} onChange={() => toggle(targetPlans, setTargetPlans, p)} className="rounded border-neutral-300 dark:border-neutral-600" />
               {p}
             </label>
           ))}
@@ -184,11 +184,11 @@ function AnnForm({
       </div>
 
       <div>
-        <p className="mb-1.5 text-xs font-semibold text-neutral-700">{t('admin.announcements.form.roles', 'Roles')}</p>
+        <p className="mb-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t('admin.announcements.form.roles', 'Roles')}</p>
         <div className="flex flex-wrap gap-2">
           {ROLE_OPTIONS.map((r) => (
             <label key={r} className="flex items-center gap-1.5 text-xs">
-              <input type="checkbox" checked={targetRoles.includes(r)} onChange={() => toggle(targetRoles, setTargetRoles, r)} className="rounded border-neutral-300" />
+              <input type="checkbox" checked={targetRoles.includes(r)} onChange={() => toggle(targetRoles, setTargetRoles, r)} className="rounded border-neutral-300 dark:border-neutral-600" />
               {r}
             </label>
           ))}
@@ -199,7 +199,7 @@ function AnnForm({
         <button type="submit" disabled={saving} className="flex-1 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
           {saving ? '…' : t('common.confirm', 'Save')}
         </button>
-        <button type="button" onClick={onCancel} className="rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-semibold text-neutral-700">
+        <button type="button" onClick={onCancel} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           {t('common.cancel', 'Cancel')}
         </button>
       </div>
@@ -227,22 +227,22 @@ function AnnRow({
   const { t } = useTranslation();
   const plans = parseArr(ann.target_plans);
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
-      <p className="truncate font-semibold text-neutral-900">{ann.title}</p>
-      <p className="mt-0.5 line-clamp-2 text-xs text-neutral-500">{ann.content.slice(0, 120)}</p>
-      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-400">
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
+      <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">{ann.title}</p>
+      <p className="mt-0.5 line-clamp-2 text-xs text-neutral-500 dark:text-neutral-400">{ann.content.slice(0, 120)}</p>
+      <div className="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px] text-neutral-400 dark:text-neutral-500">
         <AdminBadge label={ann.is_active ? t('admin.announcements.active', 'Active') : t('admin.announcements.inactive', 'Inactive')} color={ann.is_active ? 'green' : 'neutral'} />
         {plans.length > 0 && <span>{t('admin.announcements.form.plans', 'Plans')}: {plans.join(', ')}</span>}
         <span>{fmtDate(ann.starts_at)} — {fmtDate(ann.ends_at)}</span>
       </div>
       <div className="mt-2.5 flex gap-1.5">
-        <button type="button" onClick={onEdit} className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
+        <button type="button" onClick={onEdit} className="rounded-lg bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
           {t('admin.config.edit', 'Edit')}
         </button>
-        <button type="button" disabled={busy} onClick={onToggle} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50">
+        <button type="button" disabled={busy} onClick={onToggle} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50">
           {busy ? '…' : ann.is_active ? t('admin.announcements.deactivate', 'Deactivate') : t('admin.announcements.activate', 'Activate')}
         </button>
-        <button type="button" disabled={busy} onClick={onDelete} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50">
+        <button type="button" disabled={busy} onClick={onDelete} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
           {t('admin.rooms.delete', 'Delete')}
         </button>
       </div>
@@ -345,22 +345,22 @@ function AdminAnnouncementsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.announcements', 'Announcements')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.announcements', 'Announcements')}</h1>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
       <AdminTabs tabs={tabs} active={tab} onChange={(k) => { setTab(k); setCreating(false); setEditing(null); }} />
 
       {status === 'success' && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-neutral-200 bg-white px-4 py-3 shadow-card">
-          <p className="text-xs font-semibold text-neutral-700">{t('admin.announcements.displayMode', 'Display Mode')}</p>
-          <div className="flex gap-1 rounded-lg border border-neutral-200 bg-neutral-100 p-0.5">
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 shadow-card">
+          <p className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t('admin.announcements.displayMode', 'Display Mode')}</p>
+          <div className="flex gap-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-0.5">
             {(['serial', 'random'] as DisplayMode[]).map((m) => (
               <button
                 key={m}
                 type="button"
                 onClick={() => displayModeMutation.mutate(m)}
-                className={`rounded px-2.5 py-1 text-xs font-semibold capitalize ${data.displayMode === m ? 'bg-white text-neutral-900 shadow-card' : 'text-neutral-500'}`}
+                className={`rounded px-2.5 py-1 text-xs font-semibold capitalize ${data.displayMode === m ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-card' : 'text-neutral-500 dark:text-neutral-400'}`}
               >
                 {m}
               </button>
@@ -412,10 +412,10 @@ function AdminAnnouncementsPage() {
             type="button"
             disabled={!canCreate}
             onClick={() => setCreating(true)}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-300 px-5 py-4 text-sm font-semibold text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border-2 border-dashed border-blue-300 px-5 py-4 text-sm font-semibold text-blue-600 dark:text-blue-300 disabled:cursor-not-allowed disabled:opacity-40"
           >
             + {tab === 'modal' ? t('admin.announcements.createModal', 'Create Modal') : t('admin.announcements.createBanner', 'Create Banner')}
-            {tab === 'modal' && <span className="text-xs font-normal text-neutral-400">({data?.announcements.length ?? 0}/5)</span>}
+            {tab === 'modal' && <span className="text-xs font-normal text-neutral-400 dark:text-neutral-500">({data?.announcements.length ?? 0}/5)</span>}
           </button>
         )
       )}

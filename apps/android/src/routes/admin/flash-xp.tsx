@@ -131,7 +131,7 @@ function AdminFlashXpPage() {
   return (
     <div className="px-4 py-5">
       <div className="mb-4 flex items-center justify-between gap-2">
-        <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.flashXp', 'Flash XP Events')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.flashXp', 'Flash XP Events')}</h1>
         <button
           type="button"
           onClick={() => { setShowForm((v) => !v); setFormError(null); }}
@@ -143,7 +143,7 @@ function AdminFlashXpPage() {
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
-      <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-3 text-xs text-amber-800">
+      <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 px-3.5 py-3 text-xs text-amber-800 dark:text-amber-300">
         {t('admin.flashXp.timingInfo', 'Announced hours before firing (min 6h). Fires At is kept secret from users — they only see the announcement window.')}
       </div>
 
@@ -169,7 +169,7 @@ function AdminFlashXpPage() {
               <input type="number" min={1} max={5} step={0.5} value={form.multiplier} onChange={(e) => setForm((f) => ({ ...f, multiplier: e.target.value }))} className={adminInputClass} />
             </AdminField>
 
-            {formError && <p className="rounded-lg border border-danger-200 bg-danger-50 px-3 py-2 text-xs text-danger-700">{formError}</p>}
+            {formError && <p className="rounded-lg border border-danger-200 bg-danger-50 dark:bg-danger-900/30 px-3 py-2 text-xs text-danger-700 dark:text-danger-300">{formError}</p>}
 
             <button
               type="button"
@@ -194,8 +194,8 @@ function AdminFlashXpPage() {
               <AdminCard key={event.id}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-neutral-900">{event.name}</p>
-                    {event.description && <p className="truncate text-xs text-neutral-500">{event.description}</p>}
+                    <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">{event.name}</p>
+                    {event.description && <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{event.description}</p>}
                   </div>
                   <AdminBadge label={s.label} color={s.color} />
                 </div>
@@ -203,7 +203,7 @@ function AdminFlashXpPage() {
                   {event.multiplier > 1 && <AdminBadge label={`${event.multiplier}x`} color="gold" />}
                   {event.fired && <AdminBadge label={t('admin.flashXp.fired', 'Fired')} color="teal" />}
                 </div>
-                <p className="mt-1.5 text-[11px] text-neutral-400">
+                <p className="mt-1.5 text-[11px] text-neutral-400 dark:text-neutral-500">
                   {t('admin.flashXp.announcedAt', 'Announced At')}: {fmtDate(event.announced_at)} · {t('admin.flashXp.firesAt', 'Fires At')}: {fmtDate(event.fires_at)} · {t('admin.flashXp.endsAt', 'Ends At')}: {fmtDate(event.ends_at)}
                 </p>
               </AdminCard>
