@@ -24,7 +24,6 @@ export const queryClient = new QueryClient({
         return failureCount < 2;
       },
       refetchOnWindowFocus: false,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       persister: (experimental_createQueryPersister({
         storage: {
           getItem: async (key: string) => {
@@ -47,7 +46,7 @@ export const queryClient = new QueryClient({
         // Disabled here; the mounting observer's own refetchOnMount still
         // revalidates stale data through the properly-handled fetch path.
         refetchOnRestore: false,
-      }).persisterFn as any),
+      }).persisterFn),
     },
     mutations: {
       retry: 0,

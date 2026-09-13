@@ -101,6 +101,7 @@ import { Route as AdminSeasonsRouteImport } from './routes/admin/seasons'
 import { Route as AdminRoomsRouteImport } from './routes/admin/rooms'
 import { Route as AdminRefundsRouteImport } from './routes/admin/refunds'
 import { Route as AdminQuizzesRouteImport } from './routes/admin/quizzes'
+import { Route as AdminQuestsRouteImport } from './routes/admin/quests'
 import { Route as AdminQuestBoostsRouteImport } from './routes/admin/quest-boosts'
 import { Route as AdminProfileThemesRouteImport } from './routes/admin/profile-themes'
 import { Route as AdminPollsRouteImport } from './routes/admin/polls'
@@ -625,6 +626,11 @@ const AdminQuizzesRoute = AdminQuizzesRouteImport.update({
   path: '/admin/quizzes',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AdminQuestsRoute = AdminQuestsRouteImport.update({
+  id: '/admin/quests',
+  path: '/admin/quests',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const AdminQuestBoostsRoute = AdminQuestBoostsRouteImport.update({
   id: '/admin/quest-boosts',
   path: '/admin/quest-boosts',
@@ -1005,6 +1011,7 @@ export interface FileRoutesByFullPath {
   '/admin/polls': typeof AdminPollsRoute
   '/admin/profile-themes': typeof AdminProfileThemesRoute
   '/admin/quest-boosts': typeof AdminQuestBoostsRoute
+  '/admin/quests': typeof AdminQuestsRoute
   '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
@@ -1162,6 +1169,7 @@ export interface FileRoutesByTo {
   '/admin/polls': typeof AdminPollsRoute
   '/admin/profile-themes': typeof AdminProfileThemesRoute
   '/admin/quest-boosts': typeof AdminQuestBoostsRoute
+  '/admin/quests': typeof AdminQuestsRoute
   '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
@@ -1320,6 +1328,7 @@ export interface FileRoutesById {
   '/admin/polls': typeof AdminPollsRoute
   '/admin/profile-themes': typeof AdminProfileThemesRoute
   '/admin/quest-boosts': typeof AdminQuestBoostsRoute
+  '/admin/quests': typeof AdminQuestsRoute
   '/admin/quizzes': typeof AdminQuizzesRoute
   '/admin/refunds': typeof AdminRefundsRoute
   '/admin/rooms': typeof AdminRoomsRoute
@@ -1479,6 +1488,7 @@ export interface FileRouteTypes {
     | '/admin/polls'
     | '/admin/profile-themes'
     | '/admin/quest-boosts'
+    | '/admin/quests'
     | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
@@ -1636,6 +1646,7 @@ export interface FileRouteTypes {
     | '/admin/polls'
     | '/admin/profile-themes'
     | '/admin/quest-boosts'
+    | '/admin/quests'
     | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
@@ -1793,6 +1804,7 @@ export interface FileRouteTypes {
     | '/admin/polls'
     | '/admin/profile-themes'
     | '/admin/quest-boosts'
+    | '/admin/quests'
     | '/admin/quizzes'
     | '/admin/refunds'
     | '/admin/rooms'
@@ -1951,6 +1963,7 @@ export interface RootRouteChildren {
   AdminPollsRoute: typeof AdminPollsRoute
   AdminProfileThemesRoute: typeof AdminProfileThemesRoute
   AdminQuestBoostsRoute: typeof AdminQuestBoostsRoute
+  AdminQuestsRoute: typeof AdminQuestsRoute
   AdminQuizzesRoute: typeof AdminQuizzesRoute
   AdminRefundsRoute: typeof AdminRefundsRoute
   AdminRoomsRoute: typeof AdminRoomsRoute
@@ -2693,6 +2706,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AdminQuizzesRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/admin/quests': {
+      id: '/admin/quests'
+      path: '/admin/quests'
+      fullPath: '/admin/quests'
+      preLoaderRoute: typeof AdminQuestsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/admin/quest-boosts': {
       id: '/admin/quest-boosts'
       path: '/admin/quest-boosts'
@@ -3211,6 +3231,7 @@ const rootRouteChildren: RootRouteChildren = {
   AdminPollsRoute: AdminPollsRoute,
   AdminProfileThemesRoute: AdminProfileThemesRoute,
   AdminQuestBoostsRoute: AdminQuestBoostsRoute,
+  AdminQuestsRoute: AdminQuestsRoute,
   AdminQuizzesRoute: AdminQuizzesRoute,
   AdminRefundsRoute: AdminRefundsRoute,
   AdminRoomsRoute: AdminRoomsRoute,

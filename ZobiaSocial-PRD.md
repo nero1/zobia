@@ -462,6 +462,8 @@ Completing the full daily quest deck awards a bonus 500 XP. Quest XP feeds both 
 
 On completion of the full daily quest deck, users receive a confetti celebration followed by floating notifications showing the deck completion bonus XP and Credits awarded.
 
+**Quests are algorithmically pooled, not admin-authored one-by-one.** Each day's deck is a cryptographically-random draw (Fisher-Yates over `crypto.randomBytes`) from the pool of active `quest_templates` rows eligible for the user's plan and enabled features — no admin curates who gets which quest on which day. What admins *do* manage is the underlying catalog of quest template rows (reward amounts, target counts, eligibility, and whether a quest is active at all) at **`/gate44/quests`** — see §20 "Quests Catalog" for exactly what is and isn't editable there. This is distinct from the temporary per-feature weighting at `/gate44/quests/boosts` (§17) and the advertiser-funded quests at `/gate44/sponsored-quests` (§14).
+
 ### The Elder System
 
 Available to users who have Prestiged at least 3 times and have been active in the past 30 days. Elders can take on up to 5 Mentees — users below Hustler rank who voluntarily request a mentor.
@@ -1696,6 +1698,13 @@ above (which stays focused on moderation actions against a single account).
 - Full immutable ledger of all coin movements, readable by admin.
 - Creator payout approval queue.
 - Refund management interface.
+
+**Quests Catalog** (`/gate44/quests`)
+- The base catalog of `quest_templates` rows the daily deck engine (§7) draws from — the third quest-admin surface alongside the temporary per-feature "Campaign Boosts" at `/gate44/quests/boosts` (weighting only, no template editing) and the advertiser-funded `/gate44/sponsored-quests` (whose own shadow `quest_templates` rows are excluded here and stay owned by that page).
+- **Editable per quest:** title, description, XP reward, Credit reward, target count, category, icon, minimum plan required, parallel progression track, feature-flag dependency (or none), and active/inactive. Admin can also create brand-new quest templates, picking the action type from a fixed dropdown (see below).
+- **Read-only / genuinely hardcoded, not faked as editable:** a quest's `action_type` is fixed once created — it is the exact string ~20 separate feature endpoints (polls, quizzes, wiki, forum, gifts, messages, etc.) call `triggerActivityQuestProgress()` with to advance that quest, so changing it after creation would silently disconnect the quest from the code that's supposed to progress it. The daily deck size per plan (Free 3 / Plus 4 / Pro 5 / Max 6) and the 500 XP full-deck completion bonus are hardcoded constants in `lib/quests/questEngine.ts`, not data, and are surfaced as read-only notices on the page rather than implied to be configurable. Sponsored-quest injection odds and default CPM are genuinely admin-editable data, but live at `/gate44/config` (`x_manifest` `sponsored_quest_*` keys) — linked from this page, not duplicated.
+- **Stats:** each quest shows its assignment and completion counts, and a computed completion rate, over the trailing 30 days.
+- All create/edit/toggle actions are audit-logged to `admin_audit_log`.
 
 **Feature Flags**
 - Admin can toggle most non-core features on or off without a deployment. Feature flags are stored in the database and read at runtime.
@@ -6833,7 +6842,17 @@ per-user detail panel logs the admin in as that user for up to 15 minutes
 own session in a short-lived cookie pair; "Return to Admin"
 (`components/admin/ImpersonationBanner.tsx`, shown app-wide via a
 non-HttpOnly marker cookie so it costs zero extra Redis reads for everyone
-else) restores it (`POST /api/auth/impersonate/end`). Cannot target another
+else) restores it (`POST /api/auth/impersonate/end`). Both endpoints also
+serve Bearer-JWT clients: detected the same way withAdminAuth/withAuth
+already tell a mobile client apart from a cookie client (an `Authorization:
+Bearer` header on the request), each returns a fresh access/refresh token
+pair in the JSON body instead of Set-Cookie headers — the target's on
+start (plus the admin's own id via the token's `impersonated_by` claim so
+the client knows who to restore), the admin's own on end. The Android app
+(`apps/android/src/lib/auth/store.ts`'s `impersonate()`/`endImpersonation()`,
+wired into `routes/admin/users.tsx`, `routes/admin/data-management.tsx`, and
+`components/admin/ImpersonationBanner.tsx`) uses this to switch its own
+stored session natively — no in-app browser involved. Cannot target another
 admin account. Both start and end are written to `admin_audit_log`.
 **Capacitor Android:** the impersonate endpoint is cookie-session-based, not
 Bearer-JWT-based, so `admin/users.tsx`'s "Impersonate" button opens the

@@ -968,11 +968,16 @@ field allowlist; `DELETE .../users/:id` soft-deletes via the shared
 The Users tab embeds the same search/list/detail/impersonate/suspend/ban UI
 as `/gate44/users` (extracted into `components/admin/UserManagementTable.tsx`)
 plus Create/Export/Import toolbar buttons and a Delete action in the detail
-drawer. The Android admin mirror (`apps/android/src/routes/admin/data-management.tsx`)
-rebuilds the stats/search/create/delete flow natively but opens the full web
-page in an authenticated in-app browser tab for Export/Import, since those
-are multi-step flows (format/field/filter pickers, file upload, streaming
-downloads) with no existing native file-download convention on the app to
+drawer. The Android admin mirror (`apps/android/src/routes/admin/data-management.tsx`,
+also `routes/admin/users.tsx`) rebuilds the stats/search/create/delete/impersonate
+flow natively — Impersonate switches the app's own stored Bearer token pair
+via `lib/auth/store.ts`'s `impersonate()`/`endImpersonation()` (backed by the
+same admin impersonate/end endpoints' Bearer-mode branch, see "Admin
+impersonation" above) and shows `components/admin/ImpersonationBanner.tsx`,
+with no browser involved — but opens the full web page in an authenticated
+in-app browser tab for Export/Import, since those are multi-step flows
+(format/field/filter pickers, file upload, streaming downloads) with no
+existing native file-download convention on the app to
 build on yet.
 
 ### Content Moderation (`/api/admin/moderation`)
@@ -3224,6 +3229,52 @@ before slicing to `deckSize` — a simple, auditable approximation of
 weighted sampling that doesn't disturb the existing shuffle's unbiasedness
 for everything else. If the admin schedules nothing, selection is
 unweighted exactly as before.
+
+### Admin Quests catalog (`/gate44/quests`)
+
+The base admin surface for the quest system — was the missing piece
+alongside the two narrower ones above (campaign boosts weight *which
+feature's* quests show up more; this manages the quest *definitions*
+themselves). Lists every `quest_templates` row with `sponsored_quest_id IS
+NULL` (sponsored shadow rows are excluded — they stay owned by
+`/gate44/sponsored-quests`, which re-upserts them via
+`syncSponsoredQuestTemplate()` on every edit there).
+
+- **API:** `GET/POST /api/admin/quests`, `PATCH /api/admin/quests/:id` —
+  all `withAdminAuth`-gated, rate-limited (`RATE_LIMITS.admin`), and
+  audit-logged to `admin_audit_log` (`create_quest_template` /
+  `update_quest_template`, with before/after JSON on edits) following the
+  same pattern as `app/api/admin/config/[key]/route.ts`.
+- **Editable:** `title`, `description`, `xp_reward`, `coin_reward`,
+  `target_count`, `category`, `icon`, `plan_required`, `track` (constrained
+  to `TRACK_COLUMN`'s keys), `feature_key` (constrained to
+  `QUEST_FEATURE_KEYS`, or none), and `is_active`. Creating a new template
+  additionally picks `action_type` from `QUEST_ACTION_TYPES` — a fixed
+  list, hand-maintained in `lib/quests/questEngine.ts`, of the action-type
+  strings some call site in the codebase actually calls
+  `triggerActivityQuestProgress()` with (grep the call sites before adding
+  to it).
+- **Deliberately NOT editable, and why:** `action_type` on an *existing*
+  row is immutable after creation — it's the exact string ~20 feature
+  endpoints (see the call-site list under "Feature-gated daily quest
+  templates" above, plus `messages`, `gift`, `login_streak`, `guild_quest`,
+  `xp_meta`, `room_join`, `market_purchase`) call
+  `triggerActivityQuestProgress()` with; changing it on an existing quest
+  would silently disconnect it from the code that's supposed to advance
+  it, with no error anywhere. `DECK_SIZE_BY_PLAN` (3/4/5/6 quests) and
+  `DECK_COMPLETION_BONUS_XP` (500) are genuinely hardcoded constants in
+  `questEngine.ts`, not data — the page surfaces them as a read-only
+  notice rather than pretending they're configurable here. Sponsored-quest
+  injection chance/CPM/daily-slot cap (`questSystem.*` in
+  `lib/manifest/index.ts`) *are* admin-editable data, but already live at
+  `/gate44/config` — linked from this page instead of duplicated.
+- **Stats:** a `LEFT JOIN` aggregate over `user_quest_decks` +
+  `user_quest_progress` (filtered to `assigned_date >= CURRENT_DATE - 30
+  days`) returns each template's trailing-30-day assigned/completed counts;
+  the page renders a completion rate from them.
+- **Mirrors:** web `app/(admin)/gate44/quests/page.tsx` ↔ Android
+  `apps/android/src/routes/admin/quests.tsx` (registered in both
+  `AdminLayoutShell.tsx` and `adminNav.ts`), calling the same API.
 
 ### Sponsored Quests in the daily deck
 

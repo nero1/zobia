@@ -15,6 +15,7 @@ import { BottomNav } from '@/components/layout/BottomNav';
 import { OfflineBanner } from '@/components/ui/OfflineBanner';
 import { AuthGuard } from '@/components/auth/AuthGuard';
 import { AdminShell } from '@/components/admin/AdminShell';
+import { ImpersonationBanner } from '@/components/admin/ImpersonationBanner';
 import { useAuth } from '@/lib/auth/store';
 import { AuthUserSchema } from '@zobia/shared/schemas/auth';
 import { setPreAuthToken, endOAuthAttempt, isOAuthInProgress } from '@/lib/auth/preAuth';
@@ -389,6 +390,7 @@ function AppShell() {
           </div>
         </main>
         <BottomNav />
+        <ImpersonationBanner />
       </div>
     </AuthGuard>
   );

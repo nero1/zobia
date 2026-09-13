@@ -84,7 +84,8 @@ function CreateGuildButton() {
       await qc.invalidateQueries({ queryKey: ['guild'] });
       setOpen(false);
       navigate({ to: '/guilds/$guildId', params: { guildId: data.data.guildId } });
-    } catch (e: any) {
+    } catch (err) {
+      const e = err as { response?: { data?: { error?: { message?: string } } } };
       const msg = e?.response?.data?.error?.message ?? t('error.generic');
       setError(msg);
     } finally {

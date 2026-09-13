@@ -22,13 +22,14 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
 import { env } from '@/lib/env';
 import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
+import { useAuth } from '@/lib/auth/store';
 import {
   AdminStatCard,
   AdminStatSkeleton,
@@ -287,6 +288,8 @@ function UserDetailOverlay({
 function UsersTab() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { impersonate } = useAuth();
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>([undefined]);
@@ -326,8 +329,8 @@ function UsersTab() {
   const goPrev = () => setPageIndex((i) => Math.max(0, i - 1));
 
   const impersonateMutation = useMutation({
-    mutationFn: (userId: string) => apiClient.post(`/admin/users/${userId}/impersonate`),
-    onSuccess: () => { window.location.href = '/home'; },
+    mutationFn: (userId: string) => impersonate(userId),
+    onSuccess: () => { setSelected(null); navigate({ to: '/home', replace: true }); },
     onError: () => showToast(t('admin.users.actionFailed', 'Action failed'), 'error'),
   });
 

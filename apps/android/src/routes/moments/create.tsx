@@ -166,7 +166,6 @@ function CreateMomentPage() {
               </div>
               {uploadError && <p className="mt-1.5 text-xs text-danger-600">{uploadError}</p>}
               {imageUrl && (
-                // eslint-disable-next-line @next/next/no-img-element
                 <img src={imageUrl} alt="" className="mt-2 max-h-48 rounded-lg border border-neutral-200" />
               )}
             </div>
