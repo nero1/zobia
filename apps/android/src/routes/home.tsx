@@ -25,6 +25,7 @@ import { HomeTabs, useHomeTab, feedTabFullNameKey, TAB_ACRONYM } from '@/compone
 import { LogoTabContent } from '@/components/home/LogoTabContent';
 import { FeedTabContent } from '@/components/home/FeedTabContent';
 import { MysteryDropToast } from '@/components/home/MysteryDropToast';
+import { HomeSectionErrorBoundary } from '@/components/home/HomeSectionErrorBoundary';
 import type { FeedTab } from '@/lib/feed/types';
 
 function HomePage() {
@@ -46,9 +47,15 @@ function HomePage() {
       <div className="mx-auto w-full max-w-3xl space-y-4 p-4">
         <MysteryDropToast />
 
-        <AdSlot placement="home_top" />
-        <NoticesCarousel />
-        <AdSlot placement="home_mid" />
+        <HomeSectionErrorBoundary section="adSlotTop">
+          <AdSlot placement="home_top" />
+        </HomeSectionErrorBoundary>
+        <HomeSectionErrorBoundary section="noticesCarousel">
+          <NoticesCarousel />
+        </HomeSectionErrorBoundary>
+        <HomeSectionErrorBoundary section="adSlotMid">
+          <AdSlot placement="home_mid" />
+        </HomeSectionErrorBoundary>
 
         <HomeTabs active={tab} onChange={setTab} />
 
@@ -61,10 +68,14 @@ function HomePage() {
                 </span>
                 <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t(feedTabFullNameKey(tab as FeedTab))}</h1>
               </div>
-              <FeedTabContent tab={tab as FeedTab} />
+              <HomeSectionErrorBoundary section="feedTabContent">
+                <FeedTabContent tab={tab as FeedTab} />
+              </HomeSectionErrorBoundary>
             </div>
           ) : (
-            <LogoTabContent />
+            <HomeSectionErrorBoundary section="logoTabContent">
+              <LogoTabContent />
+            </HomeSectionErrorBoundary>
           )}
         </PullToRefresh>
       </div>

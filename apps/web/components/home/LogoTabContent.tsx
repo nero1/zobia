@@ -20,33 +20,50 @@ import { PresenceTabs } from "./PresenceTabs";
 import { LeaderboardCard } from "./LeaderboardCard";
 import { GuildDiscoveryPanel } from "./GuildDiscoveryPanel";
 import { CreatorSpotlight } from "@/components/discovery/CreatorSpotlight";
+import { HomeSectionErrorBoundary } from "./HomeSectionErrorBoundary";
 
 export function LogoTabContent() {
   const { t } = useTranslation();
 
   return (
     <div className="space-y-5">
-      <ZobianOfMonthCard />
+      <HomeSectionErrorBoundary section="zobianOfMonth">
+        <ZobianOfMonthCard />
+      </HomeSectionErrorBoundary>
 
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">{t("home.sections.quests")}</h2>
-        <DailyQuestDeck />
-        <NewMemberQuestCard />
+        <HomeSectionErrorBoundary section="dailyQuestDeck">
+          <DailyQuestDeck />
+        </HomeSectionErrorBoundary>
+        <HomeSectionErrorBoundary section="newMemberQuest">
+          <NewMemberQuestCard />
+        </HomeSectionErrorBoundary>
       </section>
 
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">{t("home.sections.challenges")}</h2>
-        <NemesisCard />
+        <HomeSectionErrorBoundary section="nemesis">
+          <NemesisCard />
+        </HomeSectionErrorBoundary>
       </section>
 
       <section className="space-y-3">
         <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">{t("home.sections.presence")}</h2>
-        <PresenceTabs />
+        <HomeSectionErrorBoundary section="presence">
+          <PresenceTabs />
+        </HomeSectionErrorBoundary>
       </section>
 
-      <LeaderboardCard />
-      <GuildDiscoveryPanel />
-      <CreatorSpotlight />
+      <HomeSectionErrorBoundary section="leaderboard">
+        <LeaderboardCard />
+      </HomeSectionErrorBoundary>
+      <HomeSectionErrorBoundary section="guildDiscovery">
+        <GuildDiscoveryPanel />
+      </HomeSectionErrorBoundary>
+      <HomeSectionErrorBoundary section="creatorSpotlight">
+        <CreatorSpotlight />
+      </HomeSectionErrorBoundary>
     </div>
   );
 }

@@ -26,6 +26,7 @@ import { HomeTabs, useHomeTab, feedTabFullNameKey, TAB_ACRONYM } from "@/compone
 import { LogoTabContent } from "@/components/home/LogoTabContent";
 import { FeedTabContent } from "@/components/home/FeedTabContent";
 import { MysteryDropToast } from "@/components/home/MysteryDropToast";
+import { HomeSectionErrorBoundary } from "@/components/home/HomeSectionErrorBoundary";
 import AdSlot from "@/components/ads/AdSlot";
 import type { FeedTab } from "@/lib/feed/types";
 
@@ -77,9 +78,15 @@ export default function HomePage() {
         {planExpiry && <PlanExpiryBanner info={planExpiry} />}
         <MysteryDropToast />
 
-        <AdSlot placement="home_top" />
-        <NoticesCarousel />
-        <AdSlot placement="home_mid" />
+        <HomeSectionErrorBoundary section="adSlotTop">
+          <AdSlot placement="home_top" />
+        </HomeSectionErrorBoundary>
+        <HomeSectionErrorBoundary section="noticesCarousel">
+          <NoticesCarousel />
+        </HomeSectionErrorBoundary>
+        <HomeSectionErrorBoundary section="adSlotMid">
+          <AdSlot placement="home_mid" />
+        </HomeSectionErrorBoundary>
 
         <HomeTabs active={tab} onChange={setTab} />
 
@@ -94,10 +101,14 @@ export default function HomePage() {
                   {t(feedTabFullNameKey(tab as FeedTab))}
                 </h1>
               </div>
-              <FeedTabContent tab={tab as FeedTab} refreshSignal={refreshSignal} />
+              <HomeSectionErrorBoundary section="feedTabContent">
+                <FeedTabContent tab={tab as FeedTab} refreshSignal={refreshSignal} />
+              </HomeSectionErrorBoundary>
             </div>
           ) : (
-            <LogoTabContent key={refreshSignal} />
+            <HomeSectionErrorBoundary section="logoTabContent">
+              <LogoTabContent key={refreshSignal} />
+            </HomeSectionErrorBoundary>
           )}
         </PullToRefresh>
       </div>
