@@ -4,7 +4,15 @@
 
 @layer base {
   :root {
-    --font-inter: 'Inter', ui-sans-serif, system-ui, sans-serif;
+    /* --font-inter is defined by next/font (see the Inter({ variable }) call in
+       app/layout.tsx, applied via inter.variable on <html>), which points at the
+       self-hosted, preloaded woff2 plus its fallback stack.
+       Do NOT redeclare it here: :root and next/font's generated class have equal
+       specificity, so whichever lands later in the cascade wins. A literal
+       'Inter' family name here would resolve only if the visitor happened to
+       have Inter installed locally, otherwise silently dropping to system-ui —
+       leaving the preloaded font file downloaded but never applied ("resource
+       preloaded with link preload was not used" in the console). */
 
     /* Shadcn-style semantic tokens consumed by shared/tailwind-tokens.js
        (bg-primary, bg-card, text-foreground, border-border, bg-accent,

@@ -15,6 +15,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
+import { normalizeFooterScriptContent } from "@/lib/admin/footerScriptNormalize";
 
 export async function GET(
   _req: NextRequest,
@@ -36,7 +37,16 @@ export async function GET(
       return new NextResponse("Not Found", { status: 404 });
     }
 
-    return new NextResponse(rows[0].content, {
+    // Normalize on READ as well as on write. Rows saved before
+    // normalizeFooterScriptContent existed (or saved through any path that
+    // skipped it) still hold raw HTML, and serving that under
+    // Content-Type: application/javascript throws
+    // "SyntaxError: expected expression, got '<'" in every visitor's console.
+    // The normalizer is pure and cheap, and returns "" when nothing
+    // executable can be recovered, so a bad row degrades to a silent no-op.
+    const js = normalizeFooterScriptContent(rows[0].content ?? "");
+
+    return new NextResponse(js, {
       status: 200,
       headers: {
         "Content-Type": "application/javascript; charset=utf-8",

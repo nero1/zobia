@@ -22,7 +22,18 @@
  */
 
 const SCRIPT_TAG_RE = /<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi;
+/** Matches a <script src="…"> with no closing tag (or a self-closing one). */
+const LONE_SCRIPT_TAG_RE = /<script\b([^>]*\bsrc\s*=[^>]*)\/?>/gi;
+const HTML_COMMENT_RE = /<!--[\s\S]*?-->/g;
+const NOSCRIPT_TAG_RE = /<noscript\b[^>]*>[\s\S]*?<\/noscript\s*>/gi;
 const SRC_ATTR_RE = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+))/i;
+
+/** JS that loads `src` as a script element (trusted under 'strict-dynamic'). */
+function loaderFor(src: string): string {
+  return `(function(){var s=document.createElement("script");s.src="${escapeForJsString(
+    src
+  )}";s.async=true;document.head.appendChild(s);})();`;
+}
 
 function escapeForJsString(raw: string): string {
   return raw.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
@@ -32,35 +43,49 @@ export function normalizeFooterScriptContent(rawInput: string): string {
   const raw = rawInput.trim();
   if (!raw) return raw;
 
-  if (!/<script\b/i.test(raw)) {
-    // No <script> markup at all — treat as already-plain JS.
+  if (!/[<]/.test(raw)) {
+    // No markup at all — already-plain JS. (Checked on `<` rather than
+    // `<script` so an HTML-comment-only or <noscript>-only snippet still
+    // takes the stripping path below instead of being served as-is.)
     return raw;
   }
+
+  // Strip wrappers that are pure markup and can never be valid JS. Analytics
+  // snippets routinely ship with an HTML comment header and a <noscript>
+  // pixel alongside the real <script>.
+  const stripped = raw.replace(HTML_COMMENT_RE, "").replace(NOSCRIPT_TAG_RE, "").trim();
 
   const parts: string[] = [];
   let match: RegExpExecArray | null;
   SCRIPT_TAG_RE.lastIndex = 0;
-  while ((match = SCRIPT_TAG_RE.exec(raw)) !== null) {
+  while ((match = SCRIPT_TAG_RE.exec(stripped)) !== null) {
     const [, attrs, body] = match;
     const srcMatch = SRC_ATTR_RE.exec(attrs ?? "");
     const src = srcMatch ? (srcMatch[1] ?? srcMatch[2] ?? srcMatch[3] ?? "") : "";
 
-    if (src) {
-      parts.push(
-        `(function(){var s=document.createElement("script");s.src="${escapeForJsString(
-          src
-        )}";s.async=true;document.head.appendChild(s);})();`
-      );
-    }
+    if (src) parts.push(loaderFor(src));
 
     const inline = body.trim();
     if (inline) parts.push(inline);
   }
 
-  // Fell through without matching a well-formed tag (e.g. an unclosed
-  // <script src="…"> with no closing tag) — fall back to the raw input
-  // rather than silently discarding what the admin pasted.
-  if (parts.length === 0) return raw;
+  // No well-formed <script>…</script> pair matched. Recover the common
+  // unclosed/self-closing `<script src="…">` form rather than emitting markup.
+  if (parts.length === 0) {
+    LONE_SCRIPT_TAG_RE.lastIndex = 0;
+    while ((match = LONE_SCRIPT_TAG_RE.exec(stripped)) !== null) {
+      const srcMatch = SRC_ATTR_RE.exec(match[1] ?? "");
+      const src = srcMatch ? (srcMatch[1] ?? srcMatch[2] ?? srcMatch[3] ?? "") : "";
+      if (src) parts.push(loaderFor(src));
+    }
+  }
 
-  return parts.join("\n\n");
+  if (parts.length > 0) return parts.join("\n\n");
+
+  // Still nothing usable. Returning the raw markup here would serve a response
+  // starting with "<" under Content-Type: application/javascript, which throws
+  // "SyntaxError: expected expression, got '<'" in every visitor's console.
+  // Emit a no-op instead — the admin's snippet is recoverable from the DB and
+  // editable at /gate44/footer-scripts.
+  return "";
 }

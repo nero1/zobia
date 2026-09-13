@@ -19,6 +19,24 @@ declare const self: ServiceWorkerGlobalScope;
 
 const DAY_SECONDS = 24 * 60 * 60;
 
+// BUG-SW-REJECT: a caching Strategy whose network fetch fails and which has no
+// cache entry to fall back on rejects the promise it handed to
+// FetchEvent.respondWith(). The browser surfaces that as an uncaught console
+// error ("A ServiceWorker passed a promise to FetchEvent.respondWith() that
+// rejected with 'Error: no-response'" plus NS_ERROR_INTERCEPTION_FAILED) —
+// noisy, and it replaces the real HTTP failure with an opaque interception
+// error, which makes genuine problems (a broken image host, an expired asset)
+// much harder to diagnose.
+//
+// handlerDidError resolves with a real Response instead. A non-2xx status is
+// deliberate: <img>/<script>/<link> onerror handlers still fire, so in-app
+// fallbacks (e.g. the Home logo's "Z" placeholder) keep working — we are only
+// removing the uncaught rejection, not masking the failure.
+const offlineFallbackPlugin = {
+  handlerDidError: async () =>
+    new Response(null, { status: 504, statusText: "Offline or upstream fetch failed" }),
+};
+
 // IMPORTANT (BUG-SW-HANDLER): Serwist's `runtimeCaching[].handler` must be a
 // Strategy *instance* that exposes a `.handle()` method (e.g. new NetworkOnly()).
 // The previous config carried over the next-pwa / workbox-build syntax — string
@@ -41,7 +59,7 @@ const runtimeCaching: RuntimeCaching[] = [
     handler: new NetworkFirst({
       cacheName: "pwa-start",
       networkTimeoutSeconds: 3,
-      plugins: [new ExpirationPlugin({ maxEntries: 1, maxAgeSeconds: DAY_SECONDS })],
+      plugins: [new ExpirationPlugin({ maxEntries: 1, maxAgeSeconds: DAY_SECONDS }), offlineFallbackPlugin],
     }),
   },
   // All API routes: NetworkOnly so responses (including auth-sensitive ones
@@ -55,20 +73,23 @@ const runtimeCaching: RuntimeCaching[] = [
     matcher: /^https:\/\/fonts\.(gstatic|googleapis)\.com\/.*/i,
     handler: new CacheFirst({
       cacheName: "google-fonts",
-      plugins: [new ExpirationPlugin({ maxEntries: 4, maxAgeSeconds: 365 * DAY_SECONDS })],
+      plugins: [new ExpirationPlugin({ maxEntries: 4, maxAgeSeconds: 365 * DAY_SECONDS }), offlineFallbackPlugin],
     }),
   },
   // Static font files.
   {
     matcher: /\.(?:eot|otf|ttc|ttf|woff|woff2|font\.css)$/i,
-    handler: new StaleWhileRevalidate({ cacheName: "static-font-assets" }),
+    handler: new StaleWhileRevalidate({
+      cacheName: "static-font-assets",
+      plugins: [offlineFallbackPlugin],
+    }),
   },
   // Images.
   {
     matcher: /\.(?:jpg|jpeg|gif|png|svg|ico|webp)$/i,
     handler: new StaleWhileRevalidate({
       cacheName: "static-image-assets",
-      plugins: [new ExpirationPlugin({ maxEntries: 64, maxAgeSeconds: DAY_SECONDS })],
+      plugins: [new ExpirationPlugin({ maxEntries: 64, maxAgeSeconds: DAY_SECONDS }), offlineFallbackPlugin],
     }),
   },
   // JS files.
@@ -76,7 +97,7 @@ const runtimeCaching: RuntimeCaching[] = [
     matcher: /\.(?:js)$/i,
     handler: new StaleWhileRevalidate({
       cacheName: "static-js-assets",
-      plugins: [new ExpirationPlugin({ maxEntries: 32, maxAgeSeconds: DAY_SECONDS })],
+      plugins: [new ExpirationPlugin({ maxEntries: 32, maxAgeSeconds: DAY_SECONDS }), offlineFallbackPlugin],
     }),
   },
   // CSS files.
@@ -84,7 +105,7 @@ const runtimeCaching: RuntimeCaching[] = [
     matcher: /\.(?:css|less)$/i,
     handler: new StaleWhileRevalidate({
       cacheName: "static-style-assets",
-      plugins: [new ExpirationPlugin({ maxEntries: 32, maxAgeSeconds: DAY_SECONDS })],
+      plugins: [new ExpirationPlugin({ maxEntries: 32, maxAgeSeconds: DAY_SECONDS }), offlineFallbackPlugin],
     }),
   },
   // Everything else (Serwist's sensible defaults for documents, etc.).

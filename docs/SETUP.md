@@ -218,7 +218,20 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `R2_ACCESS_KEY_ID` | If R2 | R2 API access key ID | Cloudflare → R2 → Manage R2 API tokens |
 | `R2_SECRET_ACCESS_KEY` | If R2 | R2 API secret access key | Cloudflare → R2 → Manage R2 API tokens |
 | `R2_BUCKET_NAME` | If R2 | Name of the R2 bucket | Cloudflare → R2 → Buckets |
-| `R2_PUBLIC_URL` | If R2 | Public URL for the R2 bucket (e.g. `https://pub-xxx.r2.dev`) | Cloudflare → R2 → Bucket settings |
+| `R2_PUBLIC_URL` | If R2 | Public URL for the R2 bucket (e.g. `https://pub-xxx.r2.dev`) — see the warning below | Cloudflare → R2 → Bucket settings |
+
+> **`R2_PUBLIC_URL` must NOT be the S3 API endpoint.** Cloudflare shows two
+> different URLs for a bucket. `https://<account-id>.r2.cloudflarestorage.com`
+> is the **S3 API endpoint**: every request to it must be SigV4-signed, so a
+> browser `<img src>` pointed at it gets 401/403 and the image silently fails
+> to load (inside an installed PWA this surfaces as a service-worker
+> interception error, not a plain 404, which makes it easy to misdiagnose).
+> Use the bucket's **public** base URL instead — either enable the r2.dev
+> development subdomain (Bucket → Settings → Public Development URL) or bind a
+> custom domain. Object keys are identical either way, so correcting this
+> variable immediately repairs every already-uploaded asset: no re-upload or
+> data migration is required. The app logs a startup warning if it detects the
+> S3 endpoint here.
 | `REALTIME_PROVIDER` | Recommended | Realtime backend: `supabase-realtime` \| `ably` \| `pusher`. Optional — when unset, chat (rooms, DMs, groups) still delivers messages via a 3-second baseline poll; set it for instant WebSocket push. | Choose your provider |
 | `SUPABASE_URL` | If supabase-realtime | Supabase project URL (e.g. `https://xxx.supabase.co`) | Supabase → Project Settings → API |
 | `SUPABASE_SERVICE_ROLE_KEY` | If supabase-realtime | Service-role key — server-side only, never expose to clients | Supabase → Project Settings → API |

@@ -253,3 +253,27 @@ export const env: Env = _parsed.success
         return undefined as any;
       },
     }));
+
+// Non-fatal misconfiguration warnings.
+//
+// Deliberately warnings, not schema errors: each of these leaves the app fully
+// bootable and only degrades one feature, so failing startup over them would
+// turn a broken image into a hard outage.
+if (_parsed.success) {
+  // `<accountid>.r2.cloudflarestorage.com` is Cloudflare R2's *S3 API*
+  // endpoint. Every request to it must carry a SigV4 signature, so a plain
+  // browser <img src> gets 401/403 and the asset silently fails to load (in an
+  // installed PWA it surfaces as a service-worker interception error rather
+  // than a plain 404, which is even harder to trace).
+  //
+  // R2_PUBLIC_URL must instead be the bucket's PUBLIC base URL — either the
+  // r2.dev development subdomain or a custom domain bound to the bucket.
+  // Object keys are unchanged, so correcting this variable also repairs every
+  // already-uploaded asset; no re-upload or migration is needed.
+  if (_parsed.data.STORAGE_PROVIDER === "r2" && /r2\.cloudflarestorage\.com/i.test(_parsed.data.R2_PUBLIC_URL ?? "")) {
+    logger.warn(
+      { R2_PUBLIC_URL: _parsed.data.R2_PUBLIC_URL },
+      "[env] R2_PUBLIC_URL points at the R2 S3 API endpoint (r2.cloudflarestorage.com), which requires signed requests and is NOT publicly readable — uploaded images will fail to load in the browser. Set it to the bucket's public r2.dev subdomain or a custom domain bound to the bucket. See docs/SETUP.md."
+    );
+  }
+}

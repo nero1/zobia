@@ -89,6 +89,28 @@ function buildCsp(nonce: string, allowEmbedFraming = false): string {
     // Keeping 'self' would not weaken security but adds confusion — omit it per spec.
     `script-src 'nonce-${nonce}' 'strict-dynamic'`,
     `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
+    // CSP-03: styles need the two granular directives below, NOT the nonce.
+    //
+    // style-src-attr governs inline `style="…"` ATTRIBUTES. A nonce can never
+    // apply to an attribute, so under the nonce-only policy above every React
+    // `style={{…}}` prop in the app was blocked (visible as a stream of
+    // "blocked an inline style (style-src-attr)" console errors, and silently
+    // dropped styling for anything positioned/sized at runtime).
+    //
+    // style-src-elem governs <style> ELEMENTS. The nonce works for our own
+    // server-rendered ones, but third-party/runtime-injected <style> tags
+    // (Next.js and UI libraries insert these during hydration) carry no nonce
+    // and were blocked too. Note a nonce and 'unsafe-inline' are mutually
+    // exclusive per CSP3 — when a nonce is present 'unsafe-inline' is ignored —
+    // so these directives deliberately omit the nonce.
+    //
+    // Security note: this relaxes STYLES only. script-src keeps
+    // 'nonce-…' + 'strict-dynamic' with no 'unsafe-inline', which is where the
+    // meaningful XSS protection lives. CSS injection is a far lower-severity
+    // class of issue than script injection, and this is the standard tradeoff
+    // for a React app that uses inline styles.
+    "style-src-elem 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "style-src-attr 'unsafe-inline'",
     "worker-src 'self'",
     "font-src 'self' https://fonts.gstatic.com",
     // CSP-01: explicit allowlist instead of bare https: (which allows any HTTPS host)

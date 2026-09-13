@@ -40,6 +40,11 @@ const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
   display: "swap",
+  // Baked into the generated font-family list so --font-inter carries its own
+  // fallbacks. globals.css deliberately no longer redeclares --font-inter (an
+  // equal-specificity :root rule there used to override this one and leave the
+  // preloaded woff2 unused) — this is the single source of truth for the stack.
+  fallback: ["ui-sans-serif", "system-ui", "-apple-system", "Segoe UI", "Roboto", "sans-serif"],
 });
 
 // ---------------------------------------------------------------------------
