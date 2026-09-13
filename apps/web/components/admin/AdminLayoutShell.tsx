@@ -60,6 +60,7 @@ const adminNavItems = [
   { href: "/gate44/boosts",             label: "Boost Catalog",      icon: "🚀" },
   { href: "/gate44/profile-themes",     label: "Profile Themes",     icon: "🎨" },
   { href: "/gate44/seasons",            label: "Seasons",            icon: "🏅" },
+  { href: "/gate44/quests",             label: "Quests",             icon: "🗺️" },
   { href: "/gate44/sponsored-quests",   label: "Sponsored Quests",   icon: "🎯" },
   { href: "/gate44/ads",                label: "Ads",                icon: "🖼️" },
   { href: "/gate44/games",              label: "Games",              icon: "🎮" },

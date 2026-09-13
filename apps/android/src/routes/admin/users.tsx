@@ -9,13 +9,14 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { createFileRoute } from '@tanstack/react-router';
+import { createFileRoute, useNavigate } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
 import { env } from '@/lib/env';
 import { openAuthenticatedWebLink } from '@/lib/deeplinks/bridge';
+import { useAuth } from '@/lib/auth/store';
 import {
   AdminCard,
   AdminCardSkeleton,
@@ -111,11 +112,15 @@ function UserDetailOverlay({
   user,
   onClose,
   onAction,
+  onImpersonate,
+  impersonatePending,
   actionPending,
 }: {
   user: AdminUser;
   onClose: () => void;
   onAction: (action: ActionType, payload?: Record<string, string>) => void;
+  onImpersonate: () => void;
+  impersonatePending: boolean;
   actionPending: ActionType | null;
 }) {
   const { t } = useTranslation();
@@ -231,19 +236,16 @@ function UserDetailOverlay({
         </div>
 
         {!user.isModerator && (
-          <div className="space-y-1.5 rounded-lg border border-purple-200 bg-purple-50 p-3">
-            <p className="text-[11px] font-semibold uppercase tracking-wider text-purple-700">{t('admin.users.detail.impersonation', 'Impersonation')}</p>
-            <p className="text-[10px] text-purple-600">
-              {t('admin.users.detail.impersonationHint', 'Opens the web admin users page in an authenticated in-app browser, where impersonation (a cookie-backed web session) is available — the native app has no impersonated bearer session.')}
-            </p>
-            <button
-              type="button"
-              onClick={() => void openAuthenticatedWebLink('/admin/users')}
-              className="w-full rounded-lg bg-purple-600 px-3 py-2 text-xs font-semibold text-white"
-            >
-              {t('admin.users.detail.impersonate', '🎭 Impersonate (opens web)')}
-            </button>
-          </div>
+          <button
+            type="button"
+            onClick={onImpersonate}
+            disabled={impersonatePending}
+            className="w-full rounded-lg bg-purple-600 px-3 py-2.5 text-xs font-semibold text-white disabled:opacity-60"
+          >
+            {impersonatePending
+              ? t('admin.users.action.impersonating', 'Switching…')
+              : `🎭 ${t('admin.users.action.impersonate', 'Impersonate this user')}`}
+          </button>
         )}
 
         <div className="space-y-2.5 rounded-lg border border-neutral-200 p-3">
@@ -284,6 +286,8 @@ function UserDetailOverlay({
 function AdminUsersPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { impersonate } = useAuth();
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>([undefined]);
@@ -329,6 +333,12 @@ function AdminUsersPage() {
       qc.invalidateQueries({ queryKey: ['admin', 'users'] });
       setSelected(null);
     },
+    onError: () => showToast(t('admin.users.actionFailed', 'Action failed'), 'error'),
+  });
+
+  const impersonateMutation = useMutation({
+    mutationFn: (userId: string) => impersonate(userId),
+    onSuccess: () => { setSelected(null); navigate({ to: '/home', replace: true }); },
     onError: () => showToast(t('admin.users.actionFailed', 'Action failed'), 'error'),
   });
 
@@ -413,6 +423,8 @@ function AdminUsersPage() {
           onClose={() => setSelected(null)}
           onAction={(action, payload) => actionMutation.mutate({ userId: selected.id, action, payload })}
           actionPending={actionMutation.isPending ? (actionMutation.variables?.action ?? null) : null}
+          onImpersonate={() => impersonateMutation.mutate(selected.id)}
+          impersonatePending={impersonateMutation.isPending}
         />
       )}
     </div>

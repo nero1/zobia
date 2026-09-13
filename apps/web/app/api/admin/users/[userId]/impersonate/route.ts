@@ -5,11 +5,25 @@ export const dynamic = 'force-dynamic';
  *
  * POST /api/admin/users/:userId/impersonate
  *
- * Starts an impersonation session: the admin's browser gets the target
- * user's session (so requests go through as that user), while the admin's
- * own tokens are stashed in a separate short-lived cookie pair so
- * POST /api/auth/impersonate/end can restore them.
+ * Starts an impersonation session.
  *
+ * - Web / cookie clients: the admin's browser gets the target user's
+ *   session cookies (so requests go through as that user), while the
+ *   admin's own tokens are stashed in a separate short-lived cookie pair so
+ *   POST /api/auth/impersonate/end can restore them. Unchanged from before.
+ * - Bearer / mobile clients (detected the same way withAdminAuth/withAuth
+ *   already distinguish auth modes — an `Authorization: Bearer` header):
+ *   cookies can't be read or set by a Capacitor Bearer-JWT client, so the
+ *   target's freshly-minted access/refresh token pair is returned directly
+ *   in the JSON body instead (same shape as a normal login response), plus
+ *   the admin's own id so the client can render the impersonation banner
+ *   and know who to restore. No separate server-side "backup" state is
+ *   needed for this mode: the admin id is already carried, tamper-proof,
+ *   in the target token's `impersonated_by` claim (see lib/auth/jwt.ts and
+ *   createSession in lib/auth/session.ts) and in the Redis session record
+ *   itself — /api/auth/impersonate/end's Bearer branch reads it from there.
+ *
+ * Shared regardless of auth mode:
  * - Cannot impersonate another admin (privilege-escalation guard).
  * - The impersonation session is capped to 15 minutes regardless of the
  *   target's normal session TTL (see createSession in lib/auth/session.ts).
@@ -21,6 +35,7 @@ import { db } from "@/lib/db";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { extractBearerToken } from "@/lib/auth/jwt";
 import {
   createSession,
   buildCookieHeaders,
@@ -40,6 +55,8 @@ interface TargetUserRow {
   is_creator: boolean;
   onboarding_completed: boolean;
   deleted_at: string | null;
+  plan: string | null;
+  avatar_url: string | null;
 }
 
 const IMPERSONATION_MAX_AGE_SECONDS = 900; // 15 min — matches createSession's impersonation TTL
@@ -50,15 +67,26 @@ export const POST = withAdminAuth<{ userId: string }>(
       const { userId } = params;
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-      const adminAccessToken = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
-      const adminRefreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
-      if (!adminAccessToken || !adminRefreshToken) {
-        throw forbidden("Admin session cookies are required to start impersonation.");
+      // Same convention withAdminAuth/withAuth already use to tell a Capacitor
+      // Bearer-JWT client apart from a cookie-session web/PWA client (see
+      // extractToken in lib/api/middleware.ts): presence of a Bearer token on
+      // THIS request means the admin authenticated with Bearer, and therefore
+      // has no cookies to stash/restore.
+      const isBearerClient = !!extractBearerToken(req.headers.get("authorization"));
+
+      let adminAccessToken: string | undefined;
+      let adminRefreshToken: string | undefined;
+      if (!isBearerClient) {
+        adminAccessToken = req.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+        adminRefreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
+        if (!adminAccessToken || !adminRefreshToken) {
+          throw forbidden("Admin session cookies are required to start impersonation.");
+        }
       }
 
       const { rows } = await db.query<TargetUserRow>(
         `SELECT id, email, username, is_admin, is_moderator, is_creator,
-                onboarding_completed, deleted_at
+                onboarding_completed, deleted_at, plan, avatar_url
          FROM users WHERE id = $1 LIMIT 1`,
         [userId]
       );
@@ -87,6 +115,29 @@ export const POST = withAdminAuth<{ userId: string }>(
          VALUES ($1, 'impersonate_start', 'users', $2, NULL, NULL, NOW())`,
         [auth.user.sub, target.id]
       ).catch((err) => logger.error({ err }, "[admin:impersonate] Failed to write admin_audit_log entry (non-fatal)"));
+
+      if (isBearerClient) {
+        return NextResponse.json({
+          success: true,
+          data: {
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+            expiresIn: tokens.expiresIn,
+            impersonatedBy: auth.user.sub,
+            user: {
+              id: target.id,
+              email: target.email,
+              username: target.username,
+              plan: (target.plan ?? "free") as "free" | "plus" | "pro" | "max",
+              is_admin: false,
+              is_moderator: target.is_moderator,
+              is_creator: target.is_creator,
+              avatar_url: target.avatar_url ?? null,
+            },
+          },
+          error: null,
+        });
+      }
 
       const { accessCookie, refreshCookie } = buildCookieHeaders(tokens, undefined, tokens.refreshTtl);
       const secure = process.env.NODE_ENV === "production";

@@ -30,7 +30,7 @@ import {
 } from "@/lib/quests/sponsoredQuestPacing";
 
 // Maps a ProgressionTrack name to the corresponding users table column
-const TRACK_COLUMN: Record<string, string> = {
+export const TRACK_COLUMN: Record<string, string> = {
   main: "xp_total",
   social: "xp_social",
   creator: "xp_creator",
@@ -93,6 +93,37 @@ export const QUEST_FEATURE_KEYS: (keyof ZobiaManifest["features"])[] = [
   "gifts",
   "rooms",
 ];
+
+/**
+ * The vocabulary of `quest_templates.action_type` values that some piece of
+ * application code actually increments via triggerActivityQuestProgress()
+ * (grep the call sites before adding to this list). This is NOT a DB enum —
+ * action_type is a plain text column — but a quest whose action_type isn't
+ * one of these can never make progress, since nothing in the codebase would
+ * ever call triggerActivityQuestProgress() with a matching string. Used by
+ * the admin Quests catalog (/gate44/quests) to constrain the action_type
+ * picker on quest creation to values that are actually wired up.
+ */
+export const QUEST_ACTION_TYPES = [
+  "messages",
+  "room_join",
+  "gift",
+  "login_streak",
+  "guild_quest",
+  "xp_meta",
+  "game_play",
+  "blog_publish",
+  "blog_comment",
+  "wiki_edit",
+  "poll_vote",
+  "poll_create",
+  "quiz_complete",
+  "quiz_perfect",
+  "forum_reply",
+  "forum_create_thread",
+  "market_purchase",
+] as const;
+export type QuestActionType = (typeof QUEST_ACTION_TYPES)[number];
 
 export interface QuestDeckItem extends QuestTemplate {
   progress_count: number;
