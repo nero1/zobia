@@ -87,7 +87,15 @@ function GamesPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <div className="mb-3 flex justify-end">
+      {/* Mirrors the Challenges / Leaderboards buttons on
+          apps/web/app/(app)/games/page.tsx's header. */}
+      <div className="mb-3 flex flex-wrap justify-end gap-2">
+        <Link to="/games/challenges" className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700">
+          {t('games.challenges', 'Challenges')}
+        </Link>
+        <Link to="/games/leaderboards" className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700">
+          {t('games.leaderboards', 'Leaderboards')}
+        </Link>
         <Link to="/games/saved" className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700">
           {t('games.savedGames.title', 'Saved Games')}
         </Link>

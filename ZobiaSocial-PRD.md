@@ -2573,6 +2573,15 @@ wager rake).
   (nothing is escrowed yet, so there's nothing to refund); once accepted, use Cancel
   instead. Completed challenges are never deleted (they're the wager/prize audit
   trail) but either participant can **archive** one to hide it from their inbox.
+- **Android parity:** `apps/android/src/routes/games/challenges/index.tsx` (inbox +
+  create form) and `games/challenges/$id.tsx` (round detail) port the same flow
+  natively, reusing every endpoint above — accept/decline/cancel/delete/archive, the
+  debounced opponent-username search, and the expiry countdown. The wager is always
+  shown as a gold badge before an Accept/Send action commits to it. "Play your round"
+  hands off to the existing `games/$slug/play.tsx` embedded iframe player with
+  `?c=<challengeId>` forwarded through to `/g/<slug>/embed`, returning to the
+  challenge detail page (not the game page) on exit. `game_challenge_*` push
+  notifications now deep-link to `/games/challenges/<id>` on both platforms.
 
 ### 30.4 Game UX & Discovery
 
@@ -2630,6 +2639,9 @@ wager rake).
   just hiding it client-side.
 - **Ads** are admin-togglable via `game_ads_enabled` and `game_ads_directory_enabled`
   manifest flags (no fixed ad slots hardcoded in game pages).
+- **Android parity:** `apps/android/src/routes/games/leaderboards.tsx` is a game
+  picker in front of the same `GET /api/games/<slug>/leaderboard` endpoint, linked
+  from the Games hub header alongside Challenges.
 
 ### 30.6 Admin controls
 

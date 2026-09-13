@@ -79,6 +79,7 @@ import { Route as MarketSectionRouteImport } from './routes/market/$section'
 import { Route as HelpSearchRouteImport } from './routes/help/search'
 import { Route as GuildsGuildIdRouteImport } from './routes/guilds/$guildId'
 import { Route as GamesSavedRouteImport } from './routes/games/saved'
+import { Route as GamesLeaderboardsRouteImport } from './routes/games/leaderboards'
 import { Route as ForumBoardSlugRouteImport } from './routes/forum/$boardSlug'
 import { Route as ForumThreadsIdRouteImport } from './routes/forum-threads/$id'
 import { Route as CreatorWalletRouteImport } from './routes/creator/wallet'
@@ -139,6 +140,7 @@ import { Route as AdminActionsLogRouteImport } from './routes/admin/actions-log'
 import { Route as WikiSlugIndexRouteImport } from './routes/wiki/$slug/index'
 import { Route as MessagesGroupsIndexRouteImport } from './routes/messages/groups/index'
 import { Route as HelpCategoryIndexRouteImport } from './routes/help/$category/index'
+import { Route as GamesChallengesIndexRouteImport } from './routes/games/challenges/index'
 import { Route as GamesSlugIndexRouteImport } from './routes/games/$slug/index'
 import { Route as BusinessStatsIndexRouteImport } from './routes/business/stats/index'
 import { Route as BusinessPagesIndexRouteImport } from './routes/business/pages/index'
@@ -153,6 +155,7 @@ import { Route as WikiSlugManageRouteImport } from './routes/wiki/$slug/manage'
 import { Route as MessagesGroupsCreateRouteImport } from './routes/messages/groups/create'
 import { Route as MessagesGroupsGroupIdRouteImport } from './routes/messages/groups/$groupId'
 import { Route as HelpCategoryDocRouteImport } from './routes/help/$category/$doc'
+import { Route as GamesChallengesIdRouteImport } from './routes/games/challenges/$id'
 import { Route as GamesSlugPlayRouteImport } from './routes/games/$slug/play'
 import { Route as ForumThreadSlugRouteImport } from './routes/forum/thread/$slug'
 import { Route as BusinessPagesPageIdRouteImport } from './routes/business/pages/$pageId'
@@ -516,6 +519,11 @@ const GamesSavedRoute = GamesSavedRouteImport.update({
   path: '/games/saved',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GamesLeaderboardsRoute = GamesLeaderboardsRouteImport.update({
+  id: '/games/leaderboards',
+  path: '/games/leaderboards',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ForumBoardSlugRoute = ForumBoardSlugRouteImport.update({
   id: '/forum/$boardSlug',
   path: '/forum/$boardSlug',
@@ -816,6 +824,11 @@ const HelpCategoryIndexRoute = HelpCategoryIndexRouteImport.update({
   path: '/help/$category/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const GamesChallengesIndexRoute = GamesChallengesIndexRouteImport.update({
+  id: '/games/challenges/',
+  path: '/games/challenges/',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const GamesSlugIndexRoute = GamesSlugIndexRouteImport.update({
   id: '/games/$slug/',
   path: '/games/$slug/',
@@ -884,6 +897,11 @@ const MessagesGroupsGroupIdRoute = MessagesGroupsGroupIdRouteImport.update({
 const HelpCategoryDocRoute = HelpCategoryDocRouteImport.update({
   id: '/help/$category/$doc',
   path: '/help/$category/$doc',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const GamesChallengesIdRoute = GamesChallengesIdRouteImport.update({
+  id: '/games/challenges/$id',
+  path: '/games/challenges/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const GamesSlugPlayRoute = GamesSlugPlayRouteImport.update({
@@ -1034,6 +1052,7 @@ export interface FileRoutesByFullPath {
   '/creator/wallet': typeof CreatorWalletRoute
   '/forum-threads/$id': typeof ForumThreadsIdRoute
   '/forum/$boardSlug': typeof ForumBoardSlugRoute
+  '/games/leaderboards': typeof GamesLeaderboardsRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
   '/help/search': typeof HelpSearchRoute
@@ -1087,6 +1106,7 @@ export interface FileRoutesByFullPath {
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
   '/forum/thread/$slug': typeof ForumThreadSlugRoute
   '/games/$slug/play': typeof GamesSlugPlayRoute
+  '/games/challenges/$id': typeof GamesChallengesIdRoute
   '/help/$category/$doc': typeof HelpCategoryDocRoute
   '/messages/groups/$groupId': typeof MessagesGroupsGroupIdRoute
   '/messages/groups/create': typeof MessagesGroupsCreateRoute
@@ -1101,6 +1121,7 @@ export interface FileRoutesByFullPath {
   '/business/pages/': typeof BusinessPagesIndexRoute
   '/business/stats/': typeof BusinessStatsIndexRoute
   '/games/$slug/': typeof GamesSlugIndexRoute
+  '/games/challenges/': typeof GamesChallengesIndexRoute
   '/help/$category/': typeof HelpCategoryIndexRoute
   '/messages/groups/': typeof MessagesGroupsIndexRoute
   '/wiki/$slug/': typeof WikiSlugIndexRoute
@@ -1192,6 +1213,7 @@ export interface FileRoutesByTo {
   '/creator/wallet': typeof CreatorWalletRoute
   '/forum-threads/$id': typeof ForumThreadsIdRoute
   '/forum/$boardSlug': typeof ForumBoardSlugRoute
+  '/games/leaderboards': typeof GamesLeaderboardsRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
   '/help/search': typeof HelpSearchRoute
@@ -1245,6 +1267,7 @@ export interface FileRoutesByTo {
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
   '/forum/thread/$slug': typeof ForumThreadSlugRoute
   '/games/$slug/play': typeof GamesSlugPlayRoute
+  '/games/challenges/$id': typeof GamesChallengesIdRoute
   '/help/$category/$doc': typeof HelpCategoryDocRoute
   '/messages/groups/$groupId': typeof MessagesGroupsGroupIdRoute
   '/messages/groups/create': typeof MessagesGroupsCreateRoute
@@ -1259,6 +1282,7 @@ export interface FileRoutesByTo {
   '/business/pages': typeof BusinessPagesIndexRoute
   '/business/stats': typeof BusinessStatsIndexRoute
   '/games/$slug': typeof GamesSlugIndexRoute
+  '/games/challenges': typeof GamesChallengesIndexRoute
   '/help/$category': typeof HelpCategoryIndexRoute
   '/messages/groups': typeof MessagesGroupsIndexRoute
   '/wiki/$slug': typeof WikiSlugIndexRoute
@@ -1351,6 +1375,7 @@ export interface FileRoutesById {
   '/creator/wallet': typeof CreatorWalletRoute
   '/forum-threads/$id': typeof ForumThreadsIdRoute
   '/forum/$boardSlug': typeof ForumBoardSlugRoute
+  '/games/leaderboards': typeof GamesLeaderboardsRoute
   '/games/saved': typeof GamesSavedRoute
   '/guilds/$guildId': typeof GuildsGuildIdRoute
   '/help/search': typeof HelpSearchRoute
@@ -1404,6 +1429,7 @@ export interface FileRoutesById {
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
   '/forum/thread/$slug': typeof ForumThreadSlugRoute
   '/games/$slug/play': typeof GamesSlugPlayRoute
+  '/games/challenges/$id': typeof GamesChallengesIdRoute
   '/help/$category/$doc': typeof HelpCategoryDocRoute
   '/messages/groups/$groupId': typeof MessagesGroupsGroupIdRoute
   '/messages/groups/create': typeof MessagesGroupsCreateRoute
@@ -1418,6 +1444,7 @@ export interface FileRoutesById {
   '/business/pages/': typeof BusinessPagesIndexRoute
   '/business/stats/': typeof BusinessStatsIndexRoute
   '/games/$slug/': typeof GamesSlugIndexRoute
+  '/games/challenges/': typeof GamesChallengesIndexRoute
   '/help/$category/': typeof HelpCategoryIndexRoute
   '/messages/groups/': typeof MessagesGroupsIndexRoute
   '/wiki/$slug/': typeof WikiSlugIndexRoute
@@ -1511,6 +1538,7 @@ export interface FileRouteTypes {
     | '/creator/wallet'
     | '/forum-threads/$id'
     | '/forum/$boardSlug'
+    | '/games/leaderboards'
     | '/games/saved'
     | '/guilds/$guildId'
     | '/help/search'
@@ -1564,6 +1592,7 @@ export interface FileRouteTypes {
     | '/business/pages/$pageId'
     | '/forum/thread/$slug'
     | '/games/$slug/play'
+    | '/games/challenges/$id'
     | '/help/$category/$doc'
     | '/messages/groups/$groupId'
     | '/messages/groups/create'
@@ -1578,6 +1607,7 @@ export interface FileRouteTypes {
     | '/business/pages/'
     | '/business/stats/'
     | '/games/$slug/'
+    | '/games/challenges/'
     | '/help/$category/'
     | '/messages/groups/'
     | '/wiki/$slug/'
@@ -1669,6 +1699,7 @@ export interface FileRouteTypes {
     | '/creator/wallet'
     | '/forum-threads/$id'
     | '/forum/$boardSlug'
+    | '/games/leaderboards'
     | '/games/saved'
     | '/guilds/$guildId'
     | '/help/search'
@@ -1722,6 +1753,7 @@ export interface FileRouteTypes {
     | '/business/pages/$pageId'
     | '/forum/thread/$slug'
     | '/games/$slug/play'
+    | '/games/challenges/$id'
     | '/help/$category/$doc'
     | '/messages/groups/$groupId'
     | '/messages/groups/create'
@@ -1736,6 +1768,7 @@ export interface FileRouteTypes {
     | '/business/pages'
     | '/business/stats'
     | '/games/$slug'
+    | '/games/challenges'
     | '/help/$category'
     | '/messages/groups'
     | '/wiki/$slug'
@@ -1827,6 +1860,7 @@ export interface FileRouteTypes {
     | '/creator/wallet'
     | '/forum-threads/$id'
     | '/forum/$boardSlug'
+    | '/games/leaderboards'
     | '/games/saved'
     | '/guilds/$guildId'
     | '/help/search'
@@ -1880,6 +1914,7 @@ export interface FileRouteTypes {
     | '/business/pages/$pageId'
     | '/forum/thread/$slug'
     | '/games/$slug/play'
+    | '/games/challenges/$id'
     | '/help/$category/$doc'
     | '/messages/groups/$groupId'
     | '/messages/groups/create'
@@ -1894,6 +1929,7 @@ export interface FileRouteTypes {
     | '/business/pages/'
     | '/business/stats/'
     | '/games/$slug/'
+    | '/games/challenges/'
     | '/help/$category/'
     | '/messages/groups/'
     | '/wiki/$slug/'
@@ -1986,6 +2022,7 @@ export interface RootRouteChildren {
   CreatorWalletRoute: typeof CreatorWalletRoute
   ForumThreadsIdRoute: typeof ForumThreadsIdRoute
   ForumBoardSlugRoute: typeof ForumBoardSlugRoute
+  GamesLeaderboardsRoute: typeof GamesLeaderboardsRoute
   GamesSavedRoute: typeof GamesSavedRoute
   GuildsGuildIdRoute: typeof GuildsGuildIdRoute
   HelpSearchRoute: typeof HelpSearchRoute
@@ -2037,6 +2074,7 @@ export interface RootRouteChildren {
   BusinessPagesPageIdRoute: typeof BusinessPagesPageIdRoute
   ForumThreadSlugRoute: typeof ForumThreadSlugRoute
   GamesSlugPlayRoute: typeof GamesSlugPlayRoute
+  GamesChallengesIdRoute: typeof GamesChallengesIdRoute
   HelpCategoryDocRoute: typeof HelpCategoryDocRoute
   MessagesGroupsGroupIdRoute: typeof MessagesGroupsGroupIdRoute
   MessagesGroupsCreateRoute: typeof MessagesGroupsCreateRoute
@@ -2051,6 +2089,7 @@ export interface RootRouteChildren {
   BusinessPagesIndexRoute: typeof BusinessPagesIndexRoute
   BusinessStatsIndexRoute: typeof BusinessStatsIndexRoute
   GamesSlugIndexRoute: typeof GamesSlugIndexRoute
+  GamesChallengesIndexRoute: typeof GamesChallengesIndexRoute
   HelpCategoryIndexRoute: typeof HelpCategoryIndexRoute
   MessagesGroupsIndexRoute: typeof MessagesGroupsIndexRoute
   WikiSlugIndexRoute: typeof WikiSlugIndexRoute
@@ -2552,6 +2591,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof GamesSavedRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/games/leaderboards': {
+      id: '/games/leaderboards'
+      path: '/games/leaderboards'
+      fullPath: '/games/leaderboards'
+      preLoaderRoute: typeof GamesLeaderboardsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/forum/$boardSlug': {
       id: '/forum/$boardSlug'
       path: '/forum/$boardSlug'
@@ -2972,6 +3018,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof HelpCategoryIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/games/challenges/': {
+      id: '/games/challenges/'
+      path: '/games/challenges'
+      fullPath: '/games/challenges/'
+      preLoaderRoute: typeof GamesChallengesIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/games/$slug/': {
       id: '/games/$slug/'
       path: '/games/$slug'
@@ -3068,6 +3121,13 @@ declare module '@tanstack/react-router' {
       path: '/help/$category/$doc'
       fullPath: '/help/$category/$doc'
       preLoaderRoute: typeof HelpCategoryDocRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/games/challenges/$id': {
+      id: '/games/challenges/$id'
+      path: '/games/challenges/$id'
+      fullPath: '/games/challenges/$id'
+      preLoaderRoute: typeof GamesChallengesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/games/$slug/play': {
@@ -3254,6 +3314,7 @@ const rootRouteChildren: RootRouteChildren = {
   CreatorWalletRoute: CreatorWalletRoute,
   ForumThreadsIdRoute: ForumThreadsIdRoute,
   ForumBoardSlugRoute: ForumBoardSlugRoute,
+  GamesLeaderboardsRoute: GamesLeaderboardsRoute,
   GamesSavedRoute: GamesSavedRoute,
   GuildsGuildIdRoute: GuildsGuildIdRoute,
   HelpSearchRoute: HelpSearchRoute,
@@ -3305,6 +3366,7 @@ const rootRouteChildren: RootRouteChildren = {
   BusinessPagesPageIdRoute: BusinessPagesPageIdRoute,
   ForumThreadSlugRoute: ForumThreadSlugRoute,
   GamesSlugPlayRoute: GamesSlugPlayRoute,
+  GamesChallengesIdRoute: GamesChallengesIdRoute,
   HelpCategoryDocRoute: HelpCategoryDocRoute,
   MessagesGroupsGroupIdRoute: MessagesGroupsGroupIdRoute,
   MessagesGroupsCreateRoute: MessagesGroupsCreateRoute,
@@ -3319,6 +3381,7 @@ const rootRouteChildren: RootRouteChildren = {
   BusinessPagesIndexRoute: BusinessPagesIndexRoute,
   BusinessStatsIndexRoute: BusinessStatsIndexRoute,
   GamesSlugIndexRoute: GamesSlugIndexRoute,
+  GamesChallengesIndexRoute: GamesChallengesIndexRoute,
   HelpCategoryIndexRoute: HelpCategoryIndexRoute,
   MessagesGroupsIndexRoute: MessagesGroupsIndexRoute,
   WikiSlugIndexRoute: WikiSlugIndexRoute,

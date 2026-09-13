@@ -24,6 +24,9 @@ export const ROUTES = {
   MESSAGE_THREAD: (threadId: string) => `/messages/${encodeURIComponent(threadId)}`,
   PROFILE: (username: string) => `/profile/${encodeURIComponent(username)}`,
   GAME: (slug: string) => `/games/${encodeURIComponent(slug)}`,
+  GAME_CHALLENGES: '/games/challenges',
+  GAME_CHALLENGE: (id: string) => `/games/challenges/${encodeURIComponent(id)}`,
+  GAME_LEADERBOARDS: '/games/leaderboards',
   // Polls & Quizzes — mirrors apps/web/lib/deeplinks/routes.ts.
   POLL: (slug: string) => `/polls/${encodeURIComponent(slug)}`,
   QUIZ: (slug: string) => `/quizzes/${encodeURIComponent(slug)}`,

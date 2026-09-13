@@ -23,6 +23,14 @@
  * middleware.ts's CSP only allows this route's parent origin
  * (https://localhost / capacitor://localhost) to frame /g/<slug>/embed
  * specifically — every other route keeps frame-ancestors 'self'.
+ *
+ * Optional `?c=<challengeId>` search param: when a Play Round action inside a
+ * challenge (routes/games/challenges/$id.tsx) launches this route, it's
+ * forwarded as the embed's own `?c=` param — the same query GameRunner reads
+ * on web to bind the play session to that challenge round via
+ * POST /api/games/challenges/<id>/play instead of the normal free-play start
+ * — and on exit this returns to the challenge detail page instead of the
+ * game's own page, so the round result / next-round prompt is visible.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -34,6 +42,7 @@ import { useFloatingReward } from '@/components/notifications/FloatingRewardProv
 
 function GamePlayPage() {
   const { slug } = Route.useParams();
+  const { c: challengeId } = Route.useSearch();
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { fireReward } = useFloatingReward();
@@ -44,12 +53,18 @@ function GamePlayPage() {
   const gameOrigin = (() => {
     try { return new URL(env.VITE_API_BASE_URL).origin; } catch { return 'https://zobia.vercel.app'; }
   })();
-  const src = `${env.VITE_API_BASE_URL}/g/${encodeURIComponent(slug)}/embed?t=${encodeURIComponent(token ?? '')}`;
+  const src = `${env.VITE_API_BASE_URL}/g/${encodeURIComponent(slug)}/embed?t=${encodeURIComponent(token ?? '')}${
+    challengeId ? `&c=${encodeURIComponent(challengeId)}` : ''
+  }`;
 
   function exitToGame() {
     if (exitedRef.current) return;
     exitedRef.current = true;
-    navigate({ to: '/games/$slug', params: { slug }, replace: true });
+    if (challengeId) {
+      navigate({ to: '/games/challenges/$id', params: { id: challengeId }, replace: true });
+    } else {
+      navigate({ to: '/games/$slug', params: { slug }, replace: true });
+    }
   }
 
   useEffect(() => {
@@ -118,5 +133,8 @@ function GamePlayPage() {
 }
 
 export const Route = createFileRoute('/games/$slug/play')({
+  validateSearch: (search: Record<string, unknown>): { c?: string } => ({
+    c: typeof search.c === 'string' ? search.c : undefined,
+  }),
   component: GamePlayPage,
 });

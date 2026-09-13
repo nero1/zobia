@@ -82,6 +82,16 @@ export function deriveNotificationActionUrl(
       return "/kyc";
     case "admin_alert":
       return "/gate44/alerts";
+    // Game challenges (lib/games/challenges.ts's `notify` calls) — every
+    // variant carries `challengeId` in metadata, so a tap always lands on
+    // the challenge's own detail page rather than the generic inbox.
+    case "game_challenge_received":
+    case "game_challenge_accepted":
+    case "game_challenge_declined":
+    case "game_challenge_cancelled":
+    case "game_challenge_completed":
+    case "game_challenge_expired":
+      return isNonEmptyString(m.challengeId) ? `/games/challenges/${m.challengeId}` : "/games/challenges";
     default:
       return null;
   }
