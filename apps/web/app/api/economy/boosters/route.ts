@@ -4,7 +4,13 @@ export const dynamic = 'force-dynamic';
  * app/api/economy/boosters/route.ts
  *
  * GET  /api/economy/boosters — list active boost types (the Market's
- *   "Boosts & Passes" catalog, admin-managed via /gate44/boosts).
+ *   "Boosts & Passes" catalog, admin-managed via /gate44/boosts), plus the
+ *   caller's own currently-active boosters (joined from user_xp_boosters —
+ *   see `activeBoosters` in the response). Consumed by the Android wallet
+ *   screen's "Active Boosters" section (apps/android/src/routes/wallet.tsx);
+ *   web's wallet page has an `<BoosterPacks>` component for the same data
+ *   but never actually wires it up (its `boosters` state is hardcoded to
+ *   `[]` — a pre-existing, out-of-scope web bug left as-is here).
  * POST /api/economy/boosters — purchase and activate a boost.
  *
  * Body: { boosterType: string } — any active boost_types.key.
@@ -56,14 +62,38 @@ interface BoostTypeRow {
 // GET /api/economy/boosters
 // ---------------------------------------------------------------------------
 
-export const GET = withAuth(async () => {
+interface ActiveBoosterRow {
+  id: string;
+  booster_type: string;
+  multiplier: number;
+  expires_at: string;
+  label: string | null;
+  description: string | null;
+}
+
+export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
-    const { rows } = await db.query<BoostTypeRow>(
-      `SELECT id, key, label, description, multiplier_bp, duration_hours,
-              coins_cost, stackable
-       FROM boost_types WHERE is_active = TRUE ORDER BY sort_order ASC`
-    );
-    return NextResponse.json({ success: true, data: { boosts: rows }, error: null });
+    const [{ rows }, { rows: activeRows }] = await Promise.all([
+      db.query<BoostTypeRow>(
+        `SELECT id, key, label, description, multiplier_bp, duration_hours,
+                coins_cost, stackable
+         FROM boost_types WHERE is_active = TRUE ORDER BY sort_order ASC`
+      ),
+      db.query<ActiveBoosterRow>(
+        `SELECT b.id, b.booster_type, b.multiplier, b.expires_at,
+                t.label, t.description
+         FROM user_xp_boosters b
+         LEFT JOIN boost_types t ON t.key = b.booster_type
+         WHERE b.user_id = $1 AND b.is_active = TRUE AND b.expires_at > NOW()
+         ORDER BY b.expires_at ASC`,
+        [auth.user.sub]
+      ),
+    ]);
+    return NextResponse.json({
+      success: true,
+      data: { boosts: rows, activeBoosters: activeRows },
+      error: null,
+    });
   } catch (err) {
     return handleApiError(err);
   }

@@ -60,6 +60,10 @@ interface Eligibility {
   eligible: boolean;
   reason?: string;
 }
+interface AdWalletBalance {
+  adWalletBalance: number;
+  mainWalletBalance: number;
+}
 
 async function fetchAccount(): Promise<BusinessAccount | null> {
   try {
@@ -90,6 +94,11 @@ async function fetchCampaigns() {
   return data.campaigns;
 }
 
+async function fetchAdWallet() {
+  const { data } = await apiClient.get<AdWalletBalance>('/business/ads/wallet');
+  return data;
+}
+
 function badgeClass(status: string) {
   if (status === 'approved') return 'bg-green-100 text-green-700';
   if (status === 'rejected') return 'bg-red-100 text-red-700';
@@ -108,6 +117,65 @@ const PLACEMENTS = [
   { key: 'rewarded_global', labelKey: 'ads.campaigns.placement.rewardedVideo', size: 'rewarded' },
 ] as const;
 
+/**
+ * Ad Wallet balance/transfer panel — mirrors apps/web/app/(app)/business/
+ * ads/page.tsx's `AdWalletPanel`: moves Credits 1:1 from the caller's main
+ * wallet into their Ad Wallet (separate balance ads spend from). Web also
+ * offers a "Buy Credits directly" link to /wallet?destination=ad_wallet —
+ * that's a Paystack/DodoPayments checkout flow, web/PWA-only per PRD §18,
+ * so it's omitted here (Android tops up the main wallet via Google Play
+ * Billing on the Wallet screen, then transfers from there).
+ */
+function AdWalletPanel() {
+  const { t } = useTranslation();
+  const qc = useQueryClient();
+  const { data: balance } = useQuery({ queryKey: ['ads', 'wallet'], queryFn: fetchAdWallet });
+  const [transferAmount, setTransferAmount] = useState(1000);
+  const [error, setError] = useState<string | null>(null);
+
+  const transferMutation = useMutation({
+    mutationFn: (amountCredits: number) => apiClient.post('/business/ads/wallet/transfer', { amountCredits }),
+    onSuccess: () => { setError(null); qc.invalidateQueries({ queryKey: ['ads', 'wallet'] }); },
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : t('ads.wallet.transferFailed', 'Transfer failed')),
+  });
+
+  return (
+    <div className="bg-white rounded-xl p-4 shadow-card mb-4">
+      <h2 className="font-semibold text-sm text-neutral-900">{t('ads.wallet.title', 'Ad Wallet')}</h2>
+      <p className="mt-1 text-xs text-neutral-500">
+        {t('ads.wallet.desc', 'Ads only run once this wallet has funds — separate from your main Credits balance.')}
+      </p>
+      <div className="mt-3 flex items-baseline gap-4">
+        <div>
+          <p className="text-[11px] text-neutral-400">{t('ads.wallet.adBalance', 'Ad Wallet balance')}</p>
+          <p className="text-lg font-bold text-neutral-900">{(balance?.adWalletBalance ?? 0).toLocaleString()} <span className="text-xs font-normal text-neutral-400">{t('ads.wallet.credits', 'Credits')}</span></p>
+        </div>
+        <div>
+          <p className="text-[11px] text-neutral-400">{t('ads.wallet.mainBalance', 'Main wallet balance')}</p>
+          <p className="text-sm font-semibold text-neutral-600">{(balance?.mainWalletBalance ?? 0).toLocaleString()} {t('ads.wallet.credits', 'Credits')}</p>
+        </div>
+      </div>
+      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      <div className="mt-3 flex items-center gap-2">
+        <input
+          type="number"
+          min={1}
+          value={transferAmount}
+          onChange={(e) => setTransferAmount(Number(e.target.value))}
+          className="w-28 rounded-lg border border-neutral-200 px-3 py-1.5 text-sm"
+        />
+        <button
+          disabled={transferMutation.isPending}
+          onClick={() => transferAmount > 0 && transferMutation.mutate(transferAmount)}
+          className="rounded-lg bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+        >
+          {transferMutation.isPending ? t('ads.wallet.transferring', 'Transferring…') : t('ads.wallet.transferBtn', 'Transfer from main wallet')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AdCampaignsTab() {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -121,6 +189,8 @@ function AdCampaignsTab() {
   const [clickUrl, setClickUrl] = useState('');
   const [budgetCredits, setBudgetCredits] = useState(5000);
   const [error, setError] = useState<string | null>(null);
+  const [couponTargetId, setCouponTargetId] = useState<string | null>(null);
+  const [couponCode, setCouponCode] = useState('');
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -156,6 +226,18 @@ function AdCampaignsTab() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['ads', 'campaigns'] }),
   });
 
+  const redeemCouponMutation = useMutation({
+    mutationFn: ({ campaignId, code }: { campaignId: string; code: string }) =>
+      apiClient.post('/business/ads/coupons/redeem', { campaignId, code }),
+    onSuccess: () => {
+      setError(null);
+      setCouponCode('');
+      setCouponTargetId(null);
+      qc.invalidateQueries({ queryKey: ['ads', 'campaigns'] });
+    },
+    onError: (err: unknown) => setError(err instanceof Error ? err.message : t('ads.coupons.invalid', 'Invalid coupon')),
+  });
+
   if (!eligibility) return <p className="text-center text-sm text-neutral-400 py-8">{t('action.loading', 'Loading…')}</p>;
 
   if (!eligibility.eligible) {
@@ -170,6 +252,8 @@ function AdCampaignsTab() {
   return (
     <>
       {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+
+      <AdWalletPanel />
 
       {!showForm ? (
         <button onClick={() => setShowForm(true)} className="w-full rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white mb-4">
@@ -213,13 +297,36 @@ function AdCampaignsTab() {
                 })}
               </p>
               {c.moderation_status === 'approved' && (
-                <div className="mt-2 flex gap-2">
+                <div className="mt-2 flex flex-wrap gap-2">
                   {c.status !== 'active' && (
                     <button onClick={() => runStateMutation.mutate({ id: c.id, action: 'activate' })} className="rounded-lg bg-green-600 px-2.5 py-1 text-[11px] font-semibold text-white">{t('ads.campaigns.activate', 'Activate')}</button>
                   )}
                   {c.status === 'active' && (
                     <button onClick={() => runStateMutation.mutate({ id: c.id, action: 'pause' })} className="rounded-lg border border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-neutral-700">{t('ads.campaigns.pause', 'Pause')}</button>
                   )}
+                  <button
+                    onClick={() => setCouponTargetId(couponTargetId === c.id ? null : c.id)}
+                    className="rounded-lg border border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-neutral-700"
+                  >
+                    {t('ads.coupons.applyBtn', 'Apply coupon…')}
+                  </button>
+                </div>
+              )}
+              {couponTargetId === c.id && (
+                <div className="mt-2 flex gap-2">
+                  <input
+                    value={couponCode}
+                    onChange={(e) => setCouponCode(e.target.value)}
+                    placeholder={t('ads.coupons.codePlaceholder', 'COUPON CODE')}
+                    className="flex-1 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs uppercase"
+                  />
+                  <button
+                    onClick={() => couponCode.trim() && redeemCouponMutation.mutate({ campaignId: c.id, code: couponCode.trim() })}
+                    disabled={redeemCouponMutation.isPending}
+                    className="rounded-lg bg-primary-600 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-60"
+                  >
+                    {redeemCouponMutation.isPending ? t('ads.coupons.redeeming', 'Redeeming…') : t('ads.coupons.redeemBtn', 'Redeem')}
+                  </button>
                 </div>
               )}
             </div>

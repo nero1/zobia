@@ -83,6 +83,7 @@ import { Route as GamesLeaderboardsRouteImport } from './routes/games/leaderboar
 import { Route as ForumBoardSlugRouteImport } from './routes/forum/$boardSlug'
 import { Route as ForumThreadsIdRouteImport } from './routes/forum-threads/$id'
 import { Route as CreatorWalletRouteImport } from './routes/creator/wallet'
+import { Route as CreatorMerchRouteImport } from './routes/creator/merch'
 import { Route as CreatorMarketplaceRouteImport } from './routes/creator/marketplace'
 import { Route as CreatorBroadcastsRouteImport } from './routes/creator/broadcasts'
 import { Route as CreatorBankAccountRouteImport } from './routes/creator/bank-account'
@@ -537,6 +538,11 @@ const ForumThreadsIdRoute = ForumThreadsIdRouteImport.update({
 const CreatorWalletRoute = CreatorWalletRouteImport.update({
   id: '/creator/wallet',
   path: '/creator/wallet',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CreatorMerchRoute = CreatorMerchRouteImport.update({
+  id: '/creator/merch',
+  path: '/creator/merch',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CreatorMarketplaceRoute = CreatorMarketplaceRouteImport.update({
@@ -1049,6 +1055,7 @@ export interface FileRoutesByFullPath {
   '/creator/bank-account': typeof CreatorBankAccountRoute
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
+  '/creator/merch': typeof CreatorMerchRoute
   '/creator/wallet': typeof CreatorWalletRoute
   '/forum-threads/$id': typeof ForumThreadsIdRoute
   '/forum/$boardSlug': typeof ForumBoardSlugRoute
@@ -1210,6 +1217,7 @@ export interface FileRoutesByTo {
   '/creator/bank-account': typeof CreatorBankAccountRoute
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
+  '/creator/merch': typeof CreatorMerchRoute
   '/creator/wallet': typeof CreatorWalletRoute
   '/forum-threads/$id': typeof ForumThreadsIdRoute
   '/forum/$boardSlug': typeof ForumBoardSlugRoute
@@ -1372,6 +1380,7 @@ export interface FileRoutesById {
   '/creator/bank-account': typeof CreatorBankAccountRoute
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
+  '/creator/merch': typeof CreatorMerchRoute
   '/creator/wallet': typeof CreatorWalletRoute
   '/forum-threads/$id': typeof ForumThreadsIdRoute
   '/forum/$boardSlug': typeof ForumBoardSlugRoute
@@ -1535,6 +1544,7 @@ export interface FileRouteTypes {
     | '/creator/bank-account'
     | '/creator/broadcasts'
     | '/creator/marketplace'
+    | '/creator/merch'
     | '/creator/wallet'
     | '/forum-threads/$id'
     | '/forum/$boardSlug'
@@ -1696,6 +1706,7 @@ export interface FileRouteTypes {
     | '/creator/bank-account'
     | '/creator/broadcasts'
     | '/creator/marketplace'
+    | '/creator/merch'
     | '/creator/wallet'
     | '/forum-threads/$id'
     | '/forum/$boardSlug'
@@ -1857,6 +1868,7 @@ export interface FileRouteTypes {
     | '/creator/bank-account'
     | '/creator/broadcasts'
     | '/creator/marketplace'
+    | '/creator/merch'
     | '/creator/wallet'
     | '/forum-threads/$id'
     | '/forum/$boardSlug'
@@ -2019,6 +2031,7 @@ export interface RootRouteChildren {
   CreatorBankAccountRoute: typeof CreatorBankAccountRoute
   CreatorBroadcastsRoute: typeof CreatorBroadcastsRoute
   CreatorMarketplaceRoute: typeof CreatorMarketplaceRoute
+  CreatorMerchRoute: typeof CreatorMerchRoute
   CreatorWalletRoute: typeof CreatorWalletRoute
   ForumThreadsIdRoute: typeof ForumThreadsIdRoute
   ForumBoardSlugRoute: typeof ForumBoardSlugRoute
@@ -2617,6 +2630,13 @@ declare module '@tanstack/react-router' {
       path: '/creator/wallet'
       fullPath: '/creator/wallet'
       preLoaderRoute: typeof CreatorWalletRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/creator/merch': {
+      id: '/creator/merch'
+      path: '/creator/merch'
+      fullPath: '/creator/merch'
+      preLoaderRoute: typeof CreatorMerchRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/creator/marketplace': {
@@ -3311,6 +3331,7 @@ const rootRouteChildren: RootRouteChildren = {
   CreatorBankAccountRoute: CreatorBankAccountRoute,
   CreatorBroadcastsRoute: CreatorBroadcastsRoute,
   CreatorMarketplaceRoute: CreatorMarketplaceRoute,
+  CreatorMerchRoute: CreatorMerchRoute,
   CreatorWalletRoute: CreatorWalletRoute,
   ForumThreadsIdRoute: ForumThreadsIdRoute,
   ForumBoardSlugRoute: ForumBoardSlugRoute,

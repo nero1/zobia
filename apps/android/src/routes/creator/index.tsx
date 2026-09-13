@@ -209,6 +209,10 @@ function CreatorDashboardPage() {
             </div>
           ))}
         </div>
+        <Link to="/creator/merch" className="flex items-center justify-between border-t border-neutral-100 px-4 py-3 text-sm font-semibold text-primary-600">
+          🛍️ {t('creator.manageMerchStore', 'Manage Merch Store')}
+          <span>→</span>
+        </Link>
       </div>
 
       <div className="rounded-xl border border-neutral-200 bg-white shadow-card p-4">
