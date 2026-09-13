@@ -7841,6 +7841,41 @@ flow, reusing the existing Platform Advertising pipeline (§17) as-is.
 
 ---
 
-*ZobiaSocial PRD v2.26*
+### v2.27 — Changelog
+
+#### Web/Android parity audit — three gaps closed
+
+- **Creator Merch Store management on Android** (`apps/android/src/routes/
+  creator/merch.tsx`, new) — previously Android had no way to set up or
+  manage a Merch store at all (only the read-only browse/buy flow at
+  `routes/merch/`). Built natively (unlike the bank-account/wallet payout
+  screens, which intentionally hand off to web for PIN/2FA-gated detail
+  entry) since Merch setup is plain CRUD: create/update the store, add
+  digital/physical/course-material products, and opt a product into the
+  Market referral program — same `GET/POST /api/merch/:userId` and
+  `POST /api/merch/:userId/products` endpoints web uses. Linked from the
+  creator dashboard's Revenue by Stream card.
+- **Wallet Booster Packs on Android** (`apps/android/src/routes/wallet.tsx`)
+  — `GET /api/economy/boosters` now also returns the caller's active
+  boosters (joined from `user_xp_boosters`), not just the `boost_types`
+  catalog; web's own `<BoosterPacks>` component never actually consumed
+  this data (its `boosters` state was hardcoded to `[]`, a pre-existing web
+  bug left as-is). Android's new `BoosterPacksPanel` shows active boosts
+  with a countdown and lets a user buy a new one; since boosts are paid for
+  with existing Coins, not real money, purchase goes straight through the
+  platform-agnostic `POST /api/economy/boosters`, not Google Play Billing.
+- **Business Ads: Ad Wallet transfer + coupon redemption on Android**
+  (`apps/android/src/routes/business/ads/index.tsx`) — added an Ad Wallet
+  balance/transfer panel (`POST /api/business/ads/wallet/transfer`, a fee-
+  free 1:1 move from the main Credits balance) and per-campaign coupon
+  redemption (`POST /api/business/ads/coupons/redeem`), matching web's
+  Advertising Panel. Web's "Buy Credits directly into Ad Wallet" link (a
+  Paystack/DodoPayments checkout) is intentionally left off Android — top
+  up the main wallet via Google Play Billing on the Wallet screen instead,
+  then transfer from there.
+
+---
+
+*ZobiaSocial PRD v2.27*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
