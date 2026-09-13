@@ -132,6 +132,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // previous owner left behind, in memory and on disk. Impersonation counts
     // as a different owner for this purpose — an admin acting as someone else
     // must not see their own cached data attributed to the target account.
+    //
+    // Cleared unconditionally here (unlike the web provider's first-adopt case)
+    // because setAuth only ever runs on an explicit sign-in, impersonation
+    // switch, or token restore — never mid-render — so there is no in-flight
+    // page load whose results we would be throwing away.
     queryClient.clear();
     await setQueryCacheOwner(user.id);
     setState((prev) => ({ ...prev, token, user, impersonatedBy: nextImpersonatedBy }));

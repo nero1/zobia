@@ -129,9 +129,13 @@ export function setQueryCacheOwner(client: QueryClient, ownerId: string | null):
   const previousOwner = currentOwner;
   currentOwner = ownerId;
 
-  // Anything already in memory belongs to the previous owner. Drop it before
-  // hydrating the new one so no cross-account data survives the switch.
-  if (previousOwner !== null || ownerId !== null) {
+  // Drop in-memory data only when LEAVING a known owner — an account switch or
+  // a sign-out. On the first adoption of a page load (`previousOwner === null`)
+  // there is nothing user-specific in memory yet: the anonymous bucket holds
+  // only data fetched while signed out, which belongs to nobody. Clearing there
+  // would throw away queries this page load has already completed and force a
+  // second round of requests, which is the opposite of the point.
+  if (previousOwner !== null) {
     client.clear();
   }
 

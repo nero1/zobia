@@ -24,7 +24,15 @@ export function PullToRefresh({
   children,
   className,
 }: {
-  onRefresh: () => Promise<void>;
+  /**
+   * Called on release past the pull threshold. The resolved value is awaited
+   * but never read, so this is deliberately `Promise<unknown>` rather than
+   * `Promise<void>`: every call site passes a React Query `refetch`, which
+   * resolves to a `QueryObserverResult`. Typing it as `Promise<void>` forced
+   * each caller into an `async () => { await refetch(); }` wrapper or failed
+   * the build — `tsc -b` was rejecting six of them.
+   */
+  onRefresh: () => Promise<unknown>;
   children: ReactNode;
   className?: string;
 }) {

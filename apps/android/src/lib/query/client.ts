@@ -6,10 +6,32 @@
  * Adds idb-keyval + @tanstack/query-persist-client-core for offline-first.
  */
 
-import { QueryClient } from '@tanstack/react-query';
+import { QueryClient, type QueryClientConfig } from '@tanstack/react-query';
 import { experimental_createQueryPersister } from '@tanstack/query-persist-client-core';
 import { get, set, del } from 'idb-keyval';
 import { scopedCacheKey } from './cacheOwner';
+
+/**
+ * `@tanstack/query-persist-client-core` depends on a newer PATCH of
+ * `@tanstack/query-core` than `@tanstack/react-query` does, so npm installs a
+ * second, nested copy of it. `QueryClient` carries `#private` fields, which
+ * makes the two copies NOMINALLY incompatible to TypeScript even though they
+ * are structurally identical and resolve to the same runtime behaviour — so
+ * `tsc -b` rejects `persisterFn` where the persister and the QueryClient meet.
+ *
+ * The clean fix is to dedupe the two copies to one version, but npm will not
+ * apply a workspace-root `overrides` entry here without a full lockfile
+ * regeneration, which is a far larger and riskier change than the problem
+ * warrants. This narrow, single-call-site type is the containment instead: it
+ * asserts only the shape of the `persister` option, changes nothing at
+ * runtime, and can be deleted the moment the two packages agree on a
+ * query-core version. It routes through `unknown` because the two
+ * `QueryClient` identities do not structurally overlap as far as TypeScript is
+ * concerned, which is the whole problem.
+ */
+type PersisterOption = NonNullable<
+  NonNullable<QueryClientConfig['defaultOptions']>['queries']
+>['persister'];
 
 const STALE_TIME = 24 * 60 * 60 * 1000;  // 24 hours
 const GC_TIME = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -51,7 +73,7 @@ export const queryClient = new QueryClient({
         // Disabled here; the mounting observer's own refetchOnMount still
         // revalidates stale data through the properly-handled fetch path.
         refetchOnRestore: false,
-      }).persisterFn),
+      }).persisterFn) as unknown as PersisterOption,
     },
     mutations: {
       retry: 0,
