@@ -38,7 +38,9 @@ const PurchaseSchema = z.object({
    * Payment provider to use. If omitted the active manifest provider is used.
    * Explicitly specifying allows mobile apps to force a provider.
    */
-  paymentProvider: z.enum(["paystack", "dodopayments"]).optional(),
+  paymentProvider: z.enum(["paystack", "crypto"]).optional(),
+  /** Required when paymentProvider === "crypto". */
+  cryptoCurrency: z.enum(["JAGA", "BNB", "SOL"]).optional(),
   /**
    * Client-generated UUID for idempotency. The same value on a retry reuses
    * the existing pending payment; a new UUID starts a fresh payment session.
@@ -80,7 +82,7 @@ interface UserRow {
 /**
  * POST /api/economy/coins/purchase
  *
- * Body: { packId: string, paymentProvider?: "paystack" | "dodopayments" }
+ * Body: { packId: string, paymentProvider?: "paystack" | "crypto", cryptoCurrency?: "JAGA" | "BNB" | "SOL" }
  * Returns: { paymentUrl: string, paymentReference: string }
  */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
@@ -154,17 +156,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     const returnUrl = `${env.NEXT_PUBLIC_APP_URL}/economy/purchase/callback`;
-    const metadata = {
-      userId,
-      packId: pack.id,
-      packName: pack.name,
-      coinsGranted: pack.coins_granted,
-      itemType: pack.item_type,
-      destination: body.destination,
-    };
 
     const manifest = await loadManifest();
-    const VALID_PROVIDERS = ["paystack", "dodopayments"] as const;
+    const VALID_PROVIDERS = ["paystack", "crypto"] as const;
     type Provider = typeof VALID_PROVIDERS[number];
     const requestedProvider = body.paymentProvider;
     let provider: Provider;
@@ -175,6 +169,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     } else {
       provider = manifest.payment.primaryProvider as Provider;
     }
+    if (provider === "crypto" && !body.cryptoCurrency) {
+      throw badRequest("cryptoCurrency is required when paymentProvider is 'crypto'", "MISSING_CRYPTO_CURRENCY");
+    }
+
+    const metadata = {
+      userId,
+      packId: pack.id,
+      packName: pack.name,
+      coinsGranted: pack.coins_granted,
+      itemType: pack.item_type,
+      destination: body.destination,
+      ...(provider === "crypto" ? { cryptoCurrency: body.cryptoCurrency } : {}),
+    };
 
     // 5. Persist the payment record FIRST (provider_reference NULL until the provider call
     //    succeeds). This ensures that if the provider call succeeds but our subsequent DB
@@ -201,7 +208,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const paymentDbId = insertRows[0]?.id;
 
     // 6. Initialize payment with the provider
-    let paymentResult: { paymentUrl: string; providerReference: string };
+    let paymentResult: { paymentUrl: string; providerReference: string; raw: unknown };
     try {
       paymentResult = await initializePayment(
         pack.price_kobo,
@@ -232,9 +239,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       [paymentResult.providerReference, JSON.stringify(metadataWithUrl), paymentDbId]
     );
 
+    if (provider === "crypto" && paymentDbId) {
+      const { applyCryptoComputedAmount } = await import("@/lib/payments/crypto");
+      await applyCryptoComputedAmount(paymentDbId, paymentResult.raw);
+    }
+
     return NextResponse.json({
       paymentUrl: paymentResult.paymentUrl,
       paymentReference: paymentResult.providerReference,
+      crypto: provider === "crypto" ? paymentResult.raw : undefined,
       pack: {
         id: pack.id,
         name: pack.name,

@@ -5,13 +5,17 @@ export const dynamic = 'force-dynamic';
  *
  * POST /api/admin/payments/test
  *
- * Lets an admin verify a payment provider is wired up correctly (API keys,
+ * Lets an admin verify the Paystack provider is wired up correctly (API keys,
  * webhook URL, currency) without needing a real customer transaction.
- * Initiates a small (₦100 / $1 equivalent) real payment session through the
- * requested provider using the admin's own email, and returns the checkout
- * URL for them to open and complete manually — whether it uses the
- * provider's test or live keys depends entirely on which keys are currently
- * configured for that provider (this endpoint doesn't change that).
+ * Initiates a small (₦100 equivalent) real payment session using the admin's
+ * own email, and returns the checkout URL for them to open and complete
+ * manually — whether it uses test or live keys depends entirely on which
+ * keys are currently configured (this endpoint doesn't change that).
+ *
+ * Crypto has no equivalent redirect-checkout to test here — it's a
+ * user-initiated on-chain transfer with no server-side session to open.
+ * Verify the crypto provider (chain adapters, price feed, receiving
+ * addresses) from /gate44/payments instead.
  *
  * Recorded in `payments` with payment_type = 'admin_test' so it never gets
  * confused with a real user purchase, and the webhook handler credits
@@ -29,7 +33,7 @@ import { loadManifest } from "@/lib/manifest";
 import { env } from "@/lib/env";
 
 const TestPaymentSchema = z.object({
-  provider: z.enum(["paystack", "dodopayments"]),
+  provider: z.enum(["paystack"]),
 });
 
 /** Nominal test amount — 100 kobo (₦1) / 100 cents ($1) — smallest sensible non-zero charge. */
@@ -42,8 +46,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const body = await validateBody(req, TestPaymentSchema);
     const manifest = await loadManifest();
 
-    const enabled =
-      body.provider === "paystack" ? manifest.payment.paystackEnabled : manifest.payment.dodopaymentsEnabled;
+    const enabled = manifest.payment.paystackEnabled;
     if (!enabled) {
       throw badRequest(`${body.provider} is not enabled in Payments config. Enable it first at /gate44/config.`);
     }

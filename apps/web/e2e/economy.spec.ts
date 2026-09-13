@@ -1,7 +1,7 @@
 /**
  * E2E tests: Coin purchase flow and gift send/receive.
  * PRD §28 — Required E2E tests:
- *   - "Coin purchase flow (Paystack sandbox, DodoPayments sandbox, Google Pay sandbox)"
+ *   - "Coin purchase flow (Paystack sandbox, crypto sandbox, Google Pay sandbox)"
  *   - "Gift send and receive flow (Coin deduction, ledger entry, XP award)"
  */
 
@@ -31,15 +31,13 @@ test.describe("Coin Purchase API", () => {
     expect([400, 401, 403]).toContain(res.status());
   });
 
-  test("DodoPayments webhook rejects invalid signature", async ({ request }) => {
-    const res = await request.post("/api/webhooks/dodopayments", {
-      data: { event: "payment.succeeded", data: {} },
-      headers: {
-        "x-dodo-signature": "invalid",
-        "Content-Type": "application/json",
-      },
+  test("Crypto payment confirm requires auth", async ({ request }) => {
+    // Crypto has no inbound webhook — payments are confirmed by the
+    // authenticated client submitting a tx hash (see /api/economy/crypto/confirm).
+    const res = await request.post("/api/economy/crypto/confirm", {
+      data: { idempotencyKey: "fake", txHash: "0xfake", senderAddress: "0xfake" },
     });
-    expect([400, 401, 403]).toContain(res.status());
+    expect(res.status()).toBeGreaterThanOrEqual(401);
   });
 });
 

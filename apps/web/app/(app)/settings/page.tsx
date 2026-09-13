@@ -1372,6 +1372,11 @@ export default function SettingsPage() {
         </div>
       </Section>
 
+      {/* Crypto wallets — saved wallet addresses used to *send* crypto payments */}
+      <Section title="Crypto Wallets">
+        <CryptoWalletsSection onToast={showToast} />
+      </Section>
+
       {/* Data export — own section above danger zone */}
       <Section title="Data">
         <DataExport onToast={showToast} />
@@ -2143,6 +2148,113 @@ function ActiveSessionsSection({ onToast }: { onToast: (msg: string, type?: "suc
 // ---------------------------------------------------------------------------
 // Data export sub-component
 // ---------------------------------------------------------------------------
+
+interface CryptoWalletRow {
+  id: string;
+  chain: "bsc" | "solana";
+  addressMasked: string;
+  label: string | null;
+}
+
+const CHAIN_LABELS: Record<"bsc" | "solana", string> = { bsc: "BNB Smart Chain", solana: "Solana" };
+
+function CryptoWalletsSection({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
+  const [wallets, setWallets] = useState<CryptoWalletRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [editingChain, setEditingChain] = useState<"bsc" | "solana" | null>(null);
+  const [addressInput, setAddressInput] = useState("");
+  const [confirmDeleteChain, setConfirmDeleteChain] = useState<"bsc" | "solana" | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/economy/crypto/wallets", { credentials: "include" });
+      const body = await res.json();
+      if (res.ok) setWallets(body.data ?? []);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  async function save(chain: "bsc" | "solana") {
+    if (!addressInput.trim()) return;
+    const res = await fetch("/api/economy/crypto/wallets", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chain, address: addressInput.trim() }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) { onToast(body.error?.message ?? "Failed to save wallet", "error"); return; }
+    onToast("Wallet saved");
+    setEditingChain(null);
+    setAddressInput("");
+    load();
+  }
+
+  async function remove(chain: "bsc" | "solana") {
+    const res = await fetch(`/api/economy/crypto/wallets?chain=${chain}`, { method: "DELETE", credentials: "include" });
+    if (!res.ok) { onToast("Failed to delete wallet", "error"); return; }
+    onToast("Wallet removed");
+    setConfirmDeleteChain(null);
+    load();
+  }
+
+  if (loading) return <p className="text-xs text-neutral-500">Loading…</p>;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-neutral-500">
+        Wallets you connect to send crypto payments (JAGA / BNB / SOL). These are separate from any
+        payout-receiving wallet on your Creator Wallet page.
+      </p>
+      {(["bsc", "solana"] as const).map((chain) => {
+        const wallet = wallets.find((w) => w.chain === chain);
+        return (
+          <div key={chain} className="flex flex-wrap items-center gap-2 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
+            <span className="w-32 shrink-0 text-sm font-medium text-neutral-800 dark:text-neutral-200">{CHAIN_LABELS[chain]}</span>
+            {editingChain === chain ? (
+              <>
+                <input
+                  value={addressInput}
+                  onChange={(e) => setAddressInput(e.target.value)}
+                  placeholder={chain === "bsc" ? "0x..." : "Solana address"}
+                  className="min-w-0 flex-1 rounded-lg border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                />
+                <button onClick={() => save(chain)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white">Save</button>
+                <button onClick={() => { setEditingChain(null); setAddressInput(""); }} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs dark:border-neutral-700">Cancel</button>
+              </>
+            ) : wallet ? (
+              <>
+                <span className="font-mono text-sm text-neutral-600 dark:text-neutral-400">{wallet.addressMasked}</span>
+                <button onClick={() => { setEditingChain(chain); setAddressInput(""); }} className="ml-auto text-xs font-semibold text-blue-600 underline">Edit</button>
+                <button onClick={() => setConfirmDeleteChain(chain)} className="text-xs font-semibold text-red-600 underline">Delete</button>
+              </>
+            ) : (
+              <button onClick={() => { setEditingChain(chain); setAddressInput(""); }} className="ml-auto text-xs font-semibold text-blue-600 underline">
+                Connect / add wallet
+              </button>
+            )}
+          </div>
+        );
+      })}
+
+      {confirmDeleteChain && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 dark:bg-neutral-900">
+            <p className="mb-4 text-sm font-medium text-neutral-800 dark:text-neutral-200">Are you sure?</p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmDeleteChain(null)} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700">No</button>
+              <button onClick={() => remove(confirmDeleteChain)} className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white">Yes, proceed</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function DataExport({ onToast }: { onToast: (msg: string, type?: "success" | "error") => void }) {
   const { t } = useTranslation();

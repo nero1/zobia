@@ -108,8 +108,14 @@ const envSchema = z.object({
   // Optional — required only when Paystack is the active payment provider.
   PAYSTACK_SECRET_KEY: z.string().optional(),
   PAYSTACK_PUBLIC_KEY: z.string().optional(),
-  DODOPAYMENTS_API_KEY: z.string().optional(),
-  DODO_WEBHOOK_SECRET: z.string().optional(),
+
+  // Crypto payments (see lib/payments/crypto/) — all optional; RPC URLs fall
+  // back to public endpoints and price feeds fall back to admin manual rates.
+  NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: z.string().optional(),
+  BSC_RPC_URL: z.string().optional(),
+  SOLANA_RPC_URL: z.string().optional(),
+  CRYPTO_RECEIVING_ADDRESS_BSC: z.string().optional(),
+  CRYPTO_RECEIVING_ADDRESS_SOLANA: z.string().optional(),
 
   // ---- Advertising --------------------------------------------------------
   ADMOB_APP_ID: z.string().optional(),

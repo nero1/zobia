@@ -29,8 +29,8 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, conflict, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { initializePayment as paystackInit } from "@/lib/payments/paystack";
-import { createPaymentSession as dodoCreateSession } from "@/lib/payments/dodopayments";
+import { initializePayment } from "@/lib/payments";
+import { applyCryptoComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { getBusinessTierPriceKobo } from "@/lib/business/limits";
 
 // ---------------------------------------------------------------------------
@@ -53,7 +53,8 @@ const PENDING_PAYMENT_TTL_MINUTES = 30;
 const createBusinessSchema = z.object({
   business_name: z.string().min(2).max(120),
   business_type: z.string().max(80).optional(),
-  paymentProvider: z.enum(["paystack", "dodopayments"]).optional(),
+  paymentProvider: z.enum(["paystack", "crypto"]).optional(),
+  cryptoCurrency: z.enum(["JAGA", "BNB", "SOL"]).optional(),
   /** Tier to sign up on directly (PRD §17 — all three tiers are choosable at signup, not just Starter). */
   tier: z.enum(["starter", "growth", "enterprise"]).optional().default("starter"),
 });
@@ -157,6 +158,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     const provider = body.paymentProvider ?? "paystack";
+    if (provider === "crypto" && !body.cryptoCurrency) {
+      throw badRequest("cryptoCurrency is required when paymentProvider is 'crypto'", "MISSING_CRYPTO_CURRENCY");
+    }
     const reference = `biz-signup-${userId}-${randomUUID().slice(0, 8)}`;
 
     const metadata = {
@@ -166,6 +170,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       tier,
       type: "business_signup",
       itemType: "business_signup",
+      ...(provider === "crypto" ? { cryptoCurrency: body.cryptoCurrency } : {}),
     };
 
     // BIZ-SIGNUP-RACE: reserve the pending-payment slot atomically *before*
@@ -212,21 +217,13 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       );
     }
 
-    let paymentUrl: string;
-    let providerReference: string = reference;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
-    if (provider === "paystack") {
-      const ps = await paystackInit(priceKobo, userEmail, reference, metadata, `${appUrl}/settings/business/callback`);
-      paymentUrl = ps.authorization_url;
-      providerReference = ps.reference ?? reference;
-    } else {
-      const dd = await dodoCreateSession(priceKobo, "NGN", `${appUrl}/settings/business?created=1`, {
-        ...metadata,
-        reference,
-      });
-      paymentUrl = dd.payment_url;
-      providerReference = dd.id ?? reference;
-    }
+    const returnUrl =
+      provider === "paystack" ? `${appUrl}/settings/business/callback` : `${appUrl}/settings/business?created=1`;
+    const result = await initializePayment(priceKobo, "NGN", userEmail, reference, metadata, returnUrl, provider);
+    const paymentUrl = result.paymentUrl;
+    const providerReference = result.providerReference ?? reference;
+    const computed = provider === "crypto" ? (result.raw as ComputedAmount) : null;
 
     // Record the provider's own reference against the reserved row (used by
     // the webhook handler to look up this payment by provider_reference).
@@ -235,6 +232,9 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         `UPDATE payments SET provider_reference = $1 WHERE id = $2`,
         [providerReference, reservedRows[0].id]
       );
+    }
+    if (computed) {
+      await applyCryptoComputedAmount(reservedRows[0].id, computed);
     }
 
     return NextResponse.json(
@@ -245,6 +245,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
           reference,
           tier,
           priceKobo,
+          crypto: computed,
           message: `Complete payment to activate your ${tier} business account`,
         },
         error: null,

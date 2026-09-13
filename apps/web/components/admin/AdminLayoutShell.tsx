@@ -34,6 +34,7 @@ const adminNavItems = [
   { href: "/gate44/alerts/settings",    label: "Alert Settings",     icon: "📟" },
   { href: "/gate44/monitoring",         label: "Monitoring",         icon: "📡" },
   { href: "/gate44/config",             label: "Config",             icon: "⚙️" },
+  { href: "/gate44/payments",           label: "Payments",           icon: "💱" },
   { href: "/gate44/settings/privacy",   label: "Privacy Settings",   icon: "🔒" },
   { href: "/gate44/settings/security",  label: "Security",           icon: "🛡️" },
   { href: "/gate44/settings/profile-stats", label: "Profile Stats",  icon: "📊" },

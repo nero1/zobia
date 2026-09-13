@@ -427,7 +427,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         [requestedKobo, userId]
       );
 
-      const payoutProvider = body.method === "bank_transfer" ? "paystack" : "dodopayments";
+      const payoutProvider = body.method === "bank_transfer" ? "paystack" : "crypto";
       const { rows: insertedRows } = await tx.query<{ id: string }>(
         `INSERT INTO creator_payouts
            (creator_id, amount_kobo, gross_kobo, net_kobo, platform_fee_kobo, payout_method,

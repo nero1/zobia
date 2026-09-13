@@ -49,7 +49,13 @@ export type AuditAction =
   | "admin_import_users_job_completed"
   | "admin_create_user"
   | "admin_edit_user"
-  | "admin_delete_user";
+  | "admin_delete_user"
+  // Crypto payments
+  | "user_crypto_wallet_saved"
+  | "user_crypto_wallet_deleted"
+  | "admin_payment_context_updated"
+  | "admin_crypto_rate_override_set"
+  | "admin_all_payments_made_free";
 
 export interface AuditLogParams {
   actorId?: string | null;

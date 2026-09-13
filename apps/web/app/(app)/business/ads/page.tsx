@@ -334,7 +334,7 @@ function AdCampaignsPanel({ pages }: { pages: BusinessPageOption[] }) {
         <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Ad Campaigns</h2>
         <p className="mt-1 text-sm text-neutral-500">
           CPM billing (Credits per 1,000 impressions), AI-assisted or manual review, and multiple placements — banner, native,
-          interstitial, and rewarded. Fund with Zobia Credits, or top up Credits with cash (Paystack/DodoPayments/Play Billing) first.
+          interstitial, and rewarded. Fund with Zobia Credits, or top up Credits with cash (Paystack/crypto/Play Billing) first.
         </p>
         <button
           onClick={() => setShowForm((s) => !s)}

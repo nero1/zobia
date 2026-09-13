@@ -12,7 +12,7 @@
  *     DB status change, no payment involved)
  *
  * Creating an account and changing/renewing its tier are payment actions —
- * web does those via Paystack/DodoPayments checkout links (POST /api/business,
+ * web does those via Paystack/crypto checkout links (POST /api/business,
  * PATCH /api/business/tier, POST /api/business/renew), which Play Store
  * policy forbids on Android. Those route through
  * lib/payments/googlePlay.ts's purchaseBusinessTier() instead, which posts

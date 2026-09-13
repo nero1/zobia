@@ -12,7 +12,8 @@
  *   CAPTCHA    - provider selector (recaptcha / turnstile / none)
  *   GIF        - provider selector (giphy / tenor)
  *   PWA        - web / android / ios toggles
- *   Payments   - primary provider, paystack, dodopayments
+ *   Payments   - primary provider, paystack, crypto (see also gate44/payments for
+ *                per-context and per-currency crypto settings)
  *   Economy    - coin-to-cash rate, payout thresholds, season pass, VIP room prices
  *   Limits     - minimum age
  *   AdMob      - admob ads, rewarded ads
@@ -245,12 +246,12 @@ const CONFIG_META: Record<string, ConfigMeta> = {
   // Payments
   payment_primary_provider: {
     label: "Primary Payment Provider",
-    description: "The default gateway used for deposits and payouts.",
+    description: "The default gateway used for deposits and payouts. Per-payment-page overrides live on gate44/payments.",
     type: "select",
     group: "Payments",
     options: [
       { value: "paystack", label: "Paystack" },
-      { value: "dodopayments", label: "Dodo Payments" },
+      { value: "crypto", label: "Crypto (JAGA / BNB / SOL)" },
       { value: "none", label: "None (payments disabled)" },
     ],
   },
@@ -260,9 +261,9 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     type: "boolean",
     group: "Payments",
   },
-  payment_dodopayments_enabled: {
-    label: "Dodo Payments Enabled",
-    description: "Allow Dodo Payments as a payment method.",
+  payment_crypto_enabled: {
+    label: "Crypto Payments Enabled",
+    description: "Allow crypto (JAGA / BNB / SOL) as a payment method. See gate44/payments for per-currency and per-context settings.",
     type: "boolean",
     group: "Payments",
   },
@@ -978,9 +979,9 @@ interface ToggleSwitchProps {
 // ---------------------------------------------------------------------------
 
 function TestPaymentsPanel({ showToast }: { showToast: (msg: string, type?: "success" | "error") => void }) {
-  const [running, setRunning] = useState<"paystack" | "dodopayments" | null>(null);
+  const [running, setRunning] = useState<"paystack" | null>(null);
 
-  async function runTest(provider: "paystack" | "dodopayments") {
+  async function runTest(provider: "paystack") {
     setRunning(provider);
     try {
       const res = await fetch("/api/admin/payments/test", {
@@ -1022,14 +1023,12 @@ function TestPaymentsPanel({ showToast }: { showToast: (msg: string, type?: "suc
         >
           {running === "paystack" ? "Starting…" : "Test Paystack"}
         </button>
-        <button
-          onClick={() => runTest("dodopayments")}
-          disabled={running !== null}
-          className="rounded-lg bg-purple-600 px-4 py-2 text-sm font-semibold text-white hover:bg-purple-700 disabled:opacity-60"
-        >
-          {running === "dodopayments" ? "Starting…" : "Test DodoPayments"}
-        </button>
       </div>
+      <p className="mt-3 text-xs text-neutral-500">
+        Crypto payments have no test-checkout equivalent (they are user-initiated on-chain
+        transfers) — verify the crypto provider from{" "}
+        <a href="/gate44/payments" className="underline">gate44/payments</a> instead.
+      </p>
     </div>
   );
 }
@@ -1527,6 +1526,61 @@ export default function AdminConfigPage() {
       )}
 
       {!loading && <TestPaymentsPanel showToast={showToast} />}
+      {!loading && <PaymentsDangerZone showToast={showToast} />}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Payments Danger Zone — this button also appears on gate44/payments; any
+// change to its behavior must be mirrored there. Both call the same
+// POST /api/admin/payments/make-all-free endpoint — only the UI is duplicated.
+// ---------------------------------------------------------------------------
+
+function PaymentsDangerZone({ showToast }: { showToast: (msg: string, type?: "success" | "error") => void }) {
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  async function makeAllFree() {
+    setBusy(true);
+    try {
+      const res = await fetch("/api/admin/payments/make-all-free", { method: "POST", credentials: "include" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { showToast(body.error?.message ?? "Failed", "error"); return; }
+      showToast("All payments are now free sitewide.");
+      setConfirmOpen(false);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-red-300 dark:border-red-900">
+      <div className="rounded-t-xl bg-red-100 px-4 py-2 dark:bg-red-950/50">
+        <h2 className="text-sm font-semibold text-red-700 dark:text-red-400">Danger Zone — Payments</h2>
+      </div>
+      <div className="space-y-3 rounded-b-xl bg-red-50/60 p-5 dark:bg-red-950/30">
+        <p className="text-sm font-semibold text-red-700 dark:text-red-400">Make all payments free</p>
+        <p className="text-xs text-neutral-500">
+          Sets every payment context to Free, sitewide, immediately. See gate44/payments for granular per-context control.
+        </p>
+        <button onClick={() => setConfirmOpen(true)} className="rounded-lg bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-60" disabled={busy}>
+          Make all payments free
+        </button>
+      </div>
+      {confirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="w-full max-w-sm rounded-xl bg-white p-5 dark:bg-neutral-900">
+            <p className="mb-4 text-sm font-semibold text-red-700 dark:text-red-400">
+              WARNING: This will make all products and services free sitewide.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button onClick={() => setConfirmOpen(false)} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-sm dark:border-neutral-700">Cancel</button>
+              <button onClick={makeAllFree} disabled={busy} className="rounded-lg bg-red-600 px-3 py-1.5 text-sm font-semibold text-white disabled:opacity-60">Yes, make everything free</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

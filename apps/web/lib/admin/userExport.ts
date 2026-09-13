@@ -40,6 +40,11 @@ export const ALLOWED_EXPORT_FIELDS = [
   "guildId",
   "referralCode",
   "kycTier",
+  "isAdmin",
+  "rankLevel",
+  "prestigeCount",
+  "cryptoWalletBsc",
+  "cryptoWalletSolana",
 ] as const;
 
 export type ExportField = (typeof ALLOWED_EXPORT_FIELDS)[number];
@@ -67,6 +72,15 @@ export const FIELD_TO_COLUMN: Record<ExportField, string> = {
   guildId: "u.guild_id",
   referralCode: "u.referral_code",
   kycTier: "u.kyc_tier",
+  isAdmin: "u.is_admin",
+  rankLevel: "u.rank_level",
+  prestigeCount: "u.prestige_count",
+  // Address only — never combined with name/other PII in the dedicated
+  // "wallets only" export mode. Historical: a wallet stays exportable even
+  // after the crypto feature (or this user's access to it) is later
+  // disabled — it's a record of what was saved, not a live entitlement.
+  cryptoWalletBsc: "(SELECT address FROM user_crypto_wallets w WHERE w.user_id = u.id AND w.chain = 'bsc' LIMIT 1)",
+  cryptoWalletSolana: "(SELECT address FROM user_crypto_wallets w WHERE w.user_id = u.id AND w.chain = 'solana' LIMIT 1)",
 };
 
 // ---------------------------------------------------------------------------
@@ -89,6 +103,14 @@ export const exportFiltersSchema = z.object({
   leaderboardRank: z.literal(1).optional(),
   /** Restrict the export to a specific set of user IDs (the "export selected" checkbox path). Capped — selection doesn't scale to millions of rows, so this is a secondary option alongside the primary filter-based export. */
   userIds: z.array(z.string().uuid()).max(1000).optional(),
+  isAdmin: z.boolean().optional(),
+  minRankLevel: z.number().int().min(1).optional(),
+  maxRankLevel: z.number().int().min(1).optional(),
+  minPrestigeCount: z.number().int().min(0).optional(),
+  maxPrestigeCount: z.number().int().min(0).optional(),
+  /** "wallets only" quick-export mode: only include users who have saved at
+   *  least one crypto wallet (either chain). */
+  hasCryptoWallet: z.boolean().optional(),
 });
 
 export type ExportFilters = z.infer<typeof exportFiltersSchema>;
@@ -125,6 +147,33 @@ export function buildFilterConditions(
   if (filters.maxXp !== undefined) {
     clauses.push(`u.xp_total <= $${idx++}`);
     params.push(filters.maxXp);
+  }
+  if (filters.isAdmin !== undefined) {
+    clauses.push(`u.is_admin = $${idx++}`);
+    params.push(filters.isAdmin);
+  }
+  if (filters.minRankLevel !== undefined) {
+    clauses.push(`u.rank_level >= $${idx++}`);
+    params.push(filters.minRankLevel);
+  }
+  if (filters.maxRankLevel !== undefined) {
+    clauses.push(`u.rank_level <= $${idx++}`);
+    params.push(filters.maxRankLevel);
+  }
+  if (filters.minPrestigeCount !== undefined) {
+    clauses.push(`u.prestige_count >= $${idx++}`);
+    params.push(filters.minPrestigeCount);
+  }
+  if (filters.maxPrestigeCount !== undefined) {
+    clauses.push(`u.prestige_count <= $${idx++}`);
+    params.push(filters.maxPrestigeCount);
+  }
+  if (filters.hasCryptoWallet !== undefined) {
+    clauses.push(
+      filters.hasCryptoWallet
+        ? `EXISTS (SELECT 1 FROM user_crypto_wallets w WHERE w.user_id = u.id)`
+        : `NOT EXISTS (SELECT 1 FROM user_crypto_wallets w WHERE w.user_id = u.id)`
+    );
   }
   if (filters.isBanned !== undefined) {
     clauses.push(`u.is_banned = $${idx++}`);

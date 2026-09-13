@@ -624,10 +624,10 @@ export const GET = async (req: NextRequest) => {
         if (row.provider === 'paystack') {
           const { handlePaystackWebhookPayload } = await import('@/lib/payments/paystackWebhookHandler');
           await handlePaystackWebhookPayload(row.event_type, JSON.parse(row.payload));
-        } else if (row.provider === 'dodopayments') {
-          const { handleDodoWebhookPayload } = await import('@/lib/payments/dodoWebhookHandler');
-          await handleDodoWebhookPayload(row.event_type, JSON.parse(row.payload));
         } else {
+          // 'crypto' (and any other non-webhook provider) has no inbound
+          // webhook to retry — payments are reconciled by the crypto
+          // pending-payment sweep below instead.
           await db.query(`UPDATE failed_webhooks SET resolved_at = NOW(), updated_at = NOW() WHERE id = $1`, [row.id]).catch(() => {});
           continue;
         }
@@ -650,6 +650,62 @@ export const GET = async (req: NextRequest) => {
     results.webhookRetry = { attempted: webhookRetried, resolved: webhookResolved };
   } catch (err) {
     errors.push(`webhookRetry: ${String(err)}`);
+  }
+
+  // CRYPTO-RECONCILE-01: safety-net reconciliation for crypto payments still
+  // 'pending' past a short timeout (the primary confirmation path is the
+  // client polling GET /api/economy/crypto/status every few seconds while
+  // waiting on the confirmation screen — this is only a daily backstop for
+  // tabs closed mid-flow or a missed final poll). Also warms the price-feed
+  // cache (see lib/payments/crypto/priceFeed.ts's lazy-refresh design note —
+  // this is a best-effort convenience, not required for correctness).
+  try {
+    const { verifyPayment } = await import('@/lib/payments/crypto');
+    const { processChargeSuccess } = await import('@/lib/payments/paystackWebhookHandler');
+    const { refreshAllPricesBestEffort } = await import('@/lib/payments/crypto/priceFeed');
+    const { SUPPORTED_CURRENCIES } = await import('@/lib/payments/crypto/tokens');
+
+    await refreshAllPricesBestEffort(SUPPORTED_CURRENCIES);
+
+    const { rows: pendingCrypto } = await db.query<{
+      id: string; provider_reference: string; idempotency_key: string; metadata: Record<string, unknown>; amount_kobo: string; created_at: string;
+    }>(
+      `SELECT id, provider_reference, idempotency_key, metadata, amount_kobo, created_at
+       FROM payments
+       WHERE provider = 'crypto' AND status = 'pending' AND tx_hash IS NOT NULL
+       ORDER BY created_at ASC LIMIT 200`
+    );
+
+    let cryptoReconciled = 0;
+    let cryptoFailed = 0;
+    for (const row of pendingCrypto) {
+      try {
+        const result = await verifyPayment(row.provider_reference ?? row.idempotency_key);
+        if (result.success) {
+          await processChargeSuccess({
+            reference: row.provider_reference ?? row.idempotency_key,
+            status: 'success',
+            amount: Number(row.amount_kobo),
+            currency: 'NGN',
+            customer: { email: '' },
+            metadata: row.metadata,
+            paid_at: new Date().toISOString(),
+          } as Parameters<typeof processChargeSuccess>[0]);
+          cryptoReconciled++;
+        } else if (!result.pending) {
+          const ageHours = (Date.now() - new Date(row.created_at).getTime()) / 3_600_000;
+          if (ageHours > 48) {
+            await db.query(`UPDATE payments SET status = 'failed', updated_at = NOW() WHERE id = $1`, [row.id]);
+            cryptoFailed++;
+          }
+        }
+      } catch (err) {
+        logger.warn({ paymentId: row.id, err: String(err) }, '[cron/daily-platform] Crypto reconciliation check failed');
+      }
+    }
+    results.cryptoReconcile = { checked: pendingCrypto.length, reconciled: cryptoReconciled, markedFailed: cryptoFailed };
+  } catch (err) {
+    errors.push(`cryptoReconcile: ${String(err)}`);
   }
 
   // PUSH-RECEIPT-01: Poll Expo push receipts (stage 2)

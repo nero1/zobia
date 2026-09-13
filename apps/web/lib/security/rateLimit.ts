@@ -154,6 +154,13 @@ export const RATE_LIMITS = {
   gameScore: { limit: 60, windowMs: 60 * 1000, name: "game:score" } as RateLimitOptions,
   /** Phone-book cross-reference — tight limit to prevent bulk contact enumeration. */
   contactsLookup: { limit: 5, windowMs: 60 * 1000, name: "contacts:lookup", bypassL1: true } as RateLimitOptions,
+  /** Crypto payment status polling — client polls every few seconds while
+   *  waiting on the confirmation screen; each poll can trigger a chain RPC
+   *  call, so this is tighter than apiRead. */
+  cryptoStatusPoll: { limit: 40, windowMs: 60 * 1000, name: "crypto:status", bypassL1: true } as RateLimitOptions,
+  /** Crypto price-feed reads (checkout amount computation) — bounds how
+   *  often a live CoinGecko/DexScreener fetch can be triggered per user. */
+  cryptoPriceRead: { limit: 20, windowMs: 60 * 1000, name: "crypto:price", bypassL1: true } as RateLimitOptions,
   // BUG-060 FIX: separate rate limit presets for auth flows. bypassL1 is set on all
   // auth endpoints so multi-instance L1 over-counting cannot allow excess attempts.
   /** OAuth initiation (e.g. /api/auth/google) — low limit; bypassL1 for accuracy. */

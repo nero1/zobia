@@ -167,7 +167,7 @@ Each user is algorithmically assigned a Nemesis — another user within 10% of t
 ### Plan Billing and Purchasing
 
 - Plans are billed monthly or annually (annual = 2 months free).
-- Plans can be purchased via in-app purchase (Google Pay on Android; Stripe/equivalent on web) or via Paystack (Nigeria web) or DodoPayments (international web).
+- Plans can be purchased via in-app purchase (Google Pay on Android; Stripe/equivalent on web) or via Paystack (Nigeria web) or crypto (international web).
 - Admin can toggle plan availability on or off per region.
 - Admin can configure coin-based booster packs, XP boosters, and one-time packs independently of subscription plans.
 
@@ -616,7 +616,7 @@ Zobia operates a dual-currency economy designed to serve distinct psychological 
 Credits are the primary transactional currency for social and platform activities. They sit at the intersection of social gifting, platform economy, and creator monetisation.
 
 **How Credits are acquired:**
-- Purchased with real money via in-app purchase, Paystack (Nigeria), or DodoPayments (international).
+- Purchased with real money via in-app purchase, Paystack (Nigeria), or crypto (international).
 - Earned through quests and daily logins in small amounts.
 - Received as Season Pass rewards.
 - Earned through Guild War wins.
@@ -1068,8 +1068,8 @@ Four Settings sub-areas that existed on web but not the Capacitor Android app we
 
 - **Theme (light/dark/system).** Android had no dark-mode mechanism at all before this — no theme context, no `dark:` Tailwind usage anywhere in its components (Tailwind's `darkMode: "class"` was configured but unused). `apps/android/src/lib/theme/{store,ThemeProvider}.tsx` add it: a pure client-side preference — matching web's `next-themes` choice to keep UI theme out of the server-synced chat-theme field — persisted with `@capacitor/preferences` (mirrored to `localStorage` for a flash-free first paint, the same two-tier pattern `lib/i18n` uses for language). The toggle lives at the top of `routes/settings.tsx`. Toggling it correctly flips the `dark` class on `<html>`, but since no other Android screen has been given `dark:` styling yet, it has no visible effect anywhere except future dark-styled components — retrofitting the whole app's existing screens was out of scope for this pass.
 - **Per-category push notifications.** New `routes/settings/notifications.tsx` renders the same ten toggles as web's Settings → Notifications section (three chat-push toggles plus seven category toggles: new message, friend request, gift received, rank up, guild wars, season end, announcements), reading/writing `GET`/`PATCH /api/users/me/settings` — identical to web, no backend change.
-- **Subscription & Billing.** New `routes/settings/subscription.tsx` shows current plan, renewal/cancellation date, and upgrade tiers, read from the same `GET /api/users/me` + `GET /api/economy/subscriptions` web uses. Per Play Store policy (§18), any actual purchase goes through Google Play Billing (`lib/payments/googlePlay.ts`'s `purchaseSubscription()`) instead of web's Paystack/DodoPayments checkout redirect. Cancelling is a plain subscription-status DB write (`DELETE /api/economy/subscriptions/:id`) with no payment processor involved, so it's reused as-is. There is no "swap between two paid tiers" PUT the way web has — a Play-billed subscription can't be changed that way, so switching tiers on Android is just another Play purchase.
-- **Business Account.** New `routes/settings/business.tsx` mirrors web's business page (info editing, verification workflow, tier comparison, analytics). Editing (`PATCH /api/business`) and verification request/cancel (`POST`/`DELETE /api/business/verify`) are plain DB writes with no payment involved, so they're reused directly. Creating the account and changing its tier are payment actions — web uses Paystack/DodoPayments checkout links, which Android cannot per §18 — so those route through `purchaseBusinessTier()`, which posts the verified Play purchase to the Android-only `POST /api/business/iap/verify` (already implemented, previously unused by any UI). A Play subscription renews itself automatically, so Android has no equivalent of web's manual "Renew Now" action.
+- **Subscription & Billing.** New `routes/settings/subscription.tsx` shows current plan, renewal/cancellation date, and upgrade tiers, read from the same `GET /api/users/me` + `GET /api/economy/subscriptions` web uses. Per Play Store policy (§18), any actual purchase goes through Google Play Billing (`lib/payments/googlePlay.ts`'s `purchaseSubscription()`) instead of web's Paystack/crypto checkout redirect. Cancelling is a plain subscription-status DB write (`DELETE /api/economy/subscriptions/:id`) with no payment processor involved, so it's reused as-is. There is no "swap between two paid tiers" PUT the way web has — a Play-billed subscription can't be changed that way, so switching tiers on Android is just another Play purchase.
+- **Business Account.** New `routes/settings/business.tsx` mirrors web's business page (info editing, verification workflow, tier comparison, analytics). Editing (`PATCH /api/business`) and verification request/cancel (`POST`/`DELETE /api/business/verify`) are plain DB writes with no payment involved, so they're reused directly. Creating the account and changing its tier are payment actions — web uses Paystack/crypto checkout flows, which Android cannot per §18 — so those route through `purchaseBusinessTier()`, which posts the verified Play purchase to the Android-only `POST /api/business/iap/verify` (already implemented, previously unused by any UI). A Play subscription renews itself automatically, so Android has no equivalent of web's manual "Renew Now" action.
 
 ### The Nemesis System
 
@@ -1303,7 +1303,7 @@ and stats pipeline.
   (CPM). An advertiser funds a campaign's budget by moving Credits from
   their wallet into the campaign (reusing the existing coin_ledger,
   atomic/idempotent per §18) — Credits are acquired via the existing Credit
-  Pack purchase flow (Paystack/DodoPayments on web/PWA, Google Play Billing
+  Pack purchase flow (Paystack/crypto on web/PWA, Google Play Billing
   on Android) or bought/topped-up directly with cash, Zobia Credits, or
   Stars. Each impression/click is recorded to an append-only `ad_events`
   log and rolled up into `ad_campaign_daily_stats`; a campaign auto-pauses
@@ -1360,7 +1360,7 @@ an explainer of the feature, the three tiers with their pricing and feature
 comparison, and **a separate "Get Started" button per tier** (Starter/Growth
 self-serve checkout; Enterprise is "Contact Us", since its price is
 negotiated) — signup is not limited to Starter. Web/PWA checkout is
-Paystack/DodoPayments (one-off charge, redirecting back to
+Paystack/crypto (one-off charge, redirecting back to
 `/settings/business/callback` on completion); Android/Capacitor signup and
 tier changes go through Google Play Billing instead (§18), which handles
 its own recurring renewal natively.
@@ -1431,7 +1431,7 @@ the new tier's slot limit are deactivated (oldest pages kept first), and
 all currently-running sponsored quests are stopped. Reactivating a
 deactivated page or resuming quests requires upgrading again.
 
-**Billing period & renewal (web/PWA).** Paystack/DodoPayments checkout is a
+**Billing period & renewal (web/PWA).** Paystack/crypto checkout is a
 one-off charge, not a native recurring subscription — so
 `business_accounts.current_period_ends_at` is set to now + 30 days on
 signup, upgrade, and renewal, and is the source of the "business plan
@@ -1489,16 +1489,16 @@ retrying.
 | Platform | Nigeria | Rest of World |
 |---|---|---|
 | Android App | Google Play Billing only (via react-native-iap) | Google Play Billing only |
-| Web / PWA | Paystack (primary) + DodoPayments (admin-toggled option) | DodoPayments |
+| Web / PWA | Paystack (primary) + crypto (admin-toggled option) | crypto |
 
-Google Play Billing is the exclusive in-app purchase mechanism on Android — this is a Google Play Store policy requirement. Paystack and DodoPayments are web/PWA-only and must not be integrated as in-app purchase flows within the Android APK itself.
+Google Play Billing is the exclusive in-app purchase mechanism on Android — this is a Google Play Store policy requirement. Paystack and crypto are web/PWA-only and must not be integrated as in-app purchase flows within the Android APK itself.
 
 ### Outward Payments (Creator Payouts and Commissions)
 
 | Market | Provider |
 |---|---|
 | Nigeria | Paystack |
-| Rest of World | DodoPayments |
+| Rest of World | crypto |
 
 The active payout provider is configured in the x_manifest before building. Both providers are supported in code simultaneously — the manifest variable determines which is active per deployment or per market. Admin can also configure commissions to be paid in Credits instead of cash, eliminating cash payout complexity at early stages.
 
@@ -1643,7 +1643,7 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 - Payout account balance with low-water alert status.
 - Pending withdrawal approvals (withdrawals above threshold requiring manual approval).
 - Coin economy summary: total Coins in circulation, Credits purchased vs Coins earn Credits spent.
-- Revenue by payment provider (Paystack / DodoPayments / Google Pay split).
+- Revenue by payment provider (Paystack / crypto / Google Pay split).
 - Anomaly alerts: unusual spike in credit purchases, creator payouts, or refund requests.
 
 **User Management**
@@ -1729,9 +1729,9 @@ above (which stays focused on moderation actions against a single account).
 - Storage provider selection (`supabase-storage` / `r2` / `s3` / other S3-compatible) — configured via env var.
 - Realtime provider (`supabase-realtime` / `ably` / `pusher`) — configured via env var based on database provider.
 - PWA enablement per platform: admin can independently enable or disable the PWA for web, Android/mobile, and iOS/Apple. e.g., enable for web only, or enable for all, or disable entirely.
-- Payment provider routing (Paystack / DodoPayments for web; Google Play Billing hardcoded for Android).
+- Payment provider routing (Paystack / crypto for web; Google Play Billing hardcoded for Android).
 - AdMob App ID and ad unit IDs (banner, interstitial, rewarded video).
-- Payout provider (Paystack for Nigeria, DodoPayments for rest of world).
+- Payout provider (Paystack for Nigeria, crypto for rest of world — always manual admin processing).
 - Credit-to-cash conversion rate.
 - Payout threshold (manual approval trigger).
 - Low payout balance alert threshold.
@@ -1900,9 +1900,9 @@ The platform Vitality Calendar incorporates Nigerian, Pan-African, and global cu
 | Email | Mailgun |
 | AI (Primary) | DeepSeek API |
 | AI (Fallback) | Google Gemini |
-| Payments (Nigeria Web/PWA) | Paystack (primary) + DodoPayments (available as toggle) |
-| Payments (International Web/PWA) | DodoPayments |
-| Payments (Android In-App) | Google Play Billing via `@capacitor-community/in-app-purchases` or WebView-based Paystack/DodoPayments checkout flow. |
+| Payments (Nigeria Web/PWA) | Paystack (primary) + crypto (available as toggle) |
+| Payments (International Web/PWA) | crypto |
+| Payments (Android In-App) | Google Play Billing via `@capacitor-community/in-app-purchases` or WebView-based Paystack/crypto checkout flow. |
 | Advertising (Mobile) | AdMob via Capacitor plugin (`@capacitor-community/admob`). |
 | CAPTCHA | Google reCAPTCHA (default) / Cloudflare Turnstile (toggle). Admin can switch which is active. |
 | Deep Links | `@capacitor/app` `appUrlOpen` listener + TanStack Router navigation. `zobia://` custom scheme in AndroidManifest. SEO-friendly public paths (`/u/<username>`, `/r/<slug>`, `/c/<slug>`, `/g/<slug>`) resolve via `GET /api/public/resolve` to internal UUIDs. |
@@ -2318,7 +2318,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 - Credit Store UI and inventory system.
 - Credit packs and pricing (admin-configurable in database).
 - Paystack integration (Nigeria web/PWA — credit purchases and subscriptions).
-- DodoPayments integration (international web/PWA — credit purchases and subscriptions; also available as Nigeria web option via admin toggle).
+- crypto integration (international web/PWA — credit purchases and subscriptions; also available as Nigeria web option via admin toggle).
 - Google Play Billing integration (Android APK only — via react-native-iap; replaces the deprecated expo-in-app-purchases, which does not build on Expo SDK 51). This is the sole in-app purchase mechanism on Android per Google Play policy.
 - Gift system: gift catalogue, gift animations, gift messages, room-wide spectacle logic.
 - Credit gifting between users (with 5% platform fee).
@@ -2491,7 +2491,7 @@ The MVP Build Sequence follows a phased approach. Each phase ends with a stable,
 
 - Full onboarding flow (new user creation through first quest completion).
 - DM send and receive flow (all plan tiers, Credit deduction verification).
-- Coin purchase flow (Paystack sandbox, DodoPayments sandbox, Google Pay sandbox).
+- Coin purchase flow (Paystack sandbox, crypto testnet, Google Pay sandbox).
 - Gift send and receive flow (Coin deduction, ledger entry, XP award).
 - Room creation, join, and post flow.
 - Guild creation, war declaration, war resolution flow.
@@ -6054,7 +6054,7 @@ one), verified server-side against the Google Play Developer API via a new
 `POST /api/business/iap/verify` (creates the Business Account on first
 purchase, upgrades/downgrades the tier on subsequent ones, records a
 `payments` row with `provider = 'google_play'` for revenue-by-provider
-reporting parity with Paystack/DodoPayments). The same Play Billing client
+reporting parity with Paystack/crypto). The same Play Billing client
 (`apps/android/src/lib/payments/googlePlay.ts`) also covers coin packs,
 star packs, and Plus/Pro/Max subscriptions — wired into a new "Buy Credits
 & Stars" panel on `routes/wallet.tsx` — reusing (and, for star packs,
@@ -6322,7 +6322,7 @@ existing one — bigger than a targeted fix, left for a follow-up. The
 legacy, unlinked `apps/web/app/(authenticated)/creator/merch/page.tsx`
 (calls a nonexistent API, superseded by `/merch`) was left unported.
 
-`/economy/purchase/callback` (the web-only Paystack/DodoPayments
+`/economy/purchase/callback` (the web-only Paystack/crypto
 redirect landing page) was intentionally not ported — Android
 purchases always go through Google Play Billing (`lib/payments/
 googlePlay.ts`, already built), which has no equivalent redirect step.
@@ -6940,7 +6940,7 @@ read from the existing admin-configurable currency name
 instead of a literal "coins" string.
 
 **Admin test payments.** `/gate44/config` → "Test Payments" starts a real
-₦1 checkout with whichever Paystack/DodoPayments keys are currently
+₦1 checkout with whichever Paystack keys are currently
 configured (`POST /api/admin/payments/test`), so an admin can confirm a
 provider integration end-to-end without a real customer transaction. Marked
 `payment_type = 'admin_test'` and explicitly excluded from both coin/star
@@ -7268,6 +7268,113 @@ surface the extra-blog-slot purchase currency choice or business-blog
 creation inline (the API and Android already support both) — flagged in
 § 32.1 as a follow-up UI phase rather than built here, to keep this pass
 to verification/bugfixing of what already shipped.
+
+---
+
+## 40. Crypto Payments (v2.28)
+
+DodoPayments has been removed entirely and replaced with **crypto payments**
+as the platform's international payment option: JAGA (a BEP-20 token on
+BNB Smart Chain, contract `0x6a093f2134f66d7625724bc775c3b437ea756588`),
+native BNB, and native SOL (Solana). §18's payment provider tables above
+are updated accordingly.
+
+### Architecture
+
+A formal `PaymentProviderModule` interface
+(`apps/web/lib/payments/types.ts`) is implemented identically by Paystack
+and the new crypto provider, dispatched through a registry in
+`apps/web/lib/payments/index.ts` — adding a future provider #4 means one
+new file plus one registry entry, no call-site changes anywhere else. The
+crypto provider itself lives in a self-contained, minimally-cross-imported
+subtree at `apps/web/lib/payments/crypto/` (chain adapters, token registry,
+price feed, settings — designed to be portable to other projects):
+
+- **Chain adapters** (`crypto/chains/`) — `bsc.ts` (viem) and `solana.ts`
+  (`@solana/web3.js`), each validating addresses, reading balances, and
+  verifying a submitted transaction hash actually pays the expected amount
+  to the platform's receiving address. Extension point for new chains.
+- **Token registry** (`crypto/tokens.ts`) — JAGA / BNB / SOL, each with a
+  chain, decimals, and price-feed strategy. Extension point for new tokens.
+- **Price feed** (`crypto/priceFeed.ts`) — BNB/SOL priced via CoinGecko's
+  free API; JAGA (unlisted on CoinGecko) via DexScreener's free API against
+  its PancakeSwap pool. Refreshed **lazily on read** against an
+  admin-configurable interval (default 6h) rather than depending on any
+  CRON schedule — correct regardless of CRON cadence, since the platform
+  only has Vercel Hobby's daily CRON available. Falls back to the last
+  cached price (and logs a warning) if a live fetch fails, and to an admin
+  manual override (with optional auto-expiry) if set.
+- **Per-currency checkout discount** (default: JAGA 20% off, BNB/SOL 0%)
+  and the USD→NGN display rate are both admin-configurable.
+
+### Payment flow (no processor, no inbound webhook)
+
+The user connects their own wallet, sends the exact computed token amount
+themselves, and submits the resulting transaction hash to the backend,
+which verifies it on-chain before crediting the account:
+
+1. Checkout computes the exact required token amount server-side (never
+   trusting a client-submitted amount) from the live/manual price feed and
+   any discount, and returns the platform's receiving address for that
+   chain.
+2. Client shows a wallet-connect UI (MetaMask/WalletConnect on BSC,
+   Phantom/Solflare on Solana), a gas-fee estimate, and a confirmation
+   screen (original price struck through, discounted price in bold); the
+   user approves and sends from their own wallet.
+3. Client submits the transaction hash to `POST
+   /api/economy/crypto/confirm`, then polls `GET
+   /api/economy/crypto/status` every few seconds — this client-side polling
+   is the **primary** confirmation path.
+4. A daily CRON reconciliation pass (`app/api/cron/daily-platform`) is a
+   safety net only, re-checking any payment that received a tx hash but
+   never got a final confirmed poll, and marking it failed after 48h.
+
+### Per-payment-context settings & admin controls
+
+Six checkout contexts (Business tier upgrade, Business renewal,
+Subscription, Coin pack, Star pack, Creator merch) each independently
+configure which Nigeria method(s) are active, which crypto currencies are
+active, and whether the context is free (bypass payment entirely). Admin
+page `/gate44/payments` lists all six with a bulk-edit mode (select many,
+apply one action to all). A non-Nigerian user in a context with no active
+international method sees "Only Nigeria is supported for this at this
+time. We are working to add more countries." instead of a broken picker.
+
+A **Danger Zone "make all payments free"** action (with a confirmation
+modal) sets every context's free flag site-wide — available from both
+`/gate44/config` and `/gate44/payments`, calling the same endpoint so the
+behavior can never drift between the two entry points.
+
+### User-facing wallet management
+
+Users can save a wallet address per chain (used to *send* payments — not
+the same thing as a creator's payout-receiving wallet) from Settings →
+Crypto Wallets: masked display (first 4 + `…` + last 4), Edit/Delete with a
+confirm dialog.
+
+### What shipped vs. deferred in this pass
+
+Shipped: the full backend (provider architecture, chain adapters, price
+feed with fallback chain, per-context settings + admin UI + bulk actions +
+Danger Zone, wallet save/delete API + Settings UI, confirm/status/verify
+API routes, DB schema, i18n keys, tests). **Deferred**: the actual
+client-side wallet-connect widgets (MetaMask/WalletConnect UI, Phantom
+UI, the gas-estimate confirmation screen) and the Capacitor Android
+deep-link wallet flow — the backend is ready for that layer; until it's
+built, `paymentProvider: "crypto"` has no UI entry point yet on either
+platform. Also deferred: wiring the new export fields/filters into the
+`/gate44/data-management` UI and a Help Center "how to buy crypto" article.
+
+**New migration:** `db/migrations/0053_crypto_payments.sql` — `payments`
+table gains `chain`/`token_symbol`/`tx_hash`/`wallet_address`/
+`expected_token_amount` columns; new tables `crypto_exchange_rate_overrides`,
+`crypto_price_cache`, `payment_context_settings` (seeded to match prior
+Paystack-only behavior), `user_crypto_wallets`.
+
+**New env vars:** `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (optional),
+`BSC_RPC_URL` / `SOLANA_RPC_URL` (optional, default to public endpoints),
+`CRYPTO_RECEIVING_ADDRESS_BSC` / `CRYPTO_RECEIVING_ADDRESS_SOLANA`
+(**required** to actually accept crypto payments).
 
 ---
 
@@ -7942,6 +8049,57 @@ flow, reusing the existing Platform Advertising pipeline (§17) as-is.
 
 ---
 
-*ZobiaSocial PRD v2.27*
+## Appendix: Version 2.28 Change Log
+
+### v2.28 — Changelog
+
+#### DodoPayments removed; replaced with crypto payments (§18, new §40)
+
+- **Provider architecture formalized**: `PaymentProviderModule` interface
+  (`lib/payments/types.ts`) + registry (`lib/payments/index.ts`) —
+  Paystack and the new crypto provider both implement it; adding a future
+  provider is one file + one registry entry.
+- **New crypto provider** (`lib/payments/crypto/`): chain adapters for BNB
+  Smart Chain (viem) and Solana (`@solana/web3.js`); token registry (JAGA,
+  BNB, SOL); a price feed (CoinGecko + DexScreener) with a lazy
+  refresh-on-read cache, manual admin override, and graceful fallback
+  chain; a wallet-signed, no-webhook payment flow (client submits a tx
+  hash, backend verifies on-chain, client polls a status endpoint, daily
+  CRON reconciliation as a safety net only).
+- **Per-payment-context settings** (`payment_context_settings` table): six
+  checkout contexts each independently toggle Paystack / per-currency
+  crypto / free-bypass, managed from a new `/gate44/payments` admin page
+  with bulk-select actions and a "make all payments free" Danger Zone
+  (mirrored on `/gate44/config`, both calling one shared endpoint).
+- **User-facing crypto wallet management**: Settings → Crypto Wallets
+  (`user_crypto_wallets` table) — masked address, edit/delete with a
+  confirm dialog.
+- All direct `lib/payments/dodopayments` imports (business tier/renew/
+  signup routes) now go through the router; every remaining "paystack" |
+  "dodopayments" type union across the codebase (shared types, manifest,
+  admin config UI, Android admin config mirror) updated to "paystack" |
+  "crypto"; SSRF allowlist, `.env.example`, `lib/env.ts`, and
+  `middleware.ts`'s CSRF-bypass webhook list updated accordingly (crypto
+  has no inbound webhook to allowlist).
+- **Admin data export**: `ALLOWED_EXPORT_FIELDS` gained `cryptoWalletBsc` /
+  `cryptoWalletSolana` (address only), `isAdmin`, `rankLevel`,
+  `prestigeCount`, with matching filters — a wallet stays exportable even
+  after the feature is later disabled for that user, since it's a record
+  of what was saved, not a live entitlement.
+- **Not done in this pass**: the client-side wallet-connect UI (MetaMask/
+  WalletConnect, Phantom/Solflare, the confirmation screen) and the
+  Capacitor Android deep-link wallet flow — see §40 "What shipped vs.
+  deferred" for the full list. Also not done: wiring the new export
+  fields into the `/gate44/data-management` UI, and the Help Center "how
+  to buy crypto" article.
+
+**New migration:** `db/migrations/0053_crypto_payments.sql`.
+**New env vars:** `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (optional),
+`BSC_RPC_URL` / `SOLANA_RPC_URL` (optional), `CRYPTO_RECEIVING_ADDRESS_BSC`
+/ `CRYPTO_RECEIVING_ADDRESS_SOLANA` (required to accept crypto payments).
+
+---
+
+*ZobiaSocial PRD v2.28*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

@@ -423,9 +423,11 @@ export interface ZobiaManifest {
   updatedAt?: number;
   // Payment
   payment: {
-    primaryProvider: "paystack" | "dodopayments" | "none";
+    primaryProvider: "paystack" | "crypto" | "none";
     paystackEnabled: boolean;
-    dodopaymentsEnabled: boolean;
+    /** Global switch — per-payment-context crypto currency toggles (see
+     *  `payment_context_settings`) still gate individual checkout flows. */
+    cryptoEnabled: boolean;
     currenciesAccepted?: string[];
   };
   // Payout configuration
@@ -809,7 +811,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
   payment: {
     primaryProvider: "paystack",
     paystackEnabled: true,
-    dodopaymentsEnabled: false,
+    cryptoEnabled: false,
   },
   payouts: {
     enabled: true,
@@ -1138,7 +1140,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
   // Resolve payment primaryProvider
   const rawProvider = unquote(kv["payment_primary_provider"]);
   const primaryProvider: ZobiaManifest["payment"]["primaryProvider"] =
-    rawProvider === "dodopayments" || rawProvider === "none"
+    rawProvider === "crypto" || rawProvider === "none"
       ? rawProvider
       : "paystack";
 
@@ -1396,8 +1398,8 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
     deepLinkBaseUrl: unquote(kv["deep_link_base_url"]) ?? DEFAULT_MANIFEST.deepLinkBaseUrl,
     payment: {
       primaryProvider,
-      paystackEnabled:     parseBool(kv["payment_paystack_enabled"],     DEFAULT_MANIFEST.payment.paystackEnabled),
-      dodopaymentsEnabled: parseBool(kv["payment_dodopayments_enabled"], DEFAULT_MANIFEST.payment.dodopaymentsEnabled),
+      paystackEnabled: parseBool(kv["payment_paystack_enabled"], DEFAULT_MANIFEST.payment.paystackEnabled),
+      cryptoEnabled:   parseBool(kv["payment_crypto_enabled"],   DEFAULT_MANIFEST.payment.cryptoEnabled),
       // BUG-MANIFEST-01: populate currenciesAccepted from x_manifest key
       currenciesAccepted: kv["payment_currencies_accepted"]
         ? kv["payment_currencies_accepted"].split(",").map((c) => c.trim()).filter(Boolean)

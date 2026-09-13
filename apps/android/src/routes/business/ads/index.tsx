@@ -122,7 +122,7 @@ const PLACEMENTS = [
  * ads/page.tsx's `AdWalletPanel`: moves Credits 1:1 from the caller's main
  * wallet into their Ad Wallet (separate balance ads spend from). Web also
  * offers a "Buy Credits directly" link to /wallet?destination=ad_wallet —
- * that's a Paystack/DodoPayments checkout flow, web/PWA-only per PRD §18,
+ * that's a Paystack/crypto checkout flow, web/PWA-only per PRD §18,
  * so it's omitted here (Android tops up the main wallet via Google Play
  * Billing on the Wallet screen, then transfers from there).
  */

@@ -167,7 +167,7 @@ export default function AdsHubPage() {
       <div className="grid gap-3 sm:grid-cols-2">
         {[
           { emoji: "🖼️", key: "adFormats", title: "Ad formats", body: "300×250 square, 320×50 banner, full-screen interstitial, rewarded video, and in-stream native placements." },
-          { emoji: "💰", key: "cpmBilling", title: "CPM billing", body: "Pay per 1,000 impressions with Zobia Credits — top up with cash (Paystack/DodoPayments/Play Billing) or Credits directly." },
+          { emoji: "💰", key: "cpmBilling", title: "CPM billing", body: "Pay per 1,000 impressions with Zobia Credits — top up with cash (Paystack/crypto/Play Billing) or Credits directly." },
           { emoji: "🤖", key: "moderation", title: "Fast, safe review", body: "AI-assisted moderation with manual escalation keeps campaigns brand-safe without slowing you down." },
           { emoji: "📈", key: "boosting", title: "Boost your content", body: "Promote a Blog post or Room alongside standalone campaigns — same budget, same stats." },
         ].map((f) => (

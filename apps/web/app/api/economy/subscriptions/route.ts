@@ -128,9 +128,14 @@ const SubscribeSchema = z.object({
   billingCycle: z.enum(["monthly", "annual"]).optional(),
   /** Alias for billingCycle — accepted for backwards compatibility with older clients. */
   interval: z.enum(["monthly", "annual"]).optional(),
+  paymentProvider: z.enum(["paystack", "crypto"]).optional(),
+  /** Required when paymentProvider === "crypto". */
+  cryptoCurrency: z.enum(["JAGA", "BNB", "SOL"]).optional(),
 }).transform((d) => ({
   planId: d.planId,
   plan: d.plan,
+  paymentProvider: d.paymentProvider,
+  cryptoCurrency: d.cryptoCurrency,
   billingCycle: d.billingCycle ?? d.interval,
 })).refine(
   (d) => d.planId !== undefined || (d.plan !== undefined && d.billingCycle !== undefined),
@@ -203,6 +208,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const idempotencyKey = `subscription-${userId}-${plan.id}-${randomUUID()}`;
 
     const returnUrl = `${env.NEXT_PUBLIC_APP_URL}/settings/subscription/callback`;
+
+    const manifest = await loadManifest();
+    const VALID_PROVIDERS = ["paystack", "crypto"] as const;
+    const requestedProvider = body.paymentProvider;
+    let provider: (typeof VALID_PROVIDERS)[number];
+    if (requestedProvider && (VALID_PROVIDERS as readonly string[]).includes(requestedProvider)) {
+      provider = requestedProvider;
+    } else {
+      provider = manifest.payment.primaryProvider as (typeof VALID_PROVIDERS)[number];
+    }
+    if (provider === "crypto" && !body.cryptoCurrency) {
+      throw badRequest("cryptoCurrency is required when paymentProvider is 'crypto'", "MISSING_CRYPTO_CURRENCY");
+    }
+
     const metadata = {
       userId,
       planId: plan.id,
@@ -210,10 +229,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       interval: plan.interval,
       type: "subscription",
       itemType: "subscription",
+      ...(provider === "crypto" ? { cryptoCurrency: body.cryptoCurrency } : {}),
     };
-
-    const manifest = await loadManifest();
-    const provider = manifest.payment.primaryProvider as "paystack" | "dodopayments";
 
     const paymentResult = await initializePayment(
       plan.price_kobo,
@@ -221,17 +238,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       email,
       idempotencyKey,
       metadata,
-      returnUrl
+      returnUrl,
+      provider
     );
 
     const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };
+    const computed = provider === "crypto" ? (paymentResult.raw as { chain: string; currency: string; receivingAddress: string; expectedBaseUnits: bigint }) : null;
 
     // Store pending payment
     await db.query(
       `INSERT INTO payments
          (user_id, payment_type, amount_kobo, currency, provider, status,
-          idempotency_key, provider_reference, metadata)
-       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8)`,
+          idempotency_key, provider_reference, metadata, chain, token_symbol, wallet_address, expected_token_amount)
+       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12)`,
       [
         userId,
         'subscription',
@@ -241,12 +260,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         idempotencyKey,
         paymentResult.providerReference,
         JSON.stringify(metadataWithUrl),
+        computed?.chain ?? null,
+        computed?.currency ?? null,
+        computed?.receivingAddress ?? null,
+        computed ? computed.expectedBaseUnits.toString() : null,
       ]
     );
 
     return NextResponse.json({
       paymentUrl: paymentResult.paymentUrl,
       paymentReference: paymentResult.providerReference,
+      crypto: computed,
       plan: {
         id: plan.id,
         plan: plan.plan,

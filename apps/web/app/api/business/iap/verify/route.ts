@@ -5,9 +5,9 @@ export const dynamic = 'force-dynamic';
  *
  * Google Play Billing verification for Business Account signup/upgrade —
  * the Android-only counterpart to app/api/business/route.ts (POST) and
- * app/api/business/tier/route.ts (PATCH), which use Paystack/DodoPayments
+ * app/api/business/tier/route.ts (PATCH), which use Paystack/crypto
  * checkout links. Per PRD §18, Google Play Billing is the sole in-app
- * purchase mechanism on Android; Paystack/DodoPayments are web/PWA-only.
+ * purchase mechanism on Android; Paystack/crypto are web/PWA-only.
  *
  * POST /api/business/iap/verify
  *   Body: { purchaseToken, productId, packageName, business_name?, business_type? }
@@ -17,7 +17,7 @@ export const dynamic = 'force-dynamic';
  *   - Existing business account → upgrades/downgrades to the purchased tier,
  *     cancelling any pending downgrade
  *   - Records a `payments` row (provider "google_play") for revenue
- *     reporting parity with the Paystack/DodoPayments flows
+ *     reporting parity with the Paystack/crypto flows
  *   - Idempotent via payments.idempotency_key keyed on purchaseToken
  */
 
@@ -180,7 +180,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     // Acknowledge to prevent Google Play auto-cancelling after 3 days.
     await acknowledgeGooglePlaySubscription(body.packageName, body.productId, body.purchaseToken);
 
-    // Record the payment for revenue reporting parity with Paystack/DodoPayments.
+    // Record the payment for revenue reporting parity with Paystack/crypto.
     await db.query(
       `INSERT INTO payments
          (user_id, payment_type, amount_kobo, currency, provider,

@@ -3,7 +3,7 @@
  *
  * Shared helper for every activity that contributes gross revenue into the
  * Creator Fund (PRD §14). Previously each call site (subscription/room-entry
- * payments in paystackWebhookHandler.ts and dodoWebhookHandler.ts, coin pack
+ * payments in paystackWebhookHandler.ts and the crypto verification flow, coin pack
  * purchases in both, branded-room sponsorship in
  * app/api/admin/branded-rooms/route.ts, and rewarded-ad payouts in
  * app/api/economy/rewards/ad-reward/route.ts) hard-coded the same `* 0.05`

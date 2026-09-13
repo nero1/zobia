@@ -162,9 +162,8 @@ export async function processChargeSuccess(
     // charge the user successfully but never actually update their plan.
     // Our own billing period tracking (subscriptions.ends_at, swept daily by
     // lib/plans/subscriptionSweep.ts) doesn't need a real Paystack
-    // Subscription object anyway. Mirrors the (already-correct) DodoPayments
-    // handler's `itemType === "subscription"` branch below in
-    // dodoWebhookHandler.ts.
+    // Subscription object anyway. Mirrors the `itemType === "subscription"`
+    // branch handling used by other provider integrations.
     if (itemType === "subscription") {
       const VALID_PLANS = ["plus", "pro", "max"] as const;
       const rawPlanName = metadata.planName ?? "";

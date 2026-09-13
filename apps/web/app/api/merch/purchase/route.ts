@@ -6,9 +6,10 @@ export const dynamic = 'force-dynamic';
  * POST /api/merch/purchase
  *
  * Purchase a creator merch product. Supports three payment methods:
- *   - coins        → Atomic coin debit + creator credit (in-app currency)
- *   - paystack     → Redirect to Paystack checkout
- *   - dodopayments → Redirect to DodoPayments checkout
+ *   - coins    → Atomic coin debit + creator credit (in-app currency)
+ *   - paystack → Redirect to Paystack checkout
+ *   - crypto   → Pay with JAGA / BNB / SOL (user-initiated on-chain
+ *                transfer — see lib/payments/crypto/; requires `cryptoCurrency`)
  *
  * Coin payment flow (fully atomic):
  *   1. Load and validate the product (active, in stock).
@@ -56,7 +57,9 @@ const purchaseSchema = z.object({
   /** UUID of the store that owns the product. */
   storeId: z.string().uuid("storeId must be a valid UUID"),
   /** Payment method to use. */
-  paymentMethod: z.enum(["coins", "paystack", "dodopayments"]),
+  paymentMethod: z.enum(["coins", "paystack", "crypto"]),
+  /** Required when paymentMethod === "crypto". */
+  cryptoCurrency: z.enum(["JAGA", "BNB", "SOL"]).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -281,8 +284,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // -----------------------------------------------------------------------
-    // 4b. External payment (paystack / dodopayments)
+    // 4b. External payment (paystack / crypto)
     // -----------------------------------------------------------------------
+    if (body.paymentMethod === "crypto" && !body.cryptoCurrency) {
+      throw badRequest("cryptoCurrency is required when paymentMethod is 'crypto'");
+    }
 
     // Create a pending order first so we have a reference ID
     const { rows: pendingOrderRows } = await db.query<MerchOrderRow>(
@@ -324,8 +330,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           productId: body.productId,
           storeId: body.storeId,
           buyerId,
+          ...(body.paymentMethod === "crypto" ? { cryptoCurrency: body.cryptoCurrency } : {}),
         },
-        returnUrl
+        returnUrl,
+        body.paymentMethod === "crypto" ? "crypto" : "paystack"
       );
 
       // Persist the provider reference so the webhook can match it
@@ -340,6 +348,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         {
           paymentUrl: paymentResult.paymentUrl,
           orderId: pendingOrder.id,
+          providerReference: paymentResult.providerReference,
+          // Present only for paymentMethod === "crypto" — the client uses this
+          // to drive the wallet-connect / send flow (see ComputedAmount).
+          crypto: body.paymentMethod === "crypto" ? paymentResult.raw : undefined,
         },
         { status: 200 }
       );

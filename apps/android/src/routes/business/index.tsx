@@ -4,7 +4,7 @@
  * Business hub — mirrors apps/web/app/(app)/business/page.tsx. Signup and
  * tier changes go through Google Play Billing (PRD §18) — the only in-app
  * purchase mechanism allowed on Android — via lib/payments/googlePlay.ts,
- * never Paystack/DodoPayments checkout links (web/PWA-only).
+ * never Paystack/crypto checkout links (web/PWA-only).
  */
 
 import { useState } from 'react';
