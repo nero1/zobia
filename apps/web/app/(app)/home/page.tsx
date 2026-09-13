@@ -16,7 +16,6 @@
  */
 
 import { useCallback, useEffect, useState } from "react";
-import dynamic from "next/dynamic";
 import { useTranslation } from "react-i18next";
 import { ActivityBanner } from "@/components/ui/ActivityBanner";
 import { ErrorAlert } from "@/components/ui/ErrorAlert";
@@ -27,9 +26,8 @@ import { HomeTabs, useHomeTab, feedTabFullNameKey, TAB_ACRONYM } from "@/compone
 import { LogoTabContent } from "@/components/home/LogoTabContent";
 import { FeedTabContent } from "@/components/home/FeedTabContent";
 import { MysteryDropToast } from "@/components/home/MysteryDropToast";
+import AdSlot from "@/components/ads/AdSlot";
 import type { FeedTab } from "@/lib/feed/types";
-
-const AdSlot = dynamic(() => import("@/components/ads/AdSlot"), { ssr: false });
 
 interface PlatformEvent {
   name: string;

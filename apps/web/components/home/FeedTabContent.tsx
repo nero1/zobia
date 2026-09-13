@@ -19,7 +19,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
-import dynamic from "next/dynamic";
+import AdSlot from "@/components/ads/AdSlot";
 import type { FeedTab, FeedPage } from "@/lib/feed/types";
 
 interface CachedFeedPage {
@@ -27,8 +27,6 @@ interface CachedFeedPage {
   nextCursor: string | null;
 }
 import { FeedItemCard, FeedItemCardSkeleton, type FeedItemView } from "./FeedItemCard";
-
-const AdSlot = dynamic(() => import("@/components/ads/AdSlot"), { ssr: false });
 
 const ADS_EVERY_N_ITEMS = 6;
 const CACHE_TTL_MS = 10 * 60 * 1000;
