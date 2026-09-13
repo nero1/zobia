@@ -2034,9 +2034,11 @@ The Vercel Hobby Plan allows a maximum of one CRON run per day. This once-daily 
 
 ### Session Management
 
-- JWT + Redis for sessions. JWTs are short-lived (configurable expiry). Refresh tokens are stored in Redis with a sliding window.
+- JWT + Redis for sessions. JWTs are short-lived (configurable per role via `manifest.sessionTtls`). Refresh tokens are stored in Redis with a sliding window.
 - Session invalidation (logout, ban, suspicious activity) is propagated via Redis key deletion — no waiting for JWT expiry.
 - Admin sessions have a separate, shorter-lived JWT with stricter validation.
+- **(v2.14) Verification is tiered, not uniform.** Reading the Redis session record on *every* authenticated request was the app's highest-volume Redis operation and did not scale on a free tier. Ordinary routes now trust the short-lived signed access token; live Redis + database verification runs on money-moving and privilege-granting surfaces (payments, payouts, transfers, gifting, KYC, 2FA/PIN, bank accounts, session management) and on every `/gate44` admin and moderator route. Correspondingly, revocation is **push-based**: every ban/suspend/delete/downgrade path calls `revokeUserAccess()`, which destroys the user's sessions immediately, and token refresh re-checks account standing from the same row it already reads. A revoked session is therefore cut off instantly everywhere that matters, and at worst finishes out one access-token lifetime on harmless read endpoints. See *HOW-IT-WORKS.md → Redis Cost Controls*.
+- **Access-token lifetime is deliberately not shortened.** Once per-request session reads are gone, the only Redis traffic in the auth path is the refresh (~6 commands); a 5-minute TTL costs three times the commands of a 15-minute one over the same browsing session, for a revocation window push-based revocation has already closed.
 - **Expired-session UX:** Every authenticated `fetch` on web/PWA goes through a shared wrapper (`lib/api/authFetch.ts` for native `fetch` calls, an axios interceptor for `apiClient` calls) that, on a 401, attempts one silent token refresh and retries once. If the retry also 401s, the session is broadcast as expired via a small pub/sub bus and a blocking "you've been signed out, please sign in again" modal is shown, mounted once in the root layout so it covers every route (including standalone surfaces like `/g/<slug>/play`) — not just the authenticated app shell.
   - **(v2.10) Global 401 guard:** a large number of pages call the native `fetch()` directly (not through `authFetch`/`apiClient`), so a 401 on those calls previously went unnoticed — the modal never fired and the page just silently stopped responding to the user's actions. `lib/auth/sessionExpiredBus.ts` now patches `window.fetch` once at root-layout mount: any same-origin `/api/*` response with status 401 (excluding the auth endpoints themselves) marks the session expired, without needing every call site migrated to the shared wrapper. `authFetch`/`apiClient` route through the pre-patch `rawFetch` so their own silent-refresh-then-retry logic still runs first and this guard never short-circuits it.
   - **(v2.10) Capacitor app:** `AuthGuard` now tags an involuntary sign-out (`signalUnauthenticated`, e.g. a failed refresh) with a reason it carries into the `/auth/login` redirect, and the login screen shows a "your session has expired" banner — previously it silently redirected with zero explanation, which read to users as the app randomly logging them out.
@@ -2046,7 +2048,7 @@ The Vercel Hobby Plan allows a maximum of one CRON run per day. This once-daily 
 - **Supabase mode:** Built-in PgBouncer via Supabase connection pooler. Enable transaction mode for serverless API routes.
 - **Railway mode:** PgBouncer configured as a Railway add-on. Connection string points to the PgBouncer port, not the raw Postgres port.
 - **DigitalOcean mode:** DigitalOcean connection pooling enabled in the managed database dashboard. Pool size configured per environment.
-- Redis connection pooling via ioredis or Upstash connection management.
+- Redis connection pooling via ioredis or Upstash connection management. Both providers are wrapped in adapters implementing one interface, so `REDIS_PROVIDER` can be switched with no code changes; the ioredis adapter normalises pipeline replies and `hgetall` misses to match Upstash semantics.
 - HTTP connection pooling for external API calls (DeepSeek, Gemini, payment providers).
 
 ### Offline Support
@@ -2073,6 +2075,49 @@ The Vercel Hobby Plan allows a maximum of one CRON run per day. This once-daily 
   - `DATABASE_PROVIDER=supabase`: Use Supabase Realtime subscriptions for live feeds (rooms, notifications, leaderboards). Do not poll — subscribe via `supabase.channel()`.
   - All other providers (Railway, DigitalOcean, etc.): Use **Server-Sent Events (SSE)** with database polling as the equivalent. The backend exposes `/api/sse/*` endpoints that stream updates to clients using long-lived HTTP connections. The Expo app uses React Query's `refetchInterval` (polling every 2–3 seconds) as its non-Supabase realtime equivalent. No Supabase SDK imports are permitted outside of `DATABASE_PROVIDER=supabase` builds.
 - Background processing for expensive operations (AI moderation, payout processing, leaderboard recalculation) via queued jobs or CRON-triggered batches.
+
+### Redis Cost Discipline (v2.14)
+
+The platform must scale toward tens of thousands of concurrent users while
+running on a **free Redis tier**. Managed serverless Redis bills **per command**,
+which has one non-obvious consequence that governs every decision here:
+**pipelining reduces latency, not quota.** A pipeline of five commands is still
+five billed commands. Only *removing* commands reduces cost. Batching is used
+freely for p95 latency (each sequential call from a lambda is ~80 ms) but is
+never mistaken for a cost optimisation.
+
+Standing rules for all future work:
+
+1. **Nothing runs on every request unless it must.** Anything in a middleware,
+   a wrapper, or a per-query hook multiplies by total page views, not by logins.
+   Auditing these first is always the highest-yield change. The database circuit
+   breaker — which wrapped every query and cost two to three Redis commands each
+   — was the single largest consumer found, and is now in-process.
+2. **Prefer the database when the data already exists there.** Sitewide presence
+   duplicated `users.last_active_at`, which is indexed and strictly more
+   informative. Deriving it removed a write per heartbeat, a read per lookup and
+   a command per recipient on every push fan-out.
+3. **Global values belong in the CDN.** Anything identical for every user (the
+   app manifest, notices, Zobian of the Month, leaderboard totals) must carry
+   `s-maxage` so the edge answers it. Note that `max-age` alone is a *browser*
+   directive and leaves cold browsers and native clients hitting the origin.
+4. **Rate limits are tiered.** Limits that stop attackers (auth, PIN,
+   registration, payouts, purchases, gifting) are counted in Redis and fail
+   closed on an outage. Limits that stop runaway clients (`apiRead`, idempotent
+   votes) are counted per instance, cost zero Redis and fail open. Never store
+   one Redis entry per request to count requests.
+5. **Cache in-process first.** `lib/cache/memory.ts` is the L1 in front of every
+   Redis read. A Redis TTL is a safety net for a missed invalidation, not the
+   propagation mechanism — explicit invalidation is.
+6. **Client caches are per-user.** Offline-first persistence (localStorage on
+   web/PWA, IndexedDB on Capacitor) is namespaced by user id and purged on owner
+   change, so nothing leaks between accounts on a shared device. A denylist of
+   "sensitive" keys is not acceptable: it fails open for every key nobody
+   thought to list.
+
+Both Redis providers (`ioredis`, `upstash`) are held to the same interface and
+kept equally optimised, so `REDIS_PROVIDER` can be switched at any time without
+touching code.
 
 ### Retries and Resilience
 

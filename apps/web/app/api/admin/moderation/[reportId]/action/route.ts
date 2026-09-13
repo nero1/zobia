@@ -27,7 +27,7 @@ import { handleApiError, notFound, badRequest, forbidden } from "@/lib/api/error
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { db } from "@/lib/db";
 import { DEEPSEEK_MODELS, GEMINI_MODELS, GEMINI_CONFIG } from "@/lib/ai/config";
-import { invalidateAllSessions } from "@/lib/auth/session";
+import { revokeUserAccess } from "@/lib/auth/session";
 import { canPlatformModPerform } from "@/lib/moderation/capabilities";
 import { applyReportRewards, applyMaliciousReportPenalty } from "@/lib/moderation/rewards";
 
@@ -348,7 +348,7 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
       // Invalidate all active sessions for banned/suspended users so they cannot
       // continue using the platform after the action takes effect.
       if (report.reported_user_id && (action === "ban_user" || action === "suspend_user")) {
-        await invalidateAllSessions(report.reported_user_id).catch(() => {});
+        await revokeUserAccess(report.reported_user_id, "moderation_action");
       }
 
       // Reporting rewards (PRD "REPORTING") — best-effort, after commit.

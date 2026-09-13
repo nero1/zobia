@@ -47,6 +47,17 @@ jest.mock('@/lib/redis', () => ({
       mockRedisStore.delete(key);
       return Promise.resolve(1);
     }),
+    // REDIS-COST-01: the deck lock is released with a compare-and-delete Lua
+    // script (atomic, and one round-trip instead of GET-then-DEL). The script
+    // body is fixed, so the mock just reproduces its semantics against the
+    // in-memory store rather than interpreting Lua.
+    eval: jest.fn((_script: string, _numKeys: number, key: string, expected: string) => {
+      if (mockRedisStore.get(key) === expected) {
+        mockRedisStore.delete(key);
+        return Promise.resolve(1);
+      }
+      return Promise.resolve(0);
+    }),
   },
 }));
 
@@ -132,17 +143,26 @@ describe('generateDailyDeck', () => {
       ...(progressByQuestId[t.id] ?? { progress_count: 0, completed: false, completed_at: null }),
     }));
 
-    let callCount = 0;
+    // Dispatch on the SQL itself rather than on call ordinal: the engine's
+    // query sequence is an implementation detail that legitimately changes
+    // (REDIS-COST-01 added a pre-lock existence check, so the "does a deck
+    // already exist" read now happens twice on a cold day), and a positional
+    // mock turns any such change into a spurious failure.
     const db = buildMockDb({
-      query: jest.fn(async () => {
-        callCount++;
-        // Call sequence inside generateDailyDeck: (1) check for an existing
-        // deck (BUG-009 fix), (2) fetch eligible templates, (3) INSERT the
-        // shuffled deck, (4) re-query the assigned deck joined with progress.
-        if (callCount === 1) return { rows: [], rowCount: 0 }; // no existing deck
-        if (callCount === 2) return { rows: templates, rowCount: templates.length };
-        if (callCount === 3) return { rows: [], rowCount: 0 }; // INSERT user_quest_decks
-        return { rows: joinedRows, rowCount: joinedRows.length };
+      query: jest.fn(async (sql: string) => {
+        if (sql.includes('FROM user_quest_decks WHERE user_id')) {
+          return { rows: [], rowCount: 0 }; // no existing deck
+        }
+        if (sql.includes('FROM quest_templates')) {
+          return { rows: templates, rowCount: templates.length };
+        }
+        if (sql.includes('INSERT INTO user_quest_decks')) {
+          return { rows: [], rowCount: 0 };
+        }
+        if (sql.includes('JOIN quest_templates')) {
+          return { rows: joinedRows, rowCount: joinedRows.length };
+        }
+        return { rows: [], rowCount: 0 };
       }) as unknown as DatabaseAdapter['query'],
     });
 
@@ -163,9 +183,14 @@ describe('generateDailyDeck', () => {
     await generateDailyDeck('user-1', 'pro', db);
 
     const querySpy = db.query as jest.Mock;
-    // Call 0 is the "existing deck" check (BUG-009 fix); the template
-    // fetch with the hierarchical plan_required filter is call 1.
-    const [sql] = querySpy.mock.calls[1];
+    // Find the template fetch by its table rather than by call ordinal — the
+    // surrounding call sequence is an implementation detail (REDIS-COST-01
+    // added a pre-lock deck-existence check ahead of it).
+    const templateCall = querySpy.mock.calls.find(
+      ([q]: [string]) => typeof q === 'string' && q.includes('FROM quest_templates')
+    );
+    expect(templateCall).toBeDefined();
+    const [sql] = templateCall as [string];
 
     // After the fix, SQL must use hierarchical plan_required logic
     expect(sql).toMatch(/plan_required = 'pro' AND \$2 IN/);

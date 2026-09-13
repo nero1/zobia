@@ -15,10 +15,16 @@ import { redis } from "@/lib/redis";
 import { logger } from "@/lib/logger";
 import { memGet, memSet, memDel } from "@/lib/cache/memory";
 
+// REDIS-COST-01: this value changes at most once a month and is explicitly
+// invalidated by both the admin override route and the feed-refresh CRON
+// (see invalidateZobianOfMonthCache below), so the TTLs are a safety net
+// rather than the propagation mechanism. They were set as if they were the
+// latter, which meant every Home Dashboard load on a cold instance paid a
+// Redis read for a value that had not changed in weeks.
 const MEM_KEY = "zobian_of_month:current";
-const MEM_TTL_MS = 30_000;
+const MEM_TTL_MS = 300_000; // 5 minutes
 const REDIS_KEY = "zobian_of_month:current:v1";
-const REDIS_TTL_SECONDS = 300;
+const REDIS_TTL_SECONDS = 21_600; // 6 hours
 
 export interface ZobianOfMonthPublic {
   month: string;

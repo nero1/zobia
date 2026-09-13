@@ -166,6 +166,18 @@ export interface AccessTokenPayload extends JWTPayload {
   /** Set only on an impersonation session — the admin user id who started it.
    *  See lib/auth/impersonation.ts and app/api/admin/users/[userId]/impersonate/route.ts. */
   impersonated_by?: string;
+  /**
+   * Login IP (REDIS-COST-01). Geolocation anomaly detection compares the IP a
+   * session was established from against the IP of the current request. That
+   * value used to be read out of the Redis session record on EVERY request,
+   * which is precisely the read we removed from the hot path — so it is
+   * carried here instead. It is a signed claim, so a client cannot forge it to
+   * suppress the check, and it is only ever compared (never displayed or used
+   * for authorization). Absent on tokens issued before this change and on
+   * sessions created without a resolvable IP, in which case the comparison is
+   * skipped exactly as it already was for `session.ip === undefined`.
+   */
+  lip?: string;
 }
 
 /** Claims embedded in every refresh token. */

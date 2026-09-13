@@ -15,6 +15,22 @@ import { logger } from "@/lib/logger";
 
 export type CircuitState = "CLOSED" | "OPEN" | "HALF_OPEN";
 
+/**
+ * Health snapshot shared by both breaker implementations (in-process and
+ * Redis-backed) so consumers — the health check, the monitoring dashboard —
+ * can treat them interchangeably.
+ */
+export interface CircuitMetrics {
+  name: string;
+  state: CircuitState;
+  /** Percentage of calls in the current rolling window that failed (0-100). */
+  failureRate: number;
+  /** Unix ms when the circuit last opened, or null while CLOSED. */
+  openedAt: number | null;
+  /** Number of calls currently tracked in the rolling window. */
+  windowSize: number;
+}
+
 export interface CircuitBreakerOptions {
   /** Failure % threshold before opening (0–100). Default: 50 */
   errorThresholdPercentage?: number;
@@ -139,7 +155,7 @@ export class CircuitBreaker {
   }
 
   /** Returns a snapshot of current circuit health for monitoring. */
-  getMetrics() {
+  getMetrics(): CircuitMetrics {
     const failCount = this.failures.filter(Boolean).length;
     return {
       name: this.name,
@@ -332,7 +348,7 @@ return s.state
     }
   }
 
-  async getMetrics() {
+  async getMetrics(): Promise<CircuitMetrics> {
     const s = await this.readState().catch(() => ({
       state: "CLOSED" as CircuitState, failures: [], consecutiveSuccesses: 0, openedAt: null,
     }));

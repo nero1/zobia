@@ -1,21 +1,44 @@
 /**
  * lib/security/rateLimit.ts
  *
- * Redis-backed sliding-window rate limiter.
+ * Redis-backed rate limiter with a two-tier cost model.
  *
- * Two variants are provided:
- *   - Per-user  – keyed on the authenticated user's UUID
- *   - Per-IP    – keyed on the client's remote IP address
+ * ---------------------------------------------------------------------------
+ * REDIS-COST-01 — why this was rewritten
+ * ---------------------------------------------------------------------------
+ * The previous implementation used a sorted-set sliding window: every single
+ * request ran a Lua script that issued ZREMRANGEBYSCORE + ZCARD + ZADD +
+ * PEXPIRE (four commands) AND stored a unique ~40-byte member per request. At
+ * the `apiRead` preset of 300 requests/minute that is up to 12 KB of Redis
+ * memory per active user per minute, purely to count. It was simultaneously
+ * our second-largest command consumer and our largest storage consumer.
  *
- * The sliding window algorithm keeps a sorted set of request timestamps in
- * Redis. On each request, a single atomic Lua script:
- *   1. Removes entries older than `windowMs` (ZREMRANGEBYSCORE)
- *   2. Counts remaining entries (ZCARD)
- *   3. If count ≥ limit → denies without writing
- *   4. Otherwise adds current timestamp with a unique member (ZADD) and
- *      resets the key TTL (PEXPIRE)
+ * Two changes fix that:
  *
- * All four steps execute atomically — no TOCTOU race, single round-trip.
+ * 1. TIERING. Not every limit is a security control. `apiRead` at 300/min and
+ *    the various vote limiters exist to stop runaway clients and accidental
+ *    loops, not determined attackers — and each underlying action is
+ *    independently protected (votes by unique constraints, reads by being
+ *    reads). Those limiters now run entirely in-process (`tier: "local"`) and
+ *    cost ZERO Redis commands. Limiters that genuinely gate abuse — auth,
+ *    PIN, registration, payouts, purchases, gifting, writes — stay exact
+ *    (`tier: "exact"`) and still hit Redis.
+ *
+ * 2. A CHEAPER EXACT ALGORITHM. Exact limiters use an approximate sliding
+ *    window built from two fixed-window counters (the current window and the
+ *    previous one, weighted by how far through the current window we are).
+ *    This is the standard Cloudflare-style approximation. It costs an MGET +
+ *    an INCR (+ a PEXPIRE only when a window is first created) — two to three
+ *    commands instead of four — and stores two small integers per subject
+ *    instead of one member per request. Crucially it does NOT reintroduce the
+ *    2x boundary burst that BUG-RATE-01 fixed: weighting the previous window's
+ *    count is precisely what smooths the boundary.
+ *
+ * Both tiers keep the in-process L1 skip cache, which lets an instance avoid
+ * Redis entirely while a subject is far below its limit.
+ *
+ * All state transitions execute inside a single Lua script, so there is no
+ * TOCTOU race between concurrent serverless instances.
  */
 
 import { redis } from "@/lib/redis";
@@ -55,12 +78,30 @@ export interface RateLimitOptions {
    * BUG-013 FIX: Override the global `RL_SKIP_THRESHOLD` for this endpoint.
    * Fraction of the limit below which in-process counting may skip the Redis
    * round-trip. Set to 0 to always hit Redis (same effect as `bypassL1: true`).
-   * Defaults to `RL_SKIP_THRESHOLD` (0.25) when not set.
+   * Defaults to `RL_SKIP_THRESHOLD` (0.1) when not set.
    *
    * Security-sensitive endpoints (auth, login, OTP, payment) should use 0.
-   * Read-only endpoints may use the default 0.25 to reduce Redis load.
+   * Read-only endpoints may use the default to reduce Redis load.
+   * Ignored entirely when `tier` is "local" (which never touches Redis).
    */
   skipThreshold?: number;
+  /**
+   * REDIS-COST-01 — how much this limit is worth paying Redis for.
+   *
+   * - "exact" (default): counted in Redis, so the limit holds across every
+   *   serverless instance. Use for anything an attacker would benefit from
+   *   exceeding: authentication, PIN entry, registration, payouts, purchases,
+   *   gifting, and writes generally.
+   *
+   * - "local": counted per serverless instance only, costing ZERO Redis
+   *   commands. The effective ceiling becomes roughly `limit x N` where N is
+   *   the number of warm instances, so only use it where exceeding the limit
+   *   is a nuisance rather than a vulnerability — high-volume reads and idempotent
+   *   votes whose underlying action is already constrained elsewhere (unique
+   *   indexes, ownership checks). This is where the bulk of our request volume
+   *   lives, so moving it off Redis is most of the saving.
+   */
+  tier?: "exact" | "local";
 }
 
 /** Result of a rate-limit check. */
@@ -81,8 +122,12 @@ export interface RateLimitResult {
 export const RATE_LIMITS = {
   /** OAuth initiation / callback endpoints. */
   auth: { limit: 20, windowMs: 15 * 60 * 1000, name: "auth", globalLimit: 1000, bypassL1: true } as RateLimitOptions,
-  /** General authenticated API reads. */
-  apiRead: { limit: 300, windowMs: 60 * 1000, name: "api:read" } as RateLimitOptions,
+  /**
+   * General authenticated API reads. The highest-volume limiter in the app by a
+   * wide margin, and the least security-relevant — it exists to catch runaway
+   * clients, not attackers. Counted locally so it costs no Redis (REDIS-COST-01).
+   */
+  apiRead: { limit: 300, windowMs: 60 * 1000, name: "api:read", tier: "local" } as RateLimitOptions,
   /** General authenticated API mutations. */
   apiWrite: { limit: 60, windowMs: 60 * 1000, name: "api:write" } as RateLimitOptions,
   /** Sending messages — room or DM. Dedicated limit, not shared with other writes. */
@@ -121,79 +166,117 @@ export const RATE_LIMITS = {
   register: { limit: 5, windowMs: 60 * 60 * 1000, name: "auth:register", bypassL1: true } as RateLimitOptions,
   /** Posting a forum question or answer. */
   forumWrite: { limit: 10, windowMs: 60 * 1000, name: "forum:write" } as RateLimitOptions,
-  /** Voting or favoriting a forum question/answer. Cheap, L1-skip eligible. */
-  forumVote: { limit: 60, windowMs: 60 * 1000, name: "forum:vote" } as RateLimitOptions,
+  /** Voting or favoriting a forum question/answer. Idempotent and guarded by a unique index, so counted locally. */
+  forumVote: { limit: 60, windowMs: 60 * 1000, name: "forum:vote", tier: "local" } as RateLimitOptions,
   /** Publishing/editing a blog post, or posting a comment. */
   blogWrite: { limit: 15, windowMs: 60 * 1000, name: "blog:write" } as RateLimitOptions,
-  /** Liking, subscribing, or recording a view on a blog/post. Cheap, L1-skip eligible. */
-  blogVote: { limit: 60, windowMs: 60 * 1000, name: "blog:vote" } as RateLimitOptions,
+  /** Liking, subscribing, or recording a view on a blog/post. Idempotent, counted locally. */
+  blogVote: { limit: 60, windowMs: 60 * 1000, name: "blog:vote", tier: "local" } as RateLimitOptions,
   /** Creating a poll, quiz, or funding a reward pot. */
   pollQuizWrite: { limit: 10, windowMs: 60 * 1000, name: "pollquiz:write" } as RateLimitOptions,
-  /** Voting on a poll or submitting a quiz attempt/share. Cheap, L1-skip eligible. */
-  pollQuizVote: { limit: 60, windowMs: 60 * 1000, name: "pollquiz:vote" } as RateLimitOptions,
+  /** Voting on a poll or submitting a quiz attempt/share. Attempt caps are enforced in the DB, so counted locally. */
+  pollQuizVote: { limit: 60, windowMs: 60 * 1000, name: "pollquiz:vote", tier: "local" } as RateLimitOptions,
   /** Listing or revoking active sessions (BUG-CAP-06) — touches auth state, bypassL1. */
   sessionManage: { limit: 30, windowMs: 60 * 1000, name: "session:manage", bypassL1: true } as RateLimitOptions,
   /** Creating a wiki, or creating/editing a wiki page. */
   wikiWrite: { limit: 20, windowMs: 60 * 1000, name: "wiki:write" } as RateLimitOptions,
-  /** Sharing a wiki, or managing moderators/invites/collaborators. Cheap, L1-skip eligible. */
-  wikiVote: { limit: 60, windowMs: 60 * 1000, name: "wiki:vote" } as RateLimitOptions,
+  /** Sharing a wiki, or managing moderators/invites/collaborators. Ownership-checked, so counted locally. */
+  wikiVote: { limit: 60, windowMs: 60 * 1000, name: "wiki:vote", tier: "local" } as RateLimitOptions,
 } as const;
 
 // ---------------------------------------------------------------------------
-// Lua sliding-window script (atomic, single round-trip)
+// Exact tier: approximate sliding window over two fixed-window counters
 // ---------------------------------------------------------------------------
 
 /**
- * Atomic sorted-set sliding window using Redis Lua eval.
+ * Atomic approximate-sliding-window limiter (REDIS-COST-01).
  *
- * KEYS[1]  = rate limit key (sorted set)
- * ARGV[1]  = now (ms, as string)
- * ARGV[2]  = window_start (now - windowMs, as string) — entries older than
- *            this are expired before counting
- * ARGV[3]  = limit (max allowed entries)
- * ARGV[4]  = ttl (windowMs in ms) — key expires after this many ms of
- *            inactivity, ensuring automatic cleanup
- * ARGV[5]  = member — unique string for this request
- *            (prevents score collisions for concurrent same-ms requests)
+ * The window is divided into fixed buckets of `windowMs`. We keep a plain
+ * integer counter per bucket and estimate the number of requests in the last
+ * `windowMs` as:
  *
- * Returns: {allowed, remaining, ttlMs}
- *   allowed  = 1 if the request is permitted, 0 if denied
- *   remaining = slots left after this request (0 when denied)
- *   ttlMs    = milliseconds until the key expires (= reset window)
+ *     estimate = previousBucketCount * (1 - elapsedRatio) + currentBucketCount
+ *
+ * where `elapsedRatio` is how far through the current bucket we are (0 to 1).
+ * At the instant a bucket rolls over, the previous bucket still contributes its
+ * full weight, so there is no boundary burst — which is the property
+ * BUG-RATE-01 originally introduced the sorted set to get. As the current
+ * bucket fills, the previous one fades out proportionally.
+ *
+ * Cost: MGET (1) + INCR (1) + PEXPIRE (only when a bucket is created) — two to
+ * three commands, versus four for the sorted set, and two small integers of
+ * storage per subject instead of one ~40-byte member per request.
+ *
+ * KEYS[1] = current bucket counter key
+ * KEYS[2] = previous bucket counter key
+ * ARGV[1] = limit
+ * ARGV[2] = bucket TTL in ms (two windows, so the previous bucket outlives its
+ *           usefulness by exactly one window and then expires on its own)
+ * ARGV[3] = elapsedRatio within the current bucket, 0..1
+ * ARGV[4] = ms remaining in the current bucket
+ *
+ * Returns: {allowed, remaining, resetMs}
  */
-const SLIDING_WINDOW_LUA = `
-local key = KEYS[1]
-local now = tonumber(ARGV[1])
-local window_start = tonumber(ARGV[2])
-local limit = tonumber(ARGV[3])
-local ttl = tonumber(ARGV[4])
-local member = ARGV[5]
+const SLIDING_COUNTER_LUA = `
+local curKey = KEYS[1]
+local prevKey = KEYS[2]
+local limit = tonumber(ARGV[1])
+local ttl = tonumber(ARGV[2])
+local elapsed = tonumber(ARGV[3])
+local resetMs = tonumber(ARGV[4])
 
--- Remove expired entries from the sorted set
-redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start)
+local vals = redis.call('MGET', curKey, prevKey)
+local cur = tonumber(vals[1]) or 0
+local prev = tonumber(vals[2]) or 0
 
--- Count current entries in the window
-local count = redis.call('ZCARD', key)
-
-if count >= limit then
-  return {0, 0, redis.call('PTTL', key)}
+local estimate = prev * (1 - elapsed) + cur
+if estimate >= limit then
+  return {0, 0, resetMs}
 end
 
--- Add this request as a new entry (score = timestamp ms, member = unique)
-redis.call('ZADD', key, now, member)
--- Reset TTL on each add so the key expires when the window goes idle
-redis.call('PEXPIRE', key, ttl)
+cur = redis.call('INCR', curKey)
+if cur == 1 then
+  redis.call('PEXPIRE', curKey, ttl)
+end
 
-return {1, limit - count - 1, ttl}
+local remaining = math.floor(limit - (prev * (1 - elapsed) + cur))
+if remaining < 0 then remaining = 0 end
+return {1, remaining, resetMs}
 `;
 
+/**
+ * Build the pair of bucket keys for a subject at a point in time.
+ *
+ * The variable part of the key is wrapped in a `{...}` hash tag so that both
+ * buckets always land in the same Redis Cluster slot. A Lua script may only
+ * touch keys in one slot, so without the tag this would break on a clustered
+ * ioredis deployment (Upstash is single-slot, but the abstraction has to work
+ * for both providers).
+ */
+function bucketKeys(baseKey: string, windowMs: number, now: number): {
+  current: string;
+  previous: string;
+  elapsedRatio: number;
+  resetMs: number;
+} {
+  const bucket = Math.floor(now / windowMs);
+  const bucketStart = bucket * windowMs;
+  const elapsedRatio = (now - bucketStart) / windowMs;
+  return {
+    current: `{${baseKey}}:${bucket}`,
+    previous: `{${baseKey}}:${bucket - 1}`,
+    elapsedRatio,
+    resetMs: bucketStart + windowMs - now,
+  };
+}
+
 // ---------------------------------------------------------------------------
-// In-process rate-limit skip cache
+// In-process rate-limit caches
 // ---------------------------------------------------------------------------
 
 /**
- * Per-key in-process counter used to skip Redis when well under limit.
- * Expires after SKIP_CACHE_TTL_MS so state resets quickly on cold paths.
+ * Per-key in-process counter used to skip Redis when well under limit, and as
+ * the sole counter for `tier: "local"` limiters.
  */
 interface RlMemEntry {
   count: number;
@@ -208,9 +291,9 @@ const RL_MEM_TTL_MS = 2_000;
  * BUG-16: lowered from 0.7 to 0.4; BUG-RL-01: further lowered to 0.25;
  * BUG-021 FIX: further lowered to 0.1.
  *
- * Multi-instance overage formula: N × L1% × limit
+ * Multi-instance overage formula: N x L1% x limit
  * At 0.1 with N=3 serverless instances: each instance allows up to 10% of the
- * limit before hitting Redis. Burst headroom = 3 × 0.1 × limit = 30% of limit
+ * limit before hitting Redis. Burst headroom = 3 x 0.1 x limit = 30% of limit
  * before Redis cuts in. This tighter threshold reduces multi-instance over-counting
  * while still saving Redis round-trips on low-traffic endpoints.
  * For zero-tolerance endpoints use bypassL1: true.
@@ -218,11 +301,50 @@ const RL_MEM_TTL_MS = 2_000;
 const RL_SKIP_THRESHOLD = 0.1;
 
 // ---------------------------------------------------------------------------
-// Core sliding-window implementation
+// Local tier
 // ---------------------------------------------------------------------------
 
 /**
- * Check and record a request in the sliding window for the given key.
+ * Count a request against a purely in-process fixed window (REDIS-COST-01).
+ *
+ * Costs no Redis commands at all. The counter is keyed by window bucket so it
+ * resets cleanly rather than drifting, and it lives in the shared LRU memory
+ * cache, so a cold or recycled instance simply starts a fresh window.
+ *
+ * Because each instance counts independently, the real ceiling is
+ * `limit x (number of warm instances)`. That is an accepted, documented
+ * trade — see the `tier` docs on RateLimitOptions for when it is appropriate.
+ */
+function localWindowCheck(key: string, options: RateLimitOptions): RateLimitResult {
+  const now = Date.now();
+  const bucket = Math.floor(now / options.windowMs);
+  const bucketStart = bucket * options.windowMs;
+  const resetAt = bucketStart + options.windowMs;
+  const memKey = `rl_local:${key}:${bucket}`;
+
+  const entry = memGet<RlMemEntry>(memKey);
+  const count = entry ? entry.count : 0;
+
+  if (count >= options.limit) {
+    return { allowed: false, remaining: 0, resetAt };
+  }
+
+  memSet<RlMemEntry>(
+    memKey,
+    { count: count + 1, windowStart: bucketStart },
+    // Live exactly to the end of the window; the LRU prune sweeps the rest.
+    Math.max(1, resetAt - now)
+  );
+
+  return { allowed: true, remaining: options.limit - count - 1, resetAt };
+}
+
+// ---------------------------------------------------------------------------
+// Core implementation
+// ---------------------------------------------------------------------------
+
+/**
+ * Check and record a request in the window for the given key.
  *
  * @param key     - Full Redis key for this limiter + subject combination
  * @param options - Window configuration
@@ -232,8 +354,12 @@ async function slidingWindowCheck(
   key: string,
   options: RateLimitOptions
 ): Promise<RateLimitResult> {
+  // Local tier never touches Redis.
+  if (options.tier === "local") {
+    return localWindowCheck(key, options);
+  }
+
   const now = Date.now();
-  const windowStart = now - options.windowMs;
 
   // In-process fast-path: if we've checked Redis recently AND the in-process
   // count is well below the limit, skip the Redis round-trip entirely.
@@ -258,22 +384,37 @@ async function slidingWindowCheck(
     }
   }
 
-  // Unique member prevents collisions when multiple requests arrive in the
-  // same millisecond (identical score would overwrite the same member).
-  const member = `${now}-${Math.random().toString(36).slice(2)}`;
+  const { current, previous, elapsedRatio, resetMs } = bucketKeys(key, options.windowMs, now);
 
-  const result = await redis.eval(
-    SLIDING_WINDOW_LUA,
-    1,
-    key,
-    String(now),
-    String(windowStart),
-    String(options.limit),
-    String(options.windowMs),
-    member
-  ) as [number, number, number];
+  let allowed = 1;
+  let remaining = options.limit - 1;
+  let resetAt = now + resetMs;
 
-  const [allowed, remaining, ttlMs] = result;
+  try {
+    const result = (await redis.eval(
+      SLIDING_COUNTER_LUA,
+      2,
+      current,
+      previous,
+      String(options.limit),
+      String(options.windowMs * 2),
+      elapsedRatio.toFixed(6),
+      String(resetMs)
+    )) as [number, number, number];
+
+    [allowed, remaining] = result;
+    resetAt = now + result[2];
+  } catch (err) {
+    // Redis unavailable. Fail OPEN for ordinary limiters so a cache outage does
+    // not take the whole app down, but fail CLOSED for limiters explicitly
+    // marked `bypassL1` — those are the security-critical ones (auth, PIN,
+    // payouts), where allowing unbounded attempts is worse than a brief outage.
+    logger.error({ err, limiter: options.name }, "[rateLimit] Redis check failed");
+    if (options.bypassL1) {
+      return { allowed: false, remaining: 0, resetAt };
+    }
+    return { allowed: true, remaining: options.limit - 1, resetAt };
+  }
 
   // Seed the in-process cache with the real count from Redis so subsequent
   // requests in this instance can skip the round-trip.
@@ -282,11 +423,7 @@ async function slidingWindowCheck(
     memSet<RlMemEntry>(memKey, { count: currentCount, windowStart: now }, RL_MEM_TTL_MS);
   }
 
-  return {
-    allowed: allowed === 1,
-    remaining,
-    resetAt: now + ttlMs,
-  };
+  return { allowed: allowed === 1, remaining, resetAt };
 }
 
 // ---------------------------------------------------------------------------
@@ -372,28 +509,26 @@ export async function enforceRateLimit(
     );
   }
 
-  // Global endpoint cap — applied after per-user/IP check.
-  // BUG-RATE-01: replaced fixed-window INCR+EXPIRE with the same sliding-window
-  // Lua script used for per-user/IP limits, eliminating the 2× burst at window
-  // boundaries. Uses a fixed 60-second window for predictable global throughput.
+  // Global endpoint cap — applied after the per-user/IP check.
+  //
+  // BUG-RATE-01 originally replaced a naive fixed-window INCR+EXPIRE here to
+  // eliminate the 2x burst at window boundaries. REDIS-COST-01 keeps that
+  // property while dropping the sorted set: the same two-counter approximate
+  // sliding window used above smooths the boundary without storing a member per
+  // request. This key is written by every request to a globally-capped endpoint
+  // across the whole fleet, so it was the single hottest write in the app.
   if (options.globalLimit) {
-    const globalKey = `rate:global:${options.name}`;
-    const globalWindowMs = 60_000; // fixed 60-second global window
-    const now = Date.now();
-    const windowStart = now - globalWindowMs;
-    const member = `${now}-${Math.random().toString(36).slice(2)}`;
-    const globalResult = await redis.eval(
-      SLIDING_WINDOW_LUA,
-      1,
-      globalKey,
-      String(now),
-      String(windowStart),
-      String(options.globalLimit),
-      String(globalWindowMs),
-      member
-    ) as [number, number, number];
+    const globalResult = await slidingWindowCheck(`rate:global:${options.name}`, {
+      limit: options.globalLimit,
+      windowMs: 60_000, // fixed 60-second global window
+      name: `global:${options.name}`,
+      // Never skip Redis for a fleet-wide cap: a per-instance counter cannot
+      // meaningfully approximate a global one.
+      bypassL1: true,
+      tier: "exact",
+    });
 
-    if (globalResult[0] === 0) {
+    if (!globalResult.allowed) {
       throw tooManyRequests(
         `Global rate limit exceeded for ${options.name}. Please try again later.`
       );

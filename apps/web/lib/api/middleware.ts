@@ -27,7 +27,6 @@ import {
   type AccessTokenPayload,
 } from "@/lib/auth/jwt";
 import {
-  getSession,
   getSessionFresh,
   invalidateSession,
   ACCESS_TOKEN_COOKIE,
@@ -35,8 +34,6 @@ import {
   type SessionRecord,
 } from "@/lib/auth/session";
 import { db } from "@/lib/db";
-import { redis } from "@/lib/redis";
-import { memGet, memSet } from "@/lib/cache/memory";
 import {
   ApiError,
   unauthorized,
@@ -139,23 +136,130 @@ function extractToken(req: NextRequest): string | null {
  * Run geo-anomaly detection for a session.
  * Returns true if the check passes (no anomaly or anomaly below threshold),
  * false if the session should be invalidated due to suspicious IP activity.
+ *
+ * `loginIp` comes from the session record on paths that already read it
+ * (admin/moderator routes, sensitive mutations) and from the signed `lip`
+ * access-token claim everywhere else — see REDIS-COST-01 in withAuth below.
+ * Both are server-controlled values; the client cannot influence either.
+ *
+ * Note that `recordAndCheckAnomaly` (which does touch Redis) only runs once
+ * `isIpAnomalous` returns true, i.e. when the /24 prefix actually changed
+ * between two public IPs. That is rare, so this is not a hot-path cost.
  */
 async function runGeoAnomalyCheck(
-  session: SessionRecord,
+  sid: string,
+  uid: string,
+  loginIp: string | undefined,
   currentIp: string | undefined
 ): Promise<boolean> {
-  if (session.ip && currentIp && isIpAnomalous(session.ip, currentIp)) {
-    const shouldInvalidate = await recordAndCheckAnomaly(
-      session.sid,
-      session.uid,
-      session.ip,
-      currentIp
-    );
+  if (loginIp && currentIp && isIpAnomalous(loginIp, currentIp)) {
+    const shouldInvalidate = await recordAndCheckAnomaly(sid, uid, loginIp, currentIp);
     if (shouldInvalidate) {
       return false;
     }
   }
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Session verification policy (REDIS-COST-01)
+// ---------------------------------------------------------------------------
+
+/**
+ * Route patterns whose requests must always be checked against live Redis
+ * session state and live database account standing, never against the signed
+ * access token alone.
+ *
+ * The rationale: an access token is a bearer credential that stays
+ * cryptographically valid until it expires. Reading `session:<sid>` on every
+ * single request to catch the small window between a revocation and the
+ * token's natural expiry was costing one Redis command per request across the
+ * entire app — by far our highest-volume read. We now pay that cost only where
+ * acting on a stale credential would be materially harmful: anything that
+ * moves money or grants elevated capability.
+ *
+ * Everything else (feeds, profiles, rooms, leaderboards, chat polling) trusts
+ * the signed token for at most one access-token lifetime after revocation.
+ * Revocation itself is push-based: every ban/suspend/delete/downgrade path
+ * calls `revokeUserAccess`, which destroys the session records immediately, so
+ * the next refresh — and every sensitive request in between — fails closed.
+ */
+const SENSITIVE_PATH_PATTERN =
+  /\/(payments|payouts|gifts|coins\/transfer|stars\/gift|economy\/webhooks|economy\/coins\/purchase|economy\/stars\/purchase|economy\/coins\/withdraw|kyc|auth\/2fa|auth\/pin|auth\/sessions|creator\/bank-account)/;
+
+/**
+ * Decide whether this request needs live Redis/DB verification.
+ *
+ * Any non-idempotent request to a sensitive surface qualifies. GET/HEAD
+ * requests never do, because reading data you were authorised to read moments
+ * ago is not a privilege escalation — with the deliberate exception of
+ * `/auth/sessions`, where the response itself is security state.
+ *
+ * Exported so the classification can be asserted directly in tests — getting it
+ * wrong is a security regression, not a performance one, so it is pinned
+ * explicitly rather than exercised only through the HOC.
+ */
+export function requiresLiveVerification(req: NextRequest, pathname: string): boolean {
+  if (!SENSITIVE_PATH_PATTERN.test(pathname)) return false;
+  if (req.method === "GET" || req.method === "HEAD") {
+    return pathname.includes("/auth/sessions");
+  }
+  return true;
+}
+
+/**
+ * Confirm, against the database, that an account is still in good standing.
+ * Only called on the sensitive paths identified above — the ordinary request
+ * path relies on push-based revocation instead (see `revokeUserAccess`).
+ *
+ * Fails CLOSED: if the account row cannot be read, the request is rejected.
+ * A brief database blip is preferable to letting a banned user transact (#20).
+ */
+async function assertAccountActive(userId: string): Promise<void> {
+  let row:
+    | {
+        is_banned: boolean;
+        is_suspended: boolean;
+        suspended_until: string | null;
+        deleted_at: string | null;
+      }
+    | undefined;
+  try {
+    const { rows } = await db.query<{
+      is_banned: boolean;
+      is_suspended: boolean;
+      suspended_until: string | null;
+      deleted_at: string | null;
+    }>(
+      `SELECT COALESCE(is_banned, false) AS is_banned,
+              COALESCE(is_suspended, false) AS is_suspended,
+              suspended_until,
+              deleted_at
+       FROM users WHERE id = $1 LIMIT 1`,
+      [userId]
+    );
+    row = rows[0];
+  } catch {
+    throw unauthorized("Account status check failed. Please try again.");
+  }
+
+  // BUG-10: an elapsed `suspended_until` means the suspension is over, even if
+  // the boolean flag has not been cleared yet.
+  const suspensionActive =
+    !!row?.is_suspended &&
+    (!row.suspended_until || new Date(row.suspended_until) > new Date());
+
+  if (!row || row.deleted_at || row.is_banned || suspensionActive) {
+    throw unauthorized("Account is not active. Please contact support.");
+  }
+
+  // Clear a stale is_suspended flag whose expiry has passed (fire-and-forget).
+  if (row.is_suspended && row.suspended_until && new Date(row.suspended_until) <= new Date()) {
+    db.query(
+      `UPDATE users SET is_suspended = false WHERE id = $1 AND suspended_until <= NOW()`,
+      [userId]
+    ).catch(() => {});
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -201,94 +305,60 @@ export function withAuth<TParams = Record<string, string>>(
       const store = requestContext.getStore();
       if (store) store.userId = payload.sub;
 
-      // Confirm session is still alive in Redis (not revoked)
-      const session = await getSession(payload.sid);
-      if (!session) {
-        // Clear the stale cookies so the browser doesn't loop between /home
-        // and /auth/login with a JWT that passes signature checks but has no
-        // corresponding Redis session.
-        const cleared = NextResponse.json(
-          { error: "Unauthorised", code: "SESSION_REVOKED" },
-          { status: 401 }
-        );
-        cleared.cookies.set(ACCESS_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
-        cleared.cookies.set(REFRESH_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
-        cleared.headers.set("X-Request-Id", requestId);
-        return cleared;
-      }
+      // ---------------------------------------------------------------
+      // Session / account verification (REDIS-COST-01)
+      //
+      // This block used to run TWO Redis reads on EVERY authenticated
+      // request — `GET session:<sid>` and `GET user:status:<uid>` — plus a
+      // `SETEX` whenever the 10-second status cache lapsed. Across the whole
+      // app that was our single largest source of Redis traffic, and it
+      // scaled linearly with page views rather than with logins.
+      //
+      // Both reads now happen only where a stale credential could actually
+      // cause harm (see `requiresLiveVerification`). Elsewhere we trust the
+      // signed access token, which is short-lived and cannot be forged, and
+      // rely on push-based revocation: `revokeUserAccess` destroys a user's
+      // session records the instant their standing changes, which fails their
+      // next token refresh and every sensitive request in between.
+      // ---------------------------------------------------------------
+      const needsLiveCheck = requiresLiveVerification(req, route);
+      let session: SessionRecord | null = null;
 
-      // Check account status (banned/suspended/deleted).
-      // Two-level cache to minimise Redis traffic on high-frequency (polling)
-      // endpoints: L1 in-process (per-instance, short TTL) → L2 Redis (30s) → DB.
-      // The L1 cache means a warm instance serving a 3s chat poll makes ZERO
-      // Redis status reads for ~15s at a time instead of one GET per request.
-      const statusKey = `user:status:${payload.sub}`;
-      const statusMemKey = `status:${payload.sub}`;
-      const STATUS_MEM_TTL_MS = 5_000; // AUTH-02: shortened from 15s so bans propagate faster
-      let accountBlocked = false;
-      // Sensitive mutation endpoints (payments, payouts, transfers, gifts) fail CLOSED
-      // when status cannot be confirmed — a brief Redis/DB outage is preferable to
-      // allowing a banned user to transact (#20).
-      const isSensitiveMutation =
-        req.method !== "GET" &&
-        req.method !== "HEAD" &&
-        /\/(payments|payouts|gifts|coins\/transfer|stars\/gift|economy\/webhooks|economy\/coins\/purchase|economy\/stars\/purchase)/.test(new URL(req.url).pathname);
-
-      // L1: in-process cache. Sensitive mutations always bypass L1 and confirm
-      // against Redis/DB so a ban can never be masked by a stale local entry.
-      const memStatus = isSensitiveMutation ? undefined : memGet<"blocked" | "ok">(statusMemKey);
-      if (memStatus !== undefined) {
-        accountBlocked = memStatus === "blocked";
-      } else {
-      try {
-        const cachedStatus = await redis.get(statusKey);
-        if (cachedStatus !== null) {
-          accountBlocked = cachedStatus === "blocked";
-          memSet(statusMemKey, accountBlocked ? "blocked" : "ok", STATUS_MEM_TTL_MS);
-        } else {
-          const { rows: statusRows } = await db.query<{
-            is_banned: boolean;
-            is_suspended: boolean;
-            suspended_until: string | null;
-            deleted_at: string | null;
-          }>(
-            `SELECT is_banned, is_suspended, suspended_until, deleted_at FROM users WHERE id = $1 LIMIT 1`,
-            [payload.sub]
+      if (needsLiveCheck) {
+        // Bypass the L1 cache: on these paths we want the current truth, not a
+        // copy that may be up to SESSION_CACHE_TTL_MS old.
+        session = await getSessionFresh(payload.sid);
+        if (!session) {
+          // Clear the stale cookies so the browser doesn't loop between /home
+          // and /auth/login with a JWT that passes signature checks but has no
+          // corresponding Redis session.
+          const cleared = NextResponse.json(
+            { error: "Unauthorised", code: "SESSION_REVOKED" },
+            { status: 401 }
           );
-          const s = statusRows[0];
-          // BUG-10: evaluate suspended_until — if expiry has passed, treat as not suspended
-          const suspensionActive = s?.is_suspended &&
-            (!s.suspended_until || new Date(s.suspended_until) > new Date());
-          accountBlocked = !s || !!s.deleted_at || s.is_banned || suspensionActive;
-          // Fire-and-forget: clear stale is_suspended flag when expiry has passed
-          if (s?.is_suspended && s.suspended_until && new Date(s.suspended_until) <= new Date()) {
-            db.query(
-              `UPDATE users SET is_suspended = false WHERE id = $1 AND suspended_until <= NOW()`,
-              [payload.sub]
-            ).catch(() => {});
-          }
-          await redis.setex(statusKey, 10, accountBlocked ? "blocked" : "ok").catch(() => {}); // AUTH-02: shorter TTL so ban propagates faster
-          memSet(statusMemKey, accountBlocked ? "blocked" : "ok", STATUS_MEM_TTL_MS);
+          cleared.cookies.set(ACCESS_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
+          cleared.cookies.set(REFRESH_TOKEN_COOKIE, "", { maxAge: 0, path: "/" });
+          cleared.headers.set("X-Request-Id", requestId);
+          return cleared;
         }
-      } catch {
-        if (isSensitiveMutation) {
-          // Fail closed: cannot confirm account is active, deny sensitive mutations
-          throw unauthorized("Account status check failed. Please try again.");
-        }
-        // For read paths, fail open (a Redis blip shouldn't break the whole app)
-      }
-      }
-
-      if (accountBlocked) {
-        await invalidateSession(payload.sid, payload.sub).catch(() => {});
-        throw unauthorized("Account is not active. Please contact support.");
+        // Fails closed — an unreadable account row rejects the request.
+        await assertAccountActive(payload.sub);
       }
 
       // Geolocation anomaly detection (PRD §19, §23)
-      // Compare login IP vs current request IP. After threshold of drastic
-      // IP changes within 1 hour, force session invalidation.
+      // Compare login IP vs current request IP. After a threshold of drastic
+      // IP changes within 1 hour, force session invalidation. The login IP
+      // comes from the session record when we already read it, and otherwise
+      // from the signed `lip` access-token claim — so this check survives the
+      // removal of the per-request session read at no Redis cost.
       const currentIp = getClientIp(req);
-      const geoCheckPassed = await runGeoAnomalyCheck(session, currentIp);
+      const loginIp = session?.ip ?? payload.lip;
+      const geoCheckPassed = await runGeoAnomalyCheck(
+        payload.sid,
+        payload.sub,
+        loginIp,
+        currentIp
+      );
       if (!geoCheckPassed) {
         await invalidateSession(payload.sid, payload.sub).catch(() => {});
         throw unauthorized(
@@ -405,7 +475,12 @@ export function withAdminAuth<TParams = Record<string, string>>(
 
       // Geolocation anomaly detection — same protection for admin routes
       const currentIp = getClientIp(req);
-      const geoCheckPassed = await runGeoAnomalyCheck(session, currentIp);
+      const geoCheckPassed = await runGeoAnomalyCheck(
+        session.sid,
+        session.uid,
+        session.ip,
+        currentIp
+      );
       if (!geoCheckPassed) {
         await invalidateSession(payload.sid, payload.sub).catch(() => {});
         throw unauthorized(
@@ -524,7 +599,12 @@ export function withModeratorOrAdminAuth<TParams = Record<string, string>>(
       }
 
       const currentIp = getClientIp(req);
-      const geoCheckPassed = await runGeoAnomalyCheck(session, currentIp);
+      const geoCheckPassed = await runGeoAnomalyCheck(
+        session.sid,
+        session.uid,
+        session.ip,
+        currentIp
+      );
       if (!geoCheckPassed) {
         await invalidateSession(payload.sid, payload.sub).catch(() => {});
         throw unauthorized(

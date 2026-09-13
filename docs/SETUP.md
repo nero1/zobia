@@ -18,7 +18,7 @@ Before you begin, you will need accounts and tools for the following:
 - **Expo** — React Native build platform (expo.dev) — legacy app, being discontinued; kept for reference only, do not develop new features on it
 - **EAS CLI** — Expo Application Services for Android builds — only needed for the legacy, discontinued Expo app (`apps/expo/`); the current Capacitor Android app (`apps/android/`) builds via GitHub Actions + Gradle, no EAS account required
 - **Google AdMob** — banner/interstitial/rewarded ads in the Capacitor Android app (admob.google.com) — optional; the in-house ad system works without it
-- **Redis / Upstash** — session store, presence, rate limiting, cron idempotency
+- **Redis / Upstash** — session store, room/group presence, rate limiting (security-critical limiters only), cron idempotency, distributed locks
 
 ### Optional (for non-Supabase storage)
 - **Cloudflare** — R2 object storage (cloudflare.com) — recommended for production
@@ -190,10 +190,16 @@ As of v2.06, the Capacitor Android app has full admin-panel parity with web — 
 
 ### Running on free tiers (Vercel Hobby + free Redis)
 
-The app is tuned to stay within a free Redis plan and Vercel Hobby's serverless quotas. Two mechanisms do the heavy lifting (see *HOW-IT-WORKS.md → Redis Cost Controls* for detail):
+The app is tuned to stay within a free Redis plan and Vercel Hobby's serverless quotas. A typical page view costs **under 10 Redis commands**, down from ~150 before the REDIS-COST-01 audit. See *HOW-IT-WORKS.md → Redis Cost Controls* for the full reasoning; the short version:
 
-- **Per-instance L1 caching** of the per-request session and account-status reads, so a warm function makes ~0 Redis reads for auth instead of ~3–4 per request.
+- **The database circuit breaker is in-process, not Redis-backed.** It wraps every single query, so a distributed breaker cost two to three Redis commands per query — by far the largest single consumer. Set `DB_CIRCUIT_DISTRIBUTED=1` to opt back in if you move to a long-lived (non-serverless) runtime.
+- **No per-request session or account-status reads.** Ordinary routes trust the short-lived signed access token; live Redis/DB verification runs only on money-moving and privilege-granting surfaces and on `/gate44` routes. Revocation is push-based — banning a user destroys their sessions immediately — and token refresh re-checks account standing.
+- **Two-tier rate limiting.** High-volume, low-harm limiters (`apiRead`, vote limiters) are counted in-process and cost zero Redis. Security-critical limiters stay exact, using two small counters instead of a sorted set that stored one member per request.
+- **Global values are served from the CDN**, not re-read from Redis per user: the app manifest, notices, Zobian of the Month and leaderboard totals all carry `s-maxage` headers. Sitewide presence is derived from the indexed `users.last_active_at` column instead of a duplicate Redis key.
 - **Activity-based chat-poll backoff** (3s active → 15s idle, paused when the tab is hidden), so an idle chat costs ~4 polls/minute instead of ~20. Each avoided poll is both a saved Redis round-trip and a saved serverless invocation.
+- **Offline-first client caches** (localStorage on web/PWA, IndexedDB on Capacitor Android) mean a cold launch paints from disk and revalidates only what is stale. Both are scoped per user id so nothing leaks between accounts on a shared device.
+
+> **Note on batching.** On a managed serverless Redis you are billed **per command**, so pipelining a batch of five still costs five commands. Pipelines are used for latency (each sequential Upstash call is ~80 ms from a lambda), not for quota. Only *removing* commands reduces quota.
 
 To cut Redis/invocation load further, configure a **realtime provider** (see *Realtime Setup*). When connected, chat surfaces drop to a 30s reconcile poll and receive messages over the provider's WebSocket instead — no extra Redis. Presence heartbeats remain at 45s and self-expire via short Redis TTLs, so they do not need explicit cleanup calls.
 
@@ -241,7 +247,8 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `PUSHER_SECRET` | If pusher | Pusher app secret (server-side only) | Pusher Dashboard → App Keys |
 | `PUSHER_CLUSTER` | If pusher | Pusher cluster region (e.g. `mt1`, `eu`, `us2`) | Pusher Dashboard → App Keys |
 | `REDIS_URL` | Yes | Redis connection URL (e.g. `redis://localhost:6379` or Upstash URL) | Upstash → Create Database → REST URL |
-| `REDIS_PROVIDER` | Yes | `ioredis` \| `upstash` | Choose your provider |
+| `REDIS_PROVIDER` | Yes | `ioredis` \| `upstash` | Choose your provider. Both are equally optimised — switching is an env-var change with no code edits. |
+| `DB_CIRCUIT_DISTRIBUTED` | No | Set to `1` to back the database circuit breaker with Redis instead of per-instance state. Leave unset on serverless (see *Running on free tiers*). | — |
 | `UPSTASH_REDIS_REST_URL` | If Upstash | Upstash REST URL | Upstash → Database → REST API |
 | `UPSTASH_REDIS_REST_TOKEN` | If Upstash | Upstash REST token | Upstash → Database → REST API |
 | `JWT_SECRET` | Yes | Secret for signing access tokens (min 32 chars) | `openssl rand -hex 64` |
@@ -511,7 +518,7 @@ Zobia uses a **provider-native** realtime architecture. The server makes a fast,
 
 **Mobile (Expo):** set `EXPO_PUBLIC_REALTIME_PROVIDER=ably` to enable WebSocket push in the app (only Ably is wired client-side today; unset = adaptive poll only). The app authorizes Ably via `GET /api/realtime/ably-token` using its Bearer JWT (an `authCallback`, not a cookie), so that endpoint accepts both cookie and `Authorization: Bearer` auth and grants subscribe-only capability on `dm:*`, `room:*`, and `group:*` channels.
 
-**Room capacity & push (v1.7) manifest keys** (admin-editable at `/gate44/config`, all integers): `room_free_open_cap` (30), `room_tipping_cap` (30), `room_vip_cap` (200), `room_drop_cap` (100), `room_classroom_cap` (150), `room_guild_cap` (100), `room_capacity_upgrade_step` (25), `room_capacity_upgrade_cost` (500 Credits), `room_capacity_hard_max` (1000). Per-category push toggles live on `users` (`dm_notifications`, `group_notifications`, `room_mention_notifications`); both are part of the consolidated schema (`db/migrations/0001_consolidated_schema.sql`). Room presence and the online check reuse Redis — no extra service.
+**Room capacity & push (v1.7) manifest keys** (admin-editable at `/gate44/config`, all integers): `room_free_open_cap` (30), `room_tipping_cap` (30), `room_vip_cap` (200), `room_drop_cap` (100), `room_classroom_cap` (150), `room_guild_cap` (100), `room_capacity_upgrade_step` (25), `room_capacity_upgrade_cost` (500 Credits), `room_capacity_hard_max` (1000). Per-category push toggles live on `users` (`dm_notifications`, `group_notifications`, `room_mention_notifications`); both are part of the consolidated schema (`db/migrations/0001_consolidated_schema.sql`). Room presence uses Redis (a bounded, short-TTL membership set with capacity admission). The *sitewide* online check does not: it is derived from the indexed `users.last_active_at` column — no extra service either way.
 
 ### Architecture
 

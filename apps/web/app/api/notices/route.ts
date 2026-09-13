@@ -38,10 +38,16 @@ interface MergedNotice {
   sortOrder: number;
 }
 
+// REDIS-COST-01: notices are global — every user sees the same merged list —
+// and are scheduled by start/end timestamps rather than edited constantly, so
+// they tolerate minutes of staleness. The previous 20 s memory TTL meant a warm
+// instance still went back to Redis three times a minute for an unchanged
+// value. The response is additionally served with CDN cache headers (see the
+// handler below), so most clients never reach the origin at all.
 const MEM_KEY = "notices:merged:v1";
-const MEM_TTL_MS = 20_000;
+const MEM_TTL_MS = 120_000; // 2 minutes
 const REDIS_KEY = "notices:merged:v1";
-const REDIS_TTL_SECONDS = 90;
+const REDIS_TTL_SECONDS = 600; // 10 minutes
 
 async function loadMergedNotices(): Promise<MergedNotice[]> {
   const mem = memGet<MergedNotice[]>(MEM_KEY);
@@ -147,7 +153,19 @@ async function loadMergedNotices(): Promise<MergedNotice[]> {
 export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
     const notices = await loadMergedNotices();
-    return NextResponse.json({ success: true, data: { notices }, error: null });
+    return NextResponse.json(
+      { success: true, data: { notices }, error: null },
+      {
+        headers: {
+          // REDIS-COST-01: identical for every caller and carries no per-user
+          // state, so let the CDN answer it. `s-maxage` is the directive that
+          // makes the edge hold it; `max-age` alone would only have cached in
+          // the browser, leaving cold browsers and native (Capacitor) clients
+          // hitting the origin every time.
+          "Cache-Control": "public, s-maxage=120, max-age=60, stale-while-revalidate=600",
+        },
+      }
+    );
   } catch (err) {
     return handleApiError(err);
   }

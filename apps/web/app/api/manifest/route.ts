@@ -1,4 +1,18 @@
-export const dynamic = 'force-dynamic';
+/**
+ * REDIS-COST-01: this route is deliberately NOT `force-dynamic`.
+ *
+ * The public manifest is identical for every caller — it carries no
+ * per-user state — so it belongs in the CDN, not in a lambda. With
+ * `force-dynamic` every client fetch woke a serverless function, which then
+ * spent a rate-limit check plus a manifest read in Redis. Served from the edge
+ * cache instead, the overwhelming majority of these requests never reach our
+ * infrastructure at all.
+ *
+ * `revalidate` is set rather than omitted so Next.js keeps the route in the
+ * dynamic-with-revalidation mode the handler needs (it reads request headers
+ * for the rate-limit IP) while still emitting a cacheable response.
+ */
+export const revalidate = 0;
 
 /**
  * app/api/manifest/route.ts
@@ -161,8 +175,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json(publicManifest, {
       status: 200,
       headers: {
-        // Cache for 60 seconds at the CDN edge – matches Redis TTL
-        "Cache-Control": "public, max-age=60, stale-while-revalidate=30",
+        // REDIS-COST-01: `s-maxage` is what actually makes the CDN hold this —
+        // the previous header only had `max-age`, which is a *browser* cache
+        // directive, so every cold browser and every native (Capacitor) client
+        // still hit the origin. Five minutes at the edge with a long
+        // stale-while-revalidate means a manifest change is visible within
+        // minutes while near-zero requests reach a lambda or Redis.
+        // Admin saves call invalidateManifestCache(), so origin data is never
+        // more than one edge TTL behind.
+        "Cache-Control": "public, s-maxage=300, max-age=60, stale-while-revalidate=3600",
       },
     });
   } catch (err) {

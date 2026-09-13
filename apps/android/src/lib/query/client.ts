@@ -9,6 +9,7 @@
 import { QueryClient } from '@tanstack/react-query';
 import { experimental_createQueryPersister } from '@tanstack/query-persist-client-core';
 import { get, set, del } from 'idb-keyval';
+import { scopedCacheKey } from './cacheOwner';
 
 const STALE_TIME = 24 * 60 * 60 * 1000;  // 24 hours
 const GC_TIME = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -26,15 +27,19 @@ export const queryClient = new QueryClient({
       refetchOnWindowFocus: false,
       persister: (experimental_createQueryPersister({
         storage: {
+          // Every key is namespaced with the signed-in user's id. IndexedDB is
+          // scoped to the app, not the account, so without this a second user
+          // signing in on the same device would restore the first user's
+          // cached data. See ./cacheOwner.ts.
           getItem: async (key: string) => {
-            const val = await get(key);
+            const val = await get(scopedCacheKey(key));
             return val ?? null;
           },
           setItem: async (key: string, value: string) => {
-            await set(key, value);
+            await set(scopedCacheKey(key), value);
           },
           removeItem: async (key: string) => {
-            await del(key);
+            await del(scopedCacheKey(key));
           },
         },
         maxAge: STALE_TIME,

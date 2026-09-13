@@ -28,18 +28,44 @@ import { logger } from "@/lib/logger";
 
 /**
  * Chainable batch of commands queued for a single round-trip via `RedisClient.pipeline()`.
- * Both providers implement this interface (ioredis natively, Upstash via adapter).
+ * Both providers implement this interface (ioredis and Upstash, each via its
+ * own adapter below).
  *
- * @pipeline-commands: del, exists, zremrangebyrank, setex, expire, hset, zadd
+ * `exec()` resolves to a NORMALISED array of plain reply values, one per queued
+ * command, in queue order. This matters: raw ioredis resolves to
+ * `[error, value]` tuples while Upstash resolves to bare values. Both adapters
+ * flatten to bare values here so callers never branch on the provider.
+ *
+ * REDIS-COST-01 note — pipelining saves ROUND TRIPS and latency, not billed
+ * command count. On Upstash a pipeline of five commands is still five billed
+ * commands; it is one HTTP request instead of five, which is a large latency
+ * win (each sequential Upstash call costs ~80 ms from a Vercel lambda) but no
+ * quota win. To reduce quota you must remove commands, not batch them. Use
+ * pipelines freely for latency; use them alongside — never instead of — the
+ * elimination work.
+ *
+ * @pipeline-commands: get, set, setex, del, exists, expire, pexpire, ttl,
+ *                     incr, incrby, hset, zadd, zrem, zremrangebyrank
  */
 export interface RedisPipeline {
+  get(key: string): RedisPipeline;
+  set(key: string, value: string): RedisPipeline;
+  set(key: string, value: string, exMode: "EX", seconds: number): RedisPipeline;
+  setex(key: string, seconds: number, value: string): RedisPipeline;
   del(key: string): RedisPipeline;
   exists(key: string): RedisPipeline;
-  zremrangebyrank(key: string, start: number, stop: number): RedisPipeline;
-  setex(key: string, seconds: number, value: string): RedisPipeline;
   expire(key: string, seconds: number): RedisPipeline;
+  pexpire(key: string, milliseconds: number): RedisPipeline;
+  ttl(key: string): RedisPipeline;
+  incr(key: string): RedisPipeline;
+  incrby(key: string, increment: number): RedisPipeline;
   hset(key: string, field: string, value: string): RedisPipeline;
   zadd(key: string, score: number, member: string): RedisPipeline;
+  zrem(key: string, member: string): RedisPipeline;
+  zremrangebyrank(key: string, start: number, stop: number): RedisPipeline;
+  /** Number of commands queued so far. Lets callers skip a no-op round trip. */
+  readonly length: number;
+  /** Execute the batch. Resolves to bare reply values in queue order. */
   exec(): Promise<unknown[]>;
 }
 
@@ -49,6 +75,12 @@ export interface RedisPipeline {
  */
 export interface RedisClient {
   get(key: string): Promise<string | null>;
+  /**
+   * Read many keys in ONE command. Prefer this over N sequential `get()` calls:
+   * it is one billed command on Upstash instead of N, and one round trip on
+   * both providers. Returns values positionally, `null` for missing keys.
+   */
+  mget(...keys: string[]): Promise<(string | null)[]>;
   getdel(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<"OK" | null>;
   set(key: string, value: string, exMode: "EX", seconds: number): Promise<"OK" | null>;
@@ -59,7 +91,9 @@ export interface RedisClient {
   del(...keys: string[]): Promise<number>;
   exists(...keys: string[]): Promise<number>;
   expire(key: string, seconds: number): Promise<number>;
+  pexpire(key: string, milliseconds: number): Promise<number>;
   ttl(key: string): Promise<number>;
+  pttl(key: string): Promise<number>;
   /**
    * @deprecated BUG-031: NEVER use `keys()` in production code.
    * `KEYS pattern` is an O(N) blocking command that scans the entire keyspace and
@@ -110,13 +144,21 @@ const isBuildPhase = process.env.NEXT_PHASE === "phase-production-build";
 
 function createStubPipeline(): RedisPipeline {
   const stub: RedisPipeline = {
+    get: () => stub,
+    set: () => stub,
+    setex: () => stub,
     del: () => stub,
     exists: () => stub,
-    zremrangebyrank: () => stub,
-    setex: () => stub,
     expire: () => stub,
+    pexpire: () => stub,
+    ttl: () => stub,
+    incr: () => stub,
+    incrby: () => stub,
     hset: () => stub,
     zadd: () => stub,
+    zrem: () => stub,
+    zremrangebyrank: () => stub,
+    length: 0,
     exec: async () => [],
   };
   return stub;
@@ -139,6 +181,9 @@ const buildStub: RedisClient = new Proxy({} as RedisClient, {
     if (prop === "ping") return async () => "PONG";
     if (prop === "quit") return async () => "OK";
     if (prop === "pipeline") return () => createStubPipeline();
+    // mget must keep its array contract during the build phase — callers
+    // destructure the result positionally and a null would throw.
+    if (prop === "mget") return async (...keys: string[]) => keys.map(() => null);
     if (prop === "set") {
       // Return a sentinel for NX calls so callers don't misinterpret null as
       // "key already exists". Non-NX set calls still return null (no-op).
@@ -191,6 +236,222 @@ function createIoRedisClient(): IORedis {
 }
 
 // ---------------------------------------------------------------------------
+// ioredis adapter
+//
+// ioredis already speaks the native Redis calling convention that RedisClient
+// is modelled on, so most methods pass straight through. Two things still need
+// translating, which is why this is a real adapter rather than a bare cast:
+//
+//   1. `pipeline().exec()` resolves to `[error, value]` tuples. Upstash
+//      resolves to bare values. We flatten to bare values so RedisPipeline's
+//      contract holds identically on both providers.
+//   2. `hgetall` resolves to `{}` (not null) for a missing key; we normalise to
+//      null so callers can use a single falsy check.
+//
+// Everything else is bound directly off the underlying client, so there is no
+// per-call wrapper cost on the hot path.
+// ---------------------------------------------------------------------------
+
+/** Flatten ioredis' `[error, value][]` exec reply to bare values. */
+function flattenIoRedisExec(raw: [Error | null, unknown][] | null): unknown[] {
+  if (!raw) return [];
+  return raw.map(([, value]) => value);
+}
+
+class IoRedisAdapter implements RedisClient {
+  constructor(private readonly client: IORedis) {}
+
+  get(key: string): Promise<string | null> {
+    return this.client.get(key);
+  }
+
+  mget(...keys: string[]): Promise<(string | null)[]> {
+    if (keys.length === 0) return Promise.resolve([]);
+    return this.client.mget(...keys);
+  }
+
+  getdel(key: string): Promise<string | null> {
+    return this.client.getdel(key);
+  }
+
+  set(
+    key: string,
+    value: string,
+    exMode?: "EX" | "PX",
+    ttl?: number,
+    nx?: "NX"
+  ): Promise<"OK" | null> {
+    if (exMode && ttl !== undefined && nx) {
+      // ioredis' overloads do not model the 5-arg EX+NX form generically, so
+      // this single call site is cast. The argument order is the wire order.
+      return (this.client.set as unknown as (
+        ...args: (string | number)[]
+      ) => Promise<"OK" | null>)(key, value, exMode, ttl, nx);
+    }
+    if (exMode && ttl !== undefined) {
+      return (this.client.set as unknown as (
+        ...args: (string | number)[]
+      ) => Promise<"OK" | null>)(key, value, exMode, ttl);
+    }
+    return this.client.set(key, value) as Promise<"OK" | null>;
+  }
+
+  setex(key: string, seconds: number, value: string): Promise<"OK"> {
+    return this.client.setex(key, seconds, value) as Promise<"OK">;
+  }
+
+  del(...keys: string[]): Promise<number> {
+    if (keys.length === 0) return Promise.resolve(0);
+    return this.client.del(...keys);
+  }
+
+  exists(...keys: string[]): Promise<number> {
+    if (keys.length === 0) return Promise.resolve(0);
+    return this.client.exists(...keys);
+  }
+
+  expire(key: string, seconds: number): Promise<number> {
+    return this.client.expire(key, seconds);
+  }
+
+  pexpire(key: string, milliseconds: number): Promise<number> {
+    return this.client.pexpire(key, milliseconds);
+  }
+
+  ttl(key: string): Promise<number> {
+    return this.client.ttl(key);
+  }
+
+  pttl(key: string): Promise<number> {
+    return this.client.pttl(key);
+  }
+
+  keys(pattern: string): Promise<string[]> {
+    return this.client.keys(pattern);
+  }
+
+  hset(key: string, field: string, value: string): Promise<number> {
+    return this.client.hset(key, field, value);
+  }
+
+  hget(key: string, field: string): Promise<string | null> {
+    return this.client.hget(key, field);
+  }
+
+  hdel(key: string, ...fields: string[]): Promise<number> {
+    return this.client.hdel(key, ...fields);
+  }
+
+  async hgetall(key: string): Promise<Record<string, string> | null> {
+    // ioredis returns {} for a missing hash; normalise to null so callers can
+    // use one falsy check across both providers.
+    const result = await this.client.hgetall(key);
+    return result && Object.keys(result).length > 0 ? result : null;
+  }
+
+  sadd(key: string, ...members: string[]): Promise<number> {
+    if (members.length === 0) return Promise.resolve(0);
+    return this.client.sadd(key, ...members);
+  }
+
+  srem(key: string, ...members: string[]): Promise<number> {
+    if (members.length === 0) return Promise.resolve(0);
+    return this.client.srem(key, ...members);
+  }
+
+  smembers(key: string): Promise<string[]> {
+    return this.client.smembers(key);
+  }
+
+  sismember(key: string, member: string): Promise<number> {
+    return this.client.sismember(key, member);
+  }
+
+  incr(key: string): Promise<number> {
+    return this.client.incr(key);
+  }
+
+  decr(key: string): Promise<number> {
+    return this.client.decr(key);
+  }
+
+  incrby(key: string, increment: number): Promise<number> {
+    return this.client.incrby(key, increment);
+  }
+
+  decrby(key: string, decrement: number): Promise<number> {
+    return this.client.decrby(key, decrement);
+  }
+
+  zadd(key: string, score: number, member: string): Promise<number> {
+    return this.client.zadd(key, score, member) as Promise<number>;
+  }
+
+  zrem(key: string, ...members: string[]): Promise<number> {
+    if (members.length === 0) return Promise.resolve(0);
+    return this.client.zrem(key, ...members);
+  }
+
+  zrange(key: string, start: number, stop: number): Promise<string[]> {
+    return this.client.zrange(key, start, stop);
+  }
+
+  zremrangebyrank(key: string, start: number, stop: number): Promise<number> {
+    return this.client.zremrangebyrank(key, start, stop);
+  }
+
+  eval(script: string, numkeys: number, ...args: (string | number)[]): Promise<unknown> {
+    return this.client.eval(script, numkeys, ...args) as Promise<unknown>;
+  }
+
+  pipeline(): RedisPipeline {
+    const batch = this.client.pipeline();
+    let queued = 0;
+    const wrapper: RedisPipeline = {
+      get(key: string) { batch.get(key); queued++; return wrapper; },
+      set(key: string, value: string, exMode?: "EX", seconds?: number) {
+        if (exMode && seconds !== undefined) batch.set(key, value, exMode, seconds);
+        else batch.set(key, value);
+        queued++;
+        return wrapper;
+      },
+      setex(key: string, seconds: number, value: string) { batch.setex(key, seconds, value); queued++; return wrapper; },
+      del(key: string) { batch.del(key); queued++; return wrapper; },
+      exists(key: string) { batch.exists(key); queued++; return wrapper; },
+      expire(key: string, seconds: number) { batch.expire(key, seconds); queued++; return wrapper; },
+      pexpire(key: string, ms: number) { batch.pexpire(key, ms); queued++; return wrapper; },
+      ttl(key: string) { batch.ttl(key); queued++; return wrapper; },
+      incr(key: string) { batch.incr(key); queued++; return wrapper; },
+      incrby(key: string, increment: number) { batch.incrby(key, increment); queued++; return wrapper; },
+      hset(key: string, field: string, value: string) { batch.hset(key, field, value); queued++; return wrapper; },
+      zadd(key: string, score: number, member: string) { batch.zadd(key, score, member); queued++; return wrapper; },
+      zrem(key: string, member: string) { batch.zrem(key, member); queued++; return wrapper; },
+      zremrangebyrank(key: string, start: number, stop: number) { batch.zremrangebyrank(key, start, stop); queued++; return wrapper; },
+      get length() { return queued; },
+      async exec(): Promise<unknown[]> {
+        if (queued === 0) return [];
+        return flattenIoRedisExec(await batch.exec());
+      },
+    };
+    return wrapper;
+  }
+
+  ping(): Promise<string> {
+    return this.client.ping();
+  }
+
+  quit(): Promise<"OK"> {
+    return this.client.quit() as Promise<"OK">;
+  }
+
+  info(section?: string): Promise<string> {
+    return section ? this.client.info(section) : this.client.info();
+  }
+}
+
+let _ioredisAdapter: IoRedisAdapter | null = null;
+
+// ---------------------------------------------------------------------------
 // Upstash adapter
 //
 // @upstash/redis uses a different calling convention than ioredis:
@@ -215,6 +476,17 @@ class UpstashAdapter implements RedisClient {
     if (value === null || value === undefined) return null;
     if (typeof value === "string") return value;
     return JSON.stringify(value);
+  }
+
+  async mget(...keys: string[]): Promise<(string | null)[]> {
+    if (keys.length === 0) return [];
+    // Same re-serialisation caveat as get(): Upstash auto-deserialises JSON
+    // payloads, so normalise each element back to a raw string.
+    const values = await this.client.mget<unknown[]>(...(keys as [string, ...string[]]));
+    return (values ?? []).map((value) => {
+      if (value === null || value === undefined) return null;
+      return typeof value === "string" ? value : JSON.stringify(value);
+    });
   }
 
   async getdel(key: string): Promise<string | null> {
@@ -254,8 +526,16 @@ class UpstashAdapter implements RedisClient {
     return this.client.expire(key, seconds) as Promise<number>;
   }
 
+  pexpire(key: string, milliseconds: number): Promise<number> {
+    return this.client.pexpire(key, milliseconds) as Promise<number>;
+  }
+
   ttl(key: string): Promise<number> {
     return this.client.ttl(key);
+  }
+
+  pttl(key: string): Promise<number> {
+    return this.client.pttl(key);
   }
 
   keys(pattern: string): Promise<string[]> {
@@ -341,36 +621,32 @@ class UpstashAdapter implements RedisClient {
 
   pipeline(): RedisPipeline {
     const batch = this.client.pipeline();
+    let queued = 0;
     const wrapper: RedisPipeline = {
-      del(key: string) {
-        batch.del(key);
+      get(key: string) { batch.get(key); queued++; return wrapper; },
+      set(key: string, value: string, exMode?: "EX", seconds?: number) {
+        if (exMode === "EX" && seconds !== undefined) batch.set(key, value, { ex: seconds });
+        else batch.set(key, value);
+        queued++;
         return wrapper;
       },
-      exists(key: string) {
-        batch.exists(key);
-        return wrapper;
-      },
-      zremrangebyrank(key: string, start: number, stop: number) {
-        batch.zremrangebyrank(key, start, stop);
-        return wrapper;
-      },
-      setex(key: string, seconds: number, value: string) {
-        batch.set(key, value, { ex: seconds });
-        return wrapper;
-      },
-      expire(key: string, seconds: number) {
-        batch.expire(key, seconds);
-        return wrapper;
-      },
-      hset(key: string, field: string, value: string) {
-        batch.hset(key, { [field]: value });
-        return wrapper;
-      },
-      zadd(key: string, score: number, member: string) {
-        batch.zadd(key, { score, member });
-        return wrapper;
-      },
-      exec(): Promise<unknown[]> {
+      setex(key: string, seconds: number, value: string) { batch.set(key, value, { ex: seconds }); queued++; return wrapper; },
+      del(key: string) { batch.del(key); queued++; return wrapper; },
+      exists(key: string) { batch.exists(key); queued++; return wrapper; },
+      expire(key: string, seconds: number) { batch.expire(key, seconds); queued++; return wrapper; },
+      pexpire(key: string, ms: number) { batch.pexpire(key, ms); queued++; return wrapper; },
+      ttl(key: string) { batch.ttl(key); queued++; return wrapper; },
+      incr(key: string) { batch.incr(key); queued++; return wrapper; },
+      incrby(key: string, increment: number) { batch.incrby(key, increment); queued++; return wrapper; },
+      hset(key: string, field: string, value: string) { batch.hset(key, { [field]: value }); queued++; return wrapper; },
+      zadd(key: string, score: number, member: string) { batch.zadd(key, { score, member }); queued++; return wrapper; },
+      zrem(key: string, member: string) { batch.zrem(key, member); queued++; return wrapper; },
+      zremrangebyrank(key: string, start: number, stop: number) { batch.zremrangebyrank(key, start, stop); queued++; return wrapper; },
+      get length() { return queued; },
+      async exec(): Promise<unknown[]> {
+        // Upstash rejects an empty pipeline with a 400; short-circuit so
+        // callers can build a batch conditionally without guarding.
+        if (queued === 0) return [];
         return batch.exec();
       },
     };
@@ -435,7 +711,10 @@ export function getRedisClient(): RedisClient {
   }
   switch (env.REDIS_PROVIDER) {
     case "ioredis":
-      return createIoRedisClient() as unknown as RedisClient;
+      // Wrapped in IoRedisAdapter (not cast) so pipeline results and hgetall
+      // misses behave identically to the Upstash provider — see REDIS-COST-01.
+      if (!_ioredisAdapter) _ioredisAdapter = new IoRedisAdapter(createIoRedisClient());
+      return _ioredisAdapter;
     case "upstash":
       return createUpstashClient();
     default: {
@@ -469,5 +748,6 @@ export async function closeRedis(): Promise<void> {
     await _ioredisClient.quit();
     _ioredisClient = null;
   }
+  _ioredisAdapter = null;
   _upstashAdapter = null;
 }

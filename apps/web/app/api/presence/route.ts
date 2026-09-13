@@ -17,17 +17,27 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { redis } from "@/lib/redis";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { presenceRedisKey } from "@/lib/presence/keys";
+import { memGet, memSet } from "@/lib/cache/memory";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** TTL (seconds) for the Redis presence key. Online = key exists. */
-const ONLINE_TTL_SECONDS = 5 * 60; // 5 minutes
+/**
+ * Minimum gap between two persisted heartbeats for the same user on this
+ * instance (REDIS-COST-01 / DB write reduction).
+ *
+ * The client beats on mount, on a 3-minute interval, AND on every
+ * `visibilitychange` — so a user flicking between tabs could previously
+ * generate a burst of writes seconds apart. Presence only needs to be accurate
+ * to within the 5-minute online window, so anything more frequent than this is
+ * pure write amplification. Throttling here is a per-instance safety net; the
+ * client also throttles across tabs via shared storage
+ * (lib/presence/usePresenceHeartbeat.ts), which is what removes the bulk of it.
+ */
+const HEARTBEAT_MIN_INTERVAL_MS = 60_000; // 1 minute
 
 /** Threshold (ms) for "recently active" when Redis key is absent. */
 const RECENTLY_ACTIVE_MS = 60 * 60 * 1000; // 1 hour
@@ -49,14 +59,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
     const now = new Date().toISOString();
 
-    // Update last_active_at in the database
-    await db.query(
-      `UPDATE users SET last_active_at = $1, updated_at = $1 WHERE id = $2`,
-      [now, userId]
-    );
+    // Coalesce rapid repeat heartbeats from the same user on this instance.
+    const throttleKey = `presence:beat:${userId}`;
+    if (memGet<number>(throttleKey) === undefined) {
+      memSet(throttleKey, Date.now(), HEARTBEAT_MIN_INTERVAL_MS);
 
-    // Set Redis presence key with TTL
-    await redis.set(presenceRedisKey(userId), "1", "EX", ONLINE_TTL_SECONDS);
+      // `last_active_at` is the single source of truth for presence — the
+      // separate `presence:online:<uid>` Redis key it used to shadow is gone
+      // (REDIS-COST-01). See lib/presence/keys.ts.
+      await db.query(
+        `UPDATE users SET last_active_at = $1, updated_at = $1 WHERE id = $2`,
+        [now, userId]
+      );
+    }
 
     return NextResponse.json({ success: true, data: { status: "online" }, error: null });
   } catch (err) {

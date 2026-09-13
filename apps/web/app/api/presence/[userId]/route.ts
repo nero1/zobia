@@ -15,10 +15,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
-import { redis } from "@/lib/redis";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
-import { presenceRedisKey } from "@/lib/presence/keys";
+import { ONLINE_WINDOW_MS } from "@/lib/presence/keys";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,19 +57,10 @@ export const GET = withAuth(
         throw badRequest("userId must be a valid UUID", "INVALID_USER_ID");
       }
 
-      // Check Redis first (cheapest, most accurate for online status)
-      const redisKey = presenceRedisKey(userId);
-      const onlineFlag = await redis.get(redisKey);
-
-      if (onlineFlag !== null) {
-        return NextResponse.json({
-          success: true,
-          data: { status: "online" as PresenceStatus, lastActiveAt: null },
-          error: null,
-        });
-      }
-
-      // Fall back to database last_active_at
+      // REDIS-COST-01: one indexed read answers all three states. This used to
+      // be a Redis GET for "online" plus a DB read for "recently active" —
+      // two round-trips and a Redis command for information `last_active_at`
+      // already held on its own. See lib/presence/keys.ts.
       const result = await db.query<UserPresenceRow>(
         `SELECT last_active_at FROM users
          WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
@@ -81,8 +71,10 @@ export const GET = withAuth(
 
       let status: PresenceStatus = "offline";
       if (lastActiveAt) {
-        const lastActive = new Date(lastActiveAt).getTime();
-        if (Date.now() - lastActive <= RECENTLY_ACTIVE_MS) {
+        const sinceLastActive = Date.now() - new Date(lastActiveAt).getTime();
+        if (sinceLastActive <= ONLINE_WINDOW_MS) {
+          status = "online";
+        } else if (sinceLastActive <= RECENTLY_ACTIVE_MS) {
           status = "recently_active";
         }
       }

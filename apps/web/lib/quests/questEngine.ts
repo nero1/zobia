@@ -183,22 +183,50 @@ export async function generateDailyDeck(
   const lockValue = randomBytes(16).toString("hex");
   const LOCK_TTL_SECONDS = 10;
 
-  const acquired = await redis.set(lockKey, lockValue, "EX", LOCK_TTL_SECONDS, "NX");
+  // REDIS-COST-01: check for an existing deck BEFORE taking the lock.
+  //
+  // This function runs on every home-dashboard load. The lock exists solely to
+  // stop two concurrent requests each inserting a disjoint subset of quests on
+  // the ONE day a user's deck is first generated (BUG-006) — but it used to be
+  // acquired unconditionally, costing a SET NX, a GET and a DEL (three Redis
+  // commands) on every single home load for the rest of that user's life, to
+  // guard an operation that had already happened. Reading the deck first means
+  // the lock is only taken on a genuine miss: once per user per day, instead of
+  // once per page view.
+  const { rows: preCheckDeck } = await db.query<{ quest_id: string }>(
+    `SELECT quest_id FROM user_quest_decks WHERE user_id = $1 AND assigned_date = $2::date LIMIT 1`,
+    [userId, today]
+  );
 
-  if (acquired !== "OK") {
-    // Another instance is generating the deck — wait briefly then fall through
-    // to the re-query below (the other instance will have persisted the rows).
-    await new Promise((r) => setTimeout(r, 150));
+  let lockHeld = false;
+  if (preCheckDeck.length === 0) {
+    // BUG-006 FIX: acquire a per-user+date distributed lock before inserting the
+    // deck. Without this, two concurrent requests arriving at the same time (e.g.
+    // two tabs opening simultaneously) could each insert a disjoint subset of
+    // quests, producing a deck larger than deckSize — because ON CONFLICT DO
+    // NOTHING operates per-row, not per-user+date.
+    const acquired = await redis.set(lockKey, lockValue, "EX", LOCK_TTL_SECONDS, "NX");
+    lockHeld = acquired === "OK";
+
+    if (!lockHeld) {
+      // Another instance is generating the deck — wait briefly then fall through
+      // to the re-query below (the other instance will have persisted the rows).
+      await new Promise((r) => setTimeout(r, 150));
+    }
   }
 
   try {
-    // BUG-009 FIX: check whether a deck already exists for this user+date
-    // before generating a new shuffle. If it does, skip the INSERT entirely
-    // and go straight to the stable DB re-query below.
-    const { rows: existingDeck } = await db.query<{ quest_id: string }>(
-      `SELECT quest_id FROM user_quest_decks WHERE user_id = $1 AND assigned_date = $2::date LIMIT 1`,
-      [userId, today]
-    );
+    // BUG-009 FIX: re-read inside the lock. The pre-check above raced with any
+    // other instance that may have been mid-insert; this second read is the
+    // authoritative one, and it is the read the INSERT decision is made on.
+    // Skipped entirely when the pre-check already found a deck, so the common
+    // case still costs exactly one query.
+    const existingDeck = preCheckDeck.length > 0
+      ? preCheckDeck
+      : (await db.query<{ quest_id: string }>(
+          `SELECT quest_id FROM user_quest_decks WHERE user_id = $1 AND assigned_date = $2::date LIMIT 1`,
+          [userId, today]
+        )).rows;
 
     let sponsoredSlot: { id: string; sponsoredQuestId: string; costCredits: number } | null = null;
 
@@ -323,11 +351,23 @@ export async function generateDailyDeck(
       }
     }
   } finally {
-    // Release the lock only if we still own it (avoid releasing a lock taken
-    // by another instance after our TTL expired).
-    const currentVal = await redis.get(lockKey);
-    if (currentVal === lockValue) {
-      await redis.del(lockKey);
+    // Release the lock only if we still own it (avoid releasing a lock taken by
+    // another instance after our TTL expired). Skipped entirely when we never
+    // took the lock, which is the overwhelmingly common path.
+    //
+    // The compare-and-delete runs as one Lua script rather than GET-then-DEL:
+    // that is both atomic (closing the window where the TTL expires and another
+    // instance acquires the lock between our read and our delete) and one Redis
+    // round-trip instead of two.
+    if (lockHeld) {
+      await redis
+        .eval(
+          `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) else return 0 end`,
+          1,
+          lockKey,
+          lockValue
+        )
+        .catch(() => {});
     }
   }
 
