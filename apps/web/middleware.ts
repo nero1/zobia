@@ -87,7 +87,17 @@ function buildCsp(nonce: string, allowEmbedFraming = false): string {
     // CSP Level 3: 'strict-dynamic' propagates trust to dynamically loaded scripts
     // and makes 'self' redundant (it is silently ignored when 'strict-dynamic' is present).
     // Keeping 'self' would not weaken security but adds confusion — omit it per spec.
-    `script-src 'nonce-${nonce}' 'strict-dynamic'`,
+    // 'unsafe-eval' in development ONLY. Next's dev client runtime (React
+    // Refresh / HMR, next/dist/compiled/@next/react-refresh-utils) evaluates
+    // strings at runtime; without this the browser throws
+    // "Refused to evaluate a string as JavaScript", the dev runtime dies before
+    // it hydrates, and the local app renders as static SSR HTML with no
+    // interactivity, no HMR — and no hydration warnings, which makes
+    // hydration bugs impossible to reproduce locally. NODE_ENV is fixed at
+    // build time, so this can never widen the production policy.
+    process.env.NODE_ENV === "development"
+      ? `script-src 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`
+      : `script-src 'nonce-${nonce}' 'strict-dynamic'`,
     `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`,
     // CSP-03: styles need the two granular directives below, NOT the nonce.
     //

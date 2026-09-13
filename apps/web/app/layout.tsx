@@ -15,7 +15,7 @@
 
 import type { Metadata, Viewport } from "next";
 import { Inter } from "next/font/google";
-import { ThemeProvider } from "next-themes";
+import { ThemeProviderWithNonce } from "@/components/providers/ThemeProviderWithNonce";
 import { cookies, headers } from "next/headers";
 import "./globals.css";
 import { ReactQueryProvider } from "@/components/providers/ReactQueryProvider";
@@ -173,7 +173,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
         {/* Accessibility: Skip to main content link (only visible on focus) */}
         <SkipToMain />
 
-        <ThemeProvider
+        <ThemeProviderWithNonce
           attribute="class"
           defaultTheme="system"
           enableSystem
@@ -199,7 +199,7 @@ export default async function RootLayout({ children }: RootLayoutProps) {
               </FloatingNotificationProvider>
             </I18nProvider>
           </ReactQueryProvider>
-        </ThemeProvider>
+        </ThemeProviderWithNonce>
         {/* Admin footer scripts are served from a sandboxed external file
             (/api/static/footer-script/[id]) rather than injected inline, so the
             raw admin-authored content never runs through dangerouslySetInnerHTML.
