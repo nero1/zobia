@@ -186,11 +186,15 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
         [newStreak, newLongestStreak, today, newXpTotal, userId]
       );
 
-      // Append XP ledger entry
+      // Append XP ledger entry. xp_ledger has no `description` column (see
+      // every other xp_ledger INSERT in the codebase, e.g. lib/xp/safeAwardXP.ts) —
+      // it was mistakenly assumed here, which made this insert fail outright
+      // (unknown column) and also miscounted the VALUES list. base_amount is
+      // NOT NULL and always mirrors amount when no multiplier is applied.
       await client.query(
         `INSERT INTO xp_ledger
-           (user_id, amount, track, source, description, created_at)
-         VALUES ($1, $2, 'main', 'daily_login', 'Daily login bonus', NOW())`,
+           (user_id, amount, track, source, base_amount, created_at)
+         VALUES ($1, $2, 'main', 'daily_login', $2, NOW())`,
         [userId, xpAwarded]
       );
 
