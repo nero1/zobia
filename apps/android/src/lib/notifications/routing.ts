@@ -54,6 +54,11 @@ export const VALID_PUSH_ROUTES: RegExp[] = [
   /^\/wiki\/[^/]+\/treasury$/i,
   /^\/wiki\/invite\/[^/]+$/i,
   /^\/wiki\/[^/]+\/pages\/[^/]+$/i,
+  // Game challenges (see apps/web/lib/notifications/actionRoute.ts's
+  // game_challenge_* cases) — routes/games/challenges/index.tsx and
+  // routes/games/challenges/$id.tsx.
+  /^\/games\/challenges$/i,
+  /^\/games\/challenges\/[a-f0-9-]+$/i,
 ];
 
 /**

@@ -2037,6 +2037,7 @@
   "games.challenges.noResults": "No challenges match your search.",
   "games.challenges.pickOpponent": "Pick an opponent from the suggestions.",
   "games.challenges.search.placeholder": "Search by game or player…",
+  "games.challenges.stakeNotice": "Both players will stake {{amount}} credits once accepted.",
   "games.costsCredits": "{{count}} credits per play",
   "games.costsStars": "{{count}} stars per play",
   "games.costsToPlay": "Costs {{cost}} per play",
