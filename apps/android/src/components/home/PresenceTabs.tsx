@@ -38,8 +38,8 @@ function FriendsSkeleton() {
     <div className="flex gap-3">
       {Array.from({ length: 5 }).map((_, i) => (
         <div key={i} className="flex animate-pulse flex-col items-center gap-1">
-          <div className="h-11 w-11 rounded-full bg-neutral-200" />
-          <div className="h-2.5 w-10 rounded bg-neutral-200" />
+          <div className="h-11 w-11 rounded-full bg-neutral-200 dark:bg-neutral-700" />
+          <div className="h-2.5 w-10 rounded bg-neutral-200 dark:bg-neutral-700" />
         </div>
       ))}
     </div>
@@ -49,16 +49,16 @@ function FriendsSkeleton() {
 function FriendGrid({ friends, emptyKey }: { friends: Friend[]; emptyKey: string }) {
   const { t } = useTranslation();
   if (friends.length === 0) {
-    return <p className="text-xs text-neutral-400">{t(emptyKey)}</p>;
+    return <p className="text-xs text-neutral-400 dark:text-neutral-500">{t(emptyKey)}</p>;
   }
   return (
     <div className="flex flex-wrap gap-4">
       {friends.map((f) => (
         <Link key={f.userId} to="/profile/$username" params={{ username: f.username }} className="flex flex-col items-center gap-1">
           <OnlineRing userId={f.userId} size="md" knownStatus={f.isOnline ? 'online' : 'recently_active'}>
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 text-xl">{f.avatarEmoji || '🙂'}</div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-xl">{f.avatarEmoji || '🙂'}</div>
           </OnlineRing>
-          <span className="max-w-[3rem] truncate text-xs text-neutral-500">@{f.username}</span>
+          <span className="max-w-[3rem] truncate text-xs text-neutral-500 dark:text-neutral-400">@{f.username}</span>
         </Link>
       ))}
     </div>
@@ -76,24 +76,24 @@ export function PresenceTabs() {
   const recentlyActive = friends.filter((f) => !f.isOnline);
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center gap-1 rounded-lg bg-neutral-100 p-1">
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 p-1">
         <button
           type="button"
           onClick={() => setTab('online')}
-          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${tab === 'online' ? 'bg-white shadow-sm' : 'text-neutral-500'}`}
+          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${tab === 'online' ? 'bg-white dark:bg-neutral-800 shadow-sm' : 'text-neutral-500 dark:text-neutral-400'}`}
         >
           {t('home.presence.online')}
         </button>
         <button
           type="button"
           onClick={() => setTab('recent')}
-          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${tab === 'recent' ? 'bg-white shadow-sm' : 'text-neutral-500'}`}
+          className={`flex-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${tab === 'recent' ? 'bg-white dark:bg-neutral-800 shadow-sm' : 'text-neutral-500 dark:text-neutral-400'}`}
         >
           {t('home.presence.recentlyActive')}
         </button>
       </div>
-      <p className="mb-3 text-[11px] text-neutral-400">{t('home.friends.privacyHint')}</p>
+      <p className="mb-3 text-[11px] text-neutral-400 dark:text-neutral-500">{t('home.friends.privacyHint')}</p>
       {tab === 'online' ? (
         <FriendGrid friends={online} emptyKey="home.presence.emptyOnline" />
       ) : (

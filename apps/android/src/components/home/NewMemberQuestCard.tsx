@@ -69,18 +69,18 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
   }
 
   return (
-    <div className="rounded-xl border border-violet-200 bg-white shadow-sm">
+    <div className="rounded-xl border border-violet-200 bg-white dark:bg-neutral-800 shadow-sm">
       <div className="flex items-center justify-between border-b border-violet-100 px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="text-lg">🎯</span>
-          <h2 className="text-sm font-bold text-neutral-900">{t('home.newMemberQuest.title')}</h2>
+          <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{t('home.newMemberQuest.title')}</h2>
         </div>
         <div className="flex items-center gap-3">
-          <span className="text-xs font-semibold text-neutral-500 tabular-nums">
+          <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400 tabular-nums">
             {completedCount}/{totalCount}
           </span>
           {!alwaysShow && (
-            <button type="button" onClick={handleCloseClick} className="text-neutral-400" aria-label={t('action.close')}>
+            <button type="button" onClick={handleCloseClick} className="text-neutral-400 dark:text-neutral-500" aria-label={t('action.close')}>
               <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -91,7 +91,7 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
 
       {confirming && !alwaysShow ? (
         <div className="px-4 py-4">
-          <p className="text-sm text-neutral-600">{t('home.newMemberQuest.confirmMessage')}</p>
+          <p className="text-sm text-neutral-600 dark:text-neutral-400">{t('home.newMemberQuest.confirmMessage')}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
@@ -99,7 +99,7 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
                 setConfirming(false);
                 dismiss();
               }}
-              className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700"
+              className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300"
             >
               {t('home.newMemberQuest.remindLater')}
             </button>
@@ -118,16 +118,16 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
       ) : (
         <div className="px-4 py-3">
           <div className="mb-3">
-            <div className="h-2 overflow-hidden rounded-full bg-neutral-100">
+            <div className="h-2 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
               <div className="h-full rounded-full bg-violet-500 transition-all duration-500" style={{ width: `${progressPct}%` }} />
             </div>
-            <p className="mt-1 text-right text-xs text-neutral-400">{t('home.newMemberQuest.percentComplete', { pct: progressPct })}</p>
+            <p className="mt-1 text-right text-xs text-neutral-400 dark:text-neutral-500">{t('home.newMemberQuest.percentComplete', { pct: progressPct })}</p>
           </div>
           <div className="space-y-2">
             {quest.steps.map((step) => (
               <div key={step.id} className="flex items-center gap-2.5">
                 <div
-                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${step.completed ? 'border-teal-500 bg-teal-500 text-white' : 'border-neutral-300'}`}
+                  className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${step.completed ? 'border-teal-500 bg-teal-500 text-white' : 'border-neutral-300 dark:border-neutral-600'}`}
                 >
                   {step.completed && (
                     <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -135,12 +135,12 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
                     </svg>
                   )}
                 </div>
-                <span className={`text-sm ${step.completed ? 'text-neutral-400 line-through' : 'text-neutral-700'}`}>{step.title}</span>
+                <span className={`text-sm ${step.completed ? 'text-neutral-400 dark:text-neutral-500 line-through' : 'text-neutral-700 dark:text-neutral-300'}`}>{step.title}</span>
               </div>
             ))}
           </div>
-          <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2">
-            <p className="text-xs font-semibold text-amber-700">
+          <div className="mt-3 rounded-lg bg-amber-50 dark:bg-amber-900/30 px-3 py-2">
+            <p className="text-xs font-semibold text-amber-700 dark:text-amber-300">
               {t('home.newMemberQuest.reward', {
                 coins: TOTAL_COINS.toLocaleString(),
                 coinName: currency.softPlural,

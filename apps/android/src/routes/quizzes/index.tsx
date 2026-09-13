@@ -45,9 +45,9 @@ async function fetchQuizzesPage({ pageParam, tab }: { pageParam?: string; tab: T
 function QuizCard({ q }: { q: QuizSummary }) {
   const { t } = useTranslation();
   return (
-    <Link to="/quizzes/$slug" params={{ slug: q.slug }} className="block bg-white border-b border-neutral-100 p-4">
-      <h3 className="line-clamp-2 text-sm font-semibold text-neutral-900">{q.title}</h3>
-      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+    <Link to="/quizzes/$slug" params={{ slug: q.slug }} className="block bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800 p-4">
+      <h3 className="line-clamp-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{q.title}</h3>
+      <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
         <span>@{q.creatorUsername ?? 'unknown'}</span>
         <span>·</span>
         <span>{timeAgo(q.createdAt)}</span>
@@ -96,27 +96,27 @@ function QuizzesPage() {
 
   if (featureFlags && featureFlags.quizzes === false) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 bg-neutral-50 px-6 text-center">
-        <p className="text-sm text-neutral-500">{t('quizzes.disabled', 'Quizzes are currently disabled.')}</p>
+      <div className="flex h-full flex-col items-center justify-center gap-2 bg-neutral-50 dark:bg-neutral-800 px-6 text-center">
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('quizzes.disabled', 'Quizzes are currently disabled.')}</p>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
-      <div className="flex items-center justify-between bg-white px-4 py-3 border-b border-neutral-100">
-        <h1 className="text-lg font-bold text-neutral-900">{t('quizzes.title', 'Quizzes')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
+      <div className="flex items-center justify-between bg-white dark:bg-neutral-800 px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('quizzes.title', 'Quizzes')}</h1>
         <Link to="/quizzes/new" className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white">
           + {t('quizzes.create.cta', 'Create Quiz')}
         </Link>
       </div>
 
-      <div className="flex gap-1 bg-white px-3 py-2 border-b border-neutral-100">
+      <div className="flex gap-1 bg-white dark:bg-neutral-800 px-3 py-2 border-b border-neutral-100 dark:border-neutral-800">
         {tabs.map(({ key, label, icon }) => (
           <button
             key={key}
             onClick={() => setTab(key)}
-            className={`flex-1 rounded-lg py-1.5 text-xs font-semibold ${tab === key ? 'bg-neutral-900 text-white' : 'text-neutral-500'}`}
+            className={`flex-1 rounded-lg py-1.5 text-xs font-semibold ${tab === key ? 'bg-neutral-900 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}
           >
             {icon} {label}
           </button>
@@ -124,20 +124,20 @@ function QuizzesPage() {
       </div>
 
       {status === 'pending' && (
-        <div>{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 border-b border-neutral-100 bg-white p-4 animate-pulse" />)}</div>
+        <div>{Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-16 border-b border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-800 p-4 animate-pulse" />)}</div>
       )}
 
       {status === 'error' && (
         <div className="flex flex-col items-center justify-center py-20 gap-4">
-          <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
           <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">{t('android.error.retry')}</button>
         </div>
       )}
 
       {status === 'success' && quizzes.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 text-3xl">🧠</div>
-          <p className="font-semibold text-neutral-900 text-sm">
+          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700 text-3xl">🧠</div>
+          <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">
             {tab === 'mine' ? t('quizzes.empty.mine', "You haven't created any quizzes yet.") : t('quizzes.empty.default', 'No quizzes yet — be the first to create one!')}
           </p>
         </div>

@@ -108,8 +108,8 @@ function AdminQuestBoostsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="text-xl font-bold text-neutral-900 mb-1">{t('admin.questBoosts.pageTitle', 'Daily Quest Campaign Boosts')}</h1>
-      <p className="mb-4 text-xs text-neutral-500">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-1">{t('admin.questBoosts.pageTitle', 'Daily Quest Campaign Boosts')}</h1>
+      <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">
         {t('admin.questBoosts.subtitle', "Promote a feature's quests for a date range — e.g. show more Blog and Wiki quests for the next week. With nothing scheduled, quests are picked with no bias.")}
       </p>
 
@@ -159,14 +159,14 @@ function AdminQuestBoostsPage() {
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-neutral-900">{FEATURE_LABELS[b.feature_key] ?? b.feature_key}</span>
+                    <span className="font-semibold text-neutral-900 dark:text-neutral-100">{FEATURE_LABELS[b.feature_key] ?? b.feature_key}</span>
                     <AdminBadge
                       label={isActive(b) ? t('admin.questBoosts.active', 'Active') : new Date(b.starts_at) > new Date() ? t('admin.questBoosts.upcoming', 'Upcoming') : t('admin.questBoosts.ended2', 'Ended')}
                       color={isActive(b) ? 'green' : 'neutral'}
                     />
-                    <span className="text-xs text-neutral-500">×{b.weight_multiplier}</span>
+                    <span className="text-xs text-neutral-500 dark:text-neutral-400">×{b.weight_multiplier}</span>
                   </div>
-                  <p className="mt-0.5 text-xs text-neutral-500">
+                  <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
                     {fmtDate(b.starts_at)} → {fmtDate(b.ends_at)}{b.note ? ` · ${b.note}` : ''}
                   </p>
                 </div>
@@ -174,7 +174,7 @@ function AdminQuestBoostsPage() {
                   type="button"
                   onClick={() => deleteMutation.mutate(b.id)}
                   disabled={deleteMutation.isPending}
-                  className="shrink-0 rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50"
+                  className="shrink-0 rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50"
                 >
                   {t('admin.questBoosts.endNow', 'End now')}
                 </button>

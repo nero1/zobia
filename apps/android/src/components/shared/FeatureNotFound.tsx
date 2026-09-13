@@ -15,7 +15,7 @@ export function FeatureNotFound() {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
       <span className="text-4xl">🔍</span>
-      <p className="text-sm text-neutral-500">{t('common.notFound')}</p>
+      <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('common.notFound')}</p>
     </div>
   );
 }

@@ -133,11 +133,11 @@ function AddModuleForm({ roomId, onSuccess, onCancel }: { roomId: string; onSucc
   }
 
   return (
-    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3 rounded-xl border border-primary-200 bg-primary-50 p-4">
+    <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3 rounded-xl border border-primary-200 bg-primary-50 dark:bg-primary-900/30 p-4">
       <h4 className="text-sm font-semibold text-primary-900">{t('classroom.module.formTitle')}</h4>
-      {error && <p className="text-xs text-danger-600">{error}</p>}
+      {error && <p className="text-xs text-danger-600 dark:text-danger-300">{error}</p>}
       <div>
-        <label className="mb-1 block text-xs font-medium text-neutral-600">
+        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">
           {t('classroom.module.titleLabel')} <span className="text-danger-500">*</span>
         </label>
         <input
@@ -146,36 +146,36 @@ function AddModuleForm({ roomId, onSuccess, onCancel }: { roomId: string; onSucc
           onChange={(e) => setTitle(e.target.value)}
           placeholder={t('classroom.module.titlePlaceholder')}
           maxLength={200}
-          className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+          className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm"
           required
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-neutral-600">{t('classroom.module.descriptionLabel')}</label>
+        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">{t('classroom.module.descriptionLabel')}</label>
         <textarea
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           placeholder={t('classroom.module.descriptionPlaceholder')}
           maxLength={1000}
           rows={2}
-          className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+          className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm"
         />
       </div>
       <div>
-        <label className="mb-1 block text-xs font-medium text-neutral-600">{t('classroom.module.resourcesLabel')}</label>
+        <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-400">{t('classroom.module.resourcesLabel')}</label>
         <textarea
           value={resources}
           onChange={(e) => setResources(e.target.value)}
           placeholder={'https://example.com/lesson1\nhttps://example.com/slides'}
           rows={2}
-          className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+          className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm"
         />
       </div>
       <div className="flex gap-2">
         <button type="submit" disabled={saving} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60">
           {saving ? t('classroom.module.saving') : t('classroom.module.save')}
         </button>
-        <button type="button" onClick={onCancel} className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-600">
+        <button type="button" onClick={onCancel} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-medium text-neutral-600 dark:text-neutral-400">
           {t('classroom.module.cancel')}
         </button>
       </div>
@@ -206,10 +206,10 @@ function ModuleList({ roomId, modules, onModulesChange, onShowToast }: { roomId:
   return (
     <div className="space-y-2">
       {modules.map((m, i) => (
-        <div key={i} className="flex items-start justify-between gap-3 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2">
+        <div key={i} className="flex items-start justify-between gap-3 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3 py-2">
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-neutral-900">{m.title}</p>
-            {m.description && <p className="mt-0.5 text-xs text-neutral-500 line-clamp-2">{m.description}</p>}
+            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{m.title}</p>
+            {m.description && <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400 line-clamp-2">{m.description}</p>}
             {m.resources && m.resources.length > 0 && (
               <p className="mt-0.5 text-xs text-primary-500">{t('classroom.card.resourceCount', { count: m.resources.length })}</p>
             )}
@@ -247,23 +247,23 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: {
   }
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-card">
+    <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           {room.category && (
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-600">{room.category}</span>
+            <span className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 text-xs font-semibold text-neutral-600 dark:text-neutral-400">{room.category}</span>
           )}
-          <h3 className="mt-2 text-base font-semibold text-neutral-900">{room.title}</h3>
+          <h3 className="mt-2 text-base font-semibold text-neutral-900 dark:text-neutral-100">{room.title}</h3>
           {room.curriculumTitle && (
-            <p className="mt-0.5 text-xs text-neutral-500">{t('classroom.card.curriculum', { title: room.curriculumTitle })}</p>
+            <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{t('classroom.card.curriculum', { title: room.curriculumTitle })}</p>
           )}
-          {room.description && <p className="mt-1 text-sm text-neutral-600 line-clamp-2">{room.description}</p>}
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-500">
+          {room.description && <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400 line-clamp-2">{room.description}</p>}
+          <div className="mt-3 flex flex-wrap gap-2 text-xs text-neutral-500 dark:text-neutral-400">
             <span>{t('classroom.card.by', { name: room.creatorName })}</span>
             <span>·</span>
             <span>{t('classroom.card.members', { count: room.memberCount })}</span>
           </div>
-          <button onClick={() => setShowModules((v) => !v)} className="mt-2 text-xs font-medium text-primary-600">
+          <button onClick={() => setShowModules((v) => !v)} className="mt-2 text-xs font-medium text-primary-600 dark:text-primary-300">
             {loadingModules
               ? t('common.loading')
               : showModules
@@ -272,13 +272,13 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: {
           </button>
         </div>
         <div className="shrink-0 text-right">
-          <p className="text-sm font-bold text-neutral-900">
+          <p className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
             {room.enrolmentFee > 0 ? `${room.enrolmentFee.toLocaleString()} 🪙` : t('classroom.card.free')}
           </p>
           <button
             onClick={() => onEnroll(room.id)}
             disabled={enrolling === room.id || room.isEnrolled}
-            className={`mt-2 rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-60 ${room.isEnrolled ? 'border border-neutral-300 text-neutral-500' : 'bg-primary-600 text-white'}`}
+            className={`mt-2 rounded-xl px-4 py-2 text-sm font-semibold disabled:opacity-60 ${room.isEnrolled ? 'border border-neutral-300 dark:border-neutral-600 text-neutral-500 dark:text-neutral-400' : 'bg-primary-600 text-white'}`}
           >
             {room.isEnrolled
               ? t('classroom.card.enrolled')
@@ -293,7 +293,7 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: {
         <div className="mt-4 space-y-3">
           {modules && modules.length > 0 ? (
             <div>
-              <p className="mb-2 text-xs font-semibold text-neutral-500">{t('classroom.card.modulesCount', { count: modules.length })}</p>
+              <p className="mb-2 text-xs font-semibold text-neutral-500 dark:text-neutral-400">{t('classroom.card.modulesCount', { count: modules.length })}</p>
               <ModuleList
                 roomId={room.id}
                 modules={modules}
@@ -304,11 +304,11 @@ function BrowseCard({ room, onEnroll, enrolling, currentUserId, onShowToast }: {
           ) : modulesError ? (
             <p className="text-xs text-danger-500">{t('classroom.error.loadFailed')}</p>
           ) : !loadingModules ? (
-            <p className="text-xs text-neutral-400">{t('classroom.card.noModules')}</p>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">{t('classroom.card.noModules')}</p>
           ) : null}
 
           {isCreator && !showAddForm && (
-            <button onClick={() => setShowAddForm(true)} className="rounded-lg border border-primary-300 px-3 py-1.5 text-xs font-semibold text-primary-600">
+            <button onClick={() => setShowAddForm(true)} className="rounded-lg border border-primary-300 px-3 py-1.5 text-xs font-semibold text-primary-600 dark:text-primary-300">
               {t('classroom.card.addModule')}
             </button>
           )}
@@ -331,35 +331,35 @@ function EnrolledCard({ room }: { room: EnrolledClassRoom }) {
   const pct = room.lessonCount > 0 ? Math.round((room.completedLessons / room.lessonCount) * 100) : 0;
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-card">
+    <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           {room.category && (
-            <span className="rounded-full bg-success-100 px-2 py-0.5 text-xs font-semibold text-success-700">{room.category}</span>
+            <span className="rounded-full bg-success-100 dark:bg-success-900/40 px-2 py-0.5 text-xs font-semibold text-success-700 dark:text-success-300">{room.category}</span>
           )}
-          <h3 className="mt-2 text-base font-semibold text-neutral-900">{room.title}</h3>
-          <p className="mt-0.5 text-xs text-neutral-500">{room.creatorName}{room.curriculumTitle ? ` · ${room.curriculumTitle}` : ''}</p>
+          <h3 className="mt-2 text-base font-semibold text-neutral-900 dark:text-neutral-100">{room.title}</h3>
+          <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{room.creatorName}{room.curriculumTitle ? ` · ${room.curriculumTitle}` : ''}</p>
         </div>
         {room.quizScore != null && (
           <div className="shrink-0 text-right">
-            <p className="text-xs font-semibold text-neutral-500">{t('classroom.card.quizScore')}</p>
-            <p className="text-lg font-bold text-neutral-900">{room.quizScore}%</p>
+            <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">{t('classroom.card.quizScore')}</p>
+            <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{room.quizScore}%</p>
           </div>
         )}
       </div>
 
       <div className="mt-4">
-        <div className="mb-1 flex items-center justify-between text-xs text-neutral-500">
+        <div className="mb-1 flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
           <span>{t('classroom.card.lessonsProgress', { completed: room.completedLessons, total: room.lessonCount })}</span>
           <span>{pct}%</span>
         </div>
-        <div className="h-2 overflow-hidden rounded-full bg-neutral-200">
+        <div className="h-2 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
           <div className="h-full rounded-full bg-success-500" style={{ width: `${pct}%` }} />
         </div>
       </div>
 
       {room.lastActivityAt && (
-        <p className="mt-2 text-xs text-neutral-400">
+        <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
           {t('classroom.card.lastActivity', {
             date: new Date(room.lastActivityAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }),
           })}
@@ -412,8 +412,8 @@ function ClassroomPage() {
   const enrolled = enrolledRooms ?? [];
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-xl font-bold text-neutral-900 mb-3">{t('classroom.title')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-3">{t('classroom.title')}</h1>
 
       {toast && (
         <div className="fixed bottom-6 right-6 z-50 rounded-xl bg-success-600 px-4 py-3 text-sm font-medium text-white shadow-modal">
@@ -421,35 +421,35 @@ function ClassroomPage() {
         </div>
       )}
 
-      <div className="flex gap-1 rounded-xl border border-neutral-200 bg-neutral-50 p-1 mb-3">
+      <div className="flex gap-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 p-1 mb-3">
         <button
           onClick={() => setTab('browse')}
-          className={`flex-1 rounded-lg py-2 text-sm font-semibold ${tab === 'browse' ? 'bg-white text-neutral-900 shadow-card' : 'text-neutral-500'}`}
+          className={`flex-1 rounded-lg py-2 text-sm font-semibold ${tab === 'browse' ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-card' : 'text-neutral-500 dark:text-neutral-400'}`}
         >
           {t('classroom.tabs.browse')}
         </button>
         <button
           onClick={() => setTab('mine')}
-          className={`flex-1 rounded-lg py-2 text-sm font-semibold ${tab === 'mine' ? 'bg-white text-neutral-900 shadow-card' : 'text-neutral-500'}`}
+          className={`flex-1 rounded-lg py-2 text-sm font-semibold ${tab === 'mine' ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-card' : 'text-neutral-500 dark:text-neutral-400'}`}
         >
           {t('classroom.tabs.mine')}{enrolled.length > 0 ? ` (${enrolled.length})` : ''}
         </button>
       </div>
 
       {browseStatus === 'error' && (
-        <div className="rounded-xl border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700 mb-3">
+        <div className="rounded-xl border border-danger-200 bg-danger-50 dark:bg-danger-900/30 px-4 py-3 text-sm text-danger-700 dark:text-danger-300 mb-3">
           {t('classroom.error.loadFailed')}
         </div>
       )}
 
       {loading ? (
-        <div className="py-8 text-center text-sm text-neutral-400">{t('common.loading')}</div>
+        <div className="py-8 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('common.loading')}</div>
       ) : tab === 'browse' ? (
         rooms.length === 0 ? (
           <div className="flex flex-col items-center py-16 text-center">
             <span className="text-5xl">🏫</span>
-            <h2 className="mt-4 text-lg font-semibold text-neutral-900">{t('classroom.empty.browse.title')}</h2>
-            <p className="mt-1 text-sm text-neutral-500">{t('classroom.empty.browse.subtitle')}</p>
+            <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('classroom.empty.browse.title')}</h2>
+            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('classroom.empty.browse.subtitle')}</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -468,8 +468,8 @@ function ClassroomPage() {
       ) : enrolled.length === 0 ? (
         <div className="flex flex-col items-center py-16 text-center">
           <span className="text-5xl">📚</span>
-          <h2 className="mt-4 text-lg font-semibold text-neutral-900">{t('classroom.empty.mine.title')}</h2>
-          <p className="mt-1 text-sm text-neutral-500">{t('classroom.empty.mine.subtitle')}</p>
+          <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('classroom.empty.mine.title')}</h2>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('classroom.empty.mine.subtitle')}</p>
         </div>
       ) : (
         <div className="space-y-3">

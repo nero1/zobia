@@ -206,7 +206,7 @@ function QuestFormFields({ form, setForm }: { form: QuestForm; setForm: (updater
           <input type="number" min="50" max="90" value={form.creatorSharePercent} onChange={(e) => setForm((f) => ({ ...f, creatorSharePercent: e.target.value }))} className={adminInputClass} />
         </AdminField>
       </div>
-      <p className="text-[11px] text-neutral-400">
+      <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
         {t('admin.sponsoredQuests.platformShareNote', 'Platform share: {{pct}}%', { pct: Math.max(0, 100 - (Number(form.creatorSharePercent) || 0)) })}
       </p>
       <div className="grid grid-cols-2 gap-2">
@@ -234,22 +234,22 @@ function QuestFormFields({ form, setForm }: { form: QuestForm; setForm: (updater
         />
       </AdminField>
 
-      <div className="rounded-xl border border-dashed border-neutral-300 p-3 space-y-3">
-        <label className="flex items-center gap-2 text-sm font-semibold text-neutral-700">
+      <div className="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-600 p-3 space-y-3">
+        <label className="flex items-center gap-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           <input type="checkbox" checked={form.isDailyQuestEligible} onChange={(e) => setForm((f) => ({ ...f, isDailyQuestEligible: e.target.checked }))} />
           {t('admin.sponsoredQuests.dailyDeckToggle', "Show in regular users' daily quest decks")}
         </label>
         {form.isDailyQuestEligible && (
           <>
             <div>
-              <p className="mb-1.5 text-xs font-semibold text-neutral-600">{t('admin.sponsoredQuests.duration', 'Duration')}</p>
+              <p className="mb-1.5 text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('admin.sponsoredQuests.duration', 'Duration')}</p>
               <div className="flex flex-wrap gap-1.5">
                 {DURATION_PRESETS.map((p) => (
                   <button
                     key={p.key}
                     type="button"
                     onClick={() => setPreset(p.key)}
-                    className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${form.durationPreset === p.key ? 'border-primary-600 bg-primary-600 text-white' : 'border-neutral-300 text-neutral-600'}`}
+                    className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${form.durationPreset === p.key ? 'border-primary-600 bg-primary-600 text-white' : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400'}`}
                   >
                     {p.label}
                   </button>
@@ -257,7 +257,7 @@ function QuestFormFields({ form, setForm }: { form: QuestForm; setForm: (updater
                 <button
                   type="button"
                   onClick={() => setPreset('custom')}
-                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${form.durationPreset === 'custom' ? 'border-primary-600 bg-primary-600 text-white' : 'border-neutral-300 text-neutral-600'}`}
+                  className={`rounded-lg border px-2.5 py-1 text-xs font-medium ${form.durationPreset === 'custom' ? 'border-primary-600 bg-primary-600 text-white' : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400'}`}
                 >
                   {t('admin.sponsoredQuests.customDuration', 'Custom')}
                 </button>
@@ -282,7 +282,7 @@ function QuestFormFields({ form, setForm }: { form: QuestForm; setForm: (updater
             <AdminField label={t('admin.sponsoredQuests.targetAction', 'Action to complete (e.g. game_play, blog_publish)')}>
               <input value={form.targetAction} onChange={(e) => setForm((f) => ({ ...f, targetAction: e.target.value }))} className={adminInputClass} placeholder={t('admin.sponsoredQuests.targetActionPlaceholder', "Leave blank for a generic 'mark as done' action")} />
             </AdminField>
-            <p className="text-[11px] text-neutral-400">
+            <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
               {t('admin.sponsoredQuests.estimatedReach', 'Estimated reach: {{reach}} impressions across the run.', { reach: fmtNumber(estimatedReach) })}
             </p>
           </>
@@ -419,9 +419,9 @@ function AdminSponsoredQuestsPage() {
   return (
     <div className="px-4 py-5">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.sponsoredQuests', 'Sponsored Quest Marketplace')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.sponsoredQuests', 'Sponsored Quest Marketplace')}</h1>
         <div className="flex shrink-0 gap-1.5">
-          <Link to="/admin/quest-boosts" className="rounded-lg border border-neutral-300 px-2.5 py-2 text-xs font-semibold text-neutral-700">
+          <Link to="/admin/quest-boosts" className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-2.5 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
             {t('admin.questBoosts.navLabel', 'Boosts')}
           </Link>
           <button type="button" onClick={() => setShowCreate((v) => !v)} className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white">
@@ -429,7 +429,7 @@ function AdminSponsoredQuestsPage() {
           </button>
         </div>
       </div>
-      <p className="mb-4 text-xs text-neutral-500">
+      <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">
         {t('admin.sponsoredQuests.subtitle', 'Publish quests on behalf of brands. Verified+ creators apply and earn a share of the reward.')}
       </p>
 
@@ -459,7 +459,7 @@ function AdminSponsoredQuestsPage() {
           quests?.map((q) => (
             <AdminCard key={q.id}>
               <div className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs">
-                <span className="font-semibold uppercase tracking-wide text-blue-600">{q.brand_name}</span>
+                <span className="font-semibold uppercase tracking-wide text-blue-600 dark:text-blue-300">{q.brand_name}</span>
                 <AdminBadge label={q.is_active ? t('admin.sponsoredQuests.active', 'Active') : t('admin.sponsoredQuests.inactive', 'Inactive')} color={q.is_active ? 'green' : 'neutral'} />
                 <AdminBadge label={t('admin.sponsoredQuests.minTierBadge', 'Min: {{tier}}', { tier: q.min_creator_tier })} color="gold" />
                 {q.business_account_id && (
@@ -481,28 +481,28 @@ function AdminSponsoredQuestsPage() {
                   <AdminBadge label={t('admin.sponsoredQuests.flaggedBadge', '🚩 Flagged: {{category}}', { category: q.flag_category })} color="red" />
                 )}
               </div>
-              <p className="font-semibold text-neutral-900">{q.title}</p>
-              <p className="mt-0.5 line-clamp-2 text-sm text-neutral-500">{q.description}</p>
+              <p className="font-semibold text-neutral-900 dark:text-neutral-100">{q.title}</p>
+              <p className="mt-0.5 line-clamp-2 text-sm text-neutral-500 dark:text-neutral-400">{q.description}</p>
               {q.moderation_status === 'rejected' && q.moderation_reason && (
-                <p className="mt-1 text-xs text-danger-600">{t('admin.sponsoredQuests.rejectionReason', 'Rejection reason')}: {q.moderation_reason}</p>
+                <p className="mt-1 text-xs text-danger-600 dark:text-danger-300">{t('admin.sponsoredQuests.rejectionReason', 'Rejection reason')}: {q.moderation_reason}</p>
               )}
               {q.pause_reason && (
-                <p className={`mt-1 text-xs ${q.auto_paused ? 'text-amber-600' : 'text-neutral-500'}`}>
+                <p className={`mt-1 text-xs ${q.auto_paused ? 'text-amber-600 dark:text-amber-300' : 'text-neutral-500 dark:text-neutral-400'}`}>
                   {q.auto_paused ? '⚠️ ' : ''}{t('admin.sponsoredQuests.pausedNote', 'Paused')}: {q.pause_reason}
                 </p>
               )}
 
               <div className="mt-2 flex items-center justify-between">
-                <div className="text-xs text-neutral-500">
+                <div className="text-xs text-neutral-500 dark:text-neutral-400">
                   📋 {q.application_count}/{q.max_applications} · ✅ {q.approved_count} · {fmtDate(q.deadline)}
                 </div>
                 <div className="text-right">
-                  <p className="font-bold text-neutral-900">{fmtNumber(q.reward_coins)} {currency.softPlural}</p>
-                  <p className="text-[10px] text-neutral-400">{q.creator_share_percent}% / {q.platform_share_percent}%</p>
+                  <p className="font-bold text-neutral-900 dark:text-neutral-100">{fmtNumber(q.reward_coins)} {currency.softPlural}</p>
+                  <p className="text-[10px] text-neutral-400 dark:text-neutral-500">{q.creator_share_percent}% / {q.platform_share_percent}%</p>
                 </div>
               </div>
               {q.is_daily_quest_eligible && (
-                <p className="mt-1 text-[11px] text-neutral-400">
+                <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
                   {t('admin.sponsoredQuests.spendLine', '{{spent}}/{{total}} {{currency}} spent · {{impressions}} impressions', {
                     spent: fmtNumber(Number(q.spent_credits)),
                     total: fmtNumber(Number(q.total_budget_credits)),
@@ -533,14 +533,14 @@ function AdminSponsoredQuestsPage() {
                     </button>
                   </>
                 )}
-                <button type="button" onClick={() => openEdit(q)} className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                <button type="button" onClick={() => openEdit(q)} className="rounded-lg bg-blue-50 dark:bg-blue-900/30 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
                   {t('admin.gifts.edit', 'Edit')}
                 </button>
                 <button
                   type="button"
                   disabled={toggleMutation.isPending}
                   onClick={() => toggleMutation.mutate(q)}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50 ${q.is_active ? 'bg-amber-100 text-amber-700' : 'bg-success-100 text-success-700'}`}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50 ${q.is_active ? 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' : 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'}`}
                 >
                   {q.is_active ? t('admin.sponsoredQuests.pause', 'Pause') : t('admin.sponsoredQuests.activate', 'Activate')}
                 </button>
@@ -549,7 +549,7 @@ function AdminSponsoredQuestsPage() {
                     type="button"
                     disabled={pauseMutation.isPending}
                     onClick={() => pauseMutation.mutate({ id: q.id, action: 'pause', reason: undefined })}
-                    className="rounded-lg bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700 disabled:opacity-50"
+                    className="rounded-lg bg-amber-50 dark:bg-amber-900/30 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300 disabled:opacity-50"
                   >
                     {t('admin.sponsoredQuests.pauseFollowUp', 'Pause (follow-up)')}
                   </button>
@@ -558,7 +558,7 @@ function AdminSponsoredQuestsPage() {
                     type="button"
                     disabled={pauseMutation.isPending}
                     onClick={() => pauseMutation.mutate({ id: q.id, action: 'resume' })}
-                    className="rounded-lg bg-success-100 px-2.5 py-1 text-xs font-semibold text-success-700 disabled:opacity-50"
+                    className="rounded-lg bg-success-100 dark:bg-success-900/40 px-2.5 py-1 text-xs font-semibold text-success-700 dark:text-success-300 disabled:opacity-50"
                   >
                     {t('admin.sponsoredQuests.resume', 'Resume')}
                   </button>
@@ -568,7 +568,7 @@ function AdminSponsoredQuestsPage() {
                     type="button"
                     disabled={flagMutation.isPending}
                     onClick={() => flagMutation.mutate({ id: q.id, action: 'unflag' })}
-                    className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50"
+                    className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
                   >
                     {t('admin.sponsoredQuests.clearFlag', 'Clear flag')}
                   </button>
@@ -576,12 +576,12 @@ function AdminSponsoredQuestsPage() {
                   <button
                     type="button"
                     onClick={() => { setFlagTarget(q); setFlagCategory('spam'); setFlagReason(''); }}
-                    className="rounded-lg bg-danger-50 px-2.5 py-1 text-xs font-semibold text-danger-700"
+                    className="rounded-lg bg-danger-50 dark:bg-danger-900/30 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300"
                   >
                     {t('admin.sponsoredQuests.flag', '🚩 Flag')}
                   </button>
                 )}
-                <button type="button" onClick={() => setDeleteTarget(q)} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700">
+                <button type="button" onClick={() => setDeleteTarget(q)} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300">
                   {t('admin.sponsoredQuests.delete', 'Delete')}
                 </button>
               </div>
@@ -591,11 +591,11 @@ function AdminSponsoredQuestsPage() {
 
       {editTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-white p-5">
-            <h3 className="mb-4 font-semibold text-neutral-900">{t('admin.sponsoredQuests.editTitle', 'Edit Sponsored Quest')}</h3>
+          <div className="max-h-[85vh] w-full max-w-sm overflow-y-auto rounded-2xl bg-white dark:bg-neutral-800 p-5">
+            <h3 className="mb-4 font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.sponsoredQuests.editTitle', 'Edit Sponsored Quest')}</h3>
             <QuestFormFields form={editForm} setForm={setEditForm} />
             <div className="mt-4 flex gap-2">
-              <button type="button" onClick={() => setEditTarget(null)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm font-medium text-neutral-700">
+              <button type="button" onClick={() => setEditTarget(null)} className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
                 {t('common.cancel')}
               </button>
               <button

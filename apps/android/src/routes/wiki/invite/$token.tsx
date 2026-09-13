@@ -25,26 +25,26 @@ function WikiInvitePage() {
     onSuccess: (res) => navigate({ to: '/wiki/$slug', params: { slug: res.data.wikiSlug } }),
   });
 
-  if (previewQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
+  if (previewQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4"><div className="h-24 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" /></div>;
 
   const preview = previewQuery.data;
   if (!preview) {
-    return <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center text-sm text-neutral-500">{t('wiki.invite.notFound', 'Invite not found.')}</div>;
+    return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('wiki.invite.notFound', 'Invite not found.')}</div>;
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4">
-      <div className="rounded-xl border border-neutral-200 bg-white p-5 text-center">
-        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-100 text-3xl">📖</div>
-        <h1 className="text-lg font-bold text-neutral-900">{t('wiki.invite.title', "You've been invited to contribute to {{name}}", { name: preview.wiki.name })}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-5 text-center">
+        <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-3xl">📖</div>
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('wiki.invite.title', "You've been invited to contribute to {{name}}", { name: preview.wiki.name })}</h1>
 
         {preview.used ? (
-          <p className="mt-3 text-sm text-neutral-500">{t('wiki.invite.used', 'This invite has already been used.')}</p>
+          <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">{t('wiki.invite.used', 'This invite has already been used.')}</p>
         ) : preview.expired ? (
-          <p className="mt-3 text-sm text-neutral-500">{t('wiki.invite.expired', 'This invite has expired.')}</p>
+          <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">{t('wiki.invite.expired', 'This invite has expired.')}</p>
         ) : (
           <>
-            {accept.isError && <p className="mt-2 text-sm text-red-600">{t('error.generic')}</p>}
+            {accept.isError && <p className="mt-2 text-sm text-red-600 dark:text-red-300">{t('error.generic')}</p>}
             <button
               disabled={accept.isPending}
               onClick={() => accept.mutate()}
@@ -55,7 +55,7 @@ function WikiInvitePage() {
           </>
         )}
 
-        <Link to="/wiki/$slug" params={{ slug: preview.wiki.slug }} className="mt-3 block text-xs text-neutral-400 underline underline-offset-2">
+        <Link to="/wiki/$slug" params={{ slug: preview.wiki.slug }} className="mt-3 block text-xs text-neutral-400 dark:text-neutral-500 underline underline-offset-2">
           {t('wiki.invite.viewWiki', 'View wiki')}
         </Link>
       </div>

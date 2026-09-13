@@ -62,7 +62,7 @@ function NewTicketPage() {
     <div className="p-4">
       <h1 className="mb-1 text-xl font-bold text-white">{t('support.newTicketTitle', 'New Support Ticket')}</h1>
       {eligibility && !eligibility.freeAccess && !eligibility.blocked && (
-        <p className="mb-3 text-sm text-neutral-400">
+        <p className="mb-3 text-sm text-neutral-400 dark:text-neutral-500">
           {t('support.costNotice', 'This will cost {{amount}}.', { amount: costAmount })}
         </p>
       )}

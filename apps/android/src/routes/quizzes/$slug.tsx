@@ -91,19 +91,19 @@ function FundTreasuryModal({ onClose, onSave, saving }: { onClose: () => void; o
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <p className="text-base font-bold text-neutral-900">{t('polls.treasury.title', 'Fund Reward Pot')}</p>
-        <p className="mt-1 text-sm text-neutral-500">{t('polls.treasury.desc', 'Reward voters from a shared pot, split evenly among claimants.')}</p>
+      <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <p className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('polls.treasury.title', 'Fund Reward Pot')}</p>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('polls.treasury.desc', 'Reward voters from a shared pot, split evenly among claimants.')}</p>
         <label className="mt-4 block">
-          <span className="mb-1.5 block text-xs font-semibold text-neutral-600">{t('polls.treasury.amount', 'Total Amount ({{currency}})', { currency: currency.softPlural })}</span>
-          <input type="number" min="1" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none" />
+          <span className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('polls.treasury.amount', 'Total Amount ({{currency}})', { currency: currency.softPlural })}</span>
+          <input type="number" min="1" inputMode="numeric" value={amount} onChange={(e) => setAmount(e.target.value)} className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none" />
         </label>
         <label className="mt-3 block">
-          <span className="mb-1.5 block text-xs font-semibold text-neutral-600">{t('polls.treasury.maxClaimants', 'Max Claimants')}</span>
-          <input type="number" min="1" inputMode="numeric" value={maxClaimants} onChange={(e) => setMaxClaimants(e.target.value)} className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none" />
+          <span className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('polls.treasury.maxClaimants', 'Max Claimants')}</span>
+          <input type="number" min="1" inputMode="numeric" value={maxClaimants} onChange={(e) => setMaxClaimants(e.target.value)} className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none" />
         </label>
         <div className="mt-5 flex gap-3">
-          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60">
+          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60">
             {t('answers.ask.cancel')}
           </button>
           <button type="button" disabled={saving || !canSave} onClick={() => onSave(Number(amount), Number(maxClaimants))} className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
@@ -226,14 +226,14 @@ function QuizDetailPage() {
   }
 
   if (quizQuery.isPending) {
-    return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
+    return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4"><div className="h-24 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" /></div>;
   }
 
   if (!quiz) {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center">
-        <p className="text-sm text-neutral-500">{t('quizzes.notFound', 'Quiz not found')}</p>
-        <Link to="/quizzes" className="mt-3 inline-block text-sm font-semibold text-primary-600">← {t('quizzes.title', 'Quizzes')}</Link>
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center">
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('quizzes.notFound', 'Quiz not found')}</p>
+        <Link to="/quizzes" className="mt-3 inline-block text-sm font-semibold text-primary-600 dark:text-primary-300">← {t('quizzes.title', 'Quizzes')}</Link>
       </div>
     );
   }
@@ -242,18 +242,18 @@ function QuizDetailPage() {
   const allAnswered = quiz.questions.every((q) => (answers[q.id]?.length ?? 0) > 0);
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
-      <div className="rounded-xl border border-neutral-200 bg-white p-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
         <div className="flex items-center gap-2">
-          <h1 className="flex-1 text-base font-bold text-neutral-900">{quiz.title}</h1>
+          <h1 className="flex-1 text-base font-bold text-neutral-900 dark:text-neutral-100">{quiz.title}</h1>
           {quiz.status !== 'active' && (
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-500">
+            <span className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
               {quiz.status === 'closed' ? t('polls.status.closed', 'Closed') : t('polls.status.disabled', 'Disabled')}
             </span>
           )}
         </div>
-        {quiz.description && <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-700">{quiz.description}</p>}
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+        {quiz.description && <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-700 dark:text-neutral-300">{quiz.description}</p>}
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
           <span>@{quiz.creatorUsername ?? 'unknown'}</span>
           <span>·</span>
           <span>{quiz.questions.length} {t('quizzes.questions', 'questions')}</span>
@@ -267,7 +267,7 @@ function QuizDetailPage() {
           )}
         </div>
         {quiz.myBestAttempt && (
-          <div className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${quiz.myBestAttempt.passed ? 'bg-success-50 text-success-700' : 'bg-neutral-100 text-neutral-600'}`}>
+          <div className={`mt-3 rounded-lg px-3 py-2 text-xs font-semibold ${quiz.myBestAttempt.passed ? 'bg-success-50 dark:bg-success-900/30 text-success-700 dark:text-success-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}>
             {t('quizzes.bestAttempt', 'Best score: {{pct}}% ({{score}}/{{total}}) · {{status}}', {
               pct: quiz.myBestAttempt.scorePercent,
               score: quiz.myBestAttempt.score,
@@ -278,20 +278,20 @@ function QuizDetailPage() {
         )}
       </div>
 
-      {errorMessage && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>}
+      {errorMessage && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">{errorMessage}</div>}
 
       {result ? (
         <div className="space-y-3">
-          <div className={`rounded-xl border p-4 text-center ${result.passed ? 'border-success-200 bg-success-50' : 'border-neutral-200 bg-white'}`}>
-            <p className="text-3xl font-bold text-neutral-900">{result.scorePercent}%</p>
-            <p className="mt-1 text-sm text-neutral-600">
+          <div className={`rounded-xl border p-4 text-center ${result.passed ? 'border-success-200 bg-success-50 dark:bg-success-900/30' : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800'}`}>
+            <p className="text-3xl font-bold text-neutral-900 dark:text-neutral-100">{result.scorePercent}%</p>
+            <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">
               {t('quizzes.result.score', '{{score}}/{{total}} points', { score: result.score, total: result.totalPoints })}
             </p>
-            <p className={`mt-2 text-sm font-semibold ${result.passed ? 'text-success-700' : 'text-neutral-500'}`}>
+            <p className={`mt-2 text-sm font-semibold ${result.passed ? 'text-success-700 dark:text-success-300' : 'text-neutral-500 dark:text-neutral-400'}`}>
               {result.passed ? t('quizzes.passed', 'Passed') : t('quizzes.notPassed', 'Not passed')}
             </p>
             {result.rewardClaimed ? (
-              <p className="mt-2 text-sm text-success-700">
+              <p className="mt-2 text-sm text-success-700 dark:text-success-300">
                 {t('polls.rewardClaimed', 'You earned {{amount}} {{currency}}!', { amount: result.rewardClaimed, currency: currency.softPlural })}
               </p>
             ) : null}
@@ -301,8 +301,8 @@ function QuizDetailPage() {
             const r = result.perQuestionResult.find((pr) => pr.questionId === q.id);
             const mySelection = answers[q.id] ?? [];
             return (
-              <div key={q.id} className={`rounded-xl border p-4 ${r?.isCorrect ? 'border-success-200 bg-white' : 'border-danger-200 bg-white'}`}>
-                <p className="text-sm font-semibold text-neutral-900">
+              <div key={q.id} className={`rounded-xl border p-4 ${r?.isCorrect ? 'border-success-200 bg-white dark:bg-neutral-800' : 'border-danger-200 bg-white dark:bg-neutral-800'}`}>
+                <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                   {r?.isCorrect ? '✓' : '✗'} {q.prompt}
                 </p>
                 <div className="mt-2 space-y-1">
@@ -313,7 +313,7 @@ function QuizDetailPage() {
                       <div
                         key={opt.id}
                         className={`rounded-lg px-3 py-1.5 text-xs ${
-                          wasCorrect ? 'bg-success-50 text-success-700 font-semibold' : wasMine ? 'bg-danger-50 text-danger-700' : 'text-neutral-500'
+                          wasCorrect ? 'bg-success-50 dark:bg-success-900/30 text-success-700 dark:text-success-300 font-semibold' : wasMine ? 'bg-danger-50 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300' : 'text-neutral-500 dark:text-neutral-400'
                         }`}
                       >
                         {wasCorrect && '✓ '}{wasMine && !wasCorrect && '✗ '}{opt.label}
@@ -329,7 +329,7 @@ function QuizDetailPage() {
             {quiz.status === 'active' && !(quiz.maxAttemptsPerUser && quiz.myAttemptCount + 1 >= quiz.maxAttemptsPerUser) && (
               <button
                 onClick={() => { setResult(null); setAnswers({}); }}
-                className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700"
+                className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300"
               >
                 {t('quizzes.retake', 'Retake Quiz')}
               </button>
@@ -342,7 +342,7 @@ function QuizDetailPage() {
       ) : (
         <>
           {!canAttempt && (
-            <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-300">
               {quiz.status !== 'active'
                 ? t('quizzes.unavailable', 'This quiz is not accepting attempts right now.')
                 : t('quizzes.attemptsExhausted', "You've used all {{max}} of your attempts.", { max: quiz.maxAttemptsPerUser })}
@@ -350,8 +350,8 @@ function QuizDetailPage() {
           )}
 
           {quiz.questions.map((q, idx) => (
-            <div key={q.id} className="rounded-xl border border-neutral-200 bg-white p-4">
-              <p className="text-sm font-semibold text-neutral-900">{idx + 1}. {q.prompt}</p>
+            <div key={q.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
+              <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{idx + 1}. {q.prompt}</p>
               <div className="mt-3 space-y-1.5">
                 {q.options.map((opt) => {
                   const isChecked = (answers[q.id] ?? []).includes(opt.id);
@@ -361,9 +361,9 @@ function QuizDetailPage() {
                       type="button"
                       disabled={!canAttempt}
                       onClick={() => toggleAnswer(q, opt.id)}
-                      className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm disabled:opacity-50 ${isChecked ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-200 text-neutral-800'}`}
+                      className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm disabled:opacity-50 ${isChecked ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200'}`}
                     >
-                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center border ${q.type === 'multiple' ? 'rounded' : 'rounded-full'} ${isChecked ? 'border-primary-600 bg-primary-600' : 'border-neutral-300'}`}>
+                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center border ${q.type === 'multiple' ? 'rounded' : 'rounded-full'} ${isChecked ? 'border-primary-600 bg-primary-600' : 'border-neutral-300 dark:border-neutral-600'}`}>
                         {isChecked && <span className="text-[10px] text-white">✓</span>}
                       </span>
                       {opt.label}
@@ -386,20 +386,20 @@ function QuizDetailPage() {
       )}
 
       <div className="flex items-center gap-3">
-        <button onClick={() => void handleShare()} className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-600">
+        <button onClick={() => void handleShare()} className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
           {shareCopied ? t('answers.linkCopied', 'Link copied') : t('polls.share', 'Share')} ({quiz.shareCount})
         </button>
         {quiz.isOwner && (
-          <button onClick={() => setFundingOpen(true)} className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-600">
+          <button onClick={() => setFundingOpen(true)} className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
             {t('polls.treasury.cta', 'Fund Reward Pot')}
           </button>
         )}
       </div>
 
       {treasury && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm font-semibold text-amber-800">{t('polls.treasury.active', 'Reward Pot Active')}</p>
-          <p className="mt-1 text-xs text-amber-700">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 p-4">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">{t('polls.treasury.active', 'Reward Pot Active')}</p>
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
             {t('polls.treasury.remaining', '{{remaining}} {{currency}} remaining · {{claimed}}/{{max}} claimed', {
               remaining: treasury.remainingAmount,
               currency: currency.softPlural,
@@ -411,20 +411,20 @@ function QuizDetailPage() {
       )}
 
       {quiz.isOwner && (
-        <div className="rounded-xl border border-neutral-200 bg-white p-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('polls.owner.manage', 'Manage')}</p>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('polls.owner.manage', 'Manage')}</p>
           <div className="flex flex-wrap gap-2">
             {quiz.status !== 'closed' && (
-              <button onClick={() => setStatus.mutate('closed')} disabled={setStatus.isPending} className="rounded-lg bg-neutral-100 px-3 py-1.5 text-xs font-semibold text-neutral-700 disabled:opacity-50">
+              <button onClick={() => setStatus.mutate('closed')} disabled={setStatus.isPending} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50">
                 {t('polls.owner.close', 'Close poll')}
               </button>
             )}
             {quiz.status !== 'active' && (
-              <button onClick={() => setStatus.mutate('active')} disabled={setStatus.isPending} className="rounded-lg bg-success-100 px-3 py-1.5 text-xs font-semibold text-success-700 disabled:opacity-50">
+              <button onClick={() => setStatus.mutate('active')} disabled={setStatus.isPending} className="rounded-lg bg-success-100 dark:bg-success-900/40 px-3 py-1.5 text-xs font-semibold text-success-700 dark:text-success-300 disabled:opacity-50">
                 {t('polls.owner.reopen', 'Reopen poll')}
               </button>
             )}
-            <button onClick={() => deleteQuiz.mutate()} disabled={deleteQuiz.isPending} className="rounded-lg bg-danger-100 px-3 py-1.5 text-xs font-semibold text-danger-700 disabled:opacity-50">
+            <button onClick={() => deleteQuiz.mutate()} disabled={deleteQuiz.isPending} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-3 py-1.5 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
               {t('common.delete', 'Delete')}
             </button>
           </div>

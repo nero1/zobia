@@ -87,9 +87,9 @@ async function fetchFinancial(): Promise<FinancialData> {
 }
 
 const ANOMALY_STYLE: Record<AnomalyAlert['level'], string> = {
-  critical: 'border-danger-200 bg-danger-50 text-danger-800',
-  warning: 'border-amber-200 bg-amber-50 text-amber-800',
-  info: 'border-blue-200 bg-blue-50 text-blue-800',
+  critical: 'border-danger-200 bg-danger-50 dark:bg-danger-900/30 text-danger-800',
+  warning: 'border-amber-200 bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300',
+  info: 'border-blue-200 bg-blue-50 dark:bg-blue-900/30 text-blue-800',
 };
 const ANOMALY_ICON: Record<AnomalyAlert['level'], string> = { critical: '🚨', warning: '⚠️', info: 'ℹ️' };
 
@@ -100,7 +100,7 @@ function EconomyBar({ economy, t }: { economy: CoinEconomy; t: (k: string, d: st
   const spentPct = total > 0 ? Math.max(0, 100 - purchasedPct - earnedPct) : 0;
   return (
     <AdminCard>
-      <p className="mb-3 text-sm font-semibold text-neutral-700">{t('admin.financial.coinEconomy', 'Coin Economy (30-day)')}</p>
+      <p className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('admin.financial.coinEconomy', 'Coin Economy (30-day)')}</p>
       <div className="mb-3 flex h-4 overflow-hidden rounded-full">
         <div className="bg-blue-500" style={{ width: `${purchasedPct}%` }} />
         <div className="bg-teal-500" style={{ width: `${earnedPct}%` }} />
@@ -114,8 +114,8 @@ function EconomyBar({ economy, t }: { economy: CoinEconomy; t: (k: string, d: st
         ].map(({ color, label, pct }) => (
           <div key={label} className="flex items-center gap-1.5">
             <span className={`h-2.5 w-2.5 rounded-full ${color}`} />
-            <span className="text-neutral-600">{label}</span>
-            <span className="font-semibold text-neutral-900">{pct}%</span>
+            <span className="text-neutral-600 dark:text-neutral-400">{label}</span>
+            <span className="font-semibold text-neutral-900 dark:text-neutral-100">{pct}%</span>
           </div>
         ))}
       </div>
@@ -160,7 +160,7 @@ function AdminFinancialPage() {
 
   return (
     <div className="px-4 py-5 space-y-5">
-      <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.financial', 'Financial Monitoring')}</h1>
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.financial', 'Financial Monitoring')}</h1>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
@@ -241,14 +241,14 @@ function AdminFinancialPage() {
           <section>
             <AdminSectionHeader>{t('admin.financial.creatorFund', 'Creator Fund')}</AdminSectionHeader>
             <AdminCard>
-              <p className="text-xs font-medium uppercase tracking-wider text-neutral-500">
+              <p className="text-xs font-medium uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
                 {t('admin.financial.currentPoolBalance', 'Current Pool Balance')}
               </p>
-              <p className="text-xl font-bold text-teal-600">
+              <p className="text-xl font-bold text-teal-600 dark:text-teal-300">
                 {creatorFund ? fmtCurrency(koboToNgn(creatorFund.balanceKobo)) : '—'}
               </p>
               {creatorFund && (
-                <ul className="mt-2 space-y-0.5 text-xs text-neutral-500">
+                <ul className="mt-2 space-y-0.5 text-xs text-neutral-500 dark:text-neutral-400">
                   {Object.entries(creatorFund.splits).map(([activity, percent]) => (
                     <li key={activity}>{CREATOR_FUND_ACTIVITY_LABELS[activity] ?? activity}: {percent}%</li>
                   ))}
@@ -262,14 +262,14 @@ function AdminFinancialPage() {
                   placeholder={t('admin.financial.amountNgn', 'Amount (₦)')}
                   value={topUpAmount}
                   onChange={(e) => setTopUpAmount(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm"
                 />
                 <input
                   type="text"
                   placeholder={t('admin.financial.noteOptional', 'Note (optional)')}
                   value={topUpNote}
                   onChange={(e) => setTopUpNote(e.target.value)}
-                  className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+                  className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm"
                 />
                 <button
                   onClick={() => topUpMutation.mutate()}
@@ -289,12 +289,12 @@ function AdminFinancialPage() {
               {data?.revenueByProvider.map((r) => (
                 <AdminCard key={r.provider}>
                   <div className="flex items-center justify-between">
-                    <p className="font-semibold text-neutral-900">{r.provider}</p>
-                    <p className="text-xs text-neutral-500">{fmtNumber(r.transactionCount)} {t('admin.financial.transactions', 'transactions')}</p>
+                    <p className="font-semibold text-neutral-900 dark:text-neutral-100">{r.provider}</p>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400">{fmtNumber(r.transactionCount)} {t('admin.financial.transactions', 'transactions')}</p>
                   </div>
                   <div className="mt-2 flex items-center justify-between text-sm">
-                    <span className="text-neutral-500">{t('admin.financial.today', 'Today')}: <span className="font-medium text-neutral-800">{fmtCurrency(koboToNgn(r.revenueToday))}</span></span>
-                    <span className="text-neutral-500">{t('admin.financial.thisMonth', 'This Month')}: <span className="font-semibold text-teal-700">{fmtCurrency(koboToNgn(r.revenueMonth))}</span></span>
+                    <span className="text-neutral-500 dark:text-neutral-400">{t('admin.financial.today', 'Today')}: <span className="font-medium text-neutral-800 dark:text-neutral-200">{fmtCurrency(koboToNgn(r.revenueToday))}</span></span>
+                    <span className="text-neutral-500 dark:text-neutral-400">{t('admin.financial.thisMonth', 'This Month')}: <span className="font-semibold text-teal-700 dark:text-teal-300">{fmtCurrency(koboToNgn(r.revenueMonth))}</span></span>
                   </div>
                 </AdminCard>
               ))}

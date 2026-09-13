@@ -55,14 +55,14 @@ function NotificationsPage() {
   const unreadCount = data?.unreadCount ?? 0;
 
   return (
-    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-white">
+    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-white dark:bg-neutral-800">
       {/* Header action */}
       {unreadCount > 0 && (
-        <div className="px-4 py-3 border-b border-neutral-100 flex items-center justify-between">
-          <span className="text-sm text-neutral-500">{t('notifications.unread', { count: unreadCount })}</span>
+        <div className="px-4 py-3 border-b border-neutral-100 dark:border-neutral-800 flex items-center justify-between">
+          <span className="text-sm text-neutral-500 dark:text-neutral-400">{t('notifications.unread', { count: unreadCount })}</span>
           <button
             onClick={() => markAllReadMutation.mutate()}
-            className="text-sm text-primary-600 font-medium"
+            className="text-sm text-primary-600 dark:text-primary-300 font-medium"
           >
             {markAllReadMutation.isPending ? t('notifications.markingAll') : t('notifications.markAllRead')}
           </button>
@@ -70,11 +70,11 @@ function NotificationsPage() {
       )}
 
       {status === 'pending' && (
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="px-4 py-4 animate-pulse">
-              <div className="h-4 bg-neutral-200 rounded w-3/4 mb-2" />
-              <div className="h-3 bg-neutral-100 rounded w-1/2" />
+              <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-3/4 mb-2" />
+              <div className="h-3 bg-neutral-100 dark:bg-neutral-800 rounded w-1/2" />
             </div>
           ))}
         </div>
@@ -82,7 +82,7 @@ function NotificationsPage() {
 
       {status === 'error' && (
         <div className="flex flex-col items-center justify-center py-20 gap-4">
-          <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
           <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">
             {t('android.error.retry')}
           </button>
@@ -91,15 +91,15 @@ function NotificationsPage() {
 
       {status === 'success' && notifications.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20">
-          <p className="text-neutral-500 text-sm">{t('notifications.empty')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('notifications.empty')}</p>
         </div>
       )}
 
-      <div className="divide-y divide-neutral-100">
+      <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
         {notifications.map((notification) => (
           <div
             key={notification.id}
-            className={`px-4 py-4 ${!notification.isRead ? 'bg-primary-50' : 'bg-white'}`}
+            className={`px-4 py-4 ${!notification.isRead ? 'bg-primary-50 dark:bg-primary-900/30' : 'bg-white dark:bg-neutral-800'}`}
             onClick={() => {
               // ZSB-16 fix: tapping a notification used to only mark it read
               // and never navigate anywhere, unlike the web list which links
@@ -118,9 +118,9 @@ function NotificationsPage() {
                 <div className="w-2 h-2 rounded-full bg-primary-600 mt-2 flex-shrink-0" />
               )}
               <div className={!notification.isRead ? '' : 'pl-5'}>
-                <p className="text-sm font-medium text-neutral-900">{notification.title}</p>
-                <p className="text-sm text-neutral-500 mt-0.5">{notification.body}</p>
-                <p className="text-xs text-neutral-400 mt-1">
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{notification.title}</p>
+                <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">{notification.body}</p>
+                <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">
                   {new Date(notification.createdAt).toLocaleString()}
                 </p>
               </div>

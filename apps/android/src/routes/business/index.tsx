@@ -38,7 +38,7 @@ function BusinessPlanExpiryBanner({ endsAt }: { endsAt: string }) {
       ? t('home.planExpiry.businessExpired', 'Your business plan has expired.')
       : t('home.planExpiry.businessEndsIn', { count: daysRemaining, defaultValue: `Your business plan ends in ${daysRemaining} day${daysRemaining === 1 ? '' : 's'}.` });
   return (
-    <div className={`mb-3 rounded-xl border px-3 py-2 text-xs font-medium ${urgent ? 'border-red-300 bg-red-50 text-red-800' : 'border-amber-300 bg-amber-50 text-amber-800'}`}>
+    <div className={`mb-3 rounded-xl border px-3 py-2 text-xs font-medium ${urgent ? 'border-red-300 bg-red-50 dark:bg-red-900/30 text-red-800' : 'border-amber-300 bg-amber-50 dark:bg-amber-900/30 text-amber-800 dark:text-amber-300'}`}>
       {message}
     </div>
   );
@@ -99,14 +99,14 @@ function BusinessPage() {
   }
 
   if (status === 'pending') {
-    return <div className="p-6 text-center text-neutral-400">{t('common.loading', 'Loading…')}</div>;
+    return <div className="p-6 text-center text-neutral-400 dark:text-neutral-500">{t('common.loading', 'Loading…')}</div>;
   }
 
   if (!account) {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6">
-        <h1 className="text-lg font-bold text-neutral-900 mb-2">{t('business.intro.title', 'Grow your brand on Zobia')}</h1>
-        <p className="text-sm text-neutral-500 mb-4">
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-6">
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-2">{t('business.intro.title', 'Grow your brand on Zobia')}</h1>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-4">
           {t('business.intro.subtitle', 'Business Accounts unlock a verified badge, broadcast tools, Business Pages you can post to, a Quest Marketplace, and analytics that grow with your plan.')}
         </p>
 
@@ -114,17 +114,17 @@ function BusinessPage() {
           value={businessName}
           onChange={(e) => setBusinessName(e.target.value)}
           placeholder={t('business.intro.namePlaceholder', 'Business name')}
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 mb-3 focus:border-primary-500 focus:outline-none"
+          className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 mb-3 focus:border-primary-500 focus:outline-none"
         />
 
-        {error && <p className="text-sm text-red-600 mb-3">{error}</p>}
+        {error && <p className="text-sm text-red-600 dark:text-red-300 mb-3">{error}</p>}
 
         <div className="space-y-2">
           {BUSINESS_TIER_PRODUCTS.map((tier) => (
-            <div key={tier.id} className="bg-white rounded-xl p-3 shadow-card flex items-center justify-between gap-3">
+            <div key={tier.id} className="bg-white dark:bg-neutral-800 rounded-xl p-3 shadow-card flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="font-semibold text-sm text-neutral-900">{tier.label}</p>
-                <p className="text-xs text-neutral-500">{tier.price}</p>
+                <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">{tier.label}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{tier.price}</p>
               </div>
               <button
                 onClick={() => handlePurchase(tier.id)}
@@ -136,60 +136,60 @@ function BusinessPage() {
             </div>
           ))}
         </div>
-        <p className="mt-3 text-xs text-neutral-400 text-center">{t('business.intro.playBilling', 'Payment is handled securely by Google Play.')}</p>
+        <p className="mt-3 text-xs text-neutral-400 dark:text-neutral-500 text-center">{t('business.intro.playBilling', 'Payment is handled securely by Google Play.')}</p>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-6">
       {businessPlanEndsAt && <BusinessPlanExpiryBanner endsAt={businessPlanEndsAt} />}
-      <h1 className="text-lg font-bold text-neutral-900">{account.business_name}</h1>
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{account.business_name}</h1>
       <div className="mt-1 flex flex-wrap gap-2">
-        <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold capitalize text-blue-700">{account.tier} tier</span>
-        {account.verified && <span className="rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-semibold text-teal-700">Verified ✓</span>}
+        <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2.5 py-0.5 text-xs font-semibold capitalize text-blue-700 dark:text-blue-300">{account.tier} tier</span>
+        {account.verified && <span className="rounded-full bg-teal-100 dark:bg-teal-900/40 px-2.5 py-0.5 text-xs font-semibold text-teal-700 dark:text-teal-300">Verified ✓</span>}
       </div>
 
       {account.downgrade_to_tier && account.downgrade_effective_at && (
-        <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-800">
+        <div className="mt-3 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
           Downgrading to {account.downgrade_to_tier} on {new Date(account.downgrade_effective_at).toLocaleDateString()}.
         </div>
       )}
 
-      {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-3 text-sm text-red-600 dark:text-red-300">{error}</p>}
 
       <div className="mt-4 space-y-2">
-        <Link to="/business/pages" className="block bg-white rounded-xl p-4 shadow-card">
-          <p className="font-semibold text-sm text-neutral-900">🏢 Business Pages</p>
-          <p className="text-xs text-neutral-500 mt-0.5">Create and manage pages, post updates.</p>
+        <Link to="/business/pages" className="block bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
+          <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">🏢 Business Pages</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Create and manage pages, post updates.</p>
         </Link>
-        <Link to="/business/ads" className="block bg-white rounded-xl p-4 shadow-card">
-          <p className="font-semibold text-sm text-neutral-900">📣 Advertising Panel</p>
-          <p className="text-xs text-neutral-500 mt-0.5">Submit and track Sponsored Quests.</p>
+        <Link to="/business/ads" className="block bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
+          <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">📣 Advertising Panel</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Submit and track Sponsored Quests.</p>
         </Link>
-        <Link to="/business/stats" className="block bg-white rounded-xl p-4 shadow-card">
-          <p className="font-semibold text-sm text-neutral-900">📊 Stats</p>
-          <p className="text-xs text-neutral-500 mt-0.5">Page and advert stats — depth grows with tier.</p>
+        <Link to="/business/stats" className="block bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
+          <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">📊 Stats</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Page and advert stats — depth grows with tier.</p>
         </Link>
-        <Link to="/business/broadcasts" className="block bg-white rounded-xl p-4 shadow-card">
-          <p className="font-semibold text-sm text-neutral-900">📢 Broadcasts</p>
-          <p className="text-xs text-neutral-500 mt-0.5">Message your followers — quota grows with tier.</p>
+        <Link to="/business/broadcasts" className="block bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
+          <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">📢 Broadcasts</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Message your followers — quota grows with tier.</p>
         </Link>
       </div>
 
-      <div className="mt-4 bg-white rounded-xl p-4 shadow-card">
-        <p className="font-semibold text-sm text-neutral-900 mb-2">{t('business.tier.changeTitle', 'Change tier')}</p>
+      <div className="mt-4 bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
+        <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 mb-2">{t('business.tier.changeTitle', 'Change tier')}</p>
         <div className="space-y-2">
           {BUSINESS_TIER_PRODUCTS.filter((tier) => tier.tier !== account.tier).map((tier) => (
             <div key={tier.id} className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="text-sm font-medium text-neutral-900">{tier.label}</p>
-                <p className="text-xs text-neutral-500">{tier.price}</p>
+                <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{tier.label}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{tier.price}</p>
               </div>
               <button
                 onClick={() => handlePurchase(tier.id)}
                 disabled={purchasingId !== null}
-                className="shrink-0 rounded-lg border border-primary-600 px-3 py-1.5 text-xs font-semibold text-primary-600 disabled:opacity-60"
+                className="shrink-0 rounded-lg border border-primary-600 px-3 py-1.5 text-xs font-semibold text-primary-600 dark:text-primary-300 disabled:opacity-60"
               >
                 {purchasingId === tier.id ? t('common.loading', 'Loading…') : t('business.tier.switch', 'Switch')}
               </button>
@@ -198,7 +198,7 @@ function BusinessPage() {
         </div>
       </div>
 
-      <p className="mt-4 text-xs text-neutral-400 text-center">
+      <p className="mt-4 text-xs text-neutral-400 dark:text-neutral-500 text-center">
         Manage verification and full analytics on web/PWA under Settings → Business.
       </p>
     </div>

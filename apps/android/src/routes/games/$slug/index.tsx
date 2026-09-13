@@ -53,21 +53,21 @@ function GameDetailPage() {
   if (status === 'error' || !game) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
-        <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+        <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       {/* Hero */}
-      <div className="bg-white px-6 pt-6 pb-4">
+      <div className="bg-white dark:bg-neutral-800 px-6 pt-6 pb-4">
         <div className="flex items-center gap-4 mb-4">
           <div className="text-6xl">{game.coverEmoji}</div>
           <div className="flex-1">
-            <h2 className="text-xl font-bold text-neutral-900">{game.name}</h2>
-            {game.tagline && <p className="text-neutral-500 text-sm mt-0.5">{game.tagline}</p>}
-            <div className="flex items-center gap-3 mt-2 text-xs text-neutral-400">
+            <h2 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{game.name}</h2>
+            {game.tagline && <p className="text-neutral-500 dark:text-neutral-400 text-sm mt-0.5">{game.tagline}</p>}
+            <div className="flex items-center gap-3 mt-2 text-xs text-neutral-400 dark:text-neutral-500">
               <span>⭐ {game.avgRating.toFixed(1)} ({game.ratingCount.toLocaleString()})</span>
               <span>·</span>
               <span>{game.playCount.toLocaleString()} plays</span>
@@ -76,7 +76,7 @@ function GameDetailPage() {
         </div>
 
         {game.description && (
-          <p className="text-neutral-700 text-sm leading-relaxed mb-4">{game.description}</p>
+          <p className="text-neutral-700 dark:text-neutral-300 text-sm leading-relaxed mb-4">{game.description}</p>
         )}
 
         {/*
@@ -97,20 +97,20 @@ function GameDetailPage() {
       </div>
 
       {/* Rewards */}
-      <div className="bg-white mt-3 px-6 py-4">
+      <div className="bg-white dark:bg-neutral-800 mt-3 px-6 py-4">
         <div className="flex items-center gap-6 text-center">
           <div className="flex-1">
-            <p className="text-lg font-bold text-gold-600">🪙 {game.rewardCreditsPerWin}</p>
-            <p className="text-xs text-neutral-500">Credits/win</p>
+            <p className="text-lg font-bold text-gold-600 dark:text-gold-300">🪙 {game.rewardCreditsPerWin}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">Credits/win</p>
           </div>
           <div className="flex-1">
-            <p className="text-lg font-bold text-primary-600">+{game.rewardXpPerWin} XP</p>
-            <p className="text-xs text-neutral-500">XP/win</p>
+            <p className="text-lg font-bold text-primary-600 dark:text-primary-300">+{game.rewardXpPerWin} XP</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">XP/win</p>
           </div>
           {game.playCostCredits > 0 && (
             <div className="flex-1">
-              <p className="text-lg font-bold text-neutral-700">🪙 {game.playCostCredits}</p>
-              <p className="text-xs text-neutral-500">Cost/play</p>
+              <p className="text-lg font-bold text-neutral-700 dark:text-neutral-300">🪙 {game.playCostCredits}</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400">Cost/play</p>
             </div>
           )}
         </div>
@@ -118,20 +118,20 @@ function GameDetailPage() {
 
       {/* Leaderboard */}
       {leaderboard && leaderboard.length > 0 && (
-        <div className="bg-white mt-3 px-6 py-4">
-          <h3 className="font-semibold text-neutral-900 mb-3">{t('android.games.topScores')}</h3>
+        <div className="bg-white dark:bg-neutral-800 mt-3 px-6 py-4">
+          <h3 className="font-semibold text-neutral-900 dark:text-neutral-100 mb-3">{t('android.games.topScores')}</h3>
           <div className="space-y-3">
             {leaderboard.map((row) => (
               <div key={row.userId} className="flex items-center gap-3">
-                <span className="text-sm font-bold text-neutral-400 w-5 text-right">#{row.rank}</span>
-                <div className="w-8 h-8 rounded-full bg-primary-100 flex items-center justify-center text-sm">
+                <span className="text-sm font-bold text-neutral-400 dark:text-neutral-500 w-5 text-right">#{row.rank}</span>
+                <div className="w-8 h-8 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-sm">
                   {row.avatarEmoji}
                 </div>
                 <div className="flex-1">
-                  <p className="text-sm font-medium text-neutral-900">{row.displayName}</p>
-                  <p className="text-xs text-neutral-400">@{row.username}</p>
+                  <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{row.displayName}</p>
+                  <p className="text-xs text-neutral-400 dark:text-neutral-500">@{row.username}</p>
                 </div>
-                <span className="text-sm font-semibold text-primary-600">{row.bestScore.toLocaleString()}</span>
+                <span className="text-sm font-semibold text-primary-600 dark:text-primary-300">{row.bestScore.toLocaleString()}</span>
               </div>
             ))}
           </div>

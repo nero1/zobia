@@ -47,8 +47,8 @@ export function ProfileTweets({ authorId }: { authorId: string }) {
   return (
     <div className="px-6 py-4">
       <div className="mb-3 flex items-center justify-between">
-        <h3 className="font-semibold text-neutral-900 text-sm">{t('tweets.title')}</h3>
-        <Link to="/tweets" className="text-xs font-semibold text-primary-600">
+        <h3 className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">{t('tweets.title')}</h3>
+        <Link to="/tweets" className="text-xs font-semibold text-primary-600 dark:text-primary-300">
           {t('tweets.viewAll')}
         </Link>
       </div>

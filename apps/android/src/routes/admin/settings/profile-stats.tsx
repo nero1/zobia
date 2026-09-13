@@ -53,7 +53,7 @@ function Chip({ value, active, onToggle, label }: { value: string; active: boole
     <button
       type="button"
       onClick={() => onToggle(value)}
-      className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${active ? 'bg-primary-600 text-white' : 'border border-neutral-300 text-neutral-600'}`}
+      className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${active ? 'bg-primary-600 text-white' : 'border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400'}`}
     >
       {label}
     </button>
@@ -89,28 +89,28 @@ function AdminProfileStatsSettingsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.profileStats', 'Profile Stats Settings')}</h1>
-      <p className="mb-1 mt-1 text-xs text-neutral-500">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.profileStats', 'Profile Stats Settings')}</h1>
+      <p className="mb-1 mt-1 text-xs text-neutral-500 dark:text-neutral-400">
         {t('admin.profileStats.subtitle', 'Control which plans and prestige ranks get the Full Stats view. Everyone else sees the Basic Stats view.')}
       </p>
-      <p className="mb-4 text-xs text-neutral-500">
+      <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">
         {t('admin.profileStats.masterSwitchHint', 'The master on/off switch for the Stats page lives on {{featureFlagsLabel}} (key: feature_profile_stats). Changes take effect within 60 seconds.', {
           featureFlagsLabel: t('admin.nav.featureFlags', 'Feature Flags'),
         })}{' '}
-        <Link to="/admin/feature-flags" className="text-primary-600 underline">
+        <Link to="/admin/feature-flags" className="text-primary-600 dark:text-primary-300 underline">
           {t('admin.nav.featureFlags', 'Feature Flags')} →
         </Link>
       </p>
 
       {toast && <AdminToast message={toast} />}
 
-      {status === 'pending' && <div className="h-32 animate-pulse rounded-xl border border-neutral-200 bg-white" />}
+      {status === 'pending' && <div className="h-32 animate-pulse rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800" />}
 
       {status === 'success' && (
-        <div className="rounded-xl border border-neutral-200 bg-white shadow-card">
-          <div className="border-b border-neutral-200 px-4 py-3.5">
-            <h2 className="text-sm font-semibold text-neutral-900">{t('admin.profileStats.whoGetsFull.title', 'Who gets the Full Stats view')}</h2>
-            <p className="mt-0.5 text-xs text-neutral-500">
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-card">
+          <div className="border-b border-neutral-200 dark:border-neutral-700 px-4 py-3.5">
+            <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.profileStats.whoGetsFull.title', 'Who gets the Full Stats view')}</h2>
+            <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
               {t(
                 'admin.profileStats.whoGetsFull.desc',
                 'Users on these plans/ranks see detailed leaderboard positions (every track, every scope) and season history on their Stats page. Everyone else sees the Basic view: badges, levels, achievements, created rooms, and social counts only.',
@@ -119,7 +119,7 @@ function AdminProfileStatsSettingsPage() {
           </div>
           <div className="p-4">
             <div className="mb-3">
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.privacySettings.plans', 'Plans')}</p>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.privacySettings.plans', 'Plans')}</p>
               <div className="flex flex-wrap gap-2">
                 {PLAN_OPTIONS.map((plan) => (
                   <Chip key={plan} value={plan} active={fullPlans.includes(plan)} onToggle={(v) => setDraft(toggleInList(fullPlans, v))} label={plan.charAt(0).toUpperCase() + plan.slice(1)} />
@@ -127,7 +127,7 @@ function AdminProfileStatsSettingsPage() {
               </div>
             </div>
             <div className="mb-4">
-              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.privacySettings.prestigeRanks', 'Prestige Ranks')}</p>
+              <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.privacySettings.prestigeRanks', 'Prestige Ranks')}</p>
               <div className="flex flex-wrap gap-2">
                 {PRESTIGE_OPTIONS.map((p) => (
                   <Chip key={p} value={p} active={fullPlans.includes(p)} onToggle={(v) => setDraft(toggleInList(fullPlans, v))} label={p.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())} />

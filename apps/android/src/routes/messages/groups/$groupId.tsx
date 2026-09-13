@@ -130,10 +130,10 @@ function MembersPanel({
       className="fixed inset-0 z-50 flex items-end bg-black/50"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="max-h-[80vh] w-full overflow-hidden rounded-t-2xl bg-white">
-        <div className="flex items-center justify-between border-b border-neutral-100 px-4 py-4">
-          <h2 className="text-base font-bold text-neutral-900">{t('messages.groupChat.members.title')}</h2>
-          <button onClick={onClose} className="text-neutral-400" aria-label={t('action.close')}>✕</button>
+      <div className="max-h-[80vh] w-full overflow-hidden rounded-t-2xl bg-white dark:bg-neutral-800">
+        <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 px-4 py-4">
+          <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('messages.groupChat.members.title')}</h2>
+          <button onClick={onClose} className="text-neutral-400 dark:text-neutral-500" aria-label={t('action.close')}>✕</button>
         </div>
         <div className="max-h-[65vh] overflow-y-auto">
           {members === null ? (
@@ -144,20 +144,20 @@ function MembersPanel({
             members.map((m) => {
               const isMuted = !!m.muted_until && new Date(m.muted_until) > new Date();
               return (
-                <div key={m.user_id} className="flex items-center gap-3 border-b border-neutral-100 px-4 py-3 last:border-0">
-                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xl">
+                <div key={m.user_id} className="flex items-center gap-3 border-b border-neutral-100 dark:border-neutral-800 px-4 py-3 last:border-0">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-xl">
                     {m.avatar_emoji ?? '👤'}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-neutral-900">
+                    <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                       {m.display_name || `@${m.username}`}
                       {m.role === 'admin' && (
-                        <span className="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                        <span className="ml-2 rounded-full bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 text-[10px] font-semibold text-blue-700 dark:text-blue-300">
                           {t('messages.groupChat.members.admin')}
                         </span>
                       )}
                       {isMuted && (
-                        <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                        <span className="ml-2 rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-[10px] font-semibold text-amber-700 dark:text-amber-300">
                           {t('messages.groupChat.members.muted')}
                         </span>
                       )}
@@ -169,7 +169,7 @@ function MembersPanel({
                         <button
                           onClick={() => void handleMute(m.user_id, null)}
                           disabled={busyUserId === m.user_id}
-                          className="rounded-lg border border-neutral-300 px-2 py-1 text-[11px] font-semibold text-neutral-600 disabled:opacity-50"
+                          className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-2 py-1 text-[11px] font-semibold text-neutral-600 dark:text-neutral-400 disabled:opacity-50"
                         >
                           {t('messages.groupChat.members.liftSuspension')}
                         </button>
@@ -177,17 +177,17 @@ function MembersPanel({
                         <div className="relative">
                           <button
                             onClick={() => setMuteTargetId(muteTargetId === m.user_id ? null : m.user_id)}
-                            className="rounded-lg border border-neutral-300 px-2 py-1 text-[11px] font-semibold text-neutral-600"
+                            className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-2 py-1 text-[11px] font-semibold text-neutral-600 dark:text-neutral-400"
                           >
                             {t('messages.groupChat.members.suspend')}
                           </button>
                           {muteTargetId === m.user_id && (
-                            <div className="absolute right-0 top-full z-10 mt-1 w-36 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-xl">
+                            <div className="absolute right-0 top-full z-10 mt-1 w-36 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-xl">
                               {MUTE_DURATIONS.map((d) => (
                                 <button
                                   key={d.minutes}
                                   onClick={() => void handleMute(m.user_id, d.minutes)}
-                                  className="block w-full px-3 py-2 text-left text-xs text-neutral-700 active:bg-neutral-50"
+                                  className="block w-full px-3 py-2 text-left text-xs text-neutral-700 dark:text-neutral-300 active:bg-neutral-50 dark:active:bg-neutral-800"
                                 >
                                   {t(d.labelKey)}
                                 </button>
@@ -199,7 +199,7 @@ function MembersPanel({
                       <button
                         onClick={() => void handleRemove(m.user_id)}
                         disabled={busyUserId === m.user_id}
-                        className="rounded-lg border border-red-300 px-2 py-1 text-[11px] font-semibold text-red-600 disabled:opacity-50"
+                        className="rounded-lg border border-red-300 px-2 py-1 text-[11px] font-semibold text-red-600 dark:text-red-300 disabled:opacity-50"
                       >
                         {t('messages.groupChat.members.remove')}
                       </button>
@@ -381,10 +381,10 @@ function GroupChatPage() {
   const composerDisabled = presenceFull && !isAdmin;
 
   return (
-    <div className="h-full flex flex-col bg-neutral-50">
+    <div className="h-full flex flex-col bg-neutral-50 dark:bg-neutral-800">
       {/* Header */}
-      <div className="flex items-center gap-3 border-b border-neutral-100 bg-white px-4 py-3">
-        <Link to="/messages/groups" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-500" aria-label={t('messages.groupChat.backToGroups')}>
+      <div className="flex items-center gap-3 border-b border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-800 px-4 py-3">
+        <Link to="/messages/groups" className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-500 dark:text-neutral-400" aria-label={t('messages.groupChat.backToGroups')}>
           <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
           </svg>
@@ -393,14 +393,14 @@ function GroupChatPage() {
           <>
             <button
               onClick={() => setShowMembers(true)}
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 text-lg"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-lg"
               aria-label={t('messages.groupChat.members.title')}
             >
               {group.avatar_emoji}
             </button>
             <button onClick={() => setShowMembers(true)} className="min-w-0 flex-1 text-left">
-              <p className="truncate text-sm font-bold text-neutral-900">{group.name}</p>
-              <p className="text-[11px] text-neutral-400">
+              <p className="truncate text-sm font-bold text-neutral-900 dark:text-neutral-100">{group.name}</p>
+              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
                 {t('messages.groupChat.memberCount', { count: group.member_count })}
                 {group.tag && <span className="ml-1.5">&middot; {group.tag}</span>}
               </p>
@@ -408,28 +408,28 @@ function GroupChatPage() {
             <div className="relative">
               <button
                 onClick={() => setShowMenu((v) => !v)}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-500"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-neutral-500 dark:text-neutral-400"
                 aria-label={t('messages.groupChat.moreOptions')}
               >
                 ⋮
               </button>
               {showMenu && (
-                <div className="absolute right-0 top-full z-10 mt-1 w-44 overflow-hidden rounded-lg border border-neutral-200 bg-white shadow-xl">
+                <div className="absolute right-0 top-full z-10 mt-1 w-44 overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-xl">
                   <button
                     onClick={() => { setShowMenu(false); setShowMembers(true); }}
-                    className="block w-full px-4 py-2.5 text-left text-sm text-neutral-700 active:bg-neutral-50"
+                    className="block w-full px-4 py-2.5 text-left text-sm text-neutral-700 dark:text-neutral-300 active:bg-neutral-50 dark:active:bg-neutral-800"
                   >
                     {t('messages.groupChat.members.title')}
                   </button>
                   <button
                     onClick={() => void handleLeaveGroup()}
-                    className="block w-full px-4 py-2.5 text-left text-sm text-neutral-700 active:bg-neutral-50"
+                    className="block w-full px-4 py-2.5 text-left text-sm text-neutral-700 dark:text-neutral-300 active:bg-neutral-50 dark:active:bg-neutral-800"
                   >
                     {t('messages.groupChat.leaveGroup')}
                   </button>
                   <button
                     onClick={() => void handleBlockGroup()}
-                    className="block w-full px-4 py-2.5 text-left text-sm text-red-600 active:bg-red-50"
+                    className="block w-full px-4 py-2.5 text-left text-sm text-red-600 dark:text-red-300 active:bg-red-50 dark:active:bg-red-900/30"
                   >
                     {t('messages.groupChat.blockGroup')}
                   </button>
@@ -439,27 +439,27 @@ function GroupChatPage() {
           </>
         ) : (
           <div className="flex-1">
-            <div className="h-4 w-32 animate-pulse rounded bg-neutral-200" />
+            <div className="h-4 w-32 animate-pulse rounded bg-neutral-200 dark:bg-neutral-700" />
           </div>
         )}
       </div>
 
       {sendError && (
-        <div className="border-b border-red-200 bg-red-50 px-4 py-2">
-          <p className="text-xs text-red-700">{sendError}</p>
+        <div className="border-b border-red-200 bg-red-50 dark:bg-red-900/30 px-4 py-2">
+          <p className="text-xs text-red-700 dark:text-red-300">{sendError}</p>
         </div>
       )}
 
       {presenceFull && !isAdmin && (
-        <div className="border-b border-amber-200 bg-amber-50 px-4 py-2">
-          <p className="text-xs text-amber-700">{t('messages.groupChat.full')}</p>
+        <div className="border-b border-amber-200 bg-amber-50 dark:bg-amber-900/30 px-4 py-2">
+          <p className="text-xs text-amber-700 dark:text-amber-300">{t('messages.groupChat.full')}</p>
         </div>
       )}
 
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
         {messages?.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-16 text-neutral-400">
+          <div className="flex flex-col items-center justify-center py-16 text-neutral-400 dark:text-neutral-500">
             <span className="text-4xl">👥</span>
             <p className="mt-2 text-sm">{t('messages.groupChat.noMessagesYet')}</p>
           </div>
@@ -468,12 +468,12 @@ function GroupChatPage() {
           const isMine = msg.sender_id === user?.id;
           return (
             <div key={msg.id} className={`flex gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
-              <span className="mt-1 h-7 w-7 shrink-0 rounded-full bg-neutral-100 text-center text-sm leading-7">
+              <span className="mt-1 h-7 w-7 shrink-0 rounded-full bg-neutral-100 dark:bg-neutral-800 text-center text-sm leading-7">
                 {msg.avatar_emoji}
               </span>
               <div className={`flex max-w-[75%] flex-col ${isMine ? 'items-end' : 'items-start'}`}>
                 {!isMine && (
-                  <span className="mb-0.5 text-[11px] font-semibold text-primary-600">
+                  <span className="mb-0.5 text-[11px] font-semibold text-primary-600 dark:text-primary-300">
                     {msg.display_name || `@${msg.username}`}
                   </span>
                 )}
@@ -481,12 +481,12 @@ function GroupChatPage() {
                   className={`px-3.5 py-2 rounded-2xl text-sm ${
                     isMine
                       ? 'bg-primary-600 text-white rounded-br-sm'
-                      : 'bg-white text-neutral-900 shadow-card rounded-bl-sm'
+                      : 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-card rounded-bl-sm'
                   } ${msg.id.startsWith('optimistic-') ? 'opacity-70' : ''}`}
                 >
                   {msg.content}
                 </div>
-                <span className="mt-0.5 text-[10px] text-neutral-400">{timeAgo(msg.created_at)}</span>
+                <span className="mt-0.5 text-[10px] text-neutral-400 dark:text-neutral-500">{timeAgo(msg.created_at)}</span>
               </div>
             </div>
           );
@@ -495,7 +495,7 @@ function GroupChatPage() {
       </div>
 
       {/* Input */}
-      <div className="bg-white border-t border-neutral-200 px-4 py-3 flex items-center gap-3">
+      <div className="bg-white dark:bg-neutral-800 border-t border-neutral-200 dark:border-neutral-700 px-4 py-3 flex items-center gap-3">
         <input
           type="text"
           value={text}
@@ -503,7 +503,7 @@ function GroupChatPage() {
           onKeyDown={(e) => e.key === 'Enter' && !e.shiftKey && void handleSend()}
           placeholder={t('messages.typeHere')}
           disabled={composerDisabled}
-          className="flex-1 px-4 py-2 bg-neutral-100 rounded-full text-sm focus:outline-none disabled:opacity-50"
+          className="flex-1 px-4 py-2 bg-neutral-100 dark:bg-neutral-800 rounded-full text-sm focus:outline-none disabled:opacity-50"
           data-selectable
         />
         <button

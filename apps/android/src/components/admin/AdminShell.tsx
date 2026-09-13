@@ -37,7 +37,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
 
   return (
     <AdminGuard>
-      <div className="h-full flex flex-col bg-neutral-100">
+      <div className="h-full flex flex-col bg-neutral-100 dark:bg-neutral-800">
         <header className="relative z-50 flex-none bg-neutral-900" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
           <div className="h-14 flex items-center justify-between px-4">
             <div className="flex items-center gap-2 min-w-0">
@@ -57,7 +57,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               <span className="truncate text-sm font-semibold text-white">
                 {activeItem ? t(activeItem.labelKey, activeItem.labelDefault) : t('admin.panel')}
               </span>
-              <span className="shrink-0 rounded bg-gold-500/90 px-1.5 py-0.5 text-[10px] font-bold text-neutral-900">ADMIN</span>
+              <span className="shrink-0 rounded bg-gold-500/90 px-1.5 py-0.5 text-[10px] font-bold text-neutral-900 dark:text-neutral-100">ADMIN</span>
             </div>
             <Link
               to="/home"
@@ -81,19 +81,19 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         <div
           role="dialog"
           aria-label={t('admin.panel')}
-          className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-white shadow-xl transition-transform duration-300 ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`}
+          className={`fixed inset-y-0 left-0 z-50 flex w-72 flex-col bg-white dark:bg-neutral-800 shadow-xl transition-transform duration-300 ${drawerOpen ? 'translate-x-0' : '-translate-x-full'}`}
           style={{ paddingTop: 'env(safe-area-inset-top)' }}
         >
-          <div className="flex h-14 items-center justify-between border-b border-neutral-200 px-4">
+          <div className="flex h-14 items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4">
             <div className="flex items-center gap-2">
-              <span className="text-base font-bold text-neutral-900">Zobia</span>
-              <span className="rounded bg-gold-100 px-1.5 py-0.5 text-xs font-semibold text-gold-700">ADMIN</span>
+              <span className="text-base font-bold text-neutral-900 dark:text-neutral-100">Zobia</span>
+              <span className="rounded bg-gold-100 dark:bg-gold-900/40 px-1.5 py-0.5 text-xs font-semibold text-gold-700 dark:text-gold-300">ADMIN</span>
             </div>
             <button
               type="button"
               onClick={closeDrawer}
               aria-label={t('nav.closeMenu')}
-              className="rounded-full p-2 text-neutral-500 hover:bg-neutral-100"
+              className="rounded-full p-2 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700"
             >
               <span aria-hidden="true" className="text-xl leading-none">✕</span>
             </button>
@@ -103,13 +103,13 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             <Link
               to="/home"
               onClick={closeDrawer}
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-primary-600 hover:bg-primary-50"
+              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-primary-600 dark:text-primary-300 hover:bg-primary-50 dark:hover:bg-primary-900/30"
             >
               <span className="text-base leading-none">←</span>
               {t('nav.userArea')}
             </Link>
 
-            <div className="my-2 border-t border-neutral-200" />
+            <div className="my-2 border-t border-neutral-200 dark:border-neutral-700" />
 
             <nav className="space-y-0.5" aria-label={t('admin.panel')}>
               {adminNavItems.map((item) => {
@@ -120,7 +120,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                     to={item.href}
                     onClick={closeDrawer}
                     className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                      isActive ? 'bg-neutral-100 text-neutral-900' : 'text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900'
+                      isActive ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100' : 'text-neutral-600 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-100'
                     }`}
                     aria-current={isActive ? 'page' : undefined}
                   >
@@ -132,11 +132,11 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
             </nav>
           </div>
 
-          <div className="flex-none border-t border-neutral-200 p-3">
+          <div className="flex-none border-t border-neutral-200 dark:border-neutral-700 p-3">
             <button
               type="button"
               onClick={handleLogout}
-              className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-danger-600 hover:bg-danger-50"
+              className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-danger-600 dark:text-danger-300 hover:bg-danger-50 dark:hover:bg-danger-900/30"
             >
               🚪 {t('nav.logout')}
             </button>

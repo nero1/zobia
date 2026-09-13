@@ -78,50 +78,50 @@ function QuestManagePage() {
 
   if (status === 'pending') {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
         <div className="grid grid-cols-1 gap-3">
-          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-32 animate-pulse rounded-2xl bg-neutral-200" />)}
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-32 animate-pulse rounded-2xl bg-neutral-200 dark:bg-neutral-700" />)}
         </div>
       </div>
     );
   }
 
   if (status === 'error') {
-    return <div className="p-6 text-sm text-red-600">{t('error.generic')}</div>;
+    return <div className="p-6 text-sm text-red-600 dark:text-red-300">{t('error.generic')}</div>;
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-3 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-3 px-4 py-4">
       <div>
-        <h1 className="text-xl font-bold text-neutral-900">{t('quests.manage.title', 'My Sponsored Quests')}</h1>
-        <p className="mt-0.5 text-sm text-neutral-500">
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('quests.manage.title', 'My Sponsored Quests')}</h1>
+        <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
           {t('quests.manage.subtitle', 'Quests an admin has attributed to your account. You can see stats and revive, extend, or add budget — public details can only be changed by an admin.')}
         </p>
       </div>
 
-      {error && <p className="rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">{error}</p>}
+      {error && <p className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 px-3 py-2 text-xs text-red-700 dark:text-red-300">{error}</p>}
 
       {!quests || quests.length === 0 ? (
-        <div className="flex flex-col items-center rounded-2xl border border-neutral-200 bg-white py-16">
+        <div className="flex flex-col items-center rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-16">
           <span className="text-5xl">🎯</span>
-          <p className="mt-3 font-semibold text-neutral-700">{t('quests.manage.empty', 'No quests attributed to you yet')}</p>
+          <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">{t('quests.manage.empty', 'No quests attributed to you yet')}</p>
         </div>
       ) : (
         <div className="space-y-3">
           {quests.map((q) => (
-            <div key={q.id} className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+            <div key={q.id} className="rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-sm">
               <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                <p className="font-semibold text-neutral-900">{q.title}</p>
-                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${q.is_active ? 'bg-teal-100 text-teal-700' : 'bg-neutral-100 text-neutral-500'}`}>
+                <p className="font-semibold text-neutral-900 dark:text-neutral-100">{q.title}</p>
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${q.is_active ? 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400'}`}>
                   {q.is_active ? t('quests.manage.live', 'Live') : t('quests.manage.stopped', 'Stopped')}
                 </span>
                 {q.flag_status === 'flagged' && (
-                  <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-semibold text-red-700">🚩 {t('quests.manage.flagged', 'Flagged')}</span>
+                  <span className="rounded-full bg-red-100 dark:bg-red-900/40 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:text-red-300">🚩 {t('quests.manage.flagged', 'Flagged')}</span>
                 )}
               </div>
-              <p className="mb-2 text-sm text-neutral-500 line-clamp-2">{q.description}</p>
+              <p className="mb-2 text-sm text-neutral-500 dark:text-neutral-400 line-clamp-2">{q.description}</p>
               {q.pause_reason && (
-                <p className="mb-2 text-xs text-amber-600">
+                <p className="mb-2 text-xs text-amber-600 dark:text-amber-300">
                   {q.auto_paused ? '⚠️ ' : ''}{t('quests.manage.pauseReason', '{{prefix}}: {{reason}}', {
                     prefix: q.auto_paused ? t('quests.manage.autoPaused', 'Auto-paused') : t('quests.manage.paused', 'Paused'),
                     reason: q.pause_reason,
@@ -129,14 +129,14 @@ function QuestManagePage() {
                   {q.auto_paused ? ` ${t('quests.manage.autoPausedHint', '— resolve the underlying account issue and restart from your Business panel.')}` : ''}
                 </p>
               )}
-              <div className="mb-2 grid grid-cols-2 gap-2 text-xs text-neutral-500">
+              <div className="mb-2 grid grid-cols-2 gap-2 text-xs text-neutral-500 dark:text-neutral-400">
                 <div>📋 {t('quests.manage.applications', '{{count}} applications', { count: q.application_count })}</div>
                 <div>✅ {t('quests.manage.approved', '{{count}} approved', { count: q.approved_count })}</div>
                 <div>🏁 {t('quests.manage.completions', '{{count}} completions', { count: q.completions_count })}</div>
                 <div>🪙 {t('quests.manage.reward', '{{count}} {{currency}} reward', { count: q.reward_coins, currency: currency.softPlural })}</div>
               </div>
               {q.is_daily_quest_eligible && (
-                <p className="mb-2 text-xs text-neutral-400">
+                <p className="mb-2 text-xs text-neutral-400 dark:text-neutral-500">
                   {t('quests.manage.spendLine', '{{spent}}/{{total}} {{currency}} spent · {{impressions}} impressions', {
                     spent: Number(q.spent_credits).toLocaleString(),
                     total: Number(q.total_budget_credits).toLocaleString(),
@@ -162,13 +162,13 @@ function QuestManagePage() {
                     <>
                       <button
                         onClick={() => { setExtendTarget(q); setNewEndsAt(q.ends_at ? q.ends_at.slice(0, 16) : ''); }}
-                        className="rounded-lg border border-neutral-200 px-2.5 py-1 text-xs font-semibold text-neutral-700"
+                        className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300"
                       >
                         {t('quests.manage.extend', 'Extend')}
                       </button>
                       <button
                         onClick={() => { setBudgetTarget(q); setAddBudget(1000); }}
-                        className="rounded-lg border border-neutral-200 px-2.5 py-1 text-xs font-semibold text-neutral-700"
+                        className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300"
                       >
                         {t('quests.manage.addBudget', 'Add Budget')}
                       </button>
@@ -183,11 +183,11 @@ function QuestManagePage() {
 
       {extendTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-5">
-            <h3 className="mb-3 font-semibold text-neutral-900">{t('quests.manage.extendTitle', 'Extend "{{title}}"', { title: extendTarget.title })}</h3>
-            <input type="datetime-local" value={newEndsAt} onChange={(e) => setNewEndsAt(e.target.value)} className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm" />
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-5">
+            <h3 className="mb-3 font-semibold text-neutral-900 dark:text-neutral-100">{t('quests.manage.extendTitle', 'Extend "{{title}}"', { title: extendTarget.title })}</h3>
+            <input type="datetime-local" value={newEndsAt} onChange={(e) => setNewEndsAt(e.target.value)} className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm" />
             <div className="mt-4 flex gap-2">
-              <button onClick={() => setExtendTarget(null)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm font-medium text-neutral-700">{t('common.cancel')}</button>
+              <button onClick={() => setExtendTarget(null)} className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('common.cancel')}</button>
               <button
                 disabled={busyId === extendTarget.id || !newEndsAt}
                 onClick={() => actMutation.mutate({ id: extendTarget.id, body: { action: 'extend', newEndsAt: new Date(newEndsAt).toISOString() } })}
@@ -202,11 +202,11 @@ function QuestManagePage() {
 
       {budgetTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-5">
-            <h3 className="mb-3 font-semibold text-neutral-900">{t('quests.manage.addBudgetTitle', 'Add Budget to "{{title}}"', { title: budgetTarget.title })}</h3>
-            <input type="number" min={1} value={addBudget} onChange={(e) => setAddBudget(Number(e.target.value))} className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm" />
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-5">
+            <h3 className="mb-3 font-semibold text-neutral-900 dark:text-neutral-100">{t('quests.manage.addBudgetTitle', 'Add Budget to "{{title}}"', { title: budgetTarget.title })}</h3>
+            <input type="number" min={1} value={addBudget} onChange={(e) => setAddBudget(Number(e.target.value))} className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm" />
             <div className="mt-4 flex gap-2">
-              <button onClick={() => setBudgetTarget(null)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm font-medium text-neutral-700">{t('common.cancel')}</button>
+              <button onClick={() => setBudgetTarget(null)} className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('common.cancel')}</button>
               <button
                 disabled={busyId === budgetTarget.id || !addBudget}
                 onClick={() => actMutation.mutate({ id: budgetTarget.id, body: { action: 'add_budget', addBudgetCredits: Number(addBudget) } })}

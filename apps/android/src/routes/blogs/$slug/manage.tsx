@@ -119,11 +119,11 @@ function ManageBlogPage() {
   const exhausted = !!limits && limits.remaining <= 0;
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
-      <h1 className="text-lg font-bold text-neutral-900">{t('blogs.manage.title', 'Manage blog')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('blogs.manage.title', 'Manage blog')}</h1>
 
       {limits && (
-        <div className={`rounded-xl border p-3 text-sm ${exhausted ? 'border-red-200 bg-red-50 text-red-700' : 'border-neutral-200 bg-white text-neutral-800'}`}>
+        <div className={`rounded-xl border p-3 text-sm ${exhausted ? 'border-red-200 bg-red-50 dark:bg-red-900/30 text-red-700 dark:text-red-300' : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-800 dark:text-neutral-200'}`}>
           {exhausted ? (
             <p className="font-medium">{t('blogs.quota.exhausted', 'You have used up all your available articles ({{max}}). Delete some or upgrade your plan for more articles.', { max: limits.maxPosts })}</p>
           ) : (
@@ -133,7 +133,7 @@ function ManageBlogPage() {
             </p>
           )}
           {limits.plan !== 'max' && (
-            <p className="mt-1 text-xs text-neutral-500">
+            <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
               {t('blogs.quota.planSummary', 'Plus: {{plus}} articles · Pro: {{pro}} articles · Max: {{max}} articles', { plus: limits.planMaxPosts.plus, pro: limits.planMaxPosts.pro, max: limits.planMaxPosts.max })}
             </p>
           )}
@@ -153,13 +153,13 @@ function ManageBlogPage() {
       )}
 
       <div>
-        <h2 className="text-sm font-bold text-neutral-900 mb-2">{t('blogs.manage.postsTitle', 'Posts')}</h2>
-        <div className="mb-2 flex gap-1 rounded-xl border border-neutral-200 bg-white p-1 w-fit">
+        <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 mb-2">{t('blogs.manage.postsTitle', 'Posts')}</h2>
+        <div className="mb-2 flex gap-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-1 w-fit">
           {(['published', 'draft'] as const).map((s) => (
             <button
               key={s}
               onClick={() => setStatus(s)}
-              className={`rounded-lg px-3 py-1 text-xs font-semibold capitalize ${status === s ? 'bg-primary-600 text-white' : 'text-neutral-600'}`}
+              className={`rounded-lg px-3 py-1 text-xs font-semibold capitalize ${status === s ? 'bg-primary-600 text-white' : 'text-neutral-600 dark:text-neutral-400'}`}
             >
               {s === 'published' ? t('blogs.status.published', 'Published') : t('blogs.status.draft', 'Drafts')}
             </button>
@@ -171,14 +171,14 @@ function ManageBlogPage() {
             <button
               disabled={batchMutation.isPending}
               onClick={() => batchMutation.mutate('draft')}
-              className="rounded-lg bg-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-800 disabled:opacity-50"
+              className="rounded-lg bg-neutral-200 dark:bg-neutral-700 px-3 py-1.5 text-xs font-medium text-neutral-800 dark:text-neutral-200 disabled:opacity-50"
             >
               {t('blogs.dashboard.batchDraft', 'Move to draft')}
             </button>
             <button
               disabled={batchMutation.isPending}
               onClick={() => batchMutation.mutate('delete')}
-              className="rounded-lg bg-red-100 px-3 py-1.5 text-xs font-medium text-red-700 disabled:opacity-50"
+              className="rounded-lg bg-red-100 dark:bg-red-900/40 px-3 py-1.5 text-xs font-medium text-red-700 dark:text-red-300 disabled:opacity-50"
             >
               {t('blogs.dashboard.batchDelete', 'Delete selected')}
             </button>
@@ -186,15 +186,15 @@ function ManageBlogPage() {
         )}
 
         {postsQuery.isPending ? (
-          <div className="h-16 rounded bg-neutral-200 animate-pulse" />
+          <div className="h-16 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" />
         ) : (postsQuery.data ?? []).length === 0 ? (
-          <p className="text-sm text-neutral-500 text-center py-6">{t('blogs.dashboard.empty', 'Nothing here yet.')}</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 text-center py-6">{t('blogs.dashboard.empty', 'Nothing here yet.')}</p>
         ) : (
           <div className="space-y-1.5">
             {postsQuery.data!.map((p) => (
-              <div key={p.id} className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white p-2.5">
+              <div key={p.id} className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-2.5">
                 <input type="checkbox" checked={selected.has(p.id)} onChange={() => toggleSelected(p.id)} />
-                <span className="flex-1 truncate text-sm text-neutral-800">{p.title}</span>
+                <span className="flex-1 truncate text-sm text-neutral-800 dark:text-neutral-200">{p.title}</span>
               </div>
             ))}
           </div>
@@ -202,17 +202,17 @@ function ManageBlogPage() {
       </div>
 
       <div>
-        <h2 className="text-sm font-bold text-neutral-900 mb-1">{t('blogs.settings.menuTitle', 'Navigation menu')}</h2>
-        <p className="mb-2 text-xs text-neutral-500">
+        <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100 mb-1">{t('blogs.settings.menuTitle', 'Navigation menu')}</h2>
+        <p className="mb-2 text-xs text-neutral-500 dark:text-neutral-400">
           {t('blogs.manage.menuHintMobile', "Always shown as a vertical menu inside the hamburger icon on Android — the horizontal option only applies on desktop web.")}
         </p>
         <div className="space-y-1.5 mb-2">
           {menuConfig.items.map((item, i) => (
-            <div key={item.id} className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-white p-2">
-              <span className="flex-1 truncate text-sm text-neutral-800">{item.label}</span>
-              <button onClick={() => moveMenuItem(item.id, -1)} disabled={i === 0} className="rounded bg-neutral-100 px-2 py-1 text-xs disabled:opacity-30">↑</button>
-              <button onClick={() => moveMenuItem(item.id, 1)} disabled={i === menuConfig.items.length - 1} className="rounded bg-neutral-100 px-2 py-1 text-xs disabled:opacity-30">↓</button>
-              <button onClick={() => removeMenuItem(item.id)} className="rounded bg-red-100 px-2 py-1 text-xs text-red-700">{t('blogs.settings.menuRemove', 'Remove')}</button>
+            <div key={item.id} className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-2">
+              <span className="flex-1 truncate text-sm text-neutral-800 dark:text-neutral-200">{item.label}</span>
+              <button onClick={() => moveMenuItem(item.id, -1)} disabled={i === 0} className="rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs disabled:opacity-30">↑</button>
+              <button onClick={() => moveMenuItem(item.id, 1)} disabled={i === menuConfig.items.length - 1} className="rounded bg-neutral-100 dark:bg-neutral-800 px-2 py-1 text-xs disabled:opacity-30">↓</button>
+              <button onClick={() => removeMenuItem(item.id)} className="rounded bg-red-100 dark:bg-red-900/40 px-2 py-1 text-xs text-red-700 dark:text-red-300">{t('blogs.settings.menuRemove', 'Remove')}</button>
             </div>
           ))}
         </div>
@@ -221,13 +221,13 @@ function ManageBlogPage() {
             value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)}
             placeholder={t('blogs.settings.menuLabelPlaceholder', 'Label (e.g. About)')}
-            className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
+            className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm"
           />
           <input
             value={newUrl}
             onChange={(e) => setNewUrl(e.target.value)}
             placeholder={t('blogs.settings.menuUrlPlaceholder', 'Link (e.g. /about-page-post-slug or https://…)')}
-            className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm"
+            className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm"
           />
           <button onClick={addMenuItem} className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-semibold text-white">
             {t('blogs.settings.menuAdd', 'Add')}

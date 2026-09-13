@@ -111,8 +111,8 @@ function AdminMarketPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-1 text-xl font-bold text-neutral-900">{t('admin.nav.market', 'Market Curation')}</h1>
-      <p className="mb-4 text-xs text-neutral-500">{t('admin.market.subtitle', 'Feature or sponsor items shown on the Market page.')}</p>
+      <h1 className="mb-1 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.market', 'Market Curation')}</h1>
+      <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">{t('admin.market.subtitle', 'Feature or sponsor items shown on the Market page.')}</p>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
@@ -140,11 +140,11 @@ function AdminMarketPage() {
           {productsStatus === 'success' &&
             products?.map((p) => (
               <AdminCard key={p.id}>
-                <p className="truncate font-semibold text-neutral-900">{p.name}</p>
-                <p className="mb-2.5 text-xs text-neutral-500">@{p.creator_username} · {p.product_type}</p>
+                <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">{p.name}</p>
+                <p className="mb-2.5 text-xs text-neutral-500 dark:text-neutral-400">@{p.creator_username} · {p.product_type}</p>
                 <div className="flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-neutral-600">{t('admin.market.featured', 'Featured')}</span>
+                    <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">{t('admin.market.featured', 'Featured')}</span>
                     <AdminToggle
                       checked={p.is_admin_featured}
                       disabled={patchProduct.isPending}
@@ -152,7 +152,7 @@ function AdminMarketPage() {
                     />
                   </div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs font-medium text-neutral-600">{t('admin.market.sponsored', 'Sponsored')}</span>
+                    <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">{t('admin.market.sponsored', 'Sponsored')}</span>
                     <AdminToggle
                       checked={p.is_sponsored}
                       disabled={patchProduct.isPending}
@@ -177,11 +177,11 @@ function AdminMarketPage() {
               <AdminCard key={i.id}>
                 <div className="flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate font-semibold text-neutral-900">{i.name}</p>
-                    <p className="text-xs text-neutral-500">{i.item_type}{i.cosmetic_type ? ` · ${i.cosmetic_type}` : ''}</p>
+                    <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">{i.name}</p>
+                    <p className="text-xs text-neutral-500 dark:text-neutral-400">{i.item_type}{i.cosmetic_type ? ` · ${i.cosmetic_type}` : ''}</p>
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
-                    <span className="text-xs font-medium text-neutral-600">{t('admin.market.featured', 'Featured')}</span>
+                    <span className="text-xs font-medium text-neutral-600 dark:text-neutral-400">{t('admin.market.featured', 'Featured')}</span>
                     <AdminToggle checked={i.is_featured} disabled={patchItem.isPending} onChange={(v) => patchItem.mutate({ id: i.id, value: v })} />
                   </div>
                 </div>

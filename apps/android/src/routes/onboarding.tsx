@@ -225,29 +225,29 @@ function OnboardingPage() {
 
   const usernameIndicator = {
     idle: null,
-    checking: <span className="text-xs text-neutral-400">{t('onboarding.step1.usernameChecking')}</span>,
-    ok: <span className="text-xs text-green-600">{t('onboarding.step1.usernameAvailable')}</span>,
+    checking: <span className="text-xs text-neutral-400 dark:text-neutral-500">{t('onboarding.step1.usernameChecking')}</span>,
+    ok: <span className="text-xs text-green-600 dark:text-green-300">{t('onboarding.step1.usernameAvailable')}</span>,
     taken: <span className="text-xs text-red-500">{t('onboarding.step1.usernameTaken')}</span>,
     invalid: <span className="text-xs text-red-500">{t('onboarding.step1.usernameInvalid')}</span>,
   }[usernameStatus];
 
   return (
-    <div className="min-h-full bg-white px-6 py-10">
+    <div className="min-h-full bg-white dark:bg-neutral-800 px-6 py-10">
       <div className="mx-auto max-w-sm space-y-6">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900">{t('onboarding.step1.title')}</h1>
-          <p className="mt-1 text-sm text-neutral-500">{t('onboarding.step1.subtitle')}</p>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">{t('onboarding.step1.title')}</h1>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('onboarding.step1.subtitle')}</p>
         </div>
 
         {error && (
-          <div role="alert" className="rounded-lg bg-danger-50 px-4 py-3 text-sm text-danger-700">
+          <div role="alert" className="rounded-lg bg-danger-50 dark:bg-danger-900/30 px-4 py-3 text-sm text-danger-700 dark:text-danger-300">
             {error}
           </div>
         )}
 
         {/* Avatar picker */}
         <div>
-          <label className="mb-2 block text-sm font-semibold text-neutral-700">{t('onboarding.step1.avatarLabel')}</label>
+          <label className="mb-2 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('onboarding.step1.avatarLabel')}</label>
           <div className="flex flex-wrap gap-2">
             {AVATAR_OPTIONS.map((emoji) => (
               <button
@@ -264,7 +264,7 @@ function OnboardingPage() {
 
         {/* Username */}
         <div>
-          <label className="mb-1 block text-sm font-semibold text-neutral-700">{t('onboarding.step1.usernameLabel')}</label>
+          <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('onboarding.step1.usernameLabel')}</label>
           <input
             type="text"
             value={username}
@@ -272,42 +272,42 @@ function OnboardingPage() {
             placeholder={t('onboarding.step1.usernamePlaceholder')}
             maxLength={30}
             autoComplete="off"
-            className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
           />
           <div className="mt-1">
-            {fieldErrors.username ? <p role="alert" className="text-xs text-red-600">{fieldErrors.username}</p> : usernameIndicator}
+            {fieldErrors.username ? <p role="alert" className="text-xs text-red-600 dark:text-red-300">{fieldErrors.username}</p> : usernameIndicator}
           </div>
         </div>
 
         {/* Display name */}
         <div>
-          <label className="mb-1 block text-sm font-semibold text-neutral-700">{t('onboarding.step1.displayNameLabel')}</label>
+          <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('onboarding.step1.displayNameLabel')}</label>
           <input
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
             placeholder={t('onboarding.step1.displayNamePlaceholder')}
             maxLength={50}
-            className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
           />
-          {fieldErrors.displayName && <p role="alert" className="mt-1 text-xs text-red-600">{fieldErrors.displayName}</p>}
+          {fieldErrors.displayName && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-300">{fieldErrors.displayName}</p>}
         </div>
 
         {/* City */}
         <div>
-          <label className="mb-1 block text-sm font-semibold text-neutral-700">{t('onboarding.step1.cityLabel')}</label>
+          <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('onboarding.step1.cityLabel')}</label>
           <input
             type="text"
             value={city}
             onChange={(e) => setCity(e.target.value)}
             placeholder={t('onboarding.step1.citySearchPlaceholder')}
-            className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
           />
         </div>
 
         {/* Birth year */}
         <div>
-          <label className="mb-1 block text-sm font-semibold text-neutral-700">{t('onboarding.step1.birthYearLabel')}</label>
+          <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('onboarding.step1.birthYearLabel')}</label>
           <input
             type="number"
             inputMode="numeric"
@@ -316,16 +316,16 @@ function OnboardingPage() {
             placeholder={`e.g. ${CURRENT_YEAR - 20}`}
             min={1900}
             max={CURRENT_YEAR}
-            className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
           />
           {fieldErrors.birthYear
-            ? <p role="alert" className="mt-1 text-xs text-red-600">{fieldErrors.birthYear}</p>
-            : <p className="mt-1 text-xs text-neutral-400">{t('onboarding.step1.birthYearHint', { age: manifest?.minimumAge ?? 13 })}</p>}
+            ? <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-300">{fieldErrors.birthYear}</p>
+            : <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">{t('onboarding.step1.birthYearHint', { age: manifest?.minimumAge ?? 13 })}</p>}
         </div>
 
         {/* Gender (optional) */}
         <div>
-          <label className="mb-1 block text-sm font-semibold text-neutral-700">{t('onboarding.step1.genderLabel', 'Gender')}</label>
+          <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('onboarding.step1.genderLabel', 'Gender')}</label>
           <div className="flex flex-wrap gap-2">
             {(
               [
@@ -342,7 +342,7 @@ function OnboardingPage() {
                 className={`rounded-xl px-4 py-2.5 text-sm font-semibold ${
                   gender === opt.value
                     ? 'bg-primary-600 text-white'
-                    : 'border border-neutral-200 text-neutral-700'
+                    : 'border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300'
                 }`}
               >
                 {opt.label}
@@ -353,14 +353,14 @@ function OnboardingPage() {
 
         {/* Referral code — prefilled from a captured deep link (ZB-AND-02), editable */}
         <div>
-          <label className="mb-1 block text-sm font-semibold text-neutral-700">{t('onboarding.referralCode.label')}</label>
+          <label className="mb-1 block text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('onboarding.referralCode.label')}</label>
           <input
             type="text"
             value={referralCode}
             onChange={(e) => setReferralCode(e.target.value)}
             placeholder={t('onboarding.referralCode.placeholder')}
             maxLength={20}
-            className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
           />
         </div>
 

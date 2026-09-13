@@ -115,28 +115,28 @@ function ThreadDetailPage() {
   const potRemaining = thread ? thread.pot_max_claims - thread.pot_claims_count : 0;
 
   if (query.isPending) {
-    return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
+    return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4"><div className="h-24 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" /></div>;
   }
   if (!thread) {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center">
-        <p className="text-sm text-neutral-500">{t('error.generic')}</p>
-        <Link to="/forum" className="mt-3 inline-block text-sm font-semibold text-primary-600">← {t('bbforum.forum.title')}</Link>
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center">
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('error.generic')}</p>
+        <Link to="/forum" className="mt-3 inline-block text-sm font-semibold text-primary-600 dark:text-primary-300">← {t('bbforum.forum.title')}</Link>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-3 space-y-3">
-      {board && <Link to="/forum/$boardSlug" params={{ boardSlug: board.slug }} className="text-xs text-neutral-500">← {board.name}</Link>}
-      <h1 className="text-base font-bold text-neutral-900">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-3 space-y-3">
+      {board && <Link to="/forum/$boardSlug" params={{ boardSlug: board.slug }} className="text-xs text-neutral-500 dark:text-neutral-400">← {board.name}</Link>}
+      <h1 className="text-base font-bold text-neutral-900 dark:text-neutral-100">
         {thread.is_pinned && <span className="mr-1 text-amber-500">📌</span>}
-        {thread.is_locked && <span className="mr-1 text-neutral-400">🔒</span>}
+        {thread.is_locked && <span className="mr-1 text-neutral-400 dark:text-neutral-500">🔒</span>}
         {thread.title}
       </h1>
 
       {thread.pot_max_claims > 0 && !thread.pot_refunded_at && (
-        <div className="rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+        <div className="rounded-xl border border-amber-300 bg-amber-50 dark:bg-amber-900/30 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
           {t('bbforum.pot.banner', { amount: thread.pot_per_claim_credits, max: thread.pot_max_claims })}{' '}
           {potRemaining > 0 ? t('bbforum.pot.remaining', { count: potRemaining }) : t('bbforum.pot.full')}
         </div>
@@ -145,79 +145,79 @@ function ThreadDetailPage() {
       {posts.map((post) => {
         const canModify = user?.id === post.author_id;
         return (
-          <div key={post.id} className="rounded-xl border border-neutral-200 bg-white p-3">
-            <div className="mb-1.5 flex items-center gap-2 text-xs text-neutral-500">
+          <div key={post.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3">
+            <div className="mb-1.5 flex items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
               <span>{post.author_avatar_emoji ?? '👤'}</span>
-              <span className="font-semibold text-neutral-700">{post.author_display_name ?? post.author_username ?? 'Unknown'}</span>
-              {post.is_op && <span className="rounded-full bg-primary-100 px-1.5 py-0.5 text-[10px] font-semibold text-primary-700">OP</span>}
+              <span className="font-semibold text-neutral-700 dark:text-neutral-300">{post.author_display_name ?? post.author_username ?? 'Unknown'}</span>
+              {post.is_op && <span className="rounded-full bg-primary-100 dark:bg-primary-900/40 px-1.5 py-0.5 text-[10px] font-semibold text-primary-700 dark:text-primary-300">OP</span>}
               <span>·</span>
               <span>{timeAgo(post.created_at)}</span>
-              {post.edited_at && <span className="italic text-neutral-400">({t('bbforum.post.edited')})</span>}
-              <button onClick={() => setMenuOpenId(menuOpenId === post.id ? null : post.id)} className="ml-auto text-neutral-400">⋯</button>
+              {post.edited_at && <span className="italic text-neutral-400 dark:text-neutral-500">({t('bbforum.post.edited')})</span>}
+              <button onClick={() => setMenuOpenId(menuOpenId === post.id ? null : post.id)} className="ml-auto text-neutral-400 dark:text-neutral-500">⋯</button>
             </div>
 
             {menuOpenId === post.id && (
               <div className="mb-2 flex flex-wrap gap-2 text-xs">
-                <button onClick={() => { setQuoted({ id: post.id, author: post.author_display_name ?? post.author_username ?? 'Unknown', snippet: post.body.slice(0, 140) }); setMenuOpenId(null); }} className="font-semibold text-neutral-500">{t('bbforum.post.quote')}</button>
-                {canModify && <button onClick={() => { setEditingId(post.id); setEditBody(post.body); setMenuOpenId(null); }} className="font-semibold text-neutral-500">{t('bbforum.post.edit')}</button>}
-                {canModify && <button onClick={() => { if (window.confirm(t('bbforum.post.deleteConfirm'))) deletePost.mutate(post.id); setMenuOpenId(null); }} className="font-semibold text-red-600">{t('bbforum.post.delete')}</button>}
-                {!canModify && <button onClick={() => { report.mutate(post.id); setMenuOpenId(null); }} className="font-semibold text-amber-600">{t('bbforum.post.report')}</button>}
+                <button onClick={() => { setQuoted({ id: post.id, author: post.author_display_name ?? post.author_username ?? 'Unknown', snippet: post.body.slice(0, 140) }); setMenuOpenId(null); }} className="font-semibold text-neutral-500 dark:text-neutral-400">{t('bbforum.post.quote')}</button>
+                {canModify && <button onClick={() => { setEditingId(post.id); setEditBody(post.body); setMenuOpenId(null); }} className="font-semibold text-neutral-500 dark:text-neutral-400">{t('bbforum.post.edit')}</button>}
+                {canModify && <button onClick={() => { if (window.confirm(t('bbforum.post.deleteConfirm'))) deletePost.mutate(post.id); setMenuOpenId(null); }} className="font-semibold text-red-600 dark:text-red-300">{t('bbforum.post.delete')}</button>}
+                {!canModify && <button onClick={() => { report.mutate(post.id); setMenuOpenId(null); }} className="font-semibold text-amber-600 dark:text-amber-300">{t('bbforum.post.report')}</button>}
               </div>
             )}
 
             {post.quoted_body && (
-              <div className="mb-2 rounded-lg border-l-4 border-neutral-300 bg-neutral-50 px-2 py-1 text-xs text-neutral-500">
+              <div className="mb-2 rounded-lg border-l-4 border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-500 dark:text-neutral-400">
                 <span className="font-semibold">{post.quoted_author_display_name ?? post.quoted_author_username}:</span> {post.quoted_body.slice(0, 140)}
               </div>
             )}
 
             {editingId === post.id ? (
               <div className="space-y-2">
-                <textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} rows={3} className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm" />
+                <textarea value={editBody} onChange={(e) => setEditBody(e.target.value)} rows={3} className="w-full resize-none rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm" />
                 <div className="flex gap-2">
-                  <button onClick={() => setEditingId(null)} className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-semibold">{t('bbforum.post.cancel')}</button>
+                  <button onClick={() => setEditingId(null)} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1 text-xs font-semibold">{t('bbforum.post.cancel')}</button>
                   <button onClick={() => editPost.mutate({ postId: post.id, body: editBody })} className="rounded-lg bg-primary-600 px-3 py-1 text-xs font-semibold text-white">{t('bbforum.post.save')}</button>
                 </div>
               </div>
             ) : (
-              <p className="whitespace-pre-wrap text-sm text-neutral-800">{post.body}</p>
+              <p className="whitespace-pre-wrap text-sm text-neutral-800 dark:text-neutral-200">{post.body}</p>
             )}
             {post.image_url && <img src={post.image_url} alt="" className="mt-2 max-h-72 rounded-lg" />}
 
             <div className="mt-2 flex flex-wrap gap-1">
               {REACTION_EMOJIS.map((emoji) => (
-                <button key={emoji} onClick={() => react.mutate({ postId: post.id, emoji })} className="rounded-full border border-neutral-200 px-1.5 py-0.5 text-sm">{emoji}</button>
+                <button key={emoji} onClick={() => react.mutate({ postId: post.id, emoji })} className="rounded-full border border-neutral-200 dark:border-neutral-700 px-1.5 py-0.5 text-sm">{emoji}</button>
               ))}
-              {post.reaction_count > 0 && <span className="self-center text-xs text-neutral-400">{post.reaction_count}</span>}
+              {post.reaction_count > 0 && <span className="self-center text-xs text-neutral-400 dark:text-neutral-500">{post.reaction_count}</span>}
             </div>
           </div>
         );
       })}
 
       {thread.is_locked ? (
-        <p className="rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-500">🔒 {t('bbforum.locked')}</p>
+        <p className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-3 text-sm text-neutral-500 dark:text-neutral-400">🔒 {t('bbforum.locked')}</p>
       ) : (
-        <div className="rounded-xl border border-neutral-200 bg-white p-3 space-y-2">
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3 space-y-2">
           {quoted && (
-            <div className="flex items-start gap-2 rounded-lg border-l-4 border-primary-400 bg-neutral-50 px-2 py-1 text-xs text-neutral-600">
+            <div className="flex items-start gap-2 rounded-lg border-l-4 border-primary-400 bg-neutral-50 dark:bg-neutral-800 px-2 py-1 text-xs text-neutral-600 dark:text-neutral-400">
               <div className="min-w-0 flex-1"><span className="font-semibold">{t('bbforum.editor.quoting', { author: quoted.author })}</span> {quoted.snippet}</div>
-              <button onClick={() => setQuoted(null)} className="text-neutral-400">✕</button>
+              <button onClick={() => setQuoted(null)} className="text-neutral-400 dark:text-neutral-500">✕</button>
             </div>
           )}
           <div className="flex gap-1 text-xs font-semibold">
             {(['plaintext', 'markdown'] as const).map((fmt) => (
-              <button key={fmt} onClick={() => setReplyFormat(fmt)} className={`rounded-t-lg px-3 py-1.5 ${replyFormat === fmt ? 'bg-neutral-100 text-primary-700' : 'text-neutral-400'}`}>
+              <button key={fmt} onClick={() => setReplyFormat(fmt)} className={`rounded-t-lg px-3 py-1.5 ${replyFormat === fmt ? 'bg-neutral-100 dark:bg-neutral-800 text-primary-700 dark:text-primary-300' : 'text-neutral-400 dark:text-neutral-500'}`}>
                 {fmt === 'plaintext' ? t('bbforum.editor.tabPlainText') : t('bbforum.editor.tabMarkdown')}
               </button>
             ))}
           </div>
-          <textarea value={replyBody} onChange={(e) => setReplyBody(e.target.value.slice(0, 20000))} rows={3} placeholder={t('bbforum.reply.placeholder')} className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm" />
+          <textarea value={replyBody} onChange={(e) => setReplyBody(e.target.value.slice(0, 20000))} rows={3} placeholder={t('bbforum.reply.placeholder')} className="w-full resize-none rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm" />
           <div className="flex items-center gap-2">
-            <label className="cursor-pointer rounded-lg border border-neutral-300 px-2.5 py-1 text-xs font-semibold text-neutral-600">
+            <label className="cursor-pointer rounded-lg border border-neutral-300 dark:border-neutral-600 px-2.5 py-1 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
               {uploading ? t('bbforum.editor.uploading') : `📷 ${t('bbforum.editor.addImage')}`}
               <input type="file" accept="image/jpeg,image/png,image/webp,image/gif" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) void handleUploadImage(f); }} />
             </label>
-            {replyImageUrl && <button onClick={() => setReplyImageUrl(null)} className="text-xs font-semibold text-red-600">{t('bbforum.editor.removeImage')}</button>}
+            {replyImageUrl && <button onClick={() => setReplyImageUrl(null)} className="text-xs font-semibold text-red-600 dark:text-red-300">{t('bbforum.editor.removeImage')}</button>}
           </div>
           {replyImageUrl && <img src={replyImageUrl} alt="" className="max-h-40 rounded-lg" />}
           <div className="flex justify-end">

@@ -64,7 +64,7 @@ function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (
       }`}
     >
       <span
-        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white dark:bg-neutral-800 shadow transition-transform ${
           checked ? 'translate-x-5' : 'translate-x-0.5'
         }`}
       />
@@ -90,8 +90,8 @@ function PrivacyRow({
   return (
     <div className={`flex items-center justify-between gap-3 py-3 ${gated ? 'opacity-60' : ''}`}>
       <div className="min-w-0">
-        <p className="text-sm font-medium text-neutral-900">{title}</p>
-        <p className="text-xs text-neutral-500">{description}</p>
+        <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{title}</p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">{description}</p>
       </div>
       <Toggle checked={checked} onChange={onChange} disabled={disabled || gated} />
     </div>
@@ -130,12 +130,12 @@ function PrivacyPage() {
   }
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-sm text-neutral-400">{t('action.loading', 'Loading…')}</div>;
+    return <div className="flex h-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-500">{t('action.loading', 'Loading…')}</div>;
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <div className="divide-y divide-neutral-100 rounded-xl bg-white px-4 shadow-card">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <div className="divide-y divide-neutral-100 dark:divide-neutral-700 rounded-xl bg-white dark:bg-neutral-800 px-4 shadow-card">
         <PrivacyRow
           title={t('settings.privacy.disableFriendRequests', 'Disable friend requests')}
           description={t('settings.privacy.disableFriendRequestsDesc', 'Prevent others from sending you friend requests')}
@@ -178,8 +178,8 @@ function PrivacyPage() {
         )}
         {caps.canHideSections && caps.hideableSections.length > 0 && (
           <div className="py-3">
-            <p className="text-sm font-medium text-neutral-900">{t('settings.privacy.hideSections', 'Hidden profile sections')}</p>
-            <p className="text-xs text-neutral-500">{t('settings.privacy.hideSectionsDesc', 'Choose which sections to hide from other users')}</p>
+            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.privacy.hideSections', 'Hidden profile sections')}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.privacy.hideSectionsDesc', 'Choose which sections to hide from other users')}</p>
             <div className="mt-2 flex flex-wrap gap-2">
               {caps.hideableSections.map((section) => {
                 const isHidden = settings.profile_hidden_sections.includes(section);
@@ -195,7 +195,7 @@ function PrivacyPage() {
                       void save({ profile_hidden_sections: next });
                     }}
                     className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${
-                      isHidden ? 'bg-neutral-800 text-white' : 'border border-neutral-300 text-neutral-600'
+                      isHidden ? 'bg-neutral-800 text-white' : 'border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400'
                     }`}
                   >
                     {isHidden ? '🙈 ' : ''}{label}
@@ -207,14 +207,14 @@ function PrivacyPage() {
         )}
         <div className="flex items-center justify-between gap-3 py-3">
           <div className="min-w-0">
-            <p className="text-sm font-medium text-neutral-900">{t('settings.privacy.groupInvite.label', 'Who can invite me to groups?')}</p>
-            <p className="text-xs text-neutral-500">{t('settings.privacy.groupInvite.hint', 'Controls who can add you to a group chat')}</p>
+            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{t('settings.privacy.groupInvite.label', 'Who can invite me to groups?')}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('settings.privacy.groupInvite.hint', 'Controls who can add you to a group chat')}</p>
           </div>
           <select
             value={settings.group_invite_privacy}
             onChange={(e) => void save({ group_invite_privacy: e.target.value as PrivacySettings['group_invite_privacy'] })}
             disabled={saving}
-            className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-sm"
+            className="rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 py-1.5 text-sm"
           >
             <option value="anybody">{t('settings.privacy.groupInvite.anybody', 'Anybody')}</option>
             <option value="friends">{t('settings.privacy.groupInvite.friends', 'Only friends')}</option>

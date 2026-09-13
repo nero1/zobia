@@ -119,7 +119,7 @@ export function NoticesCarousel() {
 
   return (
     <div
-      className="relative overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm"
+      className="relative overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-sm"
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
     >
@@ -132,13 +132,13 @@ export function NoticesCarousel() {
         {current.imageUrl ? (
           <img src={current.imageUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
         ) : (
-          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 text-xl">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 dark:bg-primary-900/30 text-xl">
             {current.icon ?? '📣'}
           </span>
         )}
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-neutral-900">{current.title}</p>
-          {current.body && <p className="truncate text-xs text-neutral-500">{current.body}</p>}
+          <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{current.title}</p>
+          {current.body && <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{current.body}</p>}
         </div>
         {current.ctaLabel && current.ctaUrl && (
           <span

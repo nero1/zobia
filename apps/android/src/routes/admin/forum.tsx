@@ -200,7 +200,7 @@ function AdminForumPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.forum', 'Answers')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.forum', 'Answers')}</h1>
       {toast && <AdminToast message={toast} />}
       <AdminTabs tabs={tabs} active={tab} onChange={setTab} />
 
@@ -217,12 +217,12 @@ function AdminForumPage() {
                 <AdminStatCard label={t('admin.forum.answersToday', 'Answers Today')} value={String(stats.answersToday)} color="green" />
               </div>
               <div>
-                <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.forum.topPosters', 'Top Posters (7d)')}</h2>
+                <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.forum.topPosters', 'Top Posters (7d)')}</h2>
                 <div className="space-y-1.5">
                   {stats.topPosters.map((p, i) => (
-                    <div key={p.username ?? i} className="flex items-center justify-between rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
-                      <span className="font-medium text-neutral-800">@{p.username ?? '—'}</span>
-                      <span className="text-xs text-neutral-500">{p.questions}Q · {p.answers}A</span>
+                    <div key={p.username ?? i} className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm">
+                      <span className="font-medium text-neutral-800 dark:text-neutral-200">@{p.username ?? '—'}</span>
+                      <span className="text-xs text-neutral-500 dark:text-neutral-400">{p.questions}Q · {p.answers}A</span>
                     </div>
                   ))}
                 </div>
@@ -240,18 +240,18 @@ function AdminForumPage() {
           )}
           {queueStatus === 'success' &&
             queue?.map((item) => (
-              <div key={item.id} className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
+              <div key={item.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
                 <div className="mb-1.5 flex items-center gap-1.5 text-xs">
-                  <span className="font-semibold text-neutral-700">@{item.reporter_username ?? '—'}</span>
+                  <span className="font-semibold text-neutral-700 dark:text-neutral-300">@{item.reporter_username ?? '—'}</span>
                   <AdminBadge label={item.report_type.replace(/_/g, ' ')} />
-                  <span className="ml-auto text-neutral-400">{timeAgo(item.created_at)}</span>
+                  <span className="ml-auto text-neutral-400 dark:text-neutral-500">{timeAgo(item.created_at)}</span>
                 </div>
-                <p className="mb-2.5 line-clamp-2 text-sm text-neutral-700">{item.question_title ?? item.answer_body ?? '—'}</p>
+                <p className="mb-2.5 line-clamp-2 text-sm text-neutral-700 dark:text-neutral-300">{item.question_title ?? item.answer_body ?? '—'}</p>
                 <div className="flex flex-wrap gap-1.5">
-                  <button onClick={() => queueAction.mutate({ id: item.id, action: 'dismiss' })} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700">
+                  <button onClick={() => queueAction.mutate({ id: item.id, action: 'dismiss' })} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
                     {t('admin.moderation.action.dismiss', 'Dismiss')}
                   </button>
-                  <button onClick={() => queueAction.mutate({ id: item.id, action: 'warn' })} className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700">
+                  <button onClick={() => queueAction.mutate({ id: item.id, action: 'warn' })} className="rounded-lg bg-amber-100 dark:bg-amber-900/40 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300">
                     {t('admin.moderation.action.warn', 'Warn User')}
                   </button>
                   <button onClick={() => queueAction.mutate({ id: item.id, action: 'remove_content' })} className="rounded-lg bg-orange-100 px-2.5 py-1 text-xs font-semibold text-orange-700">
@@ -269,25 +269,25 @@ function AdminForumPage() {
           {questionsStatus === 'success' && (questions?.length ?? 0) === 0 && <AdminEmptyState icon="❓" title={t('admin.forum.noQuestions', 'No questions')} />}
           {questionsStatus === 'success' &&
             questions?.map((q) => (
-              <div key={q.id} className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
+              <div key={q.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
                 <div className="mb-1 flex items-center gap-1.5 text-xs">
                   <AdminBadge label={q.status} color={q.status === 'visible' ? 'green' : 'red'} />
                   {q.is_locked && <AdminBadge label={t('admin.forum.locked', 'Locked')} color="gold" />}
-                  <span className="ml-auto text-neutral-400">{timeAgo(q.created_at)}</span>
+                  <span className="ml-auto text-neutral-400 dark:text-neutral-500">{timeAgo(q.created_at)}</span>
                 </div>
-                <p className="mb-1 text-sm font-medium text-neutral-900 line-clamp-2">{q.title}</p>
-                <p className="mb-2.5 text-xs text-neutral-500">@{q.author_username} · {q.vote_score} {t('admin.forum.votes', 'votes')} · {q.answer_count} {t('admin.forum.answers', 'answers')}</p>
+                <p className="mb-1 text-sm font-medium text-neutral-900 dark:text-neutral-100 line-clamp-2">{q.title}</p>
+                <p className="mb-2.5 text-xs text-neutral-500 dark:text-neutral-400">@{q.author_username} · {q.vote_score} {t('admin.forum.votes', 'votes')} · {q.answer_count} {t('admin.forum.answers', 'answers')}</p>
                 <div className="flex flex-wrap gap-1.5">
                   {q.status === 'visible' ? (
-                    <button onClick={() => postAction.mutate({ id: q.id, action: 'remove' })} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700">
+                    <button onClick={() => postAction.mutate({ id: q.id, action: 'remove' })} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300">
                       {t('admin.forum.remove', 'Remove')}
                     </button>
                   ) : (
-                    <button onClick={() => postAction.mutate({ id: q.id, action: 'restore' })} className="rounded-lg bg-success-100 px-2.5 py-1 text-xs font-semibold text-success-700">
+                    <button onClick={() => postAction.mutate({ id: q.id, action: 'restore' })} className="rounded-lg bg-success-100 dark:bg-success-900/40 px-2.5 py-1 text-xs font-semibold text-success-700 dark:text-success-300">
                       {t('admin.forum.restore', 'Restore')}
                     </button>
                   )}
-                  <button onClick={() => postAction.mutate({ id: q.id, action: q.is_locked ? 'unlock' : 'lock' })} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700">
+                  <button onClick={() => postAction.mutate({ id: q.id, action: q.is_locked ? 'unlock' : 'lock' })} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
                     {q.is_locked ? t('admin.forum.unlock', 'Unlock') : t('admin.forum.lock', 'Lock')}
                   </button>
                 </div>
@@ -299,7 +299,7 @@ function AdminForumPage() {
       {tab === 'settings' && (
         <div className="space-y-5">
           <div>
-            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.forum.configTitle', 'Answers Config')}</h2>
+            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.forum.configTitle', 'Answers Config')}</h2>
             <div className="space-y-2.5">
               {configStatus === 'pending' && Array.from({ length: 4 }).map((_, i) => <AdminCardSkeleton key={i} />)}
               {configStatus === 'success' &&
@@ -307,8 +307,8 @@ function AdminForumPage() {
                   const raw = config?.[field.key] ?? '';
                   const isSaving = savingKey === field.key;
                   return (
-                    <div key={field.key} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white p-3.5 shadow-card">
-                      <p className="text-sm font-medium text-neutral-800">{field.label}</p>
+                    <div key={field.key} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3.5 shadow-card">
+                      <p className="text-sm font-medium text-neutral-800 dark:text-neutral-200">{field.label}</p>
                       {field.type === 'boolean' ? (
                         <AdminToggle checked={raw === 'true'} disabled={isSaving} onChange={(v) => saveConfig.mutate({ key: field.key, value: v ? 'true' : 'false' })} />
                       ) : (
@@ -317,7 +317,7 @@ function AdminForumPage() {
                           defaultValue={raw}
                           disabled={isSaving}
                           onBlur={(e) => { if (e.target.value !== raw) saveConfig.mutate({ key: field.key, value: e.target.value }); }}
-                          className="w-20 rounded-lg border border-neutral-300 bg-white px-2 py-1.5 text-right text-sm text-neutral-900 disabled:opacity-50"
+                          className="w-20 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-2 py-1.5 text-right text-sm text-neutral-900 dark:text-neutral-100 disabled:opacity-50"
                         />
                       )}
                     </div>
@@ -327,7 +327,7 @@ function AdminForumPage() {
           </div>
 
           <div>
-            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.forum.categoriesTitle', 'Categories')}</h2>
+            <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.forum.categoriesTitle', 'Categories')}</h2>
             <div className="mb-3 flex gap-2">
               <input value={newCatIcon} onChange={(e) => setNewCatIcon(e.target.value)} className={`${adminInputClass} w-14 text-center`} maxLength={4} />
               <input
@@ -352,16 +352,16 @@ function AdminForumPage() {
               )}
               {categoriesStatus === 'success' &&
                 categories?.map((c) => (
-                  <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white p-3.5 shadow-card">
+                  <div key={c.id} className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3.5 shadow-card">
                     <div className="min-w-0">
-                      <p className="truncate text-sm font-medium text-neutral-900">{c.icon_emoji} {c.name}</p>
-                      <p className="text-xs text-neutral-500">/{c.slug} · {c.question_count} {t('admin.forum.questions', 'questions')}</p>
+                      <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{c.icon_emoji} {c.name}</p>
+                      <p className="text-xs text-neutral-500 dark:text-neutral-400">/{c.slug} · {c.question_count} {t('admin.forum.questions', 'questions')}</p>
                     </div>
                     <button
                       type="button"
                       onClick={() => deleteCategory.mutate(c.id)}
                       disabled={deleteCategory.isPending}
-                      className="shrink-0 rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50"
+                      className="shrink-0 rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50"
                     >
                       {t('admin.forum.deleteCategory', 'Delete')}
                     </button>

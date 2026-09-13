@@ -17,16 +17,16 @@ export function RoomPulseBar({ activeCount, maxCapacity, className = '' }: RoomP
   const pct = maxCapacity > 0 ? Math.min(100, Math.round((activeCount / maxCapacity) * 100)) : 0;
 
   const barColor = pct >= 80 ? 'bg-red-500' : pct >= 50 ? 'bg-amber-400' : 'bg-teal-500';
-  const textColor = pct >= 80 ? 'text-red-600' : pct >= 50 ? 'text-amber-600' : 'text-teal-600';
+  const textColor = pct >= 80 ? 'text-red-600 dark:text-red-300' : pct >= 50 ? 'text-amber-600 dark:text-amber-300' : 'text-teal-600 dark:text-teal-300';
 
   return (
     <div className={`flex flex-col gap-1 ${className}`}>
       <div className="flex items-center justify-between text-xs">
         <span className={`font-semibold tabular-nums ${textColor}`}>{activeCount.toLocaleString()} active</span>
-        <span className="text-neutral-400 tabular-nums">{maxCapacity.toLocaleString()} cap</span>
+        <span className="text-neutral-400 dark:text-neutral-500 tabular-nums">{maxCapacity.toLocaleString()} cap</span>
       </div>
       <div
-        className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-200"
+        className="h-1.5 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700"
         role="progressbar"
         aria-valuenow={pct}
         aria-valuemin={0}

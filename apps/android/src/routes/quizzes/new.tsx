@@ -155,19 +155,19 @@ function QuizzesNewPage() {
   });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
-      <h1 className="text-lg font-bold text-neutral-900">{t('quizzes.create.title', 'Create Quiz')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('quizzes.create.title', 'Create Quiz')}</h1>
 
-      {errorMessage && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>}
+      {errorMessage && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">{errorMessage}</div>}
 
-      <div className="bg-white rounded-xl shadow-card p-4 space-y-3">
+      <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-card p-4 space-y-3">
         <input
           type="text"
           value={title}
           onChange={(e) => setTitle(e.target.value.slice(0, MAX_TITLE))}
           placeholder={t('quizzes.create.titlePlaceholder', 'Quiz title')}
           maxLength={MAX_TITLE}
-          className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
+          className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
         />
         <textarea
           value={description}
@@ -175,11 +175,11 @@ function QuizzesNewPage() {
           placeholder={t('quizzes.create.descriptionPlaceholder', 'Description (optional)…')}
           rows={3}
           maxLength={MAX_DESCRIPTION}
-          className="w-full resize-none rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
+          className="w-full resize-none rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
         />
         <div className="grid grid-cols-2 gap-3">
           <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-neutral-600">{t('quizzes.create.passingScore', 'Passing % (optional)')}</span>
+            <span className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('quizzes.create.passingScore', 'Passing % (optional)')}</span>
             <input
               type="number"
               min="0"
@@ -187,31 +187,31 @@ function QuizzesNewPage() {
               inputMode="numeric"
               value={passingScorePercent}
               onChange={(e) => setPassingScorePercent(e.target.value)}
-              className="w-full rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
+              className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
             />
           </label>
           <label className="block">
-            <span className="mb-1.5 block text-xs font-semibold text-neutral-600">{t('quizzes.create.maxAttempts', 'Max attempts (optional)')}</span>
+            <span className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('quizzes.create.maxAttempts', 'Max attempts (optional)')}</span>
             <input
               type="number"
               min="1"
               inputMode="numeric"
               value={maxAttemptsPerUser}
               onChange={(e) => setMaxAttemptsPerUser(e.target.value)}
-              className="w-full rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
+              className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
             />
           </label>
         </div>
       </div>
 
       {questions.map((q, qIdx) => (
-        <div key={qIdx} className="bg-white rounded-xl shadow-card p-4 space-y-3">
+        <div key={qIdx} className="bg-white dark:bg-neutral-800 rounded-xl shadow-card p-4 space-y-3">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-semibold uppercase tracking-wider text-neutral-500">
+            <span className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">
               {t('quizzes.create.question', 'Question {{n}}', { n: qIdx + 1 })}
             </span>
             {questions.length > MIN_QUESTIONS && (
-              <button type="button" onClick={() => removeQuestion(qIdx)} className="text-xs font-semibold text-danger-600">
+              <button type="button" onClick={() => removeQuestion(qIdx)} className="text-xs font-semibold text-danger-600 dark:text-danger-300">
                 {t('common.delete', 'Delete')}
               </button>
             )}
@@ -223,7 +223,7 @@ function QuizzesNewPage() {
             placeholder={t('quizzes.create.promptPlaceholder', 'Ask a question…')}
             rows={2}
             maxLength={MAX_PROMPT}
-            className="w-full resize-none rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
+            className="w-full resize-none rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
           />
 
           <div className="flex gap-1.5">
@@ -232,12 +232,12 @@ function QuizzesNewPage() {
                 key={type}
                 type="button"
                 onClick={() => setQuestionType(qIdx, type)}
-                className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${q.type === type ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+                className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${q.type === type ? 'bg-neutral-900 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
               >
                 {type === 'single' ? t('quizzes.create.typeSingle', 'Single') : type === 'multiple' ? t('quizzes.create.typeMultiple', 'Multiple') : t('quizzes.create.typeTrueFalse', 'True/False')}
               </button>
             ))}
-            <label className="ml-auto flex items-center gap-1.5 text-xs text-neutral-500">
+            <label className="ml-auto flex items-center gap-1.5 text-xs text-neutral-500 dark:text-neutral-400">
               {t('quizzes.create.points', 'Points')}
               <input
                 type="number"
@@ -245,7 +245,7 @@ function QuizzesNewPage() {
                 inputMode="numeric"
                 value={q.points}
                 onChange={(e) => updateQuestion(qIdx, { points: e.target.value })}
-                className="w-14 rounded-md border border-neutral-300 bg-neutral-50 px-2 py-1 text-xs focus:border-primary-500 focus:outline-none"
+                className="w-14 rounded-md border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-2 py-1 text-xs focus:border-primary-500 focus:outline-none"
               />
             </label>
           </div>
@@ -257,30 +257,30 @@ function QuizzesNewPage() {
                   type="button"
                   onClick={() => updateOption(qIdx, oIdx, { isCorrect: q.type === 'single' ? true : !opt.isCorrect })}
                   aria-label={t('quizzes.create.markCorrect', 'Mark correct')}
-                  className={`flex h-6 w-6 shrink-0 items-center justify-center border ${q.type === 'single' ? 'rounded-full' : 'rounded'} ${opt.isCorrect ? 'border-success-600 bg-success-600' : 'border-neutral-300'}`}
+                  className={`flex h-6 w-6 shrink-0 items-center justify-center border ${q.type === 'single' ? 'rounded-full' : 'rounded'} ${opt.isCorrect ? 'border-success-600 bg-success-600' : 'border-neutral-300 dark:border-neutral-600'}`}
                 >
                   {opt.isCorrect && <span className="text-[11px] text-white">✓</span>}
                 </button>
                 {q.type === 'true_false' ? (
-                  <span className="flex-1 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700">{opt.label}</span>
+                  <span className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-700 dark:text-neutral-300">{opt.label}</span>
                 ) : (
                   <input
                     type="text"
                     value={opt.label}
                     onChange={(e) => updateOption(qIdx, oIdx, { label: e.target.value.slice(0, MAX_OPTION) })}
                     placeholder={t('quizzes.create.optionPlaceholder', 'Option {{n}}', { n: oIdx + 1 })}
-                    className="flex-1 rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
+                    className="flex-1 rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm focus:border-primary-500 focus:outline-none"
                   />
                 )}
                 {q.type !== 'true_false' && q.options.length > MIN_OPTIONS && (
-                  <button type="button" onClick={() => removeOption(qIdx, oIdx)} aria-label={t('common.delete', 'Delete')} className="flex h-6 w-6 shrink-0 items-center justify-center text-neutral-400">
+                  <button type="button" onClick={() => removeOption(qIdx, oIdx)} aria-label={t('common.delete', 'Delete')} className="flex h-6 w-6 shrink-0 items-center justify-center text-neutral-400 dark:text-neutral-500">
                     ✕
                   </button>
                 )}
               </div>
             ))}
             {q.type !== 'true_false' && q.options.length < MAX_OPTIONS && (
-              <button type="button" onClick={() => addOption(qIdx)} className="mt-1 rounded-lg border border-dashed border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-500">
+              <button type="button" onClick={() => addOption(qIdx)} className="mt-1 rounded-lg border border-dashed border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
                 + {t('polls.create.addOption', 'Add option')}
               </button>
             )}
@@ -289,13 +289,13 @@ function QuizzesNewPage() {
       ))}
 
       {questions.length < MAX_QUESTIONS && (
-        <button type="button" onClick={addQuestion} className="w-full rounded-xl border border-dashed border-neutral-300 bg-white py-3 text-sm font-semibold text-neutral-500">
+        <button type="button" onClick={addQuestion} className="w-full rounded-xl border border-dashed border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 py-3 text-sm font-semibold text-neutral-500 dark:text-neutral-400">
           + {t('quizzes.create.addQuestion', 'Add question')}
         </button>
       )}
 
       <div className="flex gap-3">
-        <Link to="/quizzes" className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-center text-sm font-semibold text-neutral-700">
+        <Link to="/quizzes" className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-center text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           {t('answers.ask.cancel')}
         </Link>
         <button

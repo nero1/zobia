@@ -69,9 +69,9 @@ function ScriptForm({
   return (
     <form
       onSubmit={(e) => { e.preventDefault(); onSave({ name, content, isActive, position }); }}
-      className="space-y-3.5 rounded-xl border border-blue-200 bg-blue-50 p-4"
+      className="space-y-3.5 rounded-xl border border-blue-200 bg-blue-50 dark:bg-blue-900/30 p-4"
     >
-      <h3 className="text-sm font-bold text-neutral-800">
+      <h3 className="text-sm font-bold text-neutral-800 dark:text-neutral-200">
         {initial?.id ? t('admin.footerScripts.editTitle', 'Edit Script') : t('admin.footerScripts.newTitle', 'New Footer Script')}
       </h3>
 
@@ -88,7 +88,7 @@ function ScriptForm({
           className={`${adminInputClass} resize-y font-mono text-xs`}
           placeholder={'<script>\n  // Your script here\n</script>'}
         />
-        <p className="mt-1 text-[11px] text-neutral-400">
+        <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
           {t('admin.footerScripts.contentHint', 'HTML, JS, or CSS injected into the site footer server-side. Admin-only. Content is sanitised.')}
         </p>
       </AdminField>
@@ -97,8 +97,8 @@ function ScriptForm({
         <AdminField label={t('admin.footerScripts.position', 'Position')}>
           <input type="number" min={0} value={position} onChange={(e) => setPosition(Number(e.target.value))} className={`${adminInputClass} w-24`} />
         </AdminField>
-        <label className="flex items-center gap-2 pt-4 text-sm font-medium text-neutral-700">
-          <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 rounded border-neutral-300" />
+        <label className="flex items-center gap-2 pt-4 text-sm font-medium text-neutral-700 dark:text-neutral-300">
+          <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} className="h-4 w-4 rounded border-neutral-300 dark:border-neutral-600" />
           {t('admin.footerScripts.active', 'Active')}
         </label>
       </div>
@@ -107,7 +107,7 @@ function ScriptForm({
         <button type="submit" disabled={saving} className="flex-1 rounded-lg bg-primary-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60">
           {saving ? '…' : t('admin.footerScripts.save', 'Save Script')}
         </button>
-        <button type="button" onClick={onCancel} className="rounded-lg border border-neutral-300 px-4 py-2.5 text-sm font-semibold text-neutral-700">
+        <button type="button" onClick={onCancel} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           {t('common.cancel', 'Cancel')}
         </button>
       </div>
@@ -131,21 +131,21 @@ function ScriptCard({
   const { t } = useTranslation();
   const preview = script.content.slice(0, 80) + (script.content.length > 80 ? '…' : '');
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
       <div className="flex flex-wrap items-center gap-1.5">
-        <p className="font-semibold text-neutral-900">{script.name}</p>
+        <p className="font-semibold text-neutral-900 dark:text-neutral-100">{script.name}</p>
         <AdminBadge label={script.isActive ? t('admin.announcements.active', 'Active') : t('admin.announcements.inactive', 'Inactive')} color={script.isActive ? 'green' : 'neutral'} />
-        <span className="ml-auto text-[11px] text-neutral-400">{t('admin.footerScripts.position', 'Position')}: {script.position}</span>
+        <span className="ml-auto text-[11px] text-neutral-400 dark:text-neutral-500">{t('admin.footerScripts.position', 'Position')}: {script.position}</span>
       </div>
-      <p className="mt-1.5 truncate font-mono text-[11px] text-neutral-500" title={script.content}>{preview}</p>
+      <p className="mt-1.5 truncate font-mono text-[11px] text-neutral-500 dark:text-neutral-400" title={script.content}>{preview}</p>
       <div className="mt-2.5 flex gap-1.5">
-        <button type="button" onClick={onEdit} className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
+        <button type="button" onClick={onEdit} className="rounded-lg bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
           {t('admin.config.edit', 'Edit')}
         </button>
-        <button type="button" disabled={busy} onClick={onToggle} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50">
+        <button type="button" disabled={busy} onClick={onToggle} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50">
           {busy ? '…' : script.isActive ? t('admin.announcements.deactivate', 'Deactivate') : t('admin.announcements.activate', 'Activate')}
         </button>
-        <button type="button" disabled={busy} onClick={onDelete} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50">
+        <button type="button" disabled={busy} onClick={onDelete} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
           {t('admin.rooms.delete', 'Delete')}
         </button>
       </div>
@@ -199,14 +199,14 @@ function AdminFooterScriptsPage() {
   return (
     <div className="px-4 py-5">
       <div className="mb-1 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.footerScripts', 'Footer Scripts')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.footerScripts', 'Footer Scripts')}</h1>
         {!creating && !editing && (
           <button type="button" onClick={() => setCreating(true)} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white">
             + {t('admin.footerScripts.newTitle', 'New Script')}
           </button>
         )}
       </div>
-      <p className="mb-4 text-xs text-neutral-500">{t('admin.footerScripts.subtitle', 'Manage scripts injected into the site footer. Useful for analytics, chat widgets, and third-party integrations.')}</p>
+      <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">{t('admin.footerScripts.subtitle', 'Manage scripts injected into the site footer. Useful for analytics, chat widgets, and third-party integrations.')}</p>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 

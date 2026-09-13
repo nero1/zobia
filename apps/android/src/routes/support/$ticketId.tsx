@@ -56,7 +56,7 @@ function TicketDetailPage() {
   return (
     <div className="p-4">
       <h1 className="mb-1 text-lg font-bold text-white">{data.ticket.subject}</h1>
-      <p className="mb-4 text-sm text-neutral-500">{t('support.statusLabel', 'Status: {{status}}', { status: t(`support.status.${data.ticket.status}`, data.ticket.status) })}</p>
+      <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">{t('support.statusLabel', 'Status: {{status}}', { status: t(`support.status.${data.ticket.status}`, data.ticket.status) })}</p>
 
       <div className="mb-4 space-y-3">
         {data.messages.map((m) => (

@@ -100,9 +100,9 @@ async function fetchAdWallet() {
 }
 
 function badgeClass(status: string) {
-  if (status === 'approved') return 'bg-green-100 text-green-700';
-  if (status === 'rejected') return 'bg-red-100 text-red-700';
-  return 'bg-amber-100 text-amber-700';
+  if (status === 'approved') return 'bg-green-100 dark:bg-green-900/40 text-green-700';
+  if (status === 'rejected') return 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300';
+  return 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300';
 }
 
 // ---------------------------------------------------------------------------
@@ -140,29 +140,29 @@ function AdWalletPanel() {
   });
 
   return (
-    <div className="bg-white rounded-xl p-4 shadow-card mb-4">
-      <h2 className="font-semibold text-sm text-neutral-900">{t('ads.wallet.title', 'Ad Wallet')}</h2>
-      <p className="mt-1 text-xs text-neutral-500">
+    <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card mb-4">
+      <h2 className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">{t('ads.wallet.title', 'Ad Wallet')}</h2>
+      <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
         {t('ads.wallet.desc', 'Ads only run once this wallet has funds — separate from your main Credits balance.')}
       </p>
       <div className="mt-3 flex items-baseline gap-4">
         <div>
-          <p className="text-[11px] text-neutral-400">{t('ads.wallet.adBalance', 'Ad Wallet balance')}</p>
-          <p className="text-lg font-bold text-neutral-900">{(balance?.adWalletBalance ?? 0).toLocaleString()} <span className="text-xs font-normal text-neutral-400">{t('ads.wallet.credits', 'Credits')}</span></p>
+          <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{t('ads.wallet.adBalance', 'Ad Wallet balance')}</p>
+          <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{(balance?.adWalletBalance ?? 0).toLocaleString()} <span className="text-xs font-normal text-neutral-400 dark:text-neutral-500">{t('ads.wallet.credits', 'Credits')}</span></p>
         </div>
         <div>
-          <p className="text-[11px] text-neutral-400">{t('ads.wallet.mainBalance', 'Main wallet balance')}</p>
-          <p className="text-sm font-semibold text-neutral-600">{(balance?.mainWalletBalance ?? 0).toLocaleString()} {t('ads.wallet.credits', 'Credits')}</p>
+          <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{t('ads.wallet.mainBalance', 'Main wallet balance')}</p>
+          <p className="text-sm font-semibold text-neutral-600 dark:text-neutral-400">{(balance?.mainWalletBalance ?? 0).toLocaleString()} {t('ads.wallet.credits', 'Credits')}</p>
         </div>
       </div>
-      {error && <p className="mt-2 text-xs text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-xs text-red-600 dark:text-red-300">{error}</p>}
       <div className="mt-3 flex items-center gap-2">
         <input
           type="number"
           min={1}
           value={transferAmount}
           onChange={(e) => setTransferAmount(Number(e.target.value))}
-          className="w-28 rounded-lg border border-neutral-200 px-3 py-1.5 text-sm"
+          className="w-28 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-sm"
         />
         <button
           disabled={transferMutation.isPending}
@@ -238,20 +238,20 @@ function AdCampaignsTab() {
     onError: (err: unknown) => setError(err instanceof Error ? err.message : t('ads.coupons.invalid', 'Invalid coupon')),
   });
 
-  if (!eligibility) return <p className="text-center text-sm text-neutral-400 py-8">{t('action.loading', 'Loading…')}</p>;
+  if (!eligibility) return <p className="text-center text-sm text-neutral-400 dark:text-neutral-500 py-8">{t('action.loading', 'Loading…')}</p>;
 
   if (!eligibility.eligible) {
     return (
-      <div className="bg-white rounded-xl p-4 shadow-card text-center">
-        <p className="text-sm text-neutral-600">{eligibility.reason ?? t('ads.campaigns.ineligible', 'You are not eligible to place ads yet.')}</p>
-        <Link to="/business" className="mt-2 inline-block text-sm font-semibold text-primary-600">{t('ads.manageBusinessAccount', 'Manage Business Account →')}</Link>
+      <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card text-center">
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">{eligibility.reason ?? t('ads.campaigns.ineligible', 'You are not eligible to place ads yet.')}</p>
+        <Link to="/business" className="mt-2 inline-block text-sm font-semibold text-primary-600 dark:text-primary-300">{t('ads.manageBusinessAccount', 'Manage Business Account →')}</Link>
       </div>
     );
   }
 
   return (
     <>
-      {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+      {error && <p className="text-sm text-red-600 dark:text-red-300 mb-2">{error}</p>}
 
       <AdWalletPanel />
 
@@ -260,14 +260,14 @@ function AdCampaignsTab() {
           {t('ads.campaigns.new', '+ New Ad Campaign')}
         </button>
       ) : (
-        <div className="bg-white rounded-xl p-4 shadow-card mb-4 space-y-2">
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('ads.campaigns.name', 'Campaign Name')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <select value={placementKey} onChange={(e) => setPlacementKey(e.target.value as typeof placementKey)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm">
+        <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card mb-4 space-y-2">
+          <input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('ads.campaigns.name', 'Campaign Name')} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
+          <select value={placementKey} onChange={(e) => setPlacementKey(e.target.value as typeof placementKey)} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm">
             {PLACEMENTS.map((p) => <option key={p.key} value={p.key}>{t(p.labelKey)}</option>)}
           </select>
-          <input value={creativeTitle} onChange={(e) => setCreativeTitle(e.target.value)} placeholder={t('ads.campaigns.title', 'Ad Title')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <input value={clickUrl} onChange={(e) => setClickUrl(e.target.value)} placeholder={t('ads.campaigns.destinationUrl', 'Destination URL')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <input type="number" min={0} value={budgetCredits} onChange={(e) => setBudgetCredits(Number(e.target.value))} placeholder={t('ads.campaigns.budget', 'Budget (Credits)')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <input value={creativeTitle} onChange={(e) => setCreativeTitle(e.target.value)} placeholder={t('ads.campaigns.title', 'Ad Title')} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
+          <input value={clickUrl} onChange={(e) => setClickUrl(e.target.value)} placeholder={t('ads.campaigns.destinationUrl', 'Destination URL')} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
+          <input type="number" min={0} value={budgetCredits} onChange={(e) => setBudgetCredits(Number(e.target.value))} placeholder={t('ads.campaigns.budget', 'Budget (Credits)')} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
           <button
             onClick={() => name && clickUrl && createMutation.mutate()}
             disabled={createMutation.isPending}
@@ -279,18 +279,18 @@ function AdCampaignsTab() {
       )}
 
       {status === 'pending' ? (
-        <p className="text-center text-sm text-neutral-400 py-8">{t('action.loading', 'Loading…')}</p>
+        <p className="text-center text-sm text-neutral-400 dark:text-neutral-500 py-8">{t('action.loading', 'Loading…')}</p>
       ) : !campaigns || campaigns.length === 0 ? (
-        <p className="text-center text-sm text-neutral-400 py-8">{t('ads.campaigns.empty', 'No ad campaigns yet.')}</p>
+        <p className="text-center text-sm text-neutral-400 dark:text-neutral-500 py-8">{t('ads.campaigns.empty', 'No ad campaigns yet.')}</p>
       ) : (
         <div className="space-y-2">
           {campaigns.map((c) => (
-            <div key={c.id} className="bg-white rounded-xl p-4 shadow-card">
+            <div key={c.id} className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
               <div className="flex items-center gap-2 mb-1">
-                <p className="font-semibold text-sm text-neutral-900 truncate">{c.name}</p>
+                <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 truncate">{c.name}</p>
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${badgeClass(c.moderation_status)}`}>{c.moderation_status}</span>
               </div>
-              <p className="text-xs text-neutral-400">
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
                 {t('ads.campaigns.spentLine', 'Spent {{spent}} / {{total}} Credits', {
                   spent: Number(c.spent_credits).toLocaleString(),
                   total: Number(c.total_budget_credits).toLocaleString(),
@@ -302,11 +302,11 @@ function AdCampaignsTab() {
                     <button onClick={() => runStateMutation.mutate({ id: c.id, action: 'activate' })} className="rounded-lg bg-green-600 px-2.5 py-1 text-[11px] font-semibold text-white">{t('ads.campaigns.activate', 'Activate')}</button>
                   )}
                   {c.status === 'active' && (
-                    <button onClick={() => runStateMutation.mutate({ id: c.id, action: 'pause' })} className="rounded-lg border border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-neutral-700">{t('ads.campaigns.pause', 'Pause')}</button>
+                    <button onClick={() => runStateMutation.mutate({ id: c.id, action: 'pause' })} className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-2.5 py-1 text-[11px] font-semibold text-neutral-700 dark:text-neutral-300">{t('ads.campaigns.pause', 'Pause')}</button>
                   )}
                   <button
                     onClick={() => setCouponTargetId(couponTargetId === c.id ? null : c.id)}
-                    className="rounded-lg border border-neutral-200 px-2.5 py-1 text-[11px] font-semibold text-neutral-700"
+                    className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-2.5 py-1 text-[11px] font-semibold text-neutral-700 dark:text-neutral-300"
                   >
                     {t('ads.coupons.applyBtn', 'Apply coupon…')}
                   </button>
@@ -318,7 +318,7 @@ function AdCampaignsTab() {
                     value={couponCode}
                     onChange={(e) => setCouponCode(e.target.value)}
                     placeholder={t('ads.coupons.codePlaceholder', 'COUPON CODE')}
-                    className="flex-1 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs uppercase"
+                    className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-xs uppercase"
                   />
                   <button
                     onClick={() => couponCode.trim() && redeemCouponMutation.mutate({ campaignId: c.id, code: couponCode.trim() })}
@@ -406,16 +406,16 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
 
   if (account && !tierAllowed) {
     return (
-      <div className="bg-white rounded-xl p-4 shadow-card text-center">
-        <p className="text-sm text-neutral-600">{t('ads.quests.tierRequired', 'Sponsored Quests require the Growth tier or higher.')}</p>
-        <Link to="/business" className="mt-2 inline-block text-sm font-semibold text-primary-600">{t('ads.quests.upgradeOnWeb', 'Upgrade on web/PWA →')}</Link>
+      <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card text-center">
+        <p className="text-sm text-neutral-600 dark:text-neutral-400">{t('ads.quests.tierRequired', 'Sponsored Quests require the Growth tier or higher.')}</p>
+        <Link to="/business" className="mt-2 inline-block text-sm font-semibold text-primary-600 dark:text-primary-300">{t('ads.quests.upgradeOnWeb', 'Upgrade on web/PWA →')}</Link>
       </div>
     );
   }
 
   return (
     <>
-      {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+      {error && <p className="text-sm text-red-600 dark:text-red-300 mb-2">{error}</p>}
 
       {!showForm ? (
         <button
@@ -426,19 +426,19 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
           {t('ads.quests.submitButton', '+ Submit Sponsored Quest')}
         </button>
       ) : (
-        <div className="bg-white rounded-xl p-4 shadow-card mb-4 space-y-2">
-          <select value={businessPageId} onChange={(e) => setBusinessPageId(e.target.value)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm">
+        <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card mb-4 space-y-2">
+          <select value={businessPageId} onChange={(e) => setBusinessPageId(e.target.value)} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm">
             <option value="">{t('ads.quests.selectPage', 'Select a page…')}</option>
             {(pages ?? []).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('ads.quests.titlePlaceholder', 'Quest title')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('ads.quests.descriptionPlaceholder', 'Description')} rows={2} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <textarea value={requirements} onChange={(e) => setRequirements(e.target.value)} placeholder={t('ads.quests.requirementsPlaceholder', 'Requirements')} rows={2} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <input type="number" min={100} value={rewardCoins} onChange={(e) => setRewardCoins(Number(e.target.value))} placeholder={t('ads.quests.rewardPlaceholder', 'Reward {{currency}}', { currency: currency.softPlural })} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('ads.quests.titlePlaceholder', 'Quest title')} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
+          <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('ads.quests.descriptionPlaceholder', 'Description')} rows={2} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
+          <textarea value={requirements} onChange={(e) => setRequirements(e.target.value)} placeholder={t('ads.quests.requirementsPlaceholder', 'Requirements')} rows={2} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
+          <input type="number" min={100} value={rewardCoins} onChange={(e) => setRewardCoins(Number(e.target.value))} placeholder={t('ads.quests.rewardPlaceholder', 'Reward {{currency}}', { currency: currency.softPlural })} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
+          <input type="datetime-local" value={deadline} onChange={(e) => setDeadline(e.target.value)} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
 
-          <div className="rounded-lg border border-dashed border-neutral-300 p-3 space-y-2">
-            <label className="flex items-center gap-2 text-xs font-semibold text-neutral-700">
+          <div className="rounded-lg border border-dashed border-neutral-300 dark:border-neutral-600 p-3 space-y-2">
+            <label className="flex items-center gap-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
               <input type="checkbox" checked={runInDailyDecks} onChange={(e) => setRunInDailyDecks(e.target.checked)} />
               {t('ads.quests.dailyDeckToggle', "Also boost this in regular users' daily quest decks")}
             </label>
@@ -450,16 +450,16 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
                       key={p.key}
                       type="button"
                       onClick={() => setDurationPreset(p.key)}
-                      className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium ${durationPreset === p.key ? 'border-primary-600 bg-primary-600 text-white' : 'border-neutral-300 text-neutral-600'}`}
+                      className={`rounded-lg border px-2.5 py-1 text-[11px] font-medium ${durationPreset === p.key ? 'border-primary-600 bg-primary-600 text-white' : 'border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400'}`}
                     >
                       {p.label}
                     </button>
                   ))}
                 </div>
-                <input type="number" min={0} value={totalBudgetCredits} onChange={(e) => setTotalBudgetCredits(Number(e.target.value))} placeholder={t('ads.quests.totalBudget', 'Total Budget ({{currency}})', { currency: currency.softPlural })} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-                <input type="number" min={0} value={dailyBudgetCredits} onChange={(e) => setDailyBudgetCredits(e.target.value)} placeholder={t('ads.quests.dailyCap', 'Daily Cap ({{currency}}, optional)', { currency: currency.softPlural })} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-                <input value={targetAction} onChange={(e) => setTargetAction(e.target.value)} placeholder={t('ads.quests.targetActionPlaceholder', 'Action to complete (optional)')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-                <p className="text-[11px] text-neutral-400">
+                <input type="number" min={0} value={totalBudgetCredits} onChange={(e) => setTotalBudgetCredits(Number(e.target.value))} placeholder={t('ads.quests.totalBudget', 'Total Budget ({{currency}})', { currency: currency.softPlural })} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
+                <input type="number" min={0} value={dailyBudgetCredits} onChange={(e) => setDailyBudgetCredits(e.target.value)} placeholder={t('ads.quests.dailyCap', 'Daily Cap ({{currency}}, optional)', { currency: currency.softPlural })} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
+                <input value={targetAction} onChange={(e) => setTargetAction(e.target.value)} placeholder={t('ads.quests.targetActionPlaceholder', 'Action to complete (optional)')} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
+                <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
                   {t('ads.quests.estimatedReach', 'Estimated reach: {{reach}} impressions.', { reach: estimatedReach.toLocaleString() })}
                 </p>
               </>
@@ -477,26 +477,26 @@ function SponsoredQuestsTab({ account, pages }: { account: BusinessAccount | nul
       )}
 
       {status === 'pending' ? (
-        <p className="text-center text-sm text-neutral-400 py-8">{t('action.loading', 'Loading…')}</p>
+        <p className="text-center text-sm text-neutral-400 dark:text-neutral-500 py-8">{t('action.loading', 'Loading…')}</p>
       ) : !quests || quests.length === 0 ? (
-        <p className="text-center text-sm text-neutral-400 py-8">{t('ads.quests.empty', 'No Sponsored Quests yet.')}</p>
+        <p className="text-center text-sm text-neutral-400 dark:text-neutral-500 py-8">{t('ads.quests.empty', 'No Sponsored Quests yet.')}</p>
       ) : (
         <div className="space-y-2">
           {quests.map((q) => (
-            <div key={q.id} className="bg-white rounded-xl p-4 shadow-card">
+            <div key={q.id} className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
               <div className="flex items-center gap-2 mb-1">
-                <p className="font-semibold text-sm text-neutral-900 truncate">{q.title}</p>
+                <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 truncate">{q.title}</p>
                 <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${badgeClass(q.moderation_status)}`}>{q.moderation_status}</span>
               </div>
-              <p className="text-xs text-neutral-500 line-clamp-2">{q.description}</p>
+              <p className="text-xs text-neutral-500 dark:text-neutral-400 line-clamp-2">{q.description}</p>
               {q.pause_reason && (
-                <p className="text-[11px] text-amber-600 mt-1">
+                <p className="text-[11px] text-amber-600 dark:text-amber-300 mt-1">
                   ⚠️ {t('ads.quests.pausedNote', 'Paused: {{reason}}. Restart it once resolved.', { reason: q.pause_reason })}
                 </p>
               )}
-              <p className="text-xs text-neutral-400 mt-1">🪙 {t('ads.quests.rewardLabel', '{{count}} {{currency}}', { count: q.reward_coins, currency: currency.softPlural })}</p>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">🪙 {t('ads.quests.rewardLabel', '{{count}} {{currency}}', { count: q.reward_coins, currency: currency.softPlural })}</p>
               {q.is_daily_quest_eligible && (
-                <p className="text-[11px] text-neutral-400 mt-0.5">
+                <p className="text-[11px] text-neutral-400 dark:text-neutral-500 mt-0.5">
                   {t('ads.quests.spendLine', '{{spent}}/{{total}} {{currency}} spent · {{impressions}} impressions', {
                     spent: Number(q.spent_credits).toLocaleString(),
                     total: Number(q.total_budget_credits).toLocaleString(),
@@ -534,14 +534,14 @@ function BusinessAdsPage() {
   const [tab, setTab] = useState<'campaigns' | 'quests'>('campaigns');
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-lg font-bold text-neutral-900 mb-3">{t('ads.panelTitle', 'Advertising Panel')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-3">{t('ads.panelTitle', 'Advertising Panel')}</h1>
 
-      <div className="flex gap-2 rounded-xl bg-neutral-100 p-1 mb-4">
-        <button onClick={() => setTab('campaigns')} className={`flex-1 rounded-lg py-2 text-xs font-semibold ${tab === 'campaigns' ? 'bg-white text-neutral-900 shadow-card' : 'text-neutral-500'}`}>
+      <div className="flex gap-2 rounded-xl bg-neutral-100 dark:bg-neutral-800 p-1 mb-4">
+        <button onClick={() => setTab('campaigns')} className={`flex-1 rounded-lg py-2 text-xs font-semibold ${tab === 'campaigns' ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-card' : 'text-neutral-500 dark:text-neutral-400'}`}>
           {t('ads.tabs.campaigns', 'Ad Campaigns')}
         </button>
-        <button onClick={() => setTab('quests')} className={`flex-1 rounded-lg py-2 text-xs font-semibold ${tab === 'quests' ? 'bg-white text-neutral-900 shadow-card' : 'text-neutral-500'}`}>
+        <button onClick={() => setTab('quests')} className={`flex-1 rounded-lg py-2 text-xs font-semibold ${tab === 'quests' ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-card' : 'text-neutral-500 dark:text-neutral-400'}`}>
           {t('ads.tabs.quests', 'Sponsored Quests')}
         </button>
       </div>

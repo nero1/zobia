@@ -56,9 +56,9 @@ async function fetchAiSettings(): Promise<AiSettingsData> {
 function CircuitBadge({ circuit }: { circuit: CircuitInfo }) {
   const { t } = useTranslation();
   const map: Record<CircuitStatus, { dot: string; text: string; labelKey: string; labelDefault: string }> = {
-    closed: { dot: 'bg-teal-500', text: 'text-teal-700', labelKey: 'admin.aiSettings.circuit.closed', labelDefault: 'Circuit Closed' },
-    'half-open': { dot: 'bg-amber-500', text: 'text-amber-700', labelKey: 'admin.aiSettings.circuit.halfOpen', labelDefault: 'Circuit Half-Open' },
-    open: { dot: 'bg-danger-500', text: 'text-danger-700', labelKey: 'admin.aiSettings.circuit.open', labelDefault: 'Circuit Open' },
+    closed: { dot: 'bg-teal-500', text: 'text-teal-700 dark:text-teal-300', labelKey: 'admin.aiSettings.circuit.closed', labelDefault: 'Circuit Closed' },
+    'half-open': { dot: 'bg-amber-500', text: 'text-amber-700 dark:text-amber-300', labelKey: 'admin.aiSettings.circuit.halfOpen', labelDefault: 'Circuit Half-Open' },
+    open: { dot: 'bg-danger-500', text: 'text-danger-700 dark:text-danger-300', labelKey: 'admin.aiSettings.circuit.open', labelDefault: 'Circuit Open' },
   };
   const style = map[circuit.status];
   const openedAgo = circuit.openedAt ? Math.round((Date.now() - circuit.openedAt) / 1000) : null;
@@ -67,7 +67,7 @@ function CircuitBadge({ circuit }: { circuit: CircuitInfo }) {
       <span className={`inline-block h-2 w-2 rounded-full ${style.dot}`} />
       <span className={`text-xs font-semibold ${style.text}`}>{t(style.labelKey, style.labelDefault)}</span>
       {circuit.failures > 0 && (
-        <span className="text-xs text-neutral-500">
+        <span className="text-xs text-neutral-500 dark:text-neutral-400">
           ({t('admin.aiSettings.circuit.failures', '{{count}} failure', { count: circuit.failures })}
           {openedAgo !== null ? `, ${openedAgo}s ago` : ''})
         </span>
@@ -104,13 +104,13 @@ function ProviderCard({
   const testSucceeded = testResult ? !testResult.error : false;
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
-      <h2 className="mb-3 text-sm font-bold text-neutral-900">{t(titleKey, titleDefault)}</h2>
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
+      <h2 className="mb-3 text-sm font-bold text-neutral-900 dark:text-neutral-100">{t(titleKey, titleDefault)}</h2>
 
       {info?.circuit && <div className="mb-3"><CircuitBadge circuit={info.circuit} /></div>}
 
-      <div className="mb-3 text-xs text-neutral-600">
-        <span className="font-medium text-neutral-800">{t('admin.aiSettings.keySourceLabel', 'Key source')}: </span>
+      <div className="mb-3 text-xs text-neutral-600 dark:text-neutral-400">
+        <span className="font-medium text-neutral-800 dark:text-neutral-200">{t('admin.aiSettings.keySourceLabel', 'Key source')}: </span>
         {info
           ? info.keySource === 'override'
             ? t('admin.aiSettings.keySource.override', 'Override active (ends {{masked}})', { masked: info.keyMasked ?? '' })
@@ -141,7 +141,7 @@ function ProviderCard({
               type="button"
               disabled={saving}
               onClick={onClearOverride}
-              className="flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700 disabled:opacity-50"
+              className="flex-1 rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
             >
               {t('admin.aiSettings.clearOverride', 'Clear Override')}
             </button>
@@ -154,12 +154,12 @@ function ProviderCard({
           type="button"
           disabled={testing}
           onClick={() => onTest(keyDraft)}
-          className="w-fit rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700 disabled:opacity-50"
+          className="w-fit rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50"
         >
           {testing ? t('admin.aiSettings.testing', 'Testing…') : t('admin.aiSettings.testConnection', 'Test Connection')}
         </button>
         {testResult && (
-          <div className={`rounded-lg px-3 py-2 text-xs ${testSucceeded ? 'bg-success-50 text-success-700' : 'bg-danger-50 text-danger-700'}`}>
+          <div className={`rounded-lg px-3 py-2 text-xs ${testSucceeded ? 'bg-success-50 dark:bg-success-900/30 text-success-700 dark:text-success-300' : 'bg-danger-50 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300'}`}>
             {testSucceeded
               ? t('admin.aiSettings.testSuccess', 'Connected — {{latencyMs}}ms ({{model}})', { latencyMs: testResult.latencyMs, model: testResult.model ?? '' })
               : t('admin.aiSettings.testFailed', 'Connection failed: {{error}}', { error: testResult.error ?? 'Unknown error' })}
@@ -203,8 +203,8 @@ function AdminAiSettingsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="text-xl font-bold text-neutral-900">{t('admin.aiSettings', 'AI Settings')}</h1>
-      <p className="mb-4 mt-1 text-xs text-neutral-500">{t('admin.aiSettings.subtitle', 'Manage API keys and connection status for AI providers.')}</p>
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.aiSettings', 'AI Settings')}</h1>
+      <p className="mb-4 mt-1 text-xs text-neutral-500 dark:text-neutral-400">{t('admin.aiSettings.subtitle', 'Manage API keys and connection status for AI providers.')}</p>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
@@ -212,7 +212,7 @@ function AdminAiSettingsPage() {
 
       {status === 'pending' && (
         <div className="space-y-3">
-          {[0, 1].map((i) => <div key={i} className="h-56 animate-pulse rounded-xl bg-neutral-200" />)}
+          {[0, 1].map((i) => <div key={i} className="h-56 animate-pulse rounded-xl bg-neutral-200 dark:bg-neutral-700" />)}
         </div>
       )}
 

@@ -88,18 +88,18 @@ function OverviewTab() {
         <AdminStatCard label={t('admin.ads.totalBudget', 'Total Budget (Credits)')} value={fmtNumber(Number(data.totalBudgetCredits))} color="green" />
       </div>
       <div>
-        <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.ads.topCampaigns', 'Top campaigns by spend')}</h2>
+        <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.ads.topCampaigns', 'Top campaigns by spend')}</h2>
         {data.topCampaigns.length === 0 ? (
-          <p className="text-sm text-neutral-400">{t('admin.ads.noSpend', 'No spend yet.')}</p>
+          <p className="text-sm text-neutral-400 dark:text-neutral-500">{t('admin.ads.noSpend', 'No spend yet.')}</p>
         ) : (
           <div className="space-y-1.5">
             {data.topCampaigns.map((c) => (
-              <div key={c.id} className="flex items-center justify-between rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
+              <div key={c.id} className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-sm">
                 <div className="min-w-0">
-                  <p className="truncate font-medium text-neutral-800">{c.name}</p>
-                  <p className="truncate text-xs text-neutral-500">{c.advertiser_name}</p>
+                  <p className="truncate font-medium text-neutral-800 dark:text-neutral-200">{c.name}</p>
+                  <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">{c.advertiser_name}</p>
                 </div>
-                <span className="shrink-0 text-xs font-semibold text-neutral-700">{fmtNumber(Number(c.spent_credits))} Cr</span>
+                <span className="shrink-0 text-xs font-semibold text-neutral-700 dark:text-neutral-300">{fmtNumber(Number(c.spent_credits))} Cr</span>
               </div>
             ))}
           </div>
@@ -143,8 +143,8 @@ function ModerationTab({ notify }: { notify: (msg: string, type?: 'success' | 'e
       {status === 'success' &&
         data?.map((c) => (
           <AdminCard key={c.id}>
-            <p className="font-semibold text-neutral-900">{c.name}</p>
-            <p className="mt-0.5 text-xs text-neutral-500">
+            <p className="font-semibold text-neutral-900 dark:text-neutral-100">{c.name}</p>
+            <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
               {c.advertiser_name} · {c.objective} · CPM {c.cpm_credits} Cr · {t('admin.ads.budget', 'Budget')} {fmtNumber(Number(c.total_budget_credits))} Cr
             </p>
             <div className="mt-2.5 flex gap-2">
@@ -213,19 +213,19 @@ function PlacementsTab({ notify }: { notify: (msg: string, type?: 'success' | 'e
           <AdminCard key={p.key}>
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
-                <p className="truncate text-sm font-semibold text-neutral-900">{p.label}</p>
-                <p className="text-xs text-neutral-500">{p.key} · {p.size}</p>
+                <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{p.label}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{p.key} · {p.size}</p>
               </div>
               <button
                 type="button"
                 onClick={() => patch.mutate({ key: p.key, body: { isActive: !p.is_active } })}
-                className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${p.is_active ? 'bg-success-100 text-success-700' : 'bg-neutral-200 text-neutral-500'}`}
+                className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${p.is_active ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'}`}
               >
                 {p.is_active ? t('admin.events.active', 'Active') : t('admin.events.inactive', 'Inactive')}
               </button>
             </div>
             <label className="mt-2.5 block">
-              <span className="mb-1 block text-[11px] font-semibold text-neutral-500">{t('admin.ads.baseCpm', 'Base CPM (Credits / 1000 impressions)')}</span>
+              <span className="mb-1 block text-[11px] font-semibold text-neutral-500 dark:text-neutral-400">{t('admin.ads.baseCpm', 'Base CPM (Credits / 1000 impressions)')}</span>
               <input
                 type="number"
                 defaultValue={p.base_cpm_credits}
@@ -283,8 +283,8 @@ function CouponsTab({ notify }: { notify: (msg: string, type?: 'success' | 'erro
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
-        <p className="mb-3 text-sm font-semibold text-neutral-900">{t('admin.ads.createCoupon', 'Create Coupon')}</p>
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
+        <p className="mb-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.ads.createCoupon', 'Create Coupon')}</p>
         <div className="space-y-2.5">
           <input value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} placeholder={t('admin.ads.couponCode', 'CODE')} className={adminInputClass} />
           <select value={discountType} onChange={(e) => setDiscountType(e.target.value as typeof discountType)} className={adminInputClass}>
@@ -313,13 +313,13 @@ function CouponsTab({ notify }: { notify: (msg: string, type?: 'success' | 'erro
             <AdminCard key={c.id}>
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-neutral-900">{c.code}</p>
-                  <p className="text-xs text-neutral-500">{c.discount_type} · {c.discount_value} · {c.redemptions_count}/{c.max_redemptions ?? '∞'} {t('admin.ads.redeemed', 'redeemed')}</p>
+                  <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{c.code}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">{c.discount_type} · {c.discount_value} · {c.redemptions_count}/{c.max_redemptions ?? '∞'} {t('admin.ads.redeemed', 'redeemed')}</p>
                 </div>
                 <button
                   type="button"
                   onClick={() => toggle.mutate({ id: c.id, isActive: !c.is_active })}
-                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${c.is_active ? 'bg-success-100 text-success-700' : 'bg-neutral-200 text-neutral-500'}`}
+                  className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${c.is_active ? 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300' : 'bg-neutral-200 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400'}`}
                 >
                   {c.is_active ? t('admin.events.active', 'Active') : t('admin.events.inactive', 'Inactive')}
                 </button>
@@ -354,7 +354,7 @@ function AdminAdsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.ads', 'Ads')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.ads', 'Ads')}</h1>
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
       <AdminTabs tabs={tabs} active={tab} onChange={setTab} />
 

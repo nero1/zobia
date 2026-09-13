@@ -39,14 +39,14 @@ export function PhotoGallery({ userId }: { userId: string }) {
     return (
       <div className="grid grid-cols-3 gap-2">
         {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="aspect-square animate-pulse rounded-lg bg-neutral-200" />
+          <div key={i} className="aspect-square animate-pulse rounded-lg bg-neutral-200 dark:bg-neutral-700" />
         ))}
       </div>
     );
   }
 
   if (!photos || photos.length === 0) {
-    return <p className="py-6 text-center text-sm text-neutral-500">{t('profile.gallery.empty', 'No photos yet')}</p>;
+    return <p className="py-6 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('profile.gallery.empty', 'No photos yet')}</p>;
   }
 
   return (
@@ -57,7 +57,7 @@ export function PhotoGallery({ userId }: { userId: string }) {
             key={p.id}
             type="button"
             onClick={() => setLightbox(p)}
-            className="aspect-square overflow-hidden rounded-lg bg-neutral-100"
+            className="aspect-square overflow-hidden rounded-lg bg-neutral-100 dark:bg-neutral-800"
           >
             {p.media_url && <img src={p.media_url} alt={p.caption ?? ''} className="h-full w-full object-cover" />}
           </button>

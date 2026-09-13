@@ -41,10 +41,10 @@ async function fetchMyBlog() {
 
 function SkeletonCard() {
   return (
-    <div className="bg-white rounded-xl p-4 shadow-card animate-pulse">
-      <div className="w-full h-20 rounded-xl bg-neutral-200 mb-3" />
-      <div className="h-4 bg-neutral-200 rounded w-3/4 mb-2" />
-      <div className="h-3 bg-neutral-100 rounded w-1/2" />
+    <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card animate-pulse">
+      <div className="w-full h-20 rounded-xl bg-neutral-200 dark:bg-neutral-700 mb-3" />
+      <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-3/4 mb-2" />
+      <div className="h-3 bg-neutral-100 dark:bg-neutral-800 rounded w-1/2" />
     </div>
   );
 }
@@ -63,13 +63,13 @@ function BlogsPage() {
   const { data: myBlog } = useQuery({ queryKey: ['blogs', 'me'], queryFn: fetchMyBlog, staleTime: 60_000 });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       <div className="mb-3 flex justify-between items-center">
-        <h1 className="text-lg font-bold text-neutral-900">{t('blogs.title', 'Blogs')}</h1>
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('blogs.title', 'Blogs')}</h1>
         <Link
           to={myBlog ? '/blogs/$slug' : '/blogs/new'}
           params={myBlog ? { slug: myBlog.slug } : undefined}
-          className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700"
+          className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300"
         >
           {myBlog ? t('blogs.myDashboard', 'My Blog') : t('blogs.startBlog', 'Start a Blog')}
         </Link>
@@ -80,14 +80,14 @@ function BlogsPage() {
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder={t('blogs.search.placeholder', 'Search blogs…')}
-        className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 mb-3 focus:border-primary-500 focus:outline-none"
+        className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 mb-3 focus:border-primary-500 focus:outline-none"
       />
 
       <button
         type="button"
         onClick={() => setSubscribedOnly((s) => !s)}
         className={`mb-4 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition-colors ${
-          subscribedOnly ? 'bg-primary-600 text-white' : 'bg-white text-neutral-700 border border-neutral-200'
+          subscribedOnly ? 'bg-primary-600 text-white' : 'bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700'
         }`}
       >
         <span aria-hidden="true">🔔</span>
@@ -102,7 +102,7 @@ function BlogsPage() {
 
       {status === 'success' && blogs.length === 0 && (
         <div className="flex items-center justify-center py-20">
-          <p className="text-neutral-500 text-sm">
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">
             {subscribedOnly
               ? t('blogs.subscribed.empty', "You haven't subscribed to any blogs yet.")
               : t('blogs.empty', 'No blogs yet — be the first to start one.')}
@@ -113,12 +113,12 @@ function BlogsPage() {
       {status === 'success' && blogs.length > 0 && (
         <div className="grid grid-cols-2 gap-3">
           {blogs.map((b) => (
-            <Link key={b.id} to="/blogs/$slug" params={{ slug: b.slug }} className="block bg-white rounded-xl p-4 shadow-card active:scale-95 transition-transform">
-              <div className="flex items-center justify-center h-16 rounded-xl bg-neutral-100 text-3xl mb-2">📝</div>
-              <p className="font-semibold text-neutral-900 text-sm truncate">{b.title}</p>
-              {b.tagline && <p className="text-neutral-500 text-xs mt-0.5 truncate">{b.tagline}</p>}
+            <Link key={b.id} to="/blogs/$slug" params={{ slug: b.slug }} className="block bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card active:scale-95 transition-transform">
+              <div className="flex items-center justify-center h-16 rounded-xl bg-neutral-100 dark:bg-neutral-800 text-3xl mb-2">📝</div>
+              <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm truncate">{b.title}</p>
+              {b.tagline && <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-0.5 truncate">{b.tagline}</p>}
               <div className="flex items-center gap-2 mt-2">
-                <span className="text-xs text-neutral-400">{b.post_count} posts</span>
+                <span className="text-xs text-neutral-400 dark:text-neutral-500">{b.post_count} posts</span>
                 {b.show_subscriber_count && <span className="text-xs text-emerald-600">{b.subscriber_count} subs</span>}
               </div>
             </Link>

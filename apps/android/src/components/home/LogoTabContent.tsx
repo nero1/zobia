@@ -31,18 +31,18 @@ export function LogoTabContent() {
       <ZobianOfMonthCard />
 
       <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">{t('home.sections.quests')}</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">{t('home.sections.quests')}</h2>
         <DailyQuestDeck />
         <NewMemberQuestCard />
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">{t('home.sections.challenges')}</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">{t('home.sections.challenges')}</h2>
         <NemesisCard />
       </section>
 
       <section className="space-y-3">
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400">{t('home.sections.presence')}</h2>
+        <h2 className="text-xs font-semibold uppercase tracking-wider text-neutral-400 dark:text-neutral-500">{t('home.sections.presence')}</h2>
         <PresenceTabs />
       </section>
 

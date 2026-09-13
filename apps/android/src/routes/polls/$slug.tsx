@@ -82,36 +82,36 @@ function FundTreasuryModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <p className="text-base font-bold text-neutral-900">{t('polls.treasury.title', 'Fund Reward Pot')}</p>
-        <p className="mt-1 text-sm text-neutral-500">{t('polls.treasury.desc', 'Reward voters from a shared pot, split evenly among claimants.')}</p>
+      <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <p className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('polls.treasury.title', 'Fund Reward Pot')}</p>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('polls.treasury.desc', 'Reward voters from a shared pot, split evenly among claimants.')}</p>
 
         <label className="mt-4 block">
-          <span className="mb-1.5 block text-xs font-semibold text-neutral-600">{t('polls.treasury.amount', 'Total Amount ({{currency}})', { currency: currency.softPlural })}</span>
+          <span className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('polls.treasury.amount', 'Total Amount ({{currency}})', { currency: currency.softPlural })}</span>
           <input
             type="number"
             min="1"
             inputMode="numeric"
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
-            className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
           />
         </label>
 
         <label className="mt-3 block">
-          <span className="mb-1.5 block text-xs font-semibold text-neutral-600">{t('polls.treasury.maxClaimants', 'Max Claimants')}</span>
+          <span className="mb-1.5 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('polls.treasury.maxClaimants', 'Max Claimants')}</span>
           <input
             type="number"
             min="1"
             inputMode="numeric"
             value={maxClaimants}
             onChange={(e) => setMaxClaimants(e.target.value)}
-            className="w-full rounded-lg border border-neutral-300 bg-white px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
+            className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-3 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
           />
         </label>
 
         <div className="mt-5 flex gap-3">
-          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60">
+          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60">
             {t('answers.ask.cancel')}
           </button>
           <button
@@ -243,14 +243,14 @@ function PollDetailPage() {
   }
 
   if (pollQuery.isPending) {
-    return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
+    return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4"><div className="h-24 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" /></div>;
   }
 
   if (!poll) {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center">
-        <p className="text-sm text-neutral-500">{t('polls.notFound', 'Poll not found')}</p>
-        <Link to="/polls" className="mt-3 inline-block text-sm font-semibold text-primary-600">← {t('polls.title', 'Polls')}</Link>
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center">
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('polls.notFound', 'Poll not found')}</p>
+        <Link to="/polls" className="mt-3 inline-block text-sm font-semibold text-primary-600 dark:text-primary-300">← {t('polls.title', 'Polls')}</Link>
       </div>
     );
   }
@@ -259,18 +259,18 @@ function PollDetailPage() {
   const treasury = treasuryQuery.data;
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
-      <div className="rounded-xl border border-neutral-200 bg-white p-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
         <div className="flex items-center gap-2">
-          <h1 className="flex-1 text-base font-bold text-neutral-900">{poll.title}</h1>
+          <h1 className="flex-1 text-base font-bold text-neutral-900 dark:text-neutral-100">{poll.title}</h1>
           {poll.status !== 'active' && (
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-500">
+            <span className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">
               {poll.status === 'closed' ? t('polls.status.closed', 'Closed') : t('polls.status.disabled', 'Disabled')}
             </span>
           )}
         </div>
-        {poll.description && <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-700">{poll.description}</p>}
-        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+        {poll.description && <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-700 dark:text-neutral-300">{poll.description}</p>}
+        <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
           <span>@{poll.creatorUsername ?? 'unknown'}</span>
           <span>·</span>
           <span>{timeAgo(poll.createdAt)}</span>
@@ -285,10 +285,10 @@ function PollDetailPage() {
         </div>
       </div>
 
-      {rewardMessage && <div className="rounded-xl border border-success-200 bg-success-50 px-4 py-3 text-sm text-success-700">{rewardMessage}</div>}
-      {errorMessage && <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>}
+      {rewardMessage && <div className="rounded-xl border border-success-200 bg-success-50 dark:bg-success-900/30 px-4 py-3 text-sm text-success-700 dark:text-success-300">{rewardMessage}</div>}
+      {errorMessage && <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">{errorMessage}</div>}
 
-      <div className="rounded-xl border border-neutral-200 bg-white p-4 space-y-2">
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 space-y-2">
         {poll.options.map((opt) => {
           const pct = totalVotes > 0 ? Math.round((opt.voteCount / totalVotes) * 100) : 0;
           const isMine = poll.myVoteOptionIds.includes(opt.id);
@@ -296,13 +296,13 @@ function PollDetailPage() {
 
           if (showResults) {
             return (
-              <div key={opt.id} className="relative overflow-hidden rounded-lg border border-neutral-200">
-                <div className="absolute inset-y-0 left-0 bg-primary-100" style={{ width: `${pct}%` }} />
+              <div key={opt.id} className="relative overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700">
+                <div className="absolute inset-y-0 left-0 bg-primary-100 dark:bg-primary-900/40" style={{ width: `${pct}%` }} />
                 <div className="relative flex items-center justify-between px-3 py-2.5">
-                  <span className={`text-sm ${isMine ? 'font-semibold text-primary-700' : 'text-neutral-800'}`}>
+                  <span className={`text-sm ${isMine ? 'font-semibold text-primary-700 dark:text-primary-300' : 'text-neutral-800 dark:text-neutral-200'}`}>
                     {isMine && '✓ '}{opt.label}
                   </span>
-                  <span className="text-xs font-semibold tabular-nums text-neutral-600">{pct}% ({opt.voteCount})</span>
+                  <span className="text-xs font-semibold tabular-nums text-neutral-600 dark:text-neutral-400">{pct}% ({opt.voteCount})</span>
                 </div>
               </div>
             );
@@ -313,10 +313,10 @@ function PollDetailPage() {
               key={opt.id}
               type="button"
               onClick={() => toggleOption(opt.id)}
-              className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm ${isChecked ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-200 text-neutral-800'}`}
+              className={`flex w-full items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm ${isChecked ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'border-neutral-200 dark:border-neutral-700 text-neutral-800 dark:text-neutral-200'}`}
             >
               <span
-                className={`flex h-4 w-4 shrink-0 items-center justify-center border ${poll.allowMultiple ? 'rounded' : 'rounded-full'} ${isChecked ? 'border-primary-600 bg-primary-600' : 'border-neutral-300'}`}
+                className={`flex h-4 w-4 shrink-0 items-center justify-center border ${poll.allowMultiple ? 'rounded' : 'rounded-full'} ${isChecked ? 'border-primary-600 bg-primary-600' : 'border-neutral-300 dark:border-neutral-600'}`}
               >
                 {isChecked && <span className="text-[10px] text-white">✓</span>}
               </span>
@@ -338,20 +338,20 @@ function PollDetailPage() {
       </div>
 
       <div className="flex items-center gap-3">
-        <button onClick={() => void handleShare()} className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-600">
+        <button onClick={() => void handleShare()} className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
           {shareCopied ? t('answers.linkCopied', 'Link copied') : t('polls.share', 'Share')} ({poll.shareCount})
         </button>
         {poll.isOwner && (
-          <button onClick={() => setFundingOpen(true)} className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-600">
+          <button onClick={() => setFundingOpen(true)} className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
             {t('polls.treasury.cta', 'Fund Reward Pot')}
           </button>
         )}
       </div>
 
       {treasury && (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-          <p className="text-sm font-semibold text-amber-800">{t('polls.treasury.active', 'Reward Pot Active')}</p>
-          <p className="mt-1 text-xs text-amber-700">
+        <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 p-4">
+          <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">{t('polls.treasury.active', 'Reward Pot Active')}</p>
+          <p className="mt-1 text-xs text-amber-700 dark:text-amber-300">
             {t('polls.treasury.remaining', '{{remaining}} {{currency}} remaining · {{claimed}}/{{max}} claimed', {
               remaining: treasury.remainingAmount,
               currency: currency.softPlural,
@@ -363,20 +363,20 @@ function PollDetailPage() {
       )}
 
       {poll.isOwner && (
-        <div className="rounded-xl border border-neutral-200 bg-white p-4">
-          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('polls.owner.manage', 'Manage')}</p>
+        <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
+          <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('polls.owner.manage', 'Manage')}</p>
           <div className="flex flex-wrap gap-2">
             {poll.status !== 'closed' && (
-              <button onClick={() => setStatus.mutate('closed')} disabled={setStatus.isPending} className="rounded-lg bg-neutral-100 px-3 py-1.5 text-xs font-semibold text-neutral-700 disabled:opacity-50">
+              <button onClick={() => setStatus.mutate('closed')} disabled={setStatus.isPending} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50">
                 {t('polls.owner.close', 'Close poll')}
               </button>
             )}
             {poll.status !== 'active' && (
-              <button onClick={() => setStatus.mutate('active')} disabled={setStatus.isPending} className="rounded-lg bg-success-100 px-3 py-1.5 text-xs font-semibold text-success-700 disabled:opacity-50">
+              <button onClick={() => setStatus.mutate('active')} disabled={setStatus.isPending} className="rounded-lg bg-success-100 dark:bg-success-900/40 px-3 py-1.5 text-xs font-semibold text-success-700 dark:text-success-300 disabled:opacity-50">
                 {t('polls.owner.reopen', 'Reopen poll')}
               </button>
             )}
-            <button onClick={() => deletePoll.mutate()} disabled={deletePoll.isPending} className="rounded-lg bg-danger-100 px-3 py-1.5 text-xs font-semibold text-danger-700 disabled:opacity-50">
+            <button onClick={() => deletePoll.mutate()} disabled={deletePoll.isPending} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-3 py-1.5 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
               {t('common.delete', 'Delete')}
             </button>
           </div>

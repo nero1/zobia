@@ -92,7 +92,7 @@ export function PullToRefresh({
         style={{ height: indicatorVisible ? Math.max(pullDistance, refreshing ? 40 : 0) : 0 }}
       >
         <div
-          className={`flex h-7 w-7 items-center justify-center rounded-full border-2 border-neutral-300 text-neutral-500 ${
+          className={`flex h-7 w-7 items-center justify-center rounded-full border-2 border-neutral-300 dark:border-neutral-600 text-neutral-500 dark:text-neutral-400 ${
             refreshing ? 'animate-spin border-t-primary-500' : ''
           }`}
           style={!refreshing ? { transform: `rotate(${progress * 180}deg)` } : undefined}

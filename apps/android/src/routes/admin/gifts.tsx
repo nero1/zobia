@@ -127,12 +127,12 @@ function AdminGiftsPage() {
   return (
     <div className="px-4 py-5">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.gifts', 'Gifts Catalog')}</h1>
-        <button type="button" onClick={openCreate} className="shrink-0 rounded-lg bg-amber-400 px-3 py-2 text-xs font-bold text-neutral-900">
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.gifts', 'Gifts Catalog')}</h1>
+        <button type="button" onClick={openCreate} className="shrink-0 rounded-lg bg-amber-400 px-3 py-2 text-xs font-bold text-neutral-900 dark:text-neutral-100">
           {t('admin.gifts.new', '+ New Gift')}
         </button>
       </div>
-      <label className="mb-4 flex items-center gap-2 text-sm text-neutral-600">
+      <label className="mb-4 flex items-center gap-2 text-sm text-neutral-600 dark:text-neutral-400">
         <AdminToggle checked={showRetired} onChange={setShowRetired} />
         {t('admin.gifts.showRetired', 'Show retired')}
       </label>
@@ -150,21 +150,21 @@ function AdminGiftsPage() {
                 <span className="text-2xl">{g.emoji}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <p className="font-semibold text-neutral-900">{g.name}</p>
+                    <p className="font-semibold text-neutral-900 dark:text-neutral-100">{g.name}</p>
                     <AdminBadge label={`T${g.tier}`} color={TIER_COLOR[g.tier] ?? 'neutral'} />
                     {!g.isActive && <AdminBadge label={t('admin.gifts.retiredBadge', 'Retired')} color="red" />}
                   </div>
-                  <p className="text-xs text-neutral-500">{fmtNumber(g.coinCost)} {t('admin.gifts.coins', { defaultValue: '{{currency}}', currency: currency.softPlural.toLowerCase() })}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">{fmtNumber(g.coinCost)} {t('admin.gifts.coins', { defaultValue: '{{currency}}', currency: currency.softPlural.toLowerCase() })}</p>
                 </div>
                 <div className="flex shrink-0 gap-1.5">
-                  <button type="button" onClick={() => openEdit(g)} className="rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                  <button type="button" onClick={() => openEdit(g)} className="rounded-lg bg-blue-50 dark:bg-blue-900/30 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
                     {t('admin.gifts.edit', 'Edit')}
                   </button>
                   <button
                     type="button"
                     disabled={retireMutation.isPending}
                     onClick={() => retireMutation.mutate(g)}
-                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50 ${g.isActive ? 'bg-danger-100 text-danger-700' : 'bg-success-100 text-success-700'}`}
+                    className={`rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50 ${g.isActive ? 'bg-danger-100 dark:bg-danger-900/40 text-danger-700 dark:text-danger-300' : 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'}`}
                   >
                     {g.isActive ? t('admin.gifts.retire', 'Retire') : t('admin.gifts.restore', 'Restore')}
                   </button>
@@ -176,8 +176,8 @@ function AdminGiftsPage() {
 
       {showForm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-          <div className="w-full max-w-sm rounded-2xl bg-white p-5 max-h-[85vh] overflow-y-auto">
-            <h3 className="mb-4 font-semibold text-neutral-900">
+          <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-5 max-h-[85vh] overflow-y-auto">
+            <h3 className="mb-4 font-semibold text-neutral-900 dark:text-neutral-100">
               {editTarget ? t('admin.gifts.editTitle', 'Edit "{{name}}"', { name: editTarget.name }) : t('admin.gifts.newTitle', 'New Gift Item')}
             </h3>
             <div className="space-y-3">
@@ -207,14 +207,14 @@ function AdminGiftsPage() {
               </AdminField>
             </div>
             <div className="mt-4 flex gap-2">
-              <button type="button" onClick={() => setShowForm(false)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm font-medium text-neutral-700">
+              <button type="button" onClick={() => setShowForm(false)} className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 py-2 text-sm font-medium text-neutral-700 dark:text-neutral-300">
                 {t('common.cancel')}
               </button>
               <button
                 type="button"
                 onClick={handleSubmit}
                 disabled={saveMutation.isPending}
-                className="flex-1 rounded-lg bg-amber-400 py-2 text-sm font-bold text-neutral-900 disabled:opacity-50"
+                className="flex-1 rounded-lg bg-amber-400 py-2 text-sm font-bold text-neutral-900 dark:text-neutral-100 disabled:opacity-50"
               >
                 {saveMutation.isPending ? '…' : editTarget ? t('admin.gifts.saveChanges', 'Save Changes') : t('admin.gifts.create', 'Create Gift')}
               </button>

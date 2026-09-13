@@ -86,8 +86,8 @@ function CreateSeasonModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl">
-        <h3 className="mb-4 text-base font-bold text-neutral-900">{t('admin.seasons.createTitle', 'Create Season')}</h3>
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white dark:bg-neutral-800 p-5 shadow-xl sm:rounded-2xl">
+        <h3 className="mb-4 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('admin.seasons.createTitle', 'Create Season')}</h3>
         <div className="space-y-3">
           <AdminField label={t('admin.seasons.name', 'Name')}>
             <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)} placeholder="Season 3 — Rise of the Legends" className={adminInputClass} />
@@ -114,10 +114,10 @@ function CreateSeasonModal({
           <AdminField label={t('admin.seasons.description', 'Description (optional)')}>
             <textarea value={form.description} onChange={(e) => set('description', e.target.value)} rows={3} maxLength={500} className={`${adminInputClass} resize-none`} />
           </AdminField>
-          {error && <p className="rounded-lg border border-danger-200 bg-danger-50 px-3 py-2 text-xs text-danger-700">{error}</p>}
+          {error && <p className="rounded-lg border border-danger-200 bg-danger-50 dark:bg-danger-900/30 px-3 py-2 text-xs text-danger-700 dark:text-danger-300">{error}</p>}
         </div>
         <div className="mt-5 flex gap-3">
-          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60">
+          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60">
             {t('common.cancel')}
           </button>
           <button
@@ -185,7 +185,7 @@ function AdminSeasonsPage() {
   return (
     <div className="px-4 py-5">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.seasons', 'Seasons')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.seasons', 'Seasons')}</h1>
         <button
           type="button"
           onClick={() => { setCreateError(null); setShowModal(true); }}
@@ -211,21 +211,21 @@ function AdminSeasonsPage() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <p className="font-semibold text-neutral-900 truncate">{s.name}</p>
+                      <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">{s.name}</p>
                       <AdminBadge label={st.label} color={st.color} />
                     </div>
-                    <p className="mt-0.5 text-xs text-neutral-500">{t('admin.seasons.theme', 'Theme')}: {s.theme}</p>
-                    {s.description && <p className="mt-1 text-xs text-neutral-500 line-clamp-2">{s.description}</p>}
+                    <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{t('admin.seasons.theme', 'Theme')}: {s.theme}</p>
+                    {s.description && <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400 line-clamp-2">{s.description}</p>}
                   </div>
                 </div>
-                <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-neutral-500">
+                <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-neutral-500 dark:text-neutral-400">
                   <span>{t('admin.seasons.starts', 'Starts')}: {fmtDate(s.starts_at)}</span>
                   <span>{t('admin.seasons.ends', 'Ends')}: {fmtDate(s.ends_at)}</span>
                   <span>{t('admin.seasons.passPrice', 'Pass Price')}: {fmtNumber(s.pass_price_coins)}</span>
                   <span>{t('admin.seasons.rewardPool', 'Reward Pool')}: {fmtNumber(s.reward_pool_coins)}</span>
                 </div>
                 {s.is_active && (
-                  <button type="button" onClick={() => setEnding(s)} className="mt-3 rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700">
+                  <button type="button" onClick={() => setEnding(s)} className="mt-3 rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300">
                     {t('admin.seasons.endEarly', 'End Season Early')}
                   </button>
                 )}

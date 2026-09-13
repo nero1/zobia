@@ -12,8 +12,7 @@
     /* Shadcn-style semantic tokens consumed by shared/tailwind-tokens.js
        (bg-primary, bg-card, text-foreground, border-border, bg-accent,
        text-muted-foreground) — same values as apps/web's light theme so
-       screens shared/ported from web render identically here. The app is
-       light-only today (no dark-mode toggle), so no .dark block yet. */
+       screens shared/ported from web render identically here. */
     --background: 0 0% 98%;
     --foreground: 0 0% 9%;
     --card: 0 0% 100%;
@@ -24,6 +23,24 @@
     --accent-foreground: 0 0% 9%;
     --muted: 0 0% 96%;
     --muted-foreground: 0 0% 45%;
+    --primary: 217 91% 60%;
+    --primary-foreground: 0 0% 100%;
+  }
+
+  /* Dark theme, applied when lib/theme/store.ts's applyTheme() adds the
+     `dark` class to <html> — same values as apps/web/app/globals.css's
+     .dark block so screens shared/ported from web stay visually identical. */
+  .dark {
+    --background: 0 0% 4%;
+    --foreground: 0 0% 98%;
+    --card: 0 0% 9%;
+    --card-foreground: 0 0% 98%;
+    --border: 0 0% 15%;
+    --input: 0 0% 15%;
+    --accent: 0 0% 15%;
+    --accent-foreground: 0 0% 98%;
+    --muted: 0 0% 9%;
+    --muted-foreground: 0 0% 64%;
     --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
   }
@@ -43,7 +60,7 @@
      itself scrolls, so the bottom nav visually drifts instead of staying
      fixed at the bottom. */
   body {
-    @apply bg-white text-neutral-900 antialiased;
+    @apply bg-white text-neutral-900 antialiased dark:bg-neutral-900 dark:text-neutral-100;
     height: 100%;
     overflow: hidden;
     padding-top: env(safe-area-inset-top);

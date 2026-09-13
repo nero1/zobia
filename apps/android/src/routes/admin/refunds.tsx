@@ -70,10 +70,10 @@ function RefundModal({ record, onClose, onSubmit, pending }: {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
-        <h2 className="mb-1 text-base font-bold text-neutral-900">{t('admin.refunds.issueRefund', 'Issue Refund')}</h2>
-        <p className="mb-4 text-sm text-neutral-500">
-          {t('admin.refunds.user', 'User')}: <span className="font-semibold text-neutral-700">@{record.username ?? record.user_id}</span>
+      <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-6 shadow-xl">
+        <h2 className="mb-1 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('admin.refunds.issueRefund', 'Issue Refund')}</h2>
+        <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">
+          {t('admin.refunds.user', 'User')}: <span className="font-semibold text-neutral-700 dark:text-neutral-300">@{record.username ?? record.user_id}</span>
         </p>
 
         <div className="space-y-3">
@@ -90,14 +90,14 @@ function RefundModal({ record, onClose, onSubmit, pending }: {
             />
           </AdminField>
 
-          {formError && <p className="rounded-lg border border-danger-200 bg-danger-50 px-3 py-2 text-xs text-danger-700">{formError}</p>}
+          {formError && <p className="rounded-lg border border-danger-200 bg-danger-50 dark:bg-danger-900/30 px-3 py-2 text-xs text-danger-700 dark:text-danger-300">{formError}</p>}
 
           <div className="flex gap-3 pt-1">
             <button
               type="button"
               onClick={onClose}
               disabled={pending}
-              className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60"
+              className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
             >
               {t('common.cancel')}
             </button>
@@ -155,7 +155,7 @@ function AdminRefundsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.refunds', 'Coin Refunds')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.refunds', 'Coin Refunds')}</h1>
 
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
@@ -183,24 +183,24 @@ function AdminRefundsPage() {
             <AdminCard key={r.id}>
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="truncate font-semibold text-neutral-900">@{r.username ?? '—'}</p>
-                  <p className="truncate text-[10px] text-neutral-400">{r.user_id}</p>
+                  <p className="truncate font-semibold text-neutral-900 dark:text-neutral-100">@{r.username ?? '—'}</p>
+                  <p className="truncate text-[10px] text-neutral-400 dark:text-neutral-500">{r.user_id}</p>
                 </div>
-                <span className="shrink-0 font-semibold text-amber-600">{fmtNumber(r.amount_coins)} {t('admin.refunds.coins', 'coins')}</span>
+                <span className="shrink-0 font-semibold text-amber-600 dark:text-amber-300">{fmtNumber(r.amount_coins)} {t('admin.refunds.coins', 'coins')}</span>
               </div>
-              <p className="mt-1.5 line-clamp-2 text-xs text-neutral-600">{r.reason}</p>
+              <p className="mt-1.5 line-clamp-2 text-xs text-neutral-600 dark:text-neutral-400">{r.reason}</p>
               <div className="mt-2 flex items-center justify-between">
-                <span className="text-[10px] text-neutral-400">{timeAgo(r.created_at)} · {fmtDate(r.created_at)}</span>
+                <span className="text-[10px] text-neutral-400 dark:text-neutral-500">{timeAgo(r.created_at)} · {fmtDate(r.created_at)}</span>
                 {r.status === 'pending' ? (
                   <button
                     type="button"
                     onClick={() => setModal(r)}
-                    className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700"
+                    className="rounded-lg bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300"
                   >
                     {t('admin.refunds.issueRefund', 'Issue Refund')}
                   </button>
                 ) : (
-                  <span className="rounded-full bg-success-100 px-2.5 py-0.5 text-xs font-semibold text-success-700">
+                  <span className="rounded-full bg-success-100 dark:bg-success-900/40 px-2.5 py-0.5 text-xs font-semibold text-success-700 dark:text-success-300">
                     {t('admin.refunds.processed', 'Processed')}
                   </span>
                 )}

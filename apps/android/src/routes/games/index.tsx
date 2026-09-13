@@ -25,10 +25,10 @@ async function fetchGames(q: string) {
 
 function SkeletonCard() {
   return (
-    <div className="bg-white rounded-xl p-4 shadow-card animate-pulse">
-      <div className="w-12 h-12 rounded-xl bg-neutral-200 mb-3" />
-      <div className="h-4 bg-neutral-200 rounded w-3/4 mb-2" />
-      <div className="h-3 bg-neutral-100 rounded w-1/2" />
+    <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card animate-pulse">
+      <div className="w-12 h-12 rounded-xl bg-neutral-200 dark:bg-neutral-700 mb-3" />
+      <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-3/4 mb-2" />
+      <div className="h-3 bg-neutral-100 dark:bg-neutral-800 rounded w-1/2" />
     </div>
   );
 }
@@ -86,17 +86,17 @@ function GamesPage() {
   });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       {/* Mirrors the Challenges / Leaderboards buttons on
           apps/web/app/(app)/games/page.tsx's header. */}
       <div className="mb-3 flex flex-wrap justify-end gap-2">
-        <Link to="/games/challenges" className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700">
+        <Link to="/games/challenges" className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300">
           {t('games.challenges', 'Challenges')}
         </Link>
-        <Link to="/games/leaderboards" className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700">
+        <Link to="/games/leaderboards" className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300">
           {t('games.leaderboards', 'Leaderboards')}
         </Link>
-        <Link to="/games/saved" className="rounded-lg border border-neutral-200 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700">
+        <Link to="/games/saved" className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300">
           {t('games.savedGames.title', 'Saved Games')}
         </Link>
       </div>
@@ -105,7 +105,7 @@ function GamesPage() {
         value={searchInput}
         onChange={(e) => setSearchInput(e.target.value)}
         placeholder={t('games.search.placeholder', 'Search games…')}
-        className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 mb-4 focus:border-primary-500 focus:outline-none"
+        className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 mb-4 focus:border-primary-500 focus:outline-none"
       />
 
       {status === 'pending' && (
@@ -116,7 +116,7 @@ function GamesPage() {
 
       {status === 'error' && (
         <div className="flex flex-col items-center justify-center py-20 gap-4">
-          <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
           <button
             onClick={() => refetch()}
             className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm"
@@ -128,24 +128,24 @@ function GamesPage() {
 
       {status === 'success' && games.length === 0 && (
         <div className="flex items-center justify-center py-20">
-          <p className="text-neutral-500 text-sm">{t('games.empty.filter', 'No games found for this filter.')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('games.empty.filter', 'No games found for this filter.')}</p>
         </div>
       )}
 
       {status === 'success' && games.length > 0 && (
         <div className="grid grid-cols-2 gap-3">
           {games.map((game) => (
-            <div key={game.id} className="relative bg-white rounded-xl shadow-card active:scale-95 transition-transform">
+            <div key={game.id} className="relative bg-white dark:bg-neutral-800 rounded-xl shadow-card active:scale-95 transition-transform">
               <Link to="/games/$slug" params={{ slug: game.slug }} className="block p-4 pr-9">
                 <div className="text-4xl mb-2">{game.coverEmoji}</div>
-                <p className="font-semibold text-neutral-900 text-sm truncate">{game.name}</p>
+                <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm truncate">{game.name}</p>
                 {game.tagline && (
-                  <p className="text-neutral-500 text-xs mt-0.5 truncate">{game.tagline}</p>
+                  <p className="text-neutral-500 dark:text-neutral-400 text-xs mt-0.5 truncate">{game.tagline}</p>
                 )}
                 <div className="flex items-center gap-2 mt-2">
-                  <span className="text-xs text-neutral-400">⭐ {game.avgRating.toFixed(1)}</span>
-                  <span className="text-xs text-neutral-400">·</span>
-                  <span className="text-xs text-neutral-400">{game.playCount.toLocaleString()} plays</span>
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">⭐ {game.avgRating.toFixed(1)}</span>
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">·</span>
+                  <span className="text-xs text-neutral-400 dark:text-neutral-500">{game.playCount.toLocaleString()} plays</span>
                 </div>
                 {game.favoriteCount > 0 && (
                   <span className="text-xs text-rose-500 mt-1 block">❤️ {game.favoriteCount.toLocaleString()}</span>

@@ -62,29 +62,29 @@ function ChallengeDetailPage() {
   if (status === 'error' || !detail) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
-        <p className="text-sm text-neutral-500">{t('error.generic')}</p>
+        <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('error.generic')}</p>
       </div>
     );
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <Link to="/games/challenges" className="text-sm text-primary-600">← {t('games.challenges', 'Challenges')}</Link>
-      <h1 className="mt-2 text-lg font-bold text-neutral-900">{detail.gameName}</h1>
-      <p className="mt-0.5 text-sm text-neutral-500">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <Link to="/games/challenges" className="text-sm text-primary-600 dark:text-primary-300">← {t('games.challenges', 'Challenges')}</Link>
+      <h1 className="mt-2 text-lg font-bold text-neutral-900 dark:text-neutral-100">{detail.gameName}</h1>
+      <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
         @{detail.challengerUsername} vs @{detail.opponentUsername}
       </p>
       {detail.wagerCredits > 0 && (
-        <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-gold-50 px-3 py-1 text-xs font-bold text-gold-700">
+        <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-gold-50 dark:bg-gold-900/30 px-3 py-1 text-xs font-bold text-gold-700 dark:text-gold-300">
           🪙 {detail.wagerCredits.toLocaleString()} {t('games.credits', 'credits')} {t('games.wager', 'wager')}
         </div>
       )}
 
       <div className="my-4 flex flex-col gap-2">
         {detail.rounds_detail.map((r) => (
-          <div key={r.round_no} className="flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-card">
-            <span className="text-sm font-medium text-neutral-700">{t('games.round', 'Round')} {r.round_no}</span>
-            <span className="text-sm font-bold text-neutral-900">
+          <div key={r.round_no} className="flex items-center justify-between rounded-xl bg-white dark:bg-neutral-800 px-4 py-3 shadow-card">
+            <span className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('games.round', 'Round')} {r.round_no}</span>
+            <span className="text-sm font-bold text-neutral-900 dark:text-neutral-100">
               {r.challenger_score ?? '—'} : {r.opponent_score ?? '—'}
             </span>
           </div>
@@ -103,7 +103,7 @@ function ChallengeDetailPage() {
       )}
 
       {detail.status === 'completed' && (
-        <p className="mt-4 text-center text-sm font-semibold text-success-600">
+        <p className="mt-4 text-center text-sm font-semibold text-success-600 dark:text-success-300">
           {detail.winnerId ? t('games.challengeOver', 'Challenge complete') : t('games.draw', 'Draw')}
         </p>
       )}

@@ -14,17 +14,17 @@ export function WikiOwnerToolbar({ wikiSlug, isOwner }: { wikiSlug: string; isOw
   const { t } = useTranslation();
 
   return (
-    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-xs">
-      <span className="font-semibold text-amber-700">
+    <div className="mb-3 flex flex-wrap items-center gap-2 rounded-xl border border-dashed border-amber-300 bg-amber-50 dark:bg-amber-900/30 px-3 py-2 text-xs">
+      <span className="font-semibold text-amber-700 dark:text-amber-300">
         {isOwner ? t('wiki.ownerToolbar.badge', 'Owner view') : t('wiki.ownerToolbar.modBadge', 'Moderator view')}
       </span>
-      <Link to="/wiki/$slug/settings" params={{ slug: wikiSlug }} className="rounded-lg bg-neutral-100 px-2.5 py-1.5 font-medium text-neutral-700">
+      <Link to="/wiki/$slug/settings" params={{ slug: wikiSlug }} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1.5 font-medium text-neutral-700 dark:text-neutral-300">
         {t('wiki.ownerToolbar.settings', 'Settings')}
       </Link>
-      <Link to="/wiki/$slug/manage" params={{ slug: wikiSlug }} className="rounded-lg bg-neutral-100 px-2.5 py-1.5 font-medium text-neutral-700">
+      <Link to="/wiki/$slug/manage" params={{ slug: wikiSlug }} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1.5 font-medium text-neutral-700 dark:text-neutral-300">
         {t('wiki.ownerToolbar.manage', 'Collaborators')}
       </Link>
-      <Link to="/wiki/$slug/treasury" params={{ slug: wikiSlug }} className="rounded-lg bg-neutral-100 px-2.5 py-1.5 font-medium text-neutral-700">
+      <Link to="/wiki/$slug/treasury" params={{ slug: wikiSlug }} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1.5 font-medium text-neutral-700 dark:text-neutral-300">
         {t('wiki.ownerToolbar.treasury', 'Reward pot')}
       </Link>
     </div>

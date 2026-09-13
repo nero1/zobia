@@ -140,8 +140,8 @@ function GameFormModal({ initial, onSave, onClose, saving }: { initial: FormStat
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl">
-        <h3 className="mb-4 text-base font-bold text-neutral-900">{form.id ? t('admin.games.editTitle', 'Edit Game') : t('admin.games.createTitle', 'New Game')}</h3>
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white dark:bg-neutral-800 p-5 shadow-xl sm:rounded-2xl">
+        <h3 className="mb-4 text-base font-bold text-neutral-900 dark:text-neutral-100">{form.id ? t('admin.games.editTitle', 'Edit Game') : t('admin.games.createTitle', 'New Game')}</h3>
         <div className="space-y-3">
           <AdminField label={t('admin.games.name', 'Name')}>
             <input type="text" value={form.name} onChange={(e) => set('name', e.target.value)} className={adminInputClass} />
@@ -210,13 +210,13 @@ function GameFormModal({ initial, onSave, onClose, saving }: { initial: FormStat
               <input type="number" value={form.sort_order} onChange={(e) => set('sort_order', Number(e.target.value))} className={adminInputClass} />
             </AdminField>
           </div>
-          <label className="flex items-center gap-2 text-sm text-neutral-700">
+          <label className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
             <input type="checkbox" checked={form.is_active} onChange={(e) => set('is_active', e.target.checked)} />
             {t('admin.events.active', 'Active')}
           </label>
         </div>
         <div className="mt-5 flex gap-3">
-          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60">
+          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60">
             {t('common.cancel')}
           </button>
           <button
@@ -236,10 +236,10 @@ function GameFormModal({ initial, onSave, onClose, saving }: { initial: FormStat
 function StatsOverlay({ stats, onClose }: { stats: GameStats; onClose: () => void }) {
   const { t } = useTranslation();
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-white">
-      <div className="flex-none flex items-center justify-between border-b border-neutral-200 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
-        <h2 className="text-base font-semibold text-neutral-900">{stats.name} — {t('admin.games.stats', 'Stats')}</h2>
-        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100">✕</button>
+    <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
+      <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
+        <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{stats.name} — {t('admin.games.stats', 'Stats')}</h2>
+        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
       </div>
       <div className="flex-1 overflow-y-auto space-y-2.5 p-4">
         {[
@@ -253,9 +253,9 @@ function StatsOverlay({ stats, onClose }: { stats: GameStats; onClose: () => voi
           { label: t('admin.games.challengesCompleted', 'Challenges completed'), value: fmtNumber(stats.challenges.completed) },
           { label: t('admin.games.wagerVolume', 'Wager volume (credits)'), value: fmtNumber(stats.challenges.wager_volume) },
         ].map((s) => (
-          <div key={s.label} className="flex items-center justify-between rounded-lg border border-neutral-200 p-3">
-            <span className="text-sm text-neutral-600">{s.label}</span>
-            <span className="text-sm font-semibold text-neutral-900">{s.value}</span>
+          <div key={s.label} className="flex items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 p-3">
+            <span className="text-sm text-neutral-600 dark:text-neutral-400">{s.label}</span>
+            <span className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{s.value}</span>
           </div>
         ))}
       </div>
@@ -345,8 +345,8 @@ function AdminGamesPage() {
   return (
     <div className="px-4 py-5">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-neutral-900">
-          {t('admin.nav.games', 'Games')} <span className="text-sm font-normal text-neutral-500">({data?.length ?? 0})</span>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">
+          {t('admin.nav.games', 'Games')} <span className="text-sm font-normal text-neutral-500 dark:text-neutral-400">({data?.length ?? 0})</span>
         </h1>
         <button type="button" onClick={() => setEditing(emptyForm())} className="rounded-lg bg-primary-600 px-3.5 py-2 text-sm font-semibold text-white">
           + {t('admin.games.new', 'New')}
@@ -380,33 +380,33 @@ function AdminGamesPage() {
                 <span className="text-3xl">{g.cover_emoji}</span>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <p className="font-semibold text-neutral-900 truncate">{g.name}</p>
+                    <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">{g.name}</p>
                     <AdminBadge label={g.category ?? '—'} />
                     <AdminBadge label={g.is_active ? t('admin.events.active', 'Active') : t('admin.events.inactive', 'Inactive')} color={g.is_active ? 'green' : 'neutral'} />
                   </div>
-                  <p className="text-xs text-neutral-500">/{g.slug}</p>
-                  <p className="mt-1 text-[11px] text-neutral-500">
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400">/{g.slug}</p>
+                  <p className="mt-1 text-[11px] text-neutral-500 dark:text-neutral-400">
                     {fmtNumber(g.play_count)} {t('admin.games.plays', 'plays')} · {fmtNumber(g.players)} {t('admin.games.players', 'players')} ·{' '}
                     {g.reward_credits_per_win}c/{g.reward_xp_per_win}xp{g.reward_stars_per_win ? `/${g.reward_stars_per_win}⭐` : ''}
                   </p>
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-1.5">
-                <button type="button" onClick={() => statsMutation.mutate(g)} className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                <button type="button" onClick={() => statsMutation.mutate(g)} className="rounded-lg bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
                   {t('admin.games.stats', 'Stats')}
                 </button>
-                <button type="button" onClick={() => setEditing(fromGame(g))} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700">
+                <button type="button" onClick={() => setEditing(fromGame(g))} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
                   {t('admin.games.edit', 'Edit')}
                 </button>
                 <button
                   type="button"
                   disabled={toggleMutation.isPending}
                   onClick={() => toggleMutation.mutate(g)}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50 ${g.is_active ? 'bg-gold-100 text-gold-800' : 'bg-success-100 text-success-700'}`}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50 ${g.is_active ? 'bg-gold-100 dark:bg-gold-900/40 text-gold-800' : 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'}`}
                 >
                   {g.is_active ? t('admin.events.deactivate', 'Deactivate') : t('admin.events.activate', 'Activate')}
                 </button>
-                <button type="button" onClick={() => setDeleting(g)} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700">
+                <button type="button" onClick={() => setDeleting(g)} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300">
                   {t('common.delete', 'Delete')}
                 </button>
               </div>

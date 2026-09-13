@@ -53,34 +53,34 @@ function BusinessBroadcastsPage() {
     onError: (err: unknown) => setError(err instanceof Error ? err.message : t('business.broadcasts.sendFailed', 'Failed to send')),
   });
 
-  if (status === 'pending') return <div className="p-6 text-center text-neutral-400">{t('action.loading', 'Loading…')}</div>;
+  if (status === 'pending') return <div className="p-6 text-center text-neutral-400 dark:text-neutral-500">{t('action.loading', 'Loading…')}</div>;
 
   const allowance = data?.allowance;
   const canSend = allowance ? (allowance.unlimited || (allowance.remaining ?? 0) > 0) : false;
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       <div className="flex items-center justify-between mb-3">
-        <h1 className="text-lg font-bold text-neutral-900">{t('business.broadcasts.title', 'Broadcasts')}</h1>
-        <span className="text-xs text-neutral-500 capitalize">{data?.tier} tier</span>
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('business.broadcasts.title', 'Broadcasts')}</h1>
+        <span className="text-xs text-neutral-500 dark:text-neutral-400 capitalize">{data?.tier} tier</span>
       </div>
 
       {allowance && (
-        <div className="bg-white rounded-xl p-4 shadow-card mb-3">
-          <p className="text-sm text-neutral-700">
+        <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card mb-3">
+          <p className="text-sm text-neutral-700 dark:text-neutral-300">
             {allowance.unlimited
               ? t('business.broadcasts.unlimitedNote', 'Unlimited broadcasts on your plan.')
               : t('business.broadcasts.remainingNote', { remaining: allowance.remaining, quota: allowance.quota, defaultValue: `${allowance.remaining} of ${allowance.quota} broadcasts left this month.` })}
           </p>
           {!allowance.unlimited && (allowance.remaining ?? 0) <= 0 && (
-            <Link to="/settings" className="text-xs text-primary-600 underline mt-1 inline-block">
+            <Link to="/settings" className="text-xs text-primary-600 dark:text-primary-300 underline mt-1 inline-block">
               {t('business.broadcasts.upgradeLink', 'Upgrade for more')}
             </Link>
           )}
         </div>
       )}
 
-      {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+      {error && <p className="text-sm text-red-600 dark:text-red-300 mb-2">{error}</p>}
 
       {!composing ? (
         <button
@@ -91,13 +91,13 @@ function BusinessBroadcastsPage() {
           {t('business.broadcasts.newBroadcast', 'New Broadcast')}
         </button>
       ) : (
-        <div className="bg-white rounded-xl p-4 shadow-card mb-4 space-y-2">
+        <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card mb-4 space-y-2">
           <input
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder={t('business.broadcasts.subjectLabel', 'Subject (optional)')}
             maxLength={200}
-            className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm"
           />
           <textarea
             value={content}
@@ -105,10 +105,10 @@ function BusinessBroadcastsPage() {
             placeholder={t('business.broadcasts.contentLabel', 'Message')}
             maxLength={1000}
             rows={4}
-            className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm"
           />
           <div className="flex gap-2">
-            <button onClick={() => setComposing(false)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm">{t('action.cancel', 'Cancel')}</button>
+            <button onClick={() => setComposing(false)} className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 py-2 text-sm">{t('action.cancel', 'Cancel')}</button>
             <button
               onClick={() => content.trim() && sendMutation.mutate()}
               disabled={sendMutation.isPending || !content.trim()}
@@ -121,14 +121,14 @@ function BusinessBroadcastsPage() {
       )}
 
       {(data?.broadcasts ?? []).length === 0 ? (
-        <p className="text-center text-sm text-neutral-400 py-10">{t('business.broadcasts.historyEmpty', 'No broadcasts sent yet.')}</p>
+        <p className="text-center text-sm text-neutral-400 dark:text-neutral-500 py-10">{t('business.broadcasts.historyEmpty', 'No broadcasts sent yet.')}</p>
       ) : (
         <div className="space-y-2">
           {data?.broadcasts.map((b) => (
-            <div key={b.id} className="bg-white rounded-xl p-4 shadow-card">
-              {b.subject && <p className="font-semibold text-sm text-neutral-900">{b.subject}</p>}
-              <p className="text-sm text-neutral-600 line-clamp-2">{b.content}</p>
-              <p className="text-xs text-neutral-400 mt-1">{new Date(b.sentAt).toLocaleDateString()} · {b.recipientCount} recipients</p>
+            <div key={b.id} className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
+              {b.subject && <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">{b.subject}</p>}
+              <p className="text-sm text-neutral-600 dark:text-neutral-400 line-clamp-2">{b.content}</p>
+              <p className="text-xs text-neutral-400 dark:text-neutral-500 mt-1">{new Date(b.sentAt).toLocaleDateString()} · {b.recipientCount} recipients</p>
             </div>
           ))}
         </div>

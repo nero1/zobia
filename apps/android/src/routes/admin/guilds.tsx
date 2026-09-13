@@ -104,40 +104,40 @@ function EditOverlay({ guild, onClose, onSave, pending }: { guild: AdminGuild; o
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl max-h-[85vh] overflow-y-auto">
-        <h3 className="mb-4 text-base font-bold text-neutral-900">{t('admin.guilds.editDetails', 'Edit Details')}</h3>
+      <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-5 shadow-xl max-h-[85vh] overflow-y-auto">
+        <h3 className="mb-4 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('admin.guilds.editDetails', 'Edit Details')}</h3>
         <div className="space-y-3">
           <div>
-            <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.name', 'Guild Name')}</label>
+            <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.name', 'Guild Name')}</label>
             <input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className={adminInputClass} />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.crest', 'Crest Emoji')}</label>
+            <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.crest', 'Crest Emoji')}</label>
             <input value={form.crestEmoji} onChange={(e) => setForm((f) => ({ ...f, crestEmoji: e.target.value }))} maxLength={4} className={`${adminInputClass} w-20 text-center text-lg`} />
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.description', 'Description')}</label>
+            <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.description', 'Description')}</label>
             <textarea rows={2} value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} className={`${adminInputClass} resize-none`} />
           </div>
           <div className="flex gap-2">
             <div className="flex-1">
-              <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.city', 'City')}</label>
+              <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.city', 'City')}</label>
               <input value={form.city} onChange={(e) => setForm((f) => ({ ...f, city: e.target.value }))} className={adminInputClass} />
             </div>
             <div className="w-20">
-              <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.country', 'Country')}</label>
+              <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.country', 'Country')}</label>
               <input value={form.country} onChange={(e) => setForm((f) => ({ ...f, country: e.target.value.toUpperCase() }))} maxLength={2} className={`${adminInputClass} uppercase`} />
             </div>
           </div>
           <div>
-            <label className="mb-1 block text-xs font-semibold text-neutral-600">{t('guild.create.recruitment', 'Recruitment')}</label>
+            <label className="mb-1 block text-xs font-semibold text-neutral-600 dark:text-neutral-400">{t('guild.create.recruitment', 'Recruitment')}</label>
             <select value={form.recruitmentType} onChange={(e) => setForm((f) => ({ ...f, recruitmentType: e.target.value }))} className={adminInputClass}>
               {RECRUITMENT_TYPES.map((rt) => <option key={rt} value={rt}>{rt}</option>)}
             </select>
           </div>
         </div>
         <div className="mt-4 flex gap-2">
-          <button type="button" onClick={onClose} disabled={pending} className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60">
+          <button type="button" onClick={onClose} disabled={pending} className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60">
             {t('common.cancel', 'Cancel')}
           </button>
           <button
@@ -189,24 +189,24 @@ function MembersOverlay({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
-      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <h3 className="mb-4 text-base font-bold text-neutral-900">{guild.crest_emoji} {guild.name} — {t('guild.membersSection', 'Members')}</h3>
+      <div className="w-full max-w-md max-h-[85vh] overflow-y-auto rounded-2xl bg-white dark:bg-neutral-800 p-5 shadow-xl" onClick={(e) => e.stopPropagation()}>
+        <h3 className="mb-4 text-base font-bold text-neutral-900 dark:text-neutral-100">{guild.crest_emoji} {guild.name} — {t('guild.membersSection', 'Members')}</h3>
         {status === 'pending' ? (
-          <p className="text-sm text-neutral-500">…</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">…</p>
         ) : (
           <div className="space-y-2">
             {(data ?? []).map((m) => (
-              <div key={m.id} className="flex items-center justify-between gap-2 rounded-lg border border-neutral-200 p-2.5 text-sm">
+              <div key={m.id} className="flex items-center justify-between gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 p-2.5 text-sm">
                 <div className="min-w-0 flex-1">
-                  <p className="truncate font-medium text-neutral-900">{m.avatar_emoji ?? '👤'} {m.display_name ?? m.username} <span className="text-xs text-neutral-500">@{m.username}</span></p>
-                  <p className="text-xs capitalize text-neutral-500">{m.role} · {m.contribution_score}</p>
+                  <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{m.avatar_emoji ?? '👤'} {m.display_name ?? m.username} <span className="text-xs text-neutral-500 dark:text-neutral-400">@{m.username}</span></p>
+                  <p className="text-xs capitalize text-neutral-500 dark:text-neutral-400">{m.role} · {m.contribution_score}</p>
                 </div>
                 {m.role !== 'captain' && (
                   <div className="flex shrink-0 gap-1.5">
-                    <button type="button" disabled={pending} onClick={() => setTransferTarget(m)} className="rounded-lg bg-blue-100 px-2 py-1 text-xs font-semibold text-blue-700 disabled:opacity-50">
+                    <button type="button" disabled={pending} onClick={() => setTransferTarget(m)} className="rounded-lg bg-blue-100 dark:bg-blue-900/40 px-2 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300 disabled:opacity-50">
                       {t('admin.guilds.makeCaptain', 'Make Captain')}
                     </button>
-                    <button type="button" disabled={pending} onClick={() => setRemoveTarget(m)} className="rounded-lg bg-danger-100 px-2 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50">
+                    <button type="button" disabled={pending} onClick={() => setRemoveTarget(m)} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
                       {t('admin.guilds.remove', 'Remove')}
                     </button>
                   </div>
@@ -215,7 +215,7 @@ function MembersOverlay({
             ))}
           </div>
         )}
-        <button type="button" onClick={onClose} className="mt-4 w-full rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700">
+        <button type="button" onClick={onClose} className="mt-4 w-full rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           {t('common.close', 'Close')}
         </button>
 
@@ -314,7 +314,7 @@ function AdminGuildsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.guilds.title', 'Guild Management')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.guilds.title', 'Guild Management')}</h1>
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
       <input
@@ -331,7 +331,7 @@ function AdminGuildsPage() {
             key={s}
             type="button"
             onClick={() => setStatusFilter(s)}
-            className={`rounded-full px-3 py-1 text-xs font-semibold ${statusFilter === s ? 'bg-neutral-900 text-white' : 'bg-neutral-100 text-neutral-600'}`}
+            className={`rounded-full px-3 py-1 text-xs font-semibold ${statusFilter === s ? 'bg-neutral-900 text-white' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}
           >
             {t(`admin.guilds.status.${s}`, s)}
           </button>
@@ -348,53 +348,53 @@ function AdminGuildsPage() {
             <AdminCard key={guild.id}>
               <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
                 <span>{guild.crest_emoji}</span>
-                <p className="font-semibold text-neutral-900 truncate">{guild.name}</p>
+                <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">{guild.name}</p>
                 <GuildStatusBadge guild={guild} />
                 <AdminBadge label={guild.tier} color="neutral" />
               </div>
-              <p className="mb-1 text-xs text-neutral-500">
+              <p className="mb-1 text-xs text-neutral-500 dark:text-neutral-400">
                 @{guild.captain_username} · {guild.member_count} · {guild.city ? `${guild.city}, ` : ''}{guild.country} · {fmtDate(guild.created_at)}
               </p>
-              {guild.suspension_reason && <p className="mb-1 text-xs text-amber-600">{t('admin.rooms.suspendReason', 'Suspension reason')}: {guild.suspension_reason}</p>}
+              {guild.suspension_reason && <p className="mb-1 text-xs text-amber-600 dark:text-amber-300">{t('admin.rooms.suspendReason', 'Suspension reason')}: {guild.suspension_reason}</p>}
 
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <button
                   type="button"
                   onClick={() => Browser.open({ url: `${env.VITE_WEB_BASE_URL}/guilds/${guild.id}` })}
-                  className="rounded-lg bg-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-700"
+                  className="rounded-lg bg-teal-100 dark:bg-teal-900/40 px-2.5 py-1 text-xs font-semibold text-teal-700 dark:text-teal-300"
                 >
                   {t('admin.rooms.viewRoom', 'View ↗')}
                 </button>
                 <button type="button" disabled={patchAction.isPending} onClick={() => setMembersTarget(guild)} className="rounded-lg bg-indigo-100 px-2.5 py-1 text-xs font-semibold text-indigo-700 disabled:opacity-50">
                   {t('guild.membersSection', 'Members')}
                 </button>
-                <button type="button" disabled={patchAction.isPending} onClick={() => setEditTarget(guild)} className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700 disabled:opacity-50">
+                <button type="button" disabled={patchAction.isPending} onClick={() => setEditTarget(guild)} className="rounded-lg bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300 disabled:opacity-50">
                   {t('admin.rooms.editDetails', 'Edit Details')}
                 </button>
                 {guild.is_active ? (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(guild, 'set_inactive')} className="rounded-lg bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(guild, 'set_inactive')} className="rounded-lg bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-50">
                     {t('admin.guilds.disable', 'Disable')}
                   </button>
                 ) : (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(guild, 'set_active')} className="rounded-lg bg-success-100 px-2.5 py-1 text-xs font-semibold text-success-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(guild, 'set_active')} className="rounded-lg bg-success-100 dark:bg-success-900/40 px-2.5 py-1 text-xs font-semibold text-success-700 dark:text-success-300 disabled:opacity-50">
                     {t('admin.guilds.enable', 'Enable')}
                   </button>
                 )}
                 {guild.is_suspended ? (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(guild, 'unsuspend')} className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(guild, 'unsuspend')} className="rounded-lg bg-amber-100 dark:bg-amber-900/40 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300 disabled:opacity-50">
                     {t('admin.rooms.unsuspend', 'Unsuspend')}
                   </button>
                 ) : !guild.is_banned && (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => { setSuspendTarget(guild); setReason(''); }} className="rounded-lg bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => { setSuspendTarget(guild); setReason(''); }} className="rounded-lg bg-amber-100 dark:bg-amber-900/40 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:text-amber-300 disabled:opacity-50">
                     {t('admin.rooms.suspend', 'Suspend')}
                   </button>
                 )}
                 {guild.is_banned ? (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(guild, 'unban')} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => doSimple(guild, 'unban')} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
                     {t('admin.guilds.unban', 'Unban')}
                   </button>
                 ) : (
-                  <button type="button" disabled={patchAction.isPending} onClick={() => setBanTarget(guild)} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700 disabled:opacity-50">
+                  <button type="button" disabled={patchAction.isPending} onClick={() => setBanTarget(guild)} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300 disabled:opacity-50">
                     {t('admin.rooms.ban', 'Ban')}
                   </button>
                 )}
@@ -408,7 +408,7 @@ function AdminGuildsPage() {
 
       {status === 'success' && (data.guilds.length > 0 || pageIndex > 0) && (
         <div className="mt-4 flex items-center justify-between">
-          <button type="button" onClick={() => setPageIndex((i) => Math.max(0, i - 1))} disabled={pageIndex === 0} className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40">
+          <button type="button" onClick={() => setPageIndex((i) => Math.max(0, i - 1))} disabled={pageIndex === 0} className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40">
             {t('admin.pagination.prev', 'Prev')}
           </button>
           <button
@@ -419,7 +419,7 @@ function AdminGuildsPage() {
               setPageIndex((i) => i + 1);
             }}
             disabled={!data?.hasNextPage}
-            className="rounded-lg border border-neutral-300 px-4 py-2 text-sm font-semibold text-neutral-700 disabled:opacity-40"
+            className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-40"
           >
             {t('admin.pagination.next', 'Next')}
           </button>

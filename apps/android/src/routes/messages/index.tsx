@@ -62,10 +62,10 @@ function NewMessageDialog({ onClose }: { onClose: () => void }) {
       className="fixed inset-0 z-50 flex items-end bg-black/50"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="w-full max-h-[80vh] flex flex-col rounded-t-2xl bg-white">
-        <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-4">
-          <h2 className="text-base font-bold text-neutral-900">{t('messages.dialog.title')}</h2>
-          <button onClick={onClose} className="text-neutral-400" aria-label="Close">✕</button>
+      <div className="w-full max-h-[80vh] flex flex-col rounded-t-2xl bg-white dark:bg-neutral-800">
+        <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-4">
+          <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('messages.dialog.title')}</h2>
+          <button onClick={onClose} className="text-neutral-400 dark:text-neutral-500" aria-label="Close">✕</button>
         </div>
         <div className="px-4 py-3">
           <input
@@ -74,7 +74,7 @@ function NewMessageDialog({ onClose }: { onClose: () => void }) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('messages.dialog.searchPlaceholder')}
-            className="w-full rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:outline-none"
+            className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-4 py-2.5 text-sm focus:outline-none"
             data-selectable
           />
         </div>
@@ -85,7 +85,7 @@ function NewMessageDialog({ onClose }: { onClose: () => void }) {
             </div>
           )}
           {!searching && query.trim().length >= 2 && results.length === 0 && (
-            <p className="px-4 py-6 text-center text-sm text-neutral-400">
+            <p className="px-4 py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
               {t('messages.dialog.noResults', { query: query.trim() })}
             </p>
           )}
@@ -93,14 +93,14 @@ function NewMessageDialog({ onClose }: { onClose: () => void }) {
             <button
               key={u.id}
               onClick={() => handleOpenUser(u.id)}
-              className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-neutral-50"
+              className="flex w-full items-center gap-3 px-4 py-3 text-left active:bg-neutral-50 dark:active:bg-neutral-800"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xl">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-xl">
                 {u.avatarEmoji || '👤'}
               </div>
               <div className="min-w-0">
-                <p className="text-sm font-semibold text-neutral-900">{u.displayName}</p>
-                <p className="text-xs text-neutral-400">@{u.username}</p>
+                <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{u.displayName}</p>
+                <p className="text-xs text-neutral-400 dark:text-neutral-500">@{u.username}</p>
               </div>
             </button>
           ))}
@@ -176,13 +176,13 @@ function MessagesPage() {
 
   return (
     <>
-    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-white">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100">
-        <h1 className="text-lg font-bold text-neutral-900">{t('messages.title')}</h1>
+    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-white dark:bg-neutral-800">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('messages.title')}</h1>
         <div className="flex items-center gap-2">
           <Link
             to="/messages/groups"
-            className="rounded-full border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-700"
+            className="rounded-full border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300"
           >
             {t('messages.groups')}
           </Link>
@@ -195,13 +195,13 @@ function MessagesPage() {
         </div>
       </div>
       {status === 'pending' && (
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="flex items-center gap-3 px-4 py-4 animate-pulse">
-              <div className="w-12 h-12 rounded-full bg-neutral-200" />
+              <div className="w-12 h-12 rounded-full bg-neutral-200 dark:bg-neutral-700" />
               <div className="flex-1">
-                <div className="h-4 bg-neutral-200 rounded w-32 mb-2" />
-                <div className="h-3 bg-neutral-100 rounded w-48" />
+                <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-32 mb-2" />
+                <div className="h-3 bg-neutral-100 dark:bg-neutral-800 rounded w-48" />
               </div>
             </div>
           ))}
@@ -210,7 +210,7 @@ function MessagesPage() {
 
       {status === 'error' && (
         <div className="flex flex-col items-center justify-center py-20 gap-4">
-          <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
           <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">
             {t('android.error.retry')}
           </button>
@@ -219,7 +219,7 @@ function MessagesPage() {
 
       {status === 'success' && conversations?.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20">
-          <p className="text-neutral-500 text-sm">{t('messages.empty')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('messages.empty')}</p>
         </div>
       )}
 
@@ -228,9 +228,9 @@ function MessagesPage() {
           key={conv.id}
           to="/messages/$conversationId"
           params={{ conversationId: conv.id }}
-          className="flex items-center gap-3 px-4 py-4 border-b border-neutral-100 active:bg-neutral-50"
+          className="flex items-center gap-3 px-4 py-4 border-b border-neutral-100 dark:border-neutral-800 active:bg-neutral-50 dark:active:bg-neutral-800"
         >
-          <div className="w-12 h-12 rounded-full bg-primary-100 flex items-center justify-center text-xl relative">
+          <div className="w-12 h-12 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-xl relative">
             {conv.otherUser.avatarEmoji || '👤'}
             {conv.unreadCount > 0 && (
               <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary-600 text-white text-xs rounded-full flex items-center justify-center">
@@ -240,14 +240,14 @@ function MessagesPage() {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center justify-between">
-              <p className="font-semibold text-neutral-900 text-sm">{conv.otherUser.displayName}</p>
+              <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">{conv.otherUser.displayName}</p>
               {conv.lastMessage && (
-                <p className="text-xs text-neutral-400">
+                <p className="text-xs text-neutral-400 dark:text-neutral-500">
                   {new Date(conv.lastMessage.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                 </p>
               )}
             </div>
-            <p className="text-sm text-neutral-500 truncate">
+            <p className="text-sm text-neutral-500 dark:text-neutral-400 truncate">
               {conv.lastMessage?.content ?? t('messages.empty')}
             </p>
           </div>

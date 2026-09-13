@@ -74,7 +74,7 @@ function Chip({ value, active, onToggle, label }: { value: string; active: boole
     <button
       type="button"
       onClick={() => onToggle(value)}
-      className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${active ? 'bg-primary-600 text-white' : 'border border-neutral-300 text-neutral-600'}`}
+      className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors ${active ? 'bg-primary-600 text-white' : 'border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400'}`}
     >
       {label}
     </button>
@@ -102,14 +102,14 @@ function SettingBlock({
 }) {
   const { t } = useTranslation();
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white shadow-card">
-      <div className="border-b border-neutral-200 px-4 py-3.5">
-        <h2 className="text-sm font-semibold text-neutral-900">{t(titleKey, titleDefault)}</h2>
-        <p className="mt-0.5 text-xs text-neutral-500">{t(descKey, descDefault)}</p>
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-card">
+      <div className="border-b border-neutral-200 dark:border-neutral-700 px-4 py-3.5">
+        <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t(titleKey, titleDefault)}</h2>
+        <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{t(descKey, descDefault)}</p>
       </div>
       <div className="p-4">
         <div className="mb-3">
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.privacySettings.plans', 'Plans')}</p>
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.privacySettings.plans', 'Plans')}</p>
           <div className="flex flex-wrap gap-2">
             {PLAN_OPTIONS.map((plan) => (
               <Chip key={plan} value={plan} active={values.includes(plan)} onToggle={(v) => onChange(toggleInList(values, v))} label={plan.charAt(0).toUpperCase() + plan.slice(1)} />
@@ -117,7 +117,7 @@ function SettingBlock({
           </div>
         </div>
         <div className="mb-4">
-          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{t('admin.privacySettings.prestigeRanks', 'Prestige Ranks')}</p>
+          <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('admin.privacySettings.prestigeRanks', 'Prestige Ranks')}</p>
           <div className="flex flex-wrap gap-2">
             {PRESTIGE_OPTIONS.map((p) => (
               <Chip key={p} value={p} active={values.includes(p)} onToggle={(v) => onChange(toggleInList(values, v))} label={p.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())} />
@@ -169,8 +169,8 @@ function AdminPrivacySettingsPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.privacySettings', 'Profile Privacy Settings')}</h1>
-      <p className="mb-4 mt-1 text-xs text-neutral-500">
+      <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.privacySettings', 'Profile Privacy Settings')}</h1>
+      <p className="mb-4 mt-1 text-xs text-neutral-500 dark:text-neutral-400">
         {t('admin.privacySettings.subtitle', 'Control which plans and ranks can access each privacy feature. Changes take effect within 60 seconds.')}
       </p>
 
@@ -178,7 +178,7 @@ function AdminPrivacySettingsPage() {
 
       {status === 'pending' && (
         <div className="space-y-3">
-          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-32 animate-pulse rounded-xl border border-neutral-200 bg-white" />)}
+          {Array.from({ length: 3 }).map((_, i) => <div key={i} className="h-32 animate-pulse rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800" />)}
         </div>
       )}
 
@@ -215,10 +215,10 @@ function AdminPrivacySettingsPage() {
             onSave={() => saveMutation.mutate({ key: 'privacy_can_disable_friend_requests', value: config.canDisableFriendRequests })}
           />
 
-          <div className="rounded-xl border border-neutral-200 bg-white shadow-card">
-            <div className="border-b border-neutral-200 px-4 py-3.5">
-              <h2 className="text-sm font-semibold text-neutral-900">{t('admin.privacySettings.hideableSections.title', 'Available sections to hide')}</h2>
-              <p className="mt-0.5 text-xs text-neutral-500">{t('admin.privacySettings.hideableSections.desc', 'Choose which profile sections users are allowed to hide. Unchecked sections will always be visible.')}</p>
+          <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-card">
+            <div className="border-b border-neutral-200 dark:border-neutral-700 px-4 py-3.5">
+              <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.privacySettings.hideableSections.title', 'Available sections to hide')}</h2>
+              <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{t('admin.privacySettings.hideableSections.desc', 'Choose which profile sections users are allowed to hide. Unchecked sections will always be visible.')}</p>
             </div>
             <div className="p-4">
               <div className="mb-4 flex flex-wrap gap-2">

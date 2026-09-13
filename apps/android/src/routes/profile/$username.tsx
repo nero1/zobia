@@ -121,11 +121,11 @@ function ProfilePage() {
 
   if (status === 'pending') {
     return (
-      <div className="h-full bg-white animate-pulse px-6 pt-8">
+      <div className="h-full bg-white dark:bg-neutral-800 animate-pulse px-6 pt-8">
         <div className="flex flex-col items-center gap-3 mb-8">
-          <div className="w-20 h-20 rounded-full bg-neutral-200" />
-          <div className="h-5 bg-neutral-200 rounded w-32" />
-          <div className="h-4 bg-neutral-100 rounded w-24" />
+          <div className="w-20 h-20 rounded-full bg-neutral-200 dark:bg-neutral-700" />
+          <div className="h-5 bg-neutral-200 dark:bg-neutral-700 rounded w-32" />
+          <div className="h-4 bg-neutral-100 dark:bg-neutral-800 rounded w-24" />
         </div>
       </div>
     );
@@ -134,7 +134,7 @@ function ProfilePage() {
   if (status === 'error' || !profile) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2">
-        <p className="text-neutral-500 text-sm">{t('profile.notFound')}</p>
+        <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('profile.notFound')}</p>
       </div>
     );
   }
@@ -144,12 +144,12 @@ function ProfilePage() {
   const isOwnProfile = currentUser?.id === profile.id;
 
   return (
-    <div className="h-full overflow-y-auto bg-white">
+    <div className="h-full overflow-y-auto bg-white dark:bg-neutral-800">
       {/* Hero — theme tokens applied as inline style here only, mirroring
           the web profile page's light-touch approach. */}
       <div className="px-6 pt-8 pb-6 border-b-4" style={{ backgroundColor: themeTokens.card, borderBottomColor: themeTokens.accent }}>
         <div className="flex flex-col items-center text-center gap-2">
-          <div className="w-20 h-20 rounded-full bg-primary-100 flex items-center justify-center text-4xl">
+          <div className="w-20 h-20 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-4xl">
             {profile.avatarEmoji || '👤'}
           </div>
           <div>
@@ -179,7 +179,7 @@ function ProfilePage() {
             <Link
               to="/gifts"
               search={{ recipientId: profile.id, username: profile.username }}
-              className="mt-1 inline-flex items-center gap-1.5 rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-600 hover:bg-amber-50"
+              className="mt-1 inline-flex items-center gap-1.5 rounded-xl border border-amber-300 px-4 py-2 text-sm font-semibold text-amber-600 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/30"
             >
               🎁 {t('profile.sendGift', 'Gift')}
             </Link>
@@ -187,34 +187,34 @@ function ProfilePage() {
 
           <div className="flex items-center gap-2 mt-2">
             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-              profile.plan === 'free' ? 'bg-neutral-100 text-neutral-600' :
-              profile.plan === 'plus' ? 'bg-primary-100 text-primary-700' :
-              profile.plan === 'pro' ? 'bg-gold-100 text-gold-700' :
-              'bg-purple-100 text-purple-700'
+              profile.plan === 'free' ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400' :
+              profile.plan === 'plus' ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300' :
+              profile.plan === 'pro' ? 'bg-gold-100 dark:bg-gold-900/40 text-gold-700 dark:text-gold-300' :
+              'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300'
             }`}>
               {profile.plan === 'free' ? t('profile.freePlan') : t('profile.plan', { plan: profile.plan })}
             </span>
             {profile.isVerified && (
-              <span className="text-xs text-primary-600 font-medium">{t('profile.verified')}</span>
+              <span className="text-xs text-primary-600 dark:text-primary-300 font-medium">{t('profile.verified')}</span>
             )}
           </div>
         </div>
       </div>
 
       {/* Stats — GET /api/users/:userId/profile now includes loginStreak. */}
-      <div className={`grid ${profile.loginStreak ? 'grid-cols-3' : 'grid-cols-2'} divide-x divide-neutral-100 border-b border-neutral-100`}>
+      <div className={`grid ${profile.loginStreak ? 'grid-cols-3' : 'grid-cols-2'} divide-x divide-neutral-100 dark:divide-neutral-700 border-b border-neutral-100 dark:border-neutral-800`}>
         <div className="px-4 py-4 text-center">
-          <p className="text-lg font-bold text-neutral-900">{(profile.xp ?? 0).toLocaleString()}</p>
-          <p className="text-xs text-neutral-500">XP</p>
+          <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{(profile.xp ?? 0).toLocaleString()}</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">XP</p>
         </div>
         <div className="px-4 py-4 text-center">
-          <p className="text-lg font-bold text-neutral-900">{profile.rankName ?? '—'}</p>
-          <p className="text-xs text-neutral-500">{t('profile.rank')}</p>
+          <p className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{profile.rankName ?? '—'}</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('profile.rank')}</p>
         </div>
         {!!profile.loginStreak && (
           <div className="px-4 py-4 text-center" title={profile.longestStreak ? `Longest: ${profile.longestStreak}` : undefined}>
             <p className="text-lg font-bold text-orange-600">🔥 {profile.loginStreak}</p>
-            <p className="text-xs text-neutral-500">{t('profile.streak', 'Day Streak')}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('profile.streak', 'Day Streak')}</p>
           </div>
         )}
       </div>
@@ -223,16 +223,16 @@ function ProfilePage() {
       {profile.trackLevels.length > 0 && (
         <div className="px-6 py-4">
           <div className="mb-3 flex items-center justify-between">
-            <h3 className="font-semibold text-neutral-900 text-sm">{t('profile.progressionTracks')}</h3>
-            <Link to="/leaderboards" className="text-xs font-semibold text-primary-600">
+            <h3 className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">{t('profile.progressionTracks')}</h3>
+            <Link to="/leaderboards" className="text-xs font-semibold text-primary-600 dark:text-primary-300">
               🏆 {t('profile.leaderboard.view', 'View Leaderboard')} →
             </Link>
           </div>
           <div className="grid grid-cols-2 gap-3">
             {profile.trackLevels.map((track) => (
-              <div key={track.track} className="flex items-center justify-between bg-neutral-50 rounded-lg px-3 py-2">
-                <span className="text-xs text-neutral-700">{track.label}</span>
-                <span className="text-xs font-semibold text-primary-600">{t('profile.trackLevel', { level: track.level })}</span>
+              <div key={track.track} className="flex items-center justify-between bg-neutral-50 dark:bg-neutral-800 rounded-lg px-3 py-2">
+                <span className="text-xs text-neutral-700 dark:text-neutral-300">{track.label}</span>
+                <span className="text-xs font-semibold text-primary-600 dark:text-primary-300">{t('profile.trackLevel', { level: track.level })}</span>
               </div>
             ))}
           </div>
@@ -240,21 +240,21 @@ function ProfilePage() {
       )}
 
       {/* Photo gallery */}
-      <div className="px-6 py-4 border-t border-neutral-100">
-        <h3 className="font-semibold text-neutral-900 text-sm mb-3">📷 {t('profile.gallery.title', 'Photo Gallery')}</h3>
+      <div className="px-6 py-4 border-t border-neutral-100 dark:border-neutral-800">
+        <h3 className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm mb-3">📷 {t('profile.gallery.title', 'Photo Gallery')}</h3>
         <PhotoGallery userId={userId} />
       </div>
 
       {/* Tweets | Activities tabs */}
       {(showTweetsTab || showActivitiesTab) && (
-        <div className="px-6 py-4 border-t border-neutral-100">
-          <div className="mb-3 flex gap-4 border-b border-neutral-100">
+        <div className="px-6 py-4 border-t border-neutral-100 dark:border-neutral-800">
+          <div className="mb-3 flex gap-4 border-b border-neutral-100 dark:border-neutral-800">
             {showTweetsTab && (
               <button
                 type="button"
                 onClick={() => selectTab('tweets')}
                 className={`-mb-px border-b-2 px-1 pb-2 text-sm font-semibold ${
-                  activeTab === 'tweets' ? 'border-primary-600 text-primary-600' : 'border-transparent text-neutral-500'
+                  activeTab === 'tweets' ? 'border-primary-600 text-primary-600 dark:text-primary-300' : 'border-transparent text-neutral-500 dark:text-neutral-400'
                 }`}
               >
                 {t('profile.tabs.tweets', 'Tweets')}
@@ -265,7 +265,7 @@ function ProfilePage() {
                 type="button"
                 onClick={() => selectTab('activities')}
                 className={`-mb-px border-b-2 px-1 pb-2 text-sm font-semibold ${
-                  activeTab === 'activities' ? 'border-primary-600 text-primary-600' : 'border-transparent text-neutral-500'
+                  activeTab === 'activities' ? 'border-primary-600 text-primary-600 dark:text-primary-300' : 'border-transparent text-neutral-500 dark:text-neutral-400'
                 }`}
               >
                 {t('profile.tabs.activities', 'Activities')}

@@ -74,7 +74,7 @@ export default function AdSlot({ placement, className }: { placement: string; cl
   if (!ad) return null;
 
   return (
-    <div ref={ref} className={`relative overflow-hidden rounded-lg border border-neutral-200 bg-white ${SIZE_CLASS[ad.size] ?? SIZE_CLASS.native} ${className ?? ''}`}>
+    <div ref={ref} className={`relative overflow-hidden rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 ${SIZE_CLASS[ad.size] ?? SIZE_CLASS.native} ${className ?? ''}`}>
       <span className="absolute right-1.5 top-1.5 z-10 rounded bg-black/50 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-white">Sponsored</span>
       {/*
         Not a plain <a target="_blank"> — a Capacitor WebView has no concept
@@ -92,9 +92,9 @@ export default function AdSlot({ placement, className }: { placement: string; cl
       >
         {ad.imageUrl && <img src={ad.imageUrl} alt="" className="h-full max-h-[64px] w-auto shrink-0 rounded object-cover" />}
         <div className="min-w-0 flex-1">
-          {ad.title && <p className="truncate text-sm font-semibold text-neutral-900">{ad.title}</p>}
-          {ad.body && <p className="line-clamp-2 text-xs text-neutral-500">{ad.body}</p>}
-          <p className="mt-0.5 truncate text-[11px] text-neutral-400">{ad.advertiserName}</p>
+          {ad.title && <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{ad.title}</p>}
+          {ad.body && <p className="line-clamp-2 text-xs text-neutral-500 dark:text-neutral-400">{ad.body}</p>}
+          <p className="mt-0.5 truncate text-[11px] text-neutral-400 dark:text-neutral-500">{ad.advertiserName}</p>
         </div>
         {ad.ctaLabel && <span className="shrink-0 rounded-full bg-primary-600 px-3 py-1 text-xs font-semibold text-white">{ad.ctaLabel}</span>}
       </button>

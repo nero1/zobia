@@ -47,7 +47,7 @@ function BusinessPagesList() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['business', 'pages'] }),
   });
 
-  if (status === 'pending') return <div className="p-6 text-center text-neutral-400">{t('action.loading', 'Loading…')}</div>;
+  if (status === 'pending') return <div className="p-6 text-center text-neutral-400 dark:text-neutral-500">{t('action.loading', 'Loading…')}</div>;
 
   const pages = data?.pages ?? [];
   const limit = data?.limit ?? 0;
@@ -55,13 +55,13 @@ function BusinessPagesList() {
   const atLimit = used >= limit;
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       <div className="flex items-center justify-between mb-3">
-        <h1 className="text-lg font-bold text-neutral-900">{t('business.pages.title', 'Business Pages')}</h1>
-        <span className="text-xs text-neutral-500">{t('business.pages.slotsUsed', '{{used}}/{{limit}} slots', { used, limit })}</span>
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('business.pages.title', 'Business Pages')}</h1>
+        <span className="text-xs text-neutral-500 dark:text-neutral-400">{t('business.pages.slotsUsed', '{{used}}/{{limit}} slots', { used, limit })}</span>
       </div>
 
-      {error && <p className="text-sm text-red-600 mb-2">{error}</p>}
+      {error && <p className="text-sm text-red-600 dark:text-red-300 mb-2">{error}</p>}
 
       {!showForm ? (
         <button
@@ -72,15 +72,15 @@ function BusinessPagesList() {
           {t('business.pages.newButton', '+ New Page')}
         </button>
       ) : (
-        <div className="bg-white rounded-xl p-4 shadow-card mb-4 space-y-2">
+        <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card mb-4 space-y-2">
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder={t('business.pages.namePlaceholder', 'Page name')}
-            className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm"
+            className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm"
           />
           <div className="flex gap-2">
-            <button onClick={() => setShowForm(false)} className="flex-1 rounded-lg border border-neutral-200 py-2 text-sm">{t('action.cancel', 'Cancel')}</button>
+            <button onClick={() => setShowForm(false)} className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 py-2 text-sm">{t('action.cancel', 'Cancel')}</button>
             <button
               onClick={() => name.trim() && createMutation.mutate(name.trim())}
               disabled={createMutation.isPending || !name.trim()}
@@ -93,18 +93,18 @@ function BusinessPagesList() {
       )}
 
       {pages.length === 0 ? (
-        <p className="text-center text-sm text-neutral-400 py-10">{t('business.pages.empty', 'No Business Pages yet.')}</p>
+        <p className="text-center text-sm text-neutral-400 dark:text-neutral-500 py-10">{t('business.pages.empty', 'No Business Pages yet.')}</p>
       ) : (
         <div className="space-y-2">
           {pages.map((p) => (
-            <div key={p.id} className="bg-white rounded-xl p-4 shadow-card flex items-center justify-between">
+            <div key={p.id} className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card flex items-center justify-between">
               <Link to="/business/pages/$pageId" params={{ pageId: p.id }} className="min-w-0 flex-1">
-                <p className="font-semibold text-sm text-neutral-900 truncate">{p.name}</p>
-                <p className="text-xs text-neutral-400">{t('business.pages.stats', '👁 {{views}} · 📝 {{posts}} · {{status}}', { views: p.view_count, posts: p.post_count, status: p.status })}</p>
+                <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100 truncate">{p.name}</p>
+                <p className="text-xs text-neutral-400 dark:text-neutral-500">{t('business.pages.stats', '👁 {{views}} · 📝 {{posts}} · {{status}}', { views: p.view_count, posts: p.post_count, status: p.status })}</p>
               </Link>
               <button
                 onClick={() => deleteMutation.mutate(p.id)}
-                className="ml-2 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600"
+                className="ml-2 rounded-lg border border-red-200 px-2.5 py-1 text-xs font-semibold text-red-600 dark:text-red-300"
               >
                 {t('action.delete', 'Delete')}
               </button>

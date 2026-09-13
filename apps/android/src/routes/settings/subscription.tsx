@@ -38,10 +38,10 @@ const PLAN_ORDER: PlanId[] = ['free', 'plus', 'pro', 'max'];
 function planRank(id: PlanId): number { return PLAN_ORDER.indexOf(id); }
 
 const PLAN_BADGE: Record<PlanId, string> = {
-  free: 'bg-neutral-100 text-neutral-600',
-  plus: 'bg-blue-100 text-blue-700',
-  pro: 'bg-teal-100 text-teal-700',
-  max: 'bg-amber-100 text-amber-700',
+  free: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400',
+  plus: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
+  pro: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300',
+  max: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
 };
 
 interface CurrentSubscription {
@@ -134,7 +134,7 @@ function SubscriptionPage() {
   }
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-sm text-neutral-400">{t('action.loading', 'Loading…')}</div>;
+    return <div className="flex h-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-500">{t('action.loading', 'Loading…')}</div>;
   }
 
   const currentRank = planRank(plan);
@@ -142,7 +142,7 @@ function SubscriptionPage() {
   const isCancelled = sub?.status === 'cancelled';
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4 space-y-3">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4 space-y-3">
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.type === 'success' ? 'bg-teal-600' : 'bg-red-600'}`}>
           {toast.msg}
@@ -150,28 +150,28 @@ function SubscriptionPage() {
       )}
 
       {error && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>
+        <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">{error}</div>
       )}
 
       {/* Current plan */}
-      <div className="rounded-xl bg-white p-4 shadow-card">
-        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500">{t('subscription.currentPlan', 'Current Plan')}</p>
+      <div className="rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
+        <p className="text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('subscription.currentPlan', 'Current Plan')}</p>
         <div className="mt-1.5 flex flex-wrap items-center gap-2">
           <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold capitalize ${PLAN_BADGE[plan]}`}>{plan}</span>
           {isCancelled && sub?.currentPeriodEnd && (
-            <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold text-red-600">
+            <span className="rounded-full bg-red-100 dark:bg-red-900/40 px-2 py-0.5 text-xs font-semibold text-red-600 dark:text-red-300">
               {t('subscription.cancels', { date: formatDate(sub.currentPeriodEnd) })}
             </span>
           )}
           {!isCancelled && isPaid && sub?.currentPeriodEnd && (
-            <span className="text-xs text-neutral-500">{t('subscription.renews', { date: formatDate(sub.currentPeriodEnd) })}</span>
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">{t('subscription.renews', { date: formatDate(sub.currentPeriodEnd) })}</span>
           )}
         </div>
         {isPaid && !isCancelled && (
           <button
             onClick={() => void handleCancel()}
             disabled={cancelling}
-            className="mt-3 w-full rounded-xl border border-red-300 py-2.5 text-sm font-semibold text-red-600 disabled:opacity-60"
+            className="mt-3 w-full rounded-xl border border-red-300 py-2.5 text-sm font-semibold text-red-600 dark:text-red-300 disabled:opacity-60"
           >
             {cancelling ? t('subscription.cancelling', 'Cancelling…') : t('subscription.cancelSubscription', 'Cancel Subscription')}
           </button>
@@ -179,14 +179,14 @@ function SubscriptionPage() {
       </div>
 
       {/* Billing interval */}
-      <div className="flex items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 shadow-card">
-        <p className="text-sm font-semibold text-neutral-900">{t('subscription.billingPeriod', 'Billing Period')}</p>
-        <div className="flex rounded-lg border border-neutral-200 bg-neutral-100 p-1">
+      <div className="flex items-center justify-between gap-3 rounded-xl bg-white dark:bg-neutral-800 px-4 py-3 shadow-card">
+        <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('subscription.billingPeriod', 'Billing Period')}</p>
+        <div className="flex rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-800 p-1">
           {(['monthly', 'annual'] as BillingInterval[]).map((iv) => (
             <button
               key={iv}
               onClick={() => setIntervalPref(iv)}
-              className={`rounded-md px-3 py-1 text-xs font-semibold ${interval === iv ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}
+              className={`rounded-md px-3 py-1 text-xs font-semibold ${interval === iv ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 shadow-sm' : 'text-neutral-500 dark:text-neutral-400'}`}
             >
               {t(`subscription.${iv}`, iv === 'monthly' ? 'Monthly' : 'Annual')}
             </button>
@@ -201,13 +201,13 @@ function SubscriptionPage() {
           const isCurrent = tierPlan === plan;
           const isUpgrade = planRank(tierPlan) > currentRank;
           return (
-            <div key={tierPlan} className="flex items-center justify-between gap-3 rounded-xl bg-white p-4 shadow-card">
+            <div key={tierPlan} className="flex items-center justify-between gap-3 rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
               <div className="min-w-0">
                 <span className={`inline-block rounded-full px-2.5 py-0.5 text-xs font-bold capitalize ${PLAN_BADGE[tierPlan]}`}>{tierPlan}</span>
-                <p className="mt-1 text-sm font-semibold text-neutral-900">
+                <p className="mt-1 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                   {product?.monthlyPrice ?? '—'}{interval === 'monthly' ? t('subscription.perMonth', '/mo') : ''}
                 </p>
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   {product?.monthlyCoins ?? 0} {currency.softPlural.toLowerCase()}/mo
                 </p>
               </div>
@@ -227,7 +227,7 @@ function SubscriptionPage() {
                 <button
                   onClick={() => void handleUpgrade(tierPlan)}
                   disabled={busy !== null}
-                  className="flex-shrink-0 rounded-xl border border-neutral-300 px-4 py-2 text-xs font-semibold text-neutral-500 disabled:opacity-60"
+                  className="flex-shrink-0 rounded-xl border border-neutral-300 dark:border-neutral-600 px-4 py-2 text-xs font-semibold text-neutral-500 dark:text-neutral-400 disabled:opacity-60"
                 >
                   {busy === tierPlan ? t('subscription.redirecting', 'Redirecting…') : t('subscription.switchTo', { plan: tierPlan })}
                 </button>
@@ -237,7 +237,7 @@ function SubscriptionPage() {
         })}
       </div>
 
-      <p className="pb-4 text-center text-xs text-neutral-400">{t('subscription.finePrint', 'Prices are in Nigerian Naira (NGN). Subscriptions renew automatically and can be cancelled at any time. Annual plans are billed as a single payment.')}</p>
+      <p className="pb-4 text-center text-xs text-neutral-400 dark:text-neutral-500">{t('subscription.finePrint', 'Prices are in Nigerian Naira (NGN). Subscriptions renew automatically and can be cancelled at any time. Annual plans are billed as a single payment.')}</p>
     </div>
   );
 }

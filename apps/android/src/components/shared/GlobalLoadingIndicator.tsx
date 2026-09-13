@@ -67,7 +67,7 @@ export function GlobalLoadingIndicator() {
       className="pointer-events-none fixed inset-x-0 z-[70] flex justify-center"
       style={{ top: 'calc(env(safe-area-inset-top) + 0.75rem)' }}
     >
-      <div className="flex items-center gap-2 rounded-full border border-neutral-200 bg-white/95 px-3 py-1.5 shadow-lg">
+      <div className="flex items-center gap-2 rounded-full border border-neutral-200 dark:border-neutral-700 bg-white/95 px-3 py-1.5 shadow-lg">
         <span className="h-4 w-4 animate-spin rounded-full border-2 border-primary-600 border-t-transparent" />
         <span className="sr-only">Loading…</span>
       </div>

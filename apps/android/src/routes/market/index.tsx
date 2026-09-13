@@ -30,8 +30,8 @@ function Section({ title, items, section, view }: { title: string; items: Market
   return (
     <section className="space-y-2">
       <div className="flex items-center justify-between">
-        <h2 className="text-base font-bold text-neutral-900">{title}</h2>
-        <Link to="/market/$section" params={{ section }} className="text-xs font-medium text-primary-600">View more →</Link>
+        <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{title}</h2>
+        <Link to="/market/$section" params={{ section }} className="text-xs font-medium text-primary-600 dark:text-primary-300">View more →</Link>
       </div>
       <div className={view === 'grid' ? 'grid grid-cols-2 gap-3' : 'space-y-2'}>
         {items.map((item) => <MarketItemCard key={`${item.kind}:${item.id}`} item={item} view={view} />)}
@@ -46,21 +46,21 @@ function MarketHomePage() {
   const { data: home, status } = useQuery({ queryKey: ['market', 'home'], queryFn: fetchHome });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-5 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-5 px-4 py-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-bold text-neutral-900">{t('market.title', '🏪 Market')}</h1>
-          <p className="mt-0.5 text-xs text-neutral-500">{t('market.subtitle', 'Credits, cosmetics, boosts, and creator items — all in one place.')}</p>
+          <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('market.title', '🏪 Market')}</h1>
+          <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{t('market.subtitle', 'Credits, cosmetics, boosts, and creator items — all in one place.')}</p>
         </div>
-        <div className="flex gap-0.5 rounded-lg border border-neutral-200 bg-white p-0.5">
-          <button onClick={() => setView('list')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'list' ? 'bg-primary-600 text-white' : 'text-neutral-500'}`}>☰</button>
-          <button onClick={() => setView('grid')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'grid' ? 'bg-primary-600 text-white' : 'text-neutral-500'}`}>⊞</button>
+        <div className="flex gap-0.5 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-0.5">
+          <button onClick={() => setView('list')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'list' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>☰</button>
+          <button onClick={() => setView('grid')} className={`rounded-md px-2 py-1 text-xs font-medium ${view === 'grid' ? 'bg-primary-600 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}>⊞</button>
         </div>
       </div>
 
       {status === 'pending' || !home ? (
         <div className="grid grid-cols-2 gap-3">
-          {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-40 animate-pulse rounded-2xl bg-neutral-200" />)}
+          {Array.from({ length: 6 }).map((_, i) => <div key={i} className="h-40 animate-pulse rounded-2xl bg-neutral-200 dark:bg-neutral-700" />)}
         </div>
       ) : (
         <>

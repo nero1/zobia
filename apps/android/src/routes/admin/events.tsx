@@ -103,8 +103,8 @@ function EventFormModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 sm:items-center sm:p-4">
-      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl sm:rounded-2xl">
-        <h3 className="mb-4 text-base font-bold text-neutral-900">{t('admin.events.createTitle', 'Create Event')}</h3>
+      <div className="max-h-[90vh] w-full max-w-md overflow-y-auto rounded-t-2xl bg-white dark:bg-neutral-800 p-5 shadow-xl sm:rounded-2xl">
+        <h3 className="mb-4 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('admin.events.createTitle', 'Create Event')}</h3>
         <div className="space-y-3">
           <AdminField label={t('admin.events.name', 'Event Name')}>
             <input type="text" value={form.name} onChange={(e) => update('name', e.target.value)} maxLength={150} className={adminInputClass} />
@@ -137,7 +137,7 @@ function EventFormModal({
           </div>
         </div>
         <div className="mt-5 flex gap-3">
-          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700 disabled:opacity-60">
+          <button type="button" onClick={onClose} disabled={saving} className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60">
             {t('common.cancel')}
           </button>
           <button
@@ -209,7 +209,7 @@ function AdminEventsPage() {
   return (
     <div className="px-4 py-5">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-xl font-bold text-neutral-900">{t('admin.nav.events', 'Platform Events')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.events', 'Platform Events')}</h1>
         <button type="button" onClick={() => setShowModal(true)} className="rounded-lg bg-primary-600 px-3.5 py-2 text-sm font-semibold text-white">
           + {t('admin.events.create', 'Create')}
         </button>
@@ -229,13 +229,13 @@ function AdminEventsPage() {
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
-                    <p className="font-semibold text-neutral-900 truncate">{ev.name}</p>
+                    <p className="font-semibold text-neutral-900 dark:text-neutral-100 truncate">{ev.name}</p>
                     <AdminBadge label={ev.event_type.replace(/_/g, ' ')} color="blue" />
                     <AdminBadge label={ev.is_active ? t('admin.events.active', 'Active') : t('admin.events.inactive', 'Inactive')} color={ev.is_active ? 'green' : 'neutral'} />
                     {ev.xpMultiplier > 1 && <AdminBadge label={`${ev.xpMultiplier}x XP`} color="gold" />}
                   </div>
-                  {ev.description && <p className="mt-0.5 text-xs text-neutral-500 line-clamp-2">{ev.description}</p>}
-                  <p className="mt-1.5 text-[11px] text-neutral-400">{fmtDate(ev.starts_at)} – {fmtDate(ev.ends_at)}</p>
+                  {ev.description && <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400 line-clamp-2">{ev.description}</p>}
+                  <p className="mt-1.5 text-[11px] text-neutral-400 dark:text-neutral-500">{fmtDate(ev.starts_at)} – {fmtDate(ev.ends_at)}</p>
                 </div>
               </div>
               <div className="mt-3 flex flex-wrap gap-1.5">
@@ -243,12 +243,12 @@ function AdminEventsPage() {
                   type="button"
                   disabled={toggleMutation.isPending}
                   onClick={() => toggleMutation.mutate({ id: ev.id, isActive: !ev.is_active })}
-                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50 ${ev.is_active ? 'bg-neutral-100 text-neutral-700' : 'bg-success-100 text-success-700'}`}
+                  className={`rounded-lg px-2.5 py-1 text-xs font-semibold disabled:opacity-50 ${ev.is_active ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300' : 'bg-success-100 dark:bg-success-900/40 text-success-700 dark:text-success-300'}`}
                 >
                   {ev.is_active ? t('admin.events.deactivate', 'Deactivate') : t('admin.events.activate', 'Activate')}
                 </button>
                 {ev.is_active && (
-                  <button type="button" onClick={() => setDeactivating(ev)} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700">
+                  <button type="button" onClick={() => setDeactivating(ev)} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300">
                     {t('admin.events.end', 'End Event')}
                   </button>
                 )}

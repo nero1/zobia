@@ -63,14 +63,14 @@ function WikiSettingsPage() {
     },
   });
 
-  if (wikiQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 p-4"><div className="h-24 rounded bg-neutral-200 animate-pulse" /></div>;
+  if (wikiQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4"><div className="h-24 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" /></div>;
   if (!wikiQuery.data?.canManage) {
-    return <div className="h-full overflow-y-auto bg-neutral-50 p-6 text-center text-sm text-neutral-500">{t('wiki.settings.notAllowed', "You don't have access to this wiki's settings.")}</div>;
+    return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('wiki.settings.notAllowed', "You don't have access to this wiki's settings.")}</div>;
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
-      <h1 className="text-lg font-bold text-neutral-900">{t('wiki.settings.title', 'Wiki settings')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('wiki.settings.title', 'Wiki settings')}</h1>
 
       <div className="space-y-3">
         <input
@@ -78,7 +78,7 @@ function WikiSettingsPage() {
           onChange={(e) => setName(e.target.value)}
           maxLength={100}
           placeholder={t('wiki.new.namePlaceholder', "e.g. Muna's Lore Wiki")}
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+          className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
         />
         <textarea
           value={description}
@@ -86,23 +86,23 @@ function WikiSettingsPage() {
           maxLength={2000}
           rows={3}
           placeholder={t('wiki.new.descriptionPlaceholder', 'Description (optional)')}
-          className="w-full resize-none rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+          className="w-full resize-none rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
         />
         <input
           value={avatarUrl}
           onChange={(e) => setAvatarUrl(e.target.value)}
           placeholder={t('wiki.settings.avatarUrlPlaceholder', 'Avatar image URL (optional)')}
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+          className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
         />
         <input
           value={coverImageUrl}
           onChange={(e) => setCoverImageUrl(e.target.value)}
           placeholder={t('wiki.settings.coverUrlPlaceholder', 'Cover image URL (optional)')}
-          className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2.5 text-sm text-neutral-900 focus:border-primary-500 focus:outline-none"
+          className="w-full rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
         />
 
         <div>
-          <p className="mb-1.5 text-xs font-semibold text-neutral-500">{t('wiki.new.policyLabel', 'Who can contribute?')}</p>
+          <p className="mb-1.5 text-xs font-semibold text-neutral-500 dark:text-neutral-400">{t('wiki.new.policyLabel', 'Who can contribute?')}</p>
           <div className="flex flex-col gap-1.5">
             {POLICIES.map((p) => (
               <button
@@ -110,7 +110,7 @@ function WikiSettingsPage() {
                 type="button"
                 onClick={() => setPolicy(p)}
                 className={`rounded-xl border px-3 py-2 text-left text-sm ${
-                  policy === p ? 'border-primary-500 bg-primary-50 text-primary-700 font-medium' : 'border-neutral-200 bg-white text-neutral-700'
+                  policy === p ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 font-medium' : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
                 }`}
               >
                 {policyLabel[p]}
@@ -119,7 +119,7 @@ function WikiSettingsPage() {
           </div>
         </div>
 
-        {saved && <p className="text-sm text-teal-600">{t('wiki.settings.saved', 'Settings saved.')}</p>}
+        {saved && <p className="text-sm text-teal-600 dark:text-teal-300">{t('wiki.settings.saved', 'Settings saved.')}</p>}
         <button
           disabled={!name.trim() || save.isPending}
           onClick={() => save.mutate()}

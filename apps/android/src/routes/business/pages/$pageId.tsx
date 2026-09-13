@@ -55,25 +55,25 @@ function BusinessPageDetail() {
     onSuccess: () => qc.invalidateQueries({ queryKey: ['business', 'pages', pageId] }),
   });
 
-  if (status === 'pending') return <div className="p-6 text-center text-neutral-400">{t('action.loading', 'Loading…')}</div>;
-  if (!data) return <div className="p-6 text-center text-neutral-400">{t('business.pages.detail.notFound', 'Not found')}</div>;
+  if (status === 'pending') return <div className="p-6 text-center text-neutral-400 dark:text-neutral-500">{t('action.loading', 'Loading…')}</div>;
+  if (!data) return <div className="p-6 text-center text-neutral-400 dark:text-neutral-500">{t('business.pages.detail.notFound', 'Not found')}</div>;
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-lg font-bold text-neutral-900">{data.page.name}</h1>
-      {data.page.bio && <p className="text-sm text-neutral-500 mt-1">{data.page.bio}</p>}
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{data.page.name}</h1>
+      {data.page.bio && <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">{data.page.bio}</p>}
 
       <div className="flex items-center justify-between mt-4 mb-2">
-        <h2 className="text-sm font-semibold text-neutral-700">{t('business.pages.detail.posts', 'Posts')}</h2>
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('business.pages.detail.posts', 'Posts')}</h2>
         <button onClick={() => setShowForm((s) => !s)} className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white">
           {showForm ? t('action.cancel', 'Cancel') : t('business.pages.detail.newPost', '+ Post')}
         </button>
       </div>
 
       {showForm && (
-        <div className="bg-white rounded-xl p-4 shadow-card mb-3 space-y-2">
-          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('business.pages.detail.titlePlaceholder', 'Title')} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
-          <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder={t('business.pages.detail.bodyPlaceholder', "What's new?")} rows={3} className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm" />
+        <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card mb-3 space-y-2">
+          <input value={title} onChange={(e) => setTitle(e.target.value)} placeholder={t('business.pages.detail.titlePlaceholder', 'Title')} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
+          <textarea value={body} onChange={(e) => setBody(e.target.value)} placeholder={t('business.pages.detail.bodyPlaceholder', "What's new?")} rows={3} className="w-full rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2 text-sm" />
           <button
             onClick={() => postMutation.mutate()}
             disabled={postMutation.isPending || !title.trim() || !body.trim()}
@@ -85,17 +85,17 @@ function BusinessPageDetail() {
       )}
 
       {data.posts.length === 0 ? (
-        <p className="text-center text-sm text-neutral-400 py-8">{t('business.pages.detail.empty', 'No posts yet.')}</p>
+        <p className="text-center text-sm text-neutral-400 dark:text-neutral-500 py-8">{t('business.pages.detail.empty', 'No posts yet.')}</p>
       ) : (
         <div className="space-y-2">
           {data.posts.map((post) => (
-            <div key={post.id} className="bg-white rounded-xl p-4 shadow-card">
+            <div key={post.id} className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card">
               <div className="flex items-start justify-between gap-2">
                 <div className="min-w-0">
-                  <p className="font-semibold text-sm text-neutral-900">{post.title}</p>
-                  <p className="text-xs text-neutral-500 mt-1 line-clamp-2">{post.body}</p>
+                  <p className="font-semibold text-sm text-neutral-900 dark:text-neutral-100">{post.title}</p>
+                  <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1 line-clamp-2">{post.body}</p>
                 </div>
-                <button onClick={() => deleteMutation.mutate(post.id)} className="flex-shrink-0 text-xs font-semibold text-red-600">{t('action.delete', 'Delete')}</button>
+                <button onClick={() => deleteMutation.mutate(post.id)} className="flex-shrink-0 text-xs font-semibold text-red-600 dark:text-red-300">{t('action.delete', 'Delete')}</button>
               </div>
             </div>
           ))}

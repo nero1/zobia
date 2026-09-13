@@ -51,22 +51,22 @@ function MessageCard({ message, onRead }: { message: AnnouncementMessage; onRead
       role="button"
       tabIndex={0}
       onClick={() => { if (unread) onRead(message.id); }}
-      className={`rounded-xl border bg-white p-4 mb-3 active:bg-neutral-50 ${unread ? 'border-blue-400' : 'border-neutral-200'}`}
+      className={`rounded-xl border bg-white dark:bg-neutral-800 p-4 mb-3 active:bg-neutral-50 dark:active:bg-neutral-800 ${unread ? 'border-blue-400' : 'border-neutral-200 dark:border-neutral-700'}`}
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             {unread && <span className="h-2 w-2 shrink-0 rounded-full bg-blue-500" />}
-            <h3 className={`text-sm font-semibold ${unread ? 'text-neutral-900' : 'text-neutral-600'}`}>
+            <h3 className={`text-sm font-semibold ${unread ? 'text-neutral-900 dark:text-neutral-100' : 'text-neutral-600 dark:text-neutral-400'}`}>
               {message.subject}
             </h3>
-            <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700">
+            <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-300">
               {t('announcements.fromZobia')}
             </span>
           </div>
-          <p className="mt-1.5 line-clamp-2 text-sm text-neutral-600">{message.body}</p>
+          <p className="mt-1.5 line-clamp-2 text-sm text-neutral-600 dark:text-neutral-400">{message.body}</p>
         </div>
-        <span className="shrink-0 text-xs text-neutral-400">
+        <span className="shrink-0 text-xs text-neutral-400 dark:text-neutral-500">
           {new Date(message.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
         </span>
       </div>
@@ -96,13 +96,13 @@ function AnnouncementsPage() {
 
   if (status === 'pending') {
     return (
-      <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6">
-        <h1 className="text-xl font-bold text-neutral-900 mb-4">{t('announcements.title')}</h1>
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-6">
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 mb-4">{t('announcements.title')}</h1>
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-xl border border-neutral-200 bg-white p-4 mb-3 animate-pulse">
-            <div className="h-4 bg-neutral-200 rounded w-40 mb-2" />
-            <div className="h-3 bg-neutral-100 rounded w-full mb-1" />
-            <div className="h-3 bg-neutral-100 rounded w-2/3" />
+          <div key={i} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 mb-3 animate-pulse">
+            <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-40 mb-2" />
+            <div className="h-3 bg-neutral-100 dark:bg-neutral-800 rounded w-full mb-1" />
+            <div className="h-3 bg-neutral-100 dark:bg-neutral-800 rounded w-2/3" />
           </div>
         ))}
       </div>
@@ -112,7 +112,7 @@ function AnnouncementsPage() {
   if (status === 'error') {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
-        <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+        <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
         <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">
           {t('android.error.retry')}
         </button>
@@ -123,11 +123,11 @@ function AnnouncementsPage() {
   const unreadCount = (messages ?? []).filter((m) => !m.readAt).length;
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-6">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-6">
       <div className="flex items-center gap-3 mb-4">
-        <h1 className="text-xl font-bold text-neutral-900">{t('announcements.title')}</h1>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('announcements.title')}</h1>
         {unreadCount > 0 && (
-          <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-700">
+          <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-2.5 py-0.5 text-xs font-semibold text-blue-700 dark:text-blue-300">
             {t('announcements.unread', { count: unreadCount })}
           </span>
         )}
@@ -136,8 +136,8 @@ function AnnouncementsPage() {
       {(messages?.length ?? 0) === 0 ? (
         <div className="flex flex-col items-center py-16 text-center">
           <span className="text-5xl">📭</span>
-          <h2 className="mt-4 text-lg font-semibold text-neutral-900">{t('announcements.noMessages')}</h2>
-          <p className="mt-1 text-sm text-neutral-500">{t('announcements.noMessagesHint')}</p>
+          <h2 className="mt-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('announcements.noMessages')}</h2>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('announcements.noMessagesHint')}</p>
         </div>
       ) : (
         messages!.map((msg) => (

@@ -60,16 +60,16 @@ async function fetchLoginStreak(): Promise<number> {
 }
 
 function SkeletonBlock({ className }: { className: string }) {
-  return <div className={`animate-pulse rounded bg-neutral-200 ${className}`} />;
+  return <div className={`animate-pulse rounded bg-neutral-200 dark:bg-neutral-700 ${className}`} />;
 }
 
 function QuestDeckSkeleton() {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white shadow-sm">
-      <div className="border-b border-neutral-200 px-5 py-4">
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-sm">
+      <div className="border-b border-neutral-200 dark:border-neutral-700 px-5 py-4">
         <SkeletonBlock className="h-4 w-28" />
       </div>
-      <div className="divide-y divide-neutral-100">
+      <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
         {Array.from({ length: 3 }).map((_, i) => (
           <div key={i} className="animate-pulse px-5 py-4">
             <div className="flex items-start gap-3">
@@ -96,9 +96,9 @@ export function DailyQuestDeck() {
   if (isPending || !quests) return <QuestDeckSkeleton />;
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4">
-        <h2 className="text-sm font-semibold text-neutral-700">{t('home.quests.dailyTitle')}</h2>
+    <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 shadow-sm">
+      <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-5 py-4">
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('home.quests.dailyTitle')}</h2>
         {loginStreak > 0 && (
           <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">
             🔥 {t('home.quests.streak', { count: loginStreak })}
@@ -106,16 +106,16 @@ export function DailyQuestDeck() {
         )}
       </div>
       {quests.length === 0 ? (
-        <div className="px-5 py-8 text-center text-sm text-neutral-500">{t('home.quests.empty')}</div>
+        <div className="px-5 py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('home.quests.empty')}</div>
       ) : (
-        <div className="divide-y divide-neutral-100">
+        <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
           {quests.map((q) => {
             const pct = q.goal > 0 ? Math.min(100, Math.round((q.progress / q.goal) * 100)) : 0;
             return (
               <div key={q.id} className="px-5 py-4">
                 <div className="flex items-start gap-3">
                   <div
-                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${q.completed ? 'border-teal-500 bg-teal-500 text-white' : 'border-neutral-300'}`}
+                    className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 ${q.completed ? 'border-teal-500 bg-teal-500 text-white' : 'border-neutral-300 dark:border-neutral-600'}`}
                   >
                     {q.completed && (
                       <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
@@ -124,25 +124,25 @@ export function DailyQuestDeck() {
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className={`text-sm font-semibold ${q.completed ? 'text-neutral-400 line-through' : 'text-neutral-900'}`}>
+                    <p className={`text-sm font-semibold ${q.completed ? 'text-neutral-400 dark:text-neutral-500 line-through' : 'text-neutral-900 dark:text-neutral-100'}`}>
                       {q.title}
                     </p>
-                    {q.description && <p className="mt-0.5 text-xs text-neutral-500">{q.description}</p>}
+                    {q.description && <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">{q.description}</p>}
                     {!q.completed && (
                       <div className="mt-2">
-                        <div className="mb-1 flex items-center justify-between text-xs text-neutral-400">
+                        <div className="mb-1 flex items-center justify-between text-xs text-neutral-400 dark:text-neutral-500">
                           <span className="tabular-nums">
                             {q.progress} / {q.goal}
                           </span>
                           <span>{pct}%</span>
                         </div>
-                        <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200">
+                        <div className="h-1.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
                           <div className="h-full rounded-full bg-primary-500 transition-all" style={{ width: `${pct}%` }} />
                         </div>
                       </div>
                     )}
                   </div>
-                  <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700">
+                  <span className="shrink-0 rounded-full bg-amber-100 dark:bg-amber-900/40 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:text-amber-300">
                     +{q.xpReward} XP
                   </span>
                 </div>

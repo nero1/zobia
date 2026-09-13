@@ -65,7 +65,7 @@ function AdminCommunityNotesPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-4 text-xl font-bold text-neutral-900">{t('admin.nav.communityNotes', 'Community Notes')}</h1>
+      <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.communityNotes', 'Community Notes')}</h1>
       {toast && <AdminToast message={toast} />}
       <AdminTabs tabs={tabs} active={tab} onChange={setTab} />
 
@@ -74,28 +74,28 @@ function AdminCommunityNotesPage() {
         {status === 'success' && (data?.length ?? 0) === 0 && <AdminEmptyState icon="📝" title={t('admin.communityNotes.empty', 'No notes here')} />}
         {status === 'success' &&
           data?.map((note) => (
-            <div key={note.id} className="rounded-xl border border-neutral-200 bg-white p-4 shadow-card">
+            <div key={note.id} className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-card">
               <div className="mb-1.5 flex items-center gap-1.5 text-xs">
-                <span className="font-semibold text-neutral-700">@{note.author_username ?? '—'}</span>
+                <span className="font-semibold text-neutral-700 dark:text-neutral-300">@{note.author_username ?? '—'}</span>
                 <AdminBadge label={note.target_type} />
                 <AdminBadge label={note.status} color={STATUS_COLOR[note.status]} />
-                <span className="ml-auto text-neutral-400">{timeAgo(note.created_at)}</span>
+                <span className="ml-auto text-neutral-400 dark:text-neutral-500">{timeAgo(note.created_at)}</span>
               </div>
-              <p className="mb-2.5 text-sm text-neutral-700">{note.content}</p>
+              <p className="mb-2.5 text-sm text-neutral-700 dark:text-neutral-300">{note.content}</p>
               {note.reviewer_username && (
-                <p className="mb-2 text-[11px] text-neutral-400">
+                <p className="mb-2 text-[11px] text-neutral-400 dark:text-neutral-500">
                   {t('admin.communityNotes.reviewedBy', 'Reviewed by')} @{note.reviewer_username}
                 </p>
               )}
               {note.status === 'pending' && (
                 <div className="flex flex-wrap gap-1.5">
-                  <button onClick={() => review.mutate({ noteId: note.id, action: 'approve' })} className="rounded-lg bg-success-100 px-2.5 py-1 text-xs font-semibold text-success-700">
+                  <button onClick={() => review.mutate({ noteId: note.id, action: 'approve' })} className="rounded-lg bg-success-100 dark:bg-success-900/40 px-2.5 py-1 text-xs font-semibold text-success-700 dark:text-success-300">
                     {t('admin.communityNotes.approve', 'Approve')}
                   </button>
-                  <button onClick={() => review.mutate({ noteId: note.id, action: 'reject' })} className="rounded-lg bg-danger-100 px-2.5 py-1 text-xs font-semibold text-danger-700">
+                  <button onClick={() => review.mutate({ noteId: note.id, action: 'reject' })} className="rounded-lg bg-danger-100 dark:bg-danger-900/40 px-2.5 py-1 text-xs font-semibold text-danger-700 dark:text-danger-300">
                     {t('admin.communityNotes.reject', 'Reject')}
                   </button>
-                  <button onClick={() => review.mutate({ noteId: note.id, action: 'escalate' })} className="rounded-lg bg-blue-100 px-2.5 py-1 text-xs font-semibold text-blue-700">
+                  <button onClick={() => review.mutate({ noteId: note.id, action: 'escalate' })} className="rounded-lg bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-semibold text-blue-700 dark:text-blue-300">
                     {t('admin.communityNotes.escalate', 'Escalate')}
                   </button>
                 </div>

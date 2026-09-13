@@ -62,10 +62,10 @@ const BUSINESS_TYPES: { value: BusinessType; label: string }[] = [
 const TIER_ORDER: Record<TierKey, number> = { starter: 0, growth: 1, enterprise: 2 };
 
 const VERIFICATION_BADGE: Record<VerificationStatus, { label: string; classes: string }> = {
-  unverified: { label: 'Unverified', classes: 'bg-neutral-100 text-neutral-600' },
-  pending: { label: 'Pending Review', classes: 'bg-amber-100 text-amber-700' },
-  verified: { label: 'Verified ✓', classes: 'bg-teal-100 text-teal-700' },
-  rejected: { label: 'Rejected', classes: 'bg-red-100 text-red-700' },
+  unverified: { label: 'Unverified', classes: 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400' },
+  pending: { label: 'Pending Review', classes: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300' },
+  verified: { label: 'Verified ✓', classes: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300' },
+  rejected: { label: 'Rejected', classes: 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' },
 };
 
 function fmtKobo(kobo: number): string {
@@ -185,7 +185,7 @@ function BusinessPage() {
   }
 
   if (loading) {
-    return <div className="flex h-full items-center justify-center text-sm text-neutral-400">{t('action.loading', 'Loading…')}</div>;
+    return <div className="flex h-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-500">{t('action.loading', 'Loading…')}</div>;
   }
 
   const verStatus: VerificationStatus = business?.verification_status ?? 'unverified';
@@ -193,7 +193,7 @@ function BusinessPage() {
   const currentTierKey = (business?.tier?.toLowerCase() as TierKey) in TIER_ORDER ? (business!.tier.toLowerCase() as TierKey) : 'starter';
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4 space-y-3">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4 space-y-3">
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.type === 'success' ? 'bg-teal-600' : 'bg-red-600'}`}>
           {toast.msg}
@@ -201,27 +201,27 @@ function BusinessPage() {
       )}
 
       {business && business.status === 'suspended' && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+        <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">
           {t('business.suspended', 'Your business account is suspended. Contact support for more information.')}
         </div>
       )}
 
       {/* Current info */}
       {business && !editing && (
-        <div className="rounded-xl bg-white p-4 shadow-card">
+        <div className="rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <h2 className="text-base font-bold text-neutral-900">{business.business_name}</h2>
-              {business.business_type && <p className="text-sm capitalize text-neutral-500">{business.business_type}</p>}
+              <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{business.business_name}</h2>
+              {business.business_type && <p className="text-sm capitalize text-neutral-500 dark:text-neutral-400">{business.business_type}</p>}
             </div>
             <span className={`flex-shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${badge.classes}`}>{badge.label}</span>
           </div>
 
-          <div className="mt-3 rounded-lg bg-neutral-50 p-3">
-            <p className="text-xs font-semibold text-neutral-500">{t('business.tier.label', 'Tier')}</p>
-            <p className="mt-0.5 font-semibold capitalize text-neutral-900">{business.tier}</p>
+          <div className="mt-3 rounded-lg bg-neutral-50 dark:bg-neutral-800 p-3">
+            <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">{t('business.tier.label', 'Tier')}</p>
+            <p className="mt-0.5 font-semibold capitalize text-neutral-900 dark:text-neutral-100">{business.tier}</p>
             {business.current_period_ends_at && (
-              <p className="mt-0.5 text-xs text-neutral-400">
+              <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
                 {t('business.tier.renewsEnds', 'Renews/ends')} {new Date(business.current_period_ends_at).toLocaleDateString()}
               </p>
             )}
@@ -237,21 +237,21 @@ function BusinessPage() {
                 { label: t('business.analytics.broadcasts', 'Broadcasts Sent'), value: analytics.broadcasts_sent.toLocaleString() },
                 { label: t('business.analytics.earnings', 'Lifetime Earnings'), value: fmtKobo(analytics.total_earnings_kobo) },
               ].map(({ label, value }) => (
-                <div key={label} className="rounded-lg bg-neutral-50 p-2 text-center">
-                  <p className="text-xs font-semibold text-neutral-900">{value}</p>
-                  <p className="text-[10px] text-neutral-400">{label}</p>
+                <div key={label} className="rounded-lg bg-neutral-50 dark:bg-neutral-800 p-2 text-center">
+                  <p className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">{value}</p>
+                  <p className="text-[10px] text-neutral-400 dark:text-neutral-500">{label}</p>
                 </div>
               ))}
             </div>
           )}
 
           {verStatus === 'rejected' && (
-            <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+            <div className="mt-3 rounded-lg bg-red-50 dark:bg-red-900/30 px-3 py-2 text-xs text-red-700 dark:text-red-300">
               {t('business.verify.rejected', 'Your verification was rejected. Update your business details and resubmit.')}
             </div>
           )}
           {verStatus === 'pending' && (
-            <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+            <div className="mt-3 rounded-lg bg-amber-50 dark:bg-amber-900/30 px-3 py-2 text-xs text-amber-700 dark:text-amber-300">
               {t('business.verify.pending', "Your business is under review. We'll notify you once verified.")}
             </div>
           )}
@@ -270,14 +270,14 @@ function BusinessPage() {
               <button
                 onClick={() => void handleCancelVerification()}
                 disabled={verifying}
-                className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-600 disabled:opacity-60"
+                className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-sm font-semibold text-neutral-600 dark:text-neutral-400 disabled:opacity-60"
               >
                 {verifying ? t('action.cancelling', 'Cancelling…') : t('business.verify.cancel', 'Cancel Request')}
               </button>
             )}
             <button
               onClick={() => setEditing(true)}
-              className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700"
+              className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300"
             >
               {t('business.editInfo', 'Edit Info')}
             </button>
@@ -287,17 +287,17 @@ function BusinessPage() {
 
       {/* Tier picker */}
       {business && !editing && (
-        <div className="rounded-xl bg-white p-4 shadow-card">
-          <h3 className="mb-3 text-sm font-semibold text-neutral-900">{t('business.tiers.title', 'Business Tiers')}</h3>
+        <div className="rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
+          <h3 className="mb-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t('business.tiers.title', 'Business Tiers')}</h3>
           <div className="space-y-2">
             {BUSINESS_TIER_PRODUCTS.map((product) => {
               const isCurrent = product.tier === currentTierKey;
               const isUpgrade = TIER_ORDER[product.tier] > TIER_ORDER[currentTierKey];
               return (
-                <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg border border-neutral-100 p-3">
+                <div key={product.id} className="flex items-center justify-between gap-3 rounded-lg border border-neutral-100 dark:border-neutral-800 p-3">
                   <div>
-                    <p className="text-sm font-bold capitalize text-neutral-900">{product.label}</p>
-                    <p className="text-xs font-semibold text-neutral-500">{product.price}</p>
+                    <p className="text-sm font-bold capitalize text-neutral-900 dark:text-neutral-100">{product.label}</p>
+                    <p className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">{product.price}</p>
                   </div>
                   {isCurrent ? (
                     <span className="rounded-full bg-blue-600 px-3 py-1 text-xs font-semibold text-white">{t('business.tier.active', 'Active Plan')}</span>
@@ -305,7 +305,7 @@ function BusinessPage() {
                     <button
                       onClick={() => void handleTierAction(product.tier)}
                       disabled={tierBusy !== null}
-                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-60 ${isUpgrade ? 'bg-blue-600 text-white' : 'border border-neutral-300 text-neutral-600'}`}
+                      className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-60 ${isUpgrade ? 'bg-blue-600 text-white' : 'border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400'}`}
                     >
                       {tierBusy === product.tier ? t('subscription.redirecting', 'Redirecting…') : isUpgrade ? t('business.tier.upgrade', 'Upgrade') : t('business.downgrade.button', 'Downgrade')}
                     </button>
@@ -319,29 +319,29 @@ function BusinessPage() {
 
       {/* Create / edit form */}
       {(!business || editing) && (
-        <div className="rounded-xl bg-white p-4 shadow-card">
-          <h3 className="mb-3 text-sm font-semibold text-neutral-900">
+        <div className="rounded-xl bg-white dark:bg-neutral-800 p-4 shadow-card">
+          <h3 className="mb-3 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
             {business ? t('business.editTitle', 'Edit Business Account') : t('business.createTitle', 'Create Business Account')}
           </h3>
 
           <div className="space-y-3">
             <div>
-              <label className="mb-1 block text-xs font-semibold text-neutral-700">{t('business.form.businessName', 'Business Name')}</label>
+              <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t('business.form.businessName', 'Business Name')}</label>
               <input
                 type="text"
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
                 maxLength={100}
                 placeholder="e.g. Acme Clothing"
-                className="w-full rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm"
               />
             </div>
             <div>
-              <label className="mb-1 block text-xs font-semibold text-neutral-700">{t('business.form.businessType', 'Business Type')}</label>
+              <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t('business.form.businessType', 'Business Type')}</label>
               <select
                 value={businessType}
                 onChange={(e) => setBusinessType(e.target.value as BusinessType)}
-                className="w-full rounded-lg border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm"
+                className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm"
               >
                 {BUSINESS_TYPES.map(({ value, label }) => <option key={value} value={value}>{label}</option>)}
               </select>
@@ -349,7 +349,7 @@ function BusinessPage() {
 
             {business ? (
               <div className="flex gap-2 pt-1">
-                <button onClick={() => setEditing(false)} className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-sm font-semibold text-neutral-700">
+                <button onClick={() => setEditing(false)} className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
                   {t('action.cancel', 'Cancel')}
                 </button>
                 <button
@@ -362,7 +362,7 @@ function BusinessPage() {
               </div>
             ) : (
               <div className="space-y-2 pt-1">
-                <p className="text-xs text-neutral-500">
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">
                   {t('business.createHint', "Fill in your business details, then pick a plan below — you'll be charged via Google Play.")}
                 </p>
                 {BUSINESS_TIER_PRODUCTS.map((product) => (
@@ -370,7 +370,7 @@ function BusinessPage() {
                     key={product.id}
                     onClick={() => void handleTierAction(product.tier)}
                     disabled={tierBusy !== null || !businessName.trim()}
-                    className="flex w-full items-center justify-between rounded-lg border border-neutral-200 px-3 py-2.5 text-sm font-semibold text-neutral-900 disabled:opacity-50"
+                    className="flex w-full items-center justify-between rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-2.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100 disabled:opacity-50"
                   >
                     <span>{product.label} — {product.price}</span>
                     <span>{tierBusy === product.tier ? '…' : '→'}</span>

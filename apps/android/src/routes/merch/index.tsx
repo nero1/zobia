@@ -58,27 +58,27 @@ function MerchDirectoryPage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 space-y-3 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-3 px-4 py-4">
       <div>
-        <h1 className="text-xl font-bold text-neutral-900">{t('merch.title', 'Merch Stores')}</h1>
-        <p className="mt-0.5 text-sm text-neutral-500">{t('merch.subtitle', 'Shop merchandise from your favourite creators.')}</p>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('merch.title', 'Merch Stores')}</h1>
+        <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">{t('merch.subtitle', 'Shop merchandise from your favourite creators.')}</p>
       </div>
 
       <input
         value={search}
         onChange={(e) => setSearch(e.target.value)}
         placeholder={t('merch.searchPlaceholder', 'Search stores…')}
-        className="w-full rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
+        className="w-full rounded-xl border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 px-4 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
       />
 
       {status === 'pending' ? (
         <div className="grid grid-cols-1 gap-3">
-          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 animate-pulse rounded-2xl bg-neutral-200" />)}
+          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 animate-pulse rounded-2xl bg-neutral-200 dark:bg-neutral-700" />)}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center rounded-2xl border border-neutral-200 bg-white py-16">
+        <div className="flex flex-col items-center rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 py-16">
           <span className="text-5xl">🛍️</span>
-          <p className="mt-3 font-semibold text-neutral-700">{search ? t('merch.noSearchResults', 'No stores match your search') : t('merch.empty', 'No stores yet')}</p>
+          <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">{search ? t('merch.noSearchResults', 'No stores match your search') : t('merch.empty', 'No stores yet')}</p>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3">
@@ -87,14 +87,14 @@ function MerchDirectoryPage() {
               key={store.creatorId}
               to="/merch/$creatorId"
               params={{ creatorId: store.creatorId }}
-              className="flex flex-col rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm"
+              className="flex flex-col rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4 shadow-sm"
             >
               <div className="mb-2 flex items-center gap-3">
-                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 text-xl">🛍️</span>
-                <p className="min-w-0 truncate font-semibold text-neutral-900">{store.storeName}</p>
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-xl">🛍️</span>
+                <p className="min-w-0 truncate font-semibold text-neutral-900 dark:text-neutral-100">{store.storeName}</p>
               </div>
-              {store.description && <p className="mb-2 line-clamp-2 text-sm text-neutral-600">{store.description}</p>}
-              <span className="text-xs text-neutral-500">{t('merch.productCount', '{{count}} products', { count: store.productCount })}</span>
+              {store.description && <p className="mb-2 line-clamp-2 text-sm text-neutral-600 dark:text-neutral-400">{store.description}</p>}
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">{t('merch.productCount', '{{count}} products', { count: store.productCount })}</span>
             </Link>
           ))}
         </div>

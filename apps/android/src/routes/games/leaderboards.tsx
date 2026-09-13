@@ -45,44 +45,44 @@ function LeaderboardsPage() {
   });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-neutral-900">{t('games.leaderboards', 'Leaderboards')}</h1>
-        <Link to="/games" className="text-sm text-primary-600">← {t('games.title', 'Games')}</Link>
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('games.leaderboards', 'Leaderboards')}</h1>
+        <Link to="/games" className="text-sm text-primary-600 dark:text-primary-300">← {t('games.title', 'Games')}</Link>
       </div>
 
       <select
         value={slug}
         onChange={(e) => setSlug(e.target.value)}
-        className="mb-4 w-full rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-900"
+        className="mb-4 w-full rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2.5 text-sm text-neutral-900 dark:text-neutral-100"
       >
         {(games ?? []).map((g) => <option key={g.slug} value={g.slug}>{g.name}</option>)}
       </select>
 
       {status === 'pending' && (
         <div className="space-y-2 animate-pulse">
-          {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-14 rounded-xl bg-white" />)}
+          {Array.from({ length: 5 }).map((_, i) => <div key={i} className="h-14 rounded-xl bg-white dark:bg-neutral-800" />)}
         </div>
       )}
 
       {status === 'success' && rows && rows.length === 0 && (
-        <p className="py-10 text-center text-sm text-neutral-500">{t('games.noScores', 'No scores yet. Be the first!')}</p>
+        <p className="py-10 text-center text-sm text-neutral-500 dark:text-neutral-400">{t('games.noScores', 'No scores yet. Be the first!')}</p>
       )}
 
       {status === 'success' && rows && rows.length > 0 && (
-        <div className="overflow-hidden rounded-xl bg-white shadow-card">
+        <div className="overflow-hidden rounded-xl bg-white dark:bg-neutral-800 shadow-card">
           {rows.map((r, i) => (
             <div
               key={r.userId}
-              className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t border-neutral-100' : ''}`}
+              className={`flex items-center gap-3 px-4 py-3 ${i > 0 ? 'border-t border-neutral-100 dark:border-neutral-800' : ''}`}
             >
-              <span className="w-6 text-right text-sm font-bold text-neutral-400">{r.rank}</span>
+              <span className="w-6 text-right text-sm font-bold text-neutral-400 dark:text-neutral-500">{r.rank}</span>
               <span className="text-xl" aria-hidden>{r.avatarEmoji}</span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-neutral-900">{r.displayName || r.username}</p>
-                <p className="truncate text-xs text-neutral-400">@{r.username}</p>
+                <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{r.displayName || r.username}</p>
+                <p className="truncate text-xs text-neutral-400 dark:text-neutral-500">@{r.username}</p>
               </div>
-              <span className="text-sm font-bold text-primary-600">{r.bestScore.toLocaleString()}</span>
+              <span className="text-sm font-bold text-primary-600 dark:text-primary-300">{r.bestScore.toLocaleString()}</span>
             </div>
           ))}
         </div>

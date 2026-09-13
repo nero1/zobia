@@ -19,16 +19,16 @@ const TABS: TabKey[] = ['foryou', 'friends', 'following', 'mentions'];
 
 function TweetSkeleton() {
   return (
-    <div className="bg-white border-b border-neutral-100 p-4 animate-pulse">
+    <div className="bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800 p-4 animate-pulse">
       <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 rounded-full bg-neutral-200" />
+        <div className="w-10 h-10 rounded-full bg-neutral-200 dark:bg-neutral-700" />
         <div className="flex-1">
-          <div className="h-4 bg-neutral-200 rounded w-24 mb-1" />
-          <div className="h-3 bg-neutral-100 rounded w-16" />
+          <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-24 mb-1" />
+          <div className="h-3 bg-neutral-100 dark:bg-neutral-800 rounded w-16" />
         </div>
       </div>
-      <div className="h-4 bg-neutral-200 rounded w-full mb-2" />
-      <div className="h-4 bg-neutral-100 rounded w-3/4" />
+      <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-full mb-2" />
+      <div className="h-4 bg-neutral-100 dark:bg-neutral-800 rounded w-3/4" />
     </div>
   );
 }
@@ -121,12 +121,12 @@ function TweetsPage() {
   const tweets = data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
-    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-neutral-50">
-      <div className="bg-white border-b border-neutral-100">
+    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
+      <div className="bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800">
         <div className="flex items-center justify-between px-4 py-3">
           <div>
-            <h1 className="text-lg font-bold text-neutral-900">{t('tweets.title')}</h1>
-            <p className="text-xs text-neutral-500">{t('tweets.subtitle')}</p>
+            <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('tweets.title')}</h1>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('tweets.subtitle')}</p>
           </div>
           <Link to="/tweets/create" className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white">
             + {t('tweets.compose')}
@@ -138,7 +138,7 @@ function TweetsPage() {
               key={tabKey}
               onClick={() => setTab(tabKey)}
               className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                tab === tabKey ? 'bg-primary-600 text-white' : 'text-neutral-600 bg-neutral-100'
+                tab === tabKey ? 'bg-primary-600 text-white' : 'text-neutral-600 dark:text-neutral-400 bg-neutral-100 dark:bg-neutral-800'
               }`}
             >
               {t(`tweets.tabs.${tabKey}`)}
@@ -151,7 +151,7 @@ function TweetsPage() {
 
       {status === 'error' && (
         <div className="flex flex-col items-center justify-center py-20 gap-4">
-          <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
           <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">
             {t('android.error.retry')}
           </button>
@@ -160,8 +160,8 @@ function TweetsPage() {
 
       {status === 'success' && tweets.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 text-3xl">🐦</div>
-          <p className="font-semibold text-neutral-900 text-sm">{t(`tweets.empty.${tab}`)}</p>
+          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700 text-3xl">🐦</div>
+          <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">{t(`tweets.empty.${tab}`)}</p>
           <Link to="/tweets/create" className="mt-4 rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white">
             {t('tweets.compose')}
           </Link>

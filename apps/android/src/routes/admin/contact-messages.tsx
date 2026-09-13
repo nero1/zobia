@@ -60,8 +60,8 @@ function AdminContactMessagesPage() {
 
   return (
     <div className="px-4 py-5">
-      <h1 className="mb-1 text-xl font-bold text-neutral-900">{t('admin.nav.contactMessages', 'Contact Messages')}</h1>
-      <p className="mb-4 text-xs text-neutral-500">{t('admin.contactMessages.hint', 'Submissions from the site-wide Contact Us page.')}</p>
+      <h1 className="mb-1 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.nav.contactMessages', 'Contact Messages')}</h1>
+      <p className="mb-4 text-xs text-neutral-500 dark:text-neutral-400">{t('admin.contactMessages.hint', 'Submissions from the site-wide Contact Us page.')}</p>
 
       {toast && <AdminToast message={toast} />}
 
@@ -75,17 +75,17 @@ function AdminContactMessagesPage() {
           messages?.map((m) => (
             <div
               key={m.id}
-              className={`rounded-xl border p-3.5 shadow-card ${m.is_read ? 'border-neutral-200 bg-white' : 'border-primary-300 bg-primary-50'}`}
+              className={`rounded-xl border p-3.5 shadow-card ${m.is_read ? 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800' : 'border-primary-300 bg-primary-50 dark:bg-primary-900/30'}`}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-semibold text-neutral-900">
+                <span className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">
                   {m.sender_username ? `@${m.sender_username}` : m.sender_name || t('admin.contactMessages.anonymous', 'Anonymous')}
                 </span>
-                <span className="shrink-0 text-[10px] text-neutral-500">{fmtDate(m.created_at)}</span>
+                <span className="shrink-0 text-[10px] text-neutral-500 dark:text-neutral-400">{fmtDate(m.created_at)}</span>
               </div>
-              {m.sender_email && <p className="text-xs text-neutral-500">{m.sender_email}</p>}
-              {m.subject && <p className="mt-1 text-sm font-semibold text-neutral-800">{m.subject}</p>}
-              <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-700">{m.message}</p>
+              {m.sender_email && <p className="text-xs text-neutral-500 dark:text-neutral-400">{m.sender_email}</p>}
+              {m.subject && <p className="mt-1 text-sm font-semibold text-neutral-800 dark:text-neutral-200">{m.subject}</p>}
+              <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-700 dark:text-neutral-300">{m.message}</p>
               {!m.is_read && (
                 <button
                   type="button"

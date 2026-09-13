@@ -44,13 +44,13 @@ function MyTicketsPage() {
 
       {isLoading && <div className="h-16 animate-pulse rounded-xl bg-neutral-800" />}
       {isError && (
-        <p className="rounded-xl border border-dashed border-neutral-700 p-6 text-center text-sm text-neutral-400">
+        <p className="rounded-xl border border-dashed border-neutral-700 p-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
           {t('support.unavailable', "Support tickets aren't available right now. Try the")}{' '}
           <Link to="/help" className="text-primary-400 underline">{t('help.title', 'Help Center')}</Link> {t('support.unavailableSuffix', 'instead.')}
         </p>
       )}
       {data && data.length === 0 && (
-        <p className="rounded-xl border border-dashed border-neutral-700 p-6 text-center text-sm text-neutral-400">
+        <p className="rounded-xl border border-dashed border-neutral-700 p-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
           {t('support.noTicketsPrompt', 'No tickets yet. Need help?')}
         </p>
       )}
@@ -60,7 +60,7 @@ function MyTicketsPage() {
             <Link key={ticket.id} to="/support/$ticketId" params={{ ticketId: ticket.id }} className="flex items-center justify-between gap-3 px-4 py-3">
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium text-white">{ticket.subject}</p>
-                <p className="text-xs text-neutral-500">{t('support.messageCount', '{{count}} message', { count: ticket.message_count })}</p>
+                <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('support.messageCount', '{{count}} message', { count: ticket.message_count })}</p>
               </div>
               <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_CLASS[ticket.status]}`}>{t(`support.status.${ticket.status}`, ticket.status)}</span>
             </Link>

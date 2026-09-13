@@ -54,10 +54,10 @@ function TrackBar({ track }: { track: TrackStat }) {
       <span className="w-5 text-center">{track.emoji}</span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-medium text-neutral-700">{track.label}</span>
-          <span className="text-xs font-semibold text-neutral-500">Lv {track.level}</span>
+          <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{track.label}</span>
+          <span className="text-xs font-semibold text-neutral-500 dark:text-neutral-400">Lv {track.level}</span>
         </div>
-        <div className="h-1.5 rounded-full bg-neutral-200 overflow-hidden">
+        <div className="h-1.5 rounded-full bg-neutral-200 dark:bg-neutral-700 overflow-hidden">
           <div className="h-full rounded-full bg-primary-500" style={{ width: `${pct}%` }} />
         </div>
       </div>
@@ -67,10 +67,10 @@ function TrackBar({ track }: { track: TrackStat }) {
 
 function CountTile({ label, value, emoji }: { label: string; value: number; emoji: string }) {
   return (
-    <div className="bg-white rounded-xl p-3 text-center">
+    <div className="bg-white dark:bg-neutral-800 rounded-xl p-3 text-center">
       <p className="text-lg">{emoji}</p>
-      <p className="text-base font-bold text-neutral-900">{value.toLocaleString()}</p>
-      <p className="text-xs text-neutral-500">{label}</p>
+      <p className="text-base font-bold text-neutral-900 dark:text-neutral-100">{value.toLocaleString()}</p>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400">{label}</p>
     </div>
   );
 }
@@ -97,17 +97,17 @@ function StatsPage() {
   if (!statsAccess.accessible) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 px-6 text-center">
-        <p className="text-neutral-500 text-sm">{t('profile.stats.notFound')}</p>
+        <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('profile.stats.notFound')}</p>
       </div>
     );
   }
 
   if (status === 'pending') {
     return (
-      <div className="h-full bg-neutral-50 animate-pulse px-6 pt-6 space-y-3">
-        <div className="h-24 bg-white rounded-xl" />
-        <div className="h-24 bg-white rounded-xl" />
-        <div className="h-24 bg-white rounded-xl" />
+      <div className="h-full bg-neutral-50 dark:bg-neutral-800 animate-pulse px-6 pt-6 space-y-3">
+        <div className="h-24 bg-white dark:bg-neutral-800 rounded-xl" />
+        <div className="h-24 bg-white dark:bg-neutral-800 rounded-xl" />
+        <div className="h-24 bg-white dark:bg-neutral-800 rounded-xl" />
       </div>
     );
   }
@@ -115,7 +115,7 @@ function StatsPage() {
   if (status === 'error' || !stats) {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-2 px-6 text-center">
-        <p className="text-neutral-500 text-sm">{t('profile.stats.notFound')}</p>
+        <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('profile.stats.notFound')}</p>
       </div>
     );
   }
@@ -125,46 +125,46 @@ function StatsPage() {
   const mainRank = stats.leaderboard.find((r) => r.track === 'main');
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       {/* Header */}
       <div className="flex items-center justify-between px-6 pt-4 pb-2">
-        <h1 className="text-xl font-bold text-neutral-900">{t('profile.stats.title')}</h1>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${stats.tier === 'full' ? 'bg-gold-100 text-gold-700' : 'bg-neutral-100 text-neutral-600'}`}>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('profile.stats.title')}</h1>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${stats.tier === 'full' ? 'bg-gold-100 dark:bg-gold-900/40 text-gold-700 dark:text-gold-300' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'}`}>
           {stats.tier === 'full' ? t('profile.stats.tierFull') : t('profile.stats.tierBasic')}
         </span>
       </div>
 
       {/* Profile summary */}
-      <div className="bg-white px-6 py-4 mb-3 flex items-center gap-3">
-        <div className="w-14 h-14 rounded-full bg-primary-100 flex items-center justify-center text-3xl">
+      <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3 flex items-center gap-3">
+        <div className="w-14 h-14 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-3xl">
           {profile.avatarEmoji}
         </div>
         <div className="min-w-0 flex-1">
-          <p className="font-bold text-neutral-900">
+          <p className="font-bold text-neutral-900 dark:text-neutral-100">
             {profile.displayName} {profile.prestigeCount > 0 && <span className="text-amber-500">{'★'.repeat(Math.min(profile.prestigeCount, 5))}</span>}
           </p>
-          <p className="text-sm text-neutral-500">@{profile.username ?? '—'}</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">@{profile.username ?? '—'}</p>
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             <span className="rounded-full bg-primary-600 px-2 py-0.5 text-xs font-bold text-white">{subLabel}</span>
-            <span className="text-xs text-neutral-500">{profile.xpTotal.toLocaleString()} XP</span>
-            {mainRank?.globalRank && <span className="text-xs text-primary-600">🌍 #{mainRank.globalRank}</span>}
+            <span className="text-xs text-neutral-500 dark:text-neutral-400">{profile.xpTotal.toLocaleString()} XP</span>
+            {mainRank?.globalRank && <span className="text-xs text-primary-600 dark:text-primary-300">🌍 #{mainRank.globalRank}</span>}
           </div>
         </div>
       </div>
 
       {stats.tier === 'basic' && stats.isOwnStats && (
-        <Link to="/settings" className="flex items-center gap-3 bg-gold-50 mx-6 mb-3 rounded-xl p-4">
+        <Link to="/settings" className="flex items-center gap-3 bg-gold-50 dark:bg-gold-900/30 mx-6 mb-3 rounded-xl p-4">
           <span className="text-2xl">⚡</span>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-gold-700">{t('profile.stats.unlockFull')}</p>
-            <p className="text-xs text-gold-600">{t('profile.stats.unlockFullDesc')}</p>
+            <p className="text-sm font-semibold text-gold-700 dark:text-gold-300">{t('profile.stats.unlockFull')}</p>
+            <p className="text-xs text-gold-600 dark:text-gold-300">{t('profile.stats.unlockFullDesc')}</p>
           </div>
         </Link>
       )}
 
       {/* Progression tracks */}
-      <div className="bg-white px-6 py-4 mb-3">
-        <h2 className="text-sm font-semibold text-neutral-700 mb-2">{t('profile.progressionTracks')}</h2>
+      <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">{t('profile.progressionTracks')}</h2>
         {stats.tracks.map((tr) => <TrackBar key={tr.track} track={tr} />)}
       </div>
 
@@ -177,16 +177,16 @@ function StatsPage() {
       </div>
 
       {/* Badges */}
-      <div className="bg-white px-6 py-4 mb-3">
-        <h2 className="text-sm font-semibold text-neutral-700 mb-2">
+      <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">
           🏆 {t('profile.stats.badgesAchievements')} ({stats.badges.length})
         </h2>
         {stats.badges.length === 0 ? (
-          <p className="text-sm text-neutral-500">{t('profile.stats.noBadges')}</p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('profile.stats.noBadges')}</p>
         ) : (
           <div className="flex flex-wrap gap-2">
             {stats.badges.map((b) => (
-              <span key={b.key} className="rounded-full bg-gold-50 border border-gold-200 px-3 py-1 text-xs font-semibold text-gold-700 capitalize">
+              <span key={b.key} className="rounded-full bg-gold-50 dark:bg-gold-900/30 border border-gold-200 px-3 py-1 text-xs font-semibold text-gold-700 dark:text-gold-300 capitalize">
                 {b.label}
               </span>
             ))}
@@ -196,14 +196,14 @@ function StatsPage() {
 
       {/* Created rooms */}
       {profile.isCreator && stats.createdRooms.length > 0 && (
-        <div className="bg-white px-6 py-4 mb-3">
-          <h2 className="text-sm font-semibold text-neutral-700 mb-2">🎨 {t('profile.stats.createdRooms')} ({stats.createdRooms.length})</h2>
+        <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">🎨 {t('profile.stats.createdRooms')} ({stats.createdRooms.length})</h2>
           <div className="space-y-2">
             {stats.createdRooms.map((room) => (
-              <Link key={room.id} to="/rooms/$roomId" params={{ roomId: room.id }} className="flex items-center gap-3 rounded-lg border border-neutral-100 p-3">
+              <Link key={room.id} to="/rooms/$roomId" params={{ roomId: room.id }} className="flex items-center gap-3 rounded-lg border border-neutral-100 dark:border-neutral-800 p-3">
                 <span className="text-xl">{room.coverEmoji}</span>
-                <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-800">{room.name}</span>
-                <span className="shrink-0 text-xs text-neutral-500">👥 {room.memberCount.toLocaleString()}</span>
+                <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-800 dark:text-neutral-200">{room.name}</span>
+                <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">👥 {room.memberCount.toLocaleString()}</span>
               </Link>
             ))}
           </div>
@@ -212,24 +212,24 @@ function StatsPage() {
 
       {/* Guild */}
       {stats.guild && (
-        <div className="bg-white px-6 py-4 mb-3 flex items-center gap-3">
+        <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3 flex items-center gap-3">
           <span className="text-2xl">{stats.guild.crestEmoji}</span>
           <div className="min-w-0 flex-1">
-            <p className="font-semibold text-neutral-900">{stats.guild.name}</p>
-            <p className="text-xs text-neutral-500 capitalize">{stats.guild.tier.replace(/_/g, ' ')} Guild</p>
+            <p className="font-semibold text-neutral-900 dark:text-neutral-100">{stats.guild.name}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400 capitalize">{stats.guild.tier.replace(/_/g, ' ')} Guild</p>
           </div>
         </div>
       )}
 
       {/* Leaderboard — full tier only */}
       {stats.tier === 'full' && (
-        <div className="bg-white px-6 py-4 mb-6">
-          <h2 className="text-sm font-semibold text-neutral-700 mb-2">🏅 {t('profile.stats.leaderboardPositions')}</h2>
+        <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-6">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">🏅 {t('profile.stats.leaderboardPositions')}</h2>
           <div className="space-y-1.5">
             {stats.leaderboard.map((row) => (
               <div key={row.track} className="flex items-center justify-between text-sm py-1">
-                <span className="capitalize text-neutral-700">{row.track}</span>
-                <span className="text-neutral-500 tabular-nums">
+                <span className="capitalize text-neutral-700 dark:text-neutral-300">{row.track}</span>
+                <span className="text-neutral-500 dark:text-neutral-400 tabular-nums">
                   {row.globalRank ? `#${row.globalRank}` : '—'}
                 </span>
               </div>

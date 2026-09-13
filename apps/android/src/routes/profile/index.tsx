@@ -26,7 +26,7 @@ function ProfileIndexRedirect() {
     }
   }, [isLoaded, user?.username, navigate]);
 
-  return <div className="h-full bg-white" />;
+  return <div className="h-full bg-white dark:bg-neutral-800" />;
 }
 
 export const Route = createFileRoute('/profile/')({

@@ -76,47 +76,47 @@ function GuildCard({
   return (
     <div
       className={`rounded-xl border p-4 transition-colors ${
-        isJoined ? 'border-teal-400 bg-teal-50' : 'border-neutral-200 bg-white'
+        isJoined ? 'border-teal-400 bg-teal-50 dark:bg-teal-900/30' : 'border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800'
       }`}
     >
       <div className="flex items-center gap-4">
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-neutral-100 text-3xl">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-neutral-100 dark:bg-neutral-800 text-3xl">
           {guild.crestEmoji}
         </div>
 
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="truncate font-bold text-neutral-900">{guild.name}</span>
+            <span className="truncate font-bold text-neutral-900 dark:text-neutral-100">{guild.name}</span>
             <span className={`rounded-full px-2 py-0.5 text-xs font-semibold capitalize ${tierClasses}`}>
               {tierLabel}
             </span>
           </div>
 
           {guild.city && (
-            <p className="mt-0.5 text-xs text-neutral-500">
+            <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
               📍 {guild.city}
               {guild.sameCity && (
-                <span className="ml-1.5 rounded-full bg-primary-100 px-1.5 py-0.5 text-xs font-semibold text-primary-700">
+                <span className="ml-1.5 rounded-full bg-primary-100 dark:bg-primary-900/40 px-1.5 py-0.5 text-xs font-semibold text-primary-700 dark:text-primary-300">
                   {t('guildDiscovery.nearYou')}
                 </span>
               )}
             </p>
           )}
 
-          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+          <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
             <span>{t('guildDiscovery.members', { count: guild.memberCount ?? 0 })}</span>
             {guild.warWins > 0 && <span>· {t('guildDiscovery.warsWon', { count: guild.warWins })}</span>}
-            <span className="rounded-full bg-primary-50 px-2 py-0.5 font-semibold text-primary-700">
+            <span className="rounded-full bg-primary-50 dark:bg-primary-900/30 px-2 py-0.5 font-semibold text-primary-700 dark:text-primary-300">
               {t('guildDiscovery.xpBoost', { pct: xpBoost })}
             </span>
           </div>
 
-          {guild.description && <p className="mt-1 line-clamp-2 text-xs text-neutral-500">{guild.description}</p>}
+          {guild.description && <p className="mt-1 line-clamp-2 text-xs text-neutral-500 dark:text-neutral-400">{guild.description}</p>}
         </div>
 
         <div className="shrink-0">
           {isJoined ? (
-            <span className="rounded-xl bg-teal-100 px-4 py-2 text-sm font-bold text-teal-700">
+            <span className="rounded-xl bg-teal-100 dark:bg-teal-900/40 px-4 py-2 text-sm font-bold text-teal-700 dark:text-teal-300">
               {t('guildDiscovery.joined')}
             </span>
           ) : (
@@ -136,15 +136,15 @@ function GuildCard({
 
 function GuildCardSkeleton() {
   return (
-    <div className="animate-pulse rounded-xl border border-neutral-200 bg-white p-4">
+    <div className="animate-pulse rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
       <div className="flex items-center gap-4">
-        <div className="h-14 w-14 shrink-0 rounded-2xl bg-neutral-200" />
+        <div className="h-14 w-14 shrink-0 rounded-2xl bg-neutral-200 dark:bg-neutral-700" />
         <div className="flex-1 space-y-2">
-          <div className="h-4 w-36 rounded bg-neutral-200" />
-          <div className="h-3 w-24 rounded bg-neutral-200" />
-          <div className="h-3 w-48 rounded bg-neutral-200" />
+          <div className="h-4 w-36 rounded bg-neutral-200 dark:bg-neutral-700" />
+          <div className="h-3 w-24 rounded bg-neutral-200 dark:bg-neutral-700" />
+          <div className="h-3 w-48 rounded bg-neutral-200 dark:bg-neutral-700" />
         </div>
-        <div className="h-9 w-16 rounded-xl bg-neutral-200" />
+        <div className="h-9 w-16 rounded-xl bg-neutral-200 dark:bg-neutral-700" />
       </div>
     </div>
   );
@@ -186,32 +186,32 @@ function GuildDiscoveryPage() {
   const guilds = data?.guilds?.slice(0, 3) ?? [];
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50">
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       <div className="mx-auto max-w-xl space-y-5 p-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-primary-600">
+          <p className="text-xs font-semibold uppercase tracking-wide text-primary-600 dark:text-primary-300">
             {t('guildDiscovery.stepBadge')}
           </p>
-          <h1 className="mt-1 text-2xl font-extrabold text-neutral-900">{t('guildDiscovery.title')}</h1>
-          <p className="mt-1.5 text-sm text-neutral-600">{t('guildDiscovery.subtitle')}</p>
+          <h1 className="mt-1 text-2xl font-extrabold text-neutral-900 dark:text-neutral-100">{t('guildDiscovery.title')}</h1>
+          <p className="mt-1.5 text-sm text-neutral-600 dark:text-neutral-400">{t('guildDiscovery.subtitle')}</p>
           {data?.userCity && (
-            <p className="mt-1 text-xs text-neutral-400">
+            <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
               {t('guildDiscovery.nearCity', { city: data.userCity })}
             </p>
           )}
         </div>
 
         {data?.soloNote && (
-          <div className="rounded-xl border border-primary-200 bg-primary-50 px-4 py-3 text-sm text-primary-700">
+          <div className="rounded-xl border border-primary-200 bg-primary-50 dark:bg-primary-900/30 px-4 py-3 text-sm text-primary-700 dark:text-primary-300">
             💡 {data.soloNote}
           </div>
         )}
 
         {data?.tooNew && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-5 text-center">
+          <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 px-4 py-5 text-center">
             <p className="text-2xl">⏳</p>
-            <p className="mt-2 font-semibold text-amber-800">{t('guildDiscovery.tooNew')}</p>
-            <p className="mt-1 text-sm text-amber-700">{t('guildDiscovery.tooNewBody')}</p>
+            <p className="mt-2 font-semibold text-amber-800 dark:text-amber-300">{t('guildDiscovery.tooNew')}</p>
+            <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">{t('guildDiscovery.tooNewBody')}</p>
           </div>
         )}
 
@@ -222,22 +222,22 @@ function GuildDiscoveryPage() {
             <GuildCardSkeleton />
           </>
         ) : status === 'error' ? (
-          <div className="rounded-xl border border-danger-200 bg-danger-50 px-4 py-5 text-center">
-            <p className="text-sm text-danger-700">{t('guildDiscovery.error')}</p>
+          <div className="rounded-xl border border-danger-200 bg-danger-50 dark:bg-danger-900/30 px-4 py-5 text-center">
+            <p className="text-sm text-danger-700 dark:text-danger-300">{t('guildDiscovery.error')}</p>
             <button
               onClick={() => void refetch()}
-              className="mt-3 rounded-lg border border-danger-300 px-4 py-2 text-sm font-medium text-danger-700"
+              className="mt-3 rounded-lg border border-danger-300 px-4 py-2 text-sm font-medium text-danger-700 dark:text-danger-300"
             >
               {t('guildDiscovery.retry')}
             </button>
           </div>
         ) : !data?.tooNew && guilds.length === 0 ? (
-          <div className="rounded-xl border border-neutral-200 bg-white px-4 py-10 text-center">
+          <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-10 text-center">
             <p className="text-4xl">🏛️</p>
-            <p className="mt-3 font-semibold text-neutral-900">{t('guildDiscovery.empty')}</p>
-            <p className="mt-1 text-sm text-neutral-500">
+            <p className="mt-3 font-semibold text-neutral-900 dark:text-neutral-100">{t('guildDiscovery.empty')}</p>
+            <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
               {t('guildDiscovery.emptyHint')}{' '}
-              <Link to="/guilds" className="text-primary-600 hover:underline">
+              <Link to="/guilds" className="text-primary-600 dark:text-primary-300 hover:underline">
                 {t('guildDiscovery.browseAll')}
               </Link>
             </p>
@@ -255,7 +255,7 @@ function GuildDiscoveryPage() {
         )}
 
         {joinError && (
-          <div className="rounded-xl border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700">
+          <div className="rounded-xl border border-danger-200 bg-danger-50 dark:bg-danger-900/30 px-4 py-3 text-sm text-danger-700 dark:text-danger-300">
             {joinError}
           </div>
         )}
@@ -265,7 +265,7 @@ function GuildDiscoveryPage() {
             <button
               onClick={() => navigate({ to: '/home' })}
               className={`flex-1 rounded-xl px-5 py-3 text-sm font-semibold ${
-                joinedId ? 'bg-primary-600 text-white' : 'border border-neutral-300 bg-white text-neutral-700'
+                joinedId ? 'bg-primary-600 text-white' : 'border border-neutral-300 dark:border-neutral-600 bg-white dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'
               }`}
             >
               {joinedId ? t('guildDiscovery.continueHome') : t('guildDiscovery.exploreOwn')}
@@ -273,7 +273,7 @@ function GuildDiscoveryPage() {
             {!joinedId && (
               <Link
                 to="/guilds"
-                className="flex-1 rounded-xl border border-primary-200 bg-primary-50 px-5 py-3 text-center text-sm font-semibold text-primary-700"
+                className="flex-1 rounded-xl border border-primary-200 bg-primary-50 dark:bg-primary-900/30 px-5 py-3 text-center text-sm font-semibold text-primary-700 dark:text-primary-300"
               >
                 {t('guildDiscovery.browseAll')}
               </Link>

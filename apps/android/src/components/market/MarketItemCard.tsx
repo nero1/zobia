@@ -85,18 +85,18 @@ function ReferralRow({ item }: { item: MarketItem }) {
 
   return (
     <div className="mt-1 text-[11px]">
-      <button type="button" onClick={toggle} className="w-full rounded-lg border border-teal-200 bg-teal-50 px-2 py-1 font-medium text-teal-700">
+      <button type="button" onClick={toggle} className="w-full rounded-lg border border-teal-200 bg-teal-50 dark:bg-teal-900/30 px-2 py-1 font-medium text-teal-700 dark:text-teal-300">
         💰 {label}
       </button>
       {open && (
-        <div className="mt-1 flex items-center gap-1 rounded-lg border border-neutral-200 bg-white p-1.5">
+        <div className="mt-1 flex items-center gap-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-1.5">
           {link ? (
             <>
-              <span className="min-w-0 flex-1 truncate text-neutral-600">{link}</span>
+              <span className="min-w-0 flex-1 truncate text-neutral-600 dark:text-neutral-400">{link}</span>
               <button type="button" onClick={copy} className="shrink-0 rounded bg-teal-600 px-1.5 py-0.5 text-white">{copied ? '✓' : '📋'}</button>
             </>
           ) : (
-            <span className="text-neutral-500">Loading…</span>
+            <span className="text-neutral-500 dark:text-neutral-400">Loading…</span>
           )}
         </div>
       )}
@@ -140,26 +140,26 @@ export function MarketItemCard({ item, view }: { item: MarketItem; view: 'grid' 
   if (view === 'list') {
     const inner = (
       <>
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-neutral-100 text-xl">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-neutral-100 dark:bg-neutral-800 text-xl">
           {item.imageUrl ? <img src={item.imageUrl} alt={item.name} className="h-11 w-11 rounded-lg object-cover" /> : '🛍️'}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium text-neutral-900">{item.name}</p>
-          <p className="text-[11px] text-neutral-500">{CATEGORY_LABEL[item.category]}</p>
+          <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{item.name}</p>
+          <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{CATEGORY_LABEL[item.category]}</p>
         </div>
-        {price && <span className="shrink-0 text-sm font-bold text-amber-600">{price}</span>}
+        {price && <span className="shrink-0 text-sm font-bold text-amber-600 dark:text-amber-300">{price}</span>}
       </>
     );
     if (isBoost) {
       return (
-        <div className="flex flex-col gap-2 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
+        <div className="flex flex-col gap-2 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3 shadow-sm">
           <div className="flex items-center gap-3">{inner}</div>
           <BuyBoostButton item={item} />
         </div>
       );
     }
     return (
-      <Link to={item.href} className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
+      <Link to={item.href} className="flex items-center gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3 shadow-sm">
         {inner}
       </Link>
     );
@@ -167,23 +167,23 @@ export function MarketItemCard({ item, view }: { item: MarketItem; view: 'grid' 
 
   const cardBody = (
     <>
-      <div className="mb-2 flex h-24 items-center justify-center overflow-hidden rounded-xl bg-neutral-100 text-3xl">
+      <div className="mb-2 flex h-24 items-center justify-center overflow-hidden rounded-xl bg-neutral-100 dark:bg-neutral-800 text-3xl">
         {item.imageUrl ? <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" /> : '🛍️'}
       </div>
       <div className="mb-1 flex flex-wrap gap-1">
-        {item.isSponsored && <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700">Sponsored</span>}
-        {item.isAdminFeatured && <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700">Featured</span>}
+        {item.isSponsored && <span className="rounded-full bg-amber-100 dark:bg-amber-900/40 px-1.5 py-0.5 text-[9px] font-semibold text-amber-700 dark:text-amber-300">Sponsored</span>}
+        {item.isAdminFeatured && <span className="rounded-full bg-blue-100 dark:bg-blue-900/40 px-1.5 py-0.5 text-[9px] font-semibold text-blue-700 dark:text-blue-300">Featured</span>}
       </div>
-      <p className="truncate text-sm font-semibold text-neutral-900">{item.name}</p>
+      <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{item.name}</p>
       {item.kind === 'creator' && item.rating != null && (
-        <p className="text-[11px] text-amber-600">★ {item.rating.toFixed(1)} ({item.ratingCount})</p>
+        <p className="text-[11px] text-amber-600 dark:text-amber-300">★ {item.rating.toFixed(1)} ({item.ratingCount})</p>
       )}
-      {price && <p className="mt-1 text-base font-bold text-amber-600">{price}</p>}
+      {price && <p className="mt-1 text-base font-bold text-amber-600 dark:text-amber-300">{price}</p>}
     </>
   );
 
   return (
-    <div className="flex flex-col rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm">
+    <div className="flex flex-col rounded-2xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-3 shadow-sm">
       {isBoost ? <div className="flex flex-col">{cardBody}</div> : <Link to={item.href} className="flex flex-col">{cardBody}</Link>}
       {isBoost && <BuyBoostButton item={item} />}
       <ReferralRow item={item} />

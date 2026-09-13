@@ -96,16 +96,16 @@ async function fetchMomentsPage({ pageParam }: { pageParam?: string }) {
 
 function MomentSkeleton() {
   return (
-    <div className="bg-white border-b border-neutral-100 p-4 animate-pulse">
+    <div className="bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800 p-4 animate-pulse">
       <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 rounded-full bg-neutral-200" />
+        <div className="w-10 h-10 rounded-full bg-neutral-200 dark:bg-neutral-700" />
         <div className="flex-1">
-          <div className="h-4 bg-neutral-200 rounded w-24 mb-1" />
-          <div className="h-3 bg-neutral-100 rounded w-16" />
+          <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-24 mb-1" />
+          <div className="h-3 bg-neutral-100 dark:bg-neutral-800 rounded w-16" />
         </div>
       </div>
-      <div className="h-4 bg-neutral-200 rounded w-full mb-2" />
-      <div className="h-4 bg-neutral-100 rounded w-3/4" />
+      <div className="h-4 bg-neutral-200 dark:bg-neutral-700 rounded w-full mb-2" />
+      <div className="h-4 bg-neutral-100 dark:bg-neutral-800 rounded w-3/4" />
     </div>
   );
 }
@@ -115,25 +115,25 @@ function MomentCard({ moment, onReact }: { moment: Moment; onReact: (id: string,
   const [showReactions, setShowReactions] = useState(false);
 
   return (
-    <article className="bg-white border-b border-neutral-100 p-4">
+    <article className="bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800 p-4">
       <div className="flex items-center gap-3 mb-3">
-        <div className="w-10 h-10 rounded-full bg-primary-100 flex items-center justify-center text-lg">
+        <div className="w-10 h-10 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-lg">
           {moment.authorAvatarEmoji}
         </div>
         <div className="min-w-0 flex-1">
-          <Link to="/profile/$username" params={{ username: moment.authorUsername }} className="inline-flex items-center gap-1 font-semibold text-neutral-900 text-sm">
+          <Link to="/profile/$username" params={{ username: moment.authorUsername }} className="inline-flex items-center gap-1 font-semibold text-neutral-900 dark:text-neutral-100 text-sm">
             <span>@{moment.authorUsername}</span>
             <UserBadgeRow totalXp={moment.authorXpTotal} prestige={moment.authorPrestigeCount} verified={moment.authorIsVerified} />
           </Link>
-          <p className="text-neutral-400 text-xs">{timeAgo(moment.createdAt)} ago</p>
+          <p className="text-neutral-400 dark:text-neutral-500 text-xs">{timeAgo(moment.createdAt)} ago</p>
         </div>
       </div>
 
-      <p className="text-neutral-800 text-sm leading-relaxed whitespace-pre-line">{moment.content}</p>
+      <p className="text-neutral-800 dark:text-neutral-200 text-sm leading-relaxed whitespace-pre-line">{moment.content}</p>
 
       {/* Optional image — capped at 300x300, lazy-loaded */}
       {moment.imageUrl && (
-        <div className="mt-3 h-[300px] w-[300px] max-w-full overflow-hidden rounded-xl border border-neutral-200">
+        <div className="mt-3 h-[300px] w-[300px] max-w-full overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-700">
           <img
             src={moment.imageUrl}
             alt={moment.caption ?? 'Moment image'}
@@ -145,7 +145,7 @@ function MomentCard({ moment, onReact }: { moment: Moment; onReact: (id: string,
           />
         </div>
       )}
-      {moment.caption && <p className="mt-2 text-xs text-neutral-500">{moment.caption}</p>}
+      {moment.caption && <p className="mt-2 text-xs text-neutral-500 dark:text-neutral-400">{moment.caption}</p>}
 
       {moment.reactions.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -154,7 +154,7 @@ function MomentCard({ moment, onReact }: { moment: Moment; onReact: (id: string,
               key={r.emoji}
               onClick={() => onReact(moment.id, r.emoji)}
               className={`flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium ${
-                r.userReacted ? 'border-primary-300 bg-primary-50 text-primary-700' : 'border-neutral-200 bg-neutral-50 text-neutral-600'
+                r.userReacted ? 'border-primary-300 bg-primary-50 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300' : 'border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400'
               }`}
             >
               <span>{r.emoji}</span>
@@ -168,18 +168,18 @@ function MomentCard({ moment, onReact }: { moment: Moment; onReact: (id: string,
         <div className="relative">
           <button
             onClick={() => setShowReactions((v) => !v)}
-            className="flex items-center gap-1.5 rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600"
+            className="flex items-center gap-1.5 rounded-full border border-neutral-200 dark:border-neutral-700 px-3 py-1 text-xs font-medium text-neutral-600 dark:text-neutral-400"
           >
             <span>😊</span>
             <span>{t('moments.react')}</span>
           </button>
           {showReactions && (
-            <div className="absolute bottom-full left-0 z-20 mb-1 flex gap-1 rounded-xl border border-neutral-200 bg-white p-2 shadow-lg">
+            <div className="absolute bottom-full left-0 z-20 mb-1 flex gap-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-2 shadow-lg">
               {QUICK_REACTIONS.map((emoji) => (
                 <button
                   key={emoji}
                   onClick={() => { onReact(moment.id, emoji); setShowReactions(false); }}
-                  className="rounded-lg p-1.5 text-lg active:bg-neutral-100"
+                  className="rounded-lg p-1.5 text-lg active:bg-neutral-100 dark:active:bg-neutral-800"
                 >
                   {emoji}
                 </button>
@@ -187,7 +187,7 @@ function MomentCard({ moment, onReact }: { moment: Moment; onReact: (id: string,
             </div>
           )}
         </div>
-        <span className="text-xs text-neutral-400">
+        <span className="text-xs text-neutral-400 dark:text-neutral-500">
           {moment.reactionsCount} {moment.reactionsCount === 1 ? t('moments.reaction') : t('moments.reactions')}
         </span>
       </div>
@@ -260,11 +260,11 @@ function MomentsPage() {
   const moments = data?.pages.flatMap((p) => p.items) ?? [];
 
   return (
-    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-neutral-50">
-      <div className="flex items-center justify-between bg-white px-4 py-3 border-b border-neutral-100">
+    <PullToRefresh onRefresh={() => refetch()} className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
+      <div className="flex items-center justify-between bg-white dark:bg-neutral-800 px-4 py-3 border-b border-neutral-100 dark:border-neutral-800">
         <div>
-          <h1 className="text-lg font-bold text-neutral-900">{t('moments.title')}</h1>
-          <p className="text-xs text-neutral-500">{t('moments.subtitle')}</p>
+          <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('moments.title')}</h1>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('moments.subtitle')}</p>
         </div>
         <Link to="/moments/create" className="rounded-lg bg-primary-600 px-3 py-2 text-xs font-semibold text-white">
           + {t('moments.share')}
@@ -277,7 +277,7 @@ function MomentsPage() {
 
       {status === 'error' && (
         <div className="flex flex-col items-center justify-center py-20 gap-4">
-          <p className="text-neutral-500 text-sm">{t('error.generic')}</p>
+          <p className="text-neutral-500 dark:text-neutral-400 text-sm">{t('error.generic')}</p>
           <button onClick={() => refetch()} className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm">
             {t('android.error.retry')}
           </button>
@@ -286,9 +286,9 @@ function MomentsPage() {
 
       {status === 'success' && moments.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 text-3xl">🎬</div>
-          <p className="font-semibold text-neutral-900 text-sm">{t('moments.empty')}</p>
-          <p className="mt-1 text-xs text-neutral-500">{t('moments.emptyHint')}</p>
+          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700 text-3xl">🎬</div>
+          <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">{t('moments.empty')}</p>
+          <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{t('moments.emptyHint')}</p>
           <Link to="/moments/create" className="mt-4 rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white">
             {t('moments.share')}
           </Link>

@@ -43,8 +43,8 @@ function NewWikiPagePage() {
   });
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 px-4 py-4">
-      <h1 className="text-lg font-bold text-neutral-900 mb-4">{t('wiki.pages.new.title', 'New page')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-4">{t('wiki.pages.new.title', 'New page')}</h1>
       <WikiPageEditor
         title={title}
         onTitleChange={setTitle}
@@ -53,7 +53,7 @@ function NewWikiPagePage() {
         format={format}
         onFormatChange={setFormat}
       />
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      {error && <p className="mt-2 text-sm text-red-600 dark:text-red-300">{error}</p>}
       <button
         disabled={!title.trim() || !content.trim() || createPage.isPending}
         onClick={() => createPage.mutate()}

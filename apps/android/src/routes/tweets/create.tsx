@@ -134,39 +134,39 @@ function CreateTweetPage() {
   const canSubmit = Boolean(content.trim() || imageUrl || (videoProvider && videoUrl.trim()));
 
   return (
-    <div className="h-full overflow-y-auto bg-neutral-50 p-4 space-y-4">
-      <h1 className="text-lg font-bold text-neutral-900">{t('tweets.create.title')}</h1>
+    <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
+      <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('tweets.create.title')}</h1>
 
       {errorMessage && (
-        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{errorMessage}</div>
+        <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">{errorMessage}</div>
       )}
 
-      <div className="bg-white rounded-xl shadow-card p-4">
+      <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-card p-4">
         <textarea
           value={content}
           onChange={(e) => setContent(e.target.value.slice(0, lengthPolicy.personalMaxLength))}
           placeholder={t('tweets.create.placeholder')}
           rows={4}
           maxLength={lengthPolicy.personalMaxLength}
-          className="w-full resize-none rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
+          className="w-full resize-none rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-4 py-3 text-sm focus:border-primary-500 focus:outline-none"
         />
         <div className="mt-1.5 flex items-center justify-between">
           {content.length > lengthPolicy.defaultMaxLength && !lengthPolicy.isLongFormExempt ? (
-            <span className="text-xs font-semibold text-amber-700">
+            <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">
               {t('tweets.create.longTweetCostNotice', { cost: lengthPolicy.longTweetCostCredits })}
             </span>
           ) : (
             <span />
           )}
-          <span className={`text-xs tabular-nums ${content.length >= lengthPolicy.personalMaxLength ? 'text-red-500' : 'text-neutral-400'}`}>
+          <span className={`text-xs tabular-nums ${content.length >= lengthPolicy.personalMaxLength ? 'text-red-500' : 'text-neutral-400 dark:text-neutral-500'}`}>
             {content.length}/{lengthPolicy.personalMaxLength}
           </span>
         </div>
       </div>
 
       {/* Image upload */}
-      <div className="bg-white rounded-xl shadow-card p-4">
-        <label className="mb-1 block text-xs font-semibold text-neutral-700">{t('tweets.create.image')}</label>
+      <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-card p-4">
+        <label className="mb-1 block text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t('tweets.create.image')}</label>
         <div className="flex flex-wrap items-center gap-2">
           <input
             type="file"
@@ -178,43 +178,43 @@ function CreateTweetPage() {
               if (f) void handleUploadImage(f);
             }}
           />
-          <label htmlFor="tweet-image-input" className="cursor-pointer rounded-xl border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-600">
+          <label htmlFor="tweet-image-input" className="cursor-pointer rounded-xl border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
             {uploading ? t('tweets.create.uploading') : t('tweets.create.addImage')}
           </label>
           {imageUrl && (
-            <button type="button" onClick={() => setImageUrl('')} className="text-xs font-semibold text-danger-600">
+            <button type="button" onClick={() => setImageUrl('')} className="text-xs font-semibold text-danger-600 dark:text-danger-300">
               {t('tweets.create.removeImage')}
             </button>
           )}
         </div>
         {!tweetsConfig.imageIsFree && (
-          <p className="mt-1.5 text-xs text-amber-700">{t('tweets.create.imageCostNotice', { cost: tweetsConfig.imageCostCredits })}</p>
+          <p className="mt-1.5 text-xs text-amber-700 dark:text-amber-300">{t('tweets.create.imageCostNotice', { cost: tweetsConfig.imageCostCredits })}</p>
         )}
-        {uploadError && <p className="mt-1.5 text-xs text-danger-600">{uploadError}</p>}
-        {imageUrl && <img src={imageUrl} alt="" className="mt-2 max-h-48 rounded-lg border border-neutral-200" />}
+        {uploadError && <p className="mt-1.5 text-xs text-danger-600 dark:text-danger-300">{uploadError}</p>}
+        {imageUrl && <img src={imageUrl} alt="" className="mt-2 max-h-48 rounded-lg border border-neutral-200 dark:border-neutral-700" />}
       </div>
 
       {/* Video embed */}
-      <div className="bg-white rounded-xl shadow-card p-4">
+      <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-card p-4">
         <div className="mb-1 flex items-center justify-between">
-          <label className="text-xs font-semibold text-neutral-700">{t('tweets.create.video')}</label>
-          <span className="text-xs font-semibold text-green-600">{t('tweets.create.videoFree')}</span>
+          <label className="text-xs font-semibold text-neutral-700 dark:text-neutral-300">{t('tweets.create.video')}</label>
+          <span className="text-xs font-semibold text-green-600 dark:text-green-300">{t('tweets.create.videoFree')}</span>
         </div>
         {!videoProvider ? (
           <button
             type="button"
             onClick={() => setShowVideoPicker((v) => !v)}
-            className="rounded-xl border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-600"
+            className="rounded-xl border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400"
           >
             {t('tweets.create.addVideo')}
           </button>
         ) : (
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-semibold capitalize text-neutral-700">
+              <span className="rounded-full bg-neutral-100 dark:bg-neutral-800 px-2.5 py-1 text-xs font-semibold capitalize text-neutral-700 dark:text-neutral-300">
                 {videoProvider}
               </span>
-              <button type="button" onClick={() => { setVideoProvider(null); setVideoUrl(''); }} className="text-xs font-semibold text-danger-600">
+              <button type="button" onClick={() => { setVideoProvider(null); setVideoUrl(''); }} className="text-xs font-semibold text-danger-600 dark:text-danger-300">
                 {t('tweets.create.removeVideo')}
               </button>
             </div>
@@ -224,13 +224,13 @@ function CreateTweetPage() {
                 value={videoUrl}
                 onChange={(e) => setVideoUrl(e.target.value)}
                 placeholder={videoProvider === 'youtube' ? 'https://youtube.com/watch?v=...' : 'https://www.tiktok.com/@user/video/...'}
-                className="flex-1 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
+                className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 px-4 py-2.5 text-sm focus:border-primary-500 focus:outline-none"
               />
               <button
                 type="button"
                 onClick={() => setShowVideoHelp(true)}
                 aria-label={t('tweets.create.videoHelpAria')}
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-neutral-300 text-sm font-bold text-neutral-500"
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-neutral-300 dark:border-neutral-600 text-sm font-bold text-neutral-500 dark:text-neutral-400"
               >
                 ?
               </button>
@@ -242,14 +242,14 @@ function CreateTweetPage() {
             <button
               type="button"
               onClick={() => { setVideoProvider('youtube'); setShowVideoPicker(false); }}
-              className="flex-1 rounded-xl border border-neutral-300 py-2 text-sm font-semibold text-neutral-700"
+              className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300"
             >
               ▶️ YouTube
             </button>
             <button
               type="button"
               onClick={() => { setVideoProvider('tiktok'); setShowVideoPicker(false); }}
-              className="flex-1 rounded-xl border border-neutral-300 py-2 text-sm font-semibold text-neutral-700"
+              className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300"
             >
               🎵 TikTok
             </button>
@@ -258,11 +258,11 @@ function CreateTweetPage() {
       </div>
 
       {tweetsConfig.minLevel > 1 && (
-        <p className="text-xs text-neutral-400">{t('tweets.create.levelNotice', { minLevel: tweetsConfig.minLevel })}</p>
+        <p className="text-xs text-neutral-400 dark:text-neutral-500">{t('tweets.create.levelNotice', { minLevel: tweetsConfig.minLevel })}</p>
       )}
 
       <div className="flex gap-3">
-        <Link to="/tweets" className="flex-1 rounded-xl border border-neutral-300 py-2.5 text-center text-sm font-semibold text-neutral-700">
+        <Link to="/tweets" className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-center text-sm font-semibold text-neutral-700 dark:text-neutral-300">
           {t('tweets.create.cancel')}
         </Link>
         <button
@@ -277,12 +277,12 @@ function CreateTweetPage() {
 
       {showVideoHelp && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowVideoHelp(false)}>
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setShowVideoHelp(false)} className="absolute right-4 top-4 text-neutral-400" aria-label="Close">
+          <div className="relative w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-5" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setShowVideoHelp(false)} className="absolute right-4 top-4 text-neutral-400 dark:text-neutral-500" aria-label="Close">
               ✕
             </button>
-            <h2 className="mb-2 text-base font-bold text-neutral-900">{t('tweets.create.videoHelpTitle')}</h2>
-            <p className="mb-3 text-sm text-neutral-600">
+            <h2 className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('tweets.create.videoHelpTitle')}</h2>
+            <p className="mb-3 text-sm text-neutral-600 dark:text-neutral-400">
               {t(videoProvider === 'tiktok' ? 'tweets.create.videoHelpTiktok' : 'tweets.create.videoHelpYoutube')}
             </p>
             <button onClick={() => setShowVideoHelp(false)} className="w-full rounded-xl bg-primary-600 py-2 text-sm font-semibold text-white">
@@ -294,19 +294,19 @@ function CreateTweetPage() {
 
       {insufficientFunds && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setInsufficientFunds(null)}>
-          <div className="relative w-full max-w-sm rounded-2xl bg-white p-5" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setInsufficientFunds(null)} className="absolute right-4 top-4 text-neutral-400" aria-label="Close">
+          <div className="relative w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-5" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setInsufficientFunds(null)} className="absolute right-4 top-4 text-neutral-400 dark:text-neutral-500" aria-label="Close">
               ✕
             </button>
-            <h2 className="mb-2 text-base font-bold text-neutral-900">{t('tweets.create.insufficientTitle')}</h2>
-            <p className="mb-4 text-sm text-neutral-600">
+            <h2 className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('tweets.create.insufficientTitle')}</h2>
+            <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">
               {t(
                 insufficientFunds.kind === 'length' ? 'tweets.create.insufficientLengthMessage' : 'tweets.create.insufficientMessage',
                 { costCredits: insufficientFunds.costCredits }
               )}
             </p>
             <div className="flex gap-2">
-              <button onClick={() => setInsufficientFunds(null)} className="flex-1 rounded-xl border border-neutral-300 py-2 text-sm font-semibold text-neutral-700">
+              <button onClick={() => setInsufficientFunds(null)} className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
                 {t('moments.create.gotIt')}
               </button>
               <Link to="/settings" className="flex-1 rounded-xl bg-amber-500 py-2 text-center text-sm font-semibold text-white" onClick={() => setInsufficientFunds(null)}>
