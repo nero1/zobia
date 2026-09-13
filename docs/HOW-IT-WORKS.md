@@ -1783,7 +1783,9 @@ Key architectural decisions:
 - **Capacitor Network and App replace NetInfo and AppState.** `@capacitor/network` powers `useNetworkStatus` for the offline banner and query pause logic. `@capacitor/app` provides `appStateChange` events to pause Ably subscriptions and query polling when the app is backgrounded.
 - **i18next-browser-languagedetector replaces expo-localization.** Language detection reads the browser `Accept-Language` header (surfaced by Capacitor's WebView). The chosen language is persisted in `@capacitor/preferences`. All locale JSON files are sourced from `shared/i18n/locales/` via relative imports. **Note:** `apps/web/lib/i18n/locales/*.json` is a separate, physically-copied set of locale files, not a build-time copy of `shared/i18n/locales/` — the two must currently be kept in sync by hand when adding a key used by both platforms (a real gap found during the v2.06 Android page-parity pass; unifying them into one canonical source read by both apps is a worthwhile follow-up).
 
-**Screen coverage.** `apps/android/src/routes/` currently ports: home, games (list, detail, saved), rooms (list + detail), messages (list + conversation + groups list/create/chat — v2.19), moments (feed + create), Answers (list, ask, question detail — `answers/`), blogs (list, post, new), business (hub, pages, ads), ads, profile (own + `$username`), wallet, stats, settings (+ `settings/privacy`, `settings/security` — v2.10), help (v2.10), notifications, auth, Quests, Friends, Gifts, Events, Announcements (formerly Inbox), Elder, Referrals, Classroom, Leaderboards (v2.06), Guild (own), Guild directory, public Guild profile, Council, Community Notes, Nemesis (v2.07), and — as of v2.08 — Prestige, Seasons, Stickers, KYC (Custom Tab wrapper to the web flow), the Creator hub (dashboard, bank account, broadcasts, marketplace, wallet), and Merch (browse + per-creator store). Gift deep links (`zobia://gift/:userId`) resolve to the existing `/gifts` screen with the recipient preselected rather than a dedicated screen. Not yet ported: Room creation, Business/Subscription settings — see the PRD's v2.08 changelog for the full list. `/economy/purchase/callback` is intentionally not ported (Android uses Google Play Billing, which has no redirect-callback step). When porting one, follow the pattern in the existing route files: TanStack Router file route, `apiClient` + TanStack Query (never raw `fetch`), Tailwind classes matching the equivalent web/PWA screen, i18n keys added to `shared/i18n/locales/en.json`.
+**Games — Challenges and cross-game Leaderboards hub.** Android's Games area previously had no way to challenge another user or browse leaderboards outside a game's own detail page. `routes/games/challenges/index.tsx` mirrors `apps/web/app/(app)/games/challenges/page.tsx`: an inbox listing sent/received challenges with accept/decline/cancel/delete/archive actions, a "New challenge" form (game picker, debounced opponent username search via `GET /api/users/search` — same pattern as `routes/gifts.tsx`'s recipient search, best-of-1/best-of-3, and an optional Credit wager), and a search box to filter the list. Every action reuses web's exact endpoints (`GET/POST /api/games/challenges`, `GET/DELETE/PATCH /api/games/challenges/:id`, `POST .../accept|decline|cancel`). The wager is never hidden: both the create form and every challenge card render it as a gold "🪙 N credits" badge before any accept/send action, matching web's inline display (web has no separate confirmation modal for wagers, so neither does this). `routes/games/challenges/$id.tsx` mirrors the web detail page's round-by-round score breakdown; unlike web (which mounts `<GameRunner>` inline), "Play your round" hands off to the existing embedded iframe player at `routes/games/$slug/play.tsx`, now extended to accept an optional `?c=<challengeId>` search param it forwards to the `/g/<slug>/embed?c=...` embed (the same query `GameRunner`'s `challengeId` prop already reads on web to bind the play session to that round) and, on exit, returns to the challenge detail page instead of the game's own page. `routes/games/leaderboards.tsx` mirrors `apps/web/app/(app)/games/leaderboards/page.tsx`: a game picker in front of the same `GET /api/games/:slug/leaderboard` the per-game detail screen already calls. Both screens are linked from `routes/games/index.tsx`'s header, same placement as web's games hub buttons. Push notifications for `game_challenge_received/accepted/declined/cancelled/completed/expired` now resolve to `/games/challenges/<id>` via `lib/notifications/actionRoute.ts`'s `deriveNotificationActionUrl` (previously unhandled, so tapping one of these notifications never navigated anywhere on any platform) — `lib/notifications/routing.ts`'s `VALID_PUSH_ROUTES` allowlist and `lib/deeplinks/routes.ts`'s `ROUTES` gained matching entries on Android.
+
+**Screen coverage.** `apps/android/src/routes/` currently ports: home, games (list, detail, saved, challenges, leaderboards), rooms (list + detail), messages (list + conversation + groups list/create/chat — v2.19), moments (feed + create), Answers (list, ask, question detail — `answers/`), blogs (list, post, new), business (hub, pages, ads), ads, profile (own + `$username`), wallet, stats, settings (+ `settings/privacy`, `settings/security` — v2.10), help (v2.10), notifications, auth, Quests, Friends, Gifts, Events, Announcements (formerly Inbox), Elder, Referrals, Classroom, Leaderboards (v2.06), Guild (own), Guild directory, public Guild profile, Council, Community Notes, Nemesis (v2.07), and — as of v2.08 — Prestige, Seasons, Stickers, KYC (Custom Tab wrapper to the web flow), the Creator hub (dashboard, bank account, broadcasts, marketplace, wallet, and — as of the web/Android parity pass below — native Merch Store management at `creator/merch.tsx`, linked from the dashboard's Revenue by Stream card), and Merch (browse + per-creator store). Gift deep links (`zobia://gift/:userId`) resolve to the existing `/gifts` screen with the recipient preselected rather than a dedicated screen. Not yet ported: Room creation — see the PRD's v2.08 changelog for the full list. `/economy/purchase/callback` is intentionally not ported (Android uses Google Play Billing, which has no redirect-callback step). When porting one, follow the pattern in the existing route files: TanStack Router file route, `apiClient` + TanStack Query (never raw `fetch`), Tailwind classes matching the equivalent web/PWA screen, i18n keys added to `shared/i18n/locales/en.json`.
 
 **Games, pull-to-refresh, and misc parity fixes (v2.07).** The game detail screen's Play button previously had no `onClick` at all — no native game engine exists in this app, so tapping it was a complete no-op. It now hands off to the already-authenticated web player via `Browser.open(universalLink('/g/<slug>/play'))` (ZB-AND-06), the same in-app-browser pattern already used for KYC and Business/Ads. The Games search box now debounces input by 250ms before it affects the query, matching web (ZB-AND-07 — previously fired one request per keystroke). None of web, PWA, or Android had a pull-to-refresh gesture on any feed screen; a dependency-free `components/ui/PullToRefresh.tsx` wrapper (touch-delta gesture, no new native dependency) now wraps Rooms, Moments, Notifications, and Messages on Android (ZB-AND-12).
 
@@ -1792,6 +1794,12 @@ Key architectural decisions:
 **Active Sessions, Android settings parity, and Google Play subscription grouping (v2.10 — BUG-CAP-05/06/07 fixes).** `GET /api/auth/sessions` and `DELETE /api/auth/sessions/:sid` (`lib/auth/session.ts`'s `listUserSessions`/`isUsersSession`, new) let a user view and remotely sign out other devices/browsers currently signed into their account — reads the same `user_sessions:{uid}` Redis sorted set `createSession`'s per-user session cap already maintained, so no new tracking mechanism was needed. Surfaced on web (`app/(app)/settings/page.tsx`'s "Active Sessions" section) and Android (new `routes/settings/security.tsx`, alongside PIN/2FA management that also didn't exist on Android before — 2FA setup shows the manual TOTP entry key rather than a scannable QR, since Android doesn't carry a QR-rendering dependency the way web's `qrcode.react` does). Android also gained `routes/settings/privacy.tsx` (same `/api/users/me/privacy` endpoint as web) and `routes/help.tsx` (opens web's `/help` page via `Browser.open()`), plus a "Data & Account" section on the main Settings screen (data export via `/api/users/me/export` — shown inline and copyable rather than opened via `Browser.open()`, since Chrome Custom Tabs refuse `data:` URIs — and self-service account deletion via `DELETE /api/users/me`). Separately, Google Play subscription products (Plus/Pro/Max) are now registered with `group: 'plan_tier'` in `apps/android/src/lib/payments/googlePlay.ts`, matching the `business_tier` grouping Business Account tiers already used — previously nothing stopped a user from holding multiple overlapping personal-plan subscriptions simultaneously. `app/api/economy/iap/verify/route.ts`'s subscription path now also calls the Google Play Developer API to cancel any previously-active different-tier subscription as a server-side safety net (`lib/payments/googlePlayVerify.ts`'s `cancelGooglePlaySubscription`, new).
 
 **Presence Layer parity (v2.03).** The Android app now ports the web/PWA Presence Layer (PRD §2.2): `components/ui/OnlineRing.tsx` and `components/ui/RoomPulseBar.tsx` / `LiveRoomPulseBar.tsx` mirror the web components 1:1 (same colors, same thresholds), `routes/home.tsx` renders an Online Friends row (`GET /api/friends/online`), each room card in `routes/rooms/index.tsx` shows a pulse bar, `routes/rooms/$roomId.tsx` shows a live pulse bar and now sends the room-presence heartbeat (`POST /api/rooms/:roomId/presence` every 45s) so Android users count toward a room's soft capacity the same way web users do, and `lib/hooks/usePresenceHeartbeat.ts` keeps `last_active_at` warm app-wide (see "Online Friends & Presence Filtering" above). `wallet.tsx` and `stats.tsx` (added alongside the web Stats page) cover the logged-in user's own wallet/rank/badges and Stats screens — reachable from Settings — using `useInfiniteQuery` + an explicit "Load more" button for transaction history against the same `GET /api/economy/coins/balance` and `GET /api/users/[userId]/stats` endpoints the web app uses. Friends (`/friends`) and the Gifts Hub (`/gifts`) are now ported (v2.06) at `apps/android/src/routes/friends.tsx` and `gifts.tsx`, mirroring the web/PWA tab layout and hitting the same `/api/friends*` and `/api/economy/gifts*` endpoints via TanStack Query.
+
+**Merch Store management, wallet Boosters, and Ad Wallet/coupons parity (web/Android audit pass).** Three smaller Android gaps found in a web/Android parity audit:
+
+- **Creator Merch Store management** (`apps/android/src/routes/creator/merch.tsx`, new) — previously the Android creator hub had no store-setup UI at all (only browse/buy at `routes/merch/`); "Merch" appeared solely as a read-only revenue-stream label on the dashboard. Unlike `creator/bank-account.tsx` and `creator/wallet.tsx` (intentionally thin web-handoff wrappers for PIN/2FA-gated payout detail entry), Merch management is plain CRUD, so it's built natively: create/update the store and add products (digital/physical/course material) with the Market referral opt-in, against the same `GET/POST /api/merch/:userId` and `POST /api/merch/:userId/products` endpoints web uses. Linked from the creator dashboard's "Revenue by Stream" card.
+- **Wallet Booster Packs** (`apps/android/src/routes/wallet.tsx`'s `BoosterPacksPanel`, new) — web's wallet page has a `<BoosterPacks>` component for active boosts but never actually wires it up (its `boosters` state is hardcoded to `[]`, a pre-existing web bug left as-is). `GET /api/economy/boosters` now also returns the caller's own active boosters (joined from `user_xp_boosters`, not just the `boost_types` catalog) so Android can show them for real. Purchasing a new boost spends existing Coins (`coins_cost`), not real money, so it calls `POST /api/economy/boosters` directly rather than going through Google Play Billing (which has no boost product family).
+- **Business Ads: Ad Wallet transfer + coupon redemption** (`apps/android/src/routes/business/ads/index.tsx`) — added an `AdWalletPanel` (ad/main wallet balances + `POST /api/business/ads/wallet/transfer`, 1:1 internal reallocation) and per-campaign "Apply coupon…" redemption (`POST /api/business/ads/coupons/redeem`), matching web's `app/(app)/business/ads/page.tsx`. Web's "Buy Credits directly into Ad Wallet" link (a Paystack/DodoPayments checkout) is intentionally omitted — Android tops up the main wallet via Google Play Billing on the Wallet screen instead, then transfers from there.
 
 ### Routing and Navigation
 
@@ -3412,3 +3420,65 @@ would never have actually displayed. `routes/quests/index.tsx` +
 `routes/quests/manage.tsx` are siblings instead (same convention as the
 already-working `routes/business/index.tsx` + `routes/business/ads/index.tsx`),
 each rendering independently.
+
+## Android Settings parity: theme, notifications, subscription, business
+
+An audit found Android's Settings area missing four things web already had.
+All four are now ported, each reusing web's existing backend as-is:
+
+- **Theme toggle.** Android had zero dark-mode infrastructure before this —
+  Tailwind's `darkMode: "class"` was configured in
+  `apps/android/tailwind.config.ts` but nothing ever set the `dark` class,
+  and no component used a `dark:` variant. New
+  `apps/android/src/lib/theme/store.ts` + `ThemeProvider.tsx` add a
+  light/dark/system preference exactly like web's `next-themes` usage in
+  `app/(app)/settings/page.tsx` — a pure client-side setting persisted via
+  `@capacitor/preferences` (with a synchronous `localStorage` mirror so it
+  applies before first paint, same two-tier pattern as `lib/i18n`'s language
+  handling), never sent to the server. `ThemeProvider` wraps the app in
+  `main.tsx`; the picker lives at the top of `routes/settings.tsx`. Because
+  no other Android screen has `dark:` styling yet, toggling it only affects
+  the `<html>` class today — retrofitting every existing screen's colors was
+  out of scope here.
+- **Per-category push notifications.** New `routes/settings/notifications.tsx`
+  reads/writes `GET`/`PATCH /api/users/me/settings` — the same endpoint and
+  same ten fields (`dm_notifications`, `group_notifications`,
+  `room_mention_notifications`, `notify_new_message`, `notify_friend_request`,
+  `notify_gift_received`, `notify_rank_up`, `notify_war_start`,
+  `notify_season_end`, `notify_announcement`) web's Settings → Notifications
+  section uses. No backend change.
+- **Subscription & Billing.** New `routes/settings/subscription.tsx` reads
+  plan/renewal/cancellation state from `GET /api/users/me` +
+  `GET /api/economy/subscriptions`, same as web. Cancelling calls
+  `DELETE /api/economy/subscriptions/:id` directly (a plain status write,
+  no payment processor involved). Upgrading calls
+  `lib/payments/googlePlay.ts`'s `purchaseSubscription()` instead of
+  following web's Paystack/DodoPayments checkout link, per the Play Store
+  policy already documented for this app (§18 in the PRD). There is no
+  tier-swap PUT the way web has for already-paid users — a Play
+  subscription can't be changed that way, so a tier switch on Android is
+  just another Play purchase (Play retires the old entitlement itself).
+- **Business Account.** New `routes/settings/business.tsx` mirrors web's
+  `app/(app)/settings/business/page.tsx`: info editing
+  (`PATCH /api/business`) and the verification request/cancel flow
+  (`POST`/`DELETE /api/business/verify`) are plain DB writes, reused as-is.
+  Creating the account or changing its tier are payment actions, so they go
+  through `purchaseBusinessTier()`, which posts the verified purchase to
+  `POST /api/business/iap/verify` — an endpoint that already existed
+  (built for exactly this) but had no calling UI anywhere in the app until
+  now. No manual "Renew" action exists on Android, since a Play
+  subscription renews itself automatically (unlike web's one-off Paystack
+  charge model that needs a manual renew click).
+
+All four link from the Settings hub (`routes/settings.tsx`, next to the
+existing Privacy/Security/Help links) and needed no new i18n keys beyond a
+handful of small gaps (`settings.business`, a few `business.*` strings,
+`action.submitting`/`action.cancelling`) — most of the required
+`settings.theme*`, `settings.push.*`, `settings.notification*`,
+`subscription.*`, and `business.*` keys already existed in
+`shared/i18n/locales/en.json`, apparently added in anticipation of this
+work. Note: `shared/i18n/locales/en.json` and
+`apps/web/lib/i18n/locales/en.json` were already out of sync with each
+other in unrelated key ranges before this change (pre-existing drift, not
+touched here) — the keys this work actually added are identical in both
+files.

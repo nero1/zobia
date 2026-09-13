@@ -1062,6 +1062,15 @@ Every user can manage the following from Settings, identically on web, PWA and t
 
 All plan/prestige eligibility thresholds are admin-configurable in `x_manifest` (`privacy_can_lock_profile`, `privacy_can_hide_sections`, `privacy_can_disable_friend_requests`, `privacy_can_show_online_status`, `privacy_hideable_sections`) so they can be adjusted without a deployment.
 
+### Android Settings Parity (Theme, Notifications, Subscription, Business)
+
+Four Settings sub-areas that existed on web but not the Capacitor Android app were ported, each reusing web's own backend rather than adding new endpoints:
+
+- **Theme (light/dark/system).** Android had no dark-mode mechanism at all before this — no theme context, no `dark:` Tailwind usage anywhere in its components (Tailwind's `darkMode: "class"` was configured but unused). `apps/android/src/lib/theme/{store,ThemeProvider}.tsx` add it: a pure client-side preference — matching web's `next-themes` choice to keep UI theme out of the server-synced chat-theme field — persisted with `@capacitor/preferences` (mirrored to `localStorage` for a flash-free first paint, the same two-tier pattern `lib/i18n` uses for language). The toggle lives at the top of `routes/settings.tsx`. Toggling it correctly flips the `dark` class on `<html>`, but since no other Android screen has been given `dark:` styling yet, it has no visible effect anywhere except future dark-styled components — retrofitting the whole app's existing screens was out of scope for this pass.
+- **Per-category push notifications.** New `routes/settings/notifications.tsx` renders the same ten toggles as web's Settings → Notifications section (three chat-push toggles plus seven category toggles: new message, friend request, gift received, rank up, guild wars, season end, announcements), reading/writing `GET`/`PATCH /api/users/me/settings` — identical to web, no backend change.
+- **Subscription & Billing.** New `routes/settings/subscription.tsx` shows current plan, renewal/cancellation date, and upgrade tiers, read from the same `GET /api/users/me` + `GET /api/economy/subscriptions` web uses. Per Play Store policy (§18), any actual purchase goes through Google Play Billing (`lib/payments/googlePlay.ts`'s `purchaseSubscription()`) instead of web's Paystack/DodoPayments checkout redirect. Cancelling is a plain subscription-status DB write (`DELETE /api/economy/subscriptions/:id`) with no payment processor involved, so it's reused as-is. There is no "swap between two paid tiers" PUT the way web has — a Play-billed subscription can't be changed that way, so switching tiers on Android is just another Play purchase.
+- **Business Account.** New `routes/settings/business.tsx` mirrors web's business page (info editing, verification workflow, tier comparison, analytics). Editing (`PATCH /api/business`) and verification request/cancel (`POST`/`DELETE /api/business/verify`) are plain DB writes with no payment involved, so they're reused directly. Creating the account and changing its tier are payment actions — web uses Paystack/DodoPayments checkout links, which Android cannot per §18 — so those route through `purchaseBusinessTier()`, which posts the verified Play purchase to the Android-only `POST /api/business/iap/verify` (already implemented, previously unused by any UI). A Play subscription renews itself automatically, so Android has no equivalent of web's manual "Renew Now" action.
+
 ### The Nemesis System
 
 Platform-assigned rival updated weekly. Algorithm: within 10% of user's XP on their highest active track, same city preferred, same Guild tier preferred, never a mutual friend.
@@ -2573,6 +2582,15 @@ wager rake).
   (nothing is escrowed yet, so there's nothing to refund); once accepted, use Cancel
   instead. Completed challenges are never deleted (they're the wager/prize audit
   trail) but either participant can **archive** one to hide it from their inbox.
+- **Android parity:** `apps/android/src/routes/games/challenges/index.tsx` (inbox +
+  create form) and `games/challenges/$id.tsx` (round detail) port the same flow
+  natively, reusing every endpoint above — accept/decline/cancel/delete/archive, the
+  debounced opponent-username search, and the expiry countdown. The wager is always
+  shown as a gold badge before an Accept/Send action commits to it. "Play your round"
+  hands off to the existing `games/$slug/play.tsx` embedded iframe player with
+  `?c=<challengeId>` forwarded through to `/g/<slug>/embed`, returning to the
+  challenge detail page (not the game page) on exit. `game_challenge_*` push
+  notifications now deep-link to `/games/challenges/<id>` on both platforms.
 
 ### 30.4 Game UX & Discovery
 
@@ -2630,6 +2648,9 @@ wager rake).
   just hiding it client-side.
 - **Ads** are admin-togglable via `game_ads_enabled` and `game_ads_directory_enabled`
   manifest flags (no fixed ad slots hardcoded in game pages).
+- **Android parity:** `apps/android/src/routes/games/leaderboards.tsx` is a game
+  picker in front of the same `GET /api/games/<slug>/leaderboard` endpoint, linked
+  from the Games hub header alongside Challenges.
 
 ### 30.6 Admin controls
 
@@ -7841,6 +7862,41 @@ flow, reusing the existing Platform Advertising pipeline (§17) as-is.
 
 ---
 
-*ZobiaSocial PRD v2.26*
+### v2.27 — Changelog
+
+#### Web/Android parity audit — three gaps closed
+
+- **Creator Merch Store management on Android** (`apps/android/src/routes/
+  creator/merch.tsx`, new) — previously Android had no way to set up or
+  manage a Merch store at all (only the read-only browse/buy flow at
+  `routes/merch/`). Built natively (unlike the bank-account/wallet payout
+  screens, which intentionally hand off to web for PIN/2FA-gated detail
+  entry) since Merch setup is plain CRUD: create/update the store, add
+  digital/physical/course-material products, and opt a product into the
+  Market referral program — same `GET/POST /api/merch/:userId` and
+  `POST /api/merch/:userId/products` endpoints web uses. Linked from the
+  creator dashboard's Revenue by Stream card.
+- **Wallet Booster Packs on Android** (`apps/android/src/routes/wallet.tsx`)
+  — `GET /api/economy/boosters` now also returns the caller's active
+  boosters (joined from `user_xp_boosters`), not just the `boost_types`
+  catalog; web's own `<BoosterPacks>` component never actually consumed
+  this data (its `boosters` state was hardcoded to `[]`, a pre-existing web
+  bug left as-is). Android's new `BoosterPacksPanel` shows active boosts
+  with a countdown and lets a user buy a new one; since boosts are paid for
+  with existing Coins, not real money, purchase goes straight through the
+  platform-agnostic `POST /api/economy/boosters`, not Google Play Billing.
+- **Business Ads: Ad Wallet transfer + coupon redemption on Android**
+  (`apps/android/src/routes/business/ads/index.tsx`) — added an Ad Wallet
+  balance/transfer panel (`POST /api/business/ads/wallet/transfer`, a fee-
+  free 1:1 move from the main Credits balance) and per-campaign coupon
+  redemption (`POST /api/business/ads/coupons/redeem`), matching web's
+  Advertising Panel. Web's "Buy Credits directly into Ad Wallet" link (a
+  Paystack/DodoPayments checkout) is intentionally left off Android — top
+  up the main wallet via Google Play Billing on the Wallet screen instead,
+  then transfer from there.
+
+---
+
+*ZobiaSocial PRD v2.27*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

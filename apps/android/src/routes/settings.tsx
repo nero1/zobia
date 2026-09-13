@@ -19,11 +19,48 @@ import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '
 import { useTweetsConfig } from '@/lib/hooks/useTweetsConfig';
 import { useTweetLengthPolicy } from '@/lib/hooks/useTweetLengthPolicy';
 import { AvatarCropModal } from '@/components/profile/AvatarCropModal';
+import { useTheme } from '@/lib/theme/ThemeProvider';
+import type { ThemePreference } from '@/lib/theme/store';
 
 // ZB-AND-09 fix: restorePurchases() was fully implemented in
 // lib/payments/googlePlay.ts but had no UI entry point anywhere in the app —
 // a user who reinstalled or switched devices had no way to recover
 // entitlements without contacting support.
+// Theme toggle — mirrors apps/web's settings page (next-themes light/dark/
+// system picker) via lib/theme, a client-only preference persisted with
+// Capacitor Preferences. See lib/theme/store.ts for why this needs no API
+// call: web itself keeps UI theme out of the server-synced chat-theme field.
+const THEME_OPTIONS: { value: ThemePreference; emoji: string }[] = [
+  { value: 'light', emoji: '☀️' },
+  { value: 'dark', emoji: '🌙' },
+  { value: 'system', emoji: '💻' },
+];
+
+function ThemeSection() {
+  const { t } = useTranslation();
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <div className="bg-white px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 mb-3">{t('settings.theme', 'Theme')}</h3>
+      <div className="flex gap-2">
+        {THEME_OPTIONS.map(({ value, emoji }) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => setTheme(value)}
+            className={`flex-1 rounded-lg py-2.5 text-sm font-semibold capitalize transition-colors ${
+              theme === value ? 'bg-primary-600 text-white' : 'border border-neutral-300 text-neutral-700'
+            }`}
+          >
+            {emoji} {t(`settings.theme.${value}`, value)}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function RestorePurchasesSection() {
   const { t } = useTranslation();
   const [state, setState] = useState<'idle' | 'restoring' | 'success' | 'error'>('idle');
@@ -674,7 +711,7 @@ function SettingsPage() {
         )}
       </div>
 
-      {/* Privacy, Security & Help (BUG-CAP-07) */}
+      {/* Privacy, Security, Notifications, Subscription, Business & Help (BUG-CAP-07) */}
       <div className="bg-white px-6 py-2 mb-3">
         <Link to="/settings/privacy" className="flex items-center justify-between py-2.5 border-b border-neutral-100">
           <span className="text-sm text-neutral-700">🔒 {t('settings.privacy.title', 'Privacy')}</span>
@@ -684,11 +721,26 @@ function SettingsPage() {
           <span className="text-sm text-neutral-700">🛡️ {t('settings.security.title', 'Security')}</span>
           <span className="text-neutral-400">→</span>
         </Link>
+        <Link to="/settings/notifications" className="flex items-center justify-between py-2.5 border-b border-neutral-100">
+          <span className="text-sm text-neutral-700">🔔 {t('settings.notifications', 'Notifications')}</span>
+          <span className="text-neutral-400">→</span>
+        </Link>
+        <Link to="/settings/subscription" className="flex items-center justify-between py-2.5 border-b border-neutral-100">
+          <span className="text-sm text-neutral-700">💳 {t('settings.subscriptionBilling', 'Subscription & Billing')}</span>
+          <span className="text-neutral-400">→</span>
+        </Link>
+        <Link to="/settings/business" className="flex items-center justify-between py-2.5 border-b border-neutral-100">
+          <span className="text-sm text-neutral-700">🏢 {t('settings.business', 'Business Account')}</span>
+          <span className="text-neutral-400">→</span>
+        </Link>
         <Link to="/help" className="flex items-center justify-between py-2.5">
           <span className="text-sm text-neutral-700">❓ {t('help.title', 'Help & Support')}</span>
           <span className="text-neutral-400">→</span>
         </Link>
       </div>
+
+      {/* Theme */}
+      <ThemeSection />
 
       {/* Language */}
       <div className="bg-white px-6 py-4 mb-3">

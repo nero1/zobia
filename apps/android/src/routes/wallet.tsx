@@ -9,8 +9,9 @@
 
 import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useInfiniteQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import type { AxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import { COIN_PRODUCTS, STAR_PRODUCTS, purchaseCoins, purchaseStars } from '@/lib/payments/googlePlay';
 import RewardedAdButton from '@/components/ads/RewardedAdButton';
@@ -240,6 +241,124 @@ function BuyCurrencyPanel({ onPurchased }: { onPurchased: () => void }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Booster Packs — mirrors apps/web/app/(app)/wallet/page.tsx's
+// `<BoosterPacks>` section. Boosts are spent from existing Credits (see
+// GET/POST /api/economy/boosters — `coins_cost`), not a real-money purchase,
+// so this goes through the platform-agnostic API directly rather than
+// Google Play Billing (which has no boost product family — see
+// lib/payments/googlePlay.ts).
+// ---------------------------------------------------------------------------
+
+interface BoostType {
+  id: string;
+  key: string;
+  label: string;
+  description: string | null;
+  duration_hours: number;
+  coins_cost: number | null;
+  stackable: boolean;
+}
+
+interface ActiveBooster {
+  id: string;
+  booster_type: string;
+  expires_at: string;
+  label: string | null;
+  description: string | null;
+}
+
+interface BoostersData {
+  boosts: BoostType[];
+  activeBoosters: ActiveBooster[];
+}
+
+async function fetchBoosters(): Promise<BoostersData> {
+  const { data } = await apiClient.get<BoostersData>('/economy/boosters');
+  return data;
+}
+
+function boosterCountdown(expiresAt: string): string {
+  const msLeft = new Date(expiresAt).getTime() - Date.now();
+  if (msLeft <= 0) return '';
+  const h = Math.floor(msLeft / 3_600_000);
+  const m = Math.floor((msLeft % 3_600_000) / 60_000);
+  if (h >= 24) return `${Math.floor(h / 24)}d ${h % 24}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
+}
+
+function BoosterPacksPanel({ onPurchased }: { onPurchased: () => void }) {
+  const { t } = useTranslation();
+  const [error, setError] = useState<string | null>(null);
+  const { data, status } = useQuery({ queryKey: ['wallet', 'boosters'], queryFn: fetchBoosters });
+
+  const purchaseMutation = useMutation({
+    mutationFn: (boosterType: string) => apiClient.post('/economy/boosters', { boosterType }),
+    onSuccess: () => { setError(null); onPurchased(); },
+    onError: (err: unknown) => {
+      const e = err as AxiosError<{ error?: { message?: string } }>;
+      setError(e.response?.data?.error?.message ?? t('wallet.boosters.purchaseFailed', 'Failed to purchase booster'));
+    },
+  });
+
+  if (status === 'pending' || !data || (data.boosts.length === 0 && data.activeBoosters.length === 0)) return null;
+
+  const activeTypes = new Set(data.activeBoosters.map((b) => b.booster_type));
+
+  return (
+    <div className="bg-white mb-3">
+      <div className="px-6 py-3 border-b border-neutral-100">
+        <h2 className="text-sm font-semibold text-neutral-700">{t('wallet.boosters.title', 'Boosts & Passes')}</h2>
+      </div>
+
+      {data.activeBoosters.length > 0 && (
+        <div className="divide-y divide-neutral-100 border-b border-neutral-100">
+          {data.activeBoosters.map((b) => (
+            <div key={b.id} className="flex items-start justify-between px-6 py-3">
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-neutral-900">{b.label ?? b.booster_type}</p>
+                {b.description && <p className="text-xs text-neutral-500">{b.description}</p>}
+              </div>
+              <span className="ml-3 shrink-0 text-xs font-semibold tabular-nums text-teal-600">
+                {boosterCountdown(b.expires_at)} {t('wallet.boosters.left', 'left')}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && <p className="px-6 pt-3 text-xs text-red-600">{error}</p>}
+
+      {data.boosts.length > 0 && (
+        <div className="grid grid-cols-2 gap-2 p-4">
+          {data.boosts.map((b) => {
+            const alreadyActive = !b.stackable && activeTypes.has(b.key);
+            return (
+              <button
+                key={b.id}
+                onClick={() => purchaseMutation.mutate(b.key)}
+                disabled={purchaseMutation.isPending || alreadyActive}
+                className="rounded-xl border border-neutral-200 p-3 text-left disabled:opacity-60"
+              >
+                <p className="text-sm font-bold text-neutral-900">{b.label}</p>
+                <p className="mt-0.5 text-xs text-neutral-500">{b.description}</p>
+                <p className="mt-1 text-xs font-semibold text-amber-600">
+                  {alreadyActive
+                    ? t('wallet.boosters.active', 'Active')
+                    : purchaseMutation.isPending && purchaseMutation.variables === b.key
+                      ? t('common.loading', 'Loading…')
+                      : `🪙 ${(b.coins_cost ?? 0).toLocaleString()}`}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WalletPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
@@ -310,6 +429,14 @@ function WalletPage() {
           // transaction-history infinite query wasn't invalidated, so a
           // just-completed Google Play purchase didn't show up in the list
           // until something else happened to refetch it.
+          qc.invalidateQueries({ queryKey: ['wallet', 'transactions'] });
+        }}
+      />
+
+      <BoosterPacksPanel
+        onPurchased={() => {
+          qc.invalidateQueries({ queryKey: ['users', 'me'] });
+          qc.invalidateQueries({ queryKey: ['wallet', 'boosters'] });
           qc.invalidateQueries({ queryKey: ['wallet', 'transactions'] });
         }}
       />
