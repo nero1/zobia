@@ -47,7 +47,18 @@ interface RawCandidateRow {
   tag: string | null;
 }
 
-/** All-time popularity source query per content type (tier: organic_popular). */
+/**
+ * All-time popularity source query per content type (tier: organic_popular).
+ *
+ * EVERY column must carry an explicit alias matching RawCandidateRow. These
+ * run as STANDALONE queries (fetchRawCandidates issues one db.query per
+ * entry) — they are not branches of a UNION, so none of them inherits column
+ * names from the first entry. Without the aliases, pg returns the driver's
+ * default names (`?column?` for literals/expressions, `id`, `user_id`, …) and
+ * every RawCandidateRow field reads back `undefined`, which renders feed cards
+ * with no title, no image and a literal "feedTabs.contentType.undefined"
+ * label. Keep the alias list in sync with RawCandidateRow above.
+ */
 const POPULAR_SOURCES: { sql: string }[] = [
   {
     sql: `SELECT 'moment' AS content_type, id::text AS content_id, user_id::text AS author_id,
@@ -57,53 +68,65 @@ const POPULAR_SOURCES: { sql: string }[] = [
           ORDER BY popularity_score DESC LIMIT $1`,
   },
   {
-    sql: `SELECT 'tweet', id::text, user_id::text, NULL, content, image_url, created_at,
-            (likes_count * 2 + replies_count * 3 + retweets_count * 2)::numeric, NULL
+    sql: `SELECT 'tweet' AS content_type, id::text AS content_id, user_id::text AS author_id,
+            NULL::text AS title, content AS excerpt, image_url AS image_url, created_at,
+            (likes_count * 2 + replies_count * 3 + retweets_count * 2)::numeric AS popularity_score,
+            NULL::text AS tag
           FROM tweets WHERE deleted_at IS NULL AND parent_tweet_id IS NULL
-          ORDER BY 8 DESC LIMIT $1`,
+          ORDER BY popularity_score DESC LIMIT $1`,
   },
   {
-    sql: `SELECT 'blog_post', id::text, author_id::text, title, excerpt, featured_image_url, created_at,
-            (view_count + like_count * 5 + comment_count * 4 + share_count * 3)::numeric, NULL
+    sql: `SELECT 'blog_post' AS content_type, id::text AS content_id, author_id::text AS author_id,
+            title AS title, excerpt AS excerpt, featured_image_url AS image_url, created_at,
+            (view_count + like_count * 5 + comment_count * 4 + share_count * 3)::numeric AS popularity_score,
+            NULL::text AS tag
           FROM blog_posts WHERE deleted_at IS NULL AND status = 'published'
-          ORDER BY 8 DESC LIMIT $1`,
+          ORDER BY popularity_score DESC LIMIT $1`,
   },
   {
-    sql: `SELECT 'forum_thread', id::text, author_id::text, title, NULL, NULL, created_at,
-            (view_count + reply_count * 4)::numeric, NULL
+    sql: `SELECT 'forum_thread' AS content_type, id::text AS content_id, author_id::text AS author_id,
+            title AS title, NULL::text AS excerpt, NULL::text AS image_url, created_at,
+            (view_count + reply_count * 4)::numeric AS popularity_score, NULL::text AS tag
           FROM bb_threads WHERE deleted_at IS NULL AND status = 'visible'
-          ORDER BY 8 DESC LIMIT $1`,
+          ORDER BY popularity_score DESC LIMIT $1`,
   },
   {
-    sql: `SELECT 'forum_question', id::text, author_id::text, title, body, NULL, created_at,
-            (vote_score * 3 + answer_count * 4 + favorite_count * 2)::numeric, NULL
+    sql: `SELECT 'forum_question' AS content_type, id::text AS content_id, author_id::text AS author_id,
+            title AS title, body AS excerpt, NULL::text AS image_url, created_at,
+            (vote_score * 3 + answer_count * 4 + favorite_count * 2)::numeric AS popularity_score,
+            NULL::text AS tag
           FROM forum_questions WHERE deleted_at IS NULL AND status = 'visible'
-          ORDER BY 8 DESC LIMIT $1`,
+          ORDER BY popularity_score DESC LIMIT $1`,
   },
   {
-    sql: `SELECT 'room', id::text, creator_id::text, name, description, cover_image_url, created_at,
-            (member_count * 3 + total_messages)::numeric, category
+    sql: `SELECT 'room' AS content_type, id::text AS content_id, creator_id::text AS author_id,
+            name AS title, description AS excerpt, cover_image_url AS image_url, created_at,
+            (member_count * 3 + total_messages)::numeric AS popularity_score, category AS tag
           FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type <> 'classroom'
-          ORDER BY 8 DESC LIMIT $1`,
+          ORDER BY popularity_score DESC LIMIT $1`,
   },
   {
-    sql: `SELECT 'classroom', id::text, creator_id::text, name, description, cover_image_url, created_at,
-            (member_count * 3 + total_messages)::numeric, category
+    sql: `SELECT 'classroom' AS content_type, id::text AS content_id, creator_id::text AS author_id,
+            name AS title, description AS excerpt, cover_image_url AS image_url, created_at,
+            (member_count * 3 + total_messages)::numeric AS popularity_score, category AS tag
           FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type = 'classroom'
-          ORDER BY 8 DESC LIMIT $1`,
+          ORDER BY popularity_score DESC LIMIT $1`,
   },
   {
-    sql: `SELECT 'wiki_page', id::text, created_by::text, title, NULL, NULL, created_at,
-            (view_count + revision_count * 2)::numeric, NULL
+    sql: `SELECT 'wiki_page' AS content_type, id::text AS content_id, created_by::text AS author_id,
+            title AS title, NULL::text AS excerpt, NULL::text AS image_url, created_at,
+            (view_count + revision_count * 2)::numeric AS popularity_score, NULL::text AS tag
           FROM wiki_pages WHERE deleted_at IS NULL AND status = 'published'
-          ORDER BY 8 DESC LIMIT $1`,
+          ORDER BY popularity_score DESC LIMIT $1`,
   },
   {
-    sql: `SELECT 'game', id::text, creator_id::text, name, description, cover_image_url, created_at,
-            (play_count + avg_rating * rating_count * 2 + favorite_count * 3)::numeric, category
+    sql: `SELECT 'game' AS content_type, id::text AS content_id, creator_id::text AS author_id,
+            name AS title, description AS excerpt, cover_image_url AS image_url, created_at,
+            (play_count + avg_rating * rating_count * 2 + favorite_count * 3)::numeric AS popularity_score,
+            category AS tag
           FROM games
           WHERE deleted_at IS NULL AND is_active = true AND is_public = true
-          ORDER BY 8 DESC LIMIT $1`,
+          ORDER BY popularity_score DESC LIMIT $1`,
   },
 ];
 
@@ -430,42 +453,51 @@ async function fetchNewPage(cursor: string | null, limit: number): Promise<FeedP
   }
 
   const { rows } = await db.query<RawCandidateRow>(
+    // The whole UNION is wrapped in an outer subquery so the cursor WHERE,
+    // ORDER BY and LIMIT apply to the COMBINED result. Written inline after
+    // the last branch they would bind to that branch alone, where the
+    // first branch's output names aren't in scope — pg rejects that with
+    // `column "content_id" does not exist` ("...there is a column named
+    // content_id in table "*SELECT* 1", but it cannot be referenced from
+    // this part of the query"), 500ing the whole tab.
     `SELECT * FROM (
-       SELECT 'moment' AS content_type, id::text AS content_id, user_id::text AS author_id,
-              NULL::text AS title, content AS excerpt, media_url AS image_url, created_at,
-              0::numeric AS popularity_score, NULL::text AS tag
-       FROM moments WHERE expires_at > NOW() ORDER BY created_at DESC LIMIT 50
-     ) x
-     UNION ALL
-     SELECT * FROM (
-       SELECT 'tweet', id::text, user_id::text, NULL, content, image_url, created_at, 0::numeric, NULL
-       FROM tweets WHERE deleted_at IS NULL AND parent_tweet_id IS NULL ORDER BY created_at DESC LIMIT 50
-     ) x
-     UNION ALL
-     SELECT * FROM (
-       SELECT 'blog_post', id::text, author_id::text, title, excerpt, featured_image_url, created_at, 0::numeric, NULL
-       FROM blog_posts WHERE deleted_at IS NULL AND status = 'published' ORDER BY created_at DESC LIMIT 50
-     ) x
-     UNION ALL
-     SELECT * FROM (
-       SELECT 'forum_question', id::text, author_id::text, title, body, NULL, created_at, 0::numeric, NULL
-       FROM forum_questions WHERE deleted_at IS NULL AND status = 'visible' ORDER BY created_at DESC LIMIT 50
-     ) x
-     UNION ALL
-     SELECT * FROM (
-       SELECT 'room', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
-       FROM rooms WHERE deleted_at IS NULL AND status = 'active' ORDER BY created_at DESC LIMIT 50
-     ) x
-     UNION ALL
-     SELECT * FROM (
-       SELECT 'wiki_page', id::text, created_by::text, title, NULL, NULL, created_at, 0::numeric, NULL
-       FROM wiki_pages WHERE deleted_at IS NULL AND status = 'published' ORDER BY created_at DESC LIMIT 50
-     ) x
-     UNION ALL
-     SELECT * FROM (
-       SELECT 'game', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
-       FROM games WHERE deleted_at IS NULL AND is_active = true AND is_public = true ORDER BY created_at DESC LIMIT 50
-     ) x
+       SELECT * FROM (
+         SELECT 'moment' AS content_type, id::text AS content_id, user_id::text AS author_id,
+                NULL::text AS title, content AS excerpt, media_url AS image_url, created_at,
+                0::numeric AS popularity_score, NULL::text AS tag
+         FROM moments WHERE expires_at > NOW() ORDER BY created_at DESC LIMIT 50
+       ) x
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'tweet', id::text, user_id::text, NULL, content, image_url, created_at, 0::numeric, NULL
+         FROM tweets WHERE deleted_at IS NULL AND parent_tweet_id IS NULL ORDER BY created_at DESC LIMIT 50
+       ) x
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'blog_post', id::text, author_id::text, title, excerpt, featured_image_url, created_at, 0::numeric, NULL
+         FROM blog_posts WHERE deleted_at IS NULL AND status = 'published' ORDER BY created_at DESC LIMIT 50
+       ) x
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'forum_question', id::text, author_id::text, title, body, NULL, created_at, 0::numeric, NULL
+         FROM forum_questions WHERE deleted_at IS NULL AND status = 'visible' ORDER BY created_at DESC LIMIT 50
+       ) x
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'room', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
+         FROM rooms WHERE deleted_at IS NULL AND status = 'active' ORDER BY created_at DESC LIMIT 50
+       ) x
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'wiki_page', id::text, created_by::text, title, NULL, NULL, created_at, 0::numeric, NULL
+         FROM wiki_pages WHERE deleted_at IS NULL AND status = 'published' ORDER BY created_at DESC LIMIT 50
+       ) x
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'game', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
+         FROM games WHERE deleted_at IS NULL AND is_active = true AND is_public = true ORDER BY created_at DESC LIMIT 50
+       ) x
+     ) feed
      WHERE $1::timestamptz IS NULL OR created_at < $1::timestamptz OR (created_at = $1::timestamptz AND content_id < $2)
      ORDER BY created_at DESC, content_id DESC
      LIMIT $3`,
@@ -494,41 +526,47 @@ async function fetchFriendsPage(userId: string, cursor: string | null, limit: nu
     }
   }
 
-  const isConnected = `(
-    EXISTS (SELECT 1 FROM friendships f WHERE f.status = 'accepted' AND ((f.requester_id = $1 AND f.addressee_id = author_id) OR (f.addressee_id = $1 AND f.requester_id = author_id)))
-    OR EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = $1 AND fo.following_id = author_id)
+  // Applied against each source table's RAW author column, which is a uuid.
+  // The previous version filtered one level out, against the projected
+  // `author_id` alias — but that alias is `<col>::text`, so comparing it to
+  // friendships/follows' uuid columns raised
+  // `operator does not exist: uuid = text` and 500'd the tab. Filtering on the
+  // uuid column directly also keeps the friendships/follows indexes usable.
+  const connectedTo = (col: string) => `(
+    EXISTS (SELECT 1 FROM friendships f WHERE f.status = 'accepted' AND ((f.requester_id = $1 AND f.addressee_id = ${col}) OR (f.addressee_id = $1 AND f.requester_id = ${col})))
+    OR EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = $1 AND fo.following_id = ${col})
   )`;
 
+  // As in fetchNewPage, the cursor WHERE/ORDER BY/LIMIT must sit on an outer
+  // subquery wrapping the entire UNION, not trail the final branch.
   const { rows } = await db.query<RawCandidateRow>(
     `SELECT * FROM (
        SELECT * FROM (
          SELECT 'moment' AS content_type, id::text AS content_id, user_id::text AS author_id,
                 NULL::text AS title, content AS excerpt, media_url AS image_url, created_at,
                 0::numeric AS popularity_score, NULL::text AS tag
-         FROM moments WHERE expires_at > NOW()
-       ) x WHERE ${isConnected} ORDER BY created_at DESC LIMIT 30
-     ) a
-     UNION ALL
-     SELECT * FROM (
+         FROM moments WHERE expires_at > NOW() AND ${connectedTo("user_id")}
+         ORDER BY created_at DESC LIMIT 30
+       ) a
+       UNION ALL
        SELECT * FROM (
          SELECT 'tweet', id::text, user_id::text, NULL, content, image_url, created_at, 0::numeric, NULL
-         FROM tweets WHERE deleted_at IS NULL AND parent_tweet_id IS NULL
-       ) x WHERE ${isConnected} ORDER BY created_at DESC LIMIT 30
-     ) b
-     UNION ALL
-     SELECT * FROM (
+         FROM tweets WHERE deleted_at IS NULL AND parent_tweet_id IS NULL AND ${connectedTo("user_id")}
+         ORDER BY created_at DESC LIMIT 30
+       ) b
+       UNION ALL
        SELECT * FROM (
          SELECT 'blog_post', id::text, author_id::text, title, excerpt, featured_image_url, created_at, 0::numeric, NULL
-         FROM blog_posts WHERE deleted_at IS NULL AND status = 'published'
-       ) x WHERE ${isConnected} ORDER BY created_at DESC LIMIT 30
-     ) c
-     UNION ALL
-     SELECT * FROM (
+         FROM blog_posts WHERE deleted_at IS NULL AND status = 'published' AND ${connectedTo("author_id")}
+         ORDER BY created_at DESC LIMIT 30
+       ) c
+       UNION ALL
        SELECT * FROM (
          SELECT 'room', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
-         FROM rooms WHERE deleted_at IS NULL AND status = 'active'
-       ) x WHERE ${isConnected} ORDER BY created_at DESC LIMIT 30
-     ) d
+         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND ${connectedTo("creator_id")}
+         ORDER BY created_at DESC LIMIT 30
+       ) d
+     ) feed
      WHERE $2::timestamptz IS NULL OR created_at < $2::timestamptz OR (created_at = $2::timestamptz AND content_id < $3)
      ORDER BY created_at DESC, content_id DESC
      LIMIT $4`,

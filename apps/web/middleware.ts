@@ -468,12 +468,20 @@ export async function middleware(request: NextRequest): Promise<NextResponse> {
     res.headers.set("X-Request-ID", requestId);
     // FIX-M02: Report-To header activates the Reporting API for modern browsers.
     // Without this, the CSP `report-to csp-endpoint` directive is silently ignored.
+    //
+    // The endpoint URL MUST be absolute. The Reporting API spec requires it, and
+    // a relative path makes the browser discard the whole group — Firefox logs
+    // 'Reporting Header: ignoring invalid endpoint URL "/api/security/csp-report"'
+    // once per subresource, which floods the console (dozens of lines per page
+    // load) while also leaving CSP reporting entirely non-functional. Built from
+    // the request's own origin so it stays correct across localhost, preview
+    // deployments and production without extra configuration.
     res.headers.set(
       "Report-To",
       JSON.stringify({
         group: "csp-endpoint",
         max_age: 10886400,
-        endpoints: [{ url: "/api/security/csp-report" }],
+        endpoints: [{ url: new URL("/api/security/csp-report", request.nextUrl.origin).toString() }],
       })
     );
     // additional hardening headers
