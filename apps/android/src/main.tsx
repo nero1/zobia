@@ -21,6 +21,7 @@ import { SplashScreen } from '@capacitor/splash-screen';
 
 import { queryClient } from '@/lib/query/client';
 import { AuthProvider } from '@/lib/auth/store';
+import { ThemeProvider } from '@/lib/theme/ThemeProvider';
 import { FloatingRewardProvider } from '@/components/notifications/FloatingRewardProvider';
 import { installGlobalErrorHandlers } from '@/lib/debug/logStore';
 import { DebugOverlay } from '@/components/debug/DebugOverlay';
@@ -68,11 +69,13 @@ function App() {
 
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <FloatingRewardProvider>
-          <RouterProvider router={router} />
-        </FloatingRewardProvider>
-      </AuthProvider>
+      <ThemeProvider>
+        <AuthProvider>
+          <FloatingRewardProvider>
+            <RouterProvider router={router} />
+          </FloatingRewardProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }

@@ -4311,5 +4311,21 @@
   "rooms.reward.title": "Room Reward",
   "rooms.reward.typeLabel": "Reward type",
   "rooms.reward.unlocksCustom": "unlocks a custom instruction",
-  "subscription.switchToFreeConfirm": "Switch to the Free plan? You will keep your current plan's benefits until the current billing period ends, then move to Free."
+  "subscription.switchToFreeConfirm": "Switch to the Free plan? You will keep your current plan's benefits until the current billing period ends, then move to Free.",
+  "settings.business": "Business Account",
+  "business.updateSuccess": "Business info updated!",
+  "business.verify.submitted": "Verification request submitted! We'll review it soon.",
+  "business.verify.cancelled": "Verification request cancelled.",
+  "business.verify.rejected": "Your verification was rejected. Update your business details and resubmit.",
+  "business.verify.pending": "Your business is under review. We'll notify you once verified.",
+  "business.verify.request": "Request Verification",
+  "business.verify.cancel": "Cancel Request",
+  "business.editInfo": "Edit Info",
+  "business.tier.label": "Tier",
+  "business.tier.renewsEnds": "Renews/ends",
+  "business.tier.active": "Active Plan",
+  "business.createHint": "Fill in your business details, then pick a plan below — you'll be charged via Google Play.",
+  "business.suspended": "Your business account is suspended. Contact support for more information.",
+  "action.submitting": "Submitting…",
+  "action.cancelling": "Cancelling…"
 }
