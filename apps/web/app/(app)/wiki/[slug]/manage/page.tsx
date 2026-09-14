@@ -34,7 +34,7 @@ export default function WikiManageDashboardPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const params = useParams<{ slug: string }>();
-  const slug = params.slug;
+  const slug = params?.slug;
 
   const [wiki, setWiki] = useState<WikiRow | null | undefined>(undefined);
   const [canManage, setCanManage] = useState(false);

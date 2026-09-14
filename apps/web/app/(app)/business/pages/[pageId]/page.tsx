@@ -35,7 +35,7 @@ interface Post {
 
 export default function BusinessPageDetail() {
   const params = useParams<{ pageId: string }>();
-  const pageId = params.pageId;
+  const pageId = params?.pageId;
 
   const [page, setPage] = useState<BusinessPage | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);

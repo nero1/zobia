@@ -26,8 +26,8 @@ import { useTranslation } from "react-i18next";
 function CallbackContent() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
-  const code = searchParams.get("code");
-  const preAuthCode = searchParams.get("pre_auth_code");
+  const code = searchParams?.get("code");
+  const preAuthCode = searchParams?.get("pre_auth_code");
 
   const fallbackDeepLink = (() => {
     const qs = new URLSearchParams();

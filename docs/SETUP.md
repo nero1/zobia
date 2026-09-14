@@ -273,6 +273,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | No | WalletConnect Cloud project ID — powers the WalletConnect/QR wallet-connect path on BNB Smart Chain. MetaMask's injected provider works without it. | cloud.reown.com (free) |
 | `BSC_RPC_URL` | No | Override the public BSC RPC endpoint (default: `https://bsc-dataseed.binance.org`) | Any BSC RPC provider (or leave unset) |
 | `SOLANA_RPC_URL` | No | Override the public Solana RPC endpoint (default: `https://api.mainnet-beta.solana.com`) | Any Solana RPC provider (or leave unset) |
+| `NEXT_PUBLIC_SOLANA_RPC_URL` | No | Browser-side Solana RPC for the wallet-adapter checkout UI (separate from `SOLANA_RPC_URL` — only `NEXT_PUBLIC_`-prefixed vars reach the browser bundle). Same default. | Any Solana RPC provider (or leave unset) |
 | `CRYPTO_RECEIVING_ADDRESS_BSC` | Required to accept crypto payments | The platform's own BSC wallet address that receives JAGA/BNB payments | Your own wallet |
 | `CRYPTO_RECEIVING_ADDRESS_SOLANA` | Required to accept crypto payments | The platform's own Solana wallet address that receives SOL payments | Your own wallet |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | No | Google Play service account JSON (base64-encoded or raw) for Android IAP verification (coins/stars/subscriptions, `/api/economy/iap/verify`, and Business Account signup/upgrade, `/api/business/iap/verify`) | Google Play Console → Setup → API access |

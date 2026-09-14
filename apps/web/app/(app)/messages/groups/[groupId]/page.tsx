@@ -306,7 +306,7 @@ function MembersPanel({
 export default function GroupConversationPage() {
   const params = useParams();
   const router = useRouter();
-  const groupId = params.groupId as string;
+  const groupId = params?.groupId as string;
   const { t } = useTranslation();
   // Stable ref so the mount-scoped group-load effect below doesn't need `t`
   // in its dependency array (which would re-fetch the group on every

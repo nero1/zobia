@@ -22,7 +22,7 @@ interface GameSummary {
 }
 
 export default function PlayGamePage() {
-  const { slug } = useParams<{ slug: string }>();
+  const { slug } = useParams<{ slug: string }>() ?? { slug: "" };
   const router = useRouter();
   const { user, isLoading } = useAuth();
   const [game, setGame] = useState<GameSummary | null>(null);

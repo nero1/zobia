@@ -38,7 +38,7 @@ interface GiftTier {
 export default function BlogGiftPage() {
   const params = useParams();
   const router = useRouter();
-  const slug = params.slug as string;
+  const slug = params?.slug as string;
   const currency = useCurrency();
   const { t } = useTranslation();
 

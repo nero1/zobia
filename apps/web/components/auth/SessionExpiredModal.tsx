@@ -54,7 +54,7 @@ export function SessionExpiredModal() {
     const onAdminRoute = pathname?.startsWith("/gate44");
     const loginPath = onAdminRoute ? "/gate44/login" : "/auth/login";
     const fallback = onAdminRoute ? "/gate44" : "/home";
-    const redirect = pathname && !pathname.startsWith("/auth") ? pathname : fallback;
+    const redirect = pathname && !pathname?.startsWith("/auth") ? pathname : fallback;
     router.push(
       `${loginPath}?reason=session_expired&redirect=${encodeURIComponent(redirect)}`,
     );

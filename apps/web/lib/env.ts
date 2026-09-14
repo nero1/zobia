@@ -114,6 +114,11 @@ const envSchema = z.object({
   NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID: z.string().optional(),
   BSC_RPC_URL: z.string().optional(),
   SOLANA_RPC_URL: z.string().optional(),
+  // Client-side (browser) RPC endpoint for the Solana wallet-adapter UI —
+  // separate from the server-side SOLANA_RPC_URL above because only
+  // NEXT_PUBLIC_-prefixed vars are exposed to the browser bundle. Falls back
+  // to the public mainnet-beta RPC (rate-limited) when unset.
+  NEXT_PUBLIC_SOLANA_RPC_URL: z.string().optional(),
   CRYPTO_RECEIVING_ADDRESS_BSC: z.string().optional(),
   CRYPTO_RECEIVING_ADDRESS_SOLANA: z.string().optional(),
 

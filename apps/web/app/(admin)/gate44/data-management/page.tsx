@@ -121,57 +121,93 @@ const EXPORT_FIELD_OPTIONS = [
   "id", "username", "email", "displayName", "plan", "trustScore", "xpTotal",
   "isVerified", "isBanned", "isSuspended", "isModerator", "city", "country",
   "locale", "createdAt", "lastActiveAt", "coinBalance", "starBalance",
-  "guildId", "referralCode", "kycTier",
+  "guildId", "referralCode", "kycTier", "isAdmin", "rankLevel", "prestigeCount",
+  "cryptoWalletBsc", "cryptoWalletSolana",
 ] as const;
 
 function ExportModal({ selectedIds, onClose, showToast }: { selectedIds: string[]; onClose: () => void; showToast: (m: string, t?: "success" | "error") => void }) {
-  const [format, setFormat] = useState<"csv" | "tsv" | "xlsx">("csv");
+  const [format, setFormat] = useState<"csv" | "tsv" | "xlsx" | "txt">("csv");
   const [fields, setFields] = useState<string[]>(["id", "username", "email", "plan", "trustScore", "xpTotal", "createdAt"]);
   const [plan, setPlan] = useState("");
   const [minTrustScore, setMinTrustScore] = useState("");
   const [country, setCountry] = useState("");
   const [isBanned, setIsBanned] = useState<"" | "true" | "false">("");
+  const [role, setRole] = useState<"" | "admin" | "not_admin">("");
+  const [minRankLevel, setMinRankLevel] = useState("");
+  const [maxRankLevel, setMaxRankLevel] = useState("");
+  const [minPrestigeCount, setMinPrestigeCount] = useState("");
+  const [maxPrestigeCount, setMaxPrestigeCount] = useState("");
   const [leaderboardTop1, setLeaderboardTop1] = useState(false);
   const [useSelection, setUseSelection] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [includeCredentials, setIncludeCredentials] = useState(false);
   const [accountsSubmitting, setAccountsSubmitting] = useState(false);
+  const [walletChain, setWalletChain] = useState<"bsc" | "solana">("bsc");
+  const [walletFormat, setWalletFormat] = useState<"txt" | "csv">("txt");
+  const [walletSubmitting, setWalletSubmitting] = useState(false);
 
   function toggleField(f: string) {
     setFields((prev) => (prev.includes(f) ? prev.filter((x) => x !== f) : [...prev, f]));
   }
 
+  function buildFilters(): Record<string, unknown> {
+    const filters: Record<string, unknown> = {};
+    if (!useSelection) {
+      if (plan) filters.plan = plan;
+      if (minTrustScore) filters.minTrustScore = Number(minTrustScore);
+      if (country) filters.country = country;
+      if (isBanned) filters.isBanned = isBanned === "true";
+      if (role) filters.isAdmin = role === "admin";
+      if (minRankLevel) filters.minRankLevel = Number(minRankLevel);
+      if (maxRankLevel) filters.maxRankLevel = Number(maxRankLevel);
+      if (minPrestigeCount) filters.minPrestigeCount = Number(minPrestigeCount);
+      if (maxPrestigeCount) filters.maxPrestigeCount = Number(maxPrestigeCount);
+      if (leaderboardTop1) filters.leaderboardRank = 1;
+    } else {
+      filters.userIds = selectedIds;
+    }
+    return filters;
+  }
+
+  async function downloadExport(body: Record<string, unknown>, readyMessage: string) {
+    const res = await fetch("/api/admin/data-management/users/export", {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      showToast("Export failed", "error");
+      return false;
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    window.open(url, "_blank");
+    showToast(readyMessage);
+    return true;
+  }
+
   async function submitExport() {
     setSubmitting(true);
     try {
-      const filters: Record<string, unknown> = {};
-      if (!useSelection) {
-        if (plan) filters.plan = plan;
-        if (minTrustScore) filters.minTrustScore = Number(minTrustScore);
-        if (country) filters.country = country;
-        if (isBanned) filters.isBanned = isBanned === "true";
-        if (leaderboardTop1) filters.leaderboardRank = 1;
-      } else {
-        filters.userIds = selectedIds;
-      }
-
-      const res = await fetch("/api/admin/data-management/users/export", {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ format, fields, filters }),
-      });
-      if (!res.ok) {
-        showToast("Export failed", "error");
-        return;
-      }
-      const blob = await res.blob();
-      const url = URL.createObjectURL(blob);
-      window.open(url, "_blank");
-      showToast("Export ready — opened in a new tab");
-      onClose();
+      const ok = await downloadExport({ format, fields, filters: buildFilters() }, "Export ready — opened in a new tab");
+      if (ok) onClose();
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  /** Quick preset: every saved crypto wallet address for the chosen chain, one per line (txt) or as a simple CSV. */
+  async function submitWalletOnlyExport() {
+    setWalletSubmitting(true);
+    try {
+      const field = walletChain === "bsc" ? "cryptoWalletBsc" : "cryptoWalletSolana";
+      await downloadExport(
+        { format: walletFormat, fields: [field], filters: { hasCryptoWallet: true } },
+        "Wallet address export ready — opened in a new tab"
+      );
+    } finally {
+      setWalletSubmitting(false);
     }
   }
 
@@ -209,8 +245,14 @@ function ExportModal({ selectedIds, onClose, showToast }: { selectedIds: string[
           <div>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wider text-neutral-500">Format</label>
             <div className="flex gap-2">
-              {(["csv", "tsv", "xlsx"] as const).map((f) => (
-                <button key={f} onClick={() => setFormat(f)} className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${format === f ? "bg-blue-600 text-white" : "bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"}`}>
+              {(["csv", "tsv", "xlsx", "txt"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setFormat(f)}
+                  disabled={f === "txt" && fields.length !== 1}
+                  title={f === "txt" ? "Select exactly one field to use .txt (one raw value per line)" : undefined}
+                  className={`rounded-lg px-3 py-1.5 text-xs font-semibold disabled:opacity-40 ${format === f ? "bg-blue-600 text-white" : "bg-neutral-100 text-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"}`}
+                >
                   {f.toUpperCase()}
                 </button>
               ))}
@@ -253,6 +295,15 @@ function ExportModal({ selectedIds, onClose, showToast }: { selectedIds: string[
                 <option value="true">Banned only</option>
                 <option value="false">Not banned</option>
               </select>
+              <select value={role} onChange={(e) => setRole(e.target.value as "" | "admin" | "not_admin")} className="rounded border border-neutral-300 bg-white px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
+                <option value="">Any role</option>
+                <option value="admin">Admins only</option>
+                <option value="not_admin">Non-admins only</option>
+              </select>
+              <input value={minRankLevel} onChange={(e) => setMinRankLevel(e.target.value)} placeholder="Min rank level" type="number" className="rounded border border-neutral-300 bg-white px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200" />
+              <input value={maxRankLevel} onChange={(e) => setMaxRankLevel(e.target.value)} placeholder="Max rank level" type="number" className="rounded border border-neutral-300 bg-white px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200" />
+              <input value={minPrestigeCount} onChange={(e) => setMinPrestigeCount(e.target.value)} placeholder="Min prestige" type="number" className="rounded border border-neutral-300 bg-white px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200" />
+              <input value={maxPrestigeCount} onChange={(e) => setMaxPrestigeCount(e.target.value)} placeholder="Max prestige" type="number" className="rounded border border-neutral-300 bg-white px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200" />
             </div>
             <label className="flex items-center gap-2 text-xs text-neutral-700 dark:text-neutral-300">
               <input type="checkbox" checked={leaderboardTop1} onChange={(e) => setLeaderboardTop1(e.target.checked)} />
@@ -267,6 +318,30 @@ function ExportModal({ selectedIds, onClose, showToast }: { selectedIds: string[
           >
             {submitting ? "Exporting…" : "Export"}
           </button>
+
+          <div className="space-y-2 rounded-lg border border-teal-200 bg-teal-50 p-3 dark:border-teal-800 dark:bg-teal-950/30">
+            <p className="text-xs font-semibold uppercase tracking-wider text-teal-700 dark:text-teal-300">Quick preset — crypto wallet addresses only</p>
+            <p className="text-[11px] text-teal-700 dark:text-teal-400">
+              Every saved wallet address for the chosen chain, ignoring the field/filter pickers above.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <select value={walletChain} onChange={(e) => setWalletChain(e.target.value as "bsc" | "solana")} className="rounded border border-neutral-300 bg-white px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
+                <option value="bsc">BNB Smart Chain (JAGA / BNB)</option>
+                <option value="solana">Solana (SOL)</option>
+              </select>
+              <select value={walletFormat} onChange={(e) => setWalletFormat(e.target.value as "txt" | "csv")} className="rounded border border-neutral-300 bg-white px-2 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200">
+                <option value="txt">TXT (one address per line)</option>
+                <option value="csv">CSV</option>
+              </select>
+            </div>
+            <button
+              onClick={() => void submitWalletOnlyExport()}
+              disabled={walletSubmitting}
+              className="flex min-h-[40px] w-full items-center justify-center rounded-lg bg-teal-600 px-3 py-2.5 text-xs font-semibold text-white hover:bg-teal-700 disabled:opacity-60"
+            >
+              {walletSubmitting ? "Exporting…" : "Export Wallet Addresses"}
+            </button>
+          </div>
 
           <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/30">
             <p className="text-xs font-semibold uppercase tracking-wider text-amber-700 dark:text-amber-300">Full account export (for moving to a new install)</p>
@@ -616,7 +691,7 @@ function DataManagementContent() {
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const tabParam = searchParams.get("tab");
+  const tabParam = searchParams?.get("tab");
   const tab: Tab = tabParam === "financial" || tabParam === "statistical" ? tabParam : "users";
 
   function setTab(next: Tab) {

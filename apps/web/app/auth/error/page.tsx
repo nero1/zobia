@@ -23,7 +23,7 @@ type ErrorCode = "session_expired" | "rate_limited" | "invalid_request" | "unexp
 function ErrorContent() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
-  const code = (searchParams.get("code") ?? "unexpected") as ErrorCode;
+  const code = (searchParams?.get("code") ?? "unexpected") as ErrorCode;
 
   const config: Record<ErrorCode, { icon: string; title: string; body: string; hint: string }> = {
     session_expired: {

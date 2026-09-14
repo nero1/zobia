@@ -23,7 +23,7 @@ export default function WikiInviteAcceptPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const params = useParams<{ token: string }>();
-  const token = params.token;
+  const token = params?.token;
 
   const [preview, setPreview] = useState<InvitePreview | null | undefined>(undefined);
   const [accepting, setAccepting] = useState(false);

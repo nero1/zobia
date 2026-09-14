@@ -21,7 +21,7 @@ export default function TweetDetailPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const params = useParams();
-  const tweetId = params.tweetId as string;
+  const tweetId = params?.tweetId as string;
 
   const [tweet, setTweet] = useState<Tweet | null | undefined>(undefined);
   const [ownUserId, setOwnUserId] = useState<string | null>(null);
@@ -43,8 +43,8 @@ export default function TweetDetailPage() {
   const fetchRepliesPage = useCallback(
     async (cursorParam: string | null) => {
       const params = new URLSearchParams({ parentTweetId: tweetId, limit: "20" });
-      if (cursorParam) params.set("cursor", cursorParam);
-      const res = await fetch(`/api/tweets?${params.toString()}`, { credentials: "include" });
+      if (cursorParam) params?.set("cursor", cursorParam);
+      const res = await fetch(`/api/tweets?${params?.toString()}`, { credentials: "include" });
       if (!res.ok) return null;
       const json = (await res.json()) as { data?: { tweets?: Array<Record<string, unknown>>; nextCursor?: string | null } };
       return {

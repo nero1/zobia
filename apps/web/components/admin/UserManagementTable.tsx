@@ -658,6 +658,11 @@ export const ALLOWED_FIELD_LABELS: Record<string, string> = {
   guildId: "Guild ID",
   referralCode: "Referral code",
   kycTier: "KYC tier",
+  isAdmin: "Admin",
+  rankLevel: "Rank level",
+  prestigeCount: "Prestige count",
+  cryptoWalletBsc: "Crypto wallet (BNB Smart Chain)",
+  cryptoWalletSolana: "Crypto wallet (Solana)",
 };
 
 // ---------------------------------------------------------------------------

@@ -29,9 +29,11 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { initializePayment } from "@/lib/payments";
-import { loadManifest } from "@/lib/manifest";
+import { serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { env } from "@/lib/env";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
+import { grantFreePayment } from "@/lib/payments/freeGrant";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -152,18 +154,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // 5. Initialize payment with the provider
     const returnUrl = `${env.NEXT_PUBLIC_APP_URL}/economy/purchase/callback`;
 
-    const manifest = await loadManifest();
-    const VALID_PROVIDERS = ["paystack", "crypto"] as const;
-    const requestedProvider = body.paymentProvider;
-    let provider: (typeof VALID_PROVIDERS)[number];
-    if (requestedProvider && (VALID_PROVIDERS as readonly string[]).includes(requestedProvider)) {
-      provider = requestedProvider;
-    } else {
-      provider = manifest.payment.primaryProvider as (typeof VALID_PROVIDERS)[number];
-    }
-    if (provider === "crypto" && !body.cryptoCurrency) {
-      throw badRequest("cryptoCurrency is required when paymentProvider is 'crypto'", "MISSING_CRYPTO_CURRENCY");
-    }
+    const isNigeria = await getUserIsNigeria(userId);
+    const decision = await enforcePaymentContext("star_purchase", isNigeria, body.paymentProvider, body.cryptoCurrency);
 
     const metadata = {
       userId,
@@ -171,8 +163,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       packName: pack.name,
       starsGranted: pack.stars_granted,
       itemType: "star_pack",
-      ...(provider === "crypto" ? { cryptoCurrency: body.cryptoCurrency } : {}),
+      ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
     };
+
+    if (decision.isFree) {
+      await grantFreePayment({
+        userId,
+        paymentType: "star_purchase",
+        amountKobo: pack.price_kobo,
+        currency: pack.currency,
+        idempotencyKey,
+        metadata: metadata as never,
+      });
+      return NextResponse.json({
+        paymentUrl: "",
+        paymentReference: idempotencyKey,
+        free: true,
+        pack: { id: pack.id, name: pack.name, starsGranted: pack.stars_granted, priceKobo: pack.price_kobo, currency: pack.currency },
+      });
+    }
+
+    const provider = decision.provider;
 
     const paymentResult = await initializePayment(
       pack.price_kobo,
@@ -185,7 +196,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     );
 
     const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };
-    const computed = provider === "crypto" ? (paymentResult.raw as { chain: string; currency: string; receivingAddress: string; expectedBaseUnits: bigint }) : null;
+    const computed = provider === "crypto" ? (paymentResult.raw as ComputedAmount) : null;
 
     // 6. Persist the pending payment record
     await db.query(
@@ -212,7 +223,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     return NextResponse.json({
       paymentUrl: paymentResult.paymentUrl,
       paymentReference: paymentResult.providerReference,
-      crypto: computed,
+      crypto: computed ? serializeComputedAmount(computed) : null,
       pack: {
         id: pack.id,
         name: pack.name,

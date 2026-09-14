@@ -24,8 +24,10 @@ import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { initializePayment } from "@/lib/payments";
-import { applyCryptoComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
+import { applyCryptoComputedAmount, serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { getBusinessTierPriceKobo } from "@/lib/business/limits";
+import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
+import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
 
 /** Mirrors PENDING_PAYMENT_TTL_MINUTES in app/api/business/route.ts and tier/route.ts. */
 const PENDING_PAYMENT_TTL_MINUTES = 30;
@@ -63,17 +65,43 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const priceKobo = await getBusinessTierPriceKobo(tier);
     if (priceKobo <= 0) throw badRequest("Invalid tier price configuration");
 
-    const provider = body.paymentProvider ?? "paystack";
-    if (provider === "crypto" && !body.cryptoCurrency) {
-      throw badRequest("cryptoCurrency is required when paymentProvider is 'crypto'", "MISSING_CRYPTO_CURRENCY");
-    }
+    const isNigeria = await getUserIsNigeria(userId);
+    const decision = await enforcePaymentContext("business_renew", isNigeria, body.paymentProvider, body.cryptoCurrency);
     const metadata = {
       userId,
       businessAccountId,
       type: "business_renewal",
       itemType: "business_renewal",
-      ...(provider === "crypto" ? { cryptoCurrency: body.cryptoCurrency } : {}),
+      ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
     };
+
+    if (decision.isFree) {
+      const { rows: freeRows } = await db.query<{ id: string }>(
+        `INSERT INTO payments
+           (user_id, payment_type, amount_kobo, currency, provider, status, idempotency_key, provider_reference, metadata)
+         VALUES ($1, 'business_upgrade', $2, 'NGN', 'free', 'pending', $3, $3, $4::jsonb)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING id`,
+        [userId, priceKobo, reference, JSON.stringify(metadata)]
+      );
+      if (freeRows[0]) {
+        await processChargeSuccess({
+          reference,
+          status: "success",
+          amount: 0,
+          currency: "NGN",
+          customer: { email: userEmail },
+          metadata,
+          paid_at: new Date().toISOString(),
+        } as unknown as Parameters<typeof processChargeSuccess>[0]);
+      }
+      return NextResponse.json(
+        { success: true, data: { paymentUrl: "", reference, tier, priceKobo, free: true }, error: null },
+        { status: 200 }
+      );
+    }
+
+    const provider = decision.provider;
 
     const { rows: reservedRows } = await db.query<{ id: string }>(
       `INSERT INTO payments
@@ -115,7 +143,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     return NextResponse.json(
-      { success: true, data: { paymentUrl, reference, tier, priceKobo, crypto: computed }, error: null },
+      { success: true, data: { paymentUrl, reference, tier, priceKobo, crypto: computed ? serializeComputedAmount(computed) : null }, error: null },
       { status: 202 }
     );
   } catch (err) {

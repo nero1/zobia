@@ -24,7 +24,7 @@ import Link from "next/link";
 export default function GiftUserPage() {
   const params = useParams();
   const router = useRouter();
-  const userId = params.userId as string;
+  const userId = params?.userId as string;
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {

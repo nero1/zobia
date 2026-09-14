@@ -11,7 +11,8 @@
 const mockQuery = jest.fn();
 jest.mock('@/lib/db', () => ({ db: { query: (...args: unknown[]) => mockQuery(...args) } }));
 
-import { updatePaymentContextSettings, makeAllPaymentsFree } from '../contextSettings';
+import { updatePaymentContextSettings, makeAllPaymentsFree, enforcePaymentContext } from '../contextSettings';
+import { ApiError } from '@/lib/api/errors';
 
 beforeEach(() => jest.clearAllMocks());
 
@@ -37,6 +38,64 @@ describe('updatePaymentContextSettings', () => {
     expect(params[1]).toBe(true); // paystackEnabled preserved
     expect(JSON.parse(params[2])).toEqual(['JAGA']); // cryptoEnabledCurrencies preserved
     expect(params[3]).toBe(true); // isFree updated
+  });
+});
+
+describe('enforcePaymentContext', () => {
+  function mockSettings(row: {
+    paystack_enabled?: boolean;
+    crypto_enabled_currencies?: string[];
+    is_free?: boolean;
+  }) {
+    mockQuery.mockResolvedValueOnce({
+      rows: [{
+        context_key: 'coin_purchase',
+        paystack_enabled: row.paystack_enabled ?? true,
+        crypto_enabled_currencies: row.crypto_enabled_currencies ?? [],
+        is_free: row.is_free ?? false,
+        updated_at: null,
+      }],
+    });
+  }
+
+  it('returns isFree=true and skips every other check when the context is free', async () => {
+    mockSettings({ is_free: true, paystack_enabled: false, crypto_enabled_currencies: [] });
+    const decision = await enforcePaymentContext('coin_purchase', false, 'paystack', undefined);
+    expect(decision).toEqual({ isFree: true });
+  });
+
+  it('rejects a disabled provider even though the client asked for it (bypass attempt)', async () => {
+    mockSettings({ paystack_enabled: false, crypto_enabled_currencies: ['JAGA'] });
+    await expect(enforcePaymentContext('coin_purchase', true, 'paystack', undefined)).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('rejects a crypto currency the admin has not enabled for this context', async () => {
+    mockSettings({ paystack_enabled: true, crypto_enabled_currencies: ['JAGA'] });
+    await expect(enforcePaymentContext('coin_purchase', false, 'crypto', 'BNB' as never)).rejects.toBeInstanceOf(ApiError);
+  });
+
+  it('accepts an enabled crypto currency', async () => {
+    mockSettings({ paystack_enabled: true, crypto_enabled_currencies: ['JAGA', 'BNB'] });
+    const decision = await enforcePaymentContext('coin_purchase', false, 'crypto', 'BNB' as never);
+    expect(decision).toEqual({ isFree: false, provider: 'crypto', cryptoCurrency: 'BNB' });
+  });
+
+  it('rejects a non-Nigerian user when only paystack is enabled ("only Nigeria" case)', async () => {
+    mockSettings({ paystack_enabled: true, crypto_enabled_currencies: [] });
+    await expect(enforcePaymentContext('coin_purchase', false, undefined, undefined)).rejects.toMatchObject({ code: 'UNSUPPORTED_REGION' });
+  });
+
+  it('defaults a Nigerian user to paystack when no provider is requested', async () => {
+    mockSettings({ paystack_enabled: true, crypto_enabled_currencies: ['JAGA'] });
+    const decision = await enforcePaymentContext('coin_purchase', true, undefined, undefined);
+    expect(decision).toEqual({ isFree: false, provider: 'paystack' });
+  });
+
+  it('defaults a non-Nigerian user to crypto when paystack is unavailable to them', async () => {
+    mockSettings({ paystack_enabled: true, crypto_enabled_currencies: ['JAGA'] });
+    await expect(enforcePaymentContext('coin_purchase', false, undefined, undefined)).rejects.toThrow(
+      'cryptoCurrency is required'
+    );
   });
 });
 

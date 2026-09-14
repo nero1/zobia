@@ -45,7 +45,7 @@ export default function TweetsPage() {
   }, [t]);
 
   const searchParams = useSearchParams();
-  const authorIdFilter = searchParams.get("authorId");
+  const authorIdFilter = searchParams?.get("authorId");
 
   const [tab, setTab] = useState<TabKey>("foryou");
   const [tweets, setTweets] = useState<Tweet[] | undefined>(undefined);

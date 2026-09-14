@@ -88,7 +88,7 @@ export default function WikiCollaboratorsPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const params = useParams<{ slug: string }>();
-  const slug = params.slug;
+  const slug = params?.slug;
 
   const [contributePolicy, setContributePolicy] = useState<string | null>(null);
   const [collaborators, setCollaborators] = useState<CollaboratorRow[]>([]);

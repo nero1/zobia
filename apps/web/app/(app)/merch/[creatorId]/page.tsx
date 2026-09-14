@@ -219,7 +219,7 @@ function ProductCard({ product, creatorId, onBuy }: ProductCardProps) {
  * Individual creator merch store.
  */
 export default function CreatorMerchStorePage() {
-  const { creatorId } = useParams<{ creatorId: string }>();
+  const { creatorId } = useParams<{ creatorId: string }>() ?? { creatorId: "" };
   const { t } = useTranslation();
 
   const [store, setStore] = useState<MerchStore | null>(null);

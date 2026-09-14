@@ -35,7 +35,7 @@ interface Detail {
 }
 
 export default function ChallengeDetailPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams<{ id: string }>() ?? { id: "" };
   const { t } = useTranslation();
   const [detail, setDetail] = useState<Detail | null>(null);
   const [engineKey, setEngineKey] = useState<string | null>(null);

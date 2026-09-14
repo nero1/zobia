@@ -43,7 +43,10 @@ import {
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { initializePayment } from "@/lib/payments";
+import { serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { requireFeatureEnabled } from "@/lib/manifest";
+import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
+import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
 import type { TransactionClient } from "@/lib/db/interface";
 import { logger } from "@/lib/logger";
 
@@ -284,9 +287,55 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // -----------------------------------------------------------------------
-    // 4b. External payment (paystack / crypto)
+    // 4b. External payment (paystack / crypto) — server-side re-validated
+    // against payment_context_settings("merch_purchase"); a client cannot
+    // bypass an admin-disabled provider/currency by calling this API directly.
     // -----------------------------------------------------------------------
-    if (body.paymentMethod === "crypto" && !body.cryptoCurrency) {
+    const isNigeria = await getUserIsNigeria(buyerId);
+    const decision = await enforcePaymentContext("merch_purchase", isNigeria, body.paymentMethod, body.cryptoCurrency);
+
+    if (decision.isFree) {
+      let orderId: string;
+      await db.transaction(async (tx: TransactionClient) => {
+        const { rows: orderRows } = await tx.query<MerchOrderRow>(
+          `INSERT INTO merch_orders
+             (store_id, product_id, buyer_id, price_kobo, platform_fee_kobo,
+              creator_net_kobo, status, payment_method)
+           VALUES ($1, $2, $3, $4, $5, $6, 'processing', 'free')
+           RETURNING id, status`,
+          [body.storeId, body.productId, buyerId, priceKobo, platformFeeKobo, creatorNetKobo]
+        );
+        orderId = orderRows[0].id;
+
+        if (product.stock !== null) {
+          const { rows: stockRows } = await tx.query<{ id: string }>(
+            `UPDATE merch_products SET stock = stock - 1, updated_at = NOW() WHERE id = $1 AND stock > 0 RETURNING id`,
+            [body.productId]
+          );
+          if (stockRows.length === 0) throw badRequest("This product is out of stock", "OUT_OF_STOCK");
+        }
+
+        await tx.query(
+          `INSERT INTO creator_earnings (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo)
+           VALUES ($1, 'merch_sale', $2, $3, $4)`,
+          [creatorId, priceKobo, platformFeeKobo, creatorNetKobo]
+        );
+        await tx.query(
+          `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1, updated_at = NOW() WHERE id = $2`,
+          [creatorNetKobo, creatorId]
+        );
+        await tx.query(`UPDATE merch_orders SET status = 'completed', updated_at = NOW() WHERE id = $1`, [orderId!]);
+      });
+
+      logger.info({ orderId: orderId!, buyerId, productId: body.productId }, "[merch/purchase] Granted free merch order (admin is_free toggle)");
+
+      return NextResponse.json(
+        { orderId: orderId!, status: "completed", productName: product.name, priceKobo, free: true },
+        { status: 200 }
+      );
+    }
+
+    if (decision.provider === "crypto" && !body.cryptoCurrency) {
       throw badRequest("cryptoCurrency is required when paymentMethod is 'crypto'");
     }
 
@@ -351,7 +400,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           providerReference: paymentResult.providerReference,
           // Present only for paymentMethod === "crypto" — the client uses this
           // to drive the wallet-connect / send flow (see ComputedAmount).
-          crypto: body.paymentMethod === "crypto" ? paymentResult.raw : undefined,
+          crypto: body.paymentMethod === "crypto" ? serializeComputedAmount(paymentResult.raw as ComputedAmount) : undefined,
         },
         { status: 200 }
       );

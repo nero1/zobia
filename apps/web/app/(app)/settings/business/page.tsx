@@ -306,7 +306,7 @@ function fmtKobo(kobo: number) {
 export default function BusinessSettingsPage() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
-  const preselectedTier = searchParams.get("tier");
+  const preselectedTier = searchParams?.get("tier");
   const tRef = useRef(t);
   useEffect(() => {
     tRef.current = t;

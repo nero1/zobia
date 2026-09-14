@@ -545,8 +545,8 @@ function GiftRow({ gift, currentUserId }: { gift: GiftRecord; currentUserId: str
 function GiftsPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const prefilledId = searchParams.get("recipientId") ?? undefined;
-  const prefilledUsername = searchParams.get("username") ?? undefined;
+  const prefilledId = searchParams?.get("recipientId") ?? undefined;
+  const prefilledUsername = searchParams?.get("username") ?? undefined;
   const { t } = useTranslation();
   const tRef = useRef(t);
   useEffect(() => {

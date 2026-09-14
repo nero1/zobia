@@ -25,7 +25,7 @@ import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { writeAuditLog } from "@/lib/audit/auditLog";
-import { createDelimitedStream, EXPORT_CONTENT_TYPES } from "@/lib/export/tabular";
+import { createDelimitedStream, createPlainLineStream, EXPORT_CONTENT_TYPES } from "@/lib/export/tabular";
 import {
   ALLOWED_EXPORT_FIELDS,
   FIELD_TO_COLUMN,
@@ -37,10 +37,15 @@ import {
 const BATCH_SIZE = 5000;
 
 const bodySchema = z.object({
-  format: z.enum(["csv", "tsv", "xlsx"]),
+  format: z.enum(["csv", "tsv", "xlsx", "txt"]),
   fields: z.array(z.enum(ALLOWED_EXPORT_FIELDS)).min(1).max(ALLOWED_EXPORT_FIELDS.length),
   filters: exportFiltersSchema.optional(),
-});
+}).refine(
+  // .txt is one raw value per line with no header — it only makes sense for
+  // a single-field export (the "wallet addresses only" quick preset).
+  (d) => d.format !== "txt" || d.fields.length === 1,
+  { message: "The txt format supports exactly one field (e.g. a wallet-address-only export)" }
+);
 
 type UserRow = Record<string, string | number | boolean | null>;
 
@@ -158,6 +163,43 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
         status: 200,
         headers: {
           "Content-Type": EXPORT_CONTENT_TYPES.xlsx,
+          "Content-Disposition": `attachment; filename="${filename}"`,
+        },
+      });
+    }
+
+    // .txt — one raw value per line, no header (single-field only, e.g. wallet addresses)
+    if (body.format === "txt") {
+      const plainWriter = createPlainLineStream();
+      const onlyField = fields[0];
+
+      (async () => {
+        try {
+          if (isLeaderboardTop1) {
+            const { rows } = await db.query<UserRow>(
+              `SELECT ${selectCols} FROM users u WHERE ${whereClauses.join(" AND ")} ORDER BY u.xp_total DESC LIMIT 1`,
+              filterParams
+            );
+            for (const row of rows) plainWriter.writeLine(formatCell(onlyField, row[onlyField]) as string | null);
+          } else {
+            let cursor: { createdAt: string; id: string } | null = null;
+            let hasMore = true;
+            while (hasMore) {
+              const batch = await fetchBatch(selectCols, whereClauses, filterParams, cursor, nextParamIdx);
+              for (const row of batch.rows) plainWriter.writeLine(formatCell(onlyField, row[onlyField]) as string | null);
+              hasMore = batch.hasMore;
+              cursor = batch.last;
+            }
+          }
+        } finally {
+          plainWriter.close();
+        }
+      })();
+
+      return new NextResponse(plainWriter.toReadableStream(), {
+        status: 200,
+        headers: {
+          "Content-Type": EXPORT_CONTENT_TYPES.txt,
           "Content-Disposition": `attachment; filename="${filename}"`,
         },
       });

@@ -7352,29 +7352,69 @@ the same thing as a creator's payout-receiving wallet) from Settings →
 Crypto Wallets: masked display (first 4 + `…` + last 4), Edit/Delete with a
 confirm dialog.
 
-### What shipped vs. deferred in this pass
+### What shipped vs. deferred (updated — client-side flow now built)
 
-Shipped: the full backend (provider architecture, chain adapters, price
-feed with fallback chain, per-context settings + admin UI + bulk actions +
-Danger Zone, wallet save/delete API + Settings UI, confirm/status/verify
-API routes, DB schema, i18n keys, tests). **Deferred**: the actual
-client-side wallet-connect widgets (MetaMask/WalletConnect UI, Phantom
-UI, the gas-estimate confirmation screen) and the Capacitor Android
-deep-link wallet flow — the backend is ready for that layer; until it's
-built, `paymentProvider: "crypto"` has no UI entry point yet on either
-platform. Also deferred: wiring the new export fields/filters into the
-`/gate44/data-management` UI and a Help Center "how to buy crypto" article.
+Originally shipped in v2.28: the full backend (provider architecture, chain
+adapters, price feed with fallback chain, per-context settings + admin UI +
+bulk actions + Danger Zone, wallet save/delete API + Settings UI,
+confirm/status/verify API routes, DB schema, i18n keys, tests).
 
-**New migration:** `db/migrations/0053_crypto_payments.sql` — `payments`
+**Now also shipped** (this pass): the client-side wallet-connect checkout
+(`components/payments/CryptoCheckoutModal.tsx` — `wagmi`+`viem`+WalletConnect
+v2 on BSC, `@solana/wallet-adapter-react` on Solana; currency picker →
+wallet connect (with a "use saved wallet" shortcut) → amount/discount/gas
+review → send → poll to confirmation → optional wallet-save prompt), wired
+into coin-pack purchase, the free→paid subscription upgrade, and Business
+Account signup (star-pack, business tier upgrade/renewal, and merch
+purchase still redirect through Paystack/the same backend crypto API today
+— the modal isn't yet dropped into those three pages, though nothing
+backend-side blocks it); a real "How to buy crypto" Help Center article
+(seeded via `db/migrations/0055_help_center_crypto_article.sql`, category
+`payments`, slug `how-to-buy-crypto`) linked from the checkout modal; the
+Wallet page's Crypto tab (on-chain balances for saved wallets + crypto
+payment history, `GET /api/economy/crypto/overview`); **server-side
+enforcement** of `payment_context_settings` on every purchase route (a
+client could previously have called the API directly with a
+disallowed provider/currency and bypassed the admin toggles entirely —
+`enforcePaymentContext()` now closes that); and the `/gate44/data-management`
+export UI wiring (role/rank-level/prestige filters, the new wallet fields,
+a "wallet addresses only" TXT/CSV quick preset). Two real bugs were found
+and fixed in the process: `payments_provider_check` never actually allowed
+`provider = 'crypto'` (every crypto payment insert would have violated it),
+and every purchase route's `crypto: {...}` response tried to
+`JSON.stringify` a raw `bigint` (`expectedBaseUnits`), which throws — both
+fixed (`db/migrations/0054_crypto_payments_fixups.sql`,
+`serializeComputedAmount()`).
+
+**Still deferred**: the Capacitor Android deep-link wallet flow (native app
+still has no crypto checkout UI — Google Play Billing remains its only IAP
+mechanism per §18, so this is lower priority there); dropping
+`<CryptoCheckoutModal>` into the three web pages noted above; actual
+live-chain signing has not been tested end-to-end against a real wallet in
+this sandbox (no network access to a live BSC/Solana RPC or an actual
+wallet extension) — the flow compiles and typechecks but its first
+real-money run should be watched closely.
+
+**New migrations:** `db/migrations/0053_crypto_payments.sql` — `payments`
 table gains `chain`/`token_symbol`/`tx_hash`/`wallet_address`/
 `expected_token_amount` columns; new tables `crypto_exchange_rate_overrides`,
 `crypto_price_cache`, `payment_context_settings` (seeded to match prior
 Paystack-only behavior), `user_crypto_wallets`.
+`db/migrations/0054_crypto_payments_fixups.sql` — widens
+`payments_provider_check` to allow `'crypto'`/`'free'` (bugfix, see above).
+`db/migrations/0055_help_center_crypto_article.sql` — seeds the "How to buy
+crypto" Help Center article + its category.
 
-**New env vars:** `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (optional),
-`BSC_RPC_URL` / `SOLANA_RPC_URL` (optional, default to public endpoints),
+**New env vars:** `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (optional — get one
+free at cloud.reown.com; without it, MetaMask's injected connector still
+works, just no WalletConnect QR/deep-link option),
+`BSC_RPC_URL` / `SOLANA_RPC_URL` (optional, server-side, default to public
+endpoints), `NEXT_PUBLIC_SOLANA_RPC_URL` (optional, browser-side Solana RPC
+for the wallet-adapter UI — separate from `SOLANA_RPC_URL` since only
+`NEXT_PUBLIC_`-prefixed vars reach the browser bundle),
 `CRYPTO_RECEIVING_ADDRESS_BSC` / `CRYPTO_RECEIVING_ADDRESS_SOLANA`
-(**required** to actually accept crypto payments).
+(**required** to actually accept crypto payments — must be set to wallet
+addresses the operator actually controls before going live).
 
 ---
 

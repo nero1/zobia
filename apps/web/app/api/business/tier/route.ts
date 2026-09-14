@@ -42,9 +42,11 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { initializePayment } from "@/lib/payments";
-import { applyCryptoComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
+import { applyCryptoComputedAmount, serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { getBusinessDowngradeGraceDays, getBusinessTierPriceKobo } from "@/lib/business/limits";
 import { requireFeatureEnabled } from "@/lib/manifest";
+import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
+import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -183,11 +185,10 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("Invalid tier price configuration");
     }
 
-    // Determine payment provider
-    const provider = paymentProvider ?? "paystack";
-    if (provider === "crypto" && !body.cryptoCurrency) {
-      throw badRequest("cryptoCurrency is required when paymentProvider is 'crypto'", "MISSING_CRYPTO_CURRENCY");
-    }
+    // Determine payment provider — re-validated server-side against the
+    // admin-configured payment_context_settings for "business_tier".
+    const isNigeria = await getUserIsNigeria(userId);
+    const decision = await enforcePaymentContext("business_tier", isNigeria, paymentProvider, body.cryptoCurrency);
 
     // Generate idempotency reference
     const reference = `biz-tier-${rows[0].id}-${newTier}-${randomUUID().slice(0, 8)}`;
@@ -210,8 +211,37 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
       businessAccountId: rows[0].id,
       newTier,
       itemType: "business_upgrade",
-      ...(provider === "crypto" ? { cryptoCurrency: body.cryptoCurrency } : {}),
+      ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
     };
+
+    if (decision.isFree) {
+      const { rows: freeRows } = await db.query<{ id: string }>(
+        `INSERT INTO payments
+           (user_id, payment_type, amount_kobo, currency, provider, status, idempotency_key, provider_reference, metadata)
+         VALUES ($1, 'business_upgrade', $2, 'NGN', 'free', 'pending', $3, $3, $4::jsonb)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING id`,
+        [userId, priceKobo, reference, JSON.stringify(metadata)]
+      );
+      if (freeRows[0]) {
+        await processChargeSuccess({
+          reference,
+          status: "success",
+          amount: 0,
+          currency: "NGN",
+          customer: { email: userEmail },
+          metadata,
+          paid_at: new Date().toISOString(),
+        } as unknown as Parameters<typeof processChargeSuccess>[0]);
+      }
+      return NextResponse.json({
+        success: true,
+        data: { paymentUrl: "", reference, tier: newTier, priceKobo, free: true, message: `Your ${newTier} business account is now active (free)` },
+        error: null,
+      });
+    }
+
+    const provider = decision.provider;
     const returnUrl =
       provider === "paystack"
         ? `${appUrl}/settings/business/callback`
@@ -257,7 +287,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
         reference,
         tier: newTier,
         priceKobo,
-        crypto: computed,
+        crypto: computed ? serializeComputedAmount(computed) : null,
         message: `Complete payment to activate your ${newTier} business account`,
       },
       error: null,

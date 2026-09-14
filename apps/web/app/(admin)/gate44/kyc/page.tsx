@@ -117,7 +117,7 @@ export default function AdminKycPage() {
 function QueueTab() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const userIdFilter = searchParams.get("userId");
+  const userIdFilter = searchParams?.get("userId");
   const [items, setItems] = useState<QueueItem[]>([]);
   const [statusFilter, setStatusFilter] = useState<(typeof STATUS_FILTERS)[number]>("all");
   const [loading, setLoading] = useState(true);

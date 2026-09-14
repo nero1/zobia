@@ -116,6 +116,18 @@ export async function computeExpectedAmount(
   };
 }
 
+/** JSON-safe wire form of {@link ComputedAmount} — `expectedBaseUnits` is a
+ *  `bigint`, which `NextResponse.json()` cannot serialize (it throws
+ *  "Do not know how to serialize a BigInt"). Every route that returns a
+ *  computed crypto amount to the client MUST pass it through this first. */
+export interface SerializedComputedAmount extends Omit<ComputedAmount, "expectedBaseUnits"> {
+  expectedBaseUnits: string;
+}
+
+export function serializeComputedAmount(computed: ComputedAmount): SerializedComputedAmount {
+  return { ...computed, expectedBaseUnits: computed.expectedBaseUnits.toString() };
+}
+
 // ---------------------------------------------------------------------------
 // PaymentProviderModule implementation
 // ---------------------------------------------------------------------------

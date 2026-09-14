@@ -163,7 +163,7 @@ function MobileTabBar() {
     >
       <div className="grid grid-cols-6">
         {bottomTabItems.map((item) => {
-          const isActive = pathname.startsWith(item.href);
+          const isActive = pathname?.startsWith(item.href) ?? false;
           return (
             <Link
               key={item.href}
@@ -293,11 +293,11 @@ function MobileDrawer({
                 onClick={onClose}
                 className={clsx(
                   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
-                  pathname.startsWith("/gate44")
+                  pathname?.startsWith("/gate44")
                     ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
                     : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
                 )}
-                aria-current={pathname.startsWith("/gate44") ? "page" : undefined}
+                aria-current={pathname?.startsWith("/gate44") ? "page" : undefined}
               >
                 <span className="w-5 text-center text-base leading-none" aria-hidden="true">🛡️</span>
                 {t("admin.link")}
@@ -309,18 +309,18 @@ function MobileDrawer({
                 onClick={onClose}
                 className={clsx(
                   "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
-                  pathname.startsWith("/watch56")
+                  pathname?.startsWith("/watch56")
                     ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
                     : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
                 )}
-                aria-current={pathname.startsWith("/watch56") ? "page" : undefined}
+                aria-current={pathname?.startsWith("/watch56") ? "page" : undefined}
               >
                 <span className="w-5 text-center text-base leading-none" aria-hidden="true">🧭</span>
                 {t("moderation.title", "Moderation Center")}
               </Link>
             )}
             {visibleNavItems.map((item) => {
-              const isActive = pathname.startsWith(item.href);
+              const isActive = pathname?.startsWith(item.href) ?? false;
               const isOffForUsers = !!item.flagKey && featureFlags[item.flagKey] === false;
               return (
                 <Link
@@ -356,7 +356,7 @@ function MobileDrawer({
           {/* Secondary nav */}
           <nav className="space-y-0.5" aria-label="Secondary">
             {secondaryNavItems.map((item) => {
-              const isActive = pathname.startsWith(item.href);
+              const isActive = pathname?.startsWith(item.href) ?? false;
               return (
                 <Link
                   key={item.href}
@@ -667,7 +667,7 @@ export function Navbar() {
           {/* Desktop nav links — uses bottomTabItems to stay in sync with the mobile bottom bar */}
           <nav className="hidden items-center gap-1 lg:flex" aria-label="Main navigation">
             {bottomTabItems.map((item) => {
-              const isActive = pathname.startsWith(item.href);
+              const isActive = pathname?.startsWith(item.href) ?? false;
               return (
                 <Link
                   key={item.href}
@@ -694,7 +694,7 @@ export function Navbar() {
                 aria-label={t("admin.link")}
                 className={clsx(
                   "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  pathname.startsWith("/gate44")
+                  pathname?.startsWith("/gate44")
                     ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
                     : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
                 )}
@@ -708,7 +708,7 @@ export function Navbar() {
                 aria-label={t("moderation.title", "Moderation Center")}
                 className={clsx(
                   "rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                  pathname.startsWith("/watch56")
+                  pathname?.startsWith("/watch56")
                     ? "bg-primary-50 text-primary-700 dark:bg-primary-950 dark:text-primary-300"
                     : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
                 )}
@@ -738,7 +738,7 @@ export function Navbar() {
       <MobileDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
-        pathname={pathname}
+        pathname={pathname ?? ""}
         displayName={displayName}
         onLogout={handleLogout}
         isAdmin={navUser?.is_admin}

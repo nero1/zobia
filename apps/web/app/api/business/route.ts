@@ -30,8 +30,10 @@ import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, conflict, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { initializePayment } from "@/lib/payments";
-import { applyCryptoComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
+import { applyCryptoComputedAmount, serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { getBusinessTierPriceKobo } from "@/lib/business/limits";
+import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
+import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -157,10 +159,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       throw badRequest("Invalid tier price configuration");
     }
 
-    const provider = body.paymentProvider ?? "paystack";
-    if (provider === "crypto" && !body.cryptoCurrency) {
-      throw badRequest("cryptoCurrency is required when paymentProvider is 'crypto'", "MISSING_CRYPTO_CURRENCY");
-    }
+    const isNigeria = await getUserIsNigeria(userId);
+    const decision = await enforcePaymentContext("business_tier", isNigeria, body.paymentProvider, body.cryptoCurrency);
     const reference = `biz-signup-${userId}-${randomUUID().slice(0, 8)}`;
 
     const metadata = {
@@ -170,8 +170,37 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       tier,
       type: "business_signup",
       itemType: "business_signup",
-      ...(provider === "crypto" ? { cryptoCurrency: body.cryptoCurrency } : {}),
+      ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
     };
+
+    if (decision.isFree) {
+      const { rows: freeRows } = await db.query<{ id: string }>(
+        `INSERT INTO payments
+           (user_id, payment_type, amount_kobo, currency, provider,
+            status, idempotency_key, provider_reference, metadata)
+         VALUES ($1, 'business_upgrade', $2, 'NGN', 'free', 'pending', $3, $3, $4::jsonb)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING id`,
+        [userId, priceKobo, reference, JSON.stringify(metadata)]
+      );
+      if (freeRows[0]) {
+        await processChargeSuccess({
+          reference,
+          status: "success",
+          amount: 0,
+          currency: "NGN",
+          customer: { email: userEmail },
+          metadata,
+          paid_at: new Date().toISOString(),
+        } as unknown as Parameters<typeof processChargeSuccess>[0]);
+      }
+      return NextResponse.json(
+        { success: true, data: { paymentUrl: "", reference, tier, priceKobo, free: true, message: `Your ${tier} business account is now active (free)` }, error: null },
+        { status: 200 }
+      );
+    }
+
+    const provider = decision.provider;
 
     // BIZ-SIGNUP-RACE: reserve the pending-payment slot atomically *before*
     // calling out to the payment provider (a slow network round-trip). A
@@ -245,7 +274,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
           reference,
           tier,
           priceKobo,
-          crypto: computed,
+          crypto: computed ? serializeComputedAmount(computed) : null,
           message: `Complete payment to activate your ${tier} business account`,
         },
         error: null,

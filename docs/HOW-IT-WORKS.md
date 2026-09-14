@@ -3809,24 +3809,89 @@ per chain — used to *send* payments, distinct from
 "Crypto Wallets" section: address masked as first 4 + `…` + last 4, with
 Edit/Delete links and a Yes/No confirm dialog on delete.
 
-### Wallet-connect UX and what's simplified in this pass
+### Wallet-connect UX (web/PWA) — now implemented
 
-The spec calls for `wagmi`+`viem`+WalletConnect v2 on BSC and
-`@solana/wallet-adapter-react` on Solana, with native deep-linking on
-Capacitor Android (falling back to an in-app/system browser tab pointed at
-the equivalent web flow only if deep-linking proves impractical). This pass
-added `viem` and `@solana/web3.js` **server-side** (chain adapters, address
-validation, balance/tx verification) and the full backend flow described
-above, but the client-side wallet-connect widgets (MetaMask/WalletConnect
-UI, Phantom/Solflare UI, gas-estimate + discount confirmation screen, and
-the Capacitor deep-link-out-and-back flow) were not built in this pass —
-`docs/SETUP.md`'s crypto section and the API routes under
-`/api/economy/crypto/` are ready for that layer to be added on top without
-further backend changes. Until then, `paymentProvider: "crypto"` is
-reachable via direct API calls (useful for testing verification/price-feed
-logic) but has no UI entry point yet on either web or Android.
+`components/payments/CryptoCheckoutModal.tsx` is the shared "pay with
+crypto" widget every purchase surface renders (via `next/dynamic(..., {ssr:
+false})` so wagmi/viem/@solana/wallet-adapter-react never load for a user
+who never opens it): currency picker (only the admin-enabled currencies for
+that context, from `GET /api/economy/crypto/config`) → connect wallet →
+review (exact token amount, discount struck-through vs. discounted price in
+bold, a network-fee estimate from the new `GET /api/economy/crypto/estimate`
+route) → the user signs and sends from their own wallet → the tx hash is
+submitted to `/api/economy/crypto/confirm` and the modal polls
+`/api/economy/crypto/status` every 4s until resolved. If the user already
+has a saved wallet for that chain (`GET /api/economy/crypto/wallets`), it
+offers "Use saved wallet ending in …xxxx?" before falling back to a fresh
+connect; after a first-time successful payment with no saved wallet, it
+offers to save the sending address. A small "How to buy crypto?" link opens
+the new Help Center article (see below).
 
-### Admin data export — crypto wallets
+- **BSC (JAGA/BNB)**: `wagmi` (`lib/payments/crypto/wagmiConfig.ts`, `bsc`
+  chain) with the `injected()` connector (MetaMask) and, when
+  `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` is set, `walletConnect()` for
+  WalletConnect v2 (QR/deep-link). Sending uses `useWriteContract` (ERC-20
+  `transfer`, for JAGA) or `useSendTransaction` (native BNB).
+- **Solana (SOL)**: `@solana/wallet-adapter-react` +
+  `@solana/wallet-adapter-wallets` (Phantom, Solflare), mounted via
+  `components/payments/SolanaWalletProviders.tsx`. Sending builds a
+  `SystemProgram.transfer` and submits it through the connected wallet's own
+  `sendTransaction`.
+
+Wired into: coin-pack purchase (Wallet page), the Plus/Pro/Max free→paid
+upgrade card (Settings → Subscription), and Business Account signup
+(Settings → Business). **Not yet wired to this UI** (same backend
+enforcement from item 3 already covers them, and dropping in
+`<CryptoCheckoutModal>` the same way is a small, mechanical follow-up):
+star-pack purchase, business tier upgrade/renewal (once already signed up),
+and merch purchase.
+
+The Wallet page's **Crypto** tab (`app/(app)/wallet/page.tsx`, third tab
+alongside Coins/Stars) is now backed by `GET /api/economy/crypto/overview`:
+on-chain balances (queried live from the chain adapter) for each
+admin-enabled currency where the user has a saved wallet on that chain, plus
+their crypto `payments` row history.
+
+### Server-side enforcement of `payment_context_settings` (security)
+
+`lib/payments/contextSettings.ts`'s `enforcePaymentContext()` is the single
+gate every purchase route (`/api/business`, `/api/business/tier`,
+`/api/business/renew`, `/api/economy/subscriptions`,
+`/api/economy/coins/purchase`, `/api/economy/stars/purchase`,
+`/api/merch/purchase`) now calls before creating a payment or granting
+anything — it re-derives what's actually allowed from the DB, so a client
+cannot bypass the `/gate44/payments` toggles by calling the API directly
+with a disallowed provider/currency: an unsupported provider/currency 400s
+with a translated error, and a non-Nigerian user with nothing enabled gets
+the "Only Nigeria is supported..." message (`errors.unsupported_region` /
+`payment.crypto.unsupportedRegion`) rather than a broken flow proceeding.
+When a context is flipped `is_free`, `lib/payments/freeGrant.ts` bypasses
+the provider entirely: it records a real `payments` row (`provider =
+'free'`, `amount_received_kobo = 0`, for auditability) and reuses the exact
+same `processChargeSuccess` fulfilment path a real charge would trigger, so
+every itemType's grant logic (coins, stars, subscription, business
+tier/renewal) stays in one place. Unit tests:
+`lib/payments/__tests__/contextSettings.test.ts`.
+
+### Two bugs found and fixed while wiring the above
+
+1. **`payments_provider_check` never allowed `'crypto'`.** The 0053
+   migration's `lib/payments/crypto/index.ts` inserts `payments` rows with
+   `provider = 'crypto'`, but the table's check constraint (from the
+   original consolidated schema) only allowed `'paystack' | 'dodopayments' |
+   'google_play'` — every crypto payment insert would have violated it at
+   runtime. Migration `0054_crypto_payments_fixups.sql` widens the
+   constraint to also allow `'crypto'` and `'free'` (the latter for the
+   free-grant path above).
+2. **`NextResponse.json()` can't serialize a `bigint`.** Every purchase
+   route returned `crypto: computed` (or `paymentResult.raw`) straight from
+   `ComputedAmount`, whose `expectedBaseUnits` is a `bigint` — `JSON.stringify`
+   throws on that, so any real crypto-payment initiation would have 500'd
+   before ever reaching a client. `lib/payments/crypto/index.ts` now exports
+   `serializeComputedAmount()` (stringifies `expectedBaseUnits`), and every
+   route response using it was updated to call it first.
+
+### Admin data export — crypto wallets (now wired into the UI)
 
 `apps/web/lib/admin/userExport.ts`'s `ALLOWED_EXPORT_FIELDS` allowlist gained
 `cryptoWalletBsc` / `cryptoWalletSolana` (address only, never paired with
@@ -3837,7 +3902,81 @@ name/other PII), `isAdmin`, `rankLevel`, `prestigeCount`, plus matching
 after the crypto feature (or that user's access to it) is later disabled —
 it's a record of what was saved, not a live entitlement, so
 `hasCryptoWallet` filters on the `user_crypto_wallets` table directly rather
-than any enablement flag. **Not yet done**: wiring these new fields/filters
-and a "TXT (one per line)" wallets-only export format into the
-`/gate44/data-management` UI itself — the backend allowlist and filter
-plumbing is ready for that page to be extended.
+than any enablement flag.
+
+`/gate44/data-management`'s Export modal now exposes all of the above: role
+(admin/non-admin), rank-level range, prestige-count range filters, the new
+fields in the field checklist, and a distinct teal **"Export wallet
+addresses only"** quick preset (chain picker + TXT-one-per-line or CSV) that
+calls the same `POST /api/admin/data-management/users/export` endpoint with
+a single `cryptoWalletBsc`/`cryptoWalletSolana` field and
+`hasCryptoWallet: true`. `.txt` is a new export format (`lib/export/tabular.ts`'s
+`PlainLineStreamWriter`) — one raw value per line, no header, no CSV
+escaping; the route rejects `.txt` for anything but a single-field export
+(400) since a header-less multi-column line wouldn't mean anything.
+
+### Production build fixes after adding the crypto wallet-connect dependencies
+
+Adding the wallet-connect stack (`wagmi`, `@walletconnect/ethereum-provider`,
+`@solana/wallet-adapter-react` and friends) surfaced three unrelated problems
+that only show up in a full `next build`, not in `next dev` or a plain
+`tsc --noEmit`:
+
+1. **`ably` 2.23+ fails to bundle.** Its browser build
+   (`ably/build/ably.js`) ships a `super(...args)` call outside a class
+   method that Next's webpack/SWC pipeline can't parse ("Module parse
+   failed"). Pinned to the last known-good `2.22.1` via the root
+   `package.json`'s `overrides` (see the `comment:overrides` note there);
+   re-check newer `ably` releases occasionally and lift the pin once one
+   builds cleanly again.
+
+2. **React Native's ambient types silently break every `formData.get()` call
+   site.** `@solana/wallet-adapter-react` pulls in
+   `@solana-mobile/wallet-adapter-mobile`, and `wagmi`'s `porto` connector
+   pulls in a React Native build target too — both purely for native mobile
+   wallet-adapter code paths this Next.js web app's webpack bundler never
+   reaches (they ship separate `.native.js` files that only Metro, not
+   webpack, resolves). But `react-native`'s own ambient `.d.ts`
+   (`declare class FormData { append(); getAll(); getParts(); }`) has no
+   `.get()`/`.has()`/`.set()`/`.delete()`, and once TypeScript loads it for
+   any reason it silently wins over `lib.dom.d.ts`'s `FormData` for the
+   *entire* program (`skipLibCheck` suppresses the duplicate-declaration
+   diagnostic that would otherwise catch this) — breaking every route
+   handler that parses a multipart upload. Fixed via scoped `overrides` in
+   the root `package.json` that redirect `react-native` to a genuinely empty
+   stub package (`npm:empty-npm-package@1.0.0`) *only* as seen by `porto`,
+   `@solana-mobile/wallet-adapter-mobile`, `@solana-mobile/wallet-standard-mobile`,
+   and `@solana-mobile/mobile-wallet-adapter-protocol-web3js` — this repo's
+   actual `react-native@0.74.5` (the legacy Expo app's real, direct
+   dependency, hoisted at the top-level `node_modules/react-native`) is
+   completely untouched by these scoped overrides. Do not broaden them to a
+   bare top-level `"react-native"` override — that would break the Expo
+   build.
+
+3. **`next build`'s static generation of the legacy `/404` and `/500` pages
+   crashes** with `TypeError: Cannot read properties of null (reading
+   'useContext')` inside Next's own auto-generated `pages/_error.js`
+   compatibility bundle, reproducible with `wagmi` alone (no application
+   code touching it) and not tied to any specific webpack option we tried
+   (module concatenation, module ID scheme, worker concurrency, the PWA
+   plugin). This app is App Router only — `app/not-found.tsx` and
+   `app/global-error.tsx` already handle every real 404/500 a visitor hits —
+   but Next.js still always compiles a legacy Pages Router fallback bundle
+   for `/404`/`/500` internally, purely so it has *something* to statically
+   export, and that auto-generated fallback breaks once this dependency tree
+   is present. The fix is `apps/web/pages/_error.tsx`: a minimal, standard
+   Next.js custom error page (the documented Pages Router
+   `getInitialProps`-based API) that Next compiles instead of its own broken
+   internal default. It prerenders fine and is never actually served to a
+   real visitor — the App Router's own error boundaries intercept every
+   request first.
+
+While fixing (3), a full clean `next build` also surfaced that
+`useSearchParams()` / `useParams()` / `usePathname()` can all return `null`
+at the type level, and roughly 60 call sites across the app were accessing
+them unguarded (`searchParams.get(...)`, `params.slug`, `pathname.startsWith(...)`)
+without ever having been caught by a full production build before. These
+were all hardened with optional chaining (and a small number of
+`?? fallback` / `?? false` coercions where the result fed into a prop or
+variable typed as non-nullable) rather than left for the next person to
+rediscover one crash at a time.

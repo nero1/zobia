@@ -1226,7 +1226,7 @@ export default function RoomPage() {
   const { t } = useTranslation();
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
-  const roomId = params.roomId as string;
+  const roomId = params?.roomId as string;
   const currency = useCurrency();
   const adsConfig = useAdsConfig();
 

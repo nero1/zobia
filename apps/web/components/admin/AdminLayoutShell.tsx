@@ -99,7 +99,7 @@ function NavLinks({ onNavigate }: { onNavigate?: () => void }) {
         const isActive =
           item.href === "/gate44"
             ? pathname === "/gate44"
-            : pathname.startsWith(item.href);
+            : (pathname?.startsWith(item.href) ?? false);
         return (
           <Link
             key={item.href}

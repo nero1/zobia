@@ -34,7 +34,7 @@ interface CartItem {
 
 export default function RoomMerchStore() {
   const params = useParams();
-  const roomId = params.roomId as string;
+  const roomId = params?.roomId as string;
   const { user } = useAuth();
   const merchAccess = useFeatureAccess('merchStore', { isAdmin: user?.is_admin });
   const [cart, setCart] = useState<CartItem[]>([]);
