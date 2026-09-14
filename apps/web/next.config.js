@@ -104,6 +104,21 @@ const nextConfig = {
     ],
   },
   serverExternalPackages: ["pg", "ioredis"],
+  webpack: (config) => {
+    // wagmi/connectors' barrel export unconditionally pulls in the
+    // "Coinbase Smart Wallet" (baseAccount) connector, which we don't use
+    // (only injected() + walletConnect() — see
+    // lib/payments/crypto/wagmiConfig.ts). That connector's dependency chain
+    // (@base-org/account -> @coinbase/cdp-sdk -> optional @x402/* packages)
+    // isn't installed, and webpack tries to statically resolve it anyway —
+    // aliasing it to false drops the whole unused branch from the bundle
+    // instead of requiring us to install packages we'll never call.
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@base-org/account": false,
+    };
+    return config;
+  },
 };
 
 module.exports = withSerwist(nextConfig);

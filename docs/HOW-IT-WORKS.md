@@ -202,7 +202,7 @@ XP is earned on eight tracks: `main` (overall), `social`, `creator`, `competitor
 
 **Credits** (soft currency, previously "Coins") — Earned from quests, daily logins, season rewards, gifts received, rewarded ads (free users only, capped at 5/day). Spent on guilds, gifts, store items, and room creation. Stored in `users.coin_balance`; all mutations go through `coin_ledger` (append-only audit trail). The display name is admin-configurable via `x_manifest` keys `currency_soft_name_singular` / `currency_soft_name_plural` (defaults: Credit / Credits).
 
-**Stars** (premium currency) — Purchased via Paystack or DodoPayments. Used for exclusive cosmetics and season pass upgrades. Stored in `users.star_balance` (bigint — safe up to ~9.2 × 10¹⁸); all mutations go through `star_ledger`. The display name is admin-configurable via `currency_premium_name_singular` / `currency_premium_name_plural` (defaults: Star / Stars).
+**Stars** (premium currency) — Purchased via Paystack or crypto. Used for exclusive cosmetics and season pass upgrades. Stored in `users.star_balance` (bigint — safe up to ~9.2 × 10¹⁸); all mutations go through `star_ledger`. The display name is admin-configurable via `currency_premium_name_singular` / `currency_premium_name_plural` (defaults: Star / Stars).
 
 **Subscription lifecycle:** Paystack fires webhook events for all subscription state changes (`subscription.create`, `subscription.disable`, `subscription.not_renew`, `invoice.payment_failed`). The webhook handler maps each event's `isActive` flag to either `"active"` or `"inactive"` in the `subscriptions` table. Cancelled or failed subscriptions are correctly reflected as `status = "inactive"` — users do not retain access after cancelling or missing a payment. For `subscription.disable` events: `ends_at` is set to `next_payment_date` when provided; when absent the existing `ends_at` is preserved (if set), otherwise it falls back to `NOW()` — ensuring users never retain premium access indefinitely when both fields are absent.
 
@@ -747,7 +747,7 @@ Each user gets a unique referral code after onboarding. Sharing `?r=<code>` when
 - **Tier 1 referral**: The referrer earns coins + XP when the new user qualifies (completes first action).
 - **Tier 2 referral**: If the referrer was themselves referred, the original referrer also earns a smaller bonus.
 
-Referral commissions are tracked in `referral_commissions` with both coin and monetary (kobo) fields. `commission_kobo` stores the actual naira value of the commission in kobos (smallest currency unit); `commission_coins` stores the coin equivalent. These are computed from the actual Paystack/DodoPayments charge amount, not from coin quantities.
+Referral commissions are tracked in `referral_commissions` with both coin and monetary (kobo) fields. `commission_kobo` stores the actual naira value of the commission in kobos (smallest currency unit); `commission_coins` stores the coin equivalent. These are computed from the actual Paystack/crypto charge amount, not from coin quantities.
 
 Referral stats are visible at `/api/referrals`.
 
@@ -1169,7 +1169,7 @@ Both are purchasable via `POST /api/economy/boosters` with `boosterType: "premiu
 
 ### Generosity Track L40 Coin Purchase Bonus (PRD §7)
 
-When a user who has reached the Generosity Track L40 Philanthropist milestone purchases credits (via Paystack or DodoPayments), `getCoinPurchaseBonus()` is called and a 5% bonus credit amount is credited in the same transaction. The bonus is recorded as a separate ledger entry with `type = 'philanthropist_bonus'` for auditability.
+When a user who has reached the Generosity Track L40 Philanthropist milestone purchases credits (via Paystack or crypto), `getCoinPurchaseBonus()` is called and a 5% bonus credit amount is credited in the same transaction. The bonus is recorded as a separate ledger entry with `type = 'philanthropist_bonus'` for auditability.
 
 ### AI Moderation Pipeline
 
@@ -1325,7 +1325,7 @@ nothing: a cold instance simply discovers the outage itself within a request or
 two, and Postgres connection failures are fast. Set `DB_CIRCUIT_DISTRIBUTED=1`
 to opt back into the Redis-backed breaker if the app ever moves to a long-lived
 runtime with few, long-running instances. The payments breakers
-(Paystack/DodoPayments) are low-volume and stay Redis-backed.
+(Paystack) is low-volume and stay Redis-backed.
 
 #### 2. Per-request session and account-status reads
 
@@ -1587,7 +1587,7 @@ older ones within the same tier).
 
 Returns HTTP 200 when all checks pass. Returns HTTP 503 when one or more checks fail (status will be `"degraded"`; `errors` is only present when at least one check failed). Load balancers should poll this endpoint and remove the instance from rotation when a 503 is received.
 
-`checks.dbCircuit` reports the shared database circuit breaker's state (BUG-CAP-02 fix — `lib/db/circuit.ts`'s `dbCircuit`/`withCircuitBreaker` previously had no callers at all, so a degraded database had no fail-fast path; every DB provider adapter's `query()`/`transaction()` now routes through it — see "AI Provider Fallback" below for the equivalent circuit-breaker pattern already used for DeepSeek/Gemini). Since REDIS-COST-01 the DB breaker is **in-process** rather than Redis-backed: wrapping every query in a distributed breaker cost two to three Redis commands per query and was by far our largest single consumer, for state that short-lived serverless instances barely benefit from. Set `DB_CIRCUIT_DISTRIBUTED=1` to restore the Redis-backed breaker on a long-lived runtime. The Paystack/DodoPayments breakers are low-volume and remain Redis-backed. `checks.dbCircuit` reads `"error"` only when the circuit is fully OPEN (fast-failing every call); `HALF_OPEN` still reports `"ok"` since it's actively probing for recovery. Because this health check's own `db.query("SELECT 1")` call goes through the same circuit breaker, a monitoring poll against `/api/health` doubles as the breaker's periodic recovery probe once the reset timeout elapses.
+`checks.dbCircuit` reports the shared database circuit breaker's state (BUG-CAP-02 fix — `lib/db/circuit.ts`'s `dbCircuit`/`withCircuitBreaker` previously had no callers at all, so a degraded database had no fail-fast path; every DB provider adapter's `query()`/`transaction()` now routes through it — see "AI Provider Fallback" below for the equivalent circuit-breaker pattern already used for DeepSeek/Gemini). Since REDIS-COST-01 the DB breaker is **in-process** rather than Redis-backed: wrapping every query in a distributed breaker cost two to three Redis commands per query and was by far our largest single consumer, for state that short-lived serverless instances barely benefit from. Set `DB_CIRCUIT_DISTRIBUTED=1` to restore the Redis-backed breaker on a long-lived runtime. The Paystack/crypto breakers are low-volume and remain Redis-backed. `checks.dbCircuit` reads `"error"` only when the circuit is fully OPEN (fast-failing every call); `HALF_OPEN` still reports `"ok"` since it's actively probing for recovery. Because this health check's own `db.query("SELECT 1")` call goes through the same circuit breaker, a monitoring poll against `/api/health` doubles as the breaker's periodic recovery probe once the reset timeout elapses.
 
 ### Graceful Shutdown
 
@@ -1975,7 +1975,7 @@ Key architectural decisions:
 
 - **Creator Merch Store management** (`apps/android/src/routes/creator/merch.tsx`, new) — previously the Android creator hub had no store-setup UI at all (only browse/buy at `routes/merch/`); "Merch" appeared solely as a read-only revenue-stream label on the dashboard. Unlike `creator/bank-account.tsx` and `creator/wallet.tsx` (intentionally thin web-handoff wrappers for PIN/2FA-gated payout detail entry), Merch management is plain CRUD, so it's built natively: create/update the store and add products (digital/physical/course material) with the Market referral opt-in, against the same `GET/POST /api/merch/:userId` and `POST /api/merch/:userId/products` endpoints web uses. Linked from the creator dashboard's "Revenue by Stream" card.
 - **Wallet Booster Packs** (`apps/android/src/routes/wallet.tsx`'s `BoosterPacksPanel`, new) — web's wallet page has a `<BoosterPacks>` component for active boosts but never actually wires it up (its `boosters` state is hardcoded to `[]`, a pre-existing web bug left as-is). `GET /api/economy/boosters` now also returns the caller's own active boosters (joined from `user_xp_boosters`, not just the `boost_types` catalog) so Android can show them for real. Purchasing a new boost spends existing Coins (`coins_cost`), not real money, so it calls `POST /api/economy/boosters` directly rather than going through Google Play Billing (which has no boost product family).
-- **Business Ads: Ad Wallet transfer + coupon redemption** (`apps/android/src/routes/business/ads/index.tsx`) — added an `AdWalletPanel` (ad/main wallet balances + `POST /api/business/ads/wallet/transfer`, 1:1 internal reallocation) and per-campaign "Apply coupon…" redemption (`POST /api/business/ads/coupons/redeem`), matching web's `app/(app)/business/ads/page.tsx`. Web's "Buy Credits directly into Ad Wallet" link (a Paystack/DodoPayments checkout) is intentionally omitted — Android tops up the main wallet via Google Play Billing on the Wallet screen instead, then transfers from there.
+- **Business Ads: Ad Wallet transfer + coupon redemption** (`apps/android/src/routes/business/ads/index.tsx`) — added an `AdWalletPanel` (ad/main wallet balances + `POST /api/business/ads/wallet/transfer`, 1:1 internal reallocation) and per-campaign "Apply coupon…" redemption (`POST /api/business/ads/coupons/redeem`), matching web's `app/(app)/business/ads/page.tsx`. Web's "Buy Credits directly into Ad Wallet" link (a Paystack/crypto checkout) is intentionally omitted — Android tops up the main wallet via Google Play Billing on the Wallet screen instead, then transfers from there.
 
 ### Routing and Navigation
 
@@ -2048,7 +2048,7 @@ Adaptive polling (`src/lib/hooks/useAdaptiveChatPoll.ts`) is adapted from `apps/
 
 ### In-App Purchases (v2.05)
 
-`src/lib/payments/googlePlay.ts` wraps `capacitor-plugin-cdv-purchase` — a native Capacitor plugin (not a WebView, not the Cordova-bridge `cordova-plugin-purchase`) that drives Google Play Billing directly. This is the *only* in-app purchase mechanism on Android (PRD §18); Paystack/DodoPayments checkout links are web/PWA-only. It covers four product families, all registered with `store.register()` and purchased via `store.order()`:
+`src/lib/payments/googlePlay.ts` wraps `capacitor-plugin-cdv-purchase` — a native Capacitor plugin (not a WebView, not the Cordova-bridge `cordova-plugin-purchase`) that drives Google Play Billing directly. This is the *only* in-app purchase mechanism on Android (PRD §18); Paystack/crypto checkout flows are web/PWA-only. It covers four product families, all registered with `store.register()` and purchased via `store.order()`:
 
 - **Coin packs** (`coins_starter` … `coins_legend`) and **star packs** (`stars_starter` … `stars_boss`) — consumables, purchased from the "Buy Credits & Stars" panel on `routes/wallet.tsx`.
 - **Plus/Pro/Max subscriptions** (`sub_*_monthly`/`sub_*_annual`) — same product IDs as the (discontinued) Expo app used.
@@ -2406,7 +2406,7 @@ Every Business tier is **paid** (admin-configurable; defaults ₦5,000/₦15,000
 
 1. Client calls `POST /api/business` with `{ business_name, business_type, tier }` (`tier` defaults to `"starter"` if omitted). No `business_accounts` row exists yet at this point.
 2. Server resolves the chosen tier's price via `getBusinessTierPriceKobo(tier)` (`lib/business/limits.ts`, admin-configurable per-tier `x_manifest` keys, shared with the tier-upgrade and renewal flows below so all three can never disagree on price).
-3. Server calls Paystack (`initializePayment(..., callbackUrl)`) or DodoPayments (`createPaymentSession`) with `itemType: "business_signup"` metadata (`userId`, `businessName`, `businessType`, `tier`) and returns `{ paymentUrl }` (HTTP 202 — nothing has been created yet). **Fixed in v2.15**: Paystack's `callback_url` was never set, so a successful payment left the user stranded on Paystack's own success page instead of returning to Zobia — it now points at `/settings/business/callback` (a thin "Processing…" redirect page, mirroring `/settings/subscription/callback`).
+3. Server calls Paystack (`initializePayment(..., callbackUrl)`) or crypto (`initializePayment` with a `cryptoCurrency`) with `itemType: "business_signup"` metadata (`userId`, `businessName`, `businessType`, `tier`) and returns `{ paymentUrl }` (HTTP 202 — nothing has been created yet). **Fixed in v2.15**: Paystack's `callback_url` was never set, so a successful payment left the user stranded on Paystack's own success page instead of returning to Zobia — it now points at `/settings/business/callback` (a thin "Processing…" redirect page, mirroring `/settings/subscription/callback`).
 4. Server inserts a `pending` record in the `payments` table (`payment_type = 'business_upgrade'`, `idempotency_key = reference`) so the webhook handler can find it. **v2.15**: if a signup/upgrade/renewal payment is already pending, the `409 SIGNUP_ALREADY_PENDING` response now includes `params.expiresAt` and the UI shows a **Cancel Pending Transaction** button (`DELETE /api/business/pending`) instead of forcing a 30-minute wait — handles the abandoned-Paystack-tab edge case.
 5. Client redirects the user to the checkout page.
 6. On `charge.success` / `payment.succeeded`, the webhook handler's `business_signup` branch **creates** the `business_accounts` row (`tier` from metadata, defaulting to `starter` if missing/invalid, `status = 'active'`, `current_period_ends_at = NOW() + 30 days` — see "Billing period tracking & renewal" below) using an `INSERT ... ON CONFLICT (user_id) DO NOTHING`, which makes account creation idempotent against replayed webhook deliveries — the `user_id` column is `UNIQUE`, so a duplicate delivery (or a race with a second signup attempt) simply no-ops instead of erroring or creating a second row.
@@ -2420,10 +2420,10 @@ Once a business account exists at `starter`, it can be upgraded to `growth` (₦
 2. Server looks up the tier price from `x_manifest` (admin-configurable; falls back to PRD defaults).
 3. **Race guard:** if the business account already has a `pending_tier` + `pending_payment_ref`, the server checks the `payments` table for a still-`pending` row with that `idempotency_key` created within the last 30 minutes. If found, the request is rejected with `409 UPGRADE_ALREADY_PENDING` instead of overwriting `pending_payment_ref` — overwriting it would make the first payment's eventual webhook activation match zero rows (see step 7) and silently lose the upgrade. Once the window expires (or the first payment resolves), a new upgrade request is allowed.
 4. Server stores `pending_tier` and `pending_payment_ref` on the business account record.
-5. Server calls Paystack (`initializePayment(..., callbackUrl)`, pointed at `/settings/business/callback` — same v2.15 fix as signup above) or DodoPayments (`createPaymentSession`) and returns `{ paymentUrl }`.
+5. Server calls Paystack (`initializePayment(..., callbackUrl)`, pointed at `/settings/business/callback` — same v2.15 fix as signup above) or crypto (`initializePayment` with a `cryptoCurrency`) and returns `{ paymentUrl }`.
 6. Server inserts a `pending` record in the `payments` table (`payment_type = 'business_upgrade'`) with `idempotency_key = reference` and `provider_reference` set to the payment provider's own reference. This record is required for the webhook handler's idempotency check; without it the webhook would bail out before activating the upgrade.
 7. Client redirects user to the checkout page.
-8. On `charge.success` (Paystack) or `payment.succeeded` (DodoPayments), the webhook handler:
+8. On `charge.success` (Paystack) or on-chain verification (crypto), the webhook handler:
    - Verifies the HMAC signature before any processing.
    - Looks up the `payments` row by `provider_reference` and acquires a `FOR UPDATE` row lock to prevent duplicate processing.
    - Activates the tier with `UPDATE business_accounts SET tier = ..., status = 'active', grace_period_ends_at = NULL, current_period_ends_at = NOW() + 30 days WHERE id = ... AND pending_payment_ref = ...` — the `pending_payment_ref` match means a stale or already-applied reference updates zero rows. If zero rows are matched, the handler raises a `business_upgrade_activation_mismatch` system alert for manual reconciliation and does **not** send the success notification (a prior version of this handler sent the notification unconditionally, producing false "upgraded" confirmations when the reference was stale). An upgrade also recovers the account out of `grace`/`lapsed` back to `active`, same as a renewal (below).
@@ -2435,7 +2435,7 @@ Tier prices are admin-configurable via `x_manifest` keys `business_starter_price
 
 ### Billing period tracking & renewal (v2.15)
 
-Paystack/DodoPayments checkout is a **one-off charge** — there is no native recurring subscription behind it (unlike the personal Plus/Pro/Max flow, which uses Paystack's actual Subscriptions/Plans API and a `subscription.create` webhook event). Before v2.15, `business_accounts.subscription_id` was meant to link to a `subscriptions` row for this purpose, but nothing ever populated it — and `subscriptions.user_id` is `UNIQUE`, so a business owner who also holds a personal plan would have collided on that same row had it been wired up. The practical effect: `business_plan_ends_at` (`GET /api/users/me`) was always `NULL`, the "business plan nearing expiry" reminder (PRD §3) could never fire, and the business half of `lib/plans/subscriptionSweep.ts` was dead code that would have thrown a `CHECK` constraint violation the first time it tried to set `status = 'grace'` (not a previously valid `business_accounts.status` value).
+Paystack/crypto checkout is a **one-off charge** — there is no native recurring subscription behind it (unlike the personal Plus/Pro/Max flow, which uses Paystack's actual Subscriptions/Plans API and a `subscription.create` webhook event). Before v2.15, `business_accounts.subscription_id` was meant to link to a `subscriptions` row for this purpose, but nothing ever populated it — and `subscriptions.user_id` is `UNIQUE`, so a business owner who also holds a personal plan would have collided on that same row had it been wired up. The practical effect: `business_plan_ends_at` (`GET /api/users/me`) was always `NULL`, the "business plan nearing expiry" reminder (PRD §3) could never fire, and the business half of `lib/plans/subscriptionSweep.ts` was dead code that would have thrown a `CHECK` constraint violation the first time it tried to set `status = 'grace'` (not a previously valid `business_accounts.status` value).
 
 v2.15 fixes this by tracking the period directly on `business_accounts`, independent of the personal `subscriptions` table:
 
@@ -2457,7 +2457,7 @@ Independent of tier, a business account can request the "Verified" badge (PRD §
 
 ### Entry points (v2.02)
 
-`/business` (sidebar link, always visible — same "nav item unconditional, feature enforced server-side" convention as Blogs) is the hub: no account → an explainer of the feature/tiers/pricing with a **separate "Get Started" button per tier** (routing to `/settings/business?tier=<tier>`, which owns the actual paid signup form and highlights the chosen tier); has an account → a fuller control panel (v2.15): the plan-expiry reminder banner (shared `components/PlanExpiryBanner.tsx`, same one used on Home — PRD §3), link cards to Account & Billing (`/settings/business`), Business Pages (`/business/pages`), the Advertising Panel (`/business/ads`), Stats (`/business/stats`), and Broadcasts (`/business/broadcasts`, new in v2.15 — see below), a quick preview of up to 3 Business Pages with slot usage, and a "More Features" row (Sponsored Quests, Custom Room Theming, API Access) that links straight through when the account's tier qualifies or shows a dimmed `<tier>+ only` chip linking to the upgrade flow otherwise. Settings → Business Account → **Manage** links here (`/business`, changed in v2.15 — previously went straight to `/settings/business`). The Capacitor Android app mirrors this at `/business`, `/business/pages(+/$pageId)`, `/business/ads`, `/business/stats` and `/business/broadcasts` (the latter two added in v2.15 — Stats didn't exist on Android before) — tier/verification management itself stays web/PWA-only (same convention as Blogs settings). Paid actions (signup, upgrade) on Android go through Google Play Billing (`apps/android/src/lib/payments/googlePlay.ts`, `purchaseBusinessTier()`), never a Paystack/DodoPayments checkout link — Google Play Billing is the only allowed in-app purchase mechanism on Android (PRD §18). The purchase is verified server-side against the Google Play Developer API by `POST /api/business/iap/verify` (v2.05), which creates the Business Account on the first purchase or upgrades/downgrades the tier on subsequent ones — a separate code path from web/PWA's `POST /api/business` + `PATCH /api/business/tier` (Paystack/DodoPayments checkout links + webhook activation), since the "pay now, activate later via webhook" model those use doesn't apply to an IAP purchase that's already completed by the time the client can call the server.
+`/business` (sidebar link, always visible — same "nav item unconditional, feature enforced server-side" convention as Blogs) is the hub: no account → an explainer of the feature/tiers/pricing with a **separate "Get Started" button per tier** (routing to `/settings/business?tier=<tier>`, which owns the actual paid signup form and highlights the chosen tier); has an account → a fuller control panel (v2.15): the plan-expiry reminder banner (shared `components/PlanExpiryBanner.tsx`, same one used on Home — PRD §3), link cards to Account & Billing (`/settings/business`), Business Pages (`/business/pages`), the Advertising Panel (`/business/ads`), Stats (`/business/stats`), and Broadcasts (`/business/broadcasts`, new in v2.15 — see below), a quick preview of up to 3 Business Pages with slot usage, and a "More Features" row (Sponsored Quests, Custom Room Theming, API Access) that links straight through when the account's tier qualifies or shows a dimmed `<tier>+ only` chip linking to the upgrade flow otherwise. Settings → Business Account → **Manage** links here (`/business`, changed in v2.15 — previously went straight to `/settings/business`). The Capacitor Android app mirrors this at `/business`, `/business/pages(+/$pageId)`, `/business/ads`, `/business/stats` and `/business/broadcasts` (the latter two added in v2.15 — Stats didn't exist on Android before) — tier/verification management itself stays web/PWA-only (same convention as Blogs settings). Paid actions (signup, upgrade) on Android go through Google Play Billing (`apps/android/src/lib/payments/googlePlay.ts`, `purchaseBusinessTier()`), never a Paystack/crypto checkout flow — Google Play Billing is the only allowed in-app purchase mechanism on Android (PRD §18). The purchase is verified server-side against the Google Play Developer API by `POST /api/business/iap/verify` (v2.05), which creates the Business Account on the first purchase or upgrades/downgrades the tier on subsequent ones — a separate code path from web/PWA's `POST /api/business` + `PATCH /api/business/tier` (Paystack/crypto checkout flows + webhook activation), since the "pay now, activate later via webhook" model those use doesn't apply to an IAP purchase that's already completed by the time the client can call the server.
 
 ### Business Broadcasts (v2.15)
 
@@ -3371,7 +3371,7 @@ A batch of platform-wide fixes/features, applied identically to web, PWA, and th
 - **Image uploads standardized to 1MB**: `lib/uploads/imageValidation.ts`/`imageValidationShared.ts`/`uploadImage.ts` replace three near-duplicate inline `MAX_UPLOAD_BYTES`/`ALLOWED_MIME` blocks (tweets/moments/forum uploads) with one shared max size (1 MiB, down from 8 MiB) and allow-list (GIF/JPEG/PNG/WebP/AVIF/SVG, up from just JPEG/PNG/WebP/GIF). SVGs are sanitized (`lib/uploads/sanitizeSvg.ts`, via the existing `sanitize-html` dependency) rather than run through the raster `compressImage()` pipeline, since they're vector markup that can carry `<script>`/event-handler XSS.
 - **Report reasons curated**: the reasons shown to a reporting user are now Scam/Fraud, Spam, Fake Account, Inappropriate Content, Hate Speech, Violence, Misinformation, Self Harm, Other — Scam/Fraud first, Harassment removed as a user-facing option (`lib/moderation/reportReasons.ts`, single source of truth; wired into the BBForum post report flow, which previously used a raw `window.prompt`, and the Answers report modal).
 - **Branded room creation 500 error**: `contributeToCreatorFund()` (called when a branded room's sponsor budget seeds the Creator Fund) read the admin-configured split percentage via `getManifestValue()`, which issued its own fresh `db.query()` on the shared connection pool — while already inside the branded-room-creation `db.transaction()`, which (on the Supabase adapter) checks out a dedicated connection from that *same* small pool. A cold Redis manifest cache could starve/timeout waiting for a second connection and trip the DB circuit breaker into a 500. Fixed by threading the caller's transaction client through `getManifestValue()`/`getCreatorFundSplitPercent()` so the fallback query reuses the already-open connection instead of requesting a new one.
-- **Subscription plan switching**: see PRD §3 "Switching Plans" for the corrected behavior. Root cause of "payment succeeds but plan doesn't change" between two paid plans: `POST /api/economy/subscriptions` issues a one-off Paystack charge with no `plan` code, so Paystack's `subscription.create` event (which the webhook relied on to actually activate the plan) never fires. Fixed by activating the plan directly in the `charge.success` handler (mirroring the already-correct DodoPayments handler) and, on the frontend, routing a paid-to-paid switch through the existing (previously unused) `PUT /api/economy/subscriptions/[subscriptionId]` "change plan immediately, no new payment" endpoint instead of initiating a new charge. Also fixed: "Switch to Free" 400'd (plan enum only allows plus/pro/max — free isn't a subscribable plan, it's a cancellation) and "Cancel Subscription" 405'd (called `DELETE` on the collection route; the handler lives on `.../[subscriptionId]`).
+- **Subscription plan switching**: see PRD §3 "Switching Plans" for the corrected behavior. Root cause of "payment succeeds but plan doesn't change" between two paid plans: `POST /api/economy/subscriptions` issues a one-off Paystack charge with no `plan` code, so Paystack's `subscription.create` event (which the webhook relied on to actually activate the plan) never fires. Fixed by activating the plan directly in the `charge.success` handler (mirroring the equivalent itemType==="subscription" handling used elsewhere) and, on the frontend, routing a paid-to-paid switch through the existing (previously unused) `PUT /api/economy/subscriptions/[subscriptionId]` "change plan immediately, no new payment" endpoint instead of initiating a new charge. Also fixed: "Switch to Free" 400'd (plan enum only allows plus/pro/max — free isn't a subscribable plan, it's a cancellation) and "Cancel Subscription" 405'd (called `DELETE` on the collection route; the handler lives on `.../[subscriptionId]`).
 - **Room Custom Rewards**: see the "Room Custom Rewards" subsection under Gifting above and PRD §12.
 
 **Migration:** `db/migrations/0038_polls_quizzes.sql`.
@@ -3651,7 +3651,7 @@ All four are now ported, each reusing web's existing backend as-is:
   `DELETE /api/economy/subscriptions/:id` directly (a plain status write,
   no payment processor involved). Upgrading calls
   `lib/payments/googlePlay.ts`'s `purchaseSubscription()` instead of
-  following web's Paystack/DodoPayments checkout link, per the Play Store
+  following web's Paystack/crypto checkout flow, per the Play Store
   policy already documented for this app (§18 in the PRD). There is no
   tier-swap PUT the way web has for already-paid users — a Play
   subscription can't be changed that way, so a tier switch on Android is
@@ -3680,3 +3680,303 @@ work. Note: `shared/i18n/locales/en.json` and
 other in unrelated key ranges before this change (pre-existing drift, not
 touched here) — the keys this work actually added are identical in both
 files.
+
+## Crypto Payments (replaces DodoPayments)
+
+DodoPayments has been removed entirely and replaced with a self-contained
+crypto payment provider at `apps/web/lib/payments/crypto/` — the platform's
+"international" payment option. Unlike a processor, there's no account to
+sign up for: the user connects their own wallet, sends the transaction
+themselves, and the backend verifies it happened on-chain.
+
+### Provider architecture
+
+`apps/web/lib/payments/types.ts` defines a `PaymentProviderModule` interface
+(`initializePayment`, `verifyPayment`, `validateWebhook`, `createPayout?`)
+that every provider implements. `apps/web/lib/payments/index.ts` is a small
+registry (`PROVIDER_REGISTRY: Record<ProviderName, () => Promise<...>>`)
+that lazily imports the active provider — adding provider #4 means writing
+one file and adding one registry entry, no call-site changes. All app code
+must import from this router, never a provider module directly.
+
+### Crypto provider subtree (portable, minimal cross-imports)
+
+- `crypto/chains/` — one file per chain, each implementing `ChainAdapter`
+  (validate address, get native/token balance, verify a tx hash pays the
+  expected amount to the expected address, estimate fee). `bsc.ts` uses
+  `viem` (public BSC RPC, override with `BSC_RPC_URL`); `solana.ts` uses
+  `@solana/web3.js` (public Solana RPC, override with `SOLANA_RPC_URL`,
+  native SOL only for now). Extension point for a new chain.
+- `crypto/tokens.ts` — registry of supported currencies: **JAGA** (BEP-20 on
+  BSC, contract `0x6a093f2134f66d7625724bc775c3b437ea756588`, 18 decimals),
+  **BNB** (native BSC), **SOL** (native Solana), each with a price-feed
+  strategy. Extension point for a new currency.
+- `crypto/priceFeed.ts` — USD price per currency. **Design note**: the
+  platform only has Vercel Hobby's daily CRON, far coarser than the
+  admin-configurable refresh interval (default 6h, 5min–7day range). Rather
+  than depend on CRON cadence, every price read is a **lazy refresh**: check
+  the cached `fetched_at` against the interval and refetch inline if stale.
+  This is correct regardless of how often (or whether) any CRON job runs.
+  The daily CRON (`app/api/cron/daily-platform`) still calls
+  `refreshAllPricesBestEffort()` for best-effort warm caching, but nothing
+  depends on it firing. BNB/SOL prices come from CoinGecko's free
+  `/simple/price`; JAGA (a PancakeSwap-listed token with no CoinGecko
+  listing) comes from DexScreener's free token-pairs API against its
+  PancakeSwap pool (most-liquid pair chosen when multiple exist). On any
+  live-fetch failure, falls back to the last cached price (however stale)
+  and logs a warning — only throws (`PriceFeedUnavailableError`) if nothing
+  has ever been cached and no manual override is set.
+- `crypto/settings.ts` — per-currency checkout discount percentage (default:
+  JAGA 20%, BNB/SOL 0%) and the USD→NGN display rate, both in `x_manifest`
+  like other admin-editable numeric knobs (see `lib/business/limits.ts`).
+  Core pricing stays kobo-denominated throughout — the USD→NGN rate is used
+  only to translate a kobo price into a USD-equivalent before dividing by
+  the token's USD price.
+- `crypto/index.ts` — the `PaymentProviderModule` implementation.
+  `computeExpectedAmount()` is the single source of truth for "how much
+  token, exactly" — always recomputed server-side (never trusts a
+  client-submitted amount) from the live/manual price + discount.
+
+### Manual admin price override
+
+`crypto_exchange_rate_overrides` (migration `0053`) stores one row per
+currency: `usd_price`, `set_by_admin_id`, and an optional `expires_at` after
+which the live/auto price resumes automatically. Set from `/gate44/payments`.
+
+### The payment flow (no inbound webhook)
+
+1. `POST` the relevant purchase endpoint (business tier/renew/signup, coin
+   pack, star pack, subscription, merch — all now accept
+   `paymentProvider: "crypto"` + `cryptoCurrency: "JAGA"|"BNB"|"SOL"`) with
+   `paymentProvider: "crypto"`. The route calls the router's
+   `initializePayment(...)`, which computes the exact amount and returns it
+   in `raw` (chain, receiving address, exact base-unit amount, discount,
+   price source) — surfaced to the client as `crypto: {...}` in the
+   response. A `payments` row is created `pending` with the new `chain`,
+   `token_symbol`, `wallet_address` (receiving address), and
+   `expected_token_amount` columns populated.
+2. Client shows a wallet-connect UI for the chosen chain, computes gas/fee
+   estimate, shows a confirmation screen (original price struck through,
+   discounted price in bold), user approves in their wallet and sends.
+3. Client `POST`s the resulting tx hash to `/api/economy/crypto/confirm`
+   (`{ idempotencyKey, txHash, senderAddress }`) — the sender address is
+   validated server-side against the chain's address format before use.
+4. The client then polls `GET /api/economy/crypto/status?ref=...` every few
+   seconds while showing a "waiting for confirmation" screen — this is the
+   **primary** confirmation path. Each poll calls the chain adapter to check
+   the tx: enough confirmations (15 blocks / ~45s on BSC, 1 "confirmed" slot
+   on Solana) and a transferred amount ≥ the expected amount to the
+   platform's receiving address. On success, the same crediting logic
+   Paystack's webhook uses (`processChargeSuccess`, keyed generically off
+   `itemType` in the payment's metadata) is called directly.
+5. The daily CRON's `cryptoReconcile` step is a **safety net only** — it
+   re-checks any `pending` crypto payment that already has a `tx_hash` (i.e.
+   the user submitted one but a poll never came back — closed tab, etc.),
+   and marks it `failed` after 48h of no confirmation. It is not the
+   primary path; correctness does not depend on CRON frequency.
+
+### Per-payment-context settings (`payment_context_settings`, migration `0053`)
+
+Six checkout contexts (`business_tier`, `business_renew`, `subscription`,
+`coin_purchase`, `star_purchase`, `merch_purchase`) each independently
+configure: Paystack on/off, which crypto currencies are enabled (JSON array
+column), and whether the context is entirely free (bypass payment, grant
+immediately). `GET /api/economy/crypto/config?context=...` is what the
+client checkout UI reads to decide what to show a given user: Nigerian users
+see the enabled NG method(s); non-Nigerian users with no crypto currency
+enabled for that context see "Only Nigeria is supported for this at this
+time. We are working to add more countries." instead of a broken picker.
+Admin UI: `/gate44/payments` — a table of all six contexts with per-row
+toggles plus a **bulk-select** mode (checkbox per row → "turn off crypto for
+selected" / "turn off Paystack for selected" / "mark selected free / not
+free" in one call to `PATCH /api/admin/payments/contexts`).
+
+### "Make all payments free" Danger Zone
+
+`POST /api/admin/payments/make-all-free` sets every context's `is_free` to
+true, sitewide, immediately — behind a confirmation modal on both UI entry
+points (`/gate44/config`'s Danger Zone section and `/gate44/payments`'s own
+Danger Zone). Both call the exact same endpoint; only the button is
+duplicated, and each carries a comment pointing at the other. Every
+invocation writes an `admin_all_payments_made_free` audit log entry.
+
+### User-facing wallet management
+
+`user_crypto_wallets` (migration `0053`) stores a user's own saved wallet
+per chain — used to *send* payments, distinct from
+`creator_wallet_addresses` (where a creator *receives* payouts).
+`/api/economy/crypto/wallets` (GET/POST/DELETE) backs the Settings →
+"Crypto Wallets" section: address masked as first 4 + `…` + last 4, with
+Edit/Delete links and a Yes/No confirm dialog on delete.
+
+### Wallet-connect UX (web/PWA) — now implemented
+
+`components/payments/CryptoCheckoutModal.tsx` is the shared "pay with
+crypto" widget every purchase surface renders (via `next/dynamic(..., {ssr:
+false})` so wagmi/viem/@solana/wallet-adapter-react never load for a user
+who never opens it): currency picker (only the admin-enabled currencies for
+that context, from `GET /api/economy/crypto/config`) → connect wallet →
+review (exact token amount, discount struck-through vs. discounted price in
+bold, a network-fee estimate from the new `GET /api/economy/crypto/estimate`
+route) → the user signs and sends from their own wallet → the tx hash is
+submitted to `/api/economy/crypto/confirm` and the modal polls
+`/api/economy/crypto/status` every 4s until resolved. If the user already
+has a saved wallet for that chain (`GET /api/economy/crypto/wallets`), it
+offers "Use saved wallet ending in …xxxx?" before falling back to a fresh
+connect; after a first-time successful payment with no saved wallet, it
+offers to save the sending address. A small "How to buy crypto?" link opens
+the new Help Center article (see below).
+
+- **BSC (JAGA/BNB)**: `wagmi` (`lib/payments/crypto/wagmiConfig.ts`, `bsc`
+  chain) with the `injected()` connector (MetaMask) and, when
+  `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` is set, `walletConnect()` for
+  WalletConnect v2 (QR/deep-link). Sending uses `useWriteContract` (ERC-20
+  `transfer`, for JAGA) or `useSendTransaction` (native BNB).
+- **Solana (SOL)**: `@solana/wallet-adapter-react` +
+  `@solana/wallet-adapter-wallets` (Phantom, Solflare), mounted via
+  `components/payments/SolanaWalletProviders.tsx`. Sending builds a
+  `SystemProgram.transfer` and submits it through the connected wallet's own
+  `sendTransaction`.
+
+Wired into: coin-pack purchase (Wallet page), the Plus/Pro/Max free→paid
+upgrade card (Settings → Subscription), and Business Account signup
+(Settings → Business). **Not yet wired to this UI** (same backend
+enforcement from item 3 already covers them, and dropping in
+`<CryptoCheckoutModal>` the same way is a small, mechanical follow-up):
+star-pack purchase, business tier upgrade/renewal (once already signed up),
+and merch purchase.
+
+The Wallet page's **Crypto** tab (`app/(app)/wallet/page.tsx`, third tab
+alongside Coins/Stars) is now backed by `GET /api/economy/crypto/overview`:
+on-chain balances (queried live from the chain adapter) for each
+admin-enabled currency where the user has a saved wallet on that chain, plus
+their crypto `payments` row history.
+
+### Server-side enforcement of `payment_context_settings` (security)
+
+`lib/payments/contextSettings.ts`'s `enforcePaymentContext()` is the single
+gate every purchase route (`/api/business`, `/api/business/tier`,
+`/api/business/renew`, `/api/economy/subscriptions`,
+`/api/economy/coins/purchase`, `/api/economy/stars/purchase`,
+`/api/merch/purchase`) now calls before creating a payment or granting
+anything — it re-derives what's actually allowed from the DB, so a client
+cannot bypass the `/gate44/payments` toggles by calling the API directly
+with a disallowed provider/currency: an unsupported provider/currency 400s
+with a translated error, and a non-Nigerian user with nothing enabled gets
+the "Only Nigeria is supported..." message (`errors.unsupported_region` /
+`payment.crypto.unsupportedRegion`) rather than a broken flow proceeding.
+When a context is flipped `is_free`, `lib/payments/freeGrant.ts` bypasses
+the provider entirely: it records a real `payments` row (`provider =
+'free'`, `amount_received_kobo = 0`, for auditability) and reuses the exact
+same `processChargeSuccess` fulfilment path a real charge would trigger, so
+every itemType's grant logic (coins, stars, subscription, business
+tier/renewal) stays in one place. Unit tests:
+`lib/payments/__tests__/contextSettings.test.ts`.
+
+### Two bugs found and fixed while wiring the above
+
+1. **`payments_provider_check` never allowed `'crypto'`.** The 0053
+   migration's `lib/payments/crypto/index.ts` inserts `payments` rows with
+   `provider = 'crypto'`, but the table's check constraint (from the
+   original consolidated schema) only allowed `'paystack' | 'dodopayments' |
+   'google_play'` — every crypto payment insert would have violated it at
+   runtime. Migration `0054_crypto_payments_fixups.sql` widens the
+   constraint to also allow `'crypto'` and `'free'` (the latter for the
+   free-grant path above).
+2. **`NextResponse.json()` can't serialize a `bigint`.** Every purchase
+   route returned `crypto: computed` (or `paymentResult.raw`) straight from
+   `ComputedAmount`, whose `expectedBaseUnits` is a `bigint` — `JSON.stringify`
+   throws on that, so any real crypto-payment initiation would have 500'd
+   before ever reaching a client. `lib/payments/crypto/index.ts` now exports
+   `serializeComputedAmount()` (stringifies `expectedBaseUnits`), and every
+   route response using it was updated to call it first.
+
+### Admin data export — crypto wallets (now wired into the UI)
+
+`apps/web/lib/admin/userExport.ts`'s `ALLOWED_EXPORT_FIELDS` allowlist gained
+`cryptoWalletBsc` / `cryptoWalletSolana` (address only, never paired with
+name/other PII), `isAdmin`, `rankLevel`, `prestigeCount`, plus matching
+`exportFiltersSchema` filters (`isAdmin`, `minRankLevel`/`maxRankLevel`,
+`minPrestigeCount`/`maxPrestigeCount`, `hasCryptoWallet`) and the backing
+`WHERE` clauses in `buildFilterConditions()`. A wallet stays exportable even
+after the crypto feature (or that user's access to it) is later disabled —
+it's a record of what was saved, not a live entitlement, so
+`hasCryptoWallet` filters on the `user_crypto_wallets` table directly rather
+than any enablement flag.
+
+`/gate44/data-management`'s Export modal now exposes all of the above: role
+(admin/non-admin), rank-level range, prestige-count range filters, the new
+fields in the field checklist, and a distinct teal **"Export wallet
+addresses only"** quick preset (chain picker + TXT-one-per-line or CSV) that
+calls the same `POST /api/admin/data-management/users/export` endpoint with
+a single `cryptoWalletBsc`/`cryptoWalletSolana` field and
+`hasCryptoWallet: true`. `.txt` is a new export format (`lib/export/tabular.ts`'s
+`PlainLineStreamWriter`) — one raw value per line, no header, no CSV
+escaping; the route rejects `.txt` for anything but a single-field export
+(400) since a header-less multi-column line wouldn't mean anything.
+
+### Production build fixes after adding the crypto wallet-connect dependencies
+
+Adding the wallet-connect stack (`wagmi`, `@walletconnect/ethereum-provider`,
+`@solana/wallet-adapter-react` and friends) surfaced three unrelated problems
+that only show up in a full `next build`, not in `next dev` or a plain
+`tsc --noEmit`:
+
+1. **`ably` 2.23+ fails to bundle.** Its browser build
+   (`ably/build/ably.js`) ships a `super(...args)` call outside a class
+   method that Next's webpack/SWC pipeline can't parse ("Module parse
+   failed"). Pinned to the last known-good `2.22.1` via the root
+   `package.json`'s `overrides` (see the `comment:overrides` note there);
+   re-check newer `ably` releases occasionally and lift the pin once one
+   builds cleanly again.
+
+2. **React Native's ambient types silently break every `formData.get()` call
+   site.** `@solana/wallet-adapter-react` pulls in
+   `@solana-mobile/wallet-adapter-mobile`, and `wagmi`'s `porto` connector
+   pulls in a React Native build target too — both purely for native mobile
+   wallet-adapter code paths this Next.js web app's webpack bundler never
+   reaches (they ship separate `.native.js` files that only Metro, not
+   webpack, resolves). But `react-native`'s own ambient `.d.ts`
+   (`declare class FormData { append(); getAll(); getParts(); }`) has no
+   `.get()`/`.has()`/`.set()`/`.delete()`, and once TypeScript loads it for
+   any reason it silently wins over `lib.dom.d.ts`'s `FormData` for the
+   *entire* program (`skipLibCheck` suppresses the duplicate-declaration
+   diagnostic that would otherwise catch this) — breaking every route
+   handler that parses a multipart upload. Fixed via scoped `overrides` in
+   the root `package.json` that redirect `react-native` to a genuinely empty
+   stub package (`npm:empty-npm-package@1.0.0`) *only* as seen by `porto`,
+   `@solana-mobile/wallet-adapter-mobile`, `@solana-mobile/wallet-standard-mobile`,
+   and `@solana-mobile/mobile-wallet-adapter-protocol-web3js` — this repo's
+   actual `react-native@0.74.5` (the legacy Expo app's real, direct
+   dependency, hoisted at the top-level `node_modules/react-native`) is
+   completely untouched by these scoped overrides. Do not broaden them to a
+   bare top-level `"react-native"` override — that would break the Expo
+   build.
+
+3. **`next build`'s static generation of the legacy `/404` and `/500` pages
+   crashes** with `TypeError: Cannot read properties of null (reading
+   'useContext')` inside Next's own auto-generated `pages/_error.js`
+   compatibility bundle, reproducible with `wagmi` alone (no application
+   code touching it) and not tied to any specific webpack option we tried
+   (module concatenation, module ID scheme, worker concurrency, the PWA
+   plugin). This app is App Router only — `app/not-found.tsx` and
+   `app/global-error.tsx` already handle every real 404/500 a visitor hits —
+   but Next.js still always compiles a legacy Pages Router fallback bundle
+   for `/404`/`/500` internally, purely so it has *something* to statically
+   export, and that auto-generated fallback breaks once this dependency tree
+   is present. The fix is `apps/web/pages/_error.tsx`: a minimal, standard
+   Next.js custom error page (the documented Pages Router
+   `getInitialProps`-based API) that Next compiles instead of its own broken
+   internal default. It prerenders fine and is never actually served to a
+   real visitor — the App Router's own error boundaries intercept every
+   request first.
+
+While fixing (3), a full clean `next build` also surfaced that
+`useSearchParams()` / `useParams()` / `usePathname()` can all return `null`
+at the type level, and roughly 60 call sites across the app were accessing
+them unguarded (`searchParams.get(...)`, `params.slug`, `pathname.startsWith(...)`)
+without ever having been caught by a full production build before. These
+were all hardened with optional chaining (and a small number of
+`?? fallback` / `?? false` coercions where the result fed into a prop or
+variable typed as non-nullable) rather than left for the next person to
+rediscover one crash at a time.

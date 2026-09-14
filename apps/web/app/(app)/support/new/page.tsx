@@ -29,8 +29,8 @@ function NewTicketForm() {
   const { t } = useTranslation();
   const router = useRouter();
   const search = useSearchParams();
-  const [subject, setSubject] = useState(search.get("prefillSubject") ?? "");
-  const [message, setMessage] = useState(search.get("prefillBody") ?? "");
+  const [subject, setSubject] = useState(search?.get("prefillSubject") ?? "");
+  const [message, setMessage] = useState(search?.get("prefillBody") ?? "");
   const [eligibility, setEligibility] = useState<Eligibility | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -52,8 +52,8 @@ function NewTicketForm() {
         body: JSON.stringify({
           subject,
           firstMessage: message,
-          source: search.get("docId") ? "help_center_ai" : "ticket",
-          sourceHelpDocId: search.get("docId") ?? undefined,
+          source: search?.get("docId") ? "help_center_ai" : "ticket",
+          sourceHelpDocId: search?.get("docId") ?? undefined,
         }),
       });
       const json = await res.json();

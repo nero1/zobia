@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
  *
  * POST /api/business/renew
  *
- * Business Account checkout (Paystack/DodoPayments) is a one-off charge —
+ * Business Account checkout (Paystack/crypto) is a one-off charge —
  * there is no native recurring subscription behind it, unlike the personal
  * Plus/Pro/Max flow. So the account's billing period (business_accounts.
  * current_period_ends_at) needs a manual "pay for another period" action
@@ -23,15 +23,18 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { initializePayment as paystackInit } from "@/lib/payments/paystack";
-import { createPaymentSession as dodoCreateSession } from "@/lib/payments/dodopayments";
+import { initializePayment } from "@/lib/payments";
+import { applyCryptoComputedAmount, serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { getBusinessTierPriceKobo } from "@/lib/business/limits";
+import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
+import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
 
 /** Mirrors PENDING_PAYMENT_TTL_MINUTES in app/api/business/route.ts and tier/route.ts. */
 const PENDING_PAYMENT_TTL_MINUTES = 30;
 
 const renewSchema = z.object({
-  paymentProvider: z.enum(["paystack", "dodopayments"]).optional(),
+  paymentProvider: z.enum(["paystack", "crypto"]).optional(),
+  cryptoCurrency: z.enum(["JAGA", "BNB", "SOL"]).optional(),
 });
 
 export const POST = withAuth(async (req: NextRequest, { auth }) => {
@@ -62,13 +65,43 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const priceKobo = await getBusinessTierPriceKobo(tier);
     if (priceKobo <= 0) throw badRequest("Invalid tier price configuration");
 
-    const provider = body.paymentProvider ?? "paystack";
+    const isNigeria = await getUserIsNigeria(userId);
+    const decision = await enforcePaymentContext("business_renew", isNigeria, body.paymentProvider, body.cryptoCurrency);
     const metadata = {
       userId,
       businessAccountId,
       type: "business_renewal",
       itemType: "business_renewal",
+      ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
     };
+
+    if (decision.isFree) {
+      const { rows: freeRows } = await db.query<{ id: string }>(
+        `INSERT INTO payments
+           (user_id, payment_type, amount_kobo, currency, provider, status, idempotency_key, provider_reference, metadata)
+         VALUES ($1, 'business_upgrade', $2, 'NGN', 'free', 'pending', $3, $3, $4::jsonb)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING id`,
+        [userId, priceKobo, reference, JSON.stringify(metadata)]
+      );
+      if (freeRows[0]) {
+        await processChargeSuccess({
+          reference,
+          status: "success",
+          amount: 0,
+          currency: "NGN",
+          customer: { email: userEmail },
+          metadata,
+          paid_at: new Date().toISOString(),
+        } as unknown as Parameters<typeof processChargeSuccess>[0]);
+      }
+      return NextResponse.json(
+        { success: true, data: { paymentUrl: "", reference, tier, priceKobo, free: true }, error: null },
+        { status: 200 }
+      );
+    }
+
+    const provider = decision.provider;
 
     const { rows: reservedRows } = await db.query<{ id: string }>(
       `INSERT INTO payments
@@ -94,28 +127,23 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       );
     }
 
-    let paymentUrl: string;
-    let providerReference: string = reference;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
-    if (provider === "paystack") {
-      const ps = await paystackInit(priceKobo, userEmail, reference, metadata, `${appUrl}/settings/business/callback`);
-      paymentUrl = ps.authorization_url;
-      providerReference = ps.reference ?? reference;
-    } else {
-      const dd = await dodoCreateSession(priceKobo, "NGN", `${appUrl}/settings/business?renewed=1`, {
-        ...metadata,
-        reference,
-      });
-      paymentUrl = dd.payment_url;
-      providerReference = dd.id ?? reference;
-    }
+    const returnUrl =
+      provider === "paystack" ? `${appUrl}/settings/business/callback` : `${appUrl}/settings/business?renewed=1`;
+    const result = await initializePayment(priceKobo, "NGN", userEmail, reference, metadata, returnUrl, provider);
+    const paymentUrl = result.paymentUrl;
+    const providerReference = result.providerReference ?? reference;
+    const computed = provider === "crypto" ? (result.raw as ComputedAmount) : null;
 
     if (providerReference !== reference) {
       await db.query(`UPDATE payments SET provider_reference = $1 WHERE id = $2`, [providerReference, reservedRows[0].id]);
     }
+    if (computed) {
+      await applyCryptoComputedAmount(reservedRows[0].id, computed);
+    }
 
     return NextResponse.json(
-      { success: true, data: { paymentUrl, reference, tier, priceKobo }, error: null },
+      { success: true, data: { paymentUrl, reference, tier, priceKobo, crypto: computed ? serializeComputedAmount(computed) : null }, error: null },
       { status: 202 }
     );
   } catch (err) {

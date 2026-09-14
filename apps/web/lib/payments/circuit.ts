@@ -385,13 +385,26 @@ export const expoPushBreaker = new RedisCircuitBreaker({
   callTimeoutMs: 15_000,
 });
 
-export const dodoPaymentsBreaker = new RedisCircuitBreaker({
-  name: "dodopayments",
+/** Breaker around crypto chain RPC calls (balance/tx lookups — BSC via viem,
+ *  Solana via web3.js) — a stalled public RPC endpoint should not cascade
+ *  into slow payment verification requests. */
+export const cryptoRpcBreaker = new RedisCircuitBreaker({
+  name: "crypto-rpc",
   errorThresholdPercentage: 50,
   successThreshold: 2,
   windowSize: 10,
   resetTimeoutMs: 30_000,
   callTimeoutMs: 10_000,
+});
+
+/** Breaker around crypto price-feed calls (CoinGecko / DexScreener). */
+export const cryptoPriceFeedBreaker = new RedisCircuitBreaker({
+  name: "crypto-price-feed",
+  errorThresholdPercentage: 50,
+  successThreshold: 2,
+  windowSize: 10,
+  resetTimeoutMs: 30_000,
+  callTimeoutMs: 8_000,
 });
 
 /**
@@ -401,6 +414,7 @@ export async function getAllCircuitMetrics() {
   return Promise.all([
     paystackBreaker.getMetrics(),
     expoPushBreaker.getMetrics(),
-    dodoPaymentsBreaker.getMetrics(),
+    cryptoRpcBreaker.getMetrics(),
+    cryptoPriceFeedBreaker.getMetrics(),
   ]);
 }

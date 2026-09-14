@@ -44,7 +44,7 @@ interface CaptchaManifest {
 function RegisterContent() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
-  const error = searchParams.get("error");
+  const error = searchParams?.get("error");
 
   const [isLoading, setIsLoading] = useState<"google" | "telegram" | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);

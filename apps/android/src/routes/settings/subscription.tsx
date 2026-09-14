@@ -6,7 +6,7 @@
  * plan/status data as web (read via the same GET /api/users/me and
  * GET /api/economy/subscriptions used there — no backend changes needed),
  * but routes the actual purchase through Google Play Billing instead of
- * linking out to Paystack/DodoPayments checkout, per this project's policy
+ * linking out to Paystack/crypto checkout, per this project's policy
  * that Android must use Play Billing for any real purchase (PRD §18).
  *
  * Cancel is a plain DB status change (DELETE /api/economy/subscriptions/:id)

@@ -171,7 +171,7 @@ function TxRow({ tx }: { tx: Transaction }) {
 
 // ---------------------------------------------------------------------------
 // Buy Coins / Buy Stars — Google Play Billing only (PRD §18; web/PWA use
-// Paystack/DodoPayments via POST /api/economy/coins/purchase instead).
+// Paystack/crypto via POST /api/economy/coins/purchase instead).
 // ---------------------------------------------------------------------------
 
 function BuyCurrencyPanel({ onPurchased }: { onPurchased: () => void }) {

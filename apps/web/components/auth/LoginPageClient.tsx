@@ -50,9 +50,9 @@ interface CaptchaManifest {
 function LoginContent() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
-  const error = searchParams.get("error");
-  const reason = searchParams.get("reason");
-  const redirectParam = searchParams.get("redirect");
+  const error = searchParams?.get("error");
+  const reason = searchParams?.get("reason");
+  const redirectParam = searchParams?.get("redirect");
 
   const [isLoading, setIsLoading] = useState<"google" | "telegram" | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);

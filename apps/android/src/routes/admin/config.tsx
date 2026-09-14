@@ -138,13 +138,13 @@ const CONFIG_META: Record<string, ConfigMeta> = Object.fromEntries([
   meta('pwa_ios_enabled', 'PWA — iOS', 'Enable PWA install for iOS home screen (Safari Add to Home Screen).', 'boolean', 'PWA'),
 
   // Payments
-  meta('payment_primary_provider', 'Primary Payment Provider', 'The default gateway used for deposits and payouts.', 'select', 'Payments', [
+  meta('payment_primary_provider', 'Primary Payment Provider', 'The default gateway used for deposits and payouts. Per-context overrides live on the web admin gate44/payments page.', 'select', 'Payments', [
     { value: 'paystack', labelDefault: 'Paystack' },
-    { value: 'dodopayments', labelDefault: 'Dodo Payments' },
+    { value: 'crypto', labelDefault: 'Crypto (JAGA / BNB / SOL)' },
     { value: 'none', labelDefault: 'None (payments disabled)' },
   ]),
   meta('payment_paystack_enabled', 'Paystack Enabled', 'Allow Paystack as a payment method.', 'boolean', 'Payments'),
-  meta('payment_dodopayments_enabled', 'Dodo Payments Enabled', 'Allow Dodo Payments as a payment method.', 'boolean', 'Payments'),
+  meta('payment_crypto_enabled', 'Crypto Payments Enabled', 'Allow crypto (JAGA / BNB / SOL) as a payment method.', 'boolean', 'Payments'),
 
   // Economy
   meta('currency_soft_name_singular', 'Soft Currency Name (Singular)', 'Display name for one unit of the soft (earned) currency. Default: Credit', 'string', 'Economy'),

@@ -21,6 +21,7 @@
  */
 
 import { useState } from 'react';
+import type { AxiosResponse } from 'axios';
 import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -166,7 +167,7 @@ function AdminQuestsPage() {
   };
 
   const saveMutation = useMutation({
-    mutationFn: () => {
+    mutationFn: (): Promise<AxiosResponse<unknown>> => {
       if (editTarget) {
         return apiClient.patch(`/admin/quests/${editTarget.id}`, {
           title: form.title.trim(),
@@ -189,10 +190,10 @@ function AdminQuestsPage() {
         xpReward: parseInt(form.xpReward, 10) || 0,
         coinReward: parseInt(form.coinReward, 10) || 0,
         category: form.category.trim() || 'general',
-        icon: form.icon.trim() || undefined,
+        icon: form.icon.trim() || null,
         planRequired: form.planRequired,
         track: form.track,
-        featureKey: form.featureKey || undefined,
+        featureKey: form.featureKey || null,
       });
     },
     onSuccess: () => {

@@ -498,7 +498,7 @@ function ForumModsSection({ guildId, isCaptain, members }: { guildId: string; is
 export default function GuildProfilePage() {
   const params = useParams<{ guildId: string }>();
   const router = useRouter();
-  const guildId = params.guildId;
+  const guildId = params?.guildId;
 
   const [guild, setGuild] = useState<GuildDetail | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);

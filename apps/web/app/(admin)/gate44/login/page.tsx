@@ -31,8 +31,8 @@ type Step = "credentials" | "totp" | "locked";
 function LoginContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const reason = searchParams.get("reason");
-  const redirectParam = searchParams.get("redirect");
+  const reason = searchParams?.get("reason");
+  const redirectParam = searchParams?.get("redirect");
 
   const [step, setStep] = useState<Step>("credentials");
   const [email, setEmail] = useState("");

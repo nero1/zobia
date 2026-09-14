@@ -197,7 +197,7 @@ function RoomsContent() {
   // "See all rooms by this creator" links from a profile land here with
   // ?creator_id=<uuid> — filters the discovery feed down to that creator's
   // rooms while reusing all the existing tab/search/pagination plumbing.
-  const creatorId = searchParams.get("creator_id");
+  const creatorId = searchParams?.get("creator_id");
   const { t } = useTranslation();
   const tRef = useRef(t);
   useEffect(() => {

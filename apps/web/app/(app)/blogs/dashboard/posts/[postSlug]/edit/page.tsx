@@ -12,7 +12,7 @@ export default function EditBlogPostPage() {
   const router = useRouter();
   const params = useParams<{ postSlug: string }>();
   const searchParams = useSearchParams();
-  const blogParam = searchParams.get("blog");
+  const blogParam = searchParams?.get("blog");
   const [blogSlug, setBlogSlug] = useState<string | null>(null);
   const [initial, setInitial] = useState<Partial<PostEditorInitial> | null>(null);
   const [pageKey, setPageKey] = useState<"about" | "privacy" | "contact" | null>(null);
@@ -27,7 +27,7 @@ export default function EditBlogPostPage() {
       if (!blog) { router.replace("/blogs/dashboard"); return; }
       setBlogSlug(blog.slug);
 
-      const postRes = await fetch(`/api/blogs/${blog.slug}/posts/${params.postSlug}`, { credentials: "include" });
+      const postRes = await fetch(`/api/blogs/${blog.slug}/posts/${params?.postSlug}`, { credentials: "include" });
       const postJson = await postRes.json().catch(() => null);
       const post = postJson?.data?.post;
       if (!post) { router.replace("/blogs/dashboard"); return; }
@@ -46,8 +46,8 @@ export default function EditBlogPostPage() {
       });
       setPageKey(post.page_key ?? null);
     })().catch(() => router.replace("/blogs/dashboard"));
-  }, [params.postSlug, router, blogParam]);
+  }, [params?.postSlug, router, blogParam]);
 
   if (!blogSlug || !initial) return null;
-  return <PostEditor blogSlug={blogSlug} postSlug={params.postSlug} initial={initial} pageKey={pageKey} />;
+  return <PostEditor blogSlug={blogSlug} postSlug={params?.postSlug} initial={initial} pageKey={pageKey} />;
 }

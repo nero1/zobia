@@ -224,14 +224,14 @@ export function Sidebar() {
             <SidebarLink
               href="/gate44"
               label="Admin"
-              isActive={pathname.startsWith("/gate44")}
+              isActive={pathname?.startsWith("/gate44") ?? false}
             />
           )}
           {(user?.is_moderator || user?.is_admin) && (
             <SidebarLink
               href="/watch56"
               label="Moderation"
-              isActive={pathname.startsWith("/watch56")}
+              isActive={pathname?.startsWith("/watch56") ?? false}
             />
           )}
           {visibleNavItems.map((item) => (
@@ -239,7 +239,7 @@ export function Sidebar() {
               key={item.href}
               href={item.href}
               label={item.label}
-              isActive={pathname.startsWith(item.href)}
+              isActive={pathname?.startsWith(item.href) ?? false}
               isOffForUsers={!!item.flagKey && featureFlags[item.flagKey] === false}
               hasNewDot={newDotHrefs[item.href]}
             />
@@ -254,7 +254,7 @@ export function Sidebar() {
                 key={item.href}
                 href={item.href}
                 label={item.label}
-                isActive={pathname.startsWith(item.href)}
+                isActive={pathname?.startsWith(item.href) ?? false}
               />
             ))}
           </div>

@@ -699,11 +699,11 @@ function WalletContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { t } = useTranslation();
-  const transferRecipientId = searchParams.get("transfer");
+  const transferRecipientId = searchParams?.get("transfer");
   // "?destination=ad_wallet" (linked from the Ads Wallet panel's "Buy Credits
   // directly" button) routes the purchase into the Ad Wallet instead of the
   // main balance — see lib/economy/adWallet.ts.
-  const purchaseDestination = searchParams.get("destination") === "ad_wallet" ? "ad_wallet" : "main_wallet";
+  const purchaseDestination = searchParams?.get("destination") === "ad_wallet" ? "ad_wallet" : "main_wallet";
   const currency = useCurrency();
   const statsEnabled = useFeatureEnabled("profileStats");
 

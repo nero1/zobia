@@ -190,7 +190,7 @@ function ProfilePageInner() {
   const { t } = useTranslation();
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
-  const userId = params.userId as string;
+  const userId = params?.userId as string;
   type PrivacyError = "PROFILE_PRIVATE" | "ACCOUNT_RESTRICTED" | "ACCOUNT_SUSPENDED" | null;
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -222,7 +222,7 @@ function ProfilePageInner() {
   const { activities, forbidden: activitiesHidden } = useProfileActivity(userId);
   const showTweetsTab = hasTweets === true;
   const showActivitiesTab = !activitiesHidden;
-  const tabParam = searchParams.get("tab") as ProfileTab | null;
+  const tabParam = searchParams?.get("tab") as ProfileTab | null;
   const [activeTab, setActiveTab] = useState<ProfileTab>(
     tabParam === "activities" || tabParam === "tweets" ? tabParam : "tweets"
   );
@@ -246,7 +246,7 @@ function ProfilePageInner() {
 
   const selectTab = useCallback((tab: ProfileTab) => {
     setActiveTab(tab);
-    const next = new URLSearchParams(searchParams.toString());
+    const next = new URLSearchParams(searchParams?.toString());
     next.set("tab", tab);
     router.replace(`?${next.toString()}`, { scroll: false });
   }, [router, searchParams]);

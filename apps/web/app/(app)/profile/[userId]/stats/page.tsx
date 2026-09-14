@@ -174,7 +174,7 @@ export default function ProfileStatsPage() {
   const { t } = useTranslation();
   const tRef = useRef(t);
   useEffect(() => { tRef.current = t; }, [t]);
-  const userId = params.userId as string;
+  const userId = params?.userId as string;
 
   const [stats, setStats] = useState<StatsResponse | null>(null);
   const [loading, setLoading] = useState(true);

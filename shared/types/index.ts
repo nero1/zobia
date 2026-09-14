@@ -580,7 +580,11 @@ export interface XPLedgerEntry {
 
 // ─── Payment ──────────────────────────────────────────────────────────────────
 
-export type PaymentProvider = 'paystack' | 'dodopayments' | 'google_play';
+export type PaymentProvider = 'paystack' | 'crypto' | 'google_play';
+/** Supported crypto payment chains. Extension point: add a new chain adapter + entry here. */
+export type CryptoChain = 'bsc' | 'solana';
+/** Supported crypto currencies. Extension point: add a new token registry entry + entry here. */
+export type CryptoCurrency = 'JAGA' | 'BNB' | 'SOL';
 export type PaymentStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'refunded';
 export type PaymentType = 'coin_purchase' | 'subscription' | 'season_pass' | 'booster_pack' | 'room_entry';
 
@@ -788,10 +792,10 @@ export interface Manifest {
   pwaWebEnabled: boolean;
   pwaAndroidEnabled: boolean;
   pwaIosEnabled: boolean;
-  paymentProviderNigeria: 'paystack' | 'dodopayments';
-  paymentProviderInternational: 'dodopayments';
-  payoutProviderNigeria: 'paystack' | 'dodopayments';
-  payoutProviderInternational: 'dodopayments';
+  paymentProviderNigeria: 'paystack' | 'crypto';
+  paymentProviderInternational: 'crypto';
+  payoutProviderNigeria: 'paystack' | 'crypto';
+  payoutProviderInternational: 'crypto';
   coinToCashRate: number;
   payoutThresholdKobo: number;
   payoutManualApprovalThresholdKobo: number;

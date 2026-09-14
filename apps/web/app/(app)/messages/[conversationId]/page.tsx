@@ -567,11 +567,11 @@ export default function DMConversationPage() {
   const params = useParams();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const conversationId = params.conversationId as string;
+  const conversationId = params?.conversationId as string;
   // "Draft" mode: the route param is actually the recipient's user id, not a
   // real dm_conversations row yet. Set by the "New Message" flow — no
   // conversation exists until the first message is successfully sent.
-  const [isDraft, setIsDraft] = useState(() => searchParams.get("draft") === "1");
+  const [isDraft, setIsDraft] = useState(() => searchParams?.get("draft") === "1");
   const currency = useCurrency();
   const { t } = useTranslation();
   // Stable ref so the mount-scoped conversation-load effect below doesn't need

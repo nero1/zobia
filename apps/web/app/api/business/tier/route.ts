@@ -6,15 +6,18 @@ export const dynamic = 'force-dynamic';
  * PATCH /api/business/tier
  *
  * Upgrade or downgrade the authenticated user's business account tier.
- * Body: { tier: "starter" | "growth" | "enterprise", paymentProvider?: "paystack" | "dodopayments" }
+ * Body: { tier: "starter" | "growth" | "enterprise", paymentProvider?: "paystack" | "crypto", cryptoCurrency?: "JAGA" | "BNB" | "SOL" }
  *
  * Upgrade flow (PRD §17):
  *   1. Validate the requested tier is higher than the current tier.
  *   2. Determine tier price from x_manifest (admin-configurable).
- *   3. Initiate payment with Paystack (Nigeria) or DodoPayments (international).
+ *   3. Initiate payment with Paystack (Nigeria) or crypto (international —
+ *      user-initiated on-chain transfer, see lib/payments/crypto/).
  *   4. Store pending_tier + pending_payment_ref on the business account record.
- *   5. Return { paymentUrl } — client redirects user to checkout.
- *   6. On charge.success webhook (paystack/dodopayments), the tier is activated.
+ *   5. Return { paymentUrl } (paystack) or { crypto } details — client
+ *      redirects to checkout, or drives the wallet-connect flow.
+ *   6. On charge.success webhook (paystack) or on-chain verification
+ *      (crypto), the tier is activated.
  *
  * Downgrade flow (self-service, no payment): the account keeps its current
  * tier — and everything that comes with it (page slots, live sponsored
@@ -38,10 +41,12 @@ import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { initializePayment as paystackInit } from "@/lib/payments/paystack";
-import { createPaymentSession as dodoCreateSession } from "@/lib/payments/dodopayments";
+import { initializePayment } from "@/lib/payments";
+import { applyCryptoComputedAmount, serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { getBusinessDowngradeGraceDays, getBusinessTierPriceKobo } from "@/lib/business/limits";
 import { requireFeatureEnabled } from "@/lib/manifest";
+import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
+import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -56,7 +61,7 @@ const TIER_ORDER: Record<string, number> = {
 /**
  * BIZ-TIER-RACE: how long a pending business-upgrade payment session is
  * considered "still in progress" before we allow the user to start a new one.
- * Matches typical Paystack/DodoPayments checkout session lifetimes.
+ * Matches typical Paystack checkout session lifetimes.
  */
 const PENDING_PAYMENT_TTL_MINUTES = 30;
 
@@ -66,7 +71,8 @@ const PENDING_PAYMENT_TTL_MINUTES = 30;
 
 const upgradeTierSchema = z.object({
   tier: z.enum(["starter", "growth", "enterprise"]),
-  paymentProvider: z.enum(["paystack", "dodopayments"]).optional(),
+  paymentProvider: z.enum(["paystack", "crypto"]).optional(),
+  cryptoCurrency: z.enum(["JAGA", "BNB", "SOL"]).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -179,8 +185,10 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("Invalid tier price configuration");
     }
 
-    // Determine payment provider
-    const provider = paymentProvider ?? "paystack";
+    // Determine payment provider — re-validated server-side against the
+    // admin-configured payment_context_settings for "business_tier".
+    const isNigeria = await getUserIsNigeria(userId);
+    const decision = await enforcePaymentContext("business_tier", isNigeria, paymentProvider, body.cryptoCurrency);
 
     // Generate idempotency reference
     const reference = `biz-tier-${rows[0].id}-${newTier}-${randomUUID().slice(0, 8)}`;
@@ -196,47 +204,64 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     );
 
     // Initiate payment
-    let paymentUrl: string;
-    let providerReference: string = reference;
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
-    if (provider === "paystack") {
-      const ps = await paystackInit(
-        priceKobo,
-        userEmail,
-        reference,
-        {
-          userId,
-          type: "business_upgrade",
-          businessAccountId: rows[0].id,
-          newTier,
-          itemType: "business_upgrade",
-        },
-        `${appUrl}/settings/business/callback`
+    const metadata = {
+      userId,
+      type: "business_upgrade",
+      businessAccountId: rows[0].id,
+      newTier,
+      itemType: "business_upgrade",
+      ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
+    };
+
+    if (decision.isFree) {
+      const { rows: freeRows } = await db.query<{ id: string }>(
+        `INSERT INTO payments
+           (user_id, payment_type, amount_kobo, currency, provider, status, idempotency_key, provider_reference, metadata)
+         VALUES ($1, 'business_upgrade', $2, 'NGN', 'free', 'pending', $3, $3, $4::jsonb)
+         ON CONFLICT (idempotency_key) DO NOTHING
+         RETURNING id`,
+        [userId, priceKobo, reference, JSON.stringify(metadata)]
       );
-      paymentUrl = ps.authorization_url;
-      providerReference = ps.reference ?? reference;
-    } else {
-      const dd = await dodoCreateSession(priceKobo, "NGN", `${appUrl}/settings/business?upgraded=1`, {
-        userId,
-        type: "business_upgrade",
-        businessAccountId: rows[0].id,
-        newTier,
-        itemType: "business_upgrade",
-        reference,
+      if (freeRows[0]) {
+        await processChargeSuccess({
+          reference,
+          status: "success",
+          amount: 0,
+          currency: "NGN",
+          customer: { email: userEmail },
+          metadata,
+          paid_at: new Date().toISOString(),
+        } as unknown as Parameters<typeof processChargeSuccess>[0]);
+      }
+      return NextResponse.json({
+        success: true,
+        data: { paymentUrl: "", reference, tier: newTier, priceKobo, free: true, message: `Your ${newTier} business account is now active (free)` },
+        error: null,
       });
-      paymentUrl = dd.payment_url;
-      providerReference = dd.id ?? reference;
     }
+
+    const provider = decision.provider;
+    const returnUrl =
+      provider === "paystack"
+        ? `${appUrl}/settings/business/callback`
+        : `${appUrl}/settings/business?upgraded=1`;
+
+    const result = await initializePayment(priceKobo, "NGN", userEmail, reference, metadata, returnUrl, provider);
+    const paymentUrl = result.paymentUrl;
+    const providerReference = result.providerReference ?? reference;
+    const computed = provider === "crypto" ? (result.raw as ComputedAmount) : null;
 
     // Create a pending payment record so the webhook handler can locate it.
     // The webhook checks for this record before activating the tier upgrade.
-    await db.query(
+    const { rows: paymentRows } = await db.query<{ id: string }>(
       `INSERT INTO payments
          (user_id, payment_type, amount_kobo, currency, provider,
           status, idempotency_key, provider_reference, metadata)
        VALUES ($1, 'business_upgrade', $2, 'NGN', $3,
                'pending', $4, $5, $6::jsonb)
-       ON CONFLICT (idempotency_key) DO NOTHING`,
+       ON CONFLICT (idempotency_key) DO NOTHING
+       RETURNING id`,
       [
         userId,
         priceKobo,
@@ -251,6 +276,9 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
         }),
       ]
     );
+    if (computed && paymentRows[0]) {
+      await applyCryptoComputedAmount(paymentRows[0].id, computed);
+    }
 
     return NextResponse.json({
       success: true,
@@ -259,6 +287,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
         reference,
         tier: newTier,
         priceKobo,
+        crypto: computed ? serializeComputedAmount(computed) : null,
         message: `Complete payment to activate your ${newTier} business account`,
       },
       error: null,

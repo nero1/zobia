@@ -230,7 +230,7 @@ function LeaderboardsContent() {
   }, [t]);
   const searchParams = useSearchParams();
   const initialTrack = (() => {
-    const p = searchParams.get("track");
+    const p = searchParams?.get("track");
     return p && (VALID_TRACKS as string[]).includes(p) ? (p as Track) : "main";
   })();
   const [scope, setScope] = useState<Scope>("global");

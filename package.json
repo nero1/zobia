@@ -2,7 +2,7 @@
   "name": "zobia-social",
   "version": "1.0.0",
   "private": true,
-  "description": "Zobia Social — Gamified Monetised Social Platform",
+  "description": "Zobia Social \u2014 Gamified Monetised Social Platform",
   "workspaces": [
     "apps/web",
     "apps/android",
@@ -33,9 +33,13 @@
   "engines": {
     "node": ">=20.0.0"
   },
-  "comment:overrides": "Do NOT add `react`/`react-dom` here. This is an npm workspace: apps/web needs react ^18.3.1 (Next 15) and apps/expo needs react 18.2.0 (react-native 0.74.5). A global override forces ONE react into BOTH subtrees; forcing 18.3.1 into the Expo bundle makes RN 0.74's renderer hit mismatched React internals and crash at the earliest init — AppRegistry registers n=0 callable modules (silent white screen, no redbox). Each workspace pins its own react instead; the lockfile already nests them correctly (expo 18.2.0, root 18.3.1). `scheduler` is pinned to 0.23.2, which is compatible with both react copies.",
+  "comment:overrides": "Do NOT add `react`/`react-dom` here. This is an npm workspace: apps/web needs react ^18.3.1 (Next 15) and apps/expo needs react 18.2.0 (react-native 0.74.5). A global override forces ONE react into BOTH subtrees; forcing 18.3.1 into the Expo bundle makes RN 0.74's renderer hit mismatched React internals and crash at the earliest init \u2014 AppRegistry registers n=0 callable modules (silent white screen, no redbox). Each workspace pins its own react instead; the lockfile already nests them correctly (expo 18.2.0, root 18.3.1). `scheduler` is pinned to 0.23.2, which is compatible with both react copies.",
   "overrides": {
-    "scheduler": "0.23.2"
+    "scheduler": "0.23.2",
+    "ably": "2.22.1",
+    "porto": {
+      "react-native": "npm:empty-npm-package@1.0.0"
+    }
   },
   "dependencies": {
     "patch-package": "^8.0.1"

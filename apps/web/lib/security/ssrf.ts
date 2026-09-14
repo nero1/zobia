@@ -181,7 +181,10 @@ const HOSTNAME_ALLOWLIST: string[] = [
   "api.mailgun.net",                    // Mailgun transactional email
   "api.paystack.co",                    // Paystack payments
   "api.flutterwave.com",                // Flutterwave payments
-  "api.dodopayments.com",               // DodoPayments global payments
+  "bsc-dataseed.binance.org",            // Public BSC RPC (crypto payments — chain adapter)
+  "api.mainnet-beta.solana.com",         // Public Solana RPC (crypto payments — chain adapter)
+  "api.coingecko.com",                   // Crypto price feed (BNB/SOL USD price)
+  "api.dexscreener.com",                 // Crypto price feed (JAGA USD price via PancakeSwap pool)
   "api.cloudflare.com",                 // Cloudflare API
   "r2.cloudflarestorage.com",           // Cloudflare R2 object storage — subdomain matching covers <account>.r2.cloudflarestorage.com
   "storage.googleapis.com",             // Google Cloud Storage

@@ -8,7 +8,7 @@ Before you begin, you will need accounts and tools for the following:
 - **Vercel** — app hosting and deployment (vercel.com)
 - **Supabase** — PostgreSQL database + optional storage + optional realtime (supabase.com)
 - **Paystack** — Africa-first payments (paystack.com)
-- **DodoPayments** — global payments (dodopayments.com)
+- **Reown / WalletConnect Cloud** — free project ID for the crypto payment wallet-connect flow (cloud.reown.com) — optional, only needed for the WalletConnect QR/deep-link path; MetaMask's injected provider works without it
 - **Mailgun** — transactional email (mailgun.com)
 - **DeepSeek** — primary AI moderation (platform.deepseek.com)
 - **Google AI Studio** — Gemini fallback AI (aistudio.google.com)
@@ -146,7 +146,7 @@ The Capacitor app ships with `@capacitor-community/admob` (`apps/android/src/lib
 
 ### Google Play Billing (Capacitor Android)
 
-Google Play Billing is the **only** in-app purchase mechanism on Android (PRD §18 — a Google Play Store policy requirement); Paystack/DodoPayments checkout links are web/PWA-only. The Capacitor app ships with `capacitor-plugin-cdv-purchase` (`apps/android/src/lib/payments/googlePlay.ts`), covering coin packs, star packs, Plus/Pro/Max subscriptions, and Business Account tier signup/upgrade. Purchases are verified server-side against the Google Play Developer API (`lib/payments/googlePlayVerify.ts`) before any reward is granted.
+Google Play Billing is the **only** in-app purchase mechanism on Android (PRD §18 — a Google Play Store policy requirement); Paystack/crypto checkout flows are web/PWA-only. The Capacitor app ships with `capacitor-plugin-cdv-purchase` (`apps/android/src/lib/payments/googlePlay.ts`), covering coin packs, star packs, Plus/Pro/Max subscriptions, and Business Account tier signup/upgrade. Purchases are verified server-side against the Google Play Developer API (`lib/payments/googlePlayVerify.ts`) before any reward is granted.
 
 1. Create the products in **Google Play Console → Monetize → Products**: 6 one-time "in-app products" (`coins_starter`, `coins_regular`, `coins_big`, `coins_baller`, `coins_boss`, `coins_legend`), 4 one-time in-app products (`stars_starter`, `stars_regular`, `stars_big`, `stars_boss`), and 9 subscriptions (`sub_plus_monthly`, `sub_pro_monthly`, `sub_max_monthly`, `sub_plus_annual`, `sub_pro_annual`, `sub_max_annual`, `biz_starter_monthly`, `biz_growth_monthly`, `biz_enterprise_monthly` — group the three `biz_*` products together so purchasing one replaces any currently-owned tier). Prices/amounts must match `apps/android/src/lib/payments/googlePlay.ts` and `apps/web/app/api/economy/iap/verify/route.ts` / `apps/web/app/api/business/iap/verify/route.ts`.
 2. Create a service account with the **Service Account User** role in Play Console → Setup → API access, download its JSON key, and set `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` (see Environment Variables Reference below). Without it, purchases are trusted without verification in development (`NODE_ENV !== "production"`) and rejected outright in production.
@@ -270,7 +270,12 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `TERMII_SENDER_ID` | No | Termii registered Sender ID (required alongside `TERMII_API_KEY` for SMS to send) | termii.com → Sender ID → request approval |
 | `PAYSTACK_SECRET_KEY` | No | Paystack secret key — must have Transfers permission enabled | Paystack dashboard → Settings → API Keys |
 | `PAYSTACK_PUBLIC_KEY` | No | Paystack public key | Paystack dashboard → Settings → API Keys |
-| `DODOPAYMENTS_API_KEY` | No | DodoPayments API key | DodoPayments dashboard → API |
+| `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` | No | WalletConnect Cloud project ID — powers the WalletConnect/QR wallet-connect path on BNB Smart Chain. MetaMask's injected provider works without it. | cloud.reown.com (free) |
+| `BSC_RPC_URL` | No | Override the public BSC RPC endpoint (default: `https://bsc-dataseed.binance.org`) | Any BSC RPC provider (or leave unset) |
+| `SOLANA_RPC_URL` | No | Override the public Solana RPC endpoint (default: `https://api.mainnet-beta.solana.com`) | Any Solana RPC provider (or leave unset) |
+| `NEXT_PUBLIC_SOLANA_RPC_URL` | No | Browser-side Solana RPC for the wallet-adapter checkout UI (separate from `SOLANA_RPC_URL` — only `NEXT_PUBLIC_`-prefixed vars reach the browser bundle). Same default. | Any Solana RPC provider (or leave unset) |
+| `CRYPTO_RECEIVING_ADDRESS_BSC` | Required to accept crypto payments | The platform's own BSC wallet address that receives JAGA/BNB payments | Your own wallet |
+| `CRYPTO_RECEIVING_ADDRESS_SOLANA` | Required to accept crypto payments | The platform's own Solana wallet address that receives SOL payments | Your own wallet |
 | `GOOGLE_PLAY_SERVICE_ACCOUNT_JSON` | No | Google Play service account JSON (base64-encoded or raw) for Android IAP verification (coins/stars/subscriptions, `/api/economy/iap/verify`, and Business Account signup/upgrade, `/api/business/iap/verify`) | Google Play Console → Setup → API access |
 | `GOOGLE_PLAY_PACKAGE_NAME` | No | Your Android app's package name for IAP purchase validation (default: `com.zobiasocial.app`, the Capacitor app — the Expo app is discontinued). Must match the package name in your Google Play Console app. | Google Play Console → App details |
 | `FCM_PROJECT_ID` | No | Firebase project ID — enables push notification delivery to the Capacitor Android app (`@capacitor/push-notifications`). Without it, push sends to Android devices are skipped (Expo push, used historically by the discontinued Expo app, is unaffected). See [Push Notifications (Capacitor Android / FCM)](#push-notifications-capacitor-android--fcm) below. | Firebase Console → Project settings → General → Project ID |
@@ -1073,39 +1078,29 @@ These can be updated from the Admin → Config panel at any time.
 
 All four keys are read at payout time from `apps/web/lib/fraud/payouts.ts`. Adjusting them takes effect on the next payout request with no deployment needed.
 
-### DodoPayments Setup (Global Payments)
+### Crypto Payments Setup (Global Payments)
 
-#### 1. Get API Keys
+Crypto (JAGA / BNB on BNB Smart Chain, SOL on Solana) replaced DodoPayments as the international payment provider. There is no processor account to sign up for — the user connects their own wallet and sends the transaction themselves; the backend verifies it on-chain. See `docs/HOW-IT-WORKS.md` → "Crypto Payments" for the full flow, and `apps/web/lib/payments/crypto/` for the implementation.
 
-1. Log into your [DodoPayments dashboard](https://app.dodopayments.com).
-2. Go to **Settings → API Keys**.
-3. Copy your **API Key** → `DODOPAYMENTS_API_KEY`.
-4. Copy your **Webhook Secret** → `DODOPAYMENTS_WEBHOOK_SECRET`.
+#### 1. Set your receiving wallet addresses
 
-#### 2. Configure Webhook URL
+1. Create (or use an existing) wallet on BNB Smart Chain and one on Solana that the platform controls.
+2. Set `CRYPTO_RECEIVING_ADDRESS_BSC` and `CRYPTO_RECEIVING_ADDRESS_SOLANA` in your environment. **Required** — without these, the crypto provider refuses to initialize a payment.
+3. **Before going live**, double-check these are your real, secured wallets — this is where all crypto payment revenue lands.
 
-1. In the DodoPayments dashboard, go to **Settings → Webhooks**.
-2. Add a new webhook endpoint:
-   - **URL**: `https://your-domain/api/economy/webhooks/dodopayments`
-   - **Events**: `payment.succeeded`, `payout.completed`, `payout.failed`
-3. Copy the signing secret and set `DODOPAYMENTS_WEBHOOK_SECRET`.
+#### 2. (Optional) WalletConnect project ID
 
-#### 3. Store Items — itemSlug Requirement
+Get a free project ID at [cloud.reown.com](https://cloud.reown.com) and set `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` to enable the WalletConnect/QR wallet-connect path (in addition to MetaMask's injected provider, which works without it).
 
-When creating payment links or checkout sessions in DodoPayments, you **must** include `itemSlug` in the payment metadata. The webhook handler uses `metadata.itemSlug` to look up grant amounts from the `store_items` table server-side — client-supplied `coinsGranted`/`starsGranted` metadata values are ignored for security.
+#### 3. Admin configuration (`/gate44/payments` and `/gate44/config`)
 
-```json
-// Required metadata when creating a DodoPayments payment session:
-{
-  "userId": "<user-uuid>",
-  "itemSlug": "coin_pack_500",   // must match store_items.slug
-  "itemType": "coin_pack",       // coin_pack | star_pack | subscription | room_subscription
-  "packName": "500 Coins",
-  "idempotencyKey": "<uuid>"
-}
-```
+- Set `payment_primary_provider` to `crypto` (global default) and/or enable specific currencies per payment context on `/gate44/payments` (business tier, subscriptions, coin/star packs, merch — each independently).
+- Set per-currency checkout discounts (JAGA defaults to 20% off, BNB/SOL to 0%).
+- The price feed (CoinGecko for BNB/SOL, DexScreener for JAGA) refreshes lazily on read — set a manual override rate per currency from the same page if a live fetch is ever unavailable, with an optional auto-expiry back to the live price.
 
-Ensure every active item in `store_items` has a non-null `slug` that exactly matches the `itemSlug` sent in DodoPayments metadata.
+#### 4. Token registry
+
+JAGA is a BEP-20 token on BNB Smart Chain (contract `0x6a093f2134f66d7625724bc775c3b437ea756588`, 18 decimals). To add a new supported currency later, add one entry to `apps/web/lib/payments/crypto/tokens.ts` (and a chain adapter in `apps/web/lib/payments/crypto/chains/` if it's a new chain).
 
 ### Creator Fund ad revenue tracking
 
@@ -1261,8 +1256,8 @@ To do a softer rotation, add a `JWT_SECRET_OLD` variable, temporarily validate t
 
 No downtime expected. Old key remains valid briefly during transition.
 
-1. Generate a new API key in the Paystack or DodoPayments dashboard.
-2. Update `PAYSTACK_SECRET_KEY` or `DODOPAYMENTS_API_KEY` in Vercel env vars.
+1. Generate a new API key in the Paystack dashboard (crypto has no API key to rotate — rotate your receiving wallets instead by updating `CRYPTO_RECEIVING_ADDRESS_BSC` / `CRYPTO_RECEIVING_ADDRESS_SOLANA`).
+2. Update `PAYSTACK_SECRET_KEY` in Vercel env vars.
 3. Trigger a redeployment.
 4. Revoke the old key in the payment provider dashboard after deployment succeeds.
 

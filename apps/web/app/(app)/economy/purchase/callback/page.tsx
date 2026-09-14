@@ -22,7 +22,7 @@ function CallbackContent() {
   const { t } = useTranslation();
   const searchParams = useSearchParams();
   const reference =
-    searchParams.get("reference") ?? searchParams.get("trxref");
+    searchParams?.get("reference") ?? searchParams?.get("trxref");
 
   const [status, setStatus] = useState<"loading" | "success" | "pending" | "error">(
     "loading",

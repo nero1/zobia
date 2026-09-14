@@ -98,7 +98,7 @@ function buildTreeFromFlat(flat: AnswerNode[], rootId: string): AnswerNode[] {
 
 export default function QuestionDetailPage() {
   const params = useParams<{ id: string }>();
-  const questionId = params.id;
+  const questionId = params?.id;
   const router = useRouter();
   const { t } = useTranslation();
   const currency = useCurrency();

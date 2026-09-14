@@ -36,12 +36,12 @@ const CATEGORIES: { value: MarketCategory | "all"; label: string }[] = [
 const PAGE_SIZE = 24;
 
 export default function MarketSectionPage() {
-  const { section } = useParams<{ section: string }>();
+  const { section } = useParams<{ section: string }>() ?? { section: "" };
   const searchParams = useSearchParams();
   const router = useRouter();
   const { t } = useTranslation();
 
-  const [view, setView] = useState<ViewMode>((searchParams.get("view") as ViewMode) || "grid");
+  const [view, setView] = useState<ViewMode>((searchParams?.get("view") as ViewMode) || "grid");
   const [category, setCategory] = useState<MarketCategory | "all">("all");
   const [sort, setSort] = useState<MarketSort>("popularity");
   const [items, setItems] = useState<MarketItem[]>([]);
@@ -85,7 +85,7 @@ export default function MarketSectionPage() {
 
   function updateView(v: ViewMode) {
     setView(v);
-    const params = new URLSearchParams(searchParams.toString());
+    const params = new URLSearchParams(searchParams?.toString());
     params.set("view", v);
     router.replace(`/market/${section}?${params.toString()}`);
   }

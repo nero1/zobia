@@ -2,9 +2,9 @@
  * apps/android/src/lib/payments/googlePlay.ts
  *
  * Google Play Billing — the *only* in-app purchase mechanism allowed on
- * Android (PRD §18; Paystack/DodoPayments are web/PWA-only). Covers coin
+ * Android (PRD §18; Paystack/crypto are web/PWA-only). Covers coin
  * packs, star packs, Plus/Pro/Max subscriptions, and Business Account
- * tiers (the Android equivalent of the Paystack/DodoPayments checkout used
+ * tiers (the Android equivalent of the Paystack/crypto checkout used
  * by apps/web/app/(app)/business and settings/business).
  *
  * Uses capacitor-plugin-cdv-purchase (a native Capacitor plugin — no Cordova

@@ -62,7 +62,7 @@ export default function BlogGiftsPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const blogParam = searchParams.get("blog");
+  const blogParam = searchParams?.get("blog");
   const [blogSlug, setBlogSlug] = useState<string | null>(null);
   const [tiers, setTiers] = useState<TierRow[]>([]);
   const [posts, setPosts] = useState<PostOption[]>([]);

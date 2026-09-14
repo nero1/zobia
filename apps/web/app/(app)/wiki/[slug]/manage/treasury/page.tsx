@@ -28,7 +28,7 @@ export default function WikiTreasuryPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const params = useParams<{ slug: string }>();
-  const slug = params.slug;
+  const slug = params?.slug;
 
   const [ready, setReady] = useState(false);
   const [treasury, setTreasury] = useState<TreasuryState | null>(null);

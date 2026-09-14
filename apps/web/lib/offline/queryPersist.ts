@@ -46,7 +46,7 @@
  *     the app).
  */
 
-import type { QueryClient } from "@tanstack/react-query";
+import type { DehydratedState, QueryClient } from "@tanstack/react-query";
 import { dehydrate, hydrate } from "@tanstack/react-query";
 
 /** Prefix shared by every per-user cache snapshot. */
@@ -154,7 +154,10 @@ export function hydrateQueryClient(client: QueryClient): void {
       window.localStorage.removeItem(storageKey(currentOwner));
       return;
     }
-    hydrate(client, parsed.state);
+    // The persisted blob's shape is only guaranteed by what we wrote in
+    // persistQueryClient below; a corrupt or stale snapshot is caught by the
+    // try/catch around this whole restore, not by this cast.
+    hydrate(client, parsed.state as Partial<DehydratedState>);
   } catch {
     /* corrupt / unavailable storage — ignore */
   }

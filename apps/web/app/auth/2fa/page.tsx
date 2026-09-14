@@ -14,7 +14,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 function TwoFAForm() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const preAuthToken = searchParams.get("token") ?? "";
+  const preAuthToken = searchParams?.get("token") ?? "";
 
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);

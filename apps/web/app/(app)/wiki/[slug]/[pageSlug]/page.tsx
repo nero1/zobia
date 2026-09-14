@@ -31,7 +31,7 @@ export default function WikiPageViewPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const params = useParams<{ slug: string; pageSlug: string }>();
-  const { slug, pageSlug } = params;
+  const { slug, pageSlug } = params ?? { slug: "", pageSlug: "" };
 
   const [page, setPage] = useState<WikiPageDetail | null | undefined>(undefined);
   const [canManage, setCanManage] = useState(false);

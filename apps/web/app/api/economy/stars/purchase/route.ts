@@ -29,9 +29,11 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { initializePayment } from "@/lib/payments";
-import { loadManifest } from "@/lib/manifest";
+import { serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { env } from "@/lib/env";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
+import { grantFreePayment } from "@/lib/payments/freeGrant";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -39,7 +41,9 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 const StarPurchaseSchema = z.object({
   packId: z.string().uuid("packId must be a valid UUID"),
-  paymentProvider: z.enum(["paystack", "dodopayments"]).optional(),
+  paymentProvider: z.enum(["paystack", "crypto"]).optional(),
+  /** Required when paymentProvider === "crypto". */
+  cryptoCurrency: z.enum(["JAGA", "BNB", "SOL"]).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -69,7 +73,7 @@ interface UserRow {
 /**
  * Initiate a Stars pack purchase.
  *
- * Body: { packId: string, paymentProvider?: "paystack" | "dodopayments" }
+ * Body: { packId: string, paymentProvider?: "paystack" | "crypto", cryptoCurrency?: "JAGA" | "BNB" | "SOL" }
  * Returns: { paymentUrl: string, paymentReference: string, pack: {...} }
  */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
@@ -149,16 +153,37 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // 5. Initialize payment with the provider
     const returnUrl = `${env.NEXT_PUBLIC_APP_URL}/economy/purchase/callback`;
+
+    const isNigeria = await getUserIsNigeria(userId);
+    const decision = await enforcePaymentContext("star_purchase", isNigeria, body.paymentProvider, body.cryptoCurrency);
+
     const metadata = {
       userId,
       packId: pack.id,
       packName: pack.name,
       starsGranted: pack.stars_granted,
       itemType: "star_pack",
+      ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
     };
 
-    const manifest = await loadManifest();
-    const provider = manifest.payment.primaryProvider as "paystack" | "dodopayments";
+    if (decision.isFree) {
+      await grantFreePayment({
+        userId,
+        paymentType: "star_purchase",
+        amountKobo: pack.price_kobo,
+        currency: pack.currency,
+        idempotencyKey,
+        metadata: metadata as never,
+      });
+      return NextResponse.json({
+        paymentUrl: "",
+        paymentReference: idempotencyKey,
+        free: true,
+        pack: { id: pack.id, name: pack.name, starsGranted: pack.stars_granted, priceKobo: pack.price_kobo, currency: pack.currency },
+      });
+    }
+
+    const provider = decision.provider;
 
     const paymentResult = await initializePayment(
       pack.price_kobo,
@@ -166,17 +191,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       email,
       idempotencyKey,
       metadata,
-      returnUrl
+      returnUrl,
+      provider
     );
 
     const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };
+    const computed = provider === "crypto" ? (paymentResult.raw as ComputedAmount) : null;
 
     // 6. Persist the pending payment record
     await db.query(
       `INSERT INTO payments
          (user_id, payment_type, amount_kobo, currency, provider, status,
-          idempotency_key, provider_reference, metadata)
-       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8)`,
+          idempotency_key, provider_reference, metadata, chain, token_symbol, wallet_address, expected_token_amount)
+       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12)`,
       [
         userId,
         'star_purchase', // BUG-FIN-18: was 'coin_purchase'; this is a star pack
@@ -186,12 +213,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         idempotencyKey,
         paymentResult.providerReference,
         JSON.stringify(metadataWithUrl),
+        computed?.chain ?? null,
+        computed?.currency ?? null,
+        computed?.receivingAddress ?? null,
+        computed ? computed.expectedBaseUnits.toString() : null,
       ]
     );
 
     return NextResponse.json({
       paymentUrl: paymentResult.paymentUrl,
       paymentReference: paymentResult.providerReference,
+      crypto: computed ? serializeComputedAmount(computed) : null,
       pack: {
         id: pack.id,
         name: pack.name,

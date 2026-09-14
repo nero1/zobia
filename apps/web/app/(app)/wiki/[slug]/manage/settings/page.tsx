@@ -30,7 +30,7 @@ export default function WikiSettingsPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const params = useParams<{ slug: string }>();
-  const slug = params.slug;
+  const slug = params?.slug;
 
   const [wiki, setWiki] = useState<WikiRow | null>(null);
   const [name, setName] = useState("");

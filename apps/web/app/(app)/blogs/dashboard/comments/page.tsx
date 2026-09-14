@@ -35,7 +35,7 @@ export default function BlogCommentsModerationPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const blogParam = searchParams.get("blog");
+  const blogParam = searchParams?.get("blog");
   const [blogSlug, setBlogSlug] = useState<string | null>(null);
   const [posts, setPosts] = useState<PostRow[]>([]);
   const [byPost, setByPost] = useState<Record<string, CommentRow[]>>({});

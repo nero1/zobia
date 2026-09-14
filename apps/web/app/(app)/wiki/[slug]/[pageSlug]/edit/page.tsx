@@ -98,7 +98,7 @@ export default function EditWikiPagePage() {
   const { t } = useTranslation();
   const router = useRouter();
   const params = useParams<{ slug: string; pageSlug: string }>();
-  const { slug, pageSlug } = params;
+  const { slug, pageSlug } = params ?? { slug: "", pageSlug: "" };
   const [initial, setInitial] = useState<WikiPageEditorInitial | null>(null);
   const [canContribute, setCanContribute] = useState<boolean | undefined>(undefined);
 

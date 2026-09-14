@@ -100,10 +100,65 @@ export function createDelimitedStream(delimiter: "," | "\t"): DelimitedStreamWri
   return new DelimitedStreamWriter(delimiter);
 }
 
+/**
+ * Incremental plain-text (.txt) writer: one raw value per line, no header,
+ * no escaping/quoting — used by the "export wallet addresses only" quick
+ * preset, where the output is meant to be pasted straight into another tool
+ * (a spreadsheet column, an allowlist file, etc.) without CSV punctuation.
+ */
+export class PlainLineStreamWriter {
+  private controller: ReadableStreamDefaultController<Uint8Array> | null = null;
+  private encoder = new TextEncoder();
+  private stream: ReadableStream<Uint8Array>;
+  private pending: string[] = [];
+  private closed = false;
+
+  constructor() {
+    this.stream = new ReadableStream<Uint8Array>({
+      start: (controller) => {
+        this.controller = controller;
+        for (const chunk of this.pending) controller.enqueue(this.encoder.encode(chunk));
+        this.pending = [];
+        if (this.closed) controller.close();
+      },
+    });
+  }
+
+  private enqueue(line: string): void {
+    if (this.controller) {
+      this.controller.enqueue(this.encoder.encode(line));
+    } else {
+      this.pending.push(line);
+    }
+  }
+
+  /** Writes one line — skipped entirely (not even a blank line) when value is null/undefined/empty. */
+  writeLine(value: string | null | undefined): void {
+    if (!value) return;
+    this.enqueue(`${value}\n`);
+  }
+
+  close(): void {
+    this.closed = true;
+    if (this.controller) {
+      this.controller.close();
+    }
+  }
+
+  toReadableStream(): ReadableStream<Uint8Array> {
+    return this.stream;
+  }
+}
+
+export function createPlainLineStream(): PlainLineStreamWriter {
+  return new PlainLineStreamWriter();
+}
+
 /** MIME content types for each supported export format. */
 export const EXPORT_CONTENT_TYPES = {
   csv: "text/csv; charset=utf-8",
   tsv: "text/tab-separated-values; charset=utf-8",
   xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ndjson: "application/x-ndjson; charset=utf-8",
+  txt: "text/plain; charset=utf-8",
 } as const;

@@ -50,7 +50,7 @@ function isAllowedRedirect(redirect: string): boolean {
 
 function TelegramMobileContent() {
   const searchParams = useSearchParams();
-  const rawRedirect = searchParams.get("redirect") ?? "";
+  const rawRedirect = searchParams?.get("redirect") ?? "";
   const redirect = isAllowedRedirect(rawRedirect) ? rawRedirect : "";
 
   const containerRef = useRef<HTMLDivElement>(null);

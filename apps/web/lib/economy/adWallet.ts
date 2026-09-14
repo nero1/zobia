@@ -12,7 +12,7 @@
  *    in one transaction — see POST /api/business/ads/wallet/transfer).
  *  - Direct purchase via the existing payment-provider flow, with
  *    `destination: "ad_wallet"` routing the webhook's credit here instead of
- *    to coin_balance (see lib/payments/dodoWebhookHandler.ts / paystackWebhookHandler.ts).
+ *    to coin_balance (see lib/payments/paystackWebhookHandler.ts and lib/payments/crypto/).
  *
  * Campaign funding (lib/ads/repo.ts fundCampaign) debits from here, not from
  * coin_balance — ads only run once this balance actually has funds in it.

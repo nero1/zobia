@@ -72,7 +72,7 @@ export async function getBusinessTierPriceKobo(tier: string): Promise<number> {
 }
 
 /**
- * Length of one Business Account billing period. Paystack/DodoPayments
+ * Length of one Business Account billing period. Paystack/crypto
  * checkout here is a one-off charge (no native recurring subscription like
  * the personal Plus/Pro/Max flow), so business_accounts.current_period_ends_at
  * is set to now + this many days on signup/upgrade/renewal, and the daily

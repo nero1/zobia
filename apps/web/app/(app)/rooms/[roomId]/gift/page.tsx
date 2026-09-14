@@ -24,7 +24,7 @@ interface GiftTier {
 export default function RoomGiftPage() {
   const params = useParams();
   const router = useRouter();
-  const roomId = params.roomId as string;
+  const roomId = params?.roomId as string;
   const currency = useCurrency();
   const { t } = useTranslation();
 

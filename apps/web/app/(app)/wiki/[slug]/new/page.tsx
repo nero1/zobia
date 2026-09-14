@@ -20,11 +20,11 @@ export default function NewWikiPagePage() {
   const [canContribute, setCanContribute] = useState<boolean | undefined>(undefined);
 
   useEffect(() => {
-    fetch(`/api/wiki/${params.slug}`, { credentials: "include" })
+    fetch(`/api/wiki/${params?.slug}`, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
       .then((json) => setCanContribute(!!json?.data?.canContribute))
       .catch(() => setCanContribute(false));
-  }, [params.slug]);
+  }, [params?.slug]);
 
   if (canContribute === undefined) return null;
   if (!canContribute) {
@@ -35,5 +35,5 @@ export default function NewWikiPagePage() {
     );
   }
 
-  return <WikiPageEditor wikiSlug={params.slug} />;
+  return <WikiPageEditor wikiSlug={params?.slug ?? ""} />;
 }

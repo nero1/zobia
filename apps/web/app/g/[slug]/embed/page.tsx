@@ -20,10 +20,10 @@ interface GameSummary {
 }
 
 export default function EmbedGamePage() {
-  const { slug } = useParams<{ slug: string }>();
+  const { slug } = useParams<{ slug: string }>() ?? { slug: "" };
   const sp = useSearchParams();
-  const t = sp.get("t") ?? undefined;
-  const c = sp.get("c") ?? undefined;
+  const t = sp?.get("t") ?? undefined;
+  const c = sp?.get("c") ?? undefined;
   const [token, setToken] = useState<string | null>(t ?? null);
   const [game, setGame] = useState<GameSummary | null>(null);
   const [error, setError] = useState<string | null>(null);

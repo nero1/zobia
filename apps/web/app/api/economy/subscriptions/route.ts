@@ -19,9 +19,11 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, conflict, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { initializePayment } from "@/lib/payments";
-import { loadManifest } from "@/lib/manifest";
+import { serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { randomUUID } from "crypto";
 import { env } from "@/lib/env";
+import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
+import { grantFreePayment } from "@/lib/payments/freeGrant";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -128,9 +130,14 @@ const SubscribeSchema = z.object({
   billingCycle: z.enum(["monthly", "annual"]).optional(),
   /** Alias for billingCycle — accepted for backwards compatibility with older clients. */
   interval: z.enum(["monthly", "annual"]).optional(),
+  paymentProvider: z.enum(["paystack", "crypto"]).optional(),
+  /** Required when paymentProvider === "crypto". */
+  cryptoCurrency: z.enum(["JAGA", "BNB", "SOL"]).optional(),
 }).transform((d) => ({
   planId: d.planId,
   plan: d.plan,
+  paymentProvider: d.paymentProvider,
+  cryptoCurrency: d.cryptoCurrency,
   billingCycle: d.billingCycle ?? d.interval,
 })).refine(
   (d) => d.planId !== undefined || (d.plan !== undefined && d.billingCycle !== undefined),
@@ -203,6 +210,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const idempotencyKey = `subscription-${userId}-${plan.id}-${randomUUID()}`;
 
     const returnUrl = `${env.NEXT_PUBLIC_APP_URL}/settings/subscription/callback`;
+
+    const isNigeria = await getUserIsNigeria(userId);
+    const decision = await enforcePaymentContext("subscription", isNigeria, body.paymentProvider, body.cryptoCurrency);
+
     const metadata = {
       userId,
       planId: plan.id,
@@ -210,10 +221,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       interval: plan.interval,
       type: "subscription",
       itemType: "subscription",
+      ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
     };
 
-    const manifest = await loadManifest();
-    const provider = manifest.payment.primaryProvider as "paystack" | "dodopayments";
+    if (decision.isFree) {
+      await grantFreePayment({
+        userId,
+        paymentType: "subscription",
+        amountKobo: plan.price_kobo,
+        currency: plan.currency,
+        idempotencyKey,
+        metadata: metadata as never,
+      });
+      return NextResponse.json({
+        paymentUrl: "",
+        paymentReference: idempotencyKey,
+        free: true,
+        plan: { id: plan.id, plan: plan.plan, name: plan.name, priceKobo: plan.price_kobo, currency: plan.currency, interval: plan.interval },
+      });
+    }
+
+    const provider = decision.provider;
 
     const paymentResult = await initializePayment(
       plan.price_kobo,
@@ -221,17 +249,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       email,
       idempotencyKey,
       metadata,
-      returnUrl
+      returnUrl,
+      provider
     );
 
     const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };
+    const computed = provider === "crypto" ? (paymentResult.raw as ComputedAmount) : null;
 
     // Store pending payment
     await db.query(
       `INSERT INTO payments
          (user_id, payment_type, amount_kobo, currency, provider, status,
-          idempotency_key, provider_reference, metadata)
-       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8)`,
+          idempotency_key, provider_reference, metadata, chain, token_symbol, wallet_address, expected_token_amount)
+       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12)`,
       [
         userId,
         'subscription',
@@ -241,12 +271,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         idempotencyKey,
         paymentResult.providerReference,
         JSON.stringify(metadataWithUrl),
+        computed?.chain ?? null,
+        computed?.currency ?? null,
+        computed?.receivingAddress ?? null,
+        computed ? computed.expectedBaseUnits.toString() : null,
       ]
     );
 
     return NextResponse.json({
       paymentUrl: paymentResult.paymentUrl,
       paymentReference: paymentResult.providerReference,
+      crypto: computed ? serializeComputedAmount(computed) : null,
       plan: {
         id: plan.id,
         plan: plan.plan,

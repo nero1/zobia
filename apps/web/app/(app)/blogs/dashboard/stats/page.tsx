@@ -42,7 +42,7 @@ export default function BlogStatsPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const blogParam = searchParams.get("blog");
+  const blogParam = searchParams?.get("blog");
   const [blogSlug, setBlogSlug] = useState<string | null>(null);
   const [tier, setTier] = useState<string>("basic");
   const [totals, setTotals] = useState<Totals | null>(null);

@@ -15,7 +15,7 @@ export default function NewBlogPostPage() {
   const searchParams = useSearchParams();
   const [blogSlug, setBlogSlug] = useState<string | null | undefined>(undefined);
 
-  const blogParam = searchParams.get("blog");
+  const blogParam = searchParams?.get("blog");
 
   useEffect(() => {
     fetch("/api/blogs/me", { credentials: "include" })
@@ -33,6 +33,6 @@ export default function NewBlogPostPage() {
 
   if (!blogSlug) return null;
 
-  const type = searchParams.get("type") === "page" ? "page" : "article";
+  const type = searchParams?.get("type") === "page" ? "page" : "article";
   return <PostEditor blogSlug={blogSlug} initialType={type} />;
 }

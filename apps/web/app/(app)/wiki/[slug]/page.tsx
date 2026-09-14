@@ -42,7 +42,7 @@ interface WikiPageSummary {
 export default function WikiHomePage() {
   const { t } = useTranslation();
   const params = useParams<{ slug: string }>();
-  const slug = params.slug;
+  const slug = params?.slug;
 
   const [wiki, setWiki] = useState<WikiDetail | null | undefined>(undefined);
   const [canManage, setCanManage] = useState(false);

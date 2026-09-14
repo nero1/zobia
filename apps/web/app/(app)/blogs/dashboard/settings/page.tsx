@@ -57,7 +57,7 @@ export default function BlogSettingsPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const blogParam = searchParams.get("blog");
+  const blogParam = searchParams?.get("blog");
   const [blog, setBlog] = useState<BlogRow | null>(null);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [newCategory, setNewCategory] = useState("");

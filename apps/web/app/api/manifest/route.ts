@@ -124,7 +124,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         primaryProvider: manifest.payment.primaryProvider,
         currenciesAccepted: manifest.payment.currenciesAccepted,
         paystackEnabled: manifest.payment.paystackEnabled,
-        dodopaymentsEnabled: manifest.payment.dodopaymentsEnabled,
+        cryptoEnabled: manifest.payment.cryptoEnabled,
       },
       // CAPTCHA config: expose provider + site key only (never secret keys)
       captchaProvider: manifest.captchaProvider,

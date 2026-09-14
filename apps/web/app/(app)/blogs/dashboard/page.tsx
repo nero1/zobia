@@ -45,7 +45,7 @@ export default function BlogDashboardPage() {
   const { t } = useTranslation();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const blogParam = searchParams.get("blog");
+  const blogParam = searchParams?.get("blog");
   const [blogs, setBlogs] = useState<BlogRow[]>([]);
   const [blog, setBlog] = useState<BlogRow | null | undefined>(undefined);
   const [type, setType] = useState<TypeTab>("article");

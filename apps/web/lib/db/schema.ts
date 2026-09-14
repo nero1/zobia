@@ -2172,6 +2172,12 @@ export const payments = pgTable("payments", {
   referenceId: text("reference_id"),
   paymentUrl: text("payment_url"),
   metadata: jsonb("metadata"),
+  // Migration 0053: crypto payments (chain adapter verification columns).
+  chain: text("chain"),
+  tokenSymbol: text("token_symbol"),
+  txHash: text("tx_hash"),
+  walletAddress: text("wallet_address"),
+  expectedTokenAmount: numeric("expected_token_amount", { precision: 38, scale: 0 }),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
@@ -2631,6 +2637,52 @@ export const creatorWalletAddresses = pgTable("creator_wallet_addresses", {
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
+});
+
+// Migration 0053: user-owned wallets used to *send* crypto payments — kept
+// distinct from creatorWalletAddresses above, which is where a creator
+// *receives* payouts.
+export const userCryptoWallets = pgTable("user_crypto_wallets", {
+  id: uuidPk(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  chain: text("chain").notNull(),
+  address: text("address").notNull(),
+  label: text("label"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Migration 0053: admin manual USD price override per crypto currency.
+export const cryptoExchangeRateOverrides = pgTable("crypto_exchange_rate_overrides", {
+  id: uuidPk(),
+  tokenSymbol: text("token_symbol").notNull().unique(),
+  usdPrice: numeric("usd_price", { precision: 24, scale: 10 }).notNull(),
+  setByAdminId: uuid("set_by_admin_id").references(() => users.id, { onDelete: "set null" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Migration 0053: last-fetched live crypto USD price, for the lazy-refresh
+// cache in lib/payments/crypto/priceFeed.ts.
+export const cryptoPriceCache = pgTable("crypto_price_cache", {
+  tokenSymbol: text("token_symbol").primaryKey(),
+  usdPrice: numeric("usd_price", { precision: 24, scale: 10 }).notNull(),
+  source: text("source").notNull().default("live"),
+  fetchedAt: timestamp("fetched_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Migration 0053: per payment-context (business tier, subscription, coins,
+// stars, merch, ...) independent Paystack / crypto-currency / free toggles.
+export const paymentContextSettings = pgTable("payment_context_settings", {
+  contextKey: text("context_key").primaryKey(),
+  paystackEnabled: boolean("paystack_enabled").notNull().default(true),
+  cryptoEnabledCurrencies: jsonb("crypto_enabled_currencies").notNull().default([]),
+  isFree: boolean("is_free").notNull().default(false),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const payoutDeadLetterQueue = pgTable("payout_dead_letter_queue", {
@@ -5229,6 +5281,13 @@ export type CreatorBankAccount = typeof creatorBankAccounts.$inferSelect;
 export type NewCreatorBankAccount = typeof creatorBankAccounts.$inferInsert;
 export type CreatorWalletAddress = typeof creatorWalletAddresses.$inferSelect;
 export type NewCreatorWalletAddress = typeof creatorWalletAddresses.$inferInsert;
+export type UserCryptoWallet = typeof userCryptoWallets.$inferSelect;
+export type NewUserCryptoWallet = typeof userCryptoWallets.$inferInsert;
+export type CryptoExchangeRateOverride = typeof cryptoExchangeRateOverrides.$inferSelect;
+export type NewCryptoExchangeRateOverride = typeof cryptoExchangeRateOverrides.$inferInsert;
+export type CryptoPriceCacheRow = typeof cryptoPriceCache.$inferSelect;
+export type PaymentContextSettingsRow = typeof paymentContextSettings.$inferSelect;
+export type NewPaymentContextSettingsRow = typeof paymentContextSettings.$inferInsert;
 export type PayoutDeadLetterQueueEntry = typeof payoutDeadLetterQueue.$inferSelect;
 export type NewPayoutDeadLetterQueueEntry = typeof payoutDeadLetterQueue.$inferInsert;
 export type CreatorKyc = typeof creatorKyc.$inferSelect;
@@ -5652,6 +5711,10 @@ export const schema = {
   creatorPayouts,
   creatorBankAccounts,
   creatorWalletAddresses,
+  userCryptoWallets,
+  cryptoExchangeRateOverrides,
+  cryptoPriceCache,
+  paymentContextSettings,
   payoutDeadLetterQueue,
   creatorKyc,
   kycSubmissions,

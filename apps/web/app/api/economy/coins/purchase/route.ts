@@ -24,8 +24,10 @@ import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { initializePayment } from "@/lib/payments";
-import { loadManifest } from "@/lib/manifest";
+import { serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { env } from "@/lib/env";
+import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
+import { grantFreePayment } from "@/lib/payments/freeGrant";
 
 // ---------------------------------------------------------------------------
 // Request schema
@@ -38,7 +40,9 @@ const PurchaseSchema = z.object({
    * Payment provider to use. If omitted the active manifest provider is used.
    * Explicitly specifying allows mobile apps to force a provider.
    */
-  paymentProvider: z.enum(["paystack", "dodopayments"]).optional(),
+  paymentProvider: z.enum(["paystack", "crypto"]).optional(),
+  /** Required when paymentProvider === "crypto". */
+  cryptoCurrency: z.enum(["JAGA", "BNB", "SOL"]).optional(),
   /**
    * Client-generated UUID for idempotency. The same value on a retry reuses
    * the existing pending payment; a new UUID starts a fresh payment session.
@@ -80,7 +84,7 @@ interface UserRow {
 /**
  * POST /api/economy/coins/purchase
  *
- * Body: { packId: string, paymentProvider?: "paystack" | "dodopayments" }
+ * Body: { packId: string, paymentProvider?: "paystack" | "crypto", cryptoCurrency?: "JAGA" | "BNB" | "SOL" }
  * Returns: { paymentUrl: string, paymentReference: string }
  */
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
@@ -154,6 +158,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     const returnUrl = `${env.NEXT_PUBLIC_APP_URL}/economy/purchase/callback`;
+
+    // Server-side enforcement of the admin-configured payment_context_settings
+    // for this pack type — never trust the client's requested provider/currency
+    // without re-checking it here (a client could otherwise bypass the
+    // gate44/payments toggles by calling this API directly).
+    const contextKey = pack.item_type === "star_pack" ? "star_purchase" : "coin_purchase";
+    const isNigeria = await getUserIsNigeria(userId);
+    const decision = await enforcePaymentContext(contextKey, isNigeria, body.paymentProvider, body.cryptoCurrency);
+
     const metadata = {
       userId,
       packId: pack.id,
@@ -161,20 +174,28 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       coinsGranted: pack.coins_granted,
       itemType: pack.item_type,
       destination: body.destination,
+      ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
     };
 
-    const manifest = await loadManifest();
-    const VALID_PROVIDERS = ["paystack", "dodopayments"] as const;
-    type Provider = typeof VALID_PROVIDERS[number];
-    const requestedProvider = body.paymentProvider;
-    let provider: Provider;
-    if (requestedProvider && (VALID_PROVIDERS as readonly string[]).includes(requestedProvider)) {
-      provider = requestedProvider as Provider;
-    } else if (requestedProvider) {
-      throw badRequest(`Payment provider '${requestedProvider}' is not active`, "INVALID_PROVIDER");
-    } else {
-      provider = manifest.payment.primaryProvider as Provider;
+    // Admin has flipped this context free — grant immediately, no provider involved.
+    if (decision.isFree) {
+      await grantFreePayment({
+        userId,
+        paymentType: "coin_purchase",
+        amountKobo: pack.price_kobo,
+        currency: pack.currency,
+        idempotencyKey,
+        metadata: metadata as never,
+      });
+      return NextResponse.json({
+        paymentUrl: "",
+        paymentReference: idempotencyKey,
+        free: true,
+        pack: { id: pack.id, name: pack.name, coinsGranted: pack.coins_granted, priceKobo: pack.price_kobo, currency: pack.currency },
+      });
     }
+
+    const provider = decision.provider;
 
     // 5. Persist the payment record FIRST (provider_reference NULL until the provider call
     //    succeeds). This ensures that if the provider call succeeds but our subsequent DB
@@ -201,7 +222,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const paymentDbId = insertRows[0]?.id;
 
     // 6. Initialize payment with the provider
-    let paymentResult: { paymentUrl: string; providerReference: string };
+    let paymentResult: { paymentUrl: string; providerReference: string; raw: unknown };
     try {
       paymentResult = await initializePayment(
         pack.price_kobo,
@@ -232,9 +253,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       [paymentResult.providerReference, JSON.stringify(metadataWithUrl), paymentDbId]
     );
 
+    if (provider === "crypto" && paymentDbId) {
+      const { applyCryptoComputedAmount } = await import("@/lib/payments/crypto");
+      await applyCryptoComputedAmount(paymentDbId, paymentResult.raw);
+    }
+
     return NextResponse.json({
       paymentUrl: paymentResult.paymentUrl,
       paymentReference: paymentResult.providerReference,
+      crypto: provider === "crypto" ? serializeComputedAmount(paymentResult.raw as ComputedAmount) : undefined,
       pack: {
         id: pack.id,
         name: pack.name,
