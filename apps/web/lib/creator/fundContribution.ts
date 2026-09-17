@@ -11,7 +11,7 @@
  *
  * The percentage per activity is now admin-configurable via the existing
  * generic x_manifest config panel (/gate44/config — see migration
- * 0009_creator_fund_config.sql for the seeded keys/defaults, which match the
+ * 0001_consolidated_schema.sql for the seeded keys/defaults, which match the
  * prior hard-coded 5% exactly so nothing changes until an admin edits it).
  */
 

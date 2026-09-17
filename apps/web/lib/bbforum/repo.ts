@@ -3,7 +3,7 @@
  *
  * Data layer for the old-school BB-style forum (boards → threads → posts).
  * Distinct from lib/forum/* (the "Answers" Q&A feature) — see migrations
- * 0016_bbforum.sql and 0032_bbforum_full.sql for the schema.
+ * 0001_consolidated_schema.sql and 0001_consolidated_schema.sql for the schema.
  *
  * `body` always stores the RAW source (plain text or Markdown, per
  * `content_format`) — never pre-rendered HTML — so posts can be re-opened

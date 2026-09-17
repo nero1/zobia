@@ -24,7 +24,7 @@ import { logger } from "@/lib/logger";
 
 /**
  * Absolute, non-admin-configurable safety ceiling on Tweet content length —
- * mirrored as a DB CHECK constraint in 0039_tweets.sql. The real effective
+ * mirrored as a DB CHECK constraint in 0001_consolidated_schema.sql. The real effective
  * limit (default vs. long-form vs. personal) is computed below and is
  * always <= this.
  */

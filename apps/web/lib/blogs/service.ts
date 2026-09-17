@@ -990,7 +990,7 @@ export async function transferBlogOwnership(blogId: string, moderatorId: string,
 // ---------------------------------------------------------------------------
 // Per-post credit treasury/pot — the first `maxClaimants` people to comment
 // on or share a post split `fundedAmount` Credits evenly (Credits only per
-// product spec). See db/migrations/0020_blog_post_treasury.sql.
+// product spec). See db/migrations/0001_consolidated_schema.sql.
 // ---------------------------------------------------------------------------
 
 export interface TreasuryState {
@@ -1135,7 +1135,7 @@ export async function recordShare(postId: string, userId: string): Promise<{ sha
 // blog_monetization_enabled (all three, mirroring the paywall/treasury
 // kill-switch wiring above). Blog-level reward pots for custom_reward tiers
 // reuse blog_post_treasuries with post_id NULL / gift_tier_id set — see
-// db/migrations/0024_blog_gifts.sql.
+// db/migrations/0001_consolidated_schema.sql.
 //
 // Revenue share: gift purchases follow the exact same creator revenue-share
 // convention as paywall unlocks (getBlogRevSharePct + provider fee/VAT for

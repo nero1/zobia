@@ -2795,7 +2795,7 @@ parallel system.
   `app/sitemap.ts` (capped at 2000, same convention as rooms/courses/games).
   `/a/` is public in `middleware.ts` (`PUBLIC_PREFIXES`) and allowed in
   `app/robots.ts`.
-- **Seed migration**: `db/migrations/0040_forum_seo.sql` adds the
+- **Seed migration**: `db/migrations/0001_consolidated_schema.sql` adds the
   `forum_categories` table + the `slug`/`category_id` columns on
   `forum_questions`, backfills slugs for any pre-existing questions, and
   seeds the 8 categories above (reference taxonomy — always present).
@@ -3199,10 +3199,10 @@ Migrations 0019–0024 (v2.14) extend this: `blog_posts` gains
 (§ 32.8), `blog_themes` (§ 32.4.1), `blog_contact_messages` (§ 32.11), and
 `blog_gift_tiers`/`blog_gift_purchases`/`blog_gift_claims` (§ 32.12) — see
 those sections for detail. Full list of blog-related migration files, in
-apply order: `0018_blogs_multi.sql`, `0019_blog_post_content_format.sql`,
-`0020_blog_post_treasury.sql`, `0021_blog_menu_seo.sql`,
-`0022_blog_themes.sql`, `0023_blog_default_pages.sql`,
-`0024_blog_gifts.sql`.
+apply order: `0001_consolidated_schema.sql`, `0001_consolidated_schema.sql`,
+`0001_consolidated_schema.sql`, `0001_consolidated_schema.sql`,
+`0001_consolidated_schema.sql`, `0001_consolidated_schema.sql`,
+`0001_consolidated_schema.sql`.
 
 ### 32.7 Editor mode: Markdown or plain text (v2.14)
 
@@ -3468,7 +3468,7 @@ tickets go straight to the human queue with no AI involvement.
   `ai_rejected`/`message_added`/`charged`) — escalation/assignment history
   lives here instead of a separate table, per the platform's
   no-table-sprawl convention.
-- New migration: `db/migrations/0033_support_tickets.sql` (adds
+- New migration: `db/migrations/0001_consolidated_schema.sql` (adds
   `users.is_support`/`is_senior_support`, the three tables above, and
   seeds the `x_manifest` defaults in §33.0-33.2).
 
@@ -3539,7 +3539,7 @@ to `/help/search`; results link straight to the doc.
   `difficulty`, `seo_title`/`seo_description`, `published`, `view_count`,
   a generated/maintained `search_vector` (trigger-updated on
   title/body change).
-- New migration: `db/migrations/0034_help_center.sql` (both tables, the
+- New migration: `db/migrations/0001_consolidated_schema.sql` (both tables, the
   search trigger, the `slug_redirects` check-constraint widening, and the
   `x_manifest` seed defaults in §34.3).
 
@@ -3636,7 +3636,7 @@ Every feature decision on Zobia is tested against this checklist. If any answer 
 
 ### v1.74 — Changelog
 
-- **SQL migration fix (0025):** Dollar-quoted policy blocks in `CREATE POLICY` statements inside `DO $...$` blocks no longer double-escape single quotes — all four affected RLS policies (messages, kyc_submissions, creator_kyc, failed_xp_awards) corrected. *(Note, added in v2.02: this entry predates the v2.00 migration-file consolidation — the numbered file `0025` no longer exists, and the identity-KYC tables it references (`kyc_submissions`/`kyc_documents`) were not even part of the schema at the time this fix landed (they were added later, in `0005_kyc_verification.sql`, post-consolidation). `kyc_submissions`/`kyc_documents` in fact had zero RLS until `0007_kyc_rls.sql` — see the v2.02 changelog below for the actual fix.)*
+- **SQL migration fix (0025):** Dollar-quoted policy blocks in `CREATE POLICY` statements inside `DO $...$` blocks no longer double-escape single quotes — all four affected RLS policies (messages, kyc_submissions, creator_kyc, failed_xp_awards) corrected. *(Note, added in v2.02: this entry predates the v2.00 migration-file consolidation — the numbered file `0025` no longer exists, and the identity-KYC tables it references (`kyc_submissions`/`kyc_documents`) were not even part of the schema at the time this fix landed (they were added later, in `0001_consolidated_schema.sql`, post-consolidation). `kyc_submissions`/`kyc_documents` in fact had zero RLS until `0001_consolidated_schema.sql` — see the v2.02 changelog below for the actual fix.)*
 - **Quest deck shuffle (CSPRNG):** Replaced `ORDER BY MD5(JWT_SECRET || id)` with application-layer Fisher-Yates shuffle using `crypto.randomBytes` rejection-sampling, eliminating the MD5 bias and removing the JWT secret from DB queries entirely.
 - **Cache headers:** Added correct `Cache-Control` headers to six previously uncached API routes: `/api/games/[slug]/leaderboard`, `/api/config/games`, `/api/config/rewards-ui`, `/api/announcements/banner`, `/api/announcements/modal`, `/api/leaderboards/banner`.
 - **Rate-limit cookie clearing:** All rate-limit error paths now clear all session and OAuth cookies before returning the error, preventing stale cookie loops.
@@ -3802,7 +3802,7 @@ Introduced human-readable, crawlable, shareable public URLs across web, PWA and 
 
 - **Public URL scheme:** `/u/<username>` (profiles), `/r/<slug>` (Rooms), `/c/<slug>` (courses/classrooms), `/g/<slug>` (games — upcoming). See "Public URL Structure — SEO-Friendly Slugs".
 - **Identifier model:** immutable UUID stays the internal reference; a mutable, unique **slug** is the public alias. Duplicate names get a numeric suffix with no separator (`dorcas-cuisine`, `dorcas-cuisine2`). Slug source of truth: `slugify` in `@zobia/shared/utils` + DB dedupe in `apps/web/lib/slug.ts`.
-- **New schema (migration `0012_slugs_and_referrals.sql`):** `rooms.slug` (+ partial unique index, backfilled for existing rooms), new `games` table, new `slug_redirects` table (rename history for 301s).
+- **New schema (migration `0001_consolidated_schema.sql`):** `rooms.slug` (+ partial unique index, backfilled for existing rooms), new `games` table, new `slug_redirects` table (rename history for 301s).
 - **Backward compatible:** legacy `/r/<uuid>` links and retired slugs 301-redirect to the canonical slug. Sitemap, `canonical` tags and `robots.txt` use slug paths.
 - **Referral param stays `?r=`** (not `?ref=`/`?utm=`) and now works when attached to ANY public page. Capture is automatic: `ReferralCapture` (web/PWA, cookie + localStorage) and `useReferralCaptureFromLink` (Expo, MMKV); replayed at `/onboarding/complete` then cleared. Previously the web onboarding never sent the captured code — now fixed.
 - **Deep linking:** Expo universal-link screens (`/u`, `/r`, `/c`, `/g`) resolve slugs to UUIDs via new `GET /api/public/resolve`. iOS Universal Links (`apple-app-site-association`) added; Android `assetlinks.json` package name corrected to `org.zobia.social`.
@@ -4688,7 +4688,7 @@ Added `"home.dailyLoginXP": "Daily login: +{{xp}} XP"` to both `apps/expo/lib/i1
 
 #### Gifts — Fixed 500 Error on `/gifts` and Gifts Hub History
 
-`GET /api/economy/gifts` joined `gift_types gt ON gt.id = gi.gift_type_id`, but `gift_type_id` was added to the `gifts` table by migration `0010_gift_type_fk.sql` — not to `gift_items` (aliased `gi` in this query). Every call threw `column gi.gift_type_id does not exist`, so the `/gifts` page and both Received/Sent history tabs always showed "An unexpected error occurred." Fixed the join to reference `g.gift_type_id` (the `gifts` row alias), matching the working join in `/api/economy/gifts/send`.
+`GET /api/economy/gifts` joined `gift_types gt ON gt.id = gi.gift_type_id`, but `gift_type_id` was added to the `gifts` table by migration `0001_consolidated_schema.sql` — not to `gift_items` (aliased `gi` in this query). Every call threw `column gi.gift_type_id does not exist`, so the `/gifts` page and both Received/Sent history tabs always showed "An unexpected error occurred." Fixed the join to reference `g.gift_type_id` (the `gifts` row alias), matching the working join in `/api/economy/gifts/send`.
 
 #### Gifts — Fixed "Gift" Button Leading to "User Not Found"
 
@@ -4919,8 +4919,8 @@ any fresh database. Added slugs (`welcome-to-zobia`, `lagos-vibes`,
 
 #### Identity KYC audit fixes (Tiers 1-3)
 
-- **RLS on `kyc_submissions`/`kyc_documents` (new migration `0007_kyc_rls.sql`):**
-  these tables (added in `0005_kyc_verification.sql`) never had row-level
+- **RLS on `kyc_submissions`/`kyc_documents` (new migration `0001_consolidated_schema.sql`):**
+  these tables (added in `0001_consolidated_schema.sql`) never had row-level
   security, unlike the pre-existing `creator_kyc` table which carries PII of
   the same sensitivity (BVN digits, encrypted ID numbers, full legal names,
   document storage keys). Added `kyc_submissions_self_or_admin` /
@@ -5097,7 +5097,7 @@ concept.
   sanitized-HTML render used on web/PWA — the same simplification already
   used by the Answers detail route in this app.
 
-**New migration to run:** `db/migrations/0032_bbforum_full.sql` (adds
+**New migration to run:** `db/migrations/0001_consolidated_schema.sql` (adds
 content-format/image/edit/pot columns to `bb_boards`/`bb_threads`/`bb_posts`,
 `bb_post_reactions`, `bb_pot_claims`, and the `moderation_reports`
 report-linkage columns; resets `bbforum_min_level_to_post` to the Level 2
@@ -5191,7 +5191,7 @@ exactly:
    total at claim time, so a mid-flight top-up raises the reward for
    remaining slots. A creator can never claim their own pot. This is the
    *exact* mechanic Blogs' per-post reward pot (§32, migration
-   `0020_blog_post_treasury.sql`) implements, generalised into two shared
+   `0001_consolidated_schema.sql`) implements, generalised into two shared
    tables (`content_treasuries`, `content_treasury_claims`, `content_type`
    discriminator `'poll'|'quiz'`) rather than duplicated per content type,
    plus a shared `content_shares` idempotent-share-tracking table. Gated by
@@ -5234,7 +5234,7 @@ Capacitor app (`apps/android/src/routes/polls/*`,
 screens at `apps/android/src/routes/admin/polls.tsx` and
 `.../quizzes.tsx` mirroring the Blogs admin screen's `AdminUI` kit pattern.
 
-**New migration to run:** `db/migrations/0038_polls_quizzes.sql` (adds
+**New migration to run:** `db/migrations/0001_consolidated_schema.sql` (adds
 `polls`, `poll_options`, `poll_votes`, `quizzes`, `quiz_questions`,
 `quiz_question_options`, `quiz_attempts`, `quiz_attempt_answers`, the shared
 `content_shares`/`content_treasuries`/`content_treasury_claims` tables, the
@@ -5467,7 +5467,7 @@ added to the drawer nav (`components/layout/TopBar.tsx`) and the deep-link
 handler (`routes/__root.tsx`) gained a `tweet`/`tweets` prefix case
 alongside the existing poll/quiz/game/room ones.
 
-**New migration to run:** `db/migrations/0039_tweets.sql` (adds `tweets`,
+**New migration to run:** `db/migrations/0001_consolidated_schema.sql` (adds `tweets`,
 `tweet_likes`, `tweet_mentions`, `tweet_retweets`; `users.tweet_max_length`;
 the `reported_tweet_id` column on `reports` and `moderation_reports`; and
 seeds `feature_tweets` and all `tweets_*` config `x_manifest` keys with
@@ -5639,7 +5639,7 @@ elsewhere already does so; otherwise it mirrors web directly, and any
 horizontal wiki-page nav a wiki owner might configure on web still renders
 as a simple vertical list on Android.
 
-**New migration to run:** `db/migrations/0046_wiki.sql` (adds `wikis`,
+**New migration to run:** `db/migrations/0001_consolidated_schema.sql` (adds `wikis`,
 `wiki_pages`, `wiki_page_revisions`, `wiki_collaborators`, `wiki_invites`,
 `wiki_moderation_log`; extends `content_shares`/`content_treasuries`/
 `content_treasury_claims`' check constraints to accept `content_type =
@@ -5854,13 +5854,13 @@ since it is phone-only it always shows the FU/TR/FF/NE acronyms rather than
 switching between full names and acronyms by viewport. Its logo image is a
 separate file from web's, at `apps/android/public/images/logosmall.png`.
 
-**New migrations to run:** `db/migrations/0051_home_feed.sql` (adds
+**New migrations to run:** `db/migrations/0001_consolidated_schema.sql` (adds
 `user_interests`, `content_engagement_signals`, `zobian_of_month`,
 `new_member_quest_dismissals`, `notices`; widens the `ad_campaigns`
 objective/`boosted_content_type` CHECK constraints for the generalized
 boost flow; seeds a `content_boost` native ad placement and the
 `interests`/`homeFeed` `x_manifest` keys) and
-`db/migrations/0052_home_ad_placements.sql` (seeds the `home_top`,
+`db/migrations/0001_consolidated_schema.sql` (seeds the `home_top`,
 `home_mid`, and `home_feed_native` ad placements used by the Home
 Dashboard layout).
 
@@ -6974,9 +6974,9 @@ so plan/role-scoped announcement targeting (not the recipients *picker*
 fixed above, but who actually receives it) doesn't yet work end-to-end —
 worth a dedicated pass.
 
-**New migrations to run:** `db/migrations/0010_platform_events_recurrence.sql`,
-`db/migrations/0011_admin_lockout_magic_word.sql`,
-`db/migrations/0012_maintenance_mode.sql`.
+**New migrations to run:** `db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`.
 
 ---
 
@@ -6991,7 +6991,7 @@ write-only — no page ever read them back. New `/gate44/audit-logs`
 (`GET /api/admin/audit-logs?source=admin|security`, admin-only, linked from
 the staff nav) with source tabs, action/actor/date filters, and a detail
 modal (before/after diff, metadata, IP/user-agent). Both tables are
-keyset-paginated (`created_at, id`) — see `db/migrations/0013_audit_log_viewer.sql`
+keyset-paginated (`created_at, id`) — see `db/migrations/0001_consolidated_schema.sql`
 for the supporting indexes — so listing stays fast at any table size, no
 OFFSET scans. **Retention:** to keep these tables from growing forever,
 `app/api/cron/daily-platform/route.ts` now also prunes rows older than 365
@@ -7085,7 +7085,7 @@ requires an explicit confirm step. On success the panel stays open,
 refreshed with the post-action user row, instead of closing back to the
 bare list — admins commonly take several actions on one user in a row.
 
-**New migrations to run:** `db/migrations/0013_audit_log_viewer.sql`.
+**New migrations to run:** `db/migrations/0001_consolidated_schema.sql`.
 
 ---
 
@@ -7191,9 +7191,9 @@ distinct from "Answers". This is a functional stub — real schema, working
 navigation and posting, seeded with 3 starter boards — moderation tooling,
 reactions, and rich text are left for a follow-up iteration.
 
-**New migrations to run (in order):** `db/migrations/0014_ads_advertiser_wallet.sql`,
-`db/migrations/0015_ai_fallback_and_monitoring.sql`,
-`db/migrations/0016_bbforum.sql`, `db/migrations/0017_answers_categories.sql`.
+**New migrations to run (in order):** `db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`, `db/migrations/0001_consolidated_schema.sql`.
 
 **Not done in this pass** (flagged rather than silently skipped): forum
 auto-moderation remains rules-based (profanity/duplicate detection) and was
@@ -7253,15 +7253,15 @@ Rewarded Gifts.** See § 32.4.1 and §§ 32.6–32.12 for full detail; summary:
   difference from an already-approved one — added a "pending" badge next
   to the existing VIP badge.
 
-**New migrations to run (in order):** `db/migrations/0018_blogs_multi.sql`,
-`db/migrations/0019_blog_post_content_format.sql`,
-`db/migrations/0020_blog_post_treasury.sql`,
-`db/migrations/0021_blog_menu_seo.sql`,
-`db/migrations/0022_blog_themes.sql`,
-`db/migrations/0023_blog_default_pages.sql`,
-`db/migrations/0024_blog_gifts.sql`. All 7 were verified end-to-end against
+**New migrations to run (in order):** `db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`. All 7 were verified end-to-end against
 a fresh local Postgres 16 database (run cleanly in order with no errors,
-right after `0017_answers_categories.sql`).
+right after `0001_consolidated_schema.sql`).
 
 **Not done in this pass**: the web "Start a Blog" page still doesn't
 surface the extra-blog-slot purchase currency choice or business-blog
@@ -7369,7 +7369,7 @@ Account signup (star-pack, business tier upgrade/renewal, and merch
 purchase still redirect through Paystack/the same backend crypto API today
 — the modal isn't yet dropped into those three pages, though nothing
 backend-side blocks it); a real "How to buy crypto" Help Center article
-(seeded via `db/migrations/0055_help_center_crypto_article.sql`, category
+(seeded via `db/migrations/0001_consolidated_schema.sql`, category
 `payments`, slug `how-to-buy-crypto`) linked from the checkout modal; the
 Wallet page's Crypto tab (on-chain balances for saved wallets + crypto
 payment history, `GET /api/economy/crypto/overview`); **server-side
@@ -7383,7 +7383,7 @@ and fixed in the process: `payments_provider_check` never actually allowed
 `provider = 'crypto'` (every crypto payment insert would have violated it),
 and every purchase route's `crypto: {...}` response tried to
 `JSON.stringify` a raw `bigint` (`expectedBaseUnits`), which throws — both
-fixed (`db/migrations/0054_crypto_payments_fixups.sql`,
+fixed (`db/migrations/0001_consolidated_schema.sql`,
 `serializeComputedAmount()`).
 
 **Still deferred**: the Capacitor Android deep-link wallet flow (native app
@@ -7395,14 +7395,14 @@ this sandbox (no network access to a live BSC/Solana RPC or an actual
 wallet extension) — the flow compiles and typechecks but its first
 real-money run should be watched closely.
 
-**New migrations:** `db/migrations/0053_crypto_payments.sql` — `payments`
+**New migrations:** `db/migrations/0001_consolidated_schema.sql` — `payments`
 table gains `chain`/`token_symbol`/`tx_hash`/`wallet_address`/
 `expected_token_amount` columns; new tables `crypto_exchange_rate_overrides`,
 `crypto_price_cache`, `payment_context_settings` (seeded to match prior
 Paystack-only behavior), `user_crypto_wallets`.
-`db/migrations/0054_crypto_payments_fixups.sql` — widens
+`db/migrations/0001_consolidated_schema.sql` — widens
 `payments_provider_check` to allow `'crypto'`/`'free'` (bugfix, see above).
-`db/migrations/0055_help_center_crypto_article.sql` — seeds the "How to buy
+`db/migrations/0001_consolidated_schema.sql` — seeds the "How to buy
 crypto" Help Center article + its category.
 
 **New env vars:** `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (optional — get one
@@ -7473,8 +7473,8 @@ for full detail; summary:
   banner.
 
 **New migrations to run (in order):**
-`db/migrations/0027_business_broadcasts_and_pending_cancel.sql`,
-`db/migrations/0028_business_period_tracking.sql`.
+`db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`.
 
 **Not done in this pass**: full Paystack/DodoPayments *native* recurring
 billing for Business Accounts (a Plans/subscription-object integration
@@ -7524,7 +7524,7 @@ feature and was intentionally left alone here rather than rushed.
     (the Android app's translation source) plus a `nav.bbforum` entry that
     was previously only defined on the web side.
 
-**New migration to run:** `db/migrations/0032_bbforum_full.sql`.
+**New migration to run:** `db/migrations/0001_consolidated_schema.sql`.
 
 **Not done in this pass**: full Drizzle ORM typings for the `bb_*` tables in
 `lib/db/schema.ts` (the raw-SQL migrations remain the source of truth, as
@@ -7558,7 +7558,7 @@ Android app (`apps/android/src/routes/support/**`). New tables:
 `users`. New admin panel at `/gate44/support/{queue,settings}` and
 `/gate44/support/tickets/:id`, reachable by support/moderator/admin per an
 admin-configurable role allow-list, not admin-only. New migration:
-`db/migrations/0033_support_tickets.sql`.
+`db/migrations/0001_consolidated_schema.sql`.
 
 #### New Feature: Help Center Expansion (§34)
 
@@ -7574,7 +7574,7 @@ No AI call is made for logged-out visitors, client- or server-side. New
 admin CRUD at `/gate44/help-center`; browsing (not the CRUD) mirrored on
 Android at `apps/android/src/routes/help/**`. New tables:
 `help_categories`, `help_docs` (with a trigger-maintained `tsvector`
-search column). New migration: `db/migrations/0034_help_center.sql`.
+search column). New migration: `db/migrations/0001_consolidated_schema.sql`.
 
 ---
 
@@ -7655,7 +7655,7 @@ gating, moderation, invitations)
 - New admin config section at `/gate44/config` ("Group Chats") for all of
   the above numeric/boolean settings, seeded with defaults by the
   migration below.
-- New migration: `db/migrations/0035_group_chats_v2.sql` (new columns on
+- New migration: `db/migrations/0001_consolidated_schema.sql` (new columns on
   `users`, `group_chats`, `group_chat_members`; new tables
   `group_chat_blocks`, `group_chat_reactivation_choices`; seeded
   `x_manifest` rows for the new admin settings).
@@ -7717,7 +7717,7 @@ atomic-write → best-effort-reward pipeline as Answers/Blogs/Forum.
   admin screens), and registered in the PWA-served nav/sitemap the same
   way as Answers/Blogs.
 
-**New migration to run:** `db/migrations/0038_polls_quizzes.sql`.
+**New migration to run:** `db/migrations/0001_consolidated_schema.sql`.
 
 ---
 
@@ -7766,7 +7766,7 @@ and four feed tabs (For You/Friends/Following/Mentions).
   the deep-link handler (`routes/__root.tsx`) alongside the existing
   poll/quiz/game/room cases.
 
-**New migration to run:** `db/migrations/0039_tweets.sql`.
+**New migration to run:** `db/migrations/0001_consolidated_schema.sql`.
 
 ---
 
@@ -7813,7 +7813,7 @@ every edit kept as a reviewable/restorable revision.
   (`apps/android/src/routes/wiki/*`), hitting the same `/api/wiki/*`
   backend as web — no separate mobile API.
 
-**New migration to run:** `db/migrations/0046_wiki.sql`.
+**New migration to run:** `db/migrations/0001_consolidated_schema.sql`.
 
 ---
 
@@ -7886,7 +7886,7 @@ manifest setting (already admin-configurable at `/gate44`).
 #### Feature: Quest system expansion — feature-gated quests, admin campaign boosts, Sponsored Quests in daily decks (§7, §14, §17)
 
 Three related additions to the Daily Quest System and the Sponsored Quest
-Marketplace, migration `0047_quest_system_expansion.sql`:
+Marketplace, migration `0001_consolidated_schema.sql`:
 
 1. **Feature-gated quest templates.** `quest_templates.feature_key`
    (nullable) ties a template to a manifest feature flag — new seeded
@@ -8049,8 +8049,8 @@ flow, reusing the existing Platform Advertising pipeline (§17) as-is.
   (`apps/android/src/routes/home.tsx`, `components/home/*`), phone-only so
   it always shows the FU/TR/FF/NE tab acronyms.
 
-**New migrations to run:** `db/migrations/0051_home_feed.sql`,
-`db/migrations/0052_home_ad_placements.sql`.
+**New migrations to run:** `db/migrations/0001_consolidated_schema.sql`,
+`db/migrations/0001_consolidated_schema.sql`.
 
 ---
 
@@ -8133,7 +8133,7 @@ flow, reusing the existing Platform Advertising pipeline (§17) as-is.
   fields into the `/gate44/data-management` UI, and the Help Center "how
   to buy crypto" article.
 
-**New migration:** `db/migrations/0053_crypto_payments.sql`.
+**New migration:** `db/migrations/0001_consolidated_schema.sql`.
 **New env vars:** `NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID` (optional),
 `BSC_RPC_URL` / `SOLANA_RPC_URL` (optional), `CRYPTO_RECEIVING_ADDRESS_BSC`
 / `CRYPTO_RECEIVING_ADDRESS_SOLANA` (required to accept crypto payments).

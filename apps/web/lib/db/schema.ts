@@ -923,7 +923,7 @@ export const guildMembers = pgTable(
     joinedAt: timestamp("joined_at", { withTimezone: true }).defaultNow(),
     // FIX-C01: soft-delete column so WHERE left_at IS NULL filters active members
     leftAt: timestamp("left_at", { withTimezone: true }),
-    // Forum Mod (guild-scoped moderator) — 0037_forum_mods_and_report_flood_control.sql
+    // Forum Mod (guild-scoped moderator) — 0001_consolidated_schema.sql
     isModerator: boolean("is_moderator").notNull().default(false),
     moderatorGrantedBy: uuid("moderator_granted_by").references(() => users.id, { onDelete: "set null" }),
     moderatorGrantedAt: timestamp("moderator_granted_at", { withTimezone: true }),
@@ -1235,7 +1235,7 @@ export const guildMessages = pgTable("guild_messages", {
   stickerId: text("sticker_id"),
   gifUrl: text("gif_url"),
   isDeleted: boolean("is_deleted").notNull().default(false),
-  // 0037_forum_mods_and_report_flood_control.sql
+  // 0001_consolidated_schema.sql
   deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
@@ -4058,7 +4058,7 @@ export const moderationReports = pgTable("moderation_reports", {
   }),
   reportedForumQuestionId: uuid("reported_forum_question_id"),
   reportedForumAnswerId: uuid("reported_forum_answer_id"),
-  // 0032_bbforum_full.sql
+  // 0001_consolidated_schema.sql
   reportedBbThreadId: uuid("reported_bb_thread_id"),
   reportedBbPostId: uuid("reported_bb_post_id"),
   reportType: text("report_type").notNull().default("other"),
@@ -4077,7 +4077,7 @@ export const moderationReports = pgTable("moderation_reports", {
   resolutionNote: text("resolution_note"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
-  // 0037_forum_mods_and_report_flood_control.sql
+  // 0001_consolidated_schema.sql
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
   reportedGuildMessageId: uuid("reported_guild_message_id").references(() => guildMessages.id, { onDelete: "cascade" }),
   clusterKey: text("cluster_key"),
@@ -4107,7 +4107,7 @@ export const moderationReportReporters = pgTable(
 
 export const moderationActions = pgTable("moderation_actions", {
   id: uuidPk(),
-  // 0037_forum_mods_and_report_flood_control.sql: made nullable — content-only
+  // 0001_consolidated_schema.sql: made nullable — content-only
   // reports (no reported_user_id) already existed before target_user_id could
   // ever be populated for them.
   targetUserId: uuid("target_user_id").references(() => users.id, { onDelete: "cascade" }),
@@ -5467,7 +5467,7 @@ export type AutomatedActionLog = typeof automatedActionsLog.$inferSelect;
 export type NewAutomatedActionLog = typeof automatedActionsLog.$inferInsert;
 
 // ---------------------------------------------------------------------------
-// Home Dashboard feed infrastructure (migration 0051_home_feed.sql)
+// Home Dashboard feed infrastructure (migration 0001_consolidated_schema.sql)
 // ---------------------------------------------------------------------------
 
 /** Onboarding-selected or implicitly-inferred interest tags per user. */

@@ -3,7 +3,7 @@
  *
  * Resolves a public Tweet by id for the crawlable SSR page (/t/<tweetId>).
  * Mirrors lib/public/resolveForumQuestion.ts's shape, minus the slug/legacy-
- * redirect handling — Tweets have no slug (see db/migrations/0039_tweets.sql),
+ * redirect handling — Tweets have no slug (see db/migrations/0001_consolidated_schema.sql),
  * they're addressed by uuid everywhere, in-app and here.
  *
  * Only non-deleted Tweets authored by a non-deleted user are returned, so

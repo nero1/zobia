@@ -304,7 +304,7 @@ function CouponsTab() {
 
 // ---------------------------------------------------------------------------
 // Settings tab — advertiser eligibility rules (x_manifest, see
-// lib/ads/limits.ts getAdsAdminConfig / migration 0014_ads_advertiser_wallet.sql)
+// lib/ads/limits.ts getAdsAdminConfig / migration 0001_consolidated_schema.sql)
 // ---------------------------------------------------------------------------
 
 interface AdsFieldMeta {

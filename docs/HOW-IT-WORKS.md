@@ -131,7 +131,7 @@ Custom avatar photo upload with a Facebook-style pan/zoom/crop step, plus a free
 - Switching to one of the **default onboarding icons** (the exact emoji set offered at onboarding Step 1, `shared/utils/defaultAvatars.ts`'s `DEFAULT_AVATAR_EMOJIS` — the single source both onboarding and the Settings picker read from) is **always free**, on any plan.
 - Charging (`debitCoins`/`debitStars`) and the `users.avatar_url`/`avatar_emoji` update happen inside one DB transaction (`lib/profile/avatarService.ts`), so a failed update never leaves a user charged for a change that didn't apply — same pattern as Moments' `createMoment()`.
 
-**Once-a-week cooldown:** every avatar change — custom upload *or* switching to a different default icon — is limited to once every 7 days, tracked via a dedicated `users.avatar_changed_at` column (migration `0044_profile_avatar_upload.sql`; kept separate from `updated_at`, which many unrelated fields touch). Within the cooldown, the server returns `429 AVATAR_CHANGE_RATE_LIMITED` with a `nextEligibleAt` timestamp; the crop modal fetches `GET /api/users/me/avatar` up front to show the cooldown/cost state before the user even picks a file.
+**Once-a-week cooldown:** every avatar change — custom upload *or* switching to a different default icon — is limited to once every 7 days, tracked via a dedicated `users.avatar_changed_at` column (migration `0001_consolidated_schema.sql`; kept separate from `updated_at`, which many unrelated fields touch). Within the cooldown, the server returns `429 AVATAR_CHANGE_RATE_LIMITED` with a `nextEligibleAt` timestamp; the crop modal fetches `GET /api/users/me/avatar` up front to show the cooldown/cost state before the user even picks a file.
 
 ---
 
@@ -192,7 +192,7 @@ Guilds are persistent groups of up to N members. Creating a guild costs 500 Cred
 
 **Guilds nav + Create Guild gating.** The Guilds menu item (`/guilds`, the open Browse Guilds directory) is visible to every user regardless of Guild membership — it was previously missing from the web Sidebar/Navbar (the Capacitor app already had it). The Create Guild button on that page is also shown to everyone; clicking it always opens the create form, but if the viewer doesn't meet the requirements, the form is replaced with an explanation of exactly which gate they're short on: account rank level (`rank_level`, default minimum 4/"Baller", admin-configurable via the `guilds.minLevelToCreate` manifest key — same mechanism as `forum.minLevelToPost`), trust score (`trustScore` ≥ 30 via `meetsMinimumTrust(..., "guild_creation")`), or Credit balance (500 Credits). `GET /api/guilds?eligibility=true` reports the current user's standing on all three gates; `POST /api/guilds` re-checks all three server-side and returns distinct error codes (`GUILD_LEVEL_TOO_LOW`, `GUILD_CREATION_TRUST_TOO_LOW`, `INSUFFICIENT_COINS`) so the UI never has to guess which gate failed.
 
-**Guild admin panel.** `/gate44/guilds` (web) and `/admin/guilds` (Capacitor app) let admins and moderators manage every Guild: disable/enable (`is_active`), suspend/unsuspend (reason-tracked, `is_suspended`/`suspended_at`/`suspended_by`/`suspension_reason` — added in `db/migrations/0031_guild_admin_moderation.sql`, mirroring the equivalent `rooms` columns), ban/unban (`is_banned`, admin-only), edit Guild details, transfer captaincy to any member (admin-only — demotes the previous Captain to Veteran), remove any member including the Captain (transfer captaincy first), and soft-delete. This intentionally overrides the normal "removal is always a Captain's choice" rule from an admin/mod context, the same way admins already bypass Guild-tier gates elsewhere. See `apps/web/app/api/admin/guilds/route.ts` and `apps/web/app/api/admin/guilds/[guildId]/route.ts`.
+**Guild admin panel.** `/gate44/guilds` (web) and `/admin/guilds` (Capacitor app) let admins and moderators manage every Guild: disable/enable (`is_active`), suspend/unsuspend (reason-tracked, `is_suspended`/`suspended_at`/`suspended_by`/`suspension_reason` — added in `db/migrations/0001_consolidated_schema.sql`, mirroring the equivalent `rooms` columns), ban/unban (`is_banned`, admin-only), edit Guild details, transfer captaincy to any member (admin-only — demotes the previous Captain to Veteran), remove any member including the Captain (transfer captaincy first), and soft-delete. This intentionally overrides the normal "removal is always a Captain's choice" rule from an admin/mod context, the same way admins already bypass Guild-tier gates elsewhere. See `apps/web/app/api/admin/guilds/route.ts` and `apps/web/app/api/admin/guilds/[guildId]/route.ts`.
 
 ### XP System
 
@@ -227,7 +227,7 @@ A room owner can configure ONE active "Custom Reward" for their room at a time (
 - **Credits / Stars**: the owner pre-funds a pool (debited from their own balance up front); it's split evenly among the first N distinct claimants and paid out automatically the instant each of them qualifies.
 - **Custom text unlock**: no pool — each of the first N claimants is shown the owner's own free-text redemption instructions via notification.
 
-Implemented as `content_type = 'room'`, `claim_type = 'gift'` on the same generic `content_treasuries`/`content_treasury_claims` tables Polls and Quizzes already use for their reward pots (`lib/contentTreasury.ts`) — extended with a `reward_action` column (`credits`/`stars`/`custom_text`) rather than a new table pair. The claim check (`claimRoomRewardOnGift`) runs in its own transaction AFTER the gift-send transaction commits in `app/api/economy/gifts/send/route.ts`, not nested inside it — nesting a second `db.transaction()` inside an already-open one checks out a second connection from the same (small, serverless-sized) pool, which is the exact bug class fixed in `lib/manifest`'s `getManifestValue()` (see that file's doc comment). Admin-configurable at `/gate44/config` (master flag `feature_room_custom_rewards`, `room_custom_rewards_min_owner_level`, `room_custom_rewards_max_claimants_cap`) — migration `0040_room_custom_rewards.sql`.
+Implemented as `content_type = 'room'`, `claim_type = 'gift'` on the same generic `content_treasuries`/`content_treasury_claims` tables Polls and Quizzes already use for their reward pots (`lib/contentTreasury.ts`) — extended with a `reward_action` column (`credits`/`stars`/`custom_text`) rather than a new table pair. The claim check (`claimRoomRewardOnGift`) runs in its own transaction AFTER the gift-send transaction commits in `app/api/economy/gifts/send/route.ts`, not nested inside it — nesting a second `db.transaction()` inside an already-open one checks out a second connection from the same (small, serverless-sized) pool, which is the exact bug class fixed in `lib/manifest`'s `getManifestValue()` (see that file's doc comment). Admin-configurable at `/gate44/config` (master flag `feature_room_custom_rewards`, `room_custom_rewards_min_owner_level`, `room_custom_rewards_max_claimants_cap`) — migration `0001_consolidated_schema.sql`.
 
 This is independent of the separate, admin-curated sitewide "Rewarded Gifts" catalogue (`gift_items.is_rewarded`/`reward_config`, migration `0026`), which grants a badge/privilege when a specific admin-marked gift item is sent to a room or blog owner — both systems can trigger from the same gift send.
 
@@ -715,7 +715,7 @@ Self-service, CPM-billed ad system layered on existing infrastructure — no par
 
 - **Eligibility.** `checkAdvertiserEligibility()` (`lib/ads/limits.ts`) is fully admin-configurable via `getAdsAdminConfig()`: by default it still requires a `verified` Business Account whose owner's `users.kyc_tier` is at least `ad_min_kyc_tier_to_advertise` (default 1), but an admin can turn on `ad_allow_personal_accounts` to let personal accounts advertise too (subject to `ad_allow_free_accounts` + `ad_min_level_free_accounts` for free-plan users, and an optional `ad_enforce_min_level_paid_business` + `ad_min_level_paid_business` floor even for paid/business advertisers), or turn off `ad_require_kyc` entirely. Checked on every campaign create/list route — never trusted from a client claim. The `/ads` hub renders its "Complete KYC"/"Create Business Account" getting-started checklist based on which of these gates actually apply.
 - **Advertiser identity.** A campaign's `advertiser_type` (`personal` | `business_account` | `business_page`) picks which identity is shown to viewers — the advertiser's own profile, their Business Account, or one of their Business Pages — independent of who actually owns/controls the campaign (`created_by`, always the authenticated user). When the underlying business account/page stops qualifying (subscription lapses, verification pulled), `advertiser_grace_until` (swept daily from `daily-economy`) keeps an already-running campaign serving under its stale identity for `ad_advertiser_grace_days` (default 14) before stopping it.
-- **Schema** (`db/migrations/0006_ads.sql`, extended by `0014_ads_advertiser_wallet.sql`): `ad_placements` (admin slot catalogue + base CPM), `ad_campaigns` (business-, personal-, or admin-owned; `advertiser_type`/`advertiser_user_id`/`advertiser_grace_until`), `ad_creatives` (per-placement creative, format html/text/image/native/third_party — `third_party` is admin-only), `ad_events` (append-only impression/click log, idempotent per `client_event_id`), `ad_campaign_daily_stats` (rollup written in the same transaction as each event), `ad_coupons`/`ad_coupon_redemptions`, `ad_wallet_ledger` (see Billing below).
+- **Schema** (`db/migrations/0001_consolidated_schema.sql`, extended by `0001_consolidated_schema.sql`): `ad_placements` (admin slot catalogue + base CPM), `ad_campaigns` (business-, personal-, or admin-owned; `advertiser_type`/`advertiser_user_id`/`advertiser_grace_until`), `ad_creatives` (per-placement creative, format html/text/image/native/third_party — `third_party` is admin-only), `ad_events` (append-only impression/click log, idempotent per `client_event_id`), `ad_campaign_daily_stats` (rollup written in the same transaction as each event), `ad_coupons`/`ad_coupon_redemptions`, `ad_wallet_ledger` (see Billing below).
 - **Moderation** (`lib/ads/repo.ts` `submitCampaignForModeration`) mirrors the Sponsored Quest flow exactly, now split by creative type: `ad_moderation_mode_text`/`ad_moderation_mode_image` each independently manual (admin queue at `/gate44/ads`) or `ai`. Text creatives go through `classifyAdCreative()` (`lib/moderation/aiClassifier.ts`, DeepSeek → Gemini → Groq fallback); image creatives always go through `classifyAdCreativeImage()`, which is hardcoded to Gemini Vision regardless of `ai_provider_order` since text models can't see images. Both auto-approve at or above `ad_ai_auto_approve_threshold`, else fall back to manual.
 - **Billing — prepaid Ad Wallet.** Ads are prepaid from a dedicated **Ad Wallet** (`users.ad_wallet_balance` + `ad_wallet_ledger`, `lib/economy/adWallet.ts`), a distinct balance from the main Credits `coin_balance` — same idempotent `SELECT FOR UPDATE` + append-only-ledger pattern as `lib/economy/coins.ts`. Fund the Ad Wallet either by transferring from the main Credits balance (`POST /api/business/ads/wallet/transfer`, no fee) or by buying Credits directly into it (the existing coin-purchase flow gained a `destination: "ad_wallet"` flag that both webhook handlers honor). Funding a campaign (`POST /business/ads/campaigns/:id/fund`) then debits the Ad Wallet, not `coin_balance`. A campaign can be created, previewed, and submitted for moderation with an empty Ad Wallet — it just won't serve impressions (`total_budget_credits` stays 0) until funded; activating an unfunded campaign fires a notification rather than blocking. Per-impression CPM spend (`lib/ads/serve.ts` `recordAdEvents`) draws down `ad_campaigns.spent_credits` directly, **not** one ledger row per impression — that would balloon the ledger under normal ad traffic; `ad_events` is the impression-level audit trail instead. A campaign auto-completes once `spent_credits >= total_budget_credits`.
 - **Serving** (`GET /api/ads/serve?placement=<key>`, `lib/ads/serve.ts` `serveAd`) picks a random active/approved/in-budget/plan-eligible creative for a placement — no per-user Redis frequency tracking; the client (`components/ads/AdSlot.tsx`) does offline-friendly frequency/queueing in `localStorage` instead (`adEventQueue.ts`), batching impression/click reports and flushing via `sendBeacon` on unload/visibility-change, so ad tracking costs at most a couple of requests per session, not one per impression.
@@ -1035,7 +1035,7 @@ Send broadcast messages to all users or to a filtered segment (by city, plan, or
 Inject custom scripts via the `footer_scripts` table — for analytics, pixel tracking, or A/B tools. Managed from the admin panel (`/gate44/footer-scripts`). Whatever an admin pastes (bare JavaScript, a single `<script>` tag, or several — inline, with a `src=`, or both) is normalized by `lib/admin/footerScriptNormalize.ts` at save time into one flat JS body, since each script is served as an external file (`GET /api/static/footer-script/[id]`, `Content-Type: application/javascript`) and loaded via `<script src="…" nonce="…">` in `app/layout.tsx`. The nonce matters: the site's CSP is `script-src 'nonce-<nonce>' 'strict-dynamic'` with no `'self'` (`'strict-dynamic'` makes host allowlists inert per CSP3), so an un-nonce'd `<script src>` tag is silently dropped by the browser — that omission previously made every footer script a no-op regardless of its content. A `src=` inside the pasted snippet becomes a dynamically-inserted `<script>` element at runtime (`document.createElement`/`appendChild`), which `'strict-dynamic'` trusts regardless of host because a nonce'd script inserted it.
 
 ### Audit Logs (`/gate44/audit-logs`)
-Read-only viewer over the platform's two audit trails: `admin_audit_log` (config/KYC/payout/feature-flag/ads-moderation/impersonation writes made through the admin panel) and `audit_log` (`lib/audit/auditLog.ts` — login/logout, 2FA, PIN, admin ban/suspend, read-path access to sensitive views). `GET /api/admin/audit-logs?source=admin|security` with action/actor/date filters, admin-only. Both tables are keyset-paginated (`created_at, id` — see `db/migrations/0013_audit_log_viewer.sql`), never OFFSET, so listing stays fast no matter how many rows have accumulated. **Retention:** rows older than 365 days are deleted in bounded batches by the `daily-platform` CRON slot (`lib/audit/pruneAuditLogs.ts`) so the tables never grow unbounded — this piggybacks on the existing daily-platform slot rather than a new CRON entry (see CRON Setup in `docs/SETUP.md`). If longer retention is ever needed for compliance, archive to cold storage before deleting rather than raising the window indefinitely.
+Read-only viewer over the platform's two audit trails: `admin_audit_log` (config/KYC/payout/feature-flag/ads-moderation/impersonation writes made through the admin panel) and `audit_log` (`lib/audit/auditLog.ts` — login/logout, 2FA, PIN, admin ban/suspend, read-path access to sensitive views). `GET /api/admin/audit-logs?source=admin|security` with action/actor/date filters, admin-only. Both tables are keyset-paginated (`created_at, id` — see `db/migrations/0001_consolidated_schema.sql`), never OFFSET, so listing stays fast no matter how many rows have accumulated. **Retention:** rows older than 365 days are deleted in bounded batches by the `daily-platform` CRON slot (`lib/audit/pruneAuditLogs.ts`) so the tables never grow unbounded — this piggybacks on the existing daily-platform slot rather than a new CRON entry (see CRON Setup in `docs/SETUP.md`). If longer retention is ever needed for compliance, archive to cold storage before deleting rather than raising the window indefinitely.
 
 ### Alerts (`/api/admin/alerts`) — 6-Level Priority System
 
@@ -1559,7 +1559,7 @@ caller happens to make first.
 (see "Advertising" below and PRD §17 Pillar 3 for the base pipeline). The
 generalized boost flow adds one new `ad_campaigns.objective` value,
 `boost_content`, and widens the `boosted_content_type` CHECK constraint
-(migration `0051_home_feed.sql`) to accept any of the 10 feed content
+(migration `0001_consolidated_schema.sql`) to accept any of the 10 feed content
 types; `createContentBoostCampaign()` (`lib/ads/repo.ts`) builds a campaign
 from an existing piece of content's own title/body/image rather than new
 ad creative, then runs through the same moderation queue, CPM funding, and
@@ -2248,7 +2248,7 @@ individual threads get short, SEO-friendly canonical URLs at
 `/f/<title-slug>` (not nested under the board, so links stay short and
 stable even if a thread is moved between boards).
 
-- **Schema** (`db/migrations/0016_bbforum.sql`): `bb_boards` (self-referencing
+- **Schema** (`db/migrations/0001_consolidated_schema.sql`): `bb_boards` (self-referencing
   `parent_id` for sub-boards), `bb_threads` (first post is the OP, `is_pinned`/
   `is_locked`, denormalized `reply_count`/`view_count`/`last_reply_at`),
   `bb_posts`. Repo layer: `lib/bbforum/repo.ts`.
@@ -2461,11 +2461,11 @@ Independent of tier, a business account can request the "Verified" badge (PRD §
 
 ### Business Broadcasts (v2.15)
 
-`/business/broadcasts` (API: `GET`/`POST /api/business/broadcasts`) lets a Business Account message its own followers — opt-in audience (`follows` where `following_id` = the account owner), not "all site users" (that stays the admin-only bulk tool, PRD §20). Metered per calendar month by tier with no pay-per-send overage, since the account already pays a subscription: Starter 3/month, Growth 10/month, Enterprise unlimited. Reuses the `creator_broadcasts` table/pattern from the personal Creator Economy broadcast flow (`app/api/creator/broadcasts`) rather than a parallel table, but every row is tagged with `business_account_id` (migration `0027_business_broadcasts_and_pending_cancel.sql`) — without that tag, a business owner who is *also* a personal Creator would have their business sends and personal creator-tier sends counted against the same `WHERE creator_id = $1` query, wrongly draining one quota into the other.
+`/business/broadcasts` (API: `GET`/`POST /api/business/broadcasts`) lets a Business Account message its own followers — opt-in audience (`follows` where `following_id` = the account owner), not "all site users" (that stays the admin-only bulk tool, PRD §20). Metered per calendar month by tier with no pay-per-send overage, since the account already pays a subscription: Starter 3/month, Growth 10/month, Enterprise unlimited. Reuses the `creator_broadcasts` table/pattern from the personal Creator Economy broadcast flow (`app/api/creator/broadcasts`) rather than a parallel table, but every row is tagged with `business_account_id` (migration `0001_consolidated_schema.sql`) — without that tag, a business owner who is *also* a personal Creator would have their business sends and personal creator-tier sends counted against the same `WHERE creator_id = $1` query, wrongly draining one quota into the other.
 
 ### Business Pages
 
-A business account can run one or more **Business Pages** — its brand identity/profile, each with a name, bio, avatar/cover image, a lightweight post feed, and stats. Data model (`db/migrations/0003_business_expansion.sql`): `business_pages` (one row per page, `slug` unique, `status` active/deactivated/suspended/banned), `business_page_posts` (title/body/image, draft/published), `business_page_daily_stats` (per-page/per-day views/post_views/ad_impressions/ad_clicks rollup — same idiom as `blog_post_daily_stats`).
+A business account can run one or more **Business Pages** — its brand identity/profile, each with a name, bio, avatar/cover image, a lightweight post feed, and stats. Data model (`db/migrations/0001_consolidated_schema.sql`): `business_pages` (one row per page, `slug` unique, `status` active/deactivated/suspended/banned), `business_page_posts` (title/body/image, draft/published), `business_page_daily_stats` (per-page/per-day views/post_views/ad_impressions/ad_clicks rollup — same idiom as `blog_post_daily_stats`).
 
 - **Slot limits per tier** — Starter 2, Growth 10, Enterprise 50, admin-configurable via `x_manifest` (`business_page_limit_<tier>`, `lib/business/limits.ts`). `POST /api/business/pages` rejects creation with `403 BUSINESS_PAGE_LIMIT_REACHED` once the active-page count reaches the limit; `DELETE /api/business/pages/<id>` frees the slot.
 - **Public page** — `GET zobia.org/p/<slug>` (`app/p/[slug]/page.tsx`), SSR/crawlable, same convention as `/b/<slug>` for Blogs: `lib/public/resolveBusinessPage.ts` resolves by slug → legacy UUID → `slug_redirects` (entity `business_page`), listed in `app/sitemap.ts` (capped 2000), `/p/` is public in `middleware.ts`. Views are deduped client-side via `localStorage` (`zobia_biz_page_viewed`, `components/business/PageViewTracker.tsx`) exactly like blog post views, not a per-view DB row.
@@ -2476,7 +2476,7 @@ A business account can run one or more **Business Pages** — its brand identity
 
 Growth+ tier business accounts can submit **Sponsored Quests** — reusing the pre-existing Creator Economy Sponsored Quest Marketplace (PRD §14, `sponsored_quests` table) rather than a parallel ads system. Previously only admin could publish a quest (`POST /api/admin/sponsored-quests`, immediately live); business submission adds a moderation gate in front of that same table.
 
-- `sponsored_quests` gains (migration `0003_business_expansion.sql`): `business_account_id`, `business_page_id`, `submitted_by`, `moderation_status` (`pending`/`approved`/`rejected`, defaults to `'approved'` so the pre-existing admin-only flow is unaffected), `moderation_reason`, and a `deleted_at` column — the latter fixes a pre-existing bug where the admin `DELETE /api/admin/sponsored-quests/[questId]` handler referenced `deleted_at` on a column that was never actually added to the schema.
+- `sponsored_quests` gains (migration `0001_consolidated_schema.sql`): `business_account_id`, `business_page_id`, `submitted_by`, `moderation_status` (`pending`/`approved`/`rejected`, defaults to `'approved'` so the pre-existing admin-only flow is unaffected), `moderation_reason`, and a `deleted_at` column — the latter fixes a pre-existing bug where the admin `DELETE /api/admin/sponsored-quests/[questId]` handler referenced `deleted_at` on a column that was never actually added to the schema.
 - `POST /api/business/sponsored-quests` (`lib/business/limits.ts` `canSubmitSponsoredQuests` gates on tier ≥ Growth) requires an active Business Page (`businessPageId`) — the quest's `brand_name`/`brand_logo_url` are copied from that page, so "adverts run by this page are shown to come from the selected business page." The quest is inserted `is_active = false` and `moderation_status` per the admin's moderation-mode toggle.
 - **Moderation mode** (`x_manifest` key `sponsored_quest_moderation_mode`, admin-editable at `/gate44/config` under "Business Accounts"): `manual` (default) queues the submission for the admin approval panel; `ai` runs it through `lib/moderation/aiClassifier.ts` `classifySponsoredQuest()` — a new, dedicated system prompt (never interpolates the untrusted brief into the prompt itself, same prompt-injection defense as `classifyReport()`) that scores `approvalConfidence` 0–1; scores at or above `sponsored_quest_ai_auto_approve_threshold` (default 0.85, admin-configurable) auto-approve, everything else falls back to the manual queue.
 - **Admin approval queue** — `/gate44/sponsored-quests` (pre-existing admin publish/edit page) gains a moderation badge per quest and Approve/Reject buttons for business submissions, calling the new `POST /api/admin/sponsored-quests/[questId]/moderate` endpoint (`{ action: "approve"|"reject", reason? }`) — distinct from `creator/sponsored-quests/[questId]/approve` (which approves a *creator's completed application*, not the quest listing itself). Approval flips `is_active = true`; rejection notifies the submitting business owner with the reason.
@@ -3015,7 +3015,7 @@ API:
 
 Distinct from the pre-existing `creator_kyc` table (bank-payout BVN checks
 only, scoped to creators), `kyc_submissions`/`kyc_documents`
-(`db/migrations/0005_kyc_verification.sql`) is the general identity
+(`db/migrations/0001_consolidated_schema.sql`) is the general identity
 verification system: it unlocks the blue verified checkmark
 (`users.is_verified`, gated on `users.kyc_tier >= kyc_badge_min_tier`) and
 higher selling/advertising limits. User-facing page: `/kyc`
@@ -3076,7 +3076,7 @@ rejecting refunds any charged credits. Every admin action writes to
 `kyc_submissions`/`kyc_documents` carry the same sensitivity as
 `creator_kyc` (BVN digits, encrypted ID numbers, full legal names, document
 storage keys) and are protected the same way: row-level security
-(`db/migrations/0007_kyc_rls.sql`, mirrors `creator_kyc_self_or_admin`
+(`db/migrations/0001_consolidated_schema.sql`, mirrors `creator_kyc_self_or_admin`
 exactly) as defense-in-depth for any access path other than the app's own
 pooled (BYPASSRLS) queries, and a hard delete — both tables, plus the
 underlying storage objects — on account deletion (`DELETE /api/users/me`),
@@ -3133,7 +3133,7 @@ A standalone area at **`/watch56`** (renamed from `/moderation` — outside `/ga
 
 Resolved reports show who acted on them. Any manual action can be reversed — restores removed content, lifts a suspension/ban/mute, credits back a warning, and resets the report to `pending`; reversing a ban or AI escalation requires the same capability as taking it forward (see Platform/Forum Mods below). Admin and Platform Mods get a link to the Center from the Admin/nav section (web sidebar + hamburger, Capacitor hamburger); Forum Mods reach it via a link on their guild's page.
 
-A real, pre-existing bug was found and fixed while widening this surface: `moderation_actions`' `action_type` CHECK constraint and `report_id` foreign key didn't match what the action routes actually insert (`'suspend_user'`/`'ban_user'`/`'escalate_ai'` vs. the constraint's `'suspend'`/`'ban'`/`'escalate'`; the FK pointed at the legacy `reports` table instead of `moderation_reports`), so every POST to either action route's insert was failing. Fixed via a new migration — never hand-edit an already-applied migration file, the checksum-drift-detecting runner in `db/migrate.ts` refuses to proceed if you do. Two more of the same shape were found while adding Forum Mods/reporting rewards (`db/migrations/0037_forum_mods_and_report_flood_control.sql`): `moderation_reports` had no `deleted_at` despite both action routes already filtering on it (every action attempt was throwing "column does not exist"), and `moderation_actions.target_user_id` was `NOT NULL` despite content-only reports (no `reported_user_id`, e.g. a reported BB-forum post) already being possible — both fixed there too.
+A real, pre-existing bug was found and fixed while widening this surface: `moderation_actions`' `action_type` CHECK constraint and `report_id` foreign key didn't match what the action routes actually insert (`'suspend_user'`/`'ban_user'`/`'escalate_ai'` vs. the constraint's `'suspend'`/`'ban'`/`'escalate'`; the FK pointed at the legacy `reports` table instead of `moderation_reports`), so every POST to either action route's insert was failing. Fixed via a new migration — never hand-edit an already-applied migration file, the checksum-drift-detecting runner in `db/migrate.ts` refuses to proceed if you do. Two more of the same shape were found while adding Forum Mods/reporting rewards (`db/migrations/0001_consolidated_schema.sql`): `moderation_reports` had no `deleted_at` despite both action routes already filtering on it (every action attempt was throwing "column does not exist"), and `moderation_actions.target_user_id` was `NOT NULL` despite content-only reports (no `reported_user_id`, e.g. a reported BB-forum post) already being possible — both fixed there too.
 
 ### Platform Mods and Forum Mods
 
@@ -3230,12 +3230,12 @@ before the message is written — it never posts uncharged.
 `support_tickets`, `support_ticket_messages`, `support_ticket_events`
 (append-only audit log covering status changes, assignment, escalation, AI
 hand-off — no separate escalation table). See
-`db/migrations/0033_support_tickets.sql`.
+`db/migrations/0001_consolidated_schema.sql`.
 
 ## Help Center (PRD §34)
 
 Database-backed replacement/superset of the old static `/help` FAQ:
-`help_categories` + `help_docs` (`db/migrations/0034_help_center.sql`),
+`help_categories` + `help_docs` (`db/migrations/0001_consolidated_schema.sql`),
 with a `tsvector` column kept in sync by a `BEFORE INSERT OR UPDATE`
 trigger for `/help/search`. Slugs are generated once
 (`generateUniqueSlug`, new `help_category`/`help_doc` entity types in
@@ -3298,7 +3298,7 @@ rather than introducing a parallel system.
 3. **Reward pots (treasuries)** are NOT a bespoke per-content-type table —
    `lib/contentTreasury.ts` generalises Blogs' `blog_post_treasuries` /
    `blog_post_treasury_claims` mechanic (§32, migration
-   `0020_blog_post_treasury.sql`) into two shared tables,
+   `0001_consolidated_schema.sql`) into two shared tables,
    `content_treasuries`/`content_treasury_claims`, keyed by
    `(content_type, content_id)` where `content_type` is `'poll'` or
    `'quiz'`. Same anti-abuse shape as blogs: `SELECT ... FOR UPDATE` row
@@ -3374,7 +3374,7 @@ A batch of platform-wide fixes/features, applied identically to web, PWA, and th
 - **Subscription plan switching**: see PRD §3 "Switching Plans" for the corrected behavior. Root cause of "payment succeeds but plan doesn't change" between two paid plans: `POST /api/economy/subscriptions` issues a one-off Paystack charge with no `plan` code, so Paystack's `subscription.create` event (which the webhook relied on to actually activate the plan) never fires. Fixed by activating the plan directly in the `charge.success` handler (mirroring the equivalent itemType==="subscription" handling used elsewhere) and, on the frontend, routing a paid-to-paid switch through the existing (previously unused) `PUT /api/economy/subscriptions/[subscriptionId]` "change plan immediately, no new payment" endpoint instead of initiating a new charge. Also fixed: "Switch to Free" 400'd (plan enum only allows plus/pro/max — free isn't a subscribable plan, it's a cancellation) and "Cancel Subscription" 405'd (called `DELETE` on the collection route; the handler lives on `.../[subscriptionId]`).
 - **Room Custom Rewards**: see the "Room Custom Rewards" subsection under Gifting above and PRD §12.
 
-**Migration:** `db/migrations/0038_polls_quizzes.sql`.
+**Migration:** `db/migrations/0001_consolidated_schema.sql`.
 
 ## Quest System Expansion (PRD §7, §14, §17)
 
@@ -3573,7 +3573,7 @@ currency now updates these screens automatically like everywhere else.
 existing Sponsored Quests keep behaving exactly as before (creator
 marketplace only) unless an admin/business explicitly opts one in.
 
-**Migration:** `db/migrations/0047_quest_system_expansion.sql`.
+**Migration:** `db/migrations/0001_consolidated_schema.sql`.
 
 ### Android
 
@@ -3880,7 +3880,7 @@ tier/renewal) stays in one place. Unit tests:
    `provider = 'crypto'`, but the table's check constraint (from the
    original consolidated schema) only allowed `'paystack' | 'dodopayments' |
    'google_play'` — every crypto payment insert would have violated it at
-   runtime. Migration `0054_crypto_payments_fixups.sql` widens the
+   runtime. Migration `0001_consolidated_schema.sql` widens the
    constraint to also allow `'crypto'` and `'free'` (the latter for the
    free-grant path above).
 2. **`NextResponse.json()` can't serialize a `bigint`.** Every purchase

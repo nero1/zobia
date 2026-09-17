@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
  * Reuses the creator_broadcasts table/pattern (app/api/creator/broadcasts)
  * rather than inventing a new one, but tags rows with business_account_id
  * so a business owner who is ALSO a personal creator doesn't have the two
- * broadcast quotas bleed into each other (0027_business_broadcasts_and_pending_cancel.sql).
+ * broadcast quotas bleed into each other (0001_consolidated_schema.sql).
  */
 
 import { NextRequest, NextResponse } from "next/server";

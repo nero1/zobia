@@ -51,7 +51,7 @@ export const AuthUserSchema = z.object({
   plan: z.enum(["free", "plus", "pro", "max"]),
   is_admin: z.boolean(),
   is_moderator: z.boolean().optional(),
-  /** Sitewide "support" role (0033_support_tickets.sql) — grantable like
+  /** Sitewide "support" role (0001_consolidated_schema.sql) — grantable like
    *  is_moderator. Optional/defaults falsy so old cached auth payloads
    *  without it still parse. */
   is_support: z.boolean().optional(),

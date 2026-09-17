@@ -12,7 +12,7 @@ import { z } from "zod";
 import type { DatabaseAdapter } from "@/lib/db/interface";
 
 // ---------------------------------------------------------------------------
-// Rewarded Gifts — reward_config (see db/migrations/0026_rewarded_gifts.sql)
+// Rewarded Gifts — reward_config (see db/migrations/0001_consolidated_schema.sql)
 // ---------------------------------------------------------------------------
 //
 // A gift item can optionally be marked "rewarded": sending it to the actual
