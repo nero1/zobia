@@ -134,7 +134,7 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
 
   // -------------------------------------------------------------------
   // Business: active -> grace, keyed off business_accounts.current_period_ends_at
-  // (0028_business_period_tracking.sql — a business owner's checkout is a
+  // (0001_consolidated_schema.sql — a business owner's checkout is a
   // one-off charge, so this is tracked directly on business_accounts rather
   // than the personal `subscriptions` table, which is unique-per-user and
   // would collide with a business owner's own personal plan row).

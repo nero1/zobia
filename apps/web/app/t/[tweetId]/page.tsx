@@ -10,7 +10,7 @@
  * lives at /tweets/<id> — this page is a lightweight public preview + CTA,
  * matching how /a/<slug> relates to /answers/<id>.
  *
- * Tweets have no slug (see db/migrations/0039_tweets.sql) — the id is the
+ * Tweets have no slug (see db/migrations/0001_consolidated_schema.sql) — the id is the
  * only identifier, so unlike /a/<slug> there's no legacy-uuid redirect case.
  *
  * Added to PUBLIC_PREFIXES in middleware.ts so crawlers are not redirected to

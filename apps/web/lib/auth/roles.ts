@@ -24,7 +24,7 @@ export async function isAdminOrModerator(userId: string): Promise<boolean> {
 export interface StaffRoles {
   isAdmin: boolean;
   isModerator: boolean;
-  /** Sitewide "support" role — grantable like moderator (0033_support_tickets.sql). */
+  /** Sitewide "support" role — grantable like moderator (0001_consolidated_schema.sql). */
   isSupport: boolean;
   /** Any support/moderator/admin user additionally flagged senior support. */
   isSeniorSupport: boolean;

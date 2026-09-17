@@ -202,7 +202,7 @@ export async function getBoostableContentSummary(
       return { ownerId: r.author_id, title: r.title, body: r.excerpt, imageUrl: r.featured_image_url };
     }
     case "forum_thread": {
-      // bb_threads — raw-SQL table (migration 0016_bbforum.sql), not in schema.ts.
+      // bb_threads — raw-SQL table (migration 0001_consolidated_schema.sql), not in schema.ts.
       const { rows } = await db.query<{ author_id: string; title: string }>(
         `SELECT author_id, title FROM bb_threads WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
         [contentId]

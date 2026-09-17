@@ -5,7 +5,7 @@ export const dynamic = 'force-dynamic';
  *
  * GET  /api/admin/ads/placements — list the slot catalogue.
  * POST /api/admin/ads/placements — add a new slot (rare; most placements
- *      are seeded in db/migrations/0006_ads.sql). PATCH toggles/edits an
+ *      are seeded in db/migrations/0001_consolidated_schema.sql). PATCH toggles/edits an
  *      existing slot — app/api/admin/ads/placements/[key]/route.ts.
  */
 

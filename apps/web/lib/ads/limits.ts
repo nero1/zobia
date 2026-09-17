@@ -28,7 +28,7 @@ export function adsLevelAllowsAny(level: AdsLevel): boolean {
 
 /**
  * Admin-configurable ad eligibility rules (x_manifest, see migration
- * 0014_ads_advertiser_wallet.sql). Defaults match the platform's original
+ * 0001_consolidated_schema.sql). Defaults match the platform's original
  * behavior: business-account-only, KYC tier 1+, no personal/free-account access.
  */
 export interface AdsAdminConfig {

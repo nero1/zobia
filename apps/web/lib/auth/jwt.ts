@@ -145,7 +145,7 @@ export interface AccessTokenPayload extends JWTPayload {
    *  DATABASE, this claim is never trusted alone. */
   is_moderator?: boolean;
   /** True when the user holds the sitewide `is_support` role
-   *  (0033_support_tickets.sql). Same fail-closed convention as
+   *  (0001_consolidated_schema.sql). Same fail-closed convention as
    *  `is_moderator`: only used for the cheap edge middleware pre-filter on
    *  /gate44/support/* — real authorization always re-checks the DATABASE
    *  via lib/support/staffAuth.ts#requireSupportStaff. Never client-settable

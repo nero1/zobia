@@ -7,7 +7,7 @@
  *
  * Escalation is modeled as ticket state (status/assigned_to) plus an
  * append-only support_ticket_events audit log — no separate escalation
- * table (see 0033_support_tickets.sql).
+ * table (see 0001_consolidated_schema.sql).
  *
  * @module lib/support/service
  */

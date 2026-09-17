@@ -375,7 +375,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    editing `0001` in place.
 
    > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
-   > `db/migrations/0049_monitoring_pg_stat_statements.sql` enables
+   > `db/migrations/0001_consolidated_schema.sql` enables
    > `pg_stat_statements` (a stock Postgres extension, not a third-party APM —
    > adds no per-request overhead). On Supabase/RDS/Neon/Railway it's
    > preloaded by default, so the migration just switches it on. On
@@ -386,99 +386,21 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 
 7. Optional demo data (sample users/rooms/moments for local dev): `npm run migrate -- --seed`, or directly: `psql "$DIRECT_URL" < apps/web/db/seed.sql`
 
-   > **Blogs feature (PRD §32):** its tables, `x_manifest` defaults, and the
-   > three purchasable blog themes ship in
-   > `db/migrations/0002_blogs.sql`. `npm run migrate` picks it up
-   > automatically (it's just the next lexicographic file); if you ran the
-   > consolidated `0001` file directly with `psql` instead, also run
-   > `psql "$DIRECT_URL" < db/migrations/0002_blogs.sql`.
-
-   > **Business Accounts expansion (PRD §17, v2.02):** Business Pages,
-   > business-submitted Sponsored Quests, and the self-service downgrade
-   > grace period ship in `db/migrations/0003_business_expansion.sql`
-   > (picked up automatically by `npm run migrate`, or
-   > `psql "$DIRECT_URL" < db/migrations/0003_business_expansion.sql`). This
-   > migration also adds the `sponsored_quests.deleted_at` column that the
-   > pre-existing admin Sponsored Quest delete endpoint already expected but
-   > that was missing from `0001_consolidated_schema.sql`.
-
-   > **Platform Advertising (PRD §17 Pillar 3, v2.03):** the self-service ad
-   > control panel's tables (`ad_placements`, `ad_campaigns`, `ad_creatives`,
-   > `ad_events`, `ad_campaign_daily_stats`, `ad_coupons`,
-   > `ad_coupon_redemptions`) and `x_manifest` defaults (CPM, moderation
-   > mode, AdMob unit IDs, per-plan ad exposure) ship in
-   > `db/migrations/0006_ads.sql` (picked up automatically by `npm run
-   > migrate`, or `psql "$DIRECT_URL" < db/migrations/0006_ads.sql`).
-
-   > **Guild admin moderation columns (v2.xx):** the `/gate44/guilds` admin
-   > panel's suspend/ban state (`guilds.is_suspended`, `suspended_at`,
-   > `suspended_by`, `suspension_reason`, `is_banned`, `banned_at`,
-   > `banned_by`, `admin_notes`) ships in
-   > `db/migrations/0031_guild_admin_moderation.sql` (picked up automatically
-   > by `npm run migrate`, or
-   > `psql "$DIRECT_URL" < db/migrations/0031_guild_admin_moderation.sql`).
-
-   > **Support Ticket System (PRD §33):** the `is_support`/`is_senior_support`
-   > columns on `users`, `support_tickets`/`support_ticket_messages`/
-   > `support_ticket_events`, and the `x_manifest` defaults (master toggle
-   > off by default) ship in `db/migrations/0033_support_tickets.sql`
-   > (picked up automatically by `npm run migrate`, or
-   > `psql "$DIRECT_URL" < db/migrations/0033_support_tickets.sql`). No new
-   > env vars — reuses the existing AI provider config
-   > (`DEEPSEEK_API_KEY`/`GEMINI_API_KEY`) for AI triage.
-
-   > **Help Center Expansion (PRD §34):** `help_categories`/`help_docs`
-   > (with a full-text-search trigger) and the `x_manifest` defaults ship in
-   > `db/migrations/0034_help_center.sql` (picked up automatically by
-   > `npm run migrate`, or `psql "$DIRECT_URL" < db/migrations/0034_help_center.sql`).
-   > Also widens the pre-existing `slug_redirects` table's `entity_type`
-   > check constraint to accept `help_doc`/`help_category`. No new env vars.
-
-   > **Nemesis opt-out & challenge timeout:** the `users.nemesis_opt_out`
-   > column and the `nemesis_challenge_accept_days` `x_manifest` default
-   > (3 days) ship in `db/migrations/0036_nemesis_opt_out_and_challenge_timeout.sql`
-   > (picked up automatically by `npm run migrate`, or
-   > `psql "$DIRECT_URL" < db/migrations/0036_nemesis_opt_out_and_challenge_timeout.sql`).
-   > No new env vars.
-
-   > **Forum Mods (guild-scoped moderators) & Reporting flood control:**
-   > `guild_members.is_moderator`/`is_muted`/`muted_until`, `guild_messages.deleted_by`,
-   > `moderation_reports.deleted_at`/`reported_guild_message_id`/`cluster_key`/
-   > `duplicate_count`/`is_malicious`/`reward_applied`/`auto_quarantined`, the new
-   > `moderation_report_reporters` table, two CHECK-constraint/NOT-NULL fixes on
-   > `moderation_actions`, and the `report_reward_*`/`report_duplicate_*`/`modcap_*`
-   > `x_manifest` defaults all ship in
-   > `db/migrations/0037_forum_mods_and_report_flood_control.sql` (picked up
-   > automatically by `npm run migrate`, or
-   > `psql "$DIRECT_URL" < db/migrations/0037_forum_mods_and_report_flood_control.sql`).
-   > No new env vars — reuses the existing Credits/XP award helpers.
+   > **Features that used to need their own migration:** Blogs (PRD §32),
+   > the Business Accounts expansion (PRD §17, v2.02), Platform Advertising
+   > (PRD §17 Pillar 3, v2.03), Guild admin moderation, the Support Ticket
+   > System (PRD §33), the Help Center (PRD §34), Nemesis opt-out &
+   > challenge timeout, Forum Mods & reporting flood control, Polls &
+   > Quizzes, Centralized Data Management, Wiki, the quest-system
+   > expansion, the admin alert priority system, Market/referrals/boosts,
+   > the Home feed, crypto payments and the rest are all part of
+   > `db/migrations/0001_consolidated_schema.sql` — there is nothing extra
+   > to run for any of them, and none of them need new env vars. See
+   > `docs/HOW-IT-WORKS.md` for how each one works.
    >
-   > **Polls & Quizzes:** the new `polls`/`poll_options`/`poll_votes`,
-   > `quizzes`/`quiz_questions`/`quiz_question_options`/`quiz_attempts`/
-   > `quiz_attempt_answers` tables, the shared
-   > `content_shares`/`content_treasuries`/`content_treasury_claims` reward-pot
-   > tables, the `reported_poll_id`/`reported_quiz_id` columns on `reports`/
-   > `moderation_reports`, and the `feature_polls`/`feature_quizzes`/
-   > `poll_monetization_enabled`/`quiz_monetization_enabled`/`polls_*`/
-   > `quizzes_*` `x_manifest` defaults all ship in
-   > `db/migrations/0038_polls_quizzes.sql` (picked up automatically by
-   > `npm run migrate`, or
-   > `psql "$DIRECT_URL" < db/migrations/0038_polls_quizzes.sql`). No new env
-   > vars — reuses the existing Credits/XP award helpers. See PRD §36 and
-   > `docs/HOW-IT-WORKS.md`'s "Polls & Quizzes" section.
-
-   > **Centralized Data Management:** the new `admin_data_import_jobs` table
-   > (tracks chunked NDJSON account-import jobs) and composite/partial
-   > indexes on `users` for the filtered export queries (`idx_users_export_filter`,
-   > `idx_users_export_created_at`, `idx_users_export_trust_score`,
-   > `idx_users_export_country`) ship in
-   > `db/migrations/0041_admin_data_management.sql` (picked up automatically
-   > by `npm run migrate`, or
-   > `psql "$DIRECT_URL" < db/migrations/0041_admin_data_management.sql`).
-   > No new env vars. Adds a new `exceljs` dependency to `apps/web/package.json`
-   > (streaming XLSX export for `/gate44/data-management`) — pulled in by the
-   > normal root `npm install`. See `docs/HOW-IT-WORKS.md`'s "Data Management"
-   > section.
+   > One non-schema note: `/gate44/data-management` streams XLSX exports via
+   > `exceljs`, a dependency of `apps/web/package.json` pulled in by the
+   > normal root `npm install`.
 
 ### Option B: Railway PostgreSQL
 
@@ -852,7 +774,7 @@ A surface is enforced only when BOTH `captcha_provider != "none"` AND its
 key is present in `captcha_active_surfaces` — call
 `isCaptchaSurfaceEnabled(surface)` from a server route rather than
 checking the provider alone. All 11 surfaces ship enabled by default (see
-migration `0029_captcha_active_surfaces.sql`), so nothing changes for an
+migration `0001_consolidated_schema.sql`), so nothing changes for an
 existing deployment until an admin unchecks one. There's nothing
 blog-specific to configure beyond that: set the site/secret keys above,
 pick a provider, and leave every surface checked (or uncheck the ones you
@@ -1539,7 +1461,7 @@ synchronously on the write path, same as Answers/Blogs.
 - **Capacitor Android:** Available at `/polls`, `/quizzes`
   (`apps/android/src/routes/polls/*`, `.../quizzes/*`), plus the two
   admin screens.
-- **Migration:** `db/migrations/0038_polls_quizzes.sql` — see the note
+- **Migration:** `db/migrations/0001_consolidated_schema.sql` — see the note
   under "Database Setup" above.
 
 ---

@@ -8,7 +8,7 @@ export interface AuthUser {
   username: string;
   is_admin: boolean;
   is_moderator?: boolean;
-  /** Sitewide "support" role (0033_support_tickets.sql) — grantable like
+  /** Sitewide "support" role (0001_consolidated_schema.sql) — grantable like
    *  is_moderator. Used for client-side UI (e.g. /gate44/support/*
    *  page-level checks), always alongside a server-side DB re-check. */
   is_support?: boolean;

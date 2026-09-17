@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
  *   limit      - Page size (default 50, max 200)
  *
  * Both tables are keyset-paginated (created_at, id) — see migration
- * 0013_audit_log_viewer.sql for the supporting indexes — so listing stays
+ * 0001_consolidated_schema.sql for the supporting indexes — so listing stays
  * fast regardless of how many rows have accumulated. Retention is handled
  * separately by the daily-platform cron (lib/audit/pruneAuditLogs.ts).
  */
