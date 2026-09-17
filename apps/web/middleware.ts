@@ -260,6 +260,16 @@ const FORUM_MOD_PREFIXES = ["/gate44/answers", "/gate44/forum", "/gate44/guilds"
  */
 const SUPPORT_MOD_PREFIXES = ["/gate44/support/queue", "/gate44/support/tickets"];
 
+/**
+ * Scoped exception within /gate44/*: Ad Moderators (is_ad_moderator=true) may
+ * pass the edge pre-filter for the ad image escalation queue only — a
+ * narrower staff role than full moderator/admin. Every other /gate44/ads/*
+ * subpage (campaigns, placements, coupons, settings) still requires
+ * is_admin. The API layer (withAdModeratorOrAdminAuth) is the real
+ * authorization boundary, re-checked fresh from the DATABASE.
+ */
+const AD_MODERATOR_PREFIXES = ["/gate44/ads/moderation-queue"];
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -270,6 +280,7 @@ interface TokenPayload {
   is_moderator?: boolean;
   is_support?: boolean;
   is_senior_support?: boolean;
+  is_ad_moderator?: boolean;
   sid?: string;
   type?: string;
   onboarding_completed?: boolean;
@@ -320,19 +331,21 @@ function isAdminRoute(pathname: string): boolean {
  * @returns true if the request should be allowed past the edge pre-filter.
  */
 export function isAllowedGate44Route(
-  payload: Pick<TokenPayload, "is_admin" | "is_moderator" | "is_support" | "is_senior_support">,
+  payload: Pick<TokenPayload, "is_admin" | "is_moderator" | "is_support" | "is_senior_support" | "is_ad_moderator">,
   pathname: string
 ): boolean {
   if (payload.is_admin) return true;
   const isForumModRoute = FORUM_MOD_PREFIXES.some((prefix) => pathname.startsWith(prefix));
   const isSupportModRoute = SUPPORT_MOD_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  const isAdModeratorRoute = AD_MODERATOR_PREFIXES.some((prefix) => pathname.startsWith(prefix));
   const isAllowedModerator = isForumModRoute && !!payload.is_moderator;
   // Support queue/ticket pages: moderator, admin (already covered above),
   // is_support, or is_senior_support may all pass the edge pre-filter — this
   // is what lets a plain (non-moderator, non-admin) support-staff user reach
   // /gate44/support/queue and /gate44/support/tickets/:id directly.
   const isAllowedSupportStaff = isSupportModRoute && !!(payload.is_moderator || payload.is_support || payload.is_senior_support);
-  return isAllowedModerator || isAllowedSupportStaff;
+  const isAllowedAdModerator = isAdModeratorRoute && !!payload.is_ad_moderator;
+  return isAllowedModerator || isAllowedSupportStaff || isAllowedAdModerator;
 }
 
 function isAppRoute(_pathname: string): boolean {

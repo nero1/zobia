@@ -1,22 +1,19 @@
 /**
  * lib/kyc/geminiVision.ts
  *
- * Gemini Vision helper for KYC document/selfie analysis.
+ * Vision helper for KYC document/selfie analysis. Despite the filename
+ * (kept for import-path stability across the KYC module), this now goes
+ * through the shared image-classification pipeline (lib/ai/vision.ts):
+ * DeepSeek Flash (vision) first, escalating to Gemini Vision when DeepSeek
+ * fails or is low-confidence — the same DeepSeek-primary/Gemini-fallback
+ * chain used for ad creative images.
  *
- * The platform's shared AI client (lib/ai/client.ts) is text-only (see its
- * ChatMessage.content: string), so this is a standalone, narrowly-scoped
- * caller straight to the Gemini `generateContent` REST API with inline image
- * data — reusing the same GEMINI_API_KEY / manifest-override lookup and model
- * config (lib/ai/config.ts) as the shared client, but no circuit breaker or
- * DeepSeek fallback, since DeepSeek has no vision endpoint. Callers should
- * treat failures as "AI unavailable" and escalate to manual review — see
- * lib/kyc/service.ts.
+ * Callers must treat a `null` return as "AI unavailable, escalate to manual
+ * review" — see lib/kyc/service.ts, which layers its own auto-approve /
+ * escalate-below thresholds on top of the confidence this returns.
  */
 
-import { env } from "@/lib/env";
-import { getManifestValue } from "@/lib/manifest";
-import { GEMINI_CONFIG, GEMINI_MODELS } from "@/lib/ai/config";
-import { logAiCall } from "@/lib/ai/monitoring";
+import { classifyImage } from "@/lib/ai/vision";
 import { logger } from "@/lib/logger";
 
 export interface DocumentAnalysisResult {
@@ -41,24 +38,21 @@ const DOCUMENT_PROMPT =
   "or otherwise not clearly a genuine physical/digital ID or address document. " +
   "Never guess a name you cannot actually read in the image — return null instead.";
 
-async function getApiKey(): Promise<string | null> {
-  const override = await getManifestValue("ai_gemini_api_key_override");
-  const raw = (override && override.length > 0 ? override : env.GEMINI_API_KEY) ?? null;
-  if (!raw) return null;
-  return raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
-}
-
-function parseJsonResponse(content: string): DocumentAnalysisResult | null {
+function parseDocumentResponse(content: string): { value: DocumentAnalysisResult; confidence: number } | null {
   const cleaned = content.trim().replace(/^```(?:json)?/i, "").replace(/```$/, "").trim();
   try {
     const parsed = JSON.parse(cleaned) as Partial<DocumentAnalysisResult>;
     if (typeof parsed.confidence !== "number") return null;
+    const confidence = Math.max(0, Math.min(1, parsed.confidence));
     return {
-      extractedName: typeof parsed.extractedName === "string" ? parsed.extractedName : null,
-      documentType: typeof parsed.documentType === "string" ? parsed.documentType : null,
-      confidence: Math.max(0, Math.min(1, parsed.confidence)),
-      tamperingSuspected: parsed.tamperingSuspected === true,
-      notes: typeof parsed.notes === "string" ? parsed.notes : "",
+      value: {
+        extractedName: typeof parsed.extractedName === "string" ? parsed.extractedName : null,
+        documentType: typeof parsed.documentType === "string" ? parsed.documentType : null,
+        confidence,
+        tamperingSuspected: parsed.tamperingSuspected === true,
+        notes: typeof parsed.notes === "string" ? parsed.notes : "",
+      },
+      confidence,
     };
   } catch {
     return null;
@@ -66,10 +60,12 @@ function parseJsonResponse(content: string): DocumentAnalysisResult | null {
 }
 
 /**
- * Analyze a KYC document image (govt ID, proof of address, selfie) with
- * Gemini Vision. Returns null on any failure (missing key, network error,
- * unparseable response) — callers must treat null as "escalate to manual
- * review", never as an implicit pass or fail.
+ * Analyze a KYC document image (govt ID, proof of address, selfie).
+ * Returns null on total failure (no provider could be reached, or none
+ * returned a parseable response) — callers must treat null as "escalate to
+ * manual review", never as an implicit pass or fail. A low-but-parseable
+ * confidence score is still returned (not null) — lib/kyc/service.ts is
+ * responsible for the auto-approve / escalate-below-threshold decision.
  *
  * @param imageBuffer - Raw image bytes
  * @param mimeType    - e.g. "image/jpeg", "image/png"
@@ -80,69 +76,21 @@ export async function analyzeDocument(
   mimeType: string,
   promptHint?: string
 ): Promise<DocumentAnalysisResult | null> {
-  const apiKey = await getApiKey();
-  if (!apiKey) {
-    logger.warn("[kyc/geminiVision] No Gemini API key configured — skipping AI document analysis");
-    return null;
-  }
-
-  const model = GEMINI_MODELS.FLASH;
-  const url = `${GEMINI_CONFIG.apiBaseUrl}/models/${model}:generateContent?key=${apiKey}`;
-  const base64 = imageBuffer.toString("base64");
   const prompt = promptHint ? `${DOCUMENT_PROMPT}\n\nContext: ${promptHint}` : DOCUMENT_PROMPT;
-  const startedAt = Date.now();
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), GEMINI_CONFIG.timeoutMs);
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      signal: controller.signal,
-      body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              { text: prompt },
-              { inline_data: { mime_type: mimeType, data: base64 } },
-            ],
-          },
-        ],
-        generationConfig: { temperature: 0, maxOutputTokens: 300 },
-      }),
-    });
-    clearTimeout(timeout);
-
-    if (!res.ok) {
-      logger.warn({ status: res.status }, "[kyc/geminiVision] Gemini API error");
-      await logAiCall({ provider: "gemini", model, feature: "kyc:document_analysis", success: false, latencyMs: Date.now() - startedAt, errorMessage: `HTTP ${res.status}` });
-      return null;
-    }
-
-    const json = (await res.json()) as {
-      candidates?: { content?: { parts?: { text?: string }[] } }[];
-    };
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      await logAiCall({ provider: "gemini", model, feature: "kyc:document_analysis", success: false, latencyMs: Date.now() - startedAt, errorMessage: "Empty response" });
-      return null;
-    }
-
-    const result = parseJsonResponse(text);
-    await logAiCall({
-      provider: "gemini",
-      model,
+    const classification = await classifyImage({
+      imageBuffer,
+      mimeType,
+      prompt,
       feature: "kyc:document_analysis",
-      success: result !== null,
-      latencyMs: Date.now() - startedAt,
-      confidence: result?.confidence ?? null,
-      resultPreview: result ? `${result.documentType ?? "unknown"} tampering=${result.tamperingSuspected}` : null,
-      errorMessage: result ? null : "Unparseable AI response",
+      parse: parseDocumentResponse,
+      maxTokens: 300,
+      temperature: 0,
     });
-    return result;
+    return classification.result;
   } catch (err) {
     logger.warn({ err: err instanceof Error ? err.message : String(err) }, "[kyc/geminiVision] Document analysis failed");
-    await logAiCall({ provider: "gemini", model, feature: "kyc:document_analysis", success: false, latencyMs: Date.now() - startedAt, errorMessage: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }

@@ -10,7 +10,7 @@ import type { StaffRoles } from "@/lib/auth/roles";
 const staffRoles = ["support", "moderator", "admin"];
 
 function roles(overrides: Partial<StaffRoles>): StaffRoles {
-  return { isAdmin: false, isModerator: false, isSupport: false, isSeniorSupport: false, ...overrides };
+  return { isAdmin: false, isModerator: false, isSupport: false, isSeniorSupport: false, isAdModerator: false, ...overrides };
 }
 
 describe("canEscalate", () => {

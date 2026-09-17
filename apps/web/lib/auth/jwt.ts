@@ -157,6 +157,13 @@ export interface AccessTokenPayload extends JWTPayload {
    *  support (e.g. escalation targets) — server-side authorization still
    *  always re-checks the database, never this claim. */
   is_senior_support?: boolean;
+  /** True when the user holds the `is_ad_moderator` role — reviews AI-escalated
+   *  ad creative images. Same fail-closed convention as `is_moderator`: only
+   *  used for the cheap edge middleware pre-filter on
+   *  /gate44/ads/moderation-queue — real authorization always re-checks the
+   *  DATABASE via withAdModeratorOrAdminAuth. Never client-settable — always
+   *  freshly read from the DB at token issuance. */
+  is_ad_moderator?: boolean;
   /** Session ID (matches Redis key for invalidation). */
   sid: string;
   /** Token type — 'pre_auth' tokens are only valid for the 2FA verify endpoint. */

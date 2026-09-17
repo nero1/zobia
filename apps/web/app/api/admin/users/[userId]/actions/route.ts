@@ -52,6 +52,7 @@ interface TargetUser {
   is_moderator: boolean;
   is_support: boolean;
   is_senior_support: boolean;
+  is_ad_moderator: boolean;
   email_verified: boolean;
   require_2fa_setup: boolean;
 }
@@ -71,6 +72,8 @@ const actionSchema = z.object({
     "downgrade_support",
     "upgrade_senior_support",
     "downgrade_senior_support",
+    "upgrade_ad_moderator",
+    "downgrade_ad_moderator",
     "reset_password",
     "force_2fa",
     "verify_account",
@@ -126,6 +129,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
         `SELECT id, email, username, is_admin, is_suspended, is_banned, is_moderator,
                 COALESCE(is_support, false) AS is_support,
                 COALESCE(is_senior_support, false) AS is_senior_support,
+                COALESCE(is_ad_moderator, false) AS is_ad_moderator,
                 COALESCE(is_email_verified, false) AS email_verified,
                 COALESCE(require_2fa_setup, false) AS require_2fa_setup
          FROM users
@@ -246,6 +250,24 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           break;
         }
 
+        case "upgrade_ad_moderator": {
+          if (target.is_ad_moderator) {
+            throw conflict("User is already an ad moderator");
+          }
+          updateSql = `UPDATE users SET is_ad_moderator = true, updated_at = NOW() WHERE id = $1`;
+          updateParams = [userId];
+          break;
+        }
+
+        case "downgrade_ad_moderator": {
+          if (!target.is_ad_moderator) {
+            throw conflict("User is not an ad moderator");
+          }
+          updateSql = `UPDATE users SET is_ad_moderator = false, updated_at = NOW() WHERE id = $1`;
+          updateParams = [userId];
+          break;
+        }
+
         case "reset_password": {
           // Null out the password hash so the account cannot log in with password,
           // then create a one-time reset token and email it to the user (PRD §20).
@@ -316,14 +338,17 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
 
     // Invalidate all sessions for suspended/banned/2fa-forced/demoted users immediately
     // (outside transaction – Redis is not transactional with DB)
-    // BUG-028: include downgrade_moderator so demoted users' JWTs (which still carry
-    // is_moderator=true) cannot be replayed until their next login issues a fresh token.
+    // BUG-028: include downgrade_moderator (and, following the same fix,
+    // downgrade_ad_moderator) so demoted users' JWTs — which still carry the
+    // stale is_moderator/is_ad_moderator claim — cannot be replayed until
+    // their next login issues a fresh token.
     if (
       body.action === "suspend" ||
       body.action === "ban" ||
       body.action === "force_2fa" ||
       body.action === "reset_password" ||
-      body.action === "downgrade_moderator"
+      body.action === "downgrade_moderator" ||
+      body.action === "downgrade_ad_moderator"
     ) {
       await revokeUserAccess(userId, `admin:${body.action}`);
     }

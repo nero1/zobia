@@ -38,6 +38,7 @@ interface AdminUserRow {
   is_moderator: boolean;
   is_support: boolean;
   is_senior_support: boolean;
+  is_ad_moderator: boolean;
   is_suspended: boolean;
   is_banned: boolean;
   onboarding_completed: boolean;
@@ -65,6 +66,7 @@ export interface AdminUser {
   isModerator: boolean;
   isSupport: boolean;
   isSeniorSupport: boolean;
+  isAdModerator: boolean;
   gender: string | null;
   city: string;
   reportHistoryCount: number;
@@ -123,6 +125,7 @@ function toAdminUser(row: AdminUserRow): AdminUser {
     isModerator: row.is_moderator,
     isSupport: row.is_support,
     isSeniorSupport: row.is_senior_support,
+    isAdModerator: row.is_ad_moderator,
     gender: row.gender,
     city: row.city ?? "",
     reportHistoryCount: row.report_count,
@@ -221,6 +224,7 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
          u.id, u.email, u.username, u.display_name, u.avatar_url,
          u.avatar_emoji, u.plan, u.trust_score, u.is_admin, u.is_moderator,
          COALESCE(u.is_support, false) AS is_support, COALESCE(u.is_senior_support, false) AS is_senior_support,
+         COALESCE(u.is_ad_moderator, false) AS is_ad_moderator,
          u.is_suspended, u.is_banned, u.onboarding_completed, u.gender,
          u.created_at, u.updated_at, u.last_active_at, u.city,
          (SELECT COUNT(*)::int FROM reports       WHERE reported_user_id = u.id)  AS report_count,

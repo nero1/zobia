@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 
 // ---------------------------------------------------------------------------
 // Overview tab
@@ -121,10 +122,18 @@ function ModerationTab() {
   }
 
   if (loading) return <div className="h-40 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />;
-  if (campaigns.length === 0) return <p className="text-sm text-neutral-400">No campaigns pending review.</p>;
 
   return (
     <div className="space-y-3">
+      <Link
+        href="/gate44/ads/moderation-queue"
+        className="block rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300"
+      >
+        🕵️ Ad image AI escalations awaiting an Ad Moderator →
+      </Link>
+      {campaigns.length === 0 ? (
+        <p className="text-sm text-neutral-400">No campaigns pending review.</p>
+      ) : null}
       {campaigns.map((c) => (
         <div key={c.id} className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
           <div className="flex flex-wrap items-center justify-between gap-2">
@@ -327,7 +336,7 @@ const ADS_SETTINGS_FIELDS: AdsFieldMeta[] = [
 
 const ADS_MODERATION_MODE_FIELDS: { key: string; label: string; description: string }[] = [
   { key: "ad_moderation_mode_text", label: "Text/Native Ad Moderation", description: "manual = admin queue, ai = auto-approve above the AI confidence threshold." },
-  { key: "ad_moderation_mode_image", label: "Image Ad Moderation", description: "Always uses an image-capable model (Gemini Vision) when set to ai — text models can't see images." },
+  { key: "ad_moderation_mode_image", label: "Image Ad Moderation", description: "Always uses an image-capable model (DeepSeek Flash vision, escalating to Gemini) when set to ai — text models can't see images. Anything neither model is confident about lands in the Ad Moderator queue below." },
 ];
 
 function AdsToggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
