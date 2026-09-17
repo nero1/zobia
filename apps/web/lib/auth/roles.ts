@@ -28,6 +28,8 @@ export interface StaffRoles {
   isSupport: boolean;
   /** Any support/moderator/admin user additionally flagged senior support. */
   isSeniorSupport: boolean;
+  /** Reviews AI-escalated ad creative images at /gate44/ads/moderation-queue. A narrower role than full moderator/admin. */
+  isAdModerator: boolean;
 }
 
 const EMPTY_STAFF_ROLES: StaffRoles = {
@@ -35,6 +37,7 @@ const EMPTY_STAFF_ROLES: StaffRoles = {
   isModerator: false,
   isSupport: false,
   isSeniorSupport: false,
+  isAdModerator: false,
 };
 
 /**
@@ -49,8 +52,9 @@ export async function getStaffRoles(userId: string): Promise<StaffRoles> {
       is_moderator: boolean;
       is_support: boolean;
       is_senior_support: boolean;
+      is_ad_moderator: boolean;
     }>(
-      `SELECT is_admin, is_moderator, is_support, is_senior_support
+      `SELECT is_admin, is_moderator, is_support, is_senior_support, is_ad_moderator
        FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
       [userId]
     );
@@ -61,10 +65,17 @@ export async function getStaffRoles(userId: string): Promise<StaffRoles> {
       isModerator: Boolean(row.is_moderator),
       isSupport: Boolean(row.is_support),
       isSeniorSupport: Boolean(row.is_senior_support),
+      isAdModerator: Boolean(row.is_ad_moderator),
     };
   } catch {
     return EMPTY_STAFF_ROLES;
   }
+}
+
+/** Returns true if the given user currently has `is_admin` or `is_ad_moderator` set. Fails closed on DB error. */
+export async function isAdminOrAdModerator(userId: string): Promise<boolean> {
+  const roles = await getStaffRoles(userId);
+  return roles.isAdmin || roles.isAdModerator;
 }
 
 /**

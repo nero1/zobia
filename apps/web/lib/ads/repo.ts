@@ -21,6 +21,8 @@ import type { TransactionClient } from "@/lib/db/interface";
 import { debitAdWallet, creditAdWallet } from "@/lib/economy/adWallet";
 import { classifyAdCreative, classifyAdCreativeImage } from "@/lib/moderation/aiClassifier";
 import { getAdModerationModeFor, getAdAiAutoApproveThreshold, getDefaultCpmCredits, getAdsAdminConfig } from "@/lib/ads/limits";
+import { raiseAlert } from "@/lib/alerts/dispatch";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,6 +66,8 @@ export interface AdCampaignRow {
   status: AdCampaignStatus;
   moderation_status: "pending" | "approved" | "rejected";
   moderation_reason: string | null;
+  ai_confidence: string | null;
+  ai_escalated: boolean;
   cpm_credits: string;
   daily_budget_credits: string | null;
   total_budget_credits: string;
@@ -390,47 +394,116 @@ export async function listCreatives(campaignId: string): Promise<AdCreativeRow[]
  * default, or AI auto-approval when the admin has turned it on for this
  * creative's type (`ad_moderation_mode_text` / `ad_moderation_mode_image`
  * — see lib/ads/limits.ts getAdModerationModeFor). Image creatives are
- * always routed to an image-capable model (classifyAdCreativeImage),
- * never the text classifier — a text model cannot see the image.
+ * always routed to an image-capable model (classifyAdCreativeImage), never
+ * the text classifier — a text model cannot see the image.
+ *
+ * Every creative on the campaign is reviewed (not just the first one) — a
+ * campaign is only eligible for auto-approval when ALL of its creatives
+ * clear the threshold. If any image creative comes back `needsHumanReview`
+ * (both DeepSeek and Gemini were low-confidence or failed), the campaign is
+ * flagged `ai_escalated` and a row is written to `ad_ai_escalations` for the
+ * Ad Moderator review queue (/gate44/ads/moderation-queue) instead of
+ * silently falling through to the generic manual admin queue.
  */
 export async function submitCampaignForModeration(
   campaign: AdCampaignRow,
   advertiserName: string
 ): Promise<{ moderationStatus: "pending" | "approved"; reason: string | null }> {
-  const { rows: creativeRows } = await db.query<{ title: string | null; body: string | null; click_url: string | null; format: string; image_url: string | null }>(
-    `SELECT title, body, click_url, format, image_url FROM ad_creatives WHERE campaign_id = $1 LIMIT 1`,
+  const { rows: creativeRows } = await db.query<{ id: string; title: string | null; body: string | null; click_url: string | null; format: string; image_url: string | null }>(
+    `SELECT id, title, body, click_url, format, image_url FROM ad_creatives WHERE campaign_id = $1 ORDER BY created_at ASC`,
     [campaign.id]
   );
-  const creative = creativeRows[0];
-  const isImageCreative = creative?.format === "image" && !!creative.image_url;
-  const mode = await getAdModerationModeFor(isImageCreative ? "image" : "text");
+
+  // No creatives yet (e.g. draft campaign submitted before adding one) —
+  // nothing to review; fall back to the manual queue rather than auto-approving.
+  if (creativeRows.length === 0) {
+    await db.query(
+      `UPDATE ad_campaigns SET status = 'pending_review', moderation_status = 'pending', moderation_mode = 'manual', moderation_reason = 'No creatives submitted yet.', updated_at = NOW() WHERE id = $1`,
+      [campaign.id]
+    );
+    return { moderationStatus: "pending", reason: "No creatives submitted yet." };
+  }
+
+  const hasImageCreative = creativeRows.some((c) => c.format === "image" && !!c.image_url);
+  const mode = await getAdModerationModeFor(hasImageCreative ? "image" : "text");
   let moderationStatus: "pending" | "approved" = "pending";
   let reason: string | null = null;
+  let minConfidence: number | null = null;
+  let anyNeedsHumanReview = false;
+  const escalationInserts: { creativeId: string; imageUrl: string; deepseekResult: unknown; geminiResult: unknown }[] = [];
 
   if (mode === "ai") {
-    const review = isImageCreative
-      ? await classifyAdCreativeImage(creative!.image_url!)
-      : await classifyAdCreative(
-          advertiserName,
-          campaign.name,
-          creative?.title ?? "",
-          creative?.body ?? "",
-          creative?.click_url ?? ""
-        );
     const threshold = await getAdAiAutoApproveThreshold();
-    if (review.approvalConfidence >= threshold) moderationStatus = "approved";
-    reason = review.reason;
+    let allApproved = true;
+    const reasons: string[] = [];
+
+    for (const creative of creativeRows) {
+      const isImageCreative = creative.format === "image" && !!creative.image_url;
+
+      if (isImageCreative) {
+        const review = await classifyAdCreativeImage(creative.image_url!);
+        minConfidence = minConfidence === null ? review.approvalConfidence : Math.min(minConfidence, review.approvalConfidence);
+        reasons.push(review.reason);
+
+        if (review.needsHumanReview) {
+          anyNeedsHumanReview = true;
+          allApproved = false;
+          const deepseekAttempt = review.attempts.find((a) => a.provider === "deepseek") ?? null;
+          const geminiAttempt = review.attempts.find((a) => a.provider === "gemini") ?? null;
+          escalationInserts.push({
+            creativeId: creative.id,
+            imageUrl: creative.image_url!,
+            deepseekResult: deepseekAttempt,
+            geminiResult: geminiAttempt,
+          });
+          continue;
+        }
+
+        if (review.approvalConfidence < threshold) allApproved = false;
+        continue;
+      }
+
+      const review = await classifyAdCreative(advertiserName, campaign.name, creative.title ?? "", creative.body ?? "", creative.click_url ?? "");
+      minConfidence = minConfidence === null ? review.approvalConfidence : Math.min(minConfidence, review.approvalConfidence);
+      reasons.push(review.reason);
+
+      if (review.approvalConfidence < threshold) allApproved = false;
+    }
+
+    if (allApproved) moderationStatus = "approved";
+    reason = reasons.join(" | ").slice(0, 500);
   }
 
   await db.query(
     `UPDATE ad_campaigns
-     SET status = 'pending_review', moderation_status = $1, moderation_mode = $2, moderation_reason = $3, updated_at = NOW()
-     WHERE id = $4`,
-    [moderationStatus, mode, reason, campaign.id]
+     SET status = 'pending_review', moderation_status = $1, moderation_mode = $2, moderation_reason = $3,
+         ai_confidence = $4, ai_escalated = $5, updated_at = NOW()
+     WHERE id = $6`,
+    [moderationStatus, mode, reason, minConfidence, anyNeedsHumanReview, campaign.id]
   );
 
   if (moderationStatus === "approved") {
     await db.query(`UPDATE ad_campaigns SET status = 'approved', moderated_at = NOW() WHERE id = $1`, [campaign.id]);
+  }
+
+  for (const insert of escalationInserts) {
+    await db.query(
+      `INSERT INTO ad_ai_escalations (campaign_id, creative_id, image_url, deepseek_result, gemini_result)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [campaign.id, insert.creativeId, insert.imageUrl, JSON.stringify(insert.deepseekResult), JSON.stringify(insert.geminiResult)]
+    );
+  }
+
+  if (anyNeedsHumanReview) {
+    await raiseAlert(db, {
+      type: "ad_image_ai_escalated",
+      category: "moderation",
+      priorityLevel: 6,
+      title: "Ad image needs human review",
+      message: `Advertiser "${advertiserName}"'s ad campaign ("${campaign.name}") has an image neither AI provider could confidently classify — awaiting Ad Moderator review.`,
+      metadata: { campaignId: campaign.id, businessAccountId: campaign.business_account_id },
+      dedupeKey: `ad_image_ai_escalated:${campaign.id}`,
+    }).catch((err) => logger.error({ err }, "[ads/repo] failed to write ad_image_ai_escalated alert"));
   }
 
   return { moderationStatus, reason };
@@ -445,9 +518,17 @@ export async function moderateCampaign(
 ): Promise<void> {
   await db.query(
     `UPDATE ad_campaigns
-     SET moderation_status = $1, status = $2, moderation_reason = $3, moderated_by = $4, moderated_at = NOW(), updated_at = NOW()
+     SET moderation_status = $1, status = $2, moderation_reason = $3, moderated_by = $4, moderated_at = NOW(), updated_at = NOW(), ai_escalated = false
      WHERE id = $5`,
     [approve ? "approved" : "rejected", approve ? "approved" : "rejected", reason, adminId, campaignId]
+  );
+  // A direct admin decision on the whole campaign supersedes any pending
+  // per-image AI escalation for it — clear the queue entry so it doesn't
+  // linger as "pending" after the campaign itself is already resolved.
+  await db.query(
+    `UPDATE ad_ai_escalations SET status = $1, reviewed_by = $2, reviewed_at = NOW(), review_note = 'Resolved via campaign-level moderation decision.'
+     WHERE campaign_id = $3 AND status = 'pending'`,
+    [approve ? "approved" : "rejected", adminId, campaignId]
   );
 }
 

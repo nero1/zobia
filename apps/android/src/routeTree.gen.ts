@@ -37,6 +37,8 @@ import { Route as Watch56RouteImport } from './routes/watch56'
 import { Route as AdminIndexRouteImport } from './routes/admin/index'
 import { Route as AdminActionsLogRouteImport } from './routes/admin/actions-log'
 import { Route as AdminAdsRouteImport } from './routes/admin/ads'
+import { Route as AdminAdsModerationQueueRouteImport } from './routes/admin/ads-moderation-queue'
+import { Route as AdminAiMonitoringRouteImport } from './routes/admin/ai-monitoring'
 import { Route as AdminAiSettingsRouteImport } from './routes/admin/ai-settings'
 import { Route as AdminAlertsRouteImport } from './routes/admin/alerts'
 import { Route as AdminAnnouncementsRouteImport } from './routes/admin/announcements'
@@ -311,6 +313,16 @@ const AdminActionsLogRoute = AdminActionsLogRouteImport.update({
 const AdminAdsRoute = AdminAdsRouteImport.update({
   id: '/admin/ads',
   path: '/admin/ads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAdsModerationQueueRoute = AdminAdsModerationQueueRouteImport.update({
+  id: '/admin/ads-moderation-queue',
+  path: '/admin/ads-moderation-queue',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AdminAiMonitoringRoute = AdminAiMonitoringRouteImport.update({
+  id: '/admin/ai-monitoring',
+  path: '/admin/ai-monitoring',
   getParentRoute: () => rootRouteImport,
 } as any)
 const AdminAiSettingsRoute = AdminAiSettingsRouteImport.update({
@@ -1021,6 +1033,8 @@ export interface FileRoutesByFullPath {
   '/watch56': typeof Watch56Route
   '/admin/actions-log': typeof AdminActionsLogRoute
   '/admin/ads': typeof AdminAdsRoute
+  '/admin/ads-moderation-queue': typeof AdminAdsModerationQueueRoute
+  '/admin/ai-monitoring': typeof AdminAiMonitoringRoute
   '/admin/ai-settings': typeof AdminAiSettingsRoute
   '/admin/alerts': typeof AdminAlertsRoute
   '/admin/announcements': typeof AdminAnnouncementsRoute
@@ -1186,6 +1200,8 @@ export interface FileRoutesByTo {
   '/watch56': typeof Watch56Route
   '/admin/actions-log': typeof AdminActionsLogRoute
   '/admin/ads': typeof AdminAdsRoute
+  '/admin/ads-moderation-queue': typeof AdminAdsModerationQueueRoute
+  '/admin/ai-monitoring': typeof AdminAiMonitoringRoute
   '/admin/ai-settings': typeof AdminAiSettingsRoute
   '/admin/alerts': typeof AdminAlertsRoute
   '/admin/announcements': typeof AdminAnnouncementsRoute
@@ -1352,6 +1368,8 @@ export interface FileRoutesById {
   '/watch56': typeof Watch56Route
   '/admin/actions-log': typeof AdminActionsLogRoute
   '/admin/ads': typeof AdminAdsRoute
+  '/admin/ads-moderation-queue': typeof AdminAdsModerationQueueRoute
+  '/admin/ai-monitoring': typeof AdminAiMonitoringRoute
   '/admin/ai-settings': typeof AdminAiSettingsRoute
   '/admin/alerts': typeof AdminAlertsRoute
   '/admin/announcements': typeof AdminAnnouncementsRoute
@@ -1519,6 +1537,8 @@ export interface FileRouteTypes {
     | '/watch56'
     | '/admin/actions-log'
     | '/admin/ads'
+    | '/admin/ads-moderation-queue'
+    | '/admin/ai-monitoring'
     | '/admin/ai-settings'
     | '/admin/alerts'
     | '/admin/announcements'
@@ -1684,6 +1704,8 @@ export interface FileRouteTypes {
     | '/watch56'
     | '/admin/actions-log'
     | '/admin/ads'
+    | '/admin/ads-moderation-queue'
+    | '/admin/ai-monitoring'
     | '/admin/ai-settings'
     | '/admin/alerts'
     | '/admin/announcements'
@@ -1849,6 +1871,8 @@ export interface FileRouteTypes {
     | '/watch56'
     | '/admin/actions-log'
     | '/admin/ads'
+    | '/admin/ads-moderation-queue'
+    | '/admin/ai-monitoring'
     | '/admin/ai-settings'
     | '/admin/alerts'
     | '/admin/announcements'
@@ -2015,6 +2039,8 @@ export interface RootRouteChildren {
   Watch56Route: typeof Watch56Route
   AdminActionsLogRoute: typeof AdminActionsLogRoute
   AdminAdsRoute: typeof AdminAdsRoute
+  AdminAdsModerationQueueRoute: typeof AdminAdsModerationQueueRoute
+  AdminAiMonitoringRoute: typeof AdminAiMonitoringRoute
   AdminAiSettingsRoute: typeof AdminAiSettingsRoute
   AdminAlertsRoute: typeof AdminAlertsRoute
   AdminAnnouncementsRoute: typeof AdminAnnouncementsRoute
@@ -2344,6 +2370,20 @@ declare module '@tanstack/react-router' {
       path: '/admin/ads'
       fullPath: '/admin/ads'
       preLoaderRoute: typeof AdminAdsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/ads-moderation-queue': {
+      id: '/admin/ads-moderation-queue'
+      path: '/admin/ads-moderation-queue'
+      fullPath: '/admin/ads-moderation-queue'
+      preLoaderRoute: typeof AdminAdsModerationQueueRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/admin/ai-monitoring': {
+      id: '/admin/ai-monitoring'
+      path: '/admin/ai-monitoring'
+      fullPath: '/admin/ai-monitoring'
+      preLoaderRoute: typeof AdminAiMonitoringRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/admin/ai-settings': {
@@ -3342,6 +3382,8 @@ const rootRouteChildren: RootRouteChildren = {
   Watch56Route: Watch56Route,
   AdminActionsLogRoute: AdminActionsLogRoute,
   AdminAdsRoute: AdminAdsRoute,
+  AdminAdsModerationQueueRoute: AdminAdsModerationQueueRoute,
+  AdminAiMonitoringRoute: AdminAiMonitoringRoute,
   AdminAiSettingsRoute: AdminAiSettingsRoute,
   AdminAlertsRoute: AdminAlertsRoute,
   AdminAnnouncementsRoute: AdminAnnouncementsRoute,

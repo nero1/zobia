@@ -46,6 +46,7 @@ export interface SessionRecord {
   is_moderator?: boolean;
   is_support?: boolean;
   is_senior_support?: boolean;
+  is_ad_moderator?: boolean;
   is_creator?: boolean;
   created_at: string;  // ISO-8601
   /** IP address at login time (for audit). */
@@ -213,16 +214,19 @@ export async function createSession(
   // Fails closed (both false) on a DB error, matching getStaffRoles().
   let is_support = false;
   let is_senior_support = false;
+  let is_ad_moderator = false;
   try {
-    const { rows: staffRows } = await db.query<{ is_support: boolean; is_senior_support: boolean }>(
-      `SELECT COALESCE(is_support, false) AS is_support, COALESCE(is_senior_support, false) AS is_senior_support
+    const { rows: staffRows } = await db.query<{ is_support: boolean; is_senior_support: boolean; is_ad_moderator: boolean }>(
+      `SELECT COALESCE(is_support, false) AS is_support, COALESCE(is_senior_support, false) AS is_senior_support,
+              COALESCE(is_ad_moderator, false) AS is_ad_moderator
        FROM users WHERE id = $1 LIMIT 1`,
       [user.id]
     );
     is_support = Boolean(staffRows[0]?.is_support);
     is_senior_support = Boolean(staffRows[0]?.is_senior_support);
+    is_ad_moderator = Boolean(staffRows[0]?.is_ad_moderator);
   } catch {
-    // fail closed — leave both false
+    // fail closed — leave all false
   }
 
   const ttlRole = (user.is_admin || options.adminSession) ? "admin"
@@ -245,6 +249,7 @@ export async function createSession(
       is_moderator: user.is_moderator,
       ...(is_support ? { is_support } : {}),
       ...(is_senior_support ? { is_senior_support } : {}),
+      ...(is_ad_moderator ? { is_ad_moderator } : {}),
       sid,
       ...(typeof user.onboarding_completed === "boolean"
         ? { onboarding_completed: user.onboarding_completed }
@@ -268,6 +273,7 @@ export async function createSession(
     is_moderator: user.is_moderator,
     is_support,
     is_senior_support,
+    is_ad_moderator,
     is_creator: user.is_creator,
     created_at: new Date().toISOString(),
     ip: options.ip,
@@ -479,6 +485,7 @@ export async function refreshAccessToken(
     email: string | null;
     is_support: boolean;
     is_senior_support: boolean;
+    is_ad_moderator: boolean;
     is_banned: boolean;
     is_suspended: boolean;
     suspended_until: string | null;
@@ -486,6 +493,7 @@ export async function refreshAccessToken(
     `SELECT email,
             COALESCE(is_support, false) AS is_support,
             COALESCE(is_senior_support, false) AS is_senior_support,
+            COALESCE(is_ad_moderator, false) AS is_ad_moderator,
             COALESCE(is_banned, false) AS is_banned,
             COALESCE(is_suspended, false) AS is_suspended,
             suspended_until
@@ -512,6 +520,7 @@ export async function refreshAccessToken(
   const currentEmail = staffRows[0]?.email ?? null;
   const currentIsSupport = Boolean(staffRows[0]?.is_support);
   const currentIsSeniorSupport = Boolean(staffRows[0]?.is_senior_support);
+  const currentIsAdModerator = Boolean(staffRows[0]?.is_ad_moderator);
 
   // ZB-24: Rotate refresh token — issue a new one and update the session record
   const [accessToken, newRefreshToken] = await Promise.all([
@@ -523,6 +532,7 @@ export async function refreshAccessToken(
       is_moderator: session.is_moderator,
       ...(currentIsSupport ? { is_support: currentIsSupport } : {}),
       ...(currentIsSeniorSupport ? { is_senior_support: currentIsSeniorSupport } : {}),
+      ...(currentIsAdModerator ? { is_ad_moderator: currentIsAdModerator } : {}),
       sid: session.sid,
       // Carry the original login IP forward so geo-anomaly detection keeps
       // working across refreshes without a Redis session read.
@@ -538,6 +548,7 @@ export async function refreshAccessToken(
     ...session,
     is_support: currentIsSupport,
     is_senior_support: currentIsSeniorSupport,
+    is_ad_moderator: currentIsAdModerator,
     refreshTokenHash: newHash,
     prevRefreshTokenHash: session.refreshTokenHash,
     prevRefreshValidUntil: Date.now() + 30_000,

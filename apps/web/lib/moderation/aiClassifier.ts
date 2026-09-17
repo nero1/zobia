@@ -292,6 +292,7 @@ Classify this report according to your instructions.`;
       latencyMs: Date.now() - startedAt,
       confidence: result.confidence,
       resultPreview: `${result.category} → ${result.recommendation}`,
+      usage: response.usage ? { inputTokens: response.usage.promptTokens, outputTokens: response.usage.completionTokens } : undefined,
     });
     return result;
   } catch (err) {
@@ -388,6 +389,7 @@ Review this Sponsored Quest submission according to your instructions.`;
       latencyMs: Date.now() - startedAt,
       confidence: result.approvalConfidence,
       resultPreview: result.reason,
+      usage: response.usage ? { inputTokens: response.usage.promptTokens, outputTokens: response.usage.completionTokens } : undefined,
     });
     return result;
   } catch (err) {
@@ -415,6 +417,14 @@ export interface AdCreativeReviewResult {
   /** Short reason surfaced to the advertiser/admin on rejection or low-confidence holds. */
   reason: string;
   provider: AiProviderId | "none";
+}
+
+/** AI review result for an ad creative IMAGE — extends the text result with the human-review escalation signal and both providers' raw attempts. */
+export interface AdCreativeImageReviewResult extends AdCreativeReviewResult {
+  /** True when no provider was confident enough — route to the ad-moderator review queue instead of auto-approving/rejecting. */
+  needsHumanReview: boolean;
+  /** Every provider attempt made (DeepSeek then Gemini), for the ad-moderator escalation queue's "details" view. */
+  attempts: import("@/lib/ai/vision").VisionAttempt[];
 }
 
 const AD_CREATIVE_SYSTEM_PROMPT = `You are a content moderation classifier reviewing an advertiser's ad campaign submission for Zobia Social, a social platform. Ads are shown to the whole user base, so the creative must be legal, non-deceptive, brand-safe, and compliant with platform rules (PRD §19: no hate speech, financial fraud/Ponzi promotion, impersonation, sexual content, or artificial engagement manipulation). Also flag anything resembling malware, phishing, or a misleading "claim your prize" style creative.
@@ -486,6 +496,7 @@ Review this ad campaign submission according to your instructions.`;
       latencyMs: Date.now() - startedAt,
       confidence: result.approvalConfidence,
       resultPreview: result.reason,
+      usage: response.usage ? { inputTokens: response.usage.promptTokens, outputTokens: response.usage.completionTokens } : undefined,
     });
     return result;
   } catch (err) {
@@ -509,70 +520,67 @@ const AD_CREATIVE_IMAGE_PROMPT =
   "Respond with ONLY a JSON object, no markdown: " +
   '{"approvalConfidence": <number 0-1, how confident you are this image is safe to auto-approve>, "reason": "<one short sentence>"}.';
 
+function parseAdCreativeImageReview(raw: string): { value: { approvalConfidence: number; reason: string }; confidence: number } | null {
+  const cleaned = raw.replace(/```json\s*/gi, "").replace(/```\s*/g, "").trim();
+  try {
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>;
+    const rawConfidence = typeof parsed.approvalConfidence === "number" ? parsed.approvalConfidence : null;
+    if (rawConfidence === null) return null;
+    const approvalConfidence = Math.max(0, Math.min(1, rawConfidence));
+    const reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 300) : "AI review completed.";
+    return { value: { approvalConfidence, reason }, confidence: approvalConfidence };
+  } catch {
+    return null;
+  }
+}
+
 /**
- * Review an ad creative's IMAGE for auto-approval eligibility. Unlike the
- * text path above, this always goes straight to an image-capable model
- * (Gemini Vision — DeepSeek/Groq text models cannot see images), regardless
- * of `ai_provider_order`, since routing an image through a text-only
- * provider would silently skip moderation of the actual visual content.
+ * Review an ad creative's IMAGE for auto-approval eligibility, via the shared
+ * vision pipeline (lib/ai/vision.ts): DeepSeek Flash (vision) primary, Gemini
+ * as fallback/escalation when DeepSeek fails or is low-confidence. If both
+ * are low-confidence or fail, `needsHumanReview` is set so the caller can
+ * route the creative to the ad-moderator review queue
+ * (/gate44/ads/moderation-queue) instead of guessing.
  * Used when x_manifest `ad_moderation_mode_image` is "ai".
  */
-export async function classifyAdCreativeImage(imageUrl: string): Promise<AdCreativeReviewResult> {
-  const startedAt = Date.now();
+export async function classifyAdCreativeImage(imageUrl: string): Promise<AdCreativeImageReviewResult> {
+  const { fetchImageWithGuards, classifyImage } = await import("@/lib/ai/vision");
   try {
-    const imgRes = await fetch(imageUrl);
-    if (!imgRes.ok) throw new Error(`Failed to fetch ad image: HTTP ${imgRes.status}`);
-    const contentType = imgRes.headers.get("content-type") ?? "image/jpeg";
-    const buffer = Buffer.from(await imgRes.arrayBuffer());
-
-    // Reuses the same Gemini Vision REST call as KYC document analysis
-    // (lib/kyc/geminiVision.ts) — narrowly duplicated here rather than
-    // shared, since the two have unrelated prompts/response shapes and KYC
-    // image handling has stricter privacy constraints.
-    const { GEMINI_CONFIG, GEMINI_MODELS } = await import("@/lib/ai/config");
-    const { getManifestValue } = await import("@/lib/manifest");
-    const { env } = await import("@/lib/env");
-
-    const override = await getManifestValue("ai_gemini_api_key_override");
-    const rawKey = (override && override.length > 0 ? override : env.GEMINI_API_KEY) ?? null;
-    const apiKey = rawKey && rawKey.startsWith('"') && rawKey.endsWith('"') ? rawKey.slice(1, -1) : rawKey;
-    if (!apiKey) throw new Error("Gemini API key not configured — required for image ad review");
-
-    const model = GEMINI_MODELS.FLASH;
-    const url = `${GEMINI_CONFIG.apiBaseUrl}/models/${model}:generateContent?key=${apiKey}`;
-    const geminiRes = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: AD_CREATIVE_IMAGE_PROMPT }, { inline_data: { mime_type: contentType, data: buffer.toString("base64") } }] }],
-        generationConfig: { temperature: 0.1, maxOutputTokens: 200 },
-      }),
+    const { buffer, mimeType } = await fetchImageWithGuards(imageUrl);
+    const classification = await classifyImage({
+      imageBuffer: buffer,
+      mimeType,
+      prompt: AD_CREATIVE_IMAGE_PROMPT,
+      feature: "vision:ad_creative_image",
+      parse: parseAdCreativeImageReview,
+      maxTokens: 200,
     });
-    if (!geminiRes.ok) throw new Error(`Gemini Vision API error ${geminiRes.status}`);
-    const json = (await geminiRes.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-    const text = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
-    const result = parseAdCreativeReview(text, "gemini");
-    await logAiCall({
-      provider: "gemini",
-      model,
-      feature: "moderation:ad_creative_image",
-      success: true,
-      latencyMs: Date.now() - startedAt,
-      confidence: result.approvalConfidence,
-      resultPreview: result.reason,
-    });
-    return result;
+    if (classification.result) {
+      return {
+        approvalConfidence: classification.result.approvalConfidence,
+        reason: classification.result.reason,
+        provider: classification.provider,
+        needsHumanReview: classification.needsHumanReview,
+        attempts: classification.attempts,
+      };
+    }
+
+    return {
+      approvalConfidence: 0,
+      reason: "AI image review unavailable — held for manual review.",
+      provider: "none",
+      needsHumanReview: true,
+      attempts: classification.attempts,
+    };
   } catch (err) {
     logger.error({ err }, "[aiClassifier] Ad creative image AI review failed:");
-    await logAiCall({
+    return {
+      approvalConfidence: 0,
+      reason: err instanceof Error ? err.message : "AI image review unavailable — held for manual review.",
       provider: "none",
-      model: "n/a",
-      feature: "moderation:ad_creative_image",
-      success: false,
-      latencyMs: Date.now() - startedAt,
-      errorMessage: err instanceof Error ? err.message : String(err),
-    });
-    return { approvalConfidence: 0, reason: "AI image review unavailable — held for manual review.", provider: "none" };
+      needsHumanReview: true,
+      attempts: [],
+    };
   }
 }

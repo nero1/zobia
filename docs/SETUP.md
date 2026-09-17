@@ -1197,6 +1197,27 @@ API keys for DeepSeek and Gemini can be managed in two ways:
    the environment variable without requiring a redeployment. Clearing the override reverts
    to the environment variable.
 
+### Image classification (vision) models
+
+Both DeepSeek (`deepseek-flash`, natively multimodal as of DeepSeek-V4.1-Flash)
+and Gemini (`gemini-3.6-flash`, the current free-tier-enabled, image-capable
+Gemini model) can classify images. Ad creative images and KYC
+documents/selfies both go through `lib/ai/vision.ts`: DeepSeek is tried
+first, escalating to Gemini when DeepSeek fails or its confidence is below
+`ai_vision_escalate_below_threshold` (default `0.6`, an `x_manifest` key —
+no redeploy needed to change it). If both are low-confidence, the item is
+routed to a human queue (ad images → the **Ad Moderator** role's
+`/gate44/ads/moderation-queue`; KYC → the existing manual-review queue).
+
+The vision-specific model an admin has pinned (if any) lives under separate
+manifest keys from the text model — `ai_deepseek_vision_model` /
+`ai_gemini_vision_model` — so switching the text model for report/ad-text
+moderation doesn't accidentally also change what's used for image
+classification, and vice versa. Model IDs shift over time as providers ship
+new versions — if either provider's default here starts returning
+"unsupported model" errors, check its current model list and set the
+manifest override rather than waiting for a code deploy.
+
 The AI Settings page (available in the web admin panel and, as of v2.06, the Capacitor Android admin panel — the discontinued Expo app's admin section is frozen and no longer updated) also shows:
 - **Circuit breaker status** for DeepSeek (closed / half-open / open) with consecutive failure count.
 - **Live connection test** — sends a minimal ping to verify the key is valid and the provider

@@ -34,10 +34,12 @@ import {
   GROQ_CONFIG,
   AI_PROVIDERS,
   DEFAULT_PROVIDER_ORDER,
+  DEFAULT_VISION_PROVIDER_ORDER,
   type AiProviderId,
   type ChatMessage,
   type CompletionOptions,
   type CompletionResponse,
+  type VisionCompletionOptions,
 } from "./config";
 
 // ---------------------------------------------------------------------------
@@ -384,6 +386,182 @@ async function callGroq(
 }
 
 // ---------------------------------------------------------------------------
+// Vision adapters — image classification. Only providers with
+// AI_PROVIDERS[id].supportsVision === true implement one; Groq is skipped by
+// resolveVisionProviderOrder below since its hosted models are text-only.
+// ---------------------------------------------------------------------------
+
+/** Resolve the vision-specific model an admin has configured, falling back to the provider's default vision model. */
+async function resolveVisionModel(providerId: AiProviderId, explicit?: string): Promise<string> {
+  if (explicit) return explicit;
+  const meta = AI_PROVIDERS[providerId];
+  if (!meta.visionModelManifestKey || !meta.defaultVisionModel) {
+    throw new Error(`Provider ${providerId} does not support vision`);
+  }
+  const override = await getManifestValue(meta.visionModelManifestKey);
+  return override && override.length > 0 ? override : meta.defaultVisionModel;
+}
+
+/** Admin-configurable image-classification provider order. Falls back to the built-in default. */
+async function resolveVisionProviderOrder(): Promise<AiProviderId[]> {
+  const raw = await getManifestValue("ai_vision_provider_order");
+  const candidates = raw
+    ? raw.split(",").map((s) => s.trim()).filter((s): s is AiProviderId => s in AI_PROVIDERS)
+    : DEFAULT_VISION_PROVIDER_ORDER;
+  const visionCapable = candidates.filter((id) => AI_PROVIDERS[id].supportsVision);
+  return visionCapable.length > 0 ? visionCapable : DEFAULT_VISION_PROVIDER_ORDER;
+}
+
+async function callDeepSeekVision(options: VisionCompletionOptions): Promise<CompletionResponse> {
+  const model = await resolveVisionModel("deepseek", options.model);
+  const endpoint = `${env.DEEPSEEK_API_ENDPOINT}/chat/completions`;
+
+  const effectiveKey = await resolveApiKey("deepseek", undefined, env.DEEPSEEK_API_KEY);
+  if (!effectiveKey) {
+    throw new Error("DeepSeek API key is not configured. Set DEEPSEEK_API_KEY or add an override in AI Settings.");
+  }
+  if (!effectiveKey.startsWith("sk-")) {
+    throw new Error("DeepSeek API key has an unexpected format (expected prefix 'sk-'). Check DEEPSEEK_API_KEY.");
+  }
+
+  // DeepSeek's multimodal endpoint is OpenAI-compatible: image content is a
+  // `image_url` part with a data: URI, alongside the text instruction.
+  const body = {
+    model,
+    messages: [
+      {
+        role: "user",
+        content: [
+          { type: "text", text: options.prompt },
+          { type: "image_url", image_url: { url: `data:${options.mimeType};base64,${options.imageBase64}` } },
+        ],
+      },
+    ],
+    max_tokens: options.maxTokens ?? 300,
+    temperature: options.temperature ?? 0.1,
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), DEEPSEEK_CONFIG.timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${effectiveKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`DeepSeek Vision API error ${res.status}: ${text}`);
+  }
+
+  const data = (await res.json()) as DeepSeekResponse;
+  return {
+    content: data.choices[0]?.message?.content ?? "",
+    provider: "deepseek",
+    model: data.model ?? model,
+    usage: data.usage
+      ? { promptTokens: data.usage.prompt_tokens, completionTokens: data.usage.completion_tokens, totalTokens: data.usage.total_tokens }
+      : undefined,
+  };
+}
+
+async function callGeminiVision(options: VisionCompletionOptions): Promise<CompletionResponse> {
+  const model = await resolveVisionModel("gemini", options.model);
+
+  const effectiveKey = await resolveApiKey("gemini", undefined, env.GEMINI_API_KEY);
+  if (!effectiveKey) {
+    throw new Error("Gemini API key is not configured. Set GEMINI_API_KEY or add an override in AI Settings.");
+  }
+  if (!effectiveKey.startsWith("AIza")) {
+    throw new Error("Gemini API key has an unexpected format (expected prefix 'AIza'). Check GEMINI_API_KEY.");
+  }
+
+  const endpoint = `${GEMINI_CONFIG.apiBaseUrl}/models/${model}:generateContent`;
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [{ text: options.prompt }, { inline_data: { mime_type: options.mimeType, data: options.imageBase64 } }],
+      },
+    ],
+    generationConfig: {
+      maxOutputTokens: options.maxTokens ?? 300,
+      temperature: options.temperature ?? 0.1,
+    },
+  };
+
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), GEMINI_CONFIG.timeoutMs);
+  let res: Response;
+  try {
+    res = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-goog-api-key": effectiveKey },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeoutId);
+  }
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(`Gemini Vision API error ${res.status}: ${text}`);
+  }
+
+  const data = (await res.json()) as GeminiResponse;
+  const text = data.candidates[0]?.content?.parts?.map((p) => p.text).join("") ?? "";
+
+  return {
+    content: text,
+    provider: "gemini",
+    model,
+    usage: data.usageMetadata
+      ? { promptTokens: data.usageMetadata.promptTokenCount, completionTokens: data.usageMetadata.candidatesTokenCount, totalTokens: data.usageMetadata.totalTokenCount }
+      : undefined,
+  };
+}
+
+type VisionProviderAdapter = (options: VisionCompletionOptions) => Promise<CompletionResponse>;
+
+const VISION_PROVIDER_ADAPTERS: Partial<Record<AiProviderId, VisionProviderAdapter>> = {
+  deepseek: callDeepSeekVision,
+  gemini: callGeminiVision,
+};
+
+/**
+ * Classify a single image with one specific vision-capable provider,
+ * bypassing the fallback chain. Used by lib/ai/vision.ts, which drives the
+ * DeepSeek → Gemini → human-escalation flow itself (each attempt needs to be
+ * inspected for confidence, not just success/failure, so it can't reuse the
+ * generic `chat()` fallback loop as-is). Still goes through the same
+ * per-provider circuit breaker and manifest-driven key/model resolution as
+ * `chat()`.
+ */
+async function visionComplete(providerId: AiProviderId, options: VisionCompletionOptions): Promise<CompletionResponse> {
+  const adapter = VISION_PROVIDER_ADAPTERS[providerId];
+  if (!adapter) throw new Error(`Provider ${providerId} does not support vision`);
+  const circuit = CIRCUITS[providerId];
+  if (await circuit.isOpen()) {
+    throw new Error(`${providerId}: circuit open`);
+  }
+  try {
+    const response = await adapter(options);
+    await circuit.recordSuccess();
+    return response;
+  } catch (err) {
+    await circuit.recordFailure();
+    throw err;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Provider adapter registry — the fallback loop below is generic over this.
 // ---------------------------------------------------------------------------
 
@@ -460,6 +638,17 @@ export const aiClient = {
   chat,
   complete,
 } as const;
+
+/** The admin-configured (or default) image-classification provider order. Exported for lib/ai/vision.ts. */
+export const getVisionProviderOrder = resolveVisionProviderOrder;
+
+/**
+ * Classify a single image with one specific vision-capable provider. Exported
+ * for lib/ai/vision.ts, which orchestrates the DeepSeek → Gemini →
+ * human-escalation chain and needs per-attempt results, not just a
+ * first-success winner.
+ */
+export const visionChat = visionComplete;
 
 // ---------------------------------------------------------------------------
 // Admin test helpers — bypass circuit breaker, used by /api/admin/ai-settings/test

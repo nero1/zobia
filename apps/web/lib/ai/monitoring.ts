@@ -34,14 +34,22 @@ export interface LogAiCallInput {
   /** Truncated preview of the model's output or decision — never store raw PII/full documents. */
   resultPreview?: string | null;
   errorMessage?: string | null;
+  /** Token usage, when the provider's response includes it — powers the AI Monitoring panel's usage/cost estimates. */
+  usage?: { inputTokens?: number; outputTokens?: number } | null;
+  /**
+   * Extra structured detail for the AI Monitoring panel's "details" drawer —
+   * e.g. which prompt/pipeline version, escalation chain, or subject id.
+   * Never put raw PII or full user content here (same rule as resultPreview).
+   */
+  metadata?: Record<string, unknown> | null;
 }
 
 /** Insert one row into the rotating AI call log. Never throws — logging must not break the caller. */
 export async function logAiCall(input: LogAiCallInput): Promise<void> {
   try {
     await db.query(
-      `INSERT INTO ai_call_log (provider, model, feature, success, confidence, latency_ms, result_preview, error_message)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      `INSERT INTO ai_call_log (provider, model, feature, success, confidence, latency_ms, result_preview, error_message, input_tokens, output_tokens, metadata)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
       [
         input.provider,
         input.model,
@@ -51,6 +59,9 @@ export async function logAiCall(input: LogAiCallInput): Promise<void> {
         Math.round(input.latencyMs),
         input.resultPreview ? input.resultPreview.slice(0, RESULT_PREVIEW_MAX_LENGTH) : null,
         input.errorMessage ? input.errorMessage.slice(0, RESULT_PREVIEW_MAX_LENGTH) : null,
+        input.usage?.inputTokens ?? null,
+        input.usage?.outputTokens ?? null,
+        input.metadata ? JSON.stringify(input.metadata) : null,
       ]
     );
   } catch (err) {
@@ -74,17 +85,64 @@ export interface AiCallLogRow {
   latency_ms: number;
   result_preview: string | null;
   error_message: string | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
 }
 
-/** Recent calls for the admin AI Settings monitoring panel. */
-export async function getRecentAiCalls(limit = 100): Promise<AiCallLogRow[]> {
+/** Recent calls for the admin AI Settings / AI Monitoring panels. Optionally filtered by feature prefix (e.g. "moderation:", "kyc:", "vision:"). */
+export async function getRecentAiCalls(limit = 100, featurePrefix?: string): Promise<AiCallLogRow[]> {
   const { rows } = await db.query<AiCallLogRow>(
-    `SELECT id, provider, model, feature, success, confidence, latency_ms, result_preview, error_message, created_at
+    `SELECT id, provider, model, feature, success, confidence, latency_ms, result_preview, error_message,
+            input_tokens, output_tokens, metadata, created_at
      FROM ai_call_log
+     WHERE $2::text IS NULL OR feature LIKE $2 || '%'
      ORDER BY created_at DESC
      LIMIT $1`,
-    [Math.min(limit, 500)]
+    [Math.min(limit, 500), featurePrefix ?? null]
   );
   return rows;
+}
+
+export interface AiUsageStats {
+  feature: string;
+  provider: string;
+  callCount: number;
+  successCount: number;
+  avgLatencyMs: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+}
+
+/** Aggregate usage/token stats over the retained 48-hour window, grouped by feature + provider, for the Admin AI Monitoring panel. */
+export async function getAiUsageStats(): Promise<AiUsageStats[]> {
+  const { rows } = await db.query<{
+    feature: string;
+    provider: string;
+    call_count: string;
+    success_count: string;
+    avg_latency_ms: string | null;
+    total_input_tokens: string | null;
+    total_output_tokens: string | null;
+  }>(
+    `SELECT feature, provider,
+            COUNT(*) AS call_count,
+            COUNT(*) FILTER (WHERE success) AS success_count,
+            AVG(latency_ms) AS avg_latency_ms,
+            COALESCE(SUM(input_tokens), 0) AS total_input_tokens,
+            COALESCE(SUM(output_tokens), 0) AS total_output_tokens
+     FROM ai_call_log
+     GROUP BY feature, provider
+     ORDER BY feature, provider`
+  );
+  return rows.map((r) => ({
+    feature: r.feature,
+    provider: r.provider,
+    callCount: parseInt(r.call_count, 10),
+    successCount: parseInt(r.success_count, 10),
+    avgLatencyMs: r.avg_latency_ms ? Math.round(parseFloat(r.avg_latency_ms)) : 0,
+    totalInputTokens: parseInt(r.total_input_tokens ?? "0", 10),
+    totalOutputTokens: parseInt(r.total_output_tokens ?? "0", 10),
+  }));
 }

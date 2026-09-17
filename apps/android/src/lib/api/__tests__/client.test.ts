@@ -22,6 +22,21 @@ vi.mock("@capacitor/preferences", () => ({
   },
 }));
 
+// BUG FIX: the JWT access/refresh tokens moved out of Capacitor Preferences
+// into a native Keystore-backed store (lib/auth/secureTokenStore.ts,
+// docs/HOW-IT-WORKS.md "Android Keystore-Backed Token Storage") a while
+// after this test was written — refreshAccessToken() reads the refresh
+// token via `secureGet()`, not `Preferences.get()`, so the mock above alone
+// no longer seeds it. Mocking secureTokenStore directly (rather than relying
+// on its jsdom `!Capacitor.isNativePlatform()` localStorage fallback, which
+// would silently return null with no test seeding it) keeps this test
+// decoupled from that module's internal storage key prefix.
+vi.mock("@/lib/auth/secureTokenStore", () => ({
+  secureGet: vi.fn(async (key: string) => (key === "zobia_rt" ? "stored-refresh-token" : null)),
+  secureSet: vi.fn(async () => {}),
+  secureRemove: vi.fn(async () => {}),
+}));
+
 vi.mock("@capacitor/app", () => ({
   App: { addListener: vi.fn(async () => ({ remove: () => {} })) },
 }));

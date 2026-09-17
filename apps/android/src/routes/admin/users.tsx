@@ -38,6 +38,8 @@ type ActionType =
   | 'restore'
   | 'upgrade_moderator'
   | 'downgrade_moderator'
+  | 'upgrade_ad_moderator'
+  | 'downgrade_ad_moderator'
   | 'reset_password'
   | 'force_2fa'
   | 'verify_account';
@@ -53,6 +55,7 @@ interface AdminUser {
   lastActiveAt: string | null;
   status: UserStatus;
   isModerator: boolean;
+  isAdModerator: boolean;
   reportHistoryCount: number;
   paymentHistoryCount: number;
   messageCount: number;
@@ -215,6 +218,12 @@ function UserDetailOverlay({
             onClick={() => onAction(user.isModerator ? 'downgrade_moderator' : 'upgrade_moderator')}
             loading={actionPending === 'upgrade_moderator' || actionPending === 'downgrade_moderator'}
             className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300"
+          />
+          <ActionButton
+            label={user.isAdModerator ? t('admin.users.revokeAdModerator', 'Revoke Ad Moderator') : t('admin.users.makeAdModerator', 'Make Ad Moderator')}
+            onClick={() => onAction(user.isAdModerator ? 'downgrade_ad_moderator' : 'upgrade_ad_moderator')}
+            loading={actionPending === 'upgrade_ad_moderator' || actionPending === 'downgrade_ad_moderator'}
+            className="bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300"
           />
         </div>
 
@@ -384,6 +393,7 @@ function AdminUsersPage() {
                     <AdminBadge label={u.plan.toUpperCase()} color={PLAN_COLOR[u.plan]} />
                     <AdminBadge label={u.status} color={STATUS_COLOR[u.status]} />
                     {u.isModerator && <AdminBadge label={t('admin.users.mod', 'MOD')} color="blue" />}
+                    {u.isAdModerator && <AdminBadge label={t('admin.users.adMod', 'AD MOD')} color="gold" />}
                   </div>
                   <p className="mt-0.5 truncate text-xs text-neutral-500 dark:text-neutral-400">{u.email}</p>
                   <div className="mt-1.5 flex items-center gap-3">

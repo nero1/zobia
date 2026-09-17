@@ -8140,6 +8140,84 @@ flow, reusing the existing Platform Advertising pipeline (§17) as-is.
 
 ---
 
-*ZobiaSocial PRD v2.28*
+### v2.29 — Changelog
+
+#### Unified AI image classification pipeline; Ad Moderator role; centralized AI Monitoring panel (§19, §20, §22)
+
+- **Model updates** (`lib/ai/config.ts`, the single source of truth per
+  Appendix C's "never inline model strings" rule): DeepSeek's default model
+  is now `deepseek-flash` (DeepSeek-V4.1-Flash) — natively multimodal, so
+  it now also serves as the image classifier, not just text. Gemini's
+  default model is now `gemini-3.6-flash`, the current free-tier-enabled,
+  image-capable Gemini model (previously `gemini-1.5-flash`). Both
+  providers gained a `supportsVision`/`visionModels` entry in the
+  `AI_PROVIDERS` registry; Groq is excluded from image classification (its
+  hosted text models have no vision endpoint).
+- **New shared vision pipeline** (`lib/ai/vision.ts`): replaces three
+  previously-duplicated, Gemini-only REST callers
+  (`lib/moderation/aiClassifier.ts` `classifyAdCreativeImage`,
+  `lib/kyc/geminiVision.ts` `analyzeDocument`, and the text-only
+  human-escalation path) with one `classifyImage()` used everywhere an
+  image needs classifying. Flow: DeepSeek Flash (vision) first; if it
+  fails or its confidence is below `ai_vision_escalate_below_threshold`
+  (default 0.6, `x_manifest`-overridable), escalate to Gemini as a second
+  opinion; if both are low-confidence or fail, the caller gets
+  `needsHumanReview: true` with both providers' raw attempts attached.
+  Image fetches go through the existing `lib/security/ssrf.ts` `safeFetch`
+  (SSRF guard, size cap, redirect handling) plus a MIME allow-list — the
+  ad-image path previously had none of these guards. Every attempt is
+  logged via `logAiCall()`, including token usage when the provider
+  reports it.
+- **Ads**: `submitCampaignForModeration()` (`lib/ads/repo.ts`) now reviews
+  every creative on a campaign (previously only the first, via `LIMIT 1` —
+  a pre-existing bug), writes `ad_campaigns.ai_confidence` (a column that
+  existed but was never populated), and — new — flags
+  `ad_campaigns.ai_escalated` and writes an `ad_ai_escalations` row per
+  image the vision pipeline couldn't confidently auto-approve/reject.
+- **New "Ad Moderator" staff role** (`users.is_ad_moderator`): a narrower
+  role than full Moderator/Admin, granted the same way
+  (`upgrade_ad_moderator`/`downgrade_ad_moderator` via
+  `POST /api/admin/users/[userId]/actions`, `/gate44/users`). Grants access
+  to exactly one page — `/gate44/ads/moderation-queue` — where an Ad
+  Moderator reviews each escalated image (with both providers' confidence/
+  reasoning shown side by side) and approves or rejects it; resolving the
+  last pending escalation on a campaign resolves the campaign's own
+  moderation decision too.
+- **New centralized Admin AI Monitoring panel** (`/gate44/ai-monitoring`,
+  admin-only): the full `ai_call_log` across every AI-backed feature
+  (report/ad/quest text moderation, ad-image and KYC-document vision
+  classification) with a per-row "Details" drawer (raw model output, token
+  counts, pipeline metadata — `ai_call_log` gained `input_tokens`/
+  `output_tokens`/`metadata` columns for this), aggregate usage/token
+  stats per feature+provider, live circuit-breaker state, a pending-
+  human-review summary (ad images / reports / KYC) linking to each queue,
+  and the ability to revert an AI-auto-approved ad campaign back to manual
+  review (`POST /api/admin/ads/campaigns/[campaignId]/revert-to-manual`).
+- **KYC**: `lib/kyc/geminiVision.ts` `analyzeDocument()` now goes through
+  the same DeepSeek-primary/Gemini-fallback vision pipeline instead of
+  calling Gemini directly — same return shape, so `lib/kyc/service.ts`'s
+  existing auto-approve/escalate-below-threshold logic is unchanged. The
+  `ai_provider = 'deepseek/gemini'` string `finalizeAiReview()` has always
+  written to `kyc_submissions` is now actually accurate.
+- **Android (Capacitor) parity**: fixed `admin/ai-settings.tsx` only
+  showing DeepSeek/Gemini (a pre-existing bug — Groq has been a live
+  3rd-tier provider on web for a while); added `admin/ads-moderation-queue.tsx`
+  and `admin/ai-monitoring.tsx`, both wired into the admin drawer nav
+  (`adminNav.ts`) and the `users.tsx` moderator-toggle panel. Also fixed a
+  missing `admin.nav.aiSettings` i18n key (Android's nav referenced a key
+  that didn't exist in either locale file, silently falling back to its
+  hardcoded default).
+
+**New migration:** `db/migrations/0002_ai_vision_and_ad_moderator.sql` —
+adds `ai_call_log.input_tokens`/`output_tokens`/`metadata`,
+`users.is_ad_moderator`, `ad_campaigns.ai_escalated`, the
+`ad_ai_escalations` table, and seeds the new `ai_vision_*` manifest keys.
+**New env vars:** none — the vision pipeline reuses `DEEPSEEK_API_KEY`/
+`GEMINI_API_KEY` (see `docs/SETUP.md` "Image classification (vision)
+models").
+
+---
+
+*ZobiaSocial PRD v2.29*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

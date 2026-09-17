@@ -716,7 +716,7 @@ Self-service, CPM-billed ad system layered on existing infrastructure — no par
 - **Eligibility.** `checkAdvertiserEligibility()` (`lib/ads/limits.ts`) is fully admin-configurable via `getAdsAdminConfig()`: by default it still requires a `verified` Business Account whose owner's `users.kyc_tier` is at least `ad_min_kyc_tier_to_advertise` (default 1), but an admin can turn on `ad_allow_personal_accounts` to let personal accounts advertise too (subject to `ad_allow_free_accounts` + `ad_min_level_free_accounts` for free-plan users, and an optional `ad_enforce_min_level_paid_business` + `ad_min_level_paid_business` floor even for paid/business advertisers), or turn off `ad_require_kyc` entirely. Checked on every campaign create/list route — never trusted from a client claim. The `/ads` hub renders its "Complete KYC"/"Create Business Account" getting-started checklist based on which of these gates actually apply.
 - **Advertiser identity.** A campaign's `advertiser_type` (`personal` | `business_account` | `business_page`) picks which identity is shown to viewers — the advertiser's own profile, their Business Account, or one of their Business Pages — independent of who actually owns/controls the campaign (`created_by`, always the authenticated user). When the underlying business account/page stops qualifying (subscription lapses, verification pulled), `advertiser_grace_until` (swept daily from `daily-economy`) keeps an already-running campaign serving under its stale identity for `ad_advertiser_grace_days` (default 14) before stopping it.
 - **Schema** (`db/migrations/0001_consolidated_schema.sql`, extended by `0001_consolidated_schema.sql`): `ad_placements` (admin slot catalogue + base CPM), `ad_campaigns` (business-, personal-, or admin-owned; `advertiser_type`/`advertiser_user_id`/`advertiser_grace_until`), `ad_creatives` (per-placement creative, format html/text/image/native/third_party — `third_party` is admin-only), `ad_events` (append-only impression/click log, idempotent per `client_event_id`), `ad_campaign_daily_stats` (rollup written in the same transaction as each event), `ad_coupons`/`ad_coupon_redemptions`, `ad_wallet_ledger` (see Billing below).
-- **Moderation** (`lib/ads/repo.ts` `submitCampaignForModeration`) mirrors the Sponsored Quest flow exactly, now split by creative type: `ad_moderation_mode_text`/`ad_moderation_mode_image` each independently manual (admin queue at `/gate44/ads`) or `ai`. Text creatives go through `classifyAdCreative()` (`lib/moderation/aiClassifier.ts`, DeepSeek → Gemini → Groq fallback); image creatives always go through `classifyAdCreativeImage()`, which is hardcoded to Gemini Vision regardless of `ai_provider_order` since text models can't see images. Both auto-approve at or above `ad_ai_auto_approve_threshold`, else fall back to manual.
+- **Moderation** (`lib/ads/repo.ts` `submitCampaignForModeration`) mirrors the Sponsored Quest flow exactly, now split by creative type: `ad_moderation_mode_text`/`ad_moderation_mode_image` each independently manual (admin queue at `/gate44/ads`) or `ai`. Every creative on the campaign is reviewed (not just the first) — auto-approval requires all of them to clear the threshold. Text creatives go through `classifyAdCreative()` (`lib/moderation/aiClassifier.ts`, DeepSeek → Gemini → Groq fallback); image creatives go through `classifyAdCreativeImage()`, which uses the shared vision pipeline (`lib/ai/vision.ts`: DeepSeek Flash vision primary, Gemini fallback/escalation — see AI Provider Fallback Chain above), independent of the text `ai_provider_order` since Groq's text models can't see images. Both auto-approve at or above `ad_ai_auto_approve_threshold`; an image neither vision provider is confident about is routed to the **Ad Moderator** queue (`/gate44/ads/moderation-queue`) instead of the generic manual admin queue.
 - **Billing — prepaid Ad Wallet.** Ads are prepaid from a dedicated **Ad Wallet** (`users.ad_wallet_balance` + `ad_wallet_ledger`, `lib/economy/adWallet.ts`), a distinct balance from the main Credits `coin_balance` — same idempotent `SELECT FOR UPDATE` + append-only-ledger pattern as `lib/economy/coins.ts`. Fund the Ad Wallet either by transferring from the main Credits balance (`POST /api/business/ads/wallet/transfer`, no fee) or by buying Credits directly into it (the existing coin-purchase flow gained a `destination: "ad_wallet"` flag that both webhook handlers honor). Funding a campaign (`POST /business/ads/campaigns/:id/fund`) then debits the Ad Wallet, not `coin_balance`. A campaign can be created, previewed, and submitted for moderation with an empty Ad Wallet — it just won't serve impressions (`total_budget_credits` stays 0) until funded; activating an unfunded campaign fires a notification rather than blocking. Per-impression CPM spend (`lib/ads/serve.ts` `recordAdEvents`) draws down `ad_campaigns.spent_credits` directly, **not** one ledger row per impression — that would balloon the ledger under normal ad traffic; `ad_events` is the impression-level audit trail instead. A campaign auto-completes once `spent_credits >= total_budget_credits`.
 - **Serving** (`GET /api/ads/serve?placement=<key>`, `lib/ads/serve.ts` `serveAd`) picks a random active/approved/in-budget/plan-eligible creative for a placement — no per-user Redis frequency tracking; the client (`components/ads/AdSlot.tsx`) does offline-friendly frequency/queueing in `localStorage` instead (`adEventQueue.ts`), batching impression/click reports and flushing via `sendBeacon` on unload/visibility-change, so ad tracking costs at most a couple of requests per session, not one per impression.
 - **In-stream Room ads.** `app/(app)/rooms/[roomId]/page.tsx` interleaves `<InStreamAd />` after every `roomInstreamInterval` messages (x_manifest `ad_room_instream_interval`, default 10) — **`free_open` Rooms only**, gated client-side via `useAdsConfig()` (rides the same cached `GET /api/manifest` as `useMomentsConfig`/`useCurrency`).
@@ -1213,9 +1213,52 @@ replaces the old copy-pasted per-provider Redis circuit-breaker block.
   `app/api/cron/rotate-ai-call-log/route.ts`, an **external-cron** route
   (not in `vercel.json` — see CRON Architecture below) that deletes rows
   older than 48 hours.
-- **Image-capable routing.** Ad image creatives never go through the text
-  fallback chain — `classifyAdCreativeImage()` (`lib/moderation/aiClassifier.ts`)
-  calls Gemini Vision directly, since DeepSeek/Groq have no vision endpoint.
+- **Image-capable routing (`lib/ai/vision.ts`).** Image classification (ad
+  creative images, KYC documents/selfies) never goes through the text
+  fallback chain — it has its own DeepSeek-primary/Gemini-fallback chain
+  (`DEFAULT_VISION_PROVIDER_ORDER`, admin-overridable via
+  `ai_vision_provider_order`), since Groq's hosted text models have no
+  vision endpoint. `DEEPSEEK_MODELS.FLASH` (`deepseek-flash`, the current
+  DeepSeek default) is natively multimodal, so it classifies the image
+  first; if it fails or its confidence is below
+  `ai_vision_escalate_below_threshold` (default 0.6), the same image is
+  escalated to `GEMINI_MODELS.FLASH` (`gemini-3.6-flash`, the latest
+  free-tier-enabled Gemini vision model) as a second opinion. If *both* come
+  back low-confidence or fail, `classifyImage()` returns
+  `needsHumanReview: true` with both providers' raw attempts attached —
+  `classifyAdCreativeImage()` (`lib/moderation/aiClassifier.ts`) uses this to
+  write an `ad_ai_escalations` row for the **Ad Moderator** queue
+  (`/gate44/ads/moderation-queue`, PRD "Ad Moderator" role — see below)
+  instead of guessing; `analyzeDocument()` (`lib/kyc/geminiVision.ts`) feeds
+  it into KYC's existing `ai_escalated`/manual-review threshold logic
+  (`lib/kyc/service.ts`) unchanged. `submitCampaignForModeration()`
+  (`lib/ads/repo.ts`) now reviews **every** creative on a campaign, not just
+  the first one, and only auto-approves when all of them clear the
+  threshold.
+
+### Ad Moderator role & the centralized AI Monitoring panel
+
+- **Ad Moderator** (`users.is_ad_moderator`) is a narrow staff role, granted
+  the same way as `is_moderator`/`is_support`
+  (`POST /api/admin/users/[userId]/actions`,
+  `upgrade_ad_moderator`/`downgrade_ad_moderator`, from `/gate44/users`).
+  It only grants access to `/gate44/ads/moderation-queue` (edge pre-filter:
+  `middleware.ts` `AD_MODERATOR_PREFIXES`; API auth:
+  `lib/api/middleware.ts` `withAdModeratorOrAdminAuth`) — not the rest of
+  `/gate44/*`. An Ad Moderator reviews each `ad_ai_escalations` row (the
+  image plus both providers' confidence/reasoning) and approves or rejects
+  it; if that was the campaign's last pending escalation, the campaign-level
+  moderation decision follows automatically (`moderateCampaign()`).
+- **`/gate44/ai-monitoring`** (admin-only) is a single view across every
+  AI-backed feature: the full `ai_call_log` with a per-row details drawer
+  (raw model output, token counts, pipeline metadata), aggregate usage/token
+  stats per feature+provider, live circuit-breaker state, a pending-escalation
+  summary (ad images, reports, KYC) linking to each queue, and the ability to
+  revert an AI auto-approved ad campaign back to manual review
+  (`POST /api/admin/ads/campaigns/[campaignId]/revert-to-manual`).
+  `ai_call_log` now also carries `input_tokens`/`output_tokens` (from each
+  provider's own reported usage, when available) and a `metadata` jsonb
+  column for this panel's use.
 
 ### CRON Architecture
 

@@ -1,11 +1,14 @@
 /**
  * apps/android/src/routes/admin/ai-settings.tsx
  *
- * AI Settings — mirrors apps/web/app/(admin)/admin/ai-settings/page.tsx:
- * live status for DeepSeek (primary) and Gemini (fallback), an API key
- * override form per provider, and a live "Test Connection" button.
+ * AI Settings — mirrors apps/web/app/(admin)/gate44/ai-settings/page.tsx:
+ * live status for DeepSeek (primary), Gemini (fallback), and Groq (3rd-level
+ * fallback), an API key override form per provider, and a live
+ * "Test Connection" button. (Groq was previously missing here — this page
+ * only knew about deepseek/gemini even though the backend has supported the
+ * 3-provider chain for a while — see lib/ai/config.ts AI_PROVIDERS on web.)
  *
- * GET  /api/admin/ai-settings          → { deepseek, gemini }
+ * GET  /api/admin/ai-settings          → { deepseek, gemini, groq }
  * PUT  /api/admin/ai-settings          { provider, apiKey } → { provider, keySource }
  *   (apiKey: '' clears the override and falls back to the env var)
  * POST /api/admin/ai-settings/test     { provider, apiKey? } → always HTTP 200;
@@ -21,7 +24,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { AdminToast, AdminErrorState, adminInputClass } from '@/components/admin/AdminUI';
 
-type Provider = 'deepseek' | 'gemini';
+type Provider = 'deepseek' | 'gemini' | 'groq';
 type CircuitStatus = 'closed' | 'open' | 'half-open';
 
 interface CircuitInfo {
@@ -39,6 +42,7 @@ interface ProviderInfo {
 interface AiSettingsData {
   deepseek: ProviderInfo;
   gemini: ProviderInfo;
+  groq: ProviderInfo;
 }
 
 interface TestResultData {
@@ -173,7 +177,7 @@ function ProviderCard({
 function AdminAiSettingsPage() {
   const { t } = useTranslation();
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
-  const [testResults, setTestResults] = useState<Record<Provider, TestResultData | null>>({ deepseek: null, gemini: null });
+  const [testResults, setTestResults] = useState<Record<Provider, TestResultData | null>>({ deepseek: null, gemini: null, groq: null });
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -241,6 +245,18 @@ function AdminAiSettingsPage() {
             onSaveKey={(key) => saveKeyMutation.mutate({ provider: 'gemini', apiKey: key })}
             onClearOverride={() => saveKeyMutation.mutate({ provider: 'gemini', apiKey: '' })}
             onTest={(key) => testMutation.mutate({ provider: 'gemini', apiKey: key })}
+          />
+          <ProviderCard
+            titleKey="admin.aiSettings.groq"
+            titleDefault="Groq (3rd-level Fallback)"
+            provider="groq"
+            info={data.groq}
+            saving={saveKeyMutation.isPending && saveKeyMutation.variables?.provider === 'groq'}
+            testing={testMutation.isPending && testMutation.variables?.provider === 'groq'}
+            testResult={testResults.groq}
+            onSaveKey={(key) => saveKeyMutation.mutate({ provider: 'groq', apiKey: key })}
+            onClearOverride={() => saveKeyMutation.mutate({ provider: 'groq', apiKey: '' })}
+            onTest={(key) => testMutation.mutate({ provider: 'groq', apiKey: key })}
           />
         </div>
       )}

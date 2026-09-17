@@ -37,6 +37,8 @@ type ActionType =
   | "downgrade_support"
   | "upgrade_senior_support"
   | "downgrade_senior_support"
+  | "upgrade_ad_moderator"
+  | "downgrade_ad_moderator"
   | "reset_password"
   | "force_2fa"
   | "verify_account"
@@ -55,6 +57,7 @@ export interface AdminUser {
   isModerator: boolean;
   isSupport: boolean;
   isSeniorSupport: boolean;
+  isAdModerator: boolean;
   reportHistoryCount: number;
   paymentHistoryCount: number;
   messageCount: number;
@@ -244,6 +247,8 @@ const ACTION_LABELS: Record<ActionType, string> = {
   downgrade_support: "revoke support status from",
   upgrade_senior_support: "flag as senior support",
   downgrade_senior_support: "revoke senior support status from",
+  upgrade_ad_moderator: "make an ad moderator",
+  downgrade_ad_moderator: "revoke ad moderator status from",
   reset_password: "force a password reset for",
   force_2fa: "force 2FA setup for",
   verify_account: "mark the email verified for",
@@ -402,6 +407,12 @@ function DetailPanel({ user, onClose, onAction, onImpersonate, onDelete, showDel
             onClick={() => handleAction(user.isSeniorSupport ? "downgrade_senior_support" : "upgrade_senior_support")}
             loading={loading === "upgrade_senior_support" || loading === "downgrade_senior_support"}
             className="bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900 dark:text-purple-300"
+          />
+          <ActionButton
+            label={user.isAdModerator ? "Revoke Ad Moderator" : "Make Ad Moderator"}
+            onClick={() => handleAction(user.isAdModerator ? "downgrade_ad_moderator" : "upgrade_ad_moderator")}
+            loading={loading === "upgrade_ad_moderator" || loading === "downgrade_ad_moderator"}
+            className="bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900 dark:text-amber-300"
           />
         </div>
 
