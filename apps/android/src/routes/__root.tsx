@@ -137,6 +137,14 @@ function AppShell() {
             return;
           }
 
+          if (slug && (prefix === 'c' || prefix === 'course')) {
+            // Classroom homepages (/c/<slug>) — routes/c/$slug.tsx resolves
+            // current, renamed (301'd) and UUID identifiers, including
+            // private classrooms the viewer belongs to.
+            navigate({ to: '/c/$slug', params: { slug } });
+            return;
+          }
+
           if (slug && (prefix === 'r' || prefix === 'room')) {
             // Rooms are addressed by internal id in-app (GET /api/rooms/:id/messages),
             // but the public/shareable path is slug-based — resolve slug -> id first via

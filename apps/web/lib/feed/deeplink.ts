@@ -12,7 +12,7 @@
  *  - tweet           -> /tweets/<id>                       app/(app)/tweets/[tweetId]/page.tsx (id-keyed, exact)
  *  - forum_question  -> /answers/<id>                      app/(app)/answers/[id]/page.tsx (id-keyed, exact)
  *  - room            -> /rooms/<id>                        app/(app)/rooms/[roomId]/page.tsx (id-keyed, exact)
- *  - classroom       -> /rooms/<id>                        classrooms ARE rooms (rooms.type = 'classroom', see
+  *  - classroom       -> /c/<id> (301 -> /c/<slug>)                      classrooms ARE rooms (rooms.type = 'classroom', see
  *                                                           lib/feed/aggregator.ts POPULAR_SOURCES) with no separate
  *                                                           detail route — /rooms/[roomId]/page.tsx renders them.
  *
@@ -70,7 +70,8 @@ export function deepLinkPathFor(contentType: FeedContentType, contentId: string)
     case "forum_thread": return `/forum-threads/${contentId}`;
     case "forum_question": return `/answers/${contentId}`;
     case "room": return `/rooms/${contentId}`;
-    case "classroom": return `/rooms/${contentId}`;
+    // Classrooms have their own homepage; /c/<uuid> 301s to /c/<slug>.
+    case "classroom": return `/c/${contentId}`;
     case "wiki_page": return `/wiki-pages/${contentId}`;
     case "game": return `/games`;
     case "business_page_post": return `/business-posts/${contentId}`;
