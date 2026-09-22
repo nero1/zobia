@@ -108,6 +108,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
        WHERE type = 'classroom'
          AND deleted_at IS NULL
          AND is_active = TRUE
+         AND is_public = TRUE
        ORDER BY updated_at DESC NULLS LAST
        LIMIT 2000`
     );

@@ -12,7 +12,7 @@ Public, crawlable, shareable surfaces use short human-readable paths. Internal a
 |---|---|---|---|
 | Profile | `/u/<username>` | `app/u/[username]/page.tsx` | by `username` |
 | Room | `/r/<slug>` | `app/r/[slug]/page.tsx` | `lib/public/resolveRoom.ts` |
-| Course / classroom | `/c/<slug>` | `app/c/[slug]/page.tsx` | `lib/public/resolveRoom.ts` (classroom types) |
+| Course / classroom | `/c/<slug>` | `app/c/[slug]/page.tsx` | `lib/classroom/resolve.ts` (slug, legacy UUID, retired slug → 301; private/archived classrooms are noindex + member-only) |
 | Game (upcoming) | `/g/<slug>` | `app/g/[slug]/page.tsx` | `lib/public/resolveGame.ts` |
 | Forum question (Answers) | `/a/<slug>` | `app/a/[slug]/page.tsx` | `lib/public/resolveForumQuestion.ts` |
 | Blog | `/b/<slug>` | `app/b/[slug]/page.tsx` | `lib/public/resolveBlog.ts` |
