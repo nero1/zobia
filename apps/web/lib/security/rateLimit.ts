@@ -195,6 +195,10 @@ export const RATE_LIMITS = {
   classroomVote: { limit: 60, windowMs: 60 * 1000, name: "classroom:vote", tier: "local" } as RateLimitOptions,
   /** Classroom slug changes — money-moving and SEO-affecting, so tight and exact (bypassL1). */
   classroomSlugChange: { limit: 5, windowMs: 60 * 60 * 1000, name: "classroom:slug", bypassL1: true } as RateLimitOptions,
+  /** Referral link visit recording — anonymous, IP-scoped. Idempotent (unique index on
+   * referrer+visitor+day in Postgres), so it's counted locally rather than hitting Redis on
+   * every page load that carries a `?r=` param. */
+  referralVisit: { limit: 30, windowMs: 60 * 1000, name: "referral:visit", tier: "local" } as RateLimitOptions,
 } as const;
 
 // ---------------------------------------------------------------------------

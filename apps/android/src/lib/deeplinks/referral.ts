@@ -11,8 +11,10 @@ import { useEffect } from 'react';
 import { App } from '@capacitor/app';
 import { Preferences } from '@capacitor/preferences';
 import { extractReferralCode, isValidReferralCode } from '@zobia/shared/utils';
+import { apiClient } from '@/lib/api/client';
 
 const PENDING_REFERRAL_KEY = 'pending_referral';
+const VISITOR_KEY_STORAGE_KEY = 'zobia_visitor_key';
 
 // ZSB-13 fix: parity with apps/web/lib/referral/clientStore.ts's TTL_DAYS —
 // a referral code captured here previously never expired, unlike web/PWA's
@@ -26,6 +28,34 @@ interface StoredReferral {
   capturedAt: number;
 }
 
+/**
+ * A random, non-PII id identifying this device install for referral-visit
+ * dedup (see POST /api/referrals/visit) — never an IP or device fingerprint.
+ * Generated once and persisted in Preferences.
+ */
+async function getOrCreateVisitorKey(): Promise<string> {
+  const { value: existing } = await Preferences.get({ key: VISITOR_KEY_STORAGE_KEY });
+  if (existing) return existing;
+  const key = crypto.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  await Preferences.set({ key: VISITOR_KEY_STORAGE_KEY, value: key });
+  return key;
+}
+
+/**
+ * Record a referral-link visit, best-effort and fire-and-forget — mirrors
+ * apps/web/lib/referral/clientStore.ts's recordReferralVisit so a deep link
+ * shared from the web/PWA and opened in this app attributes the visit to
+ * the same referrer stats, regardless of which surface it lands on.
+ */
+async function recordReferralVisit(code: string, path: string): Promise<void> {
+  try {
+    const visitorKey = await getOrCreateVisitorKey();
+    await apiClient.post('/referrals/visit', { code, path, visitorKey });
+  } catch {
+    // Best-effort — losing a visit count is not user-visible.
+  }
+}
+
 export function captureReferralFromUrl(url: string | null | undefined): void {
   if (!url) return;
   try {
@@ -36,6 +66,7 @@ export function captureReferralFromUrl(url: string | null | undefined): void {
     if (code) {
       const stored: StoredReferral = { code, capturedAt: Date.now() };
       Preferences.set({ key: PENDING_REFERRAL_KEY, value: JSON.stringify(stored) });
+      void recordReferralVisit(code, parsed.pathname || '/');
     }
   } catch {
     // Malformed URL — ignore.

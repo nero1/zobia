@@ -11,11 +11,18 @@ export const dynamic = 'force-dynamic';
  * {
  *   referralCode: string,
  *   referralUrl: string,        // https://domain/?r=<numericUserId>
+ *   statsTier: "basic" | "full", // plan-gated detail level, see x_manifest `referral_stats_full_plans`
  *   tier1Count: number,         // direct referrals
  *   tier2Count: number,         // second-degree referrals
  *   coinsEarned: number,        // total coins earned via referrals
  *   xpEarned: number,           // total XP earned via referrals
- *   referrals: ReferralRecord[]
+ *   referrals: ReferralRecord[], // [] for statsTier "basic"
+ *   visits: {
+ *     totalVisits: number,       // all plans
+ *     last30Days: { date, visits }[], // [] for statsTier "basic"
+ *     topPaths: { path, visits }[],   // [] for statsTier "basic"
+ *     conversionRate: number | null,  // null for statsTier "basic"
+ *   },
  * }
  */
 
@@ -24,6 +31,8 @@ import { db } from "@/lib/db";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { getCommissionStats } from "@/lib/referrals/commissions";
+import { getBasicVisitCount, getFullVisitStats } from "@/lib/referrals/visits";
+import { getAllowedPlans, isPlanEligible, allEligibilityOptionsExcept } from "@/lib/plans/eligibility";
 import { buildProfileReferralUrl } from "@zobia/shared/utils";
 
 // ---------------------------------------------------------------------------
@@ -58,6 +67,11 @@ interface ReferralRow {
 
 interface UserRow {
   referral_code: string | null;
+  plan: string;
+  prestige_count: number;
+  is_admin: boolean;
+  is_moderator: boolean;
+  business_tier: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -71,12 +85,41 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 
-    // Fetch user's referral code and numeric ID (used in referral URL)
+    // Fetch user's referral code, plan and eligibility context (used both for
+    // the referral URL and the stats-detail plan gate below).
     const userResult = await db.query<UserRow>(
-      `SELECT referral_code FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+      `SELECT u.referral_code,
+              COALESCE(u.plan, 'free') AS plan,
+              COALESCE(u.prestige_count, 0) AS prestige_count,
+              COALESCE(u.is_admin, false) AS is_admin,
+              COALESCE(u.is_moderator, false) AS is_moderator,
+              ba.tier AS business_tier
+       FROM users u
+       LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
+       WHERE u.id = $1 AND u.deleted_at IS NULL
+       LIMIT 1`,
       [userId]
     );
-    const referralCode = userResult.rows[0]?.referral_code ?? null;
+    const userRow = userResult.rows[0];
+    const referralCode = userRow?.referral_code ?? null;
+
+    // Stats-detail tier: admin-configurable via x_manifest key
+    // `referral_stats_full_plans` (gate44/settings/referrals), same pattern
+    // as the Profile Stats page's `profile_stats_full_plans`. Free users get
+    // totals only; everyone else (by default) gets the full breakdown.
+    const fullPlans = await getAllowedPlans(
+      "referral_stats_full_plans",
+      allEligibilityOptionsExcept(["free"])
+    );
+    const statsTier: "basic" | "full" = userRow
+      ? isPlanEligible(userRow.plan, userRow.prestige_count, fullPlans, {
+          businessTier: userRow.business_tier,
+          isAdmin: userRow.is_admin,
+          isModerator: userRow.is_moderator,
+        })
+        ? "full"
+        : "basic"
+      : "basic";
 
     // Build referral URL using ?r=<referralCode> format (PRD §15).
     // Referral codes are numeric strings (e.g. ?r=471370973). The `?r=` param
@@ -141,16 +184,28 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       tier2Count: 0,
     }));
 
+    // Visit/click stats — basic plans only get the all-time total; the full
+    // daily breakdown, top pages and conversion rate are gated by
+    // `referral_stats_full_plans` above (default: everyone except free).
+    const visits =
+      statsTier === "full"
+        ? await getFullVisitStats(userId, tier1Count)
+        : { totalVisits: await getBasicVisitCount(userId), last30Days: [], topPaths: [], conversionRate: null };
+
     return NextResponse.json({
       success: true,
       data: {
         referralCode,
         referralUrl,
+        statsTier,
         tier1Count,
         tier2Count,
         coinsEarned,
         xpEarned,
-        referrals,
+        // Free/basic-tier accounts see totals only, not the per-referral list —
+        // the "most basic data" plan gate the referrals feature is meant to enforce.
+        referrals: statsTier === "full" ? referrals : [],
+        visits,
         commissions: {
           tier1CoinsEarned: commissionStats.totalTier1Coins,
           tier2CoinsEarned: commissionStats.totalTier2Coins,

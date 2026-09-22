@@ -6,16 +6,21 @@
  * Share button for a public poll — Web Share API with a copy-link fallback,
  * mirroring components/blogs/PostActions.tsx's handleShare() exactly. The
  * reward-pot claim (if any) is a bonus on top of the normal share action,
- * so the /share POST is best-effort and never blocks or error-toasts.
+ * so the /share POST is best-effort and never blocks or error-toasts. The
+ * viewer's own referral code (if logged in) is auto-appended so every share
+ * doubles as a referral link.
  */
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { appendReferralCode } from "@zobia/shared/utils";
+import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 
 export function PollShareButton({ slug }: { slug: string }) {
   const { t } = useTranslation();
   const router = useRouter();
+  const { code: refCode } = useMyReferralCode();
   const [sharing, setSharing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -24,7 +29,7 @@ export function PollShareButton({ slug }: { slug: string }) {
     setSharing(true);
     setNotice(null);
     try {
-      const url = `${window.location.origin}/poll/${slug}`;
+      const url = appendReferralCode(`${window.location.origin}/poll/${slug}`, refCode);
       if (navigator.share) {
         await navigator.share({ url }).catch(() => {});
       } else if (navigator.clipboard) {

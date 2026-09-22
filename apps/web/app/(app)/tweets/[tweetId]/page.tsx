@@ -14,6 +14,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { appendReferralCode } from "@zobia/shared/utils";
+import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 import { TweetCard } from "@/components/tweets/TweetCard";
 import { type Tweet, mapTweetRow } from "@/components/tweets/types";
 
@@ -22,6 +24,7 @@ export default function TweetDetailPage() {
   const router = useRouter();
   const params = useParams();
   const tweetId = params?.tweetId as string;
+  const { code: refCode } = useMyReferralCode();
 
   const [tweet, setTweet] = useState<Tweet | null | undefined>(undefined);
   const [ownUserId, setOwnUserId] = useState<string | null>(null);
@@ -146,9 +149,10 @@ export default function TweetDetailPage() {
   // Shares the public, crawlable /t/<id> URL (see app/t/[tweetId]/page.tsx) —
   // not this authenticated /tweets/<id> route — so the link works for
   // logged-out recipients and carries proper SEO metadata/JSON-LD. Mirrors
-  // handleShare in app/(app)/answers/[id]/page.tsx.
+  // handleShare in app/(app)/answers/[id]/page.tsx. The viewer's own
+  // referral code (if logged in) is auto-appended.
   const handleShare = useCallback(async () => {
-    const url = `${window.location.origin}/t/${tweetId}`;
+    const url = appendReferralCode(`${window.location.origin}/t/${tweetId}`, refCode);
     try {
       if (navigator.share) {
         await navigator.share({ url });
@@ -164,7 +168,7 @@ export default function TweetDetailPage() {
     } catch {
       // Clipboard unavailable — nothing more we can do without a fallback UI.
     }
-  }, [tweetId]);
+  }, [tweetId, refCode]);
 
   const handlePin = useCallback(async (id: string) => {
     await fetch(`/api/tweets/${id}/pin`, { method: "POST", credentials: "include" });

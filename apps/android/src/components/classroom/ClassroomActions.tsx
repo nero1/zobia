@@ -16,17 +16,19 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
-import { universalLink, PUBLIC_PATHS } from '@/lib/deeplinks/routes';
+import { referralLink, PUBLIC_PATHS } from '@/lib/deeplinks/routes';
+import { useMyReferralCode } from '@/lib/referral/useReferralCode';
 import { apiError } from '@/lib/classroom/api';
 
 const btn = 'rounded-lg border border-neutral-300 dark:border-neutral-600 px-2.5 py-1 text-xs font-semibold text-neutral-600 dark:text-neutral-300';
 
 export function ClassroomShareButton({ roomId, slug, name }: { roomId: string; slug: string | null; name: string }) {
   const { t } = useTranslation();
+  const { code: refCode } = useMyReferralCode();
   const [notice, setNotice] = useState<string | null>(null);
 
   async function share() {
-    const url = universalLink(PUBLIC_PATHS.course(slug ?? roomId));
+    const url = referralLink(PUBLIC_PATHS.course(slug ?? roomId), refCode);
     try {
       if (navigator.share) {
         await navigator.share({ title: name, url });

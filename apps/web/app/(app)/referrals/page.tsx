@@ -32,6 +32,13 @@ interface ReferralStats {
   tier2CoinsEarned: number;
 }
 
+interface VisitStats {
+  totalVisits: number;
+  last30Days: { date: string; visits: number }[];
+  topPaths: { path: string; visits: number }[];
+  conversionRate: number | null;
+}
+
 interface ReferredUser {
   userId: string;
   username: string;
@@ -46,6 +53,8 @@ interface ReferredUser {
 interface ReferralsData {
   stats: ReferralStats | null;
   referredUsers: ReferredUser[];
+  visits: VisitStats;
+  statsTier: "basic" | "full";
 }
 
 // ---------------------------------------------------------------------------
@@ -147,6 +156,66 @@ function StatsGrid({ stats }: { stats: ReferralStats }) {
           <p className="text-xs text-neutral-400">{item.sub}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Visit stats
+// ---------------------------------------------------------------------------
+
+function VisitsCard({ visits, statsTier }: { visits: VisitStats; statsTier: "basic" | "full" }) {
+  const { t } = useTranslation();
+  const maxDaily = Math.max(1, ...visits.last30Days.map((d) => d.visits));
+
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+          {t("referrals.visits.title", "Link Visits")}
+        </h2>
+        <span className="text-lg font-bold text-neutral-900 dark:text-neutral-50">
+          {visits.totalVisits.toLocaleString()}
+        </span>
+      </div>
+
+      {statsTier === "basic" ? (
+        <p className="text-xs text-neutral-500">
+          {t(
+            "referrals.visits.upgradeForDetail",
+            "Upgrade to Plus, Pro, or Max to see daily visit trends, your top-performing pages, and your visit-to-signup conversion rate."
+          )}
+        </p>
+      ) : (
+        <>
+          {visits.last30Days.length > 0 && (
+            <div className="mb-4 flex h-16 items-end gap-0.5">
+              {visits.last30Days.map((d) => (
+                <div
+                  key={d.date}
+                  title={`${d.date}: ${d.visits}`}
+                  className="flex-1 rounded-t bg-blue-500/70 dark:bg-blue-400/70"
+                  style={{ height: `${Math.max(4, (d.visits / maxDaily) * 100)}%` }}
+                />
+              ))}
+            </div>
+          )}
+          <div className="flex flex-wrap items-center gap-4 text-xs text-neutral-500">
+            {visits.conversionRate !== null && (
+              <span>
+                {t("referrals.visits.conversionRate", "Conversion rate")}:{" "}
+                <span className="font-semibold text-neutral-900 dark:text-neutral-100">{visits.conversionRate}%</span>
+              </span>
+            )}
+            {visits.topPaths.length > 0 && (
+              <span>
+                {t("referrals.visits.topPage", "Top page")}:{" "}
+                <span className="font-semibold text-neutral-900 dark:text-neutral-100">{visits.topPaths[0].path}</span>
+              </span>
+            )}
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -297,7 +366,9 @@ export default function ReferralsPage() {
         const json = await res.json() as Record<string, unknown>;
         // API returns { success, data: { referralCode, referralUrl, tier1Count, ... } }
         const apiData = ((json.data ?? json) as Record<string, unknown>);
+        const visitsRaw = (apiData.visits as Record<string, unknown>) ?? {};
         const referralsData: ReferralsData = {
+          statsTier: apiData.statsTier === "full" ? "full" : "basic",
           stats: {
             referralCode: String(apiData.referralCode ?? ""),
             referralUrl: String(apiData.referralUrl ?? ""),
@@ -307,6 +378,12 @@ export default function ReferralsPage() {
             tier2XpEarned: 0,
             tier1CoinsEarned: Number(apiData.coinsEarned ?? 0),
             tier2CoinsEarned: Number((apiData.commissions as Record<string,unknown>)?.tier2CoinsEarned ?? 0),
+          },
+          visits: {
+            totalVisits: Number(visitsRaw.totalVisits ?? 0),
+            last30Days: (visitsRaw.last30Days as { date: string; visits: number }[]) ?? [],
+            topPaths: (visitsRaw.topPaths as { path: string; visits: number }[]) ?? [],
+            conversionRate: (visitsRaw.conversionRate as number | null) ?? null,
           },
           referredUsers: ((apiData.referrals as Record<string, unknown>[]) ?? []).map((r) => ({
             userId: String(r.id ?? ""),
@@ -357,9 +434,20 @@ export default function ReferralsPage() {
 
       {data?.stats && <StatsGrid stats={data.stats} />}
 
+      {data && <VisitsCard visits={data.visits} statsTier={data.statsTier} />}
+
       <TwoTierExplainer />
 
-      <ReferredUsersTable users={data?.referredUsers ?? []} />
+      {data?.statsTier === "basic" ? (
+        <div className="rounded-xl border border-neutral-200 bg-white p-5 text-center text-sm text-neutral-500 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          {t(
+            "referrals.table.upgradeForList",
+            "Upgrade to Plus, Pro, or Max to see the list of people you've referred."
+          )}
+        </div>
+      ) : (
+        <ReferredUsersTable users={data?.referredUsers ?? []} />
+      )}
     </div>
   );
 }

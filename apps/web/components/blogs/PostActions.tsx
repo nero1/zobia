@@ -12,6 +12,8 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { appendReferralCode } from "@zobia/shared/utils";
+import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 
 const VIEWED_STORAGE_KEY = "zobia_blog_viewed";
 
@@ -40,6 +42,7 @@ function markViewRecorded(postId: string): void {
 export function PostActions({ blogSlug, postSlug, postId, initialLikeCount }: { blogSlug: string; postSlug: string; postId: string; initialLikeCount: number }) {
   const { t } = useTranslation();
   const router = useRouter();
+  const { code: refCode } = useMyReferralCode();
   const [liked, setLiked] = useState<boolean | null>(null);
   const [count, setCount] = useState(initialLikeCount);
   const [busy, setBusy] = useState(false);
@@ -84,7 +87,7 @@ export function PostActions({ blogSlug, postSlug, postId, initialLikeCount }: { 
     try {
       // Copy the link either way — the reward-pot claim (if any) is a bonus
       // on top of the normal share action, not a gate on it.
-      const url = `${window.location.origin}/b/${blogSlug}/${postSlug}`;
+      const url = appendReferralCode(`${window.location.origin}/b/${blogSlug}/${postSlug}`, refCode);
       if (navigator.share) {
         await navigator.share({ url }).catch(() => {});
       } else if (navigator.clipboard) {

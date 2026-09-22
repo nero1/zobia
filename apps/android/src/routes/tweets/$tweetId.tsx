@@ -15,7 +15,8 @@ import { useAuth } from '@/lib/auth/store';
 import { apiClient } from '@/lib/api/client';
 import { TweetCard } from '@/components/tweets/TweetCard';
 import { mapTweet, type TweetRow } from '@/components/tweets/types';
-import { PUBLIC_PATHS, universalLink } from '@/lib/deeplinks/routes';
+import { PUBLIC_PATHS, referralLink } from '@/lib/deeplinks/routes';
+import { useMyReferralCode } from '@/lib/referral/useReferralCode';
 
 function TweetDetailPage() {
   const { t } = useTranslation();
@@ -23,6 +24,7 @@ function TweetDetailPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { user } = useAuth();
+  const { code: refCode } = useMyReferralCode();
   const [replyDraft, setReplyDraft] = useState('');
   const [replyError, setReplyError] = useState<string | null>(null);
   const [replySubmitting, setReplySubmitting] = useState(false);
@@ -32,9 +34,10 @@ function TweetDetailPage() {
   // so the recipient (who may not have the app) gets a working, SEO-friendly
   // link. Uses the Web Share API available inside the Capacitor WebView, with
   // a clipboard fallback, matching apps/web/app/(app)/tweets/[tweetId]/page.tsx
-  // and apps/android/src/routes/answers/$questionId.tsx's handleShare.
+  // and apps/android/src/routes/answers/$questionId.tsx's handleShare. The
+  // viewer's own referral code (if logged in) is auto-appended.
   async function handleShare(): Promise<void> {
-    const url = universalLink(PUBLIC_PATHS.tweet(tweetId));
+    const url = referralLink(PUBLIC_PATHS.tweet(tweetId), refCode);
     try {
       if (navigator.share) {
         await navigator.share({ url });

@@ -9,53 +9,16 @@
  * commission rate and a ready-to-share link with the viewer's own `?r=` code
  * already attached, plus a copy button.
  *
- * The referral code is fetched once per session and cached in localStorage,
- * scoped by user id so it never leaks between users of a shared device.
+ * The referral code itself comes from the shared useMyReferralCode() hook
+ * (lib/referral/useReferralCode.ts), fetched once per session and cached in
+ * localStorage, scoped by user id so it never leaks between users of a
+ * shared device.
  */
 
 import { useState } from "react";
 import { useAuth } from "@/lib/auth/hooks";
 import { appendReferralCode } from "@zobia/shared/utils";
-
-// ---------------------------------------------------------------------------
-// Referral-code cache (module memory + per-user localStorage)
-// ---------------------------------------------------------------------------
-
-const codeCache = new Map<string, string>();
-
-async function getReferralCode(userId: string): Promise<string | null> {
-  const cached = codeCache.get(userId);
-  if (cached) return cached;
-
-  const storageKey = `zobia:referralCode:${userId}`;
-  try {
-    const stored = localStorage.getItem(storageKey);
-    if (stored) {
-      codeCache.set(userId, stored);
-      return stored;
-    }
-  } catch {
-    // localStorage unavailable — fall through to network fetch
-  }
-
-  try {
-    const res = await fetch("/api/referrals", { credentials: "include" });
-    if (!res.ok) return null;
-    const json = (await res.json()) as { referralCode?: string | null };
-    const code = json.referralCode ?? null;
-    if (code) {
-      codeCache.set(userId, code);
-      try {
-        localStorage.setItem(storageKey, code);
-      } catch {
-        // Non-fatal — just skip caching
-      }
-    }
-    return code;
-  } catch {
-    return null;
-  }
-}
+import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 
 // ---------------------------------------------------------------------------
 // Component
@@ -72,24 +35,17 @@ export interface ReferralShareDropdownProps {
 
 export function ReferralShareDropdown({ itemUrl, isPhysical, commissionPct }: ReferralShareDropdownProps) {
   const { user } = useAuth();
+  const { code: refCode, loading: codeLoading } = useMyReferralCode();
   const [open, setOpen] = useState(false);
-  const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [loading, setLoading] = useState(false);
 
   if (!user) return null;
 
-  async function toggle() {
-    if (open) {
-      setOpen(false);
-      return;
-    }
-    setOpen(true);
-    if (link) return;
-    setLoading(true);
-    const code = await getReferralCode(user!.id);
-    setLink(code ? appendReferralCode(itemUrl, code) : null);
-    setLoading(false);
+  const link = refCode ? appendReferralCode(itemUrl, refCode) : null;
+  const loading = open && codeLoading;
+
+  function toggle() {
+    setOpen((prev) => !prev);
   }
 
   async function copy() {

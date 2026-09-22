@@ -13,6 +13,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { appendReferralCode } from "@zobia/shared/utils";
+import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 import { Avatar } from "@/components/ui/Avatar";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
@@ -121,6 +123,7 @@ export default function QuestionDetailPage() {
   const [reportTarget, setReportTarget] = useState<{ type: "question" | "answer"; id: string } | null>(null);
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const [shareCopied, setShareCopied] = useState(false);
+  const { code: refCode } = useMyReferralCode();
 
   // Two distinct surfaces share this one composer/endpoint — a new top-level
   // answer uses "submit_answer", a reply to an existing answer uses
@@ -228,7 +231,7 @@ export default function QuestionDetailPage() {
   // logged-out recipients and carries proper SEO metadata/JSON-LD.
   async function handleShare() {
     if (!question) return;
-    const url = `${window.location.origin}/a/${question.slug ?? question.id}`;
+    const url = appendReferralCode(`${window.location.origin}/a/${question.slug ?? question.id}`, refCode);
     try {
       if (navigator.share) {
         await navigator.share({ title: question.title, url });

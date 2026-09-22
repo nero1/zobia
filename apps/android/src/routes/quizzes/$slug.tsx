@@ -19,7 +19,8 @@ import { useTranslation } from 'react-i18next';
 import { isAxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
-import { universalLink, PUBLIC_PATHS } from '@/lib/deeplinks/routes';
+import { referralLink, PUBLIC_PATHS } from '@/lib/deeplinks/routes';
+import { useMyReferralCode } from '@/lib/referral/useReferralCode';
 
 interface QuizOption {
   id: string;
@@ -137,6 +138,7 @@ function QuizDetailPage() {
   const currency = useCurrency();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { code: refCode } = useMyReferralCode();
 
   const [answers, setAnswers] = useState<Record<string, string[]>>({});
   const [result, setResult] = useState<AttemptResult | null>(null);
@@ -227,7 +229,7 @@ function QuizDetailPage() {
   });
 
   async function handleShare(): Promise<void> {
-    const url = universalLink(PUBLIC_PATHS.quiz(slug));
+    const url = referralLink(PUBLIC_PATHS.quiz(slug), refCode);
     share.mutate();
     try {
       if (navigator.share) {
