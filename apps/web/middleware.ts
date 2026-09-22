@@ -244,7 +244,7 @@ const ADMIN_PREFIXES = ["/gate44"];
  * Name is legacy ("forum") but this list is no longer forum-specific —
  * /gate44/guilds was added so mods can administer guilds too.
  */
-const FORUM_MOD_PREFIXES = ["/gate44/answers", "/gate44/forum", "/gate44/guilds"];
+const FORUM_MOD_PREFIXES = ["/gate44/answers", "/gate44/forum", "/gate44/guilds", "/gate44/classrooms"];
 
 /**
  * Scoped exception within /gate44/*: moderators AND plain support staff may

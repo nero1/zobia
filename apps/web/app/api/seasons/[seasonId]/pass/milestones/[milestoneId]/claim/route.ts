@@ -214,11 +214,13 @@ export const POST = withAuth(
 
         // XP reward
         if (milestone.reward_type === "xp" && reward.xp && reward.xp > 0) {
+          // xp_ledger has no `description` column and base_amount is NOT NULL —
+          // the old INSERT failed and rolled back every XP-milestone claim.
           await client.query(
             `INSERT INTO xp_ledger
-               (user_id, amount, track, source, description, created_at)
-             VALUES ($1, $2, 'main', 'season_milestone', $3, NOW())`,
-            [userId, reward.xp, `Season milestone: ${milestone.label ?? milestoneId}`]
+               (user_id, amount, track, source, reference_id, base_amount, created_at)
+             VALUES ($1, $2, 'main', 'season_milestone', $3, $2, NOW())`,
+            [userId, reward.xp, `season_milestone:${milestoneId}`]
           );
           await client.query(
             `UPDATE users SET xp_total = COALESCE(xp_total, 0) + $1, updated_at = NOW()
@@ -233,7 +235,7 @@ export const POST = withAuth(
           await client.query(
             `INSERT INTO user_badges (user_id, badge_type, badge_key, awarded_at)
              VALUES ($1, $2, $2, NOW())
-             ON CONFLICT (user_id, badge_type, reference_id) DO NOTHING`,
+             ON CONFLICT (user_id, badge_key) WHERE badge_key IS NOT NULL DO NOTHING`,
             [userId, reward.badgeId]
           );
           awardsGiven.badgeId = reward.badgeId;

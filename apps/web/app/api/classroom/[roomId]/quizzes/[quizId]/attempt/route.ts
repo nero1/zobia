@@ -19,6 +19,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
+import { awardClassroomPoints } from "@/lib/classroom/gamification";
 
 // ---------------------------------------------------------------------------
 // Schemas
@@ -136,6 +137,32 @@ export const POST = withAuth(
           await safeAwardXP(userId, xpAwarded, "knowledge", "classroom_quiz", attemptId, tx);
         }
 
+        // Per-classroom gamification: passing a quiz earns classroom points
+        // (and a perfect score earns the Quiz Ace badge). Idempotent per quiz.
+        let classroomPointsAwarded = 0;
+        if (passed) {
+          const { rows: roomRows } = await tx.query<{ slug: string | null; name: string }>(
+            `SELECT slug, name FROM rooms WHERE id = $1`,
+            [roomId]
+          );
+          const award = await awardClassroomPoints(
+            {
+              roomId,
+              userId,
+              source: "quiz_passed",
+              referenceId: quizId,
+              badgeSignals: { perfectQuiz: score === 100 },
+              classroom: { slug: roomRows[0]?.slug ?? null, name: roomRows[0]?.name ?? "" },
+            },
+            tx
+          );
+          classroomPointsAwarded = award.awarded;
+          await tx.query(
+            `UPDATE classroom_enrolments SET last_active_at = NOW() WHERE room_id = $1 AND user_id = $2`,
+            [roomId, userId]
+          );
+        }
+
         return {
           attemptId,
           quizId,
@@ -144,6 +171,7 @@ export const POST = withAuth(
           correctCount,
           totalQuestions: questions.length,
           xpAwarded,
+          classroomPointsAwarded,
         };
       });
 

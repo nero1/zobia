@@ -19,6 +19,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getTrackLevelForXP } from "@/lib/xp/engine";
+import { classroomContextFromParams } from "@/lib/classroom/http";
 
 // ---------------------------------------------------------------------------
 // Feature gate constants
@@ -42,7 +43,9 @@ const questionSchema = z.object({
 const createQuizSchema = z.object({
   title: z.string().min(3).max(120),
   description: z.string().max(500).optional(),
-  xp_reward: z.number().int().positive().default(50),
+  // Capped: this is Knowledge-track XP minted per passing student, so an
+  // unbounded creator-set value was an XP-farming vector (sock-puppet members).
+  xp_reward: z.number().int().positive().max(500).default(50),
   pass_score: z.number().int().min(1).max(100).default(70),
   questions: z.array(questionSchema).min(1).max(50),
 });
@@ -68,30 +71,35 @@ interface QuizRow {
 // GET /api/classroom/:roomId/quizzes
 // ---------------------------------------------------------------------------
 
-export const GET = withAuth(
-  async (
-    _req: NextRequest,
-    { params }: { params: { roomId: string }; auth: unknown }
-  ) => {
+export const GET = withAuth<{ roomId: string }>(
+  async (_req: NextRequest, { params, auth }) => {
     try {
-      const { roomId } = await params;
+      await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
+      const { classroom, viewer } = await classroomContextFromParams(params, auth.user.sub);
+      if ((!classroom.isPublic || !classroom.isActive) && !viewer.can.viewMemberContent) {
+        throw forbidden("This classroom is private.", "CLASSROOM_PRIVATE");
+      }
+      const roomId = classroom.id;
 
-      const { rows } = await db.query<QuizRow>(
+      const { rows } = await db.query<QuizRow & { my_score: number | null; my_passed: boolean | null }>(
         `SELECT
            cq.id, cq.room_id, cq.creator_id, cq.title, cq.description,
            cq.xp_reward, cq.pass_score, cq.is_active, cq.created_at,
-           COUNT(cqq.id)::TEXT AS question_count
+           (SELECT COUNT(*) FROM classroom_quiz_questions cqq WHERE cqq.quiz_id = cq.id)::TEXT AS question_count,
+           a.score AS my_score, a.passed AS my_passed
          FROM classroom_quizzes cq
-         LEFT JOIN classroom_quiz_questions cqq ON cqq.quiz_id = cq.id
+         LEFT JOIN classroom_quiz_attempts a ON a.quiz_id = cq.id AND a.user_id = $2
          WHERE cq.room_id = $1 AND cq.is_active = TRUE
-         GROUP BY cq.id
          ORDER BY cq.created_at DESC`,
-        [roomId]
+        [roomId, auth.user.sub]
       );
 
       const quizzes = rows.map((q) => ({
         ...q,
         questionCount: parseInt(q.question_count, 10),
+        attempted: q.my_score !== null,
+        myScore: q.my_score,
+        passed: q.my_passed === true,
       }));
 
       return NextResponse.json({

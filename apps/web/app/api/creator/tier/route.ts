@@ -278,8 +278,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
       await tx.query(
         `INSERT INTO xp_ledger
-           (user_id, amount, track, source, multiplier, base_amount)
-         VALUES ($1, $2, 'creator', 'creator_milestone', 100, $2)`,
+           (user_id, amount, track, source, base_amount)
+         VALUES ($1, $2, 'creator', 'creator_milestone', $2)`,
         [userId, milestoneXp]
       );
     });

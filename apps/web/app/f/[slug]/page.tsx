@@ -12,6 +12,7 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import { serializeJsonLd } from "@/lib/seo/metadata";
 import { notFound } from "next/navigation";
 import { getThreadBySlug, listPostsInThread, incrementThreadViewCount } from "@/lib/bbforum/repo";
 import { db } from "@/lib/db";
@@ -82,7 +83,7 @@ export default async function ThreadPage({ params }: { params: Promise<{ slug: s
   const potRemaining = thread.pot_max_claims - thread.pot_claims_count;
   const showPotBanner = thread.pot_max_claims > 0 && !thread.pot_refunded_at;
 
-  const jsonLd = JSON.stringify({
+  const jsonLd = serializeJsonLd({
     "@context": "https://schema.org",
     "@type": "DiscussionForumPosting",
     headline: thread.title,

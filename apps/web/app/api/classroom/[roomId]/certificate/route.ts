@@ -32,6 +32,7 @@ import {
 } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getTrackLevelForXP } from "@/lib/xp/engine";
+import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -185,21 +186,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       const cert = certRows[0];
       if (!cert) throw new Error("Certificate creation failed");
 
-      // Award Knowledge Track XP to recipient
       await tx.query(
-        `UPDATE users
-         SET xp_total = xp_total + $1,
-             xp_knowledge = xp_knowledge + $1,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [CERTIFICATE_RECIPIENT_XP, body.recipientUserId]
-      );
-
-      await tx.query(
-        `INSERT INTO xp_ledger
-           (user_id, amount, track, source, reference_id, multiplier, base_amount)
-         VALUES ($1, $2, 'knowledge', 'room', $3, 100, $2)`,
-        [body.recipientUserId, CERTIFICATE_RECIPIENT_XP, roomId]
+        `UPDATE classroom_enrolments
+            SET certificate_issued = TRUE, certificate_issued_at = NOW()
+          WHERE room_id = $1 AND user_id = $2`,
+        [roomId, body.recipientUserId]
       );
 
       // Create in-app notification for the recipient
@@ -223,6 +214,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       return cert;
     });
+
+    // Knowledge-track XP through the canonical XP path, after the commit. The
+    // old inline INSERT wrote a non-existent xp_ledger.multiplier column (so
+    // every certificate issue failed) under source 'room', which also
+    // collided with the room-join XP idempotency key.
+    safeAwardXPFireAndForget(body.recipientUserId, CERTIFICATE_RECIPIENT_XP, "knowledge", "classroom_certificate", roomId);
 
     // Send certificate email if the recipient has an email address (PRD §10 — fire-and-forget)
     if (recipient.email) {

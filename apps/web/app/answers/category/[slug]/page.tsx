@@ -8,6 +8,7 @@
 
 import type { Metadata } from "next";
 import Link from "next/link";
+import { serializeJsonLd } from "@/lib/seo/metadata";
 import { notFound } from "next/navigation";
 import {
   getPublicCategory,
@@ -65,7 +66,7 @@ export default async function AnswersCategoryPage({
 
   const questions = await listPublicQuestionsByCategory(category.id, tab, 15);
 
-  const jsonLd = JSON.stringify({
+  const jsonLd = serializeJsonLd({
     "@context": "https://schema.org",
     "@type": "CollectionPage",
     name: `${category.name} Questions`,

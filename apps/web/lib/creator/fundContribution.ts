@@ -79,7 +79,10 @@ export async function contributeToCreatorFund(
     `INSERT INTO x_manifest (key, value, updated_at)
      VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
      ON CONFLICT (key) DO UPDATE
-       SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
+       -- $1 is typed TEXT by its first use above; adding it to a NUMERIC
+       -- without a cast raised "operator does not exist: numeric + text",
+       -- rolling back every payment webhook that seeds the Creator Fund.
+       SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1::TEXT::NUMERIC)::TEXT,
            updated_at = NOW()`,
     [contributionKobo]
   );

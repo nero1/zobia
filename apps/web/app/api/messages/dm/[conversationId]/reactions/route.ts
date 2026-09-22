@@ -167,8 +167,8 @@ export const POST = withAuth(
               [auth.user.sub]
             );
             await db.query(
-              `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-               VALUES ($1, 1, 'social', 'custom_reaction', $2, 1, 1)`,
+              `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount)
+               VALUES ($1, 1, 'social', 'custom_reaction', $2, 1)`,
               [auth.user.sub, reaction.id]
             );
           }
@@ -181,8 +181,8 @@ export const POST = withAuth(
               [message.sender_id]
             );
             await db.query(
-              `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, multiplier, base_amount)
-               VALUES ($1, 1, 'social', 'reaction_received', $2, 1, 1)`,
+              `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount)
+               VALUES ($1, 1, 'social', 'reaction_received', $2, 1)`,
               [message.sender_id, reaction.id]
             );
 

@@ -283,14 +283,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
       // 4. Write to xp_ledger (append-only)
       await client.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, multiplier, base_amount)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+        // xp_ledger has no `multiplier` column (it is derivable as amount / base_amount).
+        `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount)
+         VALUES ($1, $2, $3, $4, $5)`,
         [
           body.userId,
           xpAwarded,
           track ?? "main",
           body.action,
-          (xpAwarded / Math.max(1, baseXp)).toFixed(2),
           baseXp,
         ]
       );

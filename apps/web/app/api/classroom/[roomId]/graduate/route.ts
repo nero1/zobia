@@ -19,7 +19,11 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db, SqlParam } from "@/lib/db";
+import { randomUUID } from "crypto";
+import { db } from "@/lib/db";
+import { generateUniqueSlug } from "@/lib/slug";
+import { insertNotificationBatch } from "@/lib/notifications/insert";
+import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 import { withAuth } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -82,8 +86,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // -----------------------------------------------------------------------
     // 1. Verify room exists, is a classroom, and caller is the creator
     // -----------------------------------------------------------------------
+    // rooms has no `end_date` column (this used to SELECT it, so every
+    // graduation request 500'd) — a classroom ends at ends_at, or at the end
+    // of its class_end_date.
     const { rows: roomRows } = await db.query<ClassroomRoomRow>(
-      `SELECT id, name, type, creator_id, is_active, end_date
+      `SELECT id, name, type, creator_id, is_active,
+              COALESCE(ends_at, (class_end_date + 1)::timestamptz) AS end_date
        FROM rooms
        WHERE id = $1 AND deleted_at IS NULL`,
       [roomId]
@@ -169,6 +177,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // -----------------------------------------------------------------------
     // 6. Transactionally create ceremony room, notifications, and award XP
     // -----------------------------------------------------------------------
+    // Public rooms must carry a slug (rooms_public_requires_slug) — the
+    // ceremony room previously had none, so this INSERT always failed.
+    const ceremonySlug = await generateUniqueSlug("room", `graduation ${room.name}`, randomUUID());
+
     const ceremonyRoomId = await db.transaction(async (tx) => {
       // Create the graduation Drop Room
       const dropEndsAt = new Date(
@@ -177,14 +189,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       const { rows: newRoomRows } = await tx.query<NewRoomRow>(
         `INSERT INTO rooms
-           (name, type, creator_id, is_active, metadata, drop_ends_at)
-         VALUES ($1, 'drop', $2, TRUE, $3::jsonb, $4::timestamptz)
+           (name, type, creator_id, is_active, metadata, drop_starts_at, drop_ends_at, slug, is_public, category, cover_emoji)
+         VALUES ($1, 'drop', $2, TRUE, $3::jsonb, NOW(), $4::timestamptz, $5, TRUE, 'Education', '🎓')
          RETURNING id`,
         [
           `Graduation: ${room.name}`,
           room.creator_id,
           JSON.stringify({ graduation_for: roomId, ceremony: true }),
           dropEndsAt,
+          ceremonySlug,
         ]
       );
       const newRoom = newRoomRows[0];
@@ -192,63 +205,26 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       const newCeremonyRoomId = newRoom.id;
 
-      // Insert notifications for all enrolled students
-      if (enrolledUserIds.length > 0) {
-        // Build a VALUES list for batch insert
-        const notifValues: SqlParam[] = [];
-        const placeholders: string[] = [];
-        enrolledUserIds.forEach((uid, idx) => {
-          const base = idx * 4;
-          placeholders.push(
-            `($${base + 1}, $${base + 2}, 'graduation_ceremony', $${base + 3}::jsonb, NOW())`
-          );
-          notifValues.push(
-            uid,
-            `Your graduation ceremony is ready! Join now.`,
-            JSON.stringify({ ceremonyRoomId: newCeremonyRoomId, classroomRoomId: roomId })
-          );
-        });
-
-        await tx.query(
-          `INSERT INTO notifications
-             (user_id, body, type, metadata, created_at)
-           VALUES ${placeholders.join(", ")}`,
-          notifValues
-        );
-      }
-
-      // Award XP to quiz-passing students
-      if (xpEligibleUserIds.length > 0) {
-        await tx.query(
-          `UPDATE users
-           SET xp_total      = xp_total      + $1,
-               xp_knowledge  = xp_knowledge  + $1,
-               updated_at    = NOW()
-           WHERE id = ANY($2::uuid[])`,
-          [GRADUATION_XP, xpEligibleUserIds]
-        );
-
-        // Insert XP ledger entries
-        const xpValues: SqlParam[] = [];
-        const xpPlaceholders: string[] = [];
-        xpEligibleUserIds.forEach((uid, idx) => {
-          const base = idx * 5;
-          xpPlaceholders.push(
-            `($${base + 1}, $${base + 2}, 'knowledge', 'graduation', $${base + 3}, 100, $${base + 4}, $${base + 5})`
-          );
-          xpValues.push(uid, GRADUATION_XP, roomId, GRADUATION_XP, newCeremonyRoomId);
-        });
-
-        await tx.query(
-          `INSERT INTO xp_ledger
-             (user_id, amount, track, source, reference_id, multiplier, base_amount, ceremony_room_id)
-           VALUES ${xpPlaceholders.join(", ")}`,
-          xpValues
-        );
-      }
+      // Notify every enrolled student (the previous hand-built VALUES list
+      // numbered its placeholders 4 apart for 3 params per row, which
+      // Postgres rejected).
+      await insertNotificationBatch(
+        tx,
+        enrolledUserIds,
+        "graduation_ceremony",
+        "🎓 Graduation ceremony",
+        `Your graduation ceremony for "${room.name}" is ready! Join now.`,
+        { ceremonyRoomId: newCeremonyRoomId, classroomRoomId: roomId, roomId: newCeremonyRoomId }
+      );
 
       return newCeremonyRoomId;
     });
+
+    // Graduation XP through the canonical XP path, after the commit
+    // (idempotent per student + classroom).
+    for (const uid of xpEligibleUserIds) {
+      safeAwardXPFireAndForget(uid, GRADUATION_XP, "knowledge", "classroom_graduation", roomId);
+    }
 
     return NextResponse.json(
       { ceremonyRoomId, studentCount, xpAwarded },

@@ -3,286 +3,163 @@ export const dynamic = 'force-dynamic';
 /**
  * app/api/classroom/[roomId]/modules/route.ts
  *
- * Manage curriculum modules for a ClassRoom.
+ * Curriculum modules (lessons) for a ClassRoom, stored in
+ * rooms.curriculum.modules — each with a stable `id` (see
+ * lib/classroom/curriculum.ts).
  *
- * Modules are stored as a JSONB array in rooms.curriculum.
- * Each module: { title: string; description?: string; resources?: string[] }
- *
- * GET    /api/classroom/[roomId]/modules → list modules
- * POST   /api/classroom/[roomId]/modules → add a module (creator only)
- * PATCH  /api/classroom/[roomId]/modules → update module by index (creator only)
- * DELETE /api/classroom/[roomId]/modules → remove module by index (creator only)
+ * GET    → modules shaped for the caller (outline for visitors, full lessons
+ *          for members unless level-locked, everything for creator/mods/staff)
+ * POST   → add a module                        (creator/staff)
+ * PATCH  → { id, ...fields } update a module   (creator/staff)
+ * PUT    → { order: string[] } reorder modules (creator/staff)
+ * DELETE → { id } remove a module              (creator/staff)
  */
 
-import { NextRequest, NextResponse } from "next/server";
+import { NextRequest } from "next/server";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { withAuth, validateBody } from "@/lib/api/middleware";
-import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
+import { handleApiError, notFound, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
+import { requireCapability, type ClassroomContext } from "@/lib/classroom/access";
+import { classroomContextFromParams, ok } from "@/lib/classroom/http";
+import {
+  buildModule,
+  getCompletedModuleIds,
+  moduleInputSchema,
+  parseModules,
+  saveModules,
+  viewModules,
+  MAX_MODULES,
+  type CurriculumModule,
+} from "@/lib/classroom/curriculum";
+import { getMemberStanding } from "@/lib/classroom/gamification";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+const idSchema = z.string().regex(/^[A-Za-z0-9_-]{1,64}$/);
+const patchSchema = moduleInputSchema.partial().extend({ id: idSchema });
+const deleteSchema = z.object({ id: idSchema });
+const reorderSchema = z.object({ order: z.array(idSchema).max(MAX_MODULES) });
 
-interface CurriculumModule {
-  title: string;
-  description?: string;
-  resources?: string[];
-}
-
-interface RoomRow {
-  id: string;
-  creator_id: string;
-  type: string;
-  curriculum: CurriculumModule[] | null;
-}
-
-// ---------------------------------------------------------------------------
-// Schemas
-// ---------------------------------------------------------------------------
-
-const moduleSchema = z.object({
-  title: z.string().min(1).max(200),
-  description: z.string().max(1000).optional(),
-  resources: z.array(z.string().url().max(500)).max(20).optional(),
-});
-
-const patchSchema = moduleSchema.extend({
-  index: z.number().int().min(0),
-});
-
-const deleteSchema = z.object({
-  index: z.number().int().min(0),
-});
-
-// ---------------------------------------------------------------------------
-// Helper: fetch room and verify caller is creator
-// ---------------------------------------------------------------------------
-
-async function getClassroomAsCreator(
+/** Re-read the curriculum under a row lock so concurrent edits never clobber each other. */
+async function mutateModules(
   roomId: string,
-  userId: string
-): Promise<RoomRow> {
-  const { rows } = await db.query<RoomRow>(
-    `SELECT id, creator_id, type,
-            COALESCE(curriculum->'modules', '[]'::jsonb) AS curriculum
-     FROM rooms WHERE id = $1 AND is_active = TRUE LIMIT 1`,
-    [roomId]
-  );
-  const room = rows[0];
-  if (!room) throw notFound("Classroom not found");
-  if (room.type !== "classroom") {
-    throw badRequest("This endpoint is only for classroom rooms");
-  }
-  if (room.creator_id !== userId) {
-    throw forbidden("Only the room creator can manage modules");
-  }
-  return room;
+  fn: (modules: CurriculumModule[]) => CurriculumModule[]
+): Promise<CurriculumModule[]> {
+  return db.transaction(async (tx) => {
+    const { rows } = await tx.query<{ curriculum: unknown }>(
+      `SELECT curriculum FROM rooms WHERE id = $1 FOR UPDATE`,
+      [roomId]
+    );
+    const next = fn(parseModules(rows[0]?.curriculum));
+    await saveModules(roomId, next, tx);
+    return next;
+  });
 }
 
-// ---------------------------------------------------------------------------
-// GET /api/classroom/[roomId]/modules
-// ---------------------------------------------------------------------------
+async function viewFor(ctx: ClassroomContext, modules: CurriculumModule[]) {
+  const { classroom, viewer } = ctx;
+  const insider = viewer.can.viewMemberContent;
+  const [standing, completed] = await Promise.all([
+    viewer.userId && insider ? getMemberStanding(classroom.id, viewer.userId) : Promise.resolve(null),
+    viewer.userId && insider ? getCompletedModuleIds(classroom.id, viewer.userId) : Promise.resolve(new Set<string>()),
+  ]);
+  return viewModules(modules, {
+    fullAccess: viewer.isCreator || viewer.isModerator || viewer.isStaff,
+    memberLevel: insider ? (standing?.level ?? 1) : null,
+    completedIds: completed,
+  });
+}
 
-export const GET = withAuth(
-  async (
-    _req: NextRequest,
-    { params }: { params: { roomId: string }; auth: unknown }
-  ) => {
-    try {
-      const { roomId } = await params;
-
-      const { rows } = await db.query<{ curriculum: unknown }>(
-        `SELECT COALESCE(curriculum->'modules', '[]'::jsonb) AS curriculum
-         FROM rooms WHERE id = $1 AND is_active = TRUE LIMIT 1`,
-        [roomId]
-      );
-
-      if (!rows[0]) throw notFound("Classroom not found");
-
-      const modules = Array.isArray(rows[0].curriculum)
-        ? (rows[0].curriculum as CurriculumModule[])
-        : [];
-
-      return NextResponse.json({
-        success: true,
-        data: { modules },
-        error: null,
-      });
-    } catch (err) {
-      return handleApiError(err);
+export const GET = withAuth<{ roomId: string }>(async (_req: NextRequest, { params, auth }) => {
+  try {
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
+    const ctx = await classroomContextFromParams(params, auth.user.sub);
+    if ((!ctx.classroom.isPublic || !ctx.classroom.isActive) && !ctx.viewer.can.viewMemberContent) {
+      throw forbidden("This classroom is private.", "CLASSROOM_PRIVATE");
     }
+    return ok({ modules: await viewFor(ctx, parseModules(ctx.classroom.curriculum)) });
+  } catch (err) {
+    return handleApiError(err);
   }
-);
+});
 
-// ---------------------------------------------------------------------------
-// POST /api/classroom/[roomId]/modules
-// ---------------------------------------------------------------------------
+export const POST = withAuth<{ roomId: string }>(async (req: NextRequest, { params, auth }) => {
+  try {
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+    const ctx = await classroomContextFromParams(params, auth.user.sub);
+    requireCapability(ctx.viewer, "manageClassroom");
+    const body = await validateBody(req, moduleInputSchema);
+    const created = buildModule(body);
+    const modules = await mutateModules(ctx.classroom.id, (list) => {
+      if (list.length >= MAX_MODULES) throw badRequest(`A classroom can have at most ${MAX_MODULES} modules`);
+      return [...list, created];
+    });
+    return ok({ modules: await viewFor(ctx, modules), addedId: created.id }, 201);
+  } catch (err) {
+    return handleApiError(err);
+  }
+});
 
-export const POST = withAuth(
-  async (
-    req: NextRequest,
-    {
-      params,
-      auth,
-    }: { params: { roomId: string }; auth: { user: { sub: string } } }
-  ) => {
-    try {
-      const { roomId } = await params;
-      const userId = auth.user.sub;
-      await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
-
-      const room = await getClassroomAsCreator(roomId, userId);
-      const body = await validateBody(req, moduleSchema);
-
-      const existing: CurriculumModule[] = Array.isArray(room.curriculum)
-        ? room.curriculum
-        : [];
-
-      const newModule: CurriculumModule = {
-        title: body.title,
-        ...(body.description !== undefined && { description: body.description }),
-        ...(body.resources !== undefined && { resources: body.resources }),
-      };
-
-      const updated = [...existing, newModule];
-
-      await db.query(
-        `UPDATE rooms
-         SET curriculum = jsonb_set(
-               COALESCE(curriculum, '{}'::jsonb),
-               '{modules}',
-               $1::jsonb
-             ),
-             updated_at = NOW()
-         WHERE id = $2`,
-        [JSON.stringify(updated), roomId]
-      );
-
-      return NextResponse.json(
+export const PATCH = withAuth<{ roomId: string }>(async (req: NextRequest, { params, auth }) => {
+  try {
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+    const ctx = await classroomContextFromParams(params, auth.user.sub);
+    requireCapability(ctx.viewer, "manageClassroom");
+    const body = await validateBody(req, patchSchema);
+    const modules = await mutateModules(ctx.classroom.id, (list) => {
+      const idx = list.findIndex((m) => m.id === body.id);
+      if (idx === -1) throw notFound("Module not found");
+      const current = list[idx]!;
+      const merged = buildModule(
         {
-          success: true,
-          data: { modules: updated, addedIndex: updated.length - 1 },
-          error: null,
+          title: body.title ?? current.title,
+          description: body.description !== undefined ? body.description : current.description,
+          content: body.content !== undefined ? body.content : current.content,
+          videoUrl: body.videoUrl !== undefined ? body.videoUrl : current.videoUrl,
+          resources: body.resources !== undefined ? body.resources : current.resources,
+          unlockLevel: body.unlockLevel !== undefined ? body.unlockLevel : current.unlockLevel,
         },
-        { status: 201 }
+        current.id
       );
-    } catch (err) {
-      return handleApiError(err);
-    }
+      return list.map((m, i) => (i === idx ? merged : m));
+    });
+    return ok({ modules: await viewFor(ctx, modules), updatedId: body.id });
+  } catch (err) {
+    return handleApiError(err);
   }
-);
+});
 
-// ---------------------------------------------------------------------------
-// PATCH /api/classroom/[roomId]/modules
-// ---------------------------------------------------------------------------
-
-export const PATCH = withAuth(
-  async (
-    req: NextRequest,
-    {
-      params,
-      auth,
-    }: { params: { roomId: string }; auth: { user: { sub: string } } }
-  ) => {
-    try {
-      const { roomId } = await params;
-      const userId = auth.user.sub;
-      await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
-
-      const room = await getClassroomAsCreator(roomId, userId);
-      const body = await validateBody(req, patchSchema);
-
-      const existing: CurriculumModule[] = Array.isArray(room.curriculum)
-        ? room.curriculum
-        : [];
-
-      if (body.index < 0 || body.index >= existing.length) {
-        throw badRequest(`Module index ${body.index} is out of range`);
+export const PUT = withAuth<{ roomId: string }>(async (req: NextRequest, { params, auth }) => {
+  try {
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+    const ctx = await classroomContextFromParams(params, auth.user.sub);
+    requireCapability(ctx.viewer, "manageClassroom");
+    const body = await validateBody(req, reorderSchema);
+    const modules = await mutateModules(ctx.classroom.id, (list) => {
+      const byId = new Map(list.map((m) => [m.id, m]));
+      if (body.order.length !== list.length || new Set(body.order).size !== list.length || !body.order.every((id) => byId.has(id))) {
+        throw badRequest("The new order must list every module exactly once.");
       }
-
-      const updated = existing.map((m, i) => {
-        if (i !== body.index) return m;
-        return {
-          title: body.title,
-          ...(body.description !== undefined && { description: body.description }),
-          ...(body.resources !== undefined && { resources: body.resources }),
-        };
-      });
-
-      await db.query(
-        `UPDATE rooms
-         SET curriculum = jsonb_set(
-               COALESCE(curriculum, '{}'::jsonb),
-               '{modules}',
-               $1::jsonb
-             ),
-             updated_at = NOW()
-         WHERE id = $2`,
-        [JSON.stringify(updated), roomId]
-      );
-
-      return NextResponse.json({
-        success: true,
-        data: { modules: updated, updatedIndex: body.index },
-        error: null,
-      });
-    } catch (err) {
-      return handleApiError(err);
-    }
+      return body.order.map((id) => byId.get(id)!);
+    });
+    return ok({ modules: await viewFor(ctx, modules) });
+  } catch (err) {
+    return handleApiError(err);
   }
-);
+});
 
-// ---------------------------------------------------------------------------
-// DELETE /api/classroom/[roomId]/modules
-// ---------------------------------------------------------------------------
-
-export const DELETE = withAuth(
-  async (
-    req: NextRequest,
-    {
-      params,
-      auth,
-    }: { params: { roomId: string }; auth: { user: { sub: string } } }
-  ) => {
-    try {
-      const { roomId } = await params;
-      const userId = auth.user.sub;
-      await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
-
-      const room = await getClassroomAsCreator(roomId, userId);
-      const body = await validateBody(req, deleteSchema);
-
-      const existing: CurriculumModule[] = Array.isArray(room.curriculum)
-        ? room.curriculum
-        : [];
-
-      if (body.index < 0 || body.index >= existing.length) {
-        throw badRequest(`Module index ${body.index} is out of range`);
-      }
-
-      const updated = existing.filter((_, i) => i !== body.index);
-
-      await db.query(
-        `UPDATE rooms
-         SET curriculum = jsonb_set(
-               COALESCE(curriculum, '{}'::jsonb),
-               '{modules}',
-               $1::jsonb
-             ),
-             updated_at = NOW()
-         WHERE id = $2`,
-        [JSON.stringify(updated), roomId]
-      );
-
-      return NextResponse.json({
-        success: true,
-        data: { modules: updated, deletedIndex: body.index },
-        error: null,
-      });
-    } catch (err) {
-      return handleApiError(err);
-    }
+export const DELETE = withAuth<{ roomId: string }>(async (req: NextRequest, { params, auth }) => {
+  try {
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
+    const ctx = await classroomContextFromParams(params, auth.user.sub);
+    requireCapability(ctx.viewer, "manageClassroom");
+    const body = await validateBody(req, deleteSchema);
+    const modules = await mutateModules(ctx.classroom.id, (list) => {
+      if (!list.some((m) => m.id === body.id)) throw notFound("Module not found");
+      return list.filter((m) => m.id !== body.id);
+    });
+    return ok({ modules: await viewFor(ctx, modules), deletedId: body.id });
+  } catch (err) {
+    return handleApiError(err);
   }
-);
+});

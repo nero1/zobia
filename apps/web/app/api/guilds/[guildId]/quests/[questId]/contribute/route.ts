@@ -198,8 +198,10 @@ export const POST = withAuth(
           );
 
           await tx.query(
-            `INSERT INTO xp_ledger (user_id, amount, track, source, multiplier, base_amount)
-             VALUES ($1, $2, 'competitor', 'guild_quest_contribution', 1.00, $2)`,
+            // xp_ledger has no `multiplier` column — naming it made this INSERT
+            // throw and roll back every guild quest contribution.
+            `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount)
+             VALUES ($1, $2, 'competitor', 'guild_quest_contribution', $2)`,
             [userId, baseXp]
           );
         }

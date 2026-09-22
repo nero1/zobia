@@ -99,12 +99,13 @@ export const POST = withAuth(async (
     const amountKobo = room.entry_fee_ngn * 100;
     const paymentRef = `dropentr-${roomId.replace(/-/g, "").slice(0, 12)}-${userId.replace(/-/g, "").slice(0, 8)}-${Date.now()}`;
 
-    // 6. Create pending payment record
+    // 6. Create pending payment record. `provider` is NOT NULL with no default —
+    // omitting it (as this INSERT used to) failed every Drop-room card payment.
     await db.query(
       `INSERT INTO payments
-         (user_id, reference_id, provider_reference, payment_type, amount_kobo, currency,
+         (user_id, reference_id, provider, provider_reference, payment_type, amount_kobo, currency,
           status, metadata, created_at)
-       VALUES ($1, $2, $3, 'room_entry', $4, 'NGN', 'pending', $5::jsonb, NOW())`,
+       VALUES ($1, $2, 'paystack', $3, 'room_entry', $4, 'NGN', 'pending', $5::jsonb, NOW())`,
       [
         userId,
         roomId,
