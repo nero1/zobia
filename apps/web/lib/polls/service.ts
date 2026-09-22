@@ -18,7 +18,15 @@ import { getRankForXP } from "@/lib/xp/engine";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 import { creditCoins } from "@/lib/economy/coins";
 import { generateUniqueSlug } from "@/lib/slug";
-import { fundContentTreasury, claimContentTreasuryReward, getContentTreasury, recordContentShare, type TreasuryState } from "@/lib/contentTreasury";
+import {
+  fundContentTreasury,
+  editContentTreasury,
+  closeContentTreasury,
+  claimContentTreasuryReward,
+  getContentTreasury,
+  recordContentShare,
+  type TreasuryState,
+} from "@/lib/contentTreasury";
 import { badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 
@@ -371,6 +379,27 @@ export async function fundPollTreasury(userId: string, pollId: string, amount: n
   if (!poll) throw notFound("Poll not found");
   if (poll.creator_id !== userId) throw forbidden("Only the poll's creator can fund its reward pot.");
   return fundContentTreasury(userId, "poll", pollId, amount, maxClaimants, "poll_treasury_fund");
+}
+
+/** Edit an already-funded pot's amount/max claimants — see editContentTreasury's docstring. */
+export async function editPollTreasury(userId: string, pollId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
+  await requireFeatureEnabled("polls");
+  await requireFeatureEnabled("pollMonetization");
+  const { rows } = await db.query<{ creator_id: string }>(`SELECT creator_id FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [pollId]);
+  const poll = rows[0];
+  if (!poll) throw notFound("Poll not found");
+  if (poll.creator_id !== userId) throw forbidden("Only the poll's creator can edit its reward pot.");
+  return editContentTreasury(userId, "poll", pollId, amount, maxClaimants, "poll_treasury_fund", "poll_treasury_refund");
+}
+
+/** Turn off a poll's reward pot, refunding unclaimed funds to the creator. */
+export async function closePollTreasury(userId: string, pollId: string): Promise<TreasuryState> {
+  await requireFeatureEnabled("polls");
+  const { rows } = await db.query<{ creator_id: string }>(`SELECT creator_id FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [pollId]);
+  const poll = rows[0];
+  if (!poll) throw notFound("Poll not found");
+  if (poll.creator_id !== userId) throw forbidden("Only the poll's creator can turn off its reward pot.");
+  return closeContentTreasury(userId, "poll", pollId, "poll_treasury_refund");
 }
 
 // ---------------------------------------------------------------------------

@@ -3,10 +3,13 @@ export const dynamic = "force-dynamic";
 /**
  * app/api/blogs/[slug]/posts/[postSlug]/treasury/route.ts
  *
- * GET  — public: the post's reward-pot state (or null if none), so the
- *        article page can show a "Reward pot" badge.
- * POST — post author only: fund (or top up) the reward pot.
- *        { amount: number (Credits), maxClaimants: number }
+ * GET    — public: the post's reward-pot state (or null if none), so the
+ *          article page can show a "Reward pot" badge.
+ * POST   — post author only: create the reward pot (only when none exists).
+ *          { amount: number (Credits), maxClaimants: number }
+ * PATCH  — post author only: edit an existing pot's amount/max claimants;
+ *          debits an increase or refunds a decrease.
+ * DELETE — post author only: turn the pot off, refunding unclaimed funds.
  */
 
 import { NextRequest, NextResponse } from "next/server";
@@ -15,7 +18,7 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug, getBlogPostBySlug } from "@/lib/blogs/repo";
-import { fundPostTreasury, getPostTreasury } from "@/lib/blogs/service";
+import { fundPostTreasury, editPostTreasury, closePostTreasury, getPostTreasury } from "@/lib/blogs/service";
 
 const fundSchema = z.object({
   amount: z.number().int().min(1).max(1_000_000),
@@ -47,6 +50,29 @@ export const POST = withAuth<{ slug: string; postSlug: string }>(async (req: Nex
     const post = await resolvePost(params.slug, params.postSlug);
     const body = await validateBody(req, fundSchema);
     const treasury = await fundPostTreasury(auth.user.sub, post.id, body.amount, body.maxClaimants);
+    return NextResponse.json({ success: true, data: { treasury }, error: null });
+  } catch (err) {
+    return handleApiError(err);
+  }
+});
+
+export const PATCH = withAuth<{ slug: string; postSlug: string }>(async (req: NextRequest, { params, auth }) => {
+  try {
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.blogWrite);
+    const post = await resolvePost(params.slug, params.postSlug);
+    const body = await validateBody(req, fundSchema);
+    const treasury = await editPostTreasury(auth.user.sub, post.id, body.amount, body.maxClaimants);
+    return NextResponse.json({ success: true, data: { treasury }, error: null });
+  } catch (err) {
+    return handleApiError(err);
+  }
+});
+
+export const DELETE = withAuth<{ slug: string; postSlug: string }>(async (req: NextRequest, { params, auth }) => {
+  try {
+    await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.blogWrite);
+    const post = await resolvePost(params.slug, params.postSlug);
+    const treasury = await closePostTreasury(auth.user.sub, post.id);
     return NextResponse.json({ success: true, data: { treasury }, error: null });
   } catch (err) {
     return handleApiError(err);

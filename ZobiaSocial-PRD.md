@@ -3229,24 +3229,35 @@ apply order: `0001_consolidated_schema.sql`, `0001_consolidated_schema.sql`,
 - Existing posts default to `markdown` (the only mode that existed
   before), so no existing content changes appearance.
 
-### 32.8 Per-post credit reward pot ("treasury") (v2.14)
+### 32.8 Per-post credit reward pot ("treasury") (v2.14; edit/close fixed v2.30)
 
 - A blog owner can fund a Credits pot for one of their own posts
   (`POST /api/blogs/<slug>/posts/<postSlug>/treasury`, Credits only —
-  no Stars): they set the total amount and a maximum number of
+  no Stars, refused with `BLOG_TREASURY_ALREADY_EXISTS` if an open pot
+  already exists): they set the total amount and a maximum number of
   claimants. The first N distinct readers who **comment** on the post or
   **share** it (§ 32.8.1) each earn an equal split, computed at claim time
-  as `funded_amount / max_claimants` using the pot's *current* funded
-  amount — so a top-up mid-flight raises the remaining slots' per-claim
-  reward rather than requiring a reset.
+  as `funded_amount / max_claimants`.
 - One claim per reader per post (comment and share don't stack for the
   same person); a claim credits the reader's Credits balance immediately
   and is recorded in `blog_post_treasury_claims`. The pot's status moves
-  `active` → `exhausted` once all claimant slots are used, or `closed` if
-  the owner ends it early with unclaimed Credits refunded back to them.
+  `active` → `exhausted` once all claimant slots are used.
+- **Editing an existing pot** goes through `PATCH` on the same route
+  (never a plain re-`POST`, which used to additively bump `funded_amount`
+  while overwriting `max_claimants` outright, desyncing the per-claimant
+  reward from what earlier claimants had already been paid — fixed
+  v2.30): increasing the total debits the difference from the owner,
+  decreasing it refunds the difference (never below what's already paid
+  out), and `max_claimants` can't drop below the number of people who
+  already claimed.
+- **Turning a pot off** goes through `DELETE` on the same route: any
+  unclaimed Credits are refunded to the owner immediately and the pot
+  moves to `closed` (claim history is kept). A closed pot can be re-funded
+  from scratch via `POST`.
 - The post page shows a "Reward pot" badge with the live per-claimant
   amount and remaining slots to any visitor, and the owner's dashboard
-  shows funded/remaining/claimed totals plus a "Top up" control.
+  (`components/blogs/TreasuryPanel.tsx`) shows funded/remaining/claimed
+  totals plus "Save changes" (edit) and "Turn off reward" controls.
 
 #### 32.8.1 Share tracking (v2.14)
 
@@ -5197,19 +5208,34 @@ exactly:
    The first N distinct users who **vote or share** a rewarded poll, or who
    **pass or share** a rewarded quiz ("quiz creator can specify prices in
    Credits for the first X users who pass the quiz"), split the pot evenly
-   — the per-claimant amount is recomputed from the pot's current funded
-   total at claim time, so a mid-flight top-up raises the reward for
-   remaining slots. A creator can never claim their own pot. This is the
-   *exact* mechanic Blogs' per-post reward pot (§32, migration
-   `0001_consolidated_schema.sql`) implements, generalised into two shared
-   tables (`content_treasuries`, `content_treasury_claims`, `content_type`
-   discriminator `'poll'|'quiz'`) rather than duplicated per content type,
-   plus a shared `content_shares` idempotent-share-tracking table. Gated by
+   — the per-claimant amount is `funded_amount / max_claimants`. A creator
+   can never claim their own pot. This is the *exact* mechanic Blogs'
+   per-post reward pot (§32, migration `0001_consolidated_schema.sql`)
+   implements, generalised into two shared tables (`content_treasuries`,
+   `content_treasury_claims`, `content_type` discriminator
+   `'poll'|'quiz'|'wiki'`) rather than duplicated per content type, plus a
+   shared `content_shares` idempotent-share-tracking table. Gated by
    `poll_monetization_enabled` / `quiz_monetization_enabled` master
    kill-switches (independent of the base `feature_polls`/`feature_quizzes`
    flags — a poll/quiz still works with pots off, just without payouts).
-   `GET/POST /api/polls/<slug>/treasury`, `GET/POST
-   /api/quizzes/<slug>/treasury`.
+   - `POST /api/polls/<slug>/treasury` / `POST /api/quizzes/<slug>/treasury`
+     **creates** the pot — refused (`TREASURY_ALREADY_EXISTS`) if an open
+     one already exists for that poll/quiz.
+   - `PATCH` on the same route **edits** an already-open pot's total amount
+     and/or max claimants: increasing the amount debits the difference from
+     the creator, decreasing it refunds the difference (never below what's
+     already been paid to claimants), and `max_claimants` can't drop below
+     the number of people who already claimed. (v2.30 fix — a plain re-POST
+     used to *add* the new amount on top of the old `funded_amount` while
+     *replacing* `max_claimants` outright, silently desyncing the
+     per-claimant reward from what earlier claimants had already been
+     paid.)
+   - `DELETE` on the same route **turns the pot off**: any unclaimed
+     Credits are refunded to the creator immediately and the pot moves to
+     `closed` (claim history is kept; nobody can claim from it again). A
+     closed pot can be re-funded from scratch via `POST`.
+   - `GET /api/polls/<slug>/treasury` / `GET /api/quizzes/<slug>/treasury`
+     — current pot state, unchanged.
 
 ### 36.4 Site Admin controls
 
@@ -5273,7 +5299,15 @@ one), a denormalised `likesCount`, and — since v2.21 — a nullable
 beyond one level (you cannot retweet a retweet — you retweet the original).
 
 - **Eligibility**: Level 2+ by default (`tweets_min_level`), master toggle
-  `feature_tweets`, both admin-configurable at `/gate44/config`.
+  `feature_tweets`, both admin-configurable at `/gate44/config`. The
+  composer (`/tweets/create`) checks eligibility via `GET /api/tweets/
+  policy` before rendering: a user below `tweets_min_level` never sees the
+  compose form (image upload, video embed, submit button) at all — instead
+  a level-gate notice with the required level and their current level, and
+  a link back to `/tweets` (v2.30 fix — it previously rendered the full
+  form with the Post button merely `disabled` and a small reminder text
+  underneath, letting an ineligible user fill out a whole Tweet before
+  discovering they couldn't post it).
 - **Mentions**: `@username` tokens are parsed out of Tweet content (and
   quote-retweet text) on create, using the same matching rule as Room chat
   `@mentions` (`lib/notifications/chatPush.ts`'s `parseMentions`), resolved
@@ -5495,7 +5529,11 @@ Trending / New / Random tabs, search, cursor pagination. Public SEO pages
 sit at `/w/<slug>` (wiki home) and `/w/<slug>/<pageSlug>` (a page),
 following the exact `/b/<slug>` convention Blogs uses, including
 `slug_redirects` (`entity_type = 'wiki'`) for renamed wikis and readable
-sitemap inclusion.
+sitemap inclusion. The authenticated in-app wiki view at `/wiki/<slug>`
+(and `/wiki/<slug>/<pageSlug>`) is a separate, auth-gated route — its
+"Share" action shares the public `/w/<slug>` link, not the `/wiki/<slug>`
+one (v2.30 fix — it previously shared the auth-gated URL, which forced a
+signed-out recipient to log in before they could see anything).
 
 ### 38.1 Who can create a wiki
 
@@ -5578,15 +5616,17 @@ action, exactly as specified for this feature, edited at `/gate44/wiki`
 mechanic as Polls/Quizzes (§36).
 
 Separately, a wiki owner may fund a **reward pot (treasury)** for their
-wiki — a Credits pot split evenly among the first N distinct people who
-either contribute a page or share the wiki, recomputed at claim time if
-the owner tops it up mid-flight. This reuses the generic `content_
+wiki (`/wiki/<slug>/manage/treasury`) — a Credits pot split evenly among
+the first N distinct people who either contribute a page or share the
+wiki. This reuses the generic `content_
 treasuries`/`content_treasury_claims`/`content_shares` tables already
 built for Polls/Quizzes (§36) rather than a bespoke `wiki_treasuries`
-table — `content_type = 'wiki'`, claim types `contribute`/`share`. Gated
-by the `wikiMonetization` sub-flag under the master `wiki` feature flag,
-same two-flag shape (`feature_x` + `xMonetization`) as every other
-monetized content type in this PRD.
+table — `content_type = 'wiki'`, claim types `contribute`/`share` — and
+the same create (`POST`) / edit (`PATCH`) / turn-off (`DELETE`) treasury
+API shape documented in §36.3 (v2.30). Gated by the `wikiMonetization`
+sub-flag under the master `wiki` feature flag, same two-flag shape
+(`feature_x` + `xMonetization`) as every other monetized content type in
+this PRD.
 
 ### 38.6 Pages & revision history
 
@@ -8228,6 +8268,66 @@ models").
 
 ---
 
-*ZobiaSocial PRD v2.29*
+## Appendix: Version 2.30 Change Log
+
+### v2.30 — Changelog
+
+#### Reward pot edit/close (Polls, Quizzes, Wikis, Blog posts — §32.8, §36.3, §38.5)
+
+- **Bug fixed**: funding an existing reward pot a second time (with a
+  different amount and/or `maxClaimants`) additively bumped
+  `funded_amount` while overwriting `max_claimants` outright, silently
+  desyncing the per-claimant reward from what earlier claimants had
+  already been paid — the exact bug this version fixes.
+- **New behavior**: once a pot exists, `POST` on its treasury route is
+  refused (`*_TREASURY_ALREADY_EXISTS`) — the creator instead `PATCH`es it
+  to edit the total amount and/or max claimants (debiting an increase,
+  refunding a decrease, never below what's already paid out, and never
+  dropping `max_claimants` below the current claimant count), or `DELETE`s
+  it to turn the reward off (any unclaimed Credits refund to the creator
+  immediately; the pot moves to `closed` and can be re-funded from scratch
+  later via `POST`).
+  Applies uniformly to `lib/contentTreasury.ts`'s shared
+  `content_treasuries` table (Polls, Quizzes, Wikis) and to Blogs' own
+  `blog_post_treasuries` table (`lib/blogs/service.ts`, which predates and
+  duplicates the same tables/logic rather than reusing the shared module).
+- **New `CoinTransactionType` values**: `poll_treasury_refund`,
+  `quiz_treasury_refund`, `wiki_treasury_refund`, `blog_treasury_refund`.
+- **UI**: `components/polls/FundTreasuryModal.tsx` (Polls/Quizzes),
+  `components/blogs/TreasuryPanel.tsx`, and
+  `/wiki/<slug>/manage/treasury` now show "Edit reward pot"/"Save changes"
+  and "Turn off reward" once a pot exists, instead of a "Fund"/"Top up"
+  button that silently corrupted the pot's math.
+- **No new migration** — same tables, new application-level rules only.
+
+#### Tweet composer level-gate (§37)
+
+- **Bug fixed**: `/tweets/create` used to render the full compose form
+  (text box, image upload, video picker) to a user below
+  `tweets_min_level`, with only the Post button `disabled` and a small
+  reminder line underneath — a user could fill out an entire Tweet before
+  discovering they weren't allowed to post it.
+- **New behavior**: the composer now checks `GET /api/tweets/policy`
+  before rendering. A user below `tweets_min_level` sees only a
+  level-required notice (their current level, the level needed, and a link
+  back to `/tweets`) — no form, no upload control, no disabled button.
+  `lib/hooks/useTweetLengthPolicy.ts` now also returns `minLevel`/
+  `currentLevel`/`isLoading` for this.
+
+#### Wiki share link (§38)
+
+- **Bug fixed**: the authenticated `/wiki/<slug>` page's "Share" action
+  shared its own auth-gated URL (`/wiki/<slug>`) instead of the public,
+  crawlable `/w/<slug>` SEO page — a signed-out recipient of a shared link
+  hit a login wall instead of the wiki.
+- **Fixed**: it now shares `/w/<slug>`, matching Blogs' `/b/<slug>` share
+  pattern.
+
+**New migration:** none.
+**New env vars:** none.
+
+---
+
+*ZobiaSocial PRD v2.30*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

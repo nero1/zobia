@@ -69,21 +69,29 @@ function FundTreasuryModal({
   onClose,
   onSave,
   saving,
+  isEditing,
+  initialAmount,
+  initialMaxClaimants,
 }: {
   onClose: () => void;
   onSave: (amount: number, maxClaimants: number) => void;
   saving: boolean;
+  isEditing: boolean;
+  initialAmount?: number;
+  initialMaxClaimants?: number;
 }) {
   const { t } = useTranslation();
   const currency = useCurrency();
-  const [amount, setAmount] = useState('');
-  const [maxClaimants, setMaxClaimants] = useState('');
+  const [amount, setAmount] = useState(initialAmount ? String(initialAmount) : '');
+  const [maxClaimants, setMaxClaimants] = useState(initialMaxClaimants ? String(initialMaxClaimants) : '');
   const canSave = Number(amount) > 0 && Number(maxClaimants) > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" onClick={onClose}>
       <div className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-6 shadow-xl" onClick={(e) => e.stopPropagation()}>
-        <p className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('polls.treasury.title', 'Fund Reward Pot')}</p>
+        <p className="text-base font-bold text-neutral-900 dark:text-neutral-100">
+          {isEditing ? t('polls.treasury.editButton', 'Edit Reward Pot') : t('polls.treasury.title', 'Fund Reward Pot')}
+        </p>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t('polls.treasury.desc', 'Reward voters from a shared pot, split evenly among claimants.')}</p>
 
         <label className="mt-4 block">
@@ -120,7 +128,7 @@ function FundTreasuryModal({
             onClick={() => onSave(Number(amount), Number(maxClaimants))}
             className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
           >
-            {saving ? '…' : t('polls.treasury.fund', 'Fund')}
+            {saving ? '…' : isEditing ? t('polls.treasury.saveChanges', 'Save Changes') : t('polls.treasury.fund', 'Fund')}
           </button>
         </div>
       </div>
@@ -186,12 +194,29 @@ function PollDetailPage() {
     },
   });
 
+  const treasury = treasuryQuery.data;
+  const isEditingTreasury = !!treasury && treasury.status !== 'closed';
+
   const fundTreasury = useMutation({
     mutationFn: ({ amount, maxClaimants }: { amount: number; maxClaimants: number }) =>
-      apiClient.post<Treasury>(`/polls/${slug}/treasury`, { amount, maxClaimants }),
+      isEditingTreasury
+        ? apiClient.patch<Treasury>(`/polls/${slug}/treasury`, { amount, maxClaimants })
+        : apiClient.post<Treasury>(`/polls/${slug}/treasury`, { amount, maxClaimants }),
     onSuccess: (res) => {
       qc.setQueryData(['polls', 'treasury', slug], res.data);
       setFundingOpen(false);
+    },
+    onError: (err) => {
+      if (isAxiosError<{ error?: { message?: string } }>(err)) {
+        setErrorMessage(err.response?.data?.error?.message ?? t('error.generic'));
+      }
+    },
+  });
+
+  const closeTreasury = useMutation({
+    mutationFn: () => apiClient.delete<Treasury>(`/polls/${slug}/treasury`),
+    onSuccess: (res) => {
+      qc.setQueryData(['polls', 'treasury', slug], res.data);
     },
     onError: (err) => {
       if (isAxiosError<{ error?: { message?: string } }>(err)) {
@@ -256,7 +281,6 @@ function PollDetailPage() {
   }
 
   const showResults = hasVoted || poll.status !== 'active' || poll.isOwner;
-  const treasury = treasuryQuery.data;
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
@@ -343,7 +367,16 @@ function PollDetailPage() {
         </button>
         {poll.isOwner && (
           <button onClick={() => setFundingOpen(true)} className="rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
-            {t('polls.treasury.cta', 'Fund Reward Pot')}
+            {isEditingTreasury ? t('polls.treasury.editButton', 'Edit Reward Pot') : t('polls.treasury.cta', 'Fund Reward Pot')}
+          </button>
+        )}
+        {poll.isOwner && isEditingTreasury && (
+          <button
+            onClick={() => closeTreasury.mutate()}
+            disabled={closeTreasury.isPending}
+            className="rounded-lg border border-danger-200 dark:border-danger-800 bg-white dark:bg-neutral-800 px-3 py-2 text-xs font-semibold text-danger-600 dark:text-danger-300 disabled:opacity-50"
+          >
+            {closeTreasury.isPending ? t('polls.treasury.turningOff', 'Turning off…') : t('polls.treasury.turnOff', 'Turn Off Reward')}
           </button>
         )}
       </div>
@@ -387,6 +420,9 @@ function PollDetailPage() {
         <FundTreasuryModal
           onClose={() => setFundingOpen(false)}
           saving={fundTreasury.isPending}
+          isEditing={isEditingTreasury}
+          initialAmount={treasury?.fundedAmount}
+          initialMaxClaimants={treasury?.maxClaimants}
           onSave={(amount, maxClaimants) => fundTreasury.mutate({ amount, maxClaimants })}
         />
       )}

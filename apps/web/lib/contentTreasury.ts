@@ -22,7 +22,7 @@ import { checkAndDebit, creditCoins } from "@/lib/economy/coins";
 import { debitStars, creditStars } from "@/lib/economy/stars";
 import type { CoinTransactionType } from "@zobia/types";
 import type { StarTransactionType } from "@/lib/economy/stars";
-import { badRequest } from "@/lib/api/errors";
+import { badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 
 export type TreasuryContentType = "poll" | "quiz" | "room" | "wiki";
@@ -72,11 +72,17 @@ export async function getContentTreasury(contentType: TreasuryContentType, conte
 }
 
 /**
- * Fund (or top up) a poll/quiz reward pot. Only the content's creator (or an
- * admin, via `allowAdmin`) may fund it. A top-up adds to funded/remaining
- * amounts and, if maxClaimants is given, replaces it going forward — the
- * per-claim reward for remaining slots is always recomputed from the
- * current funded_amount/max_claimants at claim time.
+ * Create a poll/quiz/wiki reward pot. Only the content's creator may fund
+ * it, and only when no reward pot already exists for it (or an earlier one
+ * was turned off — see closeContentTreasury). Once a pot exists, further
+ * changes go through editContentTreasury (adjust amount/recipients) or
+ * closeContentTreasury (turn it off, refunding unclaimed funds) — a plain
+ * re-fund used to additively bump funded_amount while overwriting
+ * max_claimants outright, which desynced the per-claimant reward from what
+ * earlier claimants had already been paid. Reusing a closed pot's row
+ * resets it to a fresh pot (new claimant_count of 0); anyone who claimed
+ * the earlier pot is permanently excluded from claiming this one too, since
+ * their claim row still occupies the (treasury_id, user_id) uniqueness.
  */
 export async function fundContentTreasury(
   ownerId: string,
@@ -91,15 +97,28 @@ export async function fundContentTreasury(
 
   const referenceId = `content_treasury_fund:${contentType}:${contentId}:${Date.now()}`;
   const result = await db.transaction(async (tx: TransactionClient) => {
+    const { rows: existingRows } = await tx.query<{ status: string }>(
+      `SELECT status FROM content_treasuries WHERE content_type = $1 AND content_id = $2 FOR UPDATE`,
+      [contentType, contentId]
+    );
+    if (existingRows[0] && existingRows[0].status !== "closed") {
+      throw badRequest(
+        "A reward pot already exists for this content. Edit it or turn it off instead of funding it again.",
+        "TREASURY_ALREADY_EXISTS"
+      );
+    }
+
     await checkAndDebit(ownerId, amount, fundType, referenceId, `Funded a ${contentType} reward pot`, { contentType, contentId }, tx);
     const { rows } = await tx.query<TreasuryRow>(
       `INSERT INTO content_treasuries (content_type, content_id, owner_id, funded_amount, remaining_amount, max_claimants)
        VALUES ($1, $2, $3, $4, $4, $5)
        ON CONFLICT (content_type, content_id) DO UPDATE SET
-         funded_amount = content_treasuries.funded_amount + $4,
-         remaining_amount = content_treasuries.remaining_amount + $4,
+         owner_id = $3,
+         funded_amount = $4,
+         remaining_amount = $4,
          max_claimants = $5,
-         status = CASE WHEN content_treasuries.status = 'closed' THEN 'closed' ELSE 'active' END,
+         claimant_count = 0,
+         status = 'active',
          updated_at = NOW()
        RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
       [contentType, contentId, ownerId, amount, maxClaimants]
@@ -108,6 +127,121 @@ export async function fundContentTreasury(
   });
 
   return toTreasuryState(result);
+}
+
+/**
+ * Edit an existing, still-open reward pot's total amount and/or max
+ * claimants. Debits the owner for any increase, refunds any decrease
+ * (never below what's already been paid out to claimants), and recomputes
+ * remaining_amount/status from the new totals so the per-claimant reward
+ * stays consistent with what earlier claimants already received.
+ */
+export async function editContentTreasury(
+  ownerId: string,
+  contentType: TreasuryContentType,
+  contentId: string,
+  newAmount: number,
+  newMaxClaimants: number,
+  fundType: CoinTransactionType,
+  refundType: CoinTransactionType
+): Promise<TreasuryState> {
+  if (!Number.isInteger(newAmount) || newAmount <= 0) throw badRequest("Amount must be a positive integer.", "TREASURY_INVALID_AMOUNT");
+  if (!Number.isInteger(newMaxClaimants) || newMaxClaimants <= 0) {
+    throw badRequest("Max claimants must be a positive integer.", "TREASURY_INVALID_MAX_CLAIMANTS");
+  }
+
+  return db.transaction(async (tx: TransactionClient) => {
+    const { rows } = await tx.query<TreasuryRow>(
+      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id
+       FROM content_treasuries WHERE content_type = $1 AND content_id = $2 FOR UPDATE`,
+      [contentType, contentId]
+    );
+    const treasury = rows[0];
+    if (!treasury) throw notFound("Reward pot not found.");
+    if (treasury.owner_id !== ownerId) throw forbidden("Only the pot's creator can edit it.");
+    if (treasury.status === "closed") throw badRequest("This reward pot is closed. Fund a new one instead.", "TREASURY_CLOSED");
+
+    if (newMaxClaimants < treasury.claimant_count) {
+      throw badRequest(
+        `Max claimants can't be less than the ${treasury.claimant_count} people who already claimed.`,
+        "TREASURY_INVALID_MAX_CLAIMANTS"
+      );
+    }
+
+    const alreadyPaid = treasury.funded_amount - treasury.remaining_amount;
+    if (newAmount < alreadyPaid) {
+      throw badRequest(`Amount can't be less than the ${alreadyPaid} already paid out to claimants.`, "TREASURY_INVALID_AMOUNT");
+    }
+
+    const delta = newAmount - treasury.funded_amount;
+    if (delta > 0) {
+      await checkAndDebit(
+        ownerId, delta, fundType,
+        `content_treasury_edit_debit:${treasury.id}:${Date.now()}`,
+        `Increased a ${contentType} reward pot`, { contentType, contentId }, tx
+      );
+    } else if (delta < 0) {
+      await creditCoins(
+        ownerId, -delta, refundType,
+        `content_treasury_edit_refund:${treasury.id}:${Date.now()}`,
+        `Reduced a ${contentType} reward pot`, { contentType, contentId }, tx
+      );
+    }
+
+    const newRemaining = newAmount - alreadyPaid;
+    const rewardPerClaimant = Math.floor(newAmount / newMaxClaimants);
+    const newStatus =
+      treasury.claimant_count >= newMaxClaimants || rewardPerClaimant <= 0 || newRemaining < rewardPerClaimant
+        ? "exhausted"
+        : "active";
+
+    const { rows: updated } = await tx.query<TreasuryRow>(
+      `UPDATE content_treasuries SET funded_amount = $2, remaining_amount = $3, max_claimants = $4, status = $5, updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
+      [treasury.id, newAmount, newRemaining, newMaxClaimants, newStatus]
+    );
+    return toTreasuryState(updated[0]);
+  });
+}
+
+/**
+ * Turn off a reward pot: refunds whatever's left unclaimed to the owner's
+ * Credits balance and marks it closed. Existing claimants keep what they
+ * already received; nobody can claim from this pot again afterward.
+ */
+export async function closeContentTreasury(
+  ownerId: string,
+  contentType: TreasuryContentType,
+  contentId: string,
+  refundType: CoinTransactionType
+): Promise<TreasuryState> {
+  return db.transaction(async (tx: TransactionClient) => {
+    const { rows } = await tx.query<TreasuryRow>(
+      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id
+       FROM content_treasuries WHERE content_type = $1 AND content_id = $2 FOR UPDATE`,
+      [contentType, contentId]
+    );
+    const treasury = rows[0];
+    if (!treasury) throw notFound("Reward pot not found.");
+    if (treasury.owner_id !== ownerId) throw forbidden("Only the pot's creator can turn it off.");
+    if (treasury.status === "closed") throw badRequest("This reward pot is already off.", "TREASURY_ALREADY_CLOSED");
+
+    if (treasury.remaining_amount > 0) {
+      await creditCoins(
+        ownerId, treasury.remaining_amount, refundType,
+        `content_treasury_close_refund:${treasury.id}`,
+        `Reward pot turned off — unclaimed funds refunded`, { contentType, contentId }, tx
+      );
+    }
+
+    const { rows: updated } = await tx.query<TreasuryRow>(
+      `UPDATE content_treasuries SET remaining_amount = 0, status = 'closed', updated_at = NOW() WHERE id = $1
+       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
+      [treasury.id]
+    );
+    return toTreasuryState(updated[0]);
+  });
 }
 
 /**

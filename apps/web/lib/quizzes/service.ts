@@ -20,7 +20,15 @@ import { getRankForXP } from "@/lib/xp/engine";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 import { creditCoins } from "@/lib/economy/coins";
 import { generateUniqueSlug } from "@/lib/slug";
-import { fundContentTreasury, claimContentTreasuryReward, getContentTreasury, recordContentShare, type TreasuryState } from "@/lib/contentTreasury";
+import {
+  fundContentTreasury,
+  editContentTreasury,
+  closeContentTreasury,
+  claimContentTreasuryReward,
+  getContentTreasury,
+  recordContentShare,
+  type TreasuryState,
+} from "@/lib/contentTreasury";
 import { badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 
@@ -469,6 +477,27 @@ export async function fundQuizTreasury(userId: string, quizId: string, amount: n
   if (!quiz) throw notFound("Quiz not found");
   if (quiz.creator_id !== userId) throw forbidden("Only the quiz's creator can fund its reward pot.");
   return fundContentTreasury(userId, "quiz", quizId, amount, maxClaimants, "quiz_treasury_fund");
+}
+
+/** Edit an already-funded pot's amount/max claimants — see editContentTreasury's docstring. */
+export async function editQuizTreasury(userId: string, quizId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
+  await requireFeatureEnabled("quizzes");
+  await requireFeatureEnabled("quizMonetization");
+  const { rows } = await db.query<{ creator_id: string }>(`SELECT creator_id FROM quizzes WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [quizId]);
+  const quiz = rows[0];
+  if (!quiz) throw notFound("Quiz not found");
+  if (quiz.creator_id !== userId) throw forbidden("Only the quiz's creator can edit its reward pot.");
+  return editContentTreasury(userId, "quiz", quizId, amount, maxClaimants, "quiz_treasury_fund", "quiz_treasury_refund");
+}
+
+/** Turn off a quiz's reward pot, refunding unclaimed funds to the creator. */
+export async function closeQuizTreasury(userId: string, quizId: string): Promise<TreasuryState> {
+  await requireFeatureEnabled("quizzes");
+  const { rows } = await db.query<{ creator_id: string }>(`SELECT creator_id FROM quizzes WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [quizId]);
+  const quiz = rows[0];
+  if (!quiz) throw notFound("Quiz not found");
+  if (quiz.creator_id !== userId) throw forbidden("Only the quiz's creator can turn off its reward pot.");
+  return closeContentTreasury(userId, "quiz", quizId, "quiz_treasury_refund");
 }
 
 // ---------------------------------------------------------------------------
