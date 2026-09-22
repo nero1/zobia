@@ -11,7 +11,6 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AnnouncementsRouteImport } from './routes/announcements'
-import { Route as ClassroomRouteImport } from './routes/classroom'
 import { Route as CommunityNotesRouteImport } from './routes/community-notes'
 import { Route as CouncilRouteImport } from './routes/council'
 import { Route as ElderRouteImport } from './routes/elder'
@@ -92,6 +91,10 @@ import { Route as BlogsIndexRouteImport } from './routes/blogs/index'
 import { Route as BlogsNewRouteImport } from './routes/blogs/new'
 import { Route as BusinessPostsIdRouteImport } from './routes/business-posts/$id'
 import { Route as BusinessIndexRouteImport } from './routes/business/index'
+import { Route as CSlugRouteImport } from './routes/c/$slug'
+import { Route as ClassroomIndexRouteImport } from './routes/classroom/index'
+import { Route as ClassroomRoomIdRouteImport } from './routes/classroom/$roomId'
+import { Route as ClassroomNewRouteImport } from './routes/classroom/new'
 import { Route as CreatorIndexRouteImport } from './routes/creator/index'
 import { Route as CreatorBankAccountRouteImport } from './routes/creator/bank-account'
 import { Route as CreatorBroadcastsRouteImport } from './routes/creator/broadcasts'
@@ -155,6 +158,9 @@ import { Route as BusinessBroadcastsIndexRouteImport } from './routes/business/b
 import { Route as BusinessPagesIndexRouteImport } from './routes/business/pages/index'
 import { Route as BusinessPagesPageIdRouteImport } from './routes/business/pages/$pageId'
 import { Route as BusinessStatsIndexRouteImport } from './routes/business/stats/index'
+import { Route as ClassroomByUsernameRouteImport } from './routes/classroom/by/$username'
+import { Route as ClassroomStudioIndexRouteImport } from './routes/classroom/studio/index'
+import { Route as ClassroomStudioRoomIdRouteImport } from './routes/classroom/studio/$roomId'
 import { Route as ForumThreadSlugRouteImport } from './routes/forum/thread/$slug'
 import { Route as GamesSlugIndexRouteImport } from './routes/games/$slug/index'
 import { Route as GamesSlugPlayRouteImport } from './routes/games/$slug/play'
@@ -183,11 +189,6 @@ const IndexRoute = IndexRouteImport.update({
 const AnnouncementsRoute = AnnouncementsRouteImport.update({
   id: '/announcements',
   path: '/announcements',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ClassroomRoute = ClassroomRouteImport.update({
-  id: '/classroom',
-  path: '/classroom',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CommunityNotesRoute = CommunityNotesRouteImport.update({
@@ -590,6 +591,26 @@ const BusinessIndexRoute = BusinessIndexRouteImport.update({
   path: '/business/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const CSlugRoute = CSlugRouteImport.update({
+  id: '/c/$slug',
+  path: '/c/$slug',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClassroomIndexRoute = ClassroomIndexRouteImport.update({
+  id: '/classroom/',
+  path: '/classroom/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClassroomRoomIdRoute = ClassroomRoomIdRouteImport.update({
+  id: '/classroom/$roomId',
+  path: '/classroom/$roomId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClassroomNewRoute = ClassroomNewRouteImport.update({
+  id: '/classroom/new',
+  path: '/classroom/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CreatorIndexRoute = CreatorIndexRouteImport.update({
   id: '/creator/',
   path: '/creator/',
@@ -906,6 +927,21 @@ const BusinessStatsIndexRoute = BusinessStatsIndexRouteImport.update({
   path: '/business/stats/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ClassroomByUsernameRoute = ClassroomByUsernameRouteImport.update({
+  id: '/classroom/by/$username',
+  path: '/classroom/by/$username',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClassroomStudioIndexRoute = ClassroomStudioIndexRouteImport.update({
+  id: '/classroom/studio/',
+  path: '/classroom/studio/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ClassroomStudioRoomIdRoute = ClassroomStudioRoomIdRouteImport.update({
+  id: '/classroom/studio/$roomId',
+  path: '/classroom/studio/$roomId',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ForumThreadSlugRoute = ForumThreadSlugRouteImport.update({
   id: '/forum/thread/$slug',
   path: '/forum/thread/$slug',
@@ -1008,7 +1044,6 @@ const WikiSlugPagesPageSlugRevisionsRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/announcements': typeof AnnouncementsRoute
-  '/classroom': typeof ClassroomRoute
   '/community-notes': typeof CommunityNotesRoute
   '/council': typeof CouncilRoute
   '/elder': typeof ElderRoute
@@ -1084,6 +1119,9 @@ export interface FileRoutesByFullPath {
   '/blog-posts/$id': typeof BlogPostsIdRoute
   '/blogs/new': typeof BlogsNewRoute
   '/business-posts/$id': typeof BusinessPostsIdRoute
+  '/c/$slug': typeof CSlugRoute
+  '/classroom/$roomId': typeof ClassroomRoomIdRoute
+  '/classroom/new': typeof ClassroomNewRoute
   '/creator/bank-account': typeof CreatorBankAccountRoute
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
@@ -1123,6 +1161,7 @@ export interface FileRoutesByFullPath {
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
   '/business/': typeof BusinessIndexRoute
+  '/classroom/': typeof ClassroomIndexRoute
   '/creator/': typeof CreatorIndexRoute
   '/forum/': typeof ForumIndexRoute
   '/games/': typeof GamesIndexRoute
@@ -1146,6 +1185,8 @@ export interface FileRoutesByFullPath {
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/blogs/$slug/manage': typeof BlogsSlugManageRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/classroom/by/$username': typeof ClassroomByUsernameRoute
+  '/classroom/studio/$roomId': typeof ClassroomStudioRoomIdRoute
   '/forum/thread/$slug': typeof ForumThreadSlugRoute
   '/games/$slug/play': typeof GamesSlugPlayRoute
   '/games/challenges/$id': typeof GamesChallengesIdRoute
@@ -1162,6 +1203,7 @@ export interface FileRoutesByFullPath {
   '/business/broadcasts/': typeof BusinessBroadcastsIndexRoute
   '/business/pages/': typeof BusinessPagesIndexRoute
   '/business/stats/': typeof BusinessStatsIndexRoute
+  '/classroom/studio/': typeof ClassroomStudioIndexRoute
   '/games/$slug/': typeof GamesSlugIndexRoute
   '/games/challenges/': typeof GamesChallengesIndexRoute
   '/help/$category/': typeof HelpCategoryIndexRoute
@@ -1175,7 +1217,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/announcements': typeof AnnouncementsRoute
-  '/classroom': typeof ClassroomRoute
   '/community-notes': typeof CommunityNotesRoute
   '/council': typeof CouncilRoute
   '/elder': typeof ElderRoute
@@ -1251,6 +1292,9 @@ export interface FileRoutesByTo {
   '/blog-posts/$id': typeof BlogPostsIdRoute
   '/blogs/new': typeof BlogsNewRoute
   '/business-posts/$id': typeof BusinessPostsIdRoute
+  '/c/$slug': typeof CSlugRoute
+  '/classroom/$roomId': typeof ClassroomRoomIdRoute
+  '/classroom/new': typeof ClassroomNewRoute
   '/creator/bank-account': typeof CreatorBankAccountRoute
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
@@ -1290,6 +1334,7 @@ export interface FileRoutesByTo {
   '/answers': typeof AnswersIndexRoute
   '/blogs': typeof BlogsIndexRoute
   '/business': typeof BusinessIndexRoute
+  '/classroom': typeof ClassroomIndexRoute
   '/creator': typeof CreatorIndexRoute
   '/forum': typeof ForumIndexRoute
   '/games': typeof GamesIndexRoute
@@ -1313,6 +1358,8 @@ export interface FileRoutesByTo {
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/blogs/$slug/manage': typeof BlogsSlugManageRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/classroom/by/$username': typeof ClassroomByUsernameRoute
+  '/classroom/studio/$roomId': typeof ClassroomStudioRoomIdRoute
   '/forum/thread/$slug': typeof ForumThreadSlugRoute
   '/games/$slug/play': typeof GamesSlugPlayRoute
   '/games/challenges/$id': typeof GamesChallengesIdRoute
@@ -1329,6 +1376,7 @@ export interface FileRoutesByTo {
   '/business/broadcasts': typeof BusinessBroadcastsIndexRoute
   '/business/pages': typeof BusinessPagesIndexRoute
   '/business/stats': typeof BusinessStatsIndexRoute
+  '/classroom/studio': typeof ClassroomStudioIndexRoute
   '/games/$slug': typeof GamesSlugIndexRoute
   '/games/challenges': typeof GamesChallengesIndexRoute
   '/help/$category': typeof HelpCategoryIndexRoute
@@ -1343,7 +1391,6 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/announcements': typeof AnnouncementsRoute
-  '/classroom': typeof ClassroomRoute
   '/community-notes': typeof CommunityNotesRoute
   '/council': typeof CouncilRoute
   '/elder': typeof ElderRoute
@@ -1419,6 +1466,9 @@ export interface FileRoutesById {
   '/blog-posts/$id': typeof BlogPostsIdRoute
   '/blogs/new': typeof BlogsNewRoute
   '/business-posts/$id': typeof BusinessPostsIdRoute
+  '/c/$slug': typeof CSlugRoute
+  '/classroom/$roomId': typeof ClassroomRoomIdRoute
+  '/classroom/new': typeof ClassroomNewRoute
   '/creator/bank-account': typeof CreatorBankAccountRoute
   '/creator/broadcasts': typeof CreatorBroadcastsRoute
   '/creator/marketplace': typeof CreatorMarketplaceRoute
@@ -1458,6 +1508,7 @@ export interface FileRoutesById {
   '/answers/': typeof AnswersIndexRoute
   '/blogs/': typeof BlogsIndexRoute
   '/business/': typeof BusinessIndexRoute
+  '/classroom/': typeof ClassroomIndexRoute
   '/creator/': typeof CreatorIndexRoute
   '/forum/': typeof ForumIndexRoute
   '/games/': typeof GamesIndexRoute
@@ -1481,6 +1532,8 @@ export interface FileRoutesById {
   '/blogs/$slug/$postSlug': typeof BlogsSlugPostSlugRoute
   '/blogs/$slug/manage': typeof BlogsSlugManageRoute
   '/business/pages/$pageId': typeof BusinessPagesPageIdRoute
+  '/classroom/by/$username': typeof ClassroomByUsernameRoute
+  '/classroom/studio/$roomId': typeof ClassroomStudioRoomIdRoute
   '/forum/thread/$slug': typeof ForumThreadSlugRoute
   '/games/$slug/play': typeof GamesSlugPlayRoute
   '/games/challenges/$id': typeof GamesChallengesIdRoute
@@ -1497,6 +1550,7 @@ export interface FileRoutesById {
   '/business/broadcasts/': typeof BusinessBroadcastsIndexRoute
   '/business/pages/': typeof BusinessPagesIndexRoute
   '/business/stats/': typeof BusinessStatsIndexRoute
+  '/classroom/studio/': typeof ClassroomStudioIndexRoute
   '/games/$slug/': typeof GamesSlugIndexRoute
   '/games/challenges/': typeof GamesChallengesIndexRoute
   '/help/$category/': typeof HelpCategoryIndexRoute
@@ -1512,7 +1566,6 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/announcements'
-    | '/classroom'
     | '/community-notes'
     | '/council'
     | '/elder'
@@ -1588,6 +1641,9 @@ export interface FileRouteTypes {
     | '/blog-posts/$id'
     | '/blogs/new'
     | '/business-posts/$id'
+    | '/c/$slug'
+    | '/classroom/$roomId'
+    | '/classroom/new'
     | '/creator/bank-account'
     | '/creator/broadcasts'
     | '/creator/marketplace'
@@ -1627,6 +1683,7 @@ export interface FileRouteTypes {
     | '/answers/'
     | '/blogs/'
     | '/business/'
+    | '/classroom/'
     | '/creator/'
     | '/forum/'
     | '/games/'
@@ -1650,6 +1707,8 @@ export interface FileRouteTypes {
     | '/blogs/$slug/$postSlug'
     | '/blogs/$slug/manage'
     | '/business/pages/$pageId'
+    | '/classroom/by/$username'
+    | '/classroom/studio/$roomId'
     | '/forum/thread/$slug'
     | '/games/$slug/play'
     | '/games/challenges/$id'
@@ -1666,6 +1725,7 @@ export interface FileRouteTypes {
     | '/business/broadcasts/'
     | '/business/pages/'
     | '/business/stats/'
+    | '/classroom/studio/'
     | '/games/$slug/'
     | '/games/challenges/'
     | '/help/$category/'
@@ -1679,7 +1739,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/announcements'
-    | '/classroom'
     | '/community-notes'
     | '/council'
     | '/elder'
@@ -1755,6 +1814,9 @@ export interface FileRouteTypes {
     | '/blog-posts/$id'
     | '/blogs/new'
     | '/business-posts/$id'
+    | '/c/$slug'
+    | '/classroom/$roomId'
+    | '/classroom/new'
     | '/creator/bank-account'
     | '/creator/broadcasts'
     | '/creator/marketplace'
@@ -1794,6 +1856,7 @@ export interface FileRouteTypes {
     | '/answers'
     | '/blogs'
     | '/business'
+    | '/classroom'
     | '/creator'
     | '/forum'
     | '/games'
@@ -1817,6 +1880,8 @@ export interface FileRouteTypes {
     | '/blogs/$slug/$postSlug'
     | '/blogs/$slug/manage'
     | '/business/pages/$pageId'
+    | '/classroom/by/$username'
+    | '/classroom/studio/$roomId'
     | '/forum/thread/$slug'
     | '/games/$slug/play'
     | '/games/challenges/$id'
@@ -1833,6 +1898,7 @@ export interface FileRouteTypes {
     | '/business/broadcasts'
     | '/business/pages'
     | '/business/stats'
+    | '/classroom/studio'
     | '/games/$slug'
     | '/games/challenges'
     | '/help/$category'
@@ -1846,7 +1912,6 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/announcements'
-    | '/classroom'
     | '/community-notes'
     | '/council'
     | '/elder'
@@ -1922,6 +1987,9 @@ export interface FileRouteTypes {
     | '/blog-posts/$id'
     | '/blogs/new'
     | '/business-posts/$id'
+    | '/c/$slug'
+    | '/classroom/$roomId'
+    | '/classroom/new'
     | '/creator/bank-account'
     | '/creator/broadcasts'
     | '/creator/marketplace'
@@ -1961,6 +2029,7 @@ export interface FileRouteTypes {
     | '/answers/'
     | '/blogs/'
     | '/business/'
+    | '/classroom/'
     | '/creator/'
     | '/forum/'
     | '/games/'
@@ -1984,6 +2053,8 @@ export interface FileRouteTypes {
     | '/blogs/$slug/$postSlug'
     | '/blogs/$slug/manage'
     | '/business/pages/$pageId'
+    | '/classroom/by/$username'
+    | '/classroom/studio/$roomId'
     | '/forum/thread/$slug'
     | '/games/$slug/play'
     | '/games/challenges/$id'
@@ -2000,6 +2071,7 @@ export interface FileRouteTypes {
     | '/business/broadcasts/'
     | '/business/pages/'
     | '/business/stats/'
+    | '/classroom/studio/'
     | '/games/$slug/'
     | '/games/challenges/'
     | '/help/$category/'
@@ -2014,7 +2086,6 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AnnouncementsRoute: typeof AnnouncementsRoute
-  ClassroomRoute: typeof ClassroomRoute
   CommunityNotesRoute: typeof CommunityNotesRoute
   CouncilRoute: typeof CouncilRoute
   ElderRoute: typeof ElderRoute
@@ -2090,6 +2161,9 @@ export interface RootRouteChildren {
   BlogPostsIdRoute: typeof BlogPostsIdRoute
   BlogsNewRoute: typeof BlogsNewRoute
   BusinessPostsIdRoute: typeof BusinessPostsIdRoute
+  CSlugRoute: typeof CSlugRoute
+  ClassroomRoomIdRoute: typeof ClassroomRoomIdRoute
+  ClassroomNewRoute: typeof ClassroomNewRoute
   CreatorBankAccountRoute: typeof CreatorBankAccountRoute
   CreatorBroadcastsRoute: typeof CreatorBroadcastsRoute
   CreatorMarketplaceRoute: typeof CreatorMarketplaceRoute
@@ -2124,6 +2198,7 @@ export interface RootRouteChildren {
   AnswersIndexRoute: typeof AnswersIndexRoute
   BlogsIndexRoute: typeof BlogsIndexRoute
   BusinessIndexRoute: typeof BusinessIndexRoute
+  ClassroomIndexRoute: typeof ClassroomIndexRoute
   CreatorIndexRoute: typeof CreatorIndexRoute
   ForumIndexRoute: typeof ForumIndexRoute
   GamesIndexRoute: typeof GamesIndexRoute
@@ -2147,6 +2222,8 @@ export interface RootRouteChildren {
   BlogsSlugPostSlugRoute: typeof BlogsSlugPostSlugRoute
   BlogsSlugManageRoute: typeof BlogsSlugManageRoute
   BusinessPagesPageIdRoute: typeof BusinessPagesPageIdRoute
+  ClassroomByUsernameRoute: typeof ClassroomByUsernameRoute
+  ClassroomStudioRoomIdRoute: typeof ClassroomStudioRoomIdRoute
   ForumThreadSlugRoute: typeof ForumThreadSlugRoute
   GamesSlugPlayRoute: typeof GamesSlugPlayRoute
   GamesChallengesIdRoute: typeof GamesChallengesIdRoute
@@ -2163,6 +2240,7 @@ export interface RootRouteChildren {
   BusinessBroadcastsIndexRoute: typeof BusinessBroadcastsIndexRoute
   BusinessPagesIndexRoute: typeof BusinessPagesIndexRoute
   BusinessStatsIndexRoute: typeof BusinessStatsIndexRoute
+  ClassroomStudioIndexRoute: typeof ClassroomStudioIndexRoute
   GamesSlugIndexRoute: typeof GamesSlugIndexRoute
   GamesChallengesIndexRoute: typeof GamesChallengesIndexRoute
   HelpCategoryIndexRoute: typeof HelpCategoryIndexRoute
@@ -2188,13 +2266,6 @@ declare module '@tanstack/react-router' {
       path: '/announcements'
       fullPath: '/announcements'
       preLoaderRoute: typeof AnnouncementsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/classroom': {
-      id: '/classroom'
-      path: '/classroom'
-      fullPath: '/classroom'
-      preLoaderRoute: typeof ClassroomRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/community-notes': {
@@ -2757,6 +2828,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/c/$slug': {
+      id: '/c/$slug'
+      path: '/c/$slug'
+      fullPath: '/c/$slug'
+      preLoaderRoute: typeof CSlugRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/classroom/': {
+      id: '/classroom/'
+      path: '/classroom'
+      fullPath: '/classroom/'
+      preLoaderRoute: typeof ClassroomIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/classroom/$roomId': {
+      id: '/classroom/$roomId'
+      path: '/classroom/$roomId'
+      fullPath: '/classroom/$roomId'
+      preLoaderRoute: typeof ClassroomRoomIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/classroom/new': {
+      id: '/classroom/new'
+      path: '/classroom/new'
+      fullPath: '/classroom/new'
+      preLoaderRoute: typeof ClassroomNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/creator/': {
       id: '/creator/'
       path: '/creator'
@@ -3198,6 +3297,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessStatsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/classroom/by/$username': {
+      id: '/classroom/by/$username'
+      path: '/classroom/by/$username'
+      fullPath: '/classroom/by/$username'
+      preLoaderRoute: typeof ClassroomByUsernameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/classroom/studio/': {
+      id: '/classroom/studio/'
+      path: '/classroom/studio'
+      fullPath: '/classroom/studio/'
+      preLoaderRoute: typeof ClassroomStudioIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/classroom/studio/$roomId': {
+      id: '/classroom/studio/$roomId'
+      path: '/classroom/studio/$roomId'
+      fullPath: '/classroom/studio/$roomId'
+      preLoaderRoute: typeof ClassroomStudioRoomIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/forum/thread/$slug': {
       id: '/forum/thread/$slug'
       path: '/forum/thread/$slug'
@@ -3357,7 +3477,6 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AnnouncementsRoute: AnnouncementsRoute,
-  ClassroomRoute: ClassroomRoute,
   CommunityNotesRoute: CommunityNotesRoute,
   CouncilRoute: CouncilRoute,
   ElderRoute: ElderRoute,
@@ -3433,6 +3552,9 @@ const rootRouteChildren: RootRouteChildren = {
   BlogPostsIdRoute: BlogPostsIdRoute,
   BlogsNewRoute: BlogsNewRoute,
   BusinessPostsIdRoute: BusinessPostsIdRoute,
+  CSlugRoute: CSlugRoute,
+  ClassroomRoomIdRoute: ClassroomRoomIdRoute,
+  ClassroomNewRoute: ClassroomNewRoute,
   CreatorBankAccountRoute: CreatorBankAccountRoute,
   CreatorBroadcastsRoute: CreatorBroadcastsRoute,
   CreatorMarketplaceRoute: CreatorMarketplaceRoute,
@@ -3467,6 +3589,7 @@ const rootRouteChildren: RootRouteChildren = {
   AnswersIndexRoute: AnswersIndexRoute,
   BlogsIndexRoute: BlogsIndexRoute,
   BusinessIndexRoute: BusinessIndexRoute,
+  ClassroomIndexRoute: ClassroomIndexRoute,
   CreatorIndexRoute: CreatorIndexRoute,
   ForumIndexRoute: ForumIndexRoute,
   GamesIndexRoute: GamesIndexRoute,
@@ -3490,6 +3613,8 @@ const rootRouteChildren: RootRouteChildren = {
   BlogsSlugPostSlugRoute: BlogsSlugPostSlugRoute,
   BlogsSlugManageRoute: BlogsSlugManageRoute,
   BusinessPagesPageIdRoute: BusinessPagesPageIdRoute,
+  ClassroomByUsernameRoute: ClassroomByUsernameRoute,
+  ClassroomStudioRoomIdRoute: ClassroomStudioRoomIdRoute,
   ForumThreadSlugRoute: ForumThreadSlugRoute,
   GamesSlugPlayRoute: GamesSlugPlayRoute,
   GamesChallengesIdRoute: GamesChallengesIdRoute,
@@ -3506,6 +3631,7 @@ const rootRouteChildren: RootRouteChildren = {
   BusinessBroadcastsIndexRoute: BusinessBroadcastsIndexRoute,
   BusinessPagesIndexRoute: BusinessPagesIndexRoute,
   BusinessStatsIndexRoute: BusinessStatsIndexRoute,
+  ClassroomStudioIndexRoute: ClassroomStudioIndexRoute,
   GamesSlugIndexRoute: GamesSlugIndexRoute,
   GamesChallengesIndexRoute: GamesChallengesIndexRoute,
   HelpCategoryIndexRoute: HelpCategoryIndexRoute,

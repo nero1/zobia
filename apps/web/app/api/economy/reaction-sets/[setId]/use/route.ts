@@ -124,8 +124,8 @@ export const POST = withAuth(
         await db.transaction(async (tx) => {
           const { rows: xpRows } = await tx.query<{ id: string }>(
             `INSERT INTO xp_ledger
-               (user_id, amount, track, source, reference_id, multiplier, base_amount)
-             VALUES ($1, $2, 'social', 'custom_reaction', $3, 1.0, $2)
+               (user_id, amount, track, source, reference_id, base_amount)
+             VALUES ($1, $2, 'social', 'custom_reaction', $3, $2)
              ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
              RETURNING id`,
             [userId, CUSTOM_REACTION_XP, body.messageId]

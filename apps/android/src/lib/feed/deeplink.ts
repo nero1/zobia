@@ -68,7 +68,7 @@ export function feedItemPath(contentType: FeedContentType, contentId: string, ur
     case 'forum_thread': return `/forum-threads/${contentId}`;
     case 'forum_question': return `/answers/${contentId}`;
     case 'room': return `/rooms/${contentId}`;
-    case 'classroom': return `/rooms/${contentId}`;
+    case 'classroom': return `/classroom/${contentId}`;
     case 'wiki_page': return `/wiki-pages/${contentId}`;
     case 'game': return '/games';
     case 'business_page_post': return `/business-posts/${contentId}`;

@@ -29,6 +29,7 @@ import {
 } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { XP_VALUES } from "@/lib/xp/engine";
+import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
 import { publishRealtimeEvent } from "@/lib/realtime";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
@@ -117,23 +118,11 @@ async function awardJoinXP(roomId: string, userId: string): Promise<number> {
 
     const xp = XP_VALUES.join_new_room_first_time; // 20 XP
 
-    await db.transaction(async (tx) => {
-      await tx.query(
-        `UPDATE users
-         SET xp_total = xp_total + $1,
-             xp_explorer = xp_explorer + $1,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [xp, userId]
-      );
-
-      await tx.query(
-        `INSERT INTO xp_ledger
-           (user_id, amount, track, source, reference_id, multiplier, base_amount)
-         VALUES ($1, $2, 'explorer', 'room', $3, 100, $2)`,
-        [userId, xp, roomId]
-      );
-    });
+    // Canonical XP path: ledger insert + users update + leaderboard snapshots,
+    // idempotent on (user, 'room', roomId). The previous inline INSERT named
+    // a non-existent xp_ledger.multiplier column, so it always threw and
+    // first-join XP was never awarded.
+    await safeAwardXP(userId, xp, "explorer", "room", roomId);
 
     return xp;
   } catch (err) {

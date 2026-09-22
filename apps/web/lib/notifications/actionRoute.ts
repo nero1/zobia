@@ -92,6 +92,20 @@ export function deriveNotificationActionUrl(
     case "game_challenge_completed":
     case "game_challenge_expired":
       return isNonEmptyString(m.challengeId) ? `/games/challenges/${m.challengeId}` : "/games/challenges";
+    // Classroom community / gamification (lib/classroom/*) — every variant
+    // carries the classroom's slug (or id) so a tap opens its homepage.
+    case "classroom_level_up":
+    case "classroom_badge_earned":
+    case "classroom_post_reply":
+    case "classroom_announcement":
+    case "classroom_event_scheduled":
+    case "classroom_recording_added":
+    case "classroom_moderator_granted": {
+      const ref = isNonEmptyString(m.classroomSlug) ? m.classroomSlug : isNonEmptyString(m.roomId) ? m.roomId : null;
+      return ref ? `/c/${ref}` : "/classroom";
+    }
+    case "graduation_ceremony":
+      return isNonEmptyString(m.ceremonyRoomId) ? `/rooms/${m.ceremonyRoomId}` : "/classroom";
     default:
       return null;
   }

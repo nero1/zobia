@@ -25,7 +25,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { db, SqlParam } from "@/lib/db";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
-import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
+import { handleApiError, badRequest, forbidden, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { loadManifest } from "@/lib/manifest";
 import { isCaptchaSurfaceEnabled, verifyCaptcha } from "@/lib/security/captcha";
@@ -36,6 +36,8 @@ import { sendPushNotificationBatch } from "@/lib/notifications/push";
 import { getTrackXPThreshold } from "@/lib/xp/engine";
 import { generateUniqueSlug } from "@/lib/slug";
 import { toRoomCardPayload } from "@/lib/rooms/serialize";
+import { checkSlugAvailability } from "@/lib/classroom/slug";
+import { buildModule } from "@/lib/classroom/curriculum";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -111,6 +113,14 @@ const createRoomSchema = z.object({
   classStartDate: z.string().optional(),
   /** Classroom end date (ISO 8601 date). */
   classEndDate: z.string().optional(),
+  /**
+   * Classroom only: the creator-chosen public slug (/c/<slug>). Defaults to a
+   * suggestion derived from the name; validated + availability-checked
+   * server-side (lib/classroom/slug.ts).
+   */
+  slug: z.string().trim().min(1).max(120).optional(),
+  /** Classroom only: list it on the creator's public "Classrooms by" page. */
+  showInCreatorListing: z.boolean().optional(),
   /**
    * Guild to attach a Guild Room to. Only honoured for admins (who can create
    * a Guild Room for any guild); non-admins are always attached to a guild
@@ -601,9 +611,30 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // the name using a throwaway fallback id for the rare all-emoji/empty-name
     // case, then insert it directly.
     const isPublic = body.type !== "guild";
-    const slug = isPublic
-      ? await generateUniqueSlug("room", body.name, crypto.randomUUID())
-      : null;
+    let slug: string | null = null;
+    if (body.type === "classroom" && body.slug) {
+      // Creator-edited slug from the classroom create form. The partial
+      // unique index on rooms.slug remains the final race backstop.
+      const availability = await checkSlugAvailability(body.slug, null);
+      if (!availability.available) {
+        throw conflict("That classroom URL isn't available.", "CLASSROOM_SLUG_UNAVAILABLE", { reason: availability.reason });
+      }
+      slug = availability.slug;
+    } else if (isPublic) {
+      slug = await generateUniqueSlug("room", body.name, crypto.randomUUID());
+    }
+
+    // Classroom curriculum is always stored in the { modules: [...] } shape
+    // (with stable module ids) that the modules API reads — a bare array
+    // broke every later module add/edit (jsonb_set on an array path).
+    const curriculum =
+      body.type === "classroom"
+        ? {
+            modules: [...(body.curriculum ?? [])]
+              .sort((a, b) => a.order - b.order)
+              .map((m) => buildModule({ title: m.title, description: m.description })),
+          }
+        : body.curriculum ?? null;
 
     const room = await db.transaction(async (tx) => {
       const { rows: roomRows } = await tx.query<RoomRow>(
@@ -614,6 +645,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
            drop_starts_at, drop_ends_at, enrolment_fee_ngn,
            curriculum, class_start_date, class_end_date,
            duration_minutes, slug, is_public, guild_id,
+           show_in_creator_listing,
            member_count, total_messages, is_active
          )
          VALUES (
@@ -623,6 +655,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
            $12, $13, $14,
            $15, $16, $17,
            $18, $19, $20, $21,
+           $22,
            1, 0, TRUE
          )
          RETURNING *`,
@@ -641,13 +674,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           body.dropStartsAt ?? null,
           dropEndsAt,
           body.enrolmentFeeNgn ?? null,
-          body.curriculum ? JSON.stringify(body.curriculum) : null,
+          curriculum ? JSON.stringify(curriculum) : null,
           body.classStartDate ?? null,
           body.classEndDate ?? null,
           body.durationMinutes ?? null,
           slug,
           isPublic,
           resolvedGuildId,
+          body.showInCreatorListing ?? true,
         ]
       );
 

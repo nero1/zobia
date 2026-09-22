@@ -18,6 +18,7 @@ import { contributeToCreatorFund } from "@/lib/creator/fundContribution";
 import { logger } from "@/lib/logger";
 import { BUSINESS_BILLING_PERIOD_DAYS } from "@/lib/business/limits";
 import { raiseAlert } from "@/lib/alerts/dispatch";
+import { awardEnrolmentXp, finalizeEnrolment, loadEnrolmentRoom } from "@/lib/classroom/enrolment";
 
 // ---------------------------------------------------------------------------
 // Paystack webhook event types (subset)
@@ -36,7 +37,9 @@ export interface PaystackChargeEvent {
       packId: string;
       coinsGranted?: number;
       starsGranted?: number;
-      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "room_entry" | "business_upgrade" | "business_signup" | "business_renewal";
+      itemType: "coin_pack" | "star_pack" | "subscription" | "room_subscription" | "room_entry" | "classroom_enrolment" | "business_upgrade" | "business_signup" | "business_renewal";
+      /** Set on classroom_enrolment payments (POST /api/classroom/[roomId]/enroll, card). */
+      roomId?: string;
       packName: string;
       businessAccountId?: string;
       newTier?: string;
@@ -113,6 +116,7 @@ export async function processChargeSuccess(
   // Capture referral commission params from within the transaction so we can
   // fire awardReferralCommissions after the transaction commits (B12).
   let referralPayload: { userId: string; coins: number; paymentId: string; amountKobo: number } | null = null;
+  let classroomEnrolmentXp: { roomId: string; userId: string } | null = null;
 
   await db.transaction(async (tx) => {
     // Idempotency guard — check if this reference was already processed
@@ -311,6 +315,37 @@ export async function processChargeSuccess(
 
       // BUG-PAY-01: seed Creator Fund for room_subscription payments (was missing)
       await contributeToCreatorFund(subGrossKobo, "room_subscription", tx);
+      return;
+    }
+
+    // Classroom enrolment paid by card — write the enrolment, membership and
+    // creator earnings (lib/classroom/enrolment.ts, the same code path as a
+    // Credits-balance enrolment). The fee is taken from what Paystack actually
+    // charged (`amount`, kobo), never from client-supplied metadata.
+    if (itemType === "classroom_enrolment") {
+      const roomId = typeof metadata.roomId === "string" ? metadata.roomId : metadata.packId;
+      if (!roomId || !userId) {
+        logger.error({ reference, metadata }, "[webhook/paystack] classroom_enrolment missing roomId/userId");
+        throw new Error(`classroom_enrolment webhook missing required metadata (reference: ${reference})`);
+      }
+      const room = await loadEnrolmentRoom(roomId, tx);
+      const enrolmentId = await finalizeEnrolment(tx, { room, userId, paid: true, feeKobo: amount });
+      if (!enrolmentId) {
+        // Already enrolled (e.g. paid twice in two tabs) — flag for a manual refund.
+        logger.error({ reference, userId, roomId }, "[webhook/paystack] classroom_enrolment for an already-enrolled user (possible duplicate charge)");
+        await raiseAlert(tx, {
+          type: "classroom_enrolment_duplicate_charge",
+          category: "financial",
+          priorityLevel: 3,
+          title: "Possible duplicate classroom enrolment charge",
+          message: `Classroom enrolment payment ${reference} completed for user ${userId} who was already enrolled in ${roomId} — requires manual refund review`,
+          metadata: { userId, roomId, reference },
+          dedupeKey: `classroom_enrolment_duplicate_charge:${reference}`,
+        }).catch(() => {});
+      } else {
+        classroomEnrolmentXp = { roomId, userId };
+      }
+      await contributeToCreatorFund(amount, "room_entry", tx);
       return;
     }
 
@@ -582,6 +617,13 @@ export async function processChargeSuccess(
         err instanceof Error ? err.message : String(err)
       );
     }
+  }
+
+  // Classroom enrolment XP — fired only once the enrolment has committed
+  // (safeAwardXP's documented contract).
+  const capturedEnrolment = classroomEnrolmentXp as { roomId: string; userId: string } | null;
+  if (capturedEnrolment) {
+    awardEnrolmentXp(capturedEnrolment.roomId, capturedEnrolment.userId, true);
   }
 }
 

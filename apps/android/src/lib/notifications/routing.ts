@@ -59,6 +59,11 @@ export const VALID_PUSH_ROUTES: RegExp[] = [
   // routes/games/challenges/$id.tsx.
   /^\/games\/challenges$/i,
   /^\/games\/challenges\/[a-f0-9-]+$/i,
+  // Classrooms (apps/web/lib/notifications/actionRoute.ts's classroom_*
+  // cases emit /c/<slug>; routes/c/$slug.tsx resolves it in-app).
+  /^\/classroom$/i,
+  /^\/classroom\/[a-f0-9-]+$/i,
+  /^\/c\/[a-z0-9-]+$/i,
 ];
 
 /**

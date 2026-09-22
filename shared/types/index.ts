@@ -528,7 +528,9 @@ export type CoinTransactionType =
   | 'wiki_create_reward'
   | 'wiki_contribute_reward'
   | 'wiki_treasury_fund'
-  | 'wiki_treasury_claim';
+  | 'wiki_treasury_claim'
+  | 'classroom_enrolment'
+  | 'classroom_slug_change';
 
 export interface CoinLedgerEntry {
   id: string;

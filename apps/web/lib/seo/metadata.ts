@@ -77,7 +77,24 @@ export function generateStructuredData(
     ...data,
   };
 
-  return JSON.stringify(schema);
+  return serializeJsonLd(schema);
+}
+
+/**
+ * JSON.stringify for an inline `<script type="application/ld+json">` block.
+ * Plain JSON.stringify does not escape `<`, so any user-controlled string in
+ * the schema (a poll title, a forum question, a profile bio…) containing
+ * `</script>` closed the script tag early and injected markup — a stored XSS
+ * on every public SEO page. Escaping `<`, `>`, `&` and the JS line
+ * separators keeps the JSON semantically identical for crawlers.
+ */
+export function serializeJsonLd(value: unknown): string {
+  return JSON.stringify(value)
+    .replace(/</g, "\\u003c")
+    .replace(/>/g, "\\u003e")
+    .replace(/&/g, "\\u0026")
+    .replace(new RegExp("\\u2028", "g"), "\\u2028")
+    .replace(new RegExp("\\u2029", "g"), "\\u2029");
 }
 
 // Pre-built structured data generators

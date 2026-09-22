@@ -189,6 +189,12 @@ export const RATE_LIMITS = {
   wikiWrite: { limit: 20, windowMs: 60 * 1000, name: "wiki:write" } as RateLimitOptions,
   /** Sharing a wiki, or managing moderators/invites/collaborators. Ownership-checked, so counted locally. */
   wikiVote: { limit: 60, windowMs: 60 * 1000, name: "wiki:vote", tier: "local" } as RateLimitOptions,
+  /** Classroom community posts/comments, events and moderation actions. */
+  classroomWrite: { limit: 20, windowMs: 60 * 1000, name: "classroom:write" } as RateLimitOptions,
+  /** Classroom likes / lesson completions. Idempotent and unique-index guarded, so counted locally. */
+  classroomVote: { limit: 60, windowMs: 60 * 1000, name: "classroom:vote", tier: "local" } as RateLimitOptions,
+  /** Classroom slug changes — money-moving and SEO-affecting, so tight and exact (bypassL1). */
+  classroomSlugChange: { limit: 5, windowMs: 60 * 60 * 1000, name: "classroom:slug", bypassL1: true } as RateLimitOptions,
 } as const;
 
 // ---------------------------------------------------------------------------

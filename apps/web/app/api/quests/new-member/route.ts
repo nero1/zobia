@@ -207,8 +207,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // 4. Award XP — insert into xp_ledger and update users.xp_total
       await client.query(
         `INSERT INTO xp_ledger
-           (user_id, amount, track, source, description, created_at)
-         VALUES ($1, $2, 'main', 'new_member_quest', 'New Member Quest completion reward', NOW())`,
+           (user_id, amount, track, source, base_amount, created_at)
+         VALUES ($1, $2, 'main', 'new_member_quest', $2, NOW())`,
         [userId, NEW_MEMBER_QUEST_XP_REWARD]
       );
 

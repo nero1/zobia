@@ -13,6 +13,7 @@ import type { Metadata, ResolvingMetadata } from "next";
 import Image from "next/image";
 import { notFound, permanentRedirect } from "next/navigation";
 import { db } from "@/lib/db";
+import { serializeJsonLd } from "@/lib/seo/metadata";
 import { resolveOldUsername } from "@/lib/username/availability";
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
@@ -175,7 +176,7 @@ export default async function PublicProfilePage({
       {/* TASK-27: JSON-LD structured data */}
       <script
         type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(jsonLd) }}
       />
 
       <div className="max-w-2xl mx-auto px-4 py-12">

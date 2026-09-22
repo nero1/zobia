@@ -1285,6 +1285,12 @@ export const rooms = pgTable("rooms", {
   endsAt: timestamp("ends_at", { withTimezone: true }),
   classStartDate: date("class_start_date"),
   classEndDate: date("class_end_date"),
+  // Migration 0003: per-classroom settings (slug-change policy, level names,
+  // post categories, posting policy, moderator permissions) — parsed and
+  // defaulted by lib/classroom/settings.ts — and whether the classroom is
+  // listed on the creator's public "Classrooms by @creator" page.
+  classroomSettings: jsonb("classroom_settings").notNull().default(sql`'{}'::jsonb`),
+  showInCreatorListing: boolean("show_in_creator_listing").notNull().default(true),
 
   // Drop Room
   dropStartsAt: timestamp("drop_starts_at", { withTimezone: true }),
@@ -3147,6 +3153,10 @@ export const classroomEnrolments = pgTable(
     certificateIssuedAt: timestamp("certificate_issued_at", {
       withTimezone: true,
     }),
+    // Migration 0003: community mute (set by the creator/moderators) + activity.
+    mutedUntil: timestamp("muted_until", { withTimezone: true }),
+    mutedBy: uuid("muted_by").references(() => users.id, { onDelete: "set null" }),
+    lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
   },
   (t) => ({
     unique: uniqueIndex("classroom_enrolments_room_user_idx").on(
@@ -3209,6 +3219,220 @@ export const classroomQuizAttempts = pgTable(
       t.quizId,
       t.userId
     ),
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Classroom community + LMS (migration 0003_classroom_community.sql).
+// Everything is scoped by roomId — a classroom is still just a rooms row with
+// type = 'classroom'. See lib/classroom/* for the service layer.
+// ---------------------------------------------------------------------------
+
+/** Creator-assigned classroom moderators — mirrors wikiCollaborators' shape. */
+export const classroomModerators = pgTable(
+  "classroom_moderators",
+  {
+    id: uuidPk(),
+    roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull().default("moderator"),
+    isModerator: boolean("is_moderator").notNull().default(true),
+    moderatorGrantedBy: uuid("moderator_granted_by").references(() => users.id, { onDelete: "set null" }),
+    moderatorGrantedAt: timestamp("moderator_granted_at", { withTimezone: true }),
+    status: text("status").notNull().default("active"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    roomUserIdx: uniqueIndex("classroom_moderators_room_user_key").on(t.roomId, t.userId),
+  })
+);
+
+/** Audit trail written by the slug-change transaction (lib/classroom/slug.ts). */
+export const classroomSlugHistory = pgTable("classroom_slug_history", {
+  id: uuidPk(),
+  roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  oldSlug: text("old_slug"),
+  newSlug: text("new_slug").notNull(),
+  changedBy: uuid("changed_by").references(() => users.id, { onDelete: "set null" }),
+  costCredits: integer("cost_credits").notNull().default(0),
+  changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const classroomPosts = pgTable("classroom_posts", {
+  id: uuidPk(),
+  roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  authorId: uuid("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  category: text("category").notNull().default("General"),
+  title: text("title"),
+  body: text("body").notNull(),
+  isPinned: boolean("is_pinned").notNull().default(false),
+  isLocked: boolean("is_locked").notNull().default(false),
+  isHidden: boolean("is_hidden").notNull().default(false),
+  hiddenBy: uuid("hidden_by").references(() => users.id, { onDelete: "set null" }),
+  hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+  likeCount: integer("like_count").notNull().default(0),
+  commentCount: integer("comment_count").notNull().default(0),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+export const classroomPostComments = pgTable("classroom_post_comments", {
+  id: uuidPk(),
+  postId: uuid("post_id").notNull().references(() => classroomPosts.id, { onDelete: "cascade" }),
+  roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  authorId: uuid("author_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  parentId: uuid("parent_id"),
+  body: text("body").notNull(),
+  likeCount: integer("like_count").notNull().default(0),
+  isHidden: boolean("is_hidden").notNull().default(false),
+  hiddenBy: uuid("hidden_by").references(() => users.id, { onDelete: "set null" }),
+  hiddenAt: timestamp("hidden_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+export const classroomLikes = pgTable(
+  "classroom_likes",
+  {
+    id: uuidPk(),
+    roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    postId: uuid("post_id").references(() => classroomPosts.id, { onDelete: "cascade" }),
+    commentId: uuid("comment_id").references(() => classroomPostComments.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    postLikeIdx: uniqueIndex("uidx_classroom_likes_post").on(t.userId, t.postId).where(sql`post_id IS NOT NULL`),
+    commentLikeIdx: uniqueIndex("uidx_classroom_likes_comment").on(t.userId, t.commentId).where(sql`comment_id IS NOT NULL`),
+  })
+);
+
+export const classroomReports = pgTable("classroom_reports", {
+  id: uuidPk(),
+  roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  reporterId: uuid("reporter_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  postId: uuid("post_id").references(() => classroomPosts.id, { onDelete: "cascade" }),
+  commentId: uuid("comment_id").references(() => classroomPostComments.id, { onDelete: "cascade" }),
+  reason: text("reason").notNull(),
+  details: text("details"),
+  status: text("status").notNull().default("pending"),
+  escalated: boolean("escalated").notNull().default(false),
+  resolvedBy: uuid("resolved_by").references(() => users.id, { onDelete: "set null" }),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  resolutionNote: text("resolution_note"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const classroomLessonCompletions = pgTable(
+  "classroom_lesson_completions",
+  {
+    roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    moduleId: text("module_id").notNull(),
+    completedAt: timestamp("completed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.roomId, t.userId, t.moduleId] }),
+  })
+);
+
+/** Scheduled live sessions: external meeting URL + a recording link added afterwards. */
+export const classroomEvents = pgTable("classroom_events", {
+  id: uuidPk(),
+  roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+  title: text("title").notNull(),
+  description: text("description"),
+  startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }),
+  meetingUrl: text("meeting_url"),
+  recordingUrl: text("recording_url"),
+  recordingAddedAt: timestamp("recording_added_at", { withTimezone: true }),
+  createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+/**
+ * Per-classroom points ledger. Separate from xp_ledger by design: classroom
+ * points never leave their classroom (the global Knowledge-track bonus is
+ * awarded separately via safeAwardXP). Idempotent on
+ * (room_id, user_id, source, reference_id), same guard as xp_ledger.
+ */
+export const classroomPointsLedger = pgTable(
+  "classroom_points_ledger",
+  {
+    id: uuidPk(),
+    roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    amount: integer("amount").notNull(),
+    source: text("source").notNull(),
+    referenceId: text("reference_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    refIdx: uniqueIndex("uidx_classroom_points_ledger_ref")
+      .on(t.roomId, t.userId, t.source, t.referenceId)
+      .where(sql`reference_id IS NOT NULL`),
+  })
+);
+
+/** Materialised per-classroom totals + level — the classroom leaderboard's read path. */
+export const classroomMemberPoints = pgTable(
+  "classroom_member_points",
+  {
+    roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    points: bigint("points", { mode: "number" }).notNull().default(0),
+    level: integer("level").notNull().default(1),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.roomId, t.userId] }),
+  })
+);
+
+export const classroomMemberBadges = pgTable(
+  "classroom_member_badges",
+  {
+    roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    badgeKey: text("badge_key").notNull(),
+    awardedAt: timestamp("awarded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.roomId, t.userId, t.badgeKey] }),
+  })
+);
+
+export const classroomShares = pgTable(
+  "classroom_shares",
+  {
+    roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+    shareCount: integer("share_count").notNull().default(1),
+    firstSharedAt: timestamp("first_shared_at", { withTimezone: true }).notNull().defaultNow(),
+    lastSharedAt: timestamp("last_shared_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.roomId, t.userId] }),
+  })
+);
+
+export const classroomDailyStats = pgTable(
+  "classroom_daily_stats",
+  {
+    roomId: uuid("room_id").notNull().references(() => rooms.id, { onDelete: "cascade" }),
+    day: date("day").notNull(),
+    pageViews: integer("page_views").notNull().default(0),
+    shares: integer("shares").notNull().default(0),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.roomId, t.day] }),
   })
 );
 
@@ -5325,6 +5549,11 @@ export type ClassroomQuizQuestion = typeof classroomQuizQuestions.$inferSelect;
 export type NewClassroomQuizQuestion = typeof classroomQuizQuestions.$inferInsert;
 export type ClassroomQuizAttempt = typeof classroomQuizAttempts.$inferSelect;
 export type NewClassroomQuizAttempt = typeof classroomQuizAttempts.$inferInsert;
+export type ClassroomModerator = typeof classroomModerators.$inferSelect;
+export type ClassroomPost = typeof classroomPosts.$inferSelect;
+export type ClassroomPostComment = typeof classroomPostComments.$inferSelect;
+export type ClassroomEvent = typeof classroomEvents.$inferSelect;
+export type ClassroomMemberPoints = typeof classroomMemberPoints.$inferSelect;
 export type LearningCertificate = typeof learningCertificates.$inferSelect;
 export type NewLearningCertificate = typeof learningCertificates.$inferInsert;
 export type Game = typeof games.$inferSelect;
@@ -5733,6 +5962,19 @@ export const schema = {
   classroomQuizzes,
   classroomQuizQuestions,
   classroomQuizAttempts,
+  classroomModerators,
+  classroomSlugHistory,
+  classroomPosts,
+  classroomPostComments,
+  classroomLikes,
+  classroomReports,
+  classroomLessonCompletions,
+  classroomEvents,
+  classroomPointsLedger,
+  classroomMemberPoints,
+  classroomMemberBadges,
+  classroomShares,
+  classroomDailyStats,
   learningCertificates,
   elderRequests,
   elderMentorships,

@@ -372,7 +372,13 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    `ON CONFLICT DO NOTHING`) — safe to run more than once against the same
    database. New schema changes going forward should be added as new
    `0002_*.sql`, `0003_*.sql`, ... files in `db/migrations/` rather than
-   editing `0001` in place.
+   editing `0001` in place. If you apply the schema with `psql` instead of
+   the runner, also apply every later file in order — currently
+   `0002_ai_vision_and_ad_moderator.sql` (AI image classification + Ad
+   Moderator role) and `0003_classroom_community.sql` (ClassRoom community
+   feed, moderators, slug-change policy/history, live sessions, lesson
+   progress and per-classroom points/levels/badges — see "ClassRooms" in
+   `docs/HOW-IT-WORKS.md`). `npm run migrate` does this for you.
 
    > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
    > `db/migrations/0001_consolidated_schema.sql` enables
