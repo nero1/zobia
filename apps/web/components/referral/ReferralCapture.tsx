@@ -17,7 +17,7 @@
 import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { extractReferralCode } from "@zobia/shared/utils";
-import { storeReferralCode } from "@/lib/referral/clientStore";
+import { storeReferralCode, recordReferralVisit } from "@/lib/referral/clientStore";
 
 export function ReferralCapture() {
   // Re-run on client-side route changes so a referral arriving on a deep link
@@ -28,7 +28,13 @@ export function ReferralCapture() {
     if (typeof window === "undefined") return;
     const params = new URLSearchParams(window.location.search);
     const code = extractReferralCode(params);
-    if (code) storeReferralCode(code);
+    if (code) {
+      storeReferralCode(code);
+      // Any URL carrying a valid `?r=` is a referral link, whatever page
+      // it's attached to — record the visit so the referrer's stats reflect
+      // real traffic, not just eventual sign-ups.
+      recordReferralVisit(code, window.location.pathname);
+    }
   }, [pathname]);
 
   return null;

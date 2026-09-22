@@ -375,10 +375,13 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    editing `0001` in place. If you apply the schema with `psql` instead of
    the runner, also apply every later file in order — currently
    `0002_ai_vision_and_ad_moderator.sql` (AI image classification + Ad
-   Moderator role) and `0003_classroom_community.sql` (ClassRoom community
+   Moderator role), `0003_classroom_community.sql` (ClassRoom community
    feed, moderators, slug-change policy/history, live sessions, lesson
    progress and per-classroom points/levels/badges — see "ClassRooms" in
-   `docs/HOW-IT-WORKS.md`). `npm run migrate` does this for you.
+   `docs/HOW-IT-WORKS.md`), and `0004_referral_visits.sql` (referral link
+   click/visit tracking + the `referral_stats_full_plans` admin config key —
+   see "Referral System" in `docs/HOW-IT-WORKS.md`). `npm run migrate` does
+   this for you.
 
    > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
    > `db/migrations/0001_consolidated_schema.sql` enables

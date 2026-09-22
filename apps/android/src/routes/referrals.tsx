@@ -37,14 +37,23 @@ interface ReferredUser {
   coinsEarned: number;
 }
 
+interface VisitStats {
+  totalVisits: number;
+  conversionRate: number | null;
+}
+
 interface ReferralsData {
   stats: ReferralStats;
   referredUsers: ReferredUser[];
+  visits: VisitStats;
+  statsTier: 'basic' | 'full';
 }
 
 async function fetchReferrals(): Promise<ReferralsData> {
   const { data: apiData } = await apiClient.get<Record<string, unknown>>('/referrals');
+  const visitsRaw = (apiData.visits as Record<string, unknown>) ?? {};
   return {
+    statsTier: apiData.statsTier === 'full' ? 'full' : 'basic',
     stats: {
       referralCode: String(apiData.referralCode ?? ''),
       referralUrl: String(apiData.referralUrl ?? ''),
@@ -54,6 +63,10 @@ async function fetchReferrals(): Promise<ReferralsData> {
       tier2XpEarned: 0,
       tier1CoinsEarned: Number(apiData.coinsEarned ?? 0),
       tier2CoinsEarned: Number((apiData.commissions as Record<string, unknown>)?.tier2CoinsEarned ?? 0),
+    },
+    visits: {
+      totalVisits: Number(visitsRaw.totalVisits ?? 0),
+      conversionRate: (visitsRaw.conversionRate as number | null) ?? null,
     },
     referredUsers: ((apiData.referrals as Record<string, unknown>[]) ?? []).map((r) => ({
       userId: String(r.id ?? ''),
@@ -129,6 +142,27 @@ function StatsGrid({ stats }: { stats: ReferralStats }) {
           <p className="text-xs text-neutral-400 dark:text-neutral-500">{item.sub}</p>
         </div>
       ))}
+    </div>
+  );
+}
+
+function VisitsCard({ visits, statsTier }: { visits: VisitStats; statsTier: 'basic' | 'full' }) {
+  const { t } = useTranslation();
+  return (
+    <div className="bg-white dark:bg-neutral-800 rounded-xl p-4 shadow-card mb-3">
+      <div className="mb-2 flex items-center justify-between">
+        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('referrals.visits.title')}</h2>
+        <span className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{visits.totalVisits.toLocaleString()}</span>
+      </div>
+      {statsTier === 'basic' ? (
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('referrals.visits.upgradeForDetail')}</p>
+      ) : (
+        visits.conversionRate !== null && (
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">
+            {t('referrals.visits.conversionRate')}: <span className="font-semibold text-neutral-900 dark:text-neutral-100">{visits.conversionRate}%</span>
+          </p>
+        )
+      )}
     </div>
   );
 }
@@ -225,8 +259,15 @@ function ReferralsPage() {
         <>
           {data.stats.referralUrl && <ReferralLinkCard url={data.stats.referralUrl} />}
           <StatsGrid stats={data.stats} />
+          <VisitsCard visits={data.visits} statsTier={data.statsTier} />
           <TwoTierExplainer />
-          <ReferredUsersTable users={data.referredUsers} />
+          {data.statsTier === 'basic' ? (
+            <div className="bg-white dark:bg-neutral-800 rounded-xl shadow-card mb-3 px-4 py-8 text-center text-sm text-neutral-500 dark:text-neutral-400">
+              {t('referrals.table.upgradeForList')}
+            </div>
+          ) : (
+            <ReferredUsersTable users={data.referredUsers} />
+          )}
         </>
       )}
     </div>

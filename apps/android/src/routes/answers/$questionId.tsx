@@ -16,6 +16,8 @@ import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { useCaptchaWidget } from '@/lib/hooks/useCaptchaWidget';
 import { env } from '@/lib/env';
+import { appendReferralCode } from '@zobia/shared/utils';
+import { useMyReferralCode } from '@/lib/referral/useReferralCode';
 
 interface Author {
   id: string;
@@ -112,13 +114,18 @@ function QuestionDetailPage() {
   const [bypassPrompt, setBypassPrompt] = useState<{ minLevel: number; bypassCostCredits: number; parentAnswerId: string | null; body: string } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+  const { code: refCode } = useMyReferralCode();
 
   // Shares the public, crawlable /a/<slug> web page — not this in-app route —
   // so the recipient (who may not have the app) gets a working, SEO-friendly
   // link. Uses the Web Share API available inside the Capacitor WebView, with
   // a clipboard fallback, matching apps/web/app/(app)/answers/[id]/page.tsx.
+  // The viewer's own referral code (if logged in) is auto-appended. Uses
+  // VITE_WEB_BASE_URL (not VITE_API_BASE_URL) since this links to the public
+  // web page, not the API host — the two happen to share a default value,
+  // which previously masked this being the wrong variable.
   async function handleShare(q: QuestionDetail): Promise<void> {
-    const url = `${env.VITE_API_BASE_URL}/a/${q.slug ?? q.id}`;
+    const url = appendReferralCode(`${env.VITE_WEB_BASE_URL}/a/${q.slug ?? q.id}`, refCode);
     try {
       if (navigator.share) {
         await navigator.share({ title: q.title, url });

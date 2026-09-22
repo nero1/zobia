@@ -14,26 +14,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth/hooks";
 import { buildGameReferralUrl } from "@zobia/shared/utils";
+import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 import { authFetch } from "@/lib/api/authFetch";
 
 export default function GameCoverActions({ slug, name }: { slug: string; name: string }) {
   const { user, isLoading } = useAuth();
   const [copied, setCopied] = useState(false);
-  const [refCode, setRefCode] = useState<string | null>(null);
+  const { code: refCode } = useMyReferralCode();
   const [myRating, setMyRating] = useState<number | null>(null);
   const [hasPlayed, setHasPlayed] = useState(false);
   const [ratingHover, setRatingHover] = useState(0);
   const [ratingSaved, setRatingSaved] = useState(false);
 
   const playPath = `/g/${slug}/play`;
-
-  useEffect(() => {
-    if (!user) return;
-    authFetch("/api/referrals")
-      .then((r) => r.json())
-      .then((b) => setRefCode(b?.data?.referralCode ?? null))
-      .catch(() => {});
-  }, [user]);
 
   useEffect(() => {
     if (!user) return;

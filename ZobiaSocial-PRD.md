@@ -1123,6 +1123,12 @@ Referral links use numeric IDs and not usernames (for privacy). URL format: `?r=
 
 The `/referrals` page shows a scannable QR code below the referral link (in addition to the copy-to-clipboard link), so the link can be shared in person without typing it.
 
+**Every Share button doubles as a referral link.** Any Share action on the platform — games, polls, quizzes, classrooms, blog posts, tweets, Answers questions, wiki pages, and Market items — auto-appends the sharer's own `?r=` code to the shared URL via the shared `useMyReferralCode()` hook (web) / equivalent (Android) and `appendReferralCode()`. A user never has to visit `/referrals` to generate a referral link; sharing anything already produces one.
+
+**Link visit/click tracking.** Because a `?r=` code can be attached to any public URL, `ReferralCapture` (web/PWA) and the Capacitor app's deep-link handler (`lib/deeplinks/referral.ts`) also record a *visit* — `POST /api/referrals/visit` — whenever a valid referral code is seen, whether or not the visitor ever signs up. This is tracked separately from the `referrals` table (which only records completed sign-ups/qualifications) so a referrer can see their link's actual reach, not just conversions. Visits are deduped in Postgres per (referrer, anonymous visitor, calendar day) — see `db/migrations/0004_referral_visits.sql` — so repeated page loads from the same browser/device never inflate the count; the client-generated `visitorKey` is a random, non-PII id (never an IP or fingerprint).
+
+**Referral stats detail is plan-gated, admin-configurable.** `GET /api/referrals` returns a `statsTier` of `"basic"` or `"full"`, computed the same way as the Profile Stats gate (`lib/plans/eligibility.ts`, driven by the x_manifest key `referral_stats_full_plans`, editable at `/gate44/settings/referrals`; default: every plan/tier except Free). Free-plan users see totals only (referral counts, Credits/XP earned, all-time link-visit count); everyone else additionally sees the daily visit breakdown (last 30 days), top-performing pages, visit-to-signup conversion rate, and the per-referral list of who they've referred.
+
 ### Public URL Structure — SEO-Friendly Slugs
 
 Public, shareable, crawlable surfaces use short, human-readable, SEO-friendly paths. The same scheme is used by the web app, the PWA and the Android app (as universal links):

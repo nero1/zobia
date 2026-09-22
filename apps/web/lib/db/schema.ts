@@ -2867,6 +2867,30 @@ export const referralCommissions = pgTable("referral_commissions", {
   creditedAt: timestamp("credited_at", { withTimezone: true }),
 });
 
+// Migration 0004 (db): referral link click/visit tracking — see
+// db/migrations/0004_referral_visits.sql for the dedup-index rationale.
+export const referralVisits = pgTable(
+  "referral_visits",
+  {
+    id: uuidPk(),
+    referrerId: uuid("referrer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    path: text("path").notNull(),
+    visitorKey: text("visitor_key").notNull(),
+    visitedAt: timestamp("visited_at", { withTimezone: true }).notNull().defaultNow(),
+    visitedDate: date("visited_date").notNull().defaultNow(),
+  },
+  (t) => ({
+    dedup: uniqueIndex("referral_visits_dedup_idx").on(
+      t.referrerId,
+      t.visitorKey,
+      t.visitedDate
+    ),
+  })
+);
+
 export const sponsoredQuests = pgTable("sponsored_quests", {
   id: uuidPk(),
   brandName: text("brand_name").notNull(),

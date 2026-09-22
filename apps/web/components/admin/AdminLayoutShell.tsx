@@ -38,6 +38,7 @@ const adminNavItems = [
   { href: "/gate44/settings/privacy",   label: "Privacy Settings",   icon: "🔒" },
   { href: "/gate44/settings/security",  label: "Security",           icon: "🛡️" },
   { href: "/gate44/settings/profile-stats", label: "Profile Stats",  icon: "📊" },
+  { href: "/gate44/settings/referrals",     label: "Referral Stats", icon: "🔗" },
   { href: "/gate44/ai-settings",        label: "AI Settings",        icon: "🤖" },
   { href: "/gate44/ai-monitoring",      label: "AI Monitoring",      icon: "🩻" },
   { href: "/gate44/feature-flags",      label: "Feature Flags",      icon: "🚀" },

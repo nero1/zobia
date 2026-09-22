@@ -17,7 +17,8 @@ import { useTranslation } from 'react-i18next';
 import { isAxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
-import { universalLink, PUBLIC_PATHS } from '@/lib/deeplinks/routes';
+import { referralLink, PUBLIC_PATHS } from '@/lib/deeplinks/routes';
+import { useMyReferralCode } from '@/lib/referral/useReferralCode';
 
 interface PollOption {
   id: string;
@@ -142,6 +143,7 @@ function PollDetailPage() {
   const currency = useCurrency();
   const qc = useQueryClient();
   const navigate = useNavigate();
+  const { code: refCode } = useMyReferralCode();
 
   const [selected, setSelected] = useState<string[]>([]);
   const [shareCopied, setShareCopied] = useState(false);
@@ -239,7 +241,7 @@ function PollDetailPage() {
   });
 
   async function handleShare(): Promise<void> {
-    const url = universalLink(PUBLIC_PATHS.poll(slug));
+    const url = referralLink(PUBLIC_PATHS.poll(slug), refCode);
     share.mutate();
     try {
       if (navigator.share) {

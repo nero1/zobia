@@ -5,15 +5,20 @@
  *
  * Share button for a public quiz — identical pattern to
  * components/polls/PollShareButton.tsx, hitting the quizzes share endpoint.
+ * The viewer's own referral code (if logged in) is auto-appended so every
+ * share doubles as a referral link.
  */
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { appendReferralCode } from "@zobia/shared/utils";
+import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 
 export function QuizShareButton({ slug }: { slug: string }) {
   const { t } = useTranslation();
   const router = useRouter();
+  const { code: refCode } = useMyReferralCode();
   const [sharing, setSharing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -22,7 +27,7 @@ export function QuizShareButton({ slug }: { slug: string }) {
     setSharing(true);
     setNotice(null);
     try {
-      const url = `${window.location.origin}/quiz/${slug}`;
+      const url = appendReferralCode(`${window.location.origin}/quiz/${slug}`, refCode);
       if (navigator.share) {
         await navigator.share({ url }).catch(() => {});
       } else if (navigator.clipboard) {

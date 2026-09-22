@@ -10,6 +10,7 @@ import { Link } from '@tanstack/react-router';
 import { useAuth } from '@/lib/auth/store';
 import { apiClient } from '@/lib/api/client';
 import { appendReferralCode } from '@zobia/shared/utils';
+import { useMyReferralCode } from '@/lib/referral/useReferralCode';
 
 export type MarketCategory = 'digital' | 'physical' | 'cosmetics_themes' | 'boosts_passes' | 'credits';
 
@@ -41,22 +42,10 @@ const CATEGORY_LABEL: Record<MarketCategory, string> = {
   credits: 'Credits',
 };
 
-let cachedReferralCode: string | null = null;
-async function getReferralCode(): Promise<string | null> {
-  if (cachedReferralCode) return cachedReferralCode;
-  try {
-    const { data } = await apiClient.get<{ referralCode?: string | null }>('/referrals');
-    cachedReferralCode = data?.referralCode ?? null;
-    return cachedReferralCode;
-  } catch {
-    return null;
-  }
-}
-
 function ReferralRow({ item }: { item: MarketItem }) {
   const { user } = useAuth();
+  const { code: refCode } = useMyReferralCode();
   const [open, setOpen] = useState(false);
-  const [link, setLink] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
   if (!user || !item.referralEnabled) return null;
@@ -65,13 +54,10 @@ function ReferralRow({ item }: { item: MarketItem }) {
     : 'Earn a commission';
   if (!label) return null;
 
-  async function toggle() {
-    if (open) { setOpen(false); return; }
-    setOpen(true);
-    if (!link) {
-      const code = await getReferralCode();
-      setLink(code ? appendReferralCode(item.href, code) : null);
-    }
+  const link = refCode ? appendReferralCode(item.href, refCode) : null;
+
+  function toggle() {
+    setOpen((prev) => !prev);
   }
 
   async function copy() {

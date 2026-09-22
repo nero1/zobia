@@ -15,6 +15,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { appendReferralCode } from "@zobia/shared/utils";
+import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 
 interface WikiDetail {
   id: string;
@@ -57,6 +59,7 @@ export default function WikiHomePage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [shared, setShared] = useState(false);
+  const { code: refCode } = useMyReferralCode();
 
   useEffect(() => {
     fetch(`/api/wiki/${slug}`, { credentials: "include" })
@@ -110,8 +113,9 @@ export default function WikiHomePage() {
       await fetch(`/api/wiki/${slug}/share`, { method: "POST", credentials: "include" });
       setShared(true);
       // Share the public, crawlable /w/<slug> URL (not the auth-gated
-      // /wiki/<slug> route) so recipients without an account can open it.
-      const shareUrl = `${window.location.origin}/w/${slug}`;
+      // /wiki/<slug> route) so recipients without an account can open it,
+      // with the viewer's own referral code auto-appended.
+      const shareUrl = appendReferralCode(`${window.location.origin}/w/${slug}`, refCode);
       if (navigator.share) {
         await navigator.share({ title: wiki?.name, url: shareUrl }).catch(() => {});
       } else if (navigator.clipboard) {

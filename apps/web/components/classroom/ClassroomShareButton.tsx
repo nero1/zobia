@@ -6,11 +6,15 @@
  * Share a classroom's public /c/<slug> URL — Web Share API with a copy-link
  * fallback, mirroring components/polls/PollShareButton.tsx. The share is
  * recorded (POST /api/classroom/:id/share) for the creator's stats, best
- * effort: it never blocks or error-toasts the share itself.
+ * effort: it never blocks or error-toasts the share itself. The viewer's own
+ * referral code (if logged in) is auto-appended so every share doubles as a
+ * referral link.
  */
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { appendReferralCode } from "@zobia/shared/utils";
+import { useMyReferralCode } from "@/lib/referral/useReferralCode";
 
 export function ClassroomShareButton({
   roomId,
@@ -26,6 +30,7 @@ export function ClassroomShareButton({
   className?: string;
 }) {
   const { t } = useTranslation();
+  const { code: refCode } = useMyReferralCode();
   const [sharing, setSharing] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -34,7 +39,7 @@ export function ClassroomShareButton({
     setSharing(true);
     setNotice(null);
     try {
-      const url = `${window.location.origin}/c/${slug ?? roomId}`;
+      const url = appendReferralCode(`${window.location.origin}/c/${slug ?? roomId}`, refCode);
       if (navigator.share) {
         await navigator.share({ url, title: name }).catch(() => {});
       } else if (navigator.clipboard) {
