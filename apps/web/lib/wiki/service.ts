@@ -24,6 +24,8 @@ import { logger } from "@/lib/logger";
 import { getStaffRoles } from "@/lib/auth/roles";
 import {
   fundContentTreasury,
+  editContentTreasury,
+  closeContentTreasury,
   claimContentTreasuryReward,
   getContentTreasury,
   recordContentShare,
@@ -557,6 +559,27 @@ export async function fundWikiTreasury(wikiId: string, callerId: string, amount:
   if (wiki.owner_id !== callerId) throw forbidden("Only the wiki owner can fund its reward pot.");
 
   return fundContentTreasury(callerId, "wiki", wikiId, amount, maxClaimants, "wiki_treasury_fund");
+}
+
+/** Edit an already-funded pot's amount/max claimants — see editContentTreasury's docstring. */
+export async function editWikiTreasury(wikiId: string, callerId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
+  await requireFeatureEnabled("wiki");
+  await requireFeatureEnabled("wikiMonetization");
+  const { rows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM wikis WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [wikiId]);
+  const wiki = rows[0];
+  if (!wiki) throw notFound("Wiki not found");
+  if (wiki.owner_id !== callerId) throw forbidden("Only the wiki owner can edit its reward pot.");
+  return editContentTreasury(callerId, "wiki", wikiId, amount, maxClaimants, "wiki_treasury_fund", "wiki_treasury_refund");
+}
+
+/** Turn off a wiki's reward pot, refunding unclaimed funds to the owner. */
+export async function closeWikiTreasury(wikiId: string, callerId: string): Promise<TreasuryState> {
+  await requireFeatureEnabled("wiki");
+  const { rows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM wikis WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [wikiId]);
+  const wiki = rows[0];
+  if (!wiki) throw notFound("Wiki not found");
+  if (wiki.owner_id !== callerId) throw forbidden("Only the wiki owner can turn off its reward pot.");
+  return closeContentTreasury(callerId, "wiki", wikiId, "wiki_treasury_refund");
 }
 
 export async function getWikiTreasury(wikiId: string): Promise<TreasuryState | null> {

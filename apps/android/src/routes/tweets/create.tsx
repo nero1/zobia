@@ -133,6 +133,38 @@ function CreateTweetPage() {
 
   const canSubmit = Boolean(content.trim() || imageUrl || (videoProvider && videoUrl.trim()));
 
+  // Don't render the composer at all for someone who isn't eligible to
+  // Tweet yet — mirrors apps/web/app/(app)/tweets/create/page.tsx. Wait
+  // for the real policy fetch (not the permissive placeholder) first.
+  if (lengthPolicy.isLoading) {
+    return (
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('tweets.create.title')}</h1>
+        <div className="py-16 text-center text-sm text-neutral-400 dark:text-neutral-500">{t('action.loading', 'Loading…')}</div>
+      </div>
+    );
+  }
+
+  if (lengthPolicy.currentLevel < lengthPolicy.minLevel) {
+    return (
+      <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
+        <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('tweets.create.title')}</h1>
+        <div className="rounded-xl bg-white dark:bg-neutral-800 shadow-card p-8 text-center">
+          <p className="mb-3 text-3xl">🔒</p>
+          <p className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-100">
+            {t('tweets.create.levelGateTitle', { minLevel: lengthPolicy.minLevel })}
+          </p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            {t('tweets.create.levelGateMessage', { minLevel: lengthPolicy.minLevel, currentLevel: lengthPolicy.currentLevel })}
+          </p>
+          <Link to="/tweets" className="mt-5 inline-block rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white">
+            {t('tweets.create.backToTweets')}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4 space-y-4">
       <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('tweets.create.title')}</h1>
@@ -256,10 +288,6 @@ function CreateTweetPage() {
           </div>
         )}
       </div>
-
-      {tweetsConfig.minLevel > 1 && (
-        <p className="text-xs text-neutral-400 dark:text-neutral-500">{t('tweets.create.levelNotice', { minLevel: tweetsConfig.minLevel })}</p>
-      )}
 
       <div className="flex gap-3">
         <Link to="/tweets" className="flex-1 rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-center text-sm font-semibold text-neutral-700 dark:text-neutral-300">

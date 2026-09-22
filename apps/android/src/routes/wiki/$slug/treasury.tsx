@@ -7,7 +7,7 @@
  * blog posts, plus an owner-only fund form.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
@@ -23,13 +23,37 @@ function WikiTreasuryPage() {
 
   const wikiQuery = useQuery({ queryKey: ['wiki', 'detail', slug], queryFn: () => fetchWiki(slug) });
   const treasuryQuery = useQuery({ queryKey: ['wiki', 'treasury', slug], queryFn: () => fetchTreasury(slug) });
+  const treasury = treasuryQuery.data;
+  const isEditing = !!treasury && treasury.status !== 'closed';
+
+  // Prefill the form with the current pot's numbers once it loads, so
+  // editing starts from its real values rather than an empty form.
+  useEffect(() => {
+    if (treasury && treasury.status !== 'closed') {
+      setAmount(String(treasury.fundedAmount));
+      setMaxClaimants(String(treasury.maxClaimants));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [treasury?.id]);
 
   const fund = useMutation({
     mutationFn: () =>
-      apiClient.post(`/wiki/${slug}/treasury`, {
-        amount: parseInt(amount, 10),
-        maxClaimants: parseInt(maxClaimants, 10),
-      }),
+      isEditing
+        ? apiClient.patch(`/wiki/${slug}/treasury`, {
+            amount: parseInt(amount, 10),
+            maxClaimants: parseInt(maxClaimants, 10),
+          })
+        : apiClient.post(`/wiki/${slug}/treasury`, {
+            amount: parseInt(amount, 10),
+            maxClaimants: parseInt(maxClaimants, 10),
+          }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['wiki', 'treasury', slug] });
+    },
+  });
+
+  const closeTreasury = useMutation({
+    mutationFn: () => apiClient.delete(`/wiki/${slug}/treasury`),
     onSuccess: () => {
       setAmount('');
       setMaxClaimants('');
@@ -40,7 +64,6 @@ function WikiTreasuryPage() {
   if (wikiQuery.isPending) return <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-4"><div className="h-24 rounded bg-neutral-200 dark:bg-neutral-700 animate-pulse" /></div>;
 
   const isOwner = wikiQuery.data?.isOwner ?? false;
-  const treasury = treasuryQuery.data;
   const validAmount = /^\d+$/.test(amount) && parseInt(amount, 10) > 0;
   const validMax = /^\d+$/.test(maxClaimants) && parseInt(maxClaimants, 10) > 0;
 
@@ -84,9 +107,20 @@ function WikiTreasuryPage() {
             onClick={() => fund.mutate()}
             className="w-full rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {fund.isPending ? t('wiki.treasury.funding', 'Funding…') : t('wiki.treasury.fund', 'Fund pot')}
+            {fund.isPending
+              ? isEditing ? t('wiki.treasury.saving', 'Saving…') : t('wiki.treasury.funding', 'Funding…')
+              : isEditing ? t('wiki.treasury.saveChanges', 'Save changes') : t('wiki.treasury.fund', 'Fund pot')}
           </button>
-          {fund.isError && <p className="text-xs text-red-600 dark:text-red-300">{t('error.generic')}</p>}
+          {isEditing && (
+            <button
+              disabled={closeTreasury.isPending}
+              onClick={() => closeTreasury.mutate()}
+              className="w-full rounded-xl border border-red-300 dark:border-red-800 py-2.5 text-sm font-semibold text-red-600 dark:text-red-300 disabled:opacity-50"
+            >
+              {closeTreasury.isPending ? t('wiki.treasury.turningOff', 'Turning off…') : t('wiki.treasury.turnOff', 'Turn off reward')}
+            </button>
+          )}
+          {(fund.isError || closeTreasury.isError) && <p className="text-xs text-red-600 dark:text-red-300">{t('error.generic')}</p>}
         </div>
       )}
     </div>

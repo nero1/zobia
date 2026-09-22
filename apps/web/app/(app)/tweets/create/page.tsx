@@ -191,18 +191,68 @@ export default function CreateTweetPage() {
 
   const canSubmit = Boolean(content.trim() || imageUrl || (videoProvider && videoUrl.trim()));
 
+  const backButton = (
+    <Link
+      href="/tweets"
+      className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+      aria-label="Back to Tweets"
+    >
+      <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+      </svg>
+    </Link>
+  );
+
+  // Don't render the composer at all for someone who isn't eligible to
+  // Tweet yet — no point loading the form/upload/video-picker just to
+  // disable the submit button under it. Wait for the real policy fetch
+  // (not the permissive placeholder) before deciding.
+  if (lengthPolicy.isLoading) {
+    return (
+      <div className="mx-auto max-w-xl p-4 sm:p-6">
+        <div className="mb-6 flex items-center gap-3">
+          {backButton}
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("tweets.create.title")}</h1>
+        </div>
+        <div className="py-16 text-center text-sm text-neutral-400">{t("action.loading", "Loading…")}</div>
+      </div>
+    );
+  }
+
+  if (lengthPolicy.currentLevel < lengthPolicy.minLevel) {
+    return (
+      <div className="mx-auto max-w-xl p-4 sm:p-6">
+        <div className="mb-6 flex items-center gap-3">
+          {backButton}
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("tweets.create.title")}</h1>
+        </div>
+        <div className="rounded-xl border border-neutral-200 bg-white p-8 text-center shadow-card dark:border-neutral-800 dark:bg-neutral-900">
+          <p className="mb-3 text-3xl">🔒</p>
+          <p className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-50">
+            {t("tweets.create.levelGateTitle", "Level {{minLevel}} required", { minLevel: lengthPolicy.minLevel })}
+          </p>
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
+            {t(
+              "tweets.create.levelGateMessage",
+              "You must reach Level {{minLevel}} to post Tweets. Your current level is {{currentLevel}}.",
+              { minLevel: lengthPolicy.minLevel, currentLevel: lengthPolicy.currentLevel }
+            )}
+          </p>
+          <Link
+            href="/tweets"
+            className="mt-5 inline-block rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+          >
+            {t("tweets.create.backToTweets", "Back to Tweets")}
+          </Link>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto max-w-xl p-4 sm:p-6">
       <div className="mb-6 flex items-center gap-3">
-        <Link
-          href="/tweets"
-          className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
-          aria-label="Back to Tweets"
-        >
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-          </svg>
-        </Link>
+        {backButton}
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("tweets.create.title")}</h1>
       </div>
 
@@ -346,11 +396,6 @@ export default function CreateTweetPage() {
             </div>
           )}
         </div>
-
-        {/* Level gate reminder */}
-        {tweetsConfig.minLevel > 1 && (
-          <p className="text-xs text-neutral-400">{t("tweets.create.levelNotice", { minLevel: tweetsConfig.minLevel })}</p>
-        )}
 
         <div className="flex gap-3">
           <Link

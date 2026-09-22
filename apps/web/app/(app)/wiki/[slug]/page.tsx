@@ -109,10 +109,13 @@ export default function WikiHomePage() {
     try {
       await fetch(`/api/wiki/${slug}/share`, { method: "POST", credentials: "include" });
       setShared(true);
+      // Share the public, crawlable /w/<slug> URL (not the auth-gated
+      // /wiki/<slug> route) so recipients without an account can open it.
+      const shareUrl = `${window.location.origin}/w/${slug}`;
       if (navigator.share) {
-        await navigator.share({ title: wiki?.name, url: `${window.location.origin}/wiki/${slug}` }).catch(() => {});
+        await navigator.share({ title: wiki?.name, url: shareUrl }).catch(() => {});
       } else if (navigator.clipboard) {
-        await navigator.clipboard.writeText(`${window.location.origin}/wiki/${slug}`).catch(() => {});
+        await navigator.clipboard.writeText(shareUrl).catch(() => {});
       }
     } catch { /* ignore */ } finally {
       setSharing(false);

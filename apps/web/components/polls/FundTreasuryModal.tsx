@@ -3,14 +3,21 @@
 /**
  * components/polls/FundTreasuryModal.tsx
  *
- * Shared "fund a reward pot" widget for a poll or quiz creator, used on
- * both app/poll/[slug]/page.tsx and app/quiz/[slug]/page.tsx (only rendered
- * when isOwner === true). Funds from the creator's own Credits balance —
- * mirrors the balance-fetch pattern in app/(app)/blogs/gift/[slug]/page.tsx
+ * Shared "reward pot" widget for a poll or quiz creator, used on both
+ * app/poll/[slug]/page.tsx and app/quiz/[slug]/page.tsx (only rendered when
+ * isOwner === true). Funds from the creator's own Credits balance — mirrors
+ * the balance-fetch pattern in app/(app)/blogs/gift/[slug]/page.tsx
  * (GET /api/economy/coins/balance) and useCurrency() for the display name.
  *
- * POST /api/polls/:slug/treasury or /api/quizzes/:slug/treasury
- *   { amount, maxClaimants }
+ * Once a pot exists, re-funding it additively while replacing maxClaimants
+ * used to desync the per-claimant reward from what earlier claimants had
+ * already been paid (see lib/contentTreasury.ts). So this widget now
+ * branches on whether a pot already exists:
+ *   - No pot yet (or an earlier one was turned off): "Fund reward pot" →
+ *     POST (create).
+ *   - Pot exists and is open: "Edit reward pot" → PATCH (adjust amount/max
+ *     claimants; debits an increase or refunds a decrease) or "Turn off" →
+ *     DELETE (refunds whatever's left unclaimed).
  */
 
 import { useEffect, useState } from "react";
@@ -45,7 +52,11 @@ export function FundTreasuryModal({
   const [amount, setAmount] = useState("100");
   const [maxClaimants, setMaxClaimants] = useState("10");
   const [submitting, setSubmitting] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isEditing = !!treasury && treasury.status !== "closed";
+  const endpoint = contentType === "poll" ? `/api/polls/${slug}/treasury` : `/api/quizzes/${slug}/treasury`;
 
   useEffect(() => {
     if (!open) return;
@@ -57,28 +68,35 @@ export function FundTreasuryModal({
       .catch(() => {});
   }, [open]);
 
+  useEffect(() => {
+    if (!open || !isEditing || !treasury) return;
+    setAmount(String(treasury.fundedAmount));
+    setMaxClaimants(String(treasury.maxClaimants));
+    // Only prefill when the panel opens, not on every treasury refresh.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
   const explainer =
     contentType === "poll"
       ? t("polls.treasury.explain", "The first N people who vote (or share) will split this pot evenly.")
       : t("quizzes.treasury.explain", "The first N people who PASS (or share) will split this pot evenly.");
 
-  async function handleFund() {
+  async function handleSubmit() {
     const amountNum = parseInt(amount, 10);
     const maxClaimantsNum = parseInt(maxClaimants, 10);
     if (!Number.isInteger(amountNum) || amountNum <= 0 || !Number.isInteger(maxClaimantsNum) || maxClaimantsNum <= 0) return;
     setSubmitting(true);
     setError(null);
     try {
-      const endpoint = contentType === "poll" ? `/api/polls/${slug}/treasury` : `/api/quizzes/${slug}/treasury`;
       const res = await fetch(endpoint, {
-        method: "POST",
+        method: isEditing ? "PATCH" : "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount: amountNum, maxClaimants: maxClaimantsNum }),
       });
       const json = await res.json().catch(() => null);
       if (!res.ok) {
-        const err = new Error(json?.error?.message ?? "Failed to fund reward pot") as Error & { code?: string | null };
+        const err = new Error(json?.error?.message ?? "Failed to save reward pot") as Error & { code?: string | null };
         err.code = json?.error?.code ?? null;
         throw err;
       }
@@ -92,6 +110,28 @@ export function FundTreasuryModal({
     }
   }
 
+  async function handleTurnOff() {
+    if (!confirm(t("polls.treasury.confirmTurnOff", "Turn off this reward pot? Unclaimed funds are refunded to your balance."))) return;
+    setClosing(true);
+    setError(null);
+    try {
+      const res = await fetch(endpoint, { method: "DELETE", credentials: "include" });
+      const json = await res.json().catch(() => null);
+      if (!res.ok) {
+        const err = new Error(json?.error?.message ?? "Failed to turn off reward pot") as Error & { code?: string | null };
+        err.code = json?.error?.code ?? null;
+        throw err;
+      }
+      setTreasury(json.data as TreasuryState);
+      setOpen(false);
+    } catch (e) {
+      const err = e as Error & { code?: string | null };
+      setError(translateApiError(t, err.code, err.message || "Something went wrong"));
+    } finally {
+      setClosing(false);
+    }
+  }
+
   return (
     <div>
       {treasury && (
@@ -102,13 +142,25 @@ export function FundTreasuryModal({
       )}
 
       {!open ? (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground hover:bg-accent"
-        >
-          🎁 {t("polls.treasury.fundButton", "Fund reward pot")}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => setOpen(true)}
+            className="rounded-xl border border-border bg-background px-4 py-2 text-sm font-semibold text-foreground hover:bg-accent"
+          >
+            🎁 {isEditing ? t("polls.treasury.editButton", "Edit reward pot") : t("polls.treasury.fundButton", "Fund reward pot")}
+          </button>
+          {isEditing && (
+            <button
+              type="button"
+              onClick={handleTurnOff}
+              disabled={closing}
+              className="rounded-xl border border-red-900/50 bg-transparent px-4 py-2 text-sm font-semibold text-red-400 hover:bg-red-950/30 disabled:opacity-50"
+            >
+              {closing ? t("polls.treasury.turningOff", "Turning off…") : t("polls.treasury.turnOff", "Turn off reward")}
+            </button>
+          )}
+        </div>
       ) : (
         <div className="rounded-xl border border-border bg-background p-4">
           <p className="mb-3 text-xs text-muted-foreground">{explainer}</p>
@@ -168,11 +220,17 @@ export function FundTreasuryModal({
             </button>
             <button
               type="button"
-              onClick={handleFund}
+              onClick={handleSubmit}
               disabled={submitting}
               className="flex-1 rounded-xl bg-primary-600 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-50"
             >
-              {submitting ? t("polls.treasury.funding", "Funding…") : t("polls.treasury.confirm", "Fund pot")}
+              {submitting
+                ? isEditing
+                  ? t("polls.treasury.saving", "Saving…")
+                  : t("polls.treasury.funding", "Funding…")
+                : isEditing
+                  ? t("polls.treasury.saveChanges", "Save changes")
+                  : t("polls.treasury.confirm", "Fund pot")}
             </button>
           </div>
         </div>

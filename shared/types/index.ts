@@ -496,6 +496,7 @@ export type CoinTransactionType =
   | 'blog_extra_slot'
   | 'blog_treasury_fund'
   | 'blog_treasury_claim'
+  | 'blog_treasury_refund'
   | 'blog_gift_purchase'
   | 'blog_gift_earnings'
   | 'blog_gift_treasury_fund'
@@ -515,10 +516,12 @@ export type CoinTransactionType =
   | 'poll_vote_reward'
   | 'poll_treasury_fund'
   | 'poll_treasury_claim'
+  | 'poll_treasury_refund'
   | 'quiz_create_reward'
   | 'quiz_attempt_reward'
   | 'quiz_treasury_fund'
   | 'quiz_treasury_claim'
+  | 'quiz_treasury_refund'
   | 'tweet_image_created'
   | 'tweet_long_created'
   | 'room_reward_fund'
@@ -529,6 +532,7 @@ export type CoinTransactionType =
   | 'wiki_contribute_reward'
   | 'wiki_treasury_fund'
   | 'wiki_treasury_claim'
+  | 'wiki_treasury_refund'
   | 'classroom_enrolment'
   | 'classroom_slug_change';
 

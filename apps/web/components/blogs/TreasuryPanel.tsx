@@ -4,9 +4,15 @@
  * components/blogs/TreasuryPanel.tsx
  *
  * Owner-only panel (shown in the post editor, for already-saved posts) to
- * fund/top-up a post's Credits reward pot and see its current state. The
- * first `maxClaimants` readers who comment on or share the post split the
- * pot evenly — see lib/blogs/service.ts's fundPostTreasury/claimTreasuryReward.
+ * fund/edit/turn off a post's Credits reward pot and see its current
+ * state. The first `maxClaimants` readers who comment on or share the post
+ * split the pot evenly — see lib/blogs/service.ts's
+ * fundPostTreasury/editPostTreasury/closePostTreasury/claimTreasuryReward.
+ *
+ * Once a pot exists, editing goes through PATCH (adjust amount/max
+ * claimants) rather than re-POSTing — a plain re-fund used to additively
+ * bump the amount while overwriting max_claimants outright, desyncing the
+ * per-claimant reward from what earlier claimants had already been paid.
  */
 
 import { useEffect, useState } from "react";
@@ -28,32 +34,60 @@ export function TreasuryPanel({ blogSlug, postSlug }: { blogSlug: string; postSl
   const [amount, setAmount] = useState(100);
   const [maxClaimants, setMaxClaimants] = useState(10);
   const [busy, setBusy] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const endpoint = `/api/blogs/${blogSlug}/posts/${postSlug}/treasury`;
+  const isEditing = !!treasury && treasury.status !== "closed";
+
   useEffect(() => {
-    fetch(`/api/blogs/${blogSlug}/posts/${postSlug}/treasury`, { credentials: "include" })
+    fetch(endpoint, { credentials: "include" })
       .then((r) => (r.ok ? r.json() : null))
-      .then((json) => setTreasury(json?.data?.treasury ?? null))
+      .then((json) => {
+        const t: TreasuryState | null = json?.data?.treasury ?? null;
+        setTreasury(t);
+        if (t && t.status !== "closed") {
+          setAmount(t.fundedAmount);
+          setMaxClaimants(t.maxClaimants);
+        }
+      })
       .catch(() => setTreasury(null));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [blogSlug, postSlug]);
 
-  async function fund() {
+  async function save() {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`/api/blogs/${blogSlug}/posts/${postSlug}/treasury`, {
-        method: "POST",
+      const res = await fetch(endpoint, {
+        method: isEditing ? "PATCH" : "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount, maxClaimants }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? "Failed to fund reward pot");
+      if (!res.ok) throw new Error(json?.error?.message ?? "Failed to save reward pot");
       setTreasury(json.data.treasury);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to fund reward pot");
+      setError(err instanceof Error ? err.message : "Failed to save reward pot");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function turnOff() {
+    if (!confirm(t("blogs.treasury.confirmTurnOff", "Turn off this reward pot? Unclaimed funds are refunded to your balance."))) return;
+    setClosing(true);
+    setError(null);
+    try {
+      const res = await fetch(endpoint, { method: "DELETE", credentials: "include" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error?.message ?? "Failed to turn off reward pot");
+      setTreasury(json.data.treasury);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to turn off reward pot");
+    } finally {
+      setClosing(false);
     }
   }
 
@@ -77,7 +111,9 @@ export function TreasuryPanel({ blogSlug, postSlug }: { blogSlug: string; postSl
 
       <div className="flex flex-wrap items-end gap-2">
         <label className="flex flex-col gap-1">
-          <span className="text-xs text-muted-foreground">{t("blogs.treasury.amountLabel", "Add credits")}</span>
+          <span className="text-xs text-muted-foreground">
+            {isEditing ? t("blogs.treasury.totalAmountLabel", "Total credits") : t("blogs.treasury.amountLabel", "Add credits")}
+          </span>
           <input
             type="number"
             min={1}
@@ -100,12 +136,28 @@ export function TreasuryPanel({ blogSlug, postSlug }: { blogSlug: string; postSl
         </label>
         <button
           type="button"
-          onClick={fund}
+          onClick={save}
           disabled={busy}
           className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
         >
-          {busy ? t("blogs.treasury.funding", "Funding…") : treasury ? t("blogs.treasury.topUp", "Top up") : t("blogs.treasury.fund", "Fund pot")}
+          {busy
+            ? isEditing
+              ? t("blogs.treasury.saving", "Saving…")
+              : t("blogs.treasury.funding", "Funding…")
+            : isEditing
+              ? t("blogs.treasury.saveChanges", "Save changes")
+              : t("blogs.treasury.fund", "Fund pot")}
         </button>
+        {isEditing && (
+          <button
+            type="button"
+            onClick={turnOff}
+            disabled={closing}
+            className="rounded-lg border border-red-900/50 px-3 py-1.5 text-sm font-semibold text-red-400 hover:bg-red-950/30 disabled:opacity-50"
+          >
+            {closing ? t("blogs.treasury.turningOff", "Turning off…") : t("blogs.treasury.turnOff", "Turn off reward")}
+          </button>
+        )}
       </div>
       {error && <p className="text-xs text-red-500">{error}</p>}
     </div>

@@ -3,10 +3,15 @@
 /**
  * app/(app)/wiki/[slug]/manage/treasury/page.tsx
  *
- * Reward pot for a wiki (owner only) — fund/top-up
- * GET/POST /api/wiki/<slug>/treasury. Mirrors
+ * Reward pot for a wiki (owner only) — fund/edit/turn off via
+ * GET/POST/PATCH/DELETE /api/wiki/<slug>/treasury. Mirrors
  * components/blogs/TreasuryPanel.tsx's shape (a per-post treasury there;
  * per-wiki here — first N distinct contributors/sharers split the pot).
+ *
+ * Once a pot exists, editing goes through PATCH (adjust amount/max
+ * claimants) rather than re-POSTing — a plain re-fund used to additively
+ * bump the amount while overwriting max_claimants outright, desyncing the
+ * per-claimant reward from what earlier claimants had already been paid.
  */
 
 import { useEffect, useState } from "react";
@@ -35,7 +40,10 @@ export default function WikiTreasuryPage() {
   const [amount, setAmount] = useState(100);
   const [maxClaimants, setMaxClaimants] = useState(10);
   const [busy, setBusy] = useState(false);
+  const [closing, setClosing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const isEditing = !!treasury && treasury.status !== "closed";
 
   useEffect(() => {
     (async () => {
@@ -45,28 +53,49 @@ export default function WikiTreasuryPage() {
 
       const treasuryRes = await fetch(`/api/wiki/${slug}/treasury`, { credentials: "include" });
       const treasuryJson = await treasuryRes.json().catch(() => null);
-      setTreasury(treasuryJson?.data?.treasury ?? null);
+      const t: TreasuryState | null = treasuryJson?.data?.treasury ?? null;
+      setTreasury(t);
+      if (t && t.status !== "closed") {
+        setAmount(t.fundedAmount);
+        setMaxClaimants(t.maxClaimants);
+      }
       setReady(true);
     })();
   }, [slug, router]);
 
-  async function fund() {
+  async function save() {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/wiki/${slug}/treasury`, {
-        method: "POST",
+        method: isEditing ? "PATCH" : "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ amount, maxClaimants }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json?.error?.message ?? t("wiki.treasury.errors.generic", "Failed to fund reward pot"));
+      if (!res.ok) throw new Error(json?.error?.message ?? t("wiki.treasury.errors.generic", "Failed to save reward pot"));
       setTreasury(json.data.treasury);
     } catch (err) {
-      setError(err instanceof Error ? err.message : t("wiki.treasury.errors.generic", "Failed to fund reward pot"));
+      setError(err instanceof Error ? err.message : t("wiki.treasury.errors.generic", "Failed to save reward pot"));
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function turnOff() {
+    if (!confirm(t("wiki.treasury.confirmTurnOff", "Turn off this reward pot? Unclaimed funds are refunded to your balance."))) return;
+    setClosing(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/wiki/${slug}/treasury`, { method: "DELETE", credentials: "include" });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json?.error?.message ?? t("wiki.treasury.errors.generic", "Failed to turn off reward pot"));
+      setTreasury(json.data.treasury);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : t("wiki.treasury.errors.generic", "Failed to turn off reward pot"));
+    } finally {
+      setClosing(false);
     }
   }
 
@@ -97,7 +126,9 @@ export default function WikiTreasuryPage() {
 
         <div className="flex flex-wrap items-end gap-2">
           <label className="flex flex-col gap-1">
-            <span className="text-xs text-muted-foreground">{t("wiki.treasury.amountLabel", "Add credits")}</span>
+            <span className="text-xs text-muted-foreground">
+              {isEditing ? t("wiki.treasury.totalAmountLabel", "Total credits") : t("wiki.treasury.amountLabel", "Add credits")}
+            </span>
             <input
               type="number"
               min={1}
@@ -120,12 +151,28 @@ export default function WikiTreasuryPage() {
           </label>
           <button
             type="button"
-            onClick={fund}
+            onClick={save}
             disabled={busy}
             className="rounded-lg bg-primary px-3 py-1.5 text-sm font-semibold text-primary-foreground hover:opacity-90 disabled:opacity-50"
           >
-            {busy ? t("wiki.treasury.funding", "Funding…") : treasury ? t("wiki.treasury.topUp", "Top up") : t("wiki.treasury.fund", "Fund pot")}
+            {busy
+              ? isEditing
+                ? t("wiki.treasury.saving", "Saving…")
+                : t("wiki.treasury.funding", "Funding…")
+              : isEditing
+                ? t("wiki.treasury.saveChanges", "Save changes")
+                : t("wiki.treasury.fund", "Fund pot")}
           </button>
+          {isEditing && (
+            <button
+              type="button"
+              onClick={turnOff}
+              disabled={closing}
+              className="rounded-lg border border-red-900/50 px-3 py-1.5 text-sm font-semibold text-red-400 hover:bg-red-950/30 disabled:opacity-50"
+            >
+              {closing ? t("wiki.treasury.turningOff", "Turning off…") : t("wiki.treasury.turnOff", "Turn off reward")}
+            </button>
+          )}
         </div>
         {error && <p className="text-sm text-red-500">{error}</p>}
       </div>

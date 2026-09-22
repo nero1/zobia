@@ -1024,11 +1024,16 @@ export async function getPostTreasury(postId: string): Promise<TreasuryState | n
 }
 
 /**
- * Fund (or top up) a post's reward pot. Only the post's author may fund it.
- * A top-up adds to funded_amount/remaining_amount and, if maxClaimants is
- * given, replaces it going forward — existing claimants already paid keep
- * what they got; the per-claim reward for remaining slots is always
- * recomputed from the current funded_amount/max_claimants at claim time.
+ * Create a post's reward pot. Only the post's author may fund it, and only
+ * when no pot already exists for it (or an earlier one was turned off —
+ * see closePostTreasury). Once a pot exists, further changes go through
+ * editPostTreasury (adjust amount/recipients) or closePostTreasury (turn it
+ * off, refunding unclaimed funds) — a plain re-fund used to additively bump
+ * funded_amount while overwriting max_claimants outright, which desynced
+ * the per-claimant reward from what earlier claimants had already been
+ * paid (see lib/contentTreasury.ts's fundContentTreasury, which this
+ * mirrors — Polls/Quizzes/Wiki use that shared module; blog posts predate
+ * it and keep their own copy of the same tables/logic).
  */
 export async function fundPostTreasury(ownerId: string, postId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
   await requireFeatureEnabled("blogs");
@@ -1043,15 +1048,28 @@ export async function fundPostTreasury(ownerId: string, postId: string, amount: 
 
   const referenceId = `blog_treasury_fund:${postId}:${Date.now()}`;
   const result = await db.transaction(async (tx: TransactionClient) => {
+    const { rows: existingRows } = await tx.query<{ status: string }>(
+      `SELECT status FROM blog_post_treasuries WHERE post_id = $1 FOR UPDATE`,
+      [postId]
+    );
+    if (existingRows[0] && existingRows[0].status !== "closed") {
+      throw badRequest(
+        "A reward pot already exists for this post. Edit it or turn it off instead of funding it again.",
+        "BLOG_TREASURY_ALREADY_EXISTS"
+      );
+    }
+
     await checkAndDebit(ownerId, amount, "blog_treasury_fund", referenceId, "Funded a blog post reward pot", { postId }, tx);
     const { rows } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
       `INSERT INTO blog_post_treasuries (post_id, owner_id, funded_amount, remaining_amount, max_claimants)
        VALUES ($1, $2, $3, $3, $4)
        ON CONFLICT (post_id) DO UPDATE SET
-         funded_amount = blog_post_treasuries.funded_amount + $3,
-         remaining_amount = blog_post_treasuries.remaining_amount + $3,
+         owner_id = $2,
+         funded_amount = $3,
+         remaining_amount = $3,
          max_claimants = $4,
-         status = CASE WHEN blog_post_treasuries.status = 'closed' THEN 'closed' ELSE 'active' END,
+         claimant_count = 0,
+         status = 'active',
          updated_at = NOW()
        RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
       [postId, ownerId, amount, maxClaimants]
@@ -1060,6 +1078,105 @@ export async function fundPostTreasury(ownerId: string, postId: string, amount: 
   });
 
   return toTreasuryState(result);
+}
+
+/**
+ * Edit an existing, still-open post reward pot's total amount and/or max
+ * claimants. Debits the owner for any increase, refunds any decrease
+ * (never below what's already been paid out to claimants), and recomputes
+ * remaining_amount/status from the new totals — see editContentTreasury.
+ */
+export async function editPostTreasury(ownerId: string, postId: string, newAmount: number, newMaxClaimants: number): Promise<TreasuryState> {
+  await requireFeatureEnabled("blogs");
+  await requireFeatureEnabled("blogMonetization");
+  if (!Number.isInteger(newAmount) || newAmount <= 0) throw badRequest("Amount must be a positive integer.", "BLOG_TREASURY_INVALID_AMOUNT");
+  if (!Number.isInteger(newMaxClaimants) || newMaxClaimants <= 0) {
+    throw badRequest("Max claimants must be a positive integer.", "BLOG_TREASURY_INVALID_MAX_CLAIMANTS");
+  }
+
+  const { rows: postRows } = await db.query<{ author_id: string }>(`SELECT author_id FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [postId]);
+  const post = postRows[0];
+  if (!post) throw notFound("Post not found");
+  if (post.author_id !== ownerId) throw forbidden("Only the post's author can edit its reward pot.");
+
+  return db.transaction(async (tx: TransactionClient) => {
+    const { rows } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
+      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status
+       FROM blog_post_treasuries WHERE post_id = $1 FOR UPDATE`,
+      [postId]
+    );
+    const treasury = rows[0];
+    if (!treasury) throw notFound("Reward pot not found.");
+    if (treasury.status === "closed") throw badRequest("This reward pot is closed. Fund a new one instead.", "BLOG_TREASURY_CLOSED");
+
+    if (newMaxClaimants < treasury.claimant_count) {
+      throw badRequest(
+        `Max claimants can't be less than the ${treasury.claimant_count} people who already claimed.`,
+        "BLOG_TREASURY_INVALID_MAX_CLAIMANTS"
+      );
+    }
+
+    const alreadyPaid = treasury.funded_amount - treasury.remaining_amount;
+    if (newAmount < alreadyPaid) {
+      throw badRequest(`Amount can't be less than the ${alreadyPaid} already paid out to claimants.`, "BLOG_TREASURY_INVALID_AMOUNT");
+    }
+
+    const delta = newAmount - treasury.funded_amount;
+    if (delta > 0) {
+      await checkAndDebit(ownerId, delta, "blog_treasury_fund", `blog_treasury_edit_debit:${treasury.id}:${Date.now()}`, "Increased a blog post reward pot", { postId }, tx);
+    } else if (delta < 0) {
+      await creditCoins(ownerId, -delta, "blog_treasury_refund", `blog_treasury_edit_refund:${treasury.id}:${Date.now()}`, "Reduced a blog post reward pot", { postId }, tx);
+    }
+
+    const newRemaining = newAmount - alreadyPaid;
+    const rewardPerClaimant = Math.floor(newAmount / newMaxClaimants);
+    const newStatus =
+      treasury.claimant_count >= newMaxClaimants || rewardPerClaimant <= 0 || newRemaining < rewardPerClaimant
+        ? "exhausted"
+        : "active";
+
+    const { rows: updated } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
+      `UPDATE blog_post_treasuries SET funded_amount = $2, remaining_amount = $3, max_claimants = $4, status = $5, updated_at = NOW()
+       WHERE id = $1
+       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
+      [treasury.id, newAmount, newRemaining, newMaxClaimants, newStatus]
+    );
+    return toTreasuryState(updated[0]);
+  });
+}
+
+/**
+ * Turn off a post's reward pot: refunds whatever's left unclaimed to the
+ * author's Credits balance and marks it closed. See closeContentTreasury.
+ */
+export async function closePostTreasury(ownerId: string, postId: string): Promise<TreasuryState> {
+  await requireFeatureEnabled("blogs");
+  const { rows: postRows } = await db.query<{ author_id: string }>(`SELECT author_id FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [postId]);
+  const post = postRows[0];
+  if (!post) throw notFound("Post not found");
+  if (post.author_id !== ownerId) throw forbidden("Only the post's author can turn off its reward pot.");
+
+  return db.transaction(async (tx: TransactionClient) => {
+    const { rows } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
+      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status
+       FROM blog_post_treasuries WHERE post_id = $1 FOR UPDATE`,
+      [postId]
+    );
+    const treasury = rows[0];
+    if (!treasury) throw notFound("Reward pot not found.");
+    if (treasury.status === "closed") throw badRequest("This reward pot is already off.", "BLOG_TREASURY_ALREADY_CLOSED");
+
+    if (treasury.remaining_amount > 0) {
+      await creditCoins(ownerId, treasury.remaining_amount, "blog_treasury_refund", `blog_treasury_close_refund:${treasury.id}`, "Reward pot turned off — unclaimed funds refunded", { postId }, tx);
+    }
+
+    const { rows: updated } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
+      `UPDATE blog_post_treasuries SET remaining_amount = 0, status = 'closed', updated_at = NOW() WHERE id = $1
+       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
+      [treasury.id]
+    );
+    return toTreasuryState(updated[0]);
+  });
 }
 
 /**

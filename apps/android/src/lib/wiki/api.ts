@@ -118,7 +118,10 @@ export interface WikiInvite {
 }
 
 export interface WikiTreasury {
+  id: string;
   status: string;
+  fundedAmount: number;
+  remainingAmount: number;
   maxClaimants: number;
   claimantCount: number;
   rewardPerClaimant: number;

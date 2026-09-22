@@ -96,7 +96,7 @@ Moments are short-lived posts (text, optionally one image) that expire 24 hours 
 Tweets are a permanent (non-expiring) Twitter-style feed at `/tweets`: text + an optional charged image + an optional free video embed, with likes, replies, retweets, and pinning. Backed by `lib/tweets/service.ts`, `apps/web/app/api/tweets/**`, and mirrored on the Capacitor app at `apps/android/src/routes/tweets/*`.
 
 **How they work:**
-- **Creation** (`POST /api/tweets`) runs the same feature-flag → level-gate → charge → atomic-insert pipeline shape as `createMoment()`: `requireFeatureEnabled("tweets")`, `tweets_min_level` (default `2`) gate, then an image charge (if an image is attached) and/or a long-Tweet charge (if the content is over the length policy's default and the author isn't exempt — see below), both via `debitCoins()` inside the *same* `db.transaction()` as the `INSERT INTO tweets`, so a failed insert never leaves a charge behind.
+- **Creation** (`POST /api/tweets`) runs the same feature-flag → level-gate → charge → atomic-insert pipeline shape as `createMoment()`: `requireFeatureEnabled("tweets")`, `tweets_min_level` (default `2`) gate, then an image charge (if an image is attached) and/or a long-Tweet charge (if the content is over the length policy's default and the author isn't exempt — see below), both via `debitCoins()` inside the *same* `db.transaction()` as the `INSERT INTO tweets`, so a failed insert never leaves a charge behind. The `/tweets/create` composer checks this same level gate client-side first, via `GET /api/tweets/policy`'s `minLevel`/`currentLevel` — an ineligible user never sees the compose form at all, only a level-required notice (fixed in v2.30; it previously rendered the full form with just the Post button disabled).
 - **Image uploads** are Credits-only (no Stars option, unlike Moments): `tweets_image_cost_credits` (default `5`, `0` = free). `POST /api/tweets/uploads/image` only stores the file and returns its URL (same 8MB/JPEG-PNG-WebP-GIF constraints and `message`-profile compression as Moments/Forum uploaders); the charge happens at Tweet-creation time.
 - **Video embeds are always free.** YouTube: the ID is extracted from any standard URL shape (`watch?v=`, `youtu.be/`, `/shorts/`, `/embed/`) and rendered via a `youtube-nocookie.com/embed/<id>` iframe on both platforms. TikTok: a full-form URL's ID (`tiktok.com/@user/video/<id>`) is extracted directly; a shortened share link (`vm.tiktok.com/…`) is resolved **server-side** at submit time with one `GET` + `redirect: "follow"`, reading the ID off the final URL — this also validates the link is real (a dead short link fails to resolve and the Tweet is rejected as `INVALID_TIKTOK_URL`). Rendering differs by platform: **web** uses TikTok's official `embed.js`-hydrated `<blockquote class="tiktok-embed">`; the **Capacitor Android app deliberately does not** — a third-party-script-injected same-page iframe was unreliable inside an already-embedded WebView in testing, so Android instead shows a "Watch on TikTok" card that opens the video in the system browser via `@capacitor/browser`.
 - **Tweet length** is not a flat cap. `getTweetsEligibility()` in `lib/tweets/service.ts` computes, per request: `tweets_default_max_length` (default `280` chars, free for everyone), a long-form exemption (free Tweets above that, up to the user's own length setting) granted if the author's XP-rank level ≥ `tweets_long_min_level` (default `10`) **or** their plan/role matches `tweets_long_min_role` (default `["role_admin","role_moderator","pro","max"]`, checked via the pre-existing `isPlanEligible()` helper in `lib/plans/eligibility.ts` — the same allow-list vocabulary that already gates free Support Ticket access), an admin ceiling on personal length expressed in **words** (`tweets_long_max_length`, default `1000`, converted internally to ~chars via a ×6 average-word-length factor), and a hard, non-configurable 7000-char safety cap (`TWEETS_HARD_CHAR_CAP`, mirrored as a DB `CHECK` constraint). Each user can set their own personal length preference (clamped to `[default, ceiling]`) at Settings → Tweets, via `PATCH /api/users/me/settings { tweetMaxLength }`. A non-exempt user posting over the default length is charged `tweets_long_tweet_cost_credits` (default `10`) atomically alongside the Tweet insert; an exempt user's long Tweets are always free. `GET /api/tweets/policy` exposes the caller's resolved policy for the composer's counter/cost-notice UI.
@@ -441,7 +441,13 @@ business logic lives in `lib/blogs/repo.ts` + `lib/blogs/service.ts` +
   Credits on one of their own posts and choose how many people it's split
   between. The first readers (up to that number) who comment on or share
   that post each get an equal cut automatically, shown live on the post
-  as a reward-pot badge. A reader can only claim once per post.
+  as a reward-pot badge. A reader can only claim once per post. Once a pot
+  exists, the owner edits its amount/max claimants (an increase debits
+  them, a decrease refunds them) or turns it off entirely (unclaimed
+  Credits refund immediately) — re-funding it a second time used to
+  silently corrupt the per-claimant math, which is why funding again is no
+  longer offered once a pot is live; same "create once, then edit/turn
+  off" rule applies to Polls/Quizzes/Wikis' reward pots below.
 - **Rewarded Gifts:** separate from the reward pot above — a blog owner
   can define one or more "gifts" a reader can buy with Credits or Stars
   from a "Send a Gift" section on the blog's homepage. A gift can grant a
@@ -529,7 +535,9 @@ Android route; business logic lives in `lib/wiki/repo.ts` +
   mechanic as Polls/Quizzes.
 - **Reward pot ("treasury"):** a wiki owner can fund a Credits pot split
   evenly among the first N distinct people who contribute a page or share
-  the wiki, recomputed at claim time on a top-up. Reuses the generic
+  the wiki. Once funded, the owner edits it (`PATCH`) or turns it off
+  (`DELETE`, refunding unclaimed Credits) at `/wiki/<slug>/manage/
+  treasury` rather than funding it again. Reuses the generic
   `content_treasuries`/`content_treasury_claims`/`content_shares` tables
   already built for Polls/Quizzes (`content_type = 'wiki'`, claim types
   `contribute`/`share`) rather than a bespoke table. Gated by the
@@ -3369,16 +3377,22 @@ rather than introducing a parallel system.
    `blog_post_treasury_claims` mechanic (§32, migration
    `0001_consolidated_schema.sql`) into two shared tables,
    `content_treasuries`/`content_treasury_claims`, keyed by
-   `(content_type, content_id)` where `content_type` is `'poll'` or
-   `'quiz'`. Same anti-abuse shape as blogs: `SELECT ... FOR UPDATE` row
-   lock on the treasury row, `INSERT ... ON CONFLICT (treasury_id,
-   user_id) DO NOTHING` as the one-claim-per-user dedupe, reward-per-
-   claimant recomputed from the *current* funded amount at claim time (so
-   a mid-flight top-up raises the payout for remaining slots), and the
-   creator can never claim their own pot. Poll claim types are
-   `vote`/`share`; quiz claim types are `pass`/`share` (a taker who fails
-   never claims — "first X users who **pass**" per product spec). A
-   separate shared `content_shares` table (also `content_type`-keyed)
+   `(content_type, content_id)` where `content_type` is `'poll'`,
+   `'quiz'`, or `'wiki'`. Same anti-abuse shape as blogs: `SELECT ... FOR
+   UPDATE` row lock on the treasury row, `INSERT ... ON CONFLICT
+   (treasury_id, user_id) DO NOTHING` as the one-claim-per-user dedupe,
+   reward-per-claimant computed as `funded_amount / max_claimants`, and
+   the creator can never claim their own pot. `fundContentTreasury()`
+   only **creates** a pot (refused if an open one already exists);
+   `editContentTreasury()`/`closeContentTreasury()` handle adjusting or
+   turning off an existing one (debiting/refunding the owner as needed) —
+   a plain re-fund used to additively bump the funded amount while
+   overwriting `max_claimants` outright, desyncing the per-claimant
+   reward from what earlier claimants had already been paid (fixed
+   v2.30). Poll claim types are `vote`/`share`; quiz claim types are
+   `pass`/`share` (a taker who fails never claims — "first X users who
+   **pass**" per product spec); wiki claim types are `contribute`/`share`.
+   A separate shared `content_shares` table (also `content_type`-keyed)
    gives idempotent per-user share tracking, mirroring
    `blog_post_shares`.
 4. Baseline (always-on) rewards are a second, independent layer from the
