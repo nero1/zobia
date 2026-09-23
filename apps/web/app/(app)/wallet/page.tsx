@@ -16,6 +16,7 @@ import { useSearchParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useCurrency, type CurrencyNames } from "@/lib/hooks/useCurrency";
+import { useFiatCurrency, formatKoboClient, type FiatCurrency } from "@/lib/hooks/useFiatCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { RANK_COLORS } from "@/lib/xp/rankColors";
 import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
@@ -220,12 +221,12 @@ function RankBadgesSummary({ rank }: { rank: RankSummary }) {
 // Income & Pending Payouts
 // ---------------------------------------------------------------------------
 
-function EarningsSection({ earnings }: { earnings: EarningsData }) {
+function EarningsSection({ earnings, fiat }: { earnings: EarningsData; fiat: FiatCurrency }) {
   const met = earnings.availableEarningsKobo >= earnings.minPayoutKobo;
   const pct = earnings.minPayoutKobo > 0
     ? Math.min(100, Math.round((earnings.availableEarningsKobo / earnings.minPayoutKobo) * 100))
     : 100;
-  const remainingNgn = Math.max(0, Math.ceil((earnings.minPayoutKobo - earnings.availableEarningsKobo) / 100));
+  const remainingKobo = Math.max(0, earnings.minPayoutKobo - earnings.availableEarningsKobo);
 
   return (
     <div className="space-y-3">
@@ -240,7 +241,7 @@ function EarningsSection({ earnings }: { earnings: EarningsData }) {
         <div className="mt-2 flex items-center gap-2">
           <span className="text-2xl">💰</span>
           <span className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">
-            ₦{earnings.totalMonthNgn.toLocaleString()}
+            {formatKoboClient(earnings.totalMonthNgn * 100, fiat)}
           </span>
         </div>
         <p className="mt-1 text-xs text-neutral-400">From gifts, tips, and sponsorships</p>
@@ -249,10 +250,10 @@ function EarningsSection({ earnings }: { earnings: EarningsData }) {
         <div className="mt-4 border-t border-neutral-100 pt-3 dark:border-neutral-800">
           <div className="flex items-center justify-between text-xs">
             <span className={`font-semibold ${met ? "text-teal-700 dark:text-teal-300" : "text-amber-700 dark:text-amber-400"}`}>
-              {met ? "✅ Ready to withdraw" : `₦${remainingNgn.toLocaleString()} more to unlock withdrawal`}
+              {met ? "✅ Ready to withdraw" : `${formatKoboClient(remainingKobo, fiat)} more to unlock withdrawal`}
             </span>
             <span className="tabular-nums text-neutral-400">
-              ₦{Math.floor(earnings.availableEarningsKobo / 100).toLocaleString()} / ₦{Math.floor(earnings.minPayoutKobo / 100).toLocaleString()}
+              {formatKoboClient(earnings.availableEarningsKobo, fiat)} / {formatKoboClient(earnings.minPayoutKobo, fiat)}
             </span>
           </div>
           <div
@@ -290,7 +291,7 @@ function EarningsSection({ earnings }: { earnings: EarningsData }) {
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-bold text-neutral-800 dark:text-neutral-200">
-                    ₦{(p.amount / 100).toLocaleString()}
+                    {formatKoboClient(p.amount, fiat)}
                   </p>
                   <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold capitalize text-amber-700 dark:bg-amber-900 dark:text-amber-300">
                     {p.status.replace(/_/g, " ")}
@@ -315,7 +316,7 @@ interface CoinPacksProps {
   purchasing: string | null;
 }
 
-function CoinPacks({ packs, onPurchase, purchasing, currency }: CoinPacksProps & { currency: CurrencyNames }) {
+function CoinPacks({ packs, onPurchase, purchasing, currency, fiat }: CoinPacksProps & { currency: CurrencyNames; fiat: FiatCurrency }) {
   if (packs.length === 0) return null;
 
   return (
@@ -346,9 +347,7 @@ function CoinPacks({ packs, onPurchase, purchasing, currency }: CoinPacksProps &
               disabled={purchasing === pack.id}
               className="mt-3 rounded-xl bg-blue-600 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             >
-              {purchasing === pack.id
-                ? "Processing…"
-                : `${pack.currency} ${(pack.price / 100).toLocaleString()}`}
+              {purchasing === pack.id ? "Processing…" : formatKoboClient(pack.price, fiat)}
             </button>
           </div>
         ))}
@@ -705,6 +704,7 @@ function WalletContent() {
   // main balance — see lib/economy/adWallet.ts.
   const purchaseDestination = searchParams?.get("destination") === "ad_wallet" ? "ad_wallet" : "main_wallet";
   const currency = useCurrency();
+  const { data: fiat = { currency: "USD", isNigeria: false, usdToNgnRate: "1600" } } = useFiatCurrency();
   const statsEnabled = useFeatureEnabled("profileStats");
 
   const [data, setData] = useState<StoreData>({
@@ -961,7 +961,7 @@ function WalletContent() {
 
       {rank && statsEnabled && <RankBadgesSummary rank={rank} />}
 
-      {data.earnings && <EarningsSection earnings={data.earnings} />}
+      {data.earnings && <EarningsSection earnings={data.earnings} fiat={fiat} />}
 
       {["free", "plus"].includes((data.activePlan ?? data.balance.plan ?? "free").toLowerCase()) ? (
         <RewardedAdButton
@@ -987,7 +987,7 @@ function WalletContent() {
         </div>
       )}
 
-      <CoinPacks packs={data.coinPacks} onPurchase={handlePurchase} purchasing={purchasing} currency={currency} />
+      <CoinPacks packs={data.coinPacks} onPurchase={handlePurchase} purchasing={purchasing} currency={currency} fiat={fiat} />
 
       <BoosterPacks boosters={data.boosters} />
 

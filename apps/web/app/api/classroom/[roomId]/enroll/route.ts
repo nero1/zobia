@@ -30,6 +30,11 @@ import { initializePayment } from "@/lib/payments/paystack";
 import { logger } from "@/lib/logger";
 import { assertUuid } from "@/lib/classroom/http";
 import { classroomPaymentReference, enrolWithBalance, loadEnrolmentRoom } from "@/lib/classroom/enrolment";
+import { getUserRegion } from "@/lib/currency/region";
+
+/** Paystack's own minimum chargeable amount (₦100). Below this, card
+ *  checkout is refused by Paystack itself, so we never offer it. */
+const PAYSTACK_MIN_NGN = 100;
 
 const enrolSchema = z.object({
   paymentMethod: z.enum(["balance", "card"]).default("balance"),
@@ -49,6 +54,20 @@ export const POST = withAuth<{ roomId: string }>(async (req: NextRequest, { para
     if (room.creatorId === userId) throw badRequest("You can't enrol in your own classroom.");
 
     if (room.feeNgn > 0 && body.paymentMethod === "card") {
+      if (room.feeNgn < PAYSTACK_MIN_NGN) {
+        throw badRequest(
+          `Card payment requires at least ₦${PAYSTACK_MIN_NGN}. Please pay with Credits instead.`,
+          "BELOW_PAYSTACK_MINIMUM"
+        );
+      }
+      const region = await getUserRegion(userId, req);
+      if (!region.isNigeria) {
+        throw badRequest(
+          "Card payment is only available in Nigeria right now. Please pay with Credits instead.",
+          "UNSUPPORTED_REGION"
+        );
+      }
+
       const { rows: existing } = await db.query<{ id: string }>(
         `SELECT id FROM classroom_enrolments WHERE room_id = $1 AND user_id = $2`,
         [roomId, userId]

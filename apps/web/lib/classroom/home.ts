@@ -26,6 +26,7 @@ export interface ClassroomHomePayload {
     creator: { id: string; username: string; displayName: string; avatarEmoji: string; avatarUrl: string | null };
     isPublic: boolean;
     isActive: boolean;
+    publishedAt: string | null;
     enrolmentFeeNgn: number;
     memberCount: number;
     classStartDate: string | null;
@@ -84,6 +85,7 @@ export async function buildClassroomHome(ctx: ClassroomContext): Promise<Classro
       },
       isPublic: classroom.isPublic,
       isActive: classroom.isActive,
+      publishedAt: classroom.publishedAt,
       enrolmentFeeNgn: classroom.enrolmentFeeNgn,
       memberCount: classroom.memberCount,
       classStartDate: classroom.classStartDate,

@@ -88,6 +88,13 @@ export const users = pgTable("users", {
   bio: text("bio"),
   city: text("city"),
   country: text("country").default("NG"),
+  // "default" = never confirmed (the pre-fix state where every signup
+  // silently got "NG"); "geo" = self-healed from a request's IP-geolocation
+  // header; "user" = explicitly chosen in Settings. See lib/currency/region.ts.
+  countrySource: text("country_source").notNull().default("default"),
+  // Explicit display-currency override ("NGN" | "USD"). Null = auto-detect
+  // from country. See lib/currency/index.ts.
+  currencyPreference: text("currency_preference"),
   locale: text("locale").default("en"),
   gender: text("gender"),
 
@@ -1281,6 +1288,10 @@ export const rooms = pgTable("rooms", {
 
   // ClassRoom
   curriculum: jsonb("curriculum"),
+  // Null = draft (never published). Set once, the first time the creator
+  // clicks Publish — isPublic remains the operative visibility gate, this is
+  // "has this classroom ever gone live" metadata. See lib/classroom/access.ts.
+  publishedAt: timestamp("published_at", { withTimezone: true }),
   startsAt: timestamp("starts_at", { withTimezone: true }),
   endsAt: timestamp("ends_at", { withTimezone: true }),
   classStartDate: date("class_start_date"),

@@ -38,6 +38,7 @@ import { generateUniqueSlug } from "@/lib/slug";
 import { toRoomCardPayload } from "@/lib/rooms/serialize";
 import { checkSlugAvailability } from "@/lib/classroom/slug";
 import { buildModule } from "@/lib/classroom/curriculum";
+import { getMaxClassrooms, getFreeMinLevel } from "@/lib/classroom/draftLimits";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -460,8 +461,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       creator_tier: string | null;
       xp_creator: number;
       is_admin: boolean;
+      plan: string;
+      level_creator: number;
     }>(
-      `SELECT creator_role, creator_tier, COALESCE(xp_creator, 0) AS xp_creator, is_admin
+      `SELECT creator_role, creator_tier, COALESCE(xp_creator, 0) AS xp_creator, is_admin, plan, level_creator
        FROM users WHERE id = $1 AND deleted_at IS NULL`,
       [auth.user.sub]
     );
@@ -519,7 +522,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         }
         break;
 
-      case "classroom":
+      case "classroom": {
         if (body.enrolmentFeeNgn === undefined) {
           throw badRequest("enrolmentFeeNgn is required for Classroom rooms (use 0 for free)");
         }
@@ -533,7 +536,34 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             );
           }
         }
+
+        if (!isAdmin) {
+          const plan = user.plan ?? "free";
+          if (plan === "free") {
+            const minLevel = await getFreeMinLevel();
+            if ((user.level_creator ?? 1) < minLevel) {
+              throw forbidden(
+                `You need to reach Creator Level ${minLevel} before creating a classroom on the Free plan. Upgrade your plan to create one now.`,
+                "CLASSROOM_LEVEL_TOO_LOW"
+              );
+            }
+          }
+          const [maxClassrooms, { rows: countRows }] = await Promise.all([
+            getMaxClassrooms(plan),
+            db.query<{ n: string }>(
+              `SELECT COUNT(*)::text AS n FROM rooms WHERE creator_id = $1 AND type = 'classroom' AND deleted_at IS NULL`,
+              [auth.user.sub]
+            ),
+          ]);
+          if (Number(countRows[0]?.n ?? 0) >= maxClassrooms) {
+            throw forbidden(
+              `Your plan allows up to ${maxClassrooms} classrooms (draft + live). Publish or delete one, or upgrade your plan, to create another.`,
+              "CLASSROOM_LIMIT_REACHED"
+            );
+          }
+        }
         break;
+      }
 
       case "guild": {
         const platinumAndAbove = ["platinum_1", "platinum_2", "platinum_3", "legend"];
@@ -610,7 +640,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // for games (see app/api/admin/games/route.ts): generate the slug from
     // the name using a throwaway fallback id for the rare all-emoji/empty-name
     // case, then insert it directly.
-    const isPublic = body.type !== "guild";
+    // Classrooms are always created as drafts — the creator must explicitly
+    // click Publish (see PATCH /api/classroom/[roomId]) before they're
+    // discoverable or enrollable by anyone else. Every other room type keeps
+    // the previous immediate-public behavior.
+    const isPublic = body.type !== "guild" && body.type !== "classroom";
     let slug: string | null = null;
     if (body.type === "classroom" && body.slug) {
       // Creator-edited slug from the classroom create form. The partial
@@ -620,7 +654,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         throw conflict("That classroom URL isn't available.", "CLASSROOM_SLUG_UNAVAILABLE", { reason: availability.reason });
       }
       slug = availability.slug;
-    } else if (isPublic) {
+    } else if (isPublic || body.type === "classroom") {
+      // Classrooms get a slug reserved immediately even while still a draft
+      // (isPublic = false) so Studio can preview /c/<slug> and Publish never
+      // fails on a missing URL later.
       slug = await generateUniqueSlug("room", body.name, crypto.randomUUID());
     }
 

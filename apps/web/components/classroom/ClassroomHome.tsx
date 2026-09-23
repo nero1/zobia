@@ -13,7 +13,7 @@
  * (creator) and Manage (creator/moderators → Creator Studio).
  */
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -37,19 +37,63 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
   const searchParams = useSearchParams();
   const roomId = initial.classroom.id;
 
+  const paymentComplete = searchParams?.get("payment") === "complete";
+  // Bounded reconciliation: the enrolment is normally written by the Paystack
+  // webhook, but that can be delayed or never arrive (wrong webhook URL,
+  // signature mismatch, a 500 mid-handler). Poll for up to ~40s, and on each
+  // tick also ask the server to actively re-verify the charge with Paystack
+  // (idempotent — see /api/classroom/[roomId]/enroll/verify) so the
+  // enrolment finalizes even if the webhook never lands, instead of polling
+  // forever against data that will never change.
+  const MAX_VERIFY_ATTEMPTS = 10;
+  const [verifyAttempts, setVerifyAttempts] = useState(0);
+  const [verifying, setVerifying] = useState(false);
+  const [verifyFailed, setVerifyFailed] = useState(false);
+  const verifyingRef = useRef(false);
+
   const homeQuery = useQuery({
     queryKey: ["classroom", roomId, "home"],
     queryFn: () => classroomApi<ClassroomHomePayload>(`/${roomId}`),
     initialData: initial,
     enabled: signedIn,
-    // Returning from a card checkout: poll briefly until the webhook has enrolled us.
     refetchInterval: (q) =>
-      searchParams?.get("payment") === "complete" && !q.state.data?.viewer.isEnrolled ? 4000 : false,
+      paymentComplete && !q.state.data?.viewer.isEnrolled && verifyAttempts < MAX_VERIFY_ATTEMPTS ? 4000 : false,
   });
   const home = homeQuery.data ?? initial;
   const { classroom, viewer } = home;
   const insider = viewer.can.viewMemberContent;
   const canManageStudio = viewer.can.manageClassroom || viewer.isModerator;
+
+  const runVerify = useCallback(async () => {
+    if (verifyingRef.current) return;
+    verifyingRef.current = true;
+    setVerifying(true);
+    try {
+      const result = await classroomApi<{ status: "completed" | "pending" | "failed" }>(
+        `/${roomId}/enroll/verify`,
+        { method: "POST" }
+      );
+      if (result.status === "completed") {
+        await qc.invalidateQueries({ queryKey: ["classroom", roomId, "home"] });
+      } else if (result.status === "failed") {
+        setVerifyFailed(true);
+      }
+    } catch {
+      // transient — the bounded poll below will retry
+    } finally {
+      verifyingRef.current = false;
+      setVerifying(false);
+      setVerifyAttempts((n) => n + 1);
+    }
+  }, [roomId, qc]);
+
+  useEffect(() => {
+    if (!paymentComplete || viewer.isEnrolled || verifyFailed) return;
+    if (verifyAttempts >= MAX_VERIFY_ATTEMPTS) return;
+    const timer = setTimeout(() => void runVerify(), verifyAttempts === 0 ? 0 : 4000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentComplete, viewer.isEnrolled, verifyFailed, verifyAttempts]);
 
   const [tab, setTab] = useState<Tab>(insider ? "community" : "about");
 
@@ -135,6 +179,14 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
                   ✓ {t("classroom.card.enrolled", "Enrolled")}
                 </span>
               ) : null}
+              {insider && (
+                <Link
+                  href={`/rooms/${roomId}`}
+                  className="rounded-xl bg-violet-100 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-200 dark:bg-violet-900/40 dark:text-violet-300 dark:hover:bg-violet-900/60"
+                >
+                  💬 {t("classroom.home.openRoom", "Open Room")}
+                </Link>
+              )}
               <ClassroomShareButton roomId={roomId} slug={classroom.slug} name={classroom.name} signedIn={signedIn} />
               {viewer.can.manageClassroom && <BoostContentButton contentType="classroom" contentId={roomId} title={classroom.name} imageUrl={classroom.coverImageUrl} />}
               {canManageStudio && (
@@ -148,9 +200,33 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
             </div>
           </div>
 
-          {searchParams?.get("payment") === "complete" && !viewer.isEnrolled && (
-            <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
-              {t("classroom.home.paymentPending", "Payment received — finishing your enrolment…")}
+          {paymentComplete && !viewer.isEnrolled && !verifyFailed && (
+            <div className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+              {verifyAttempts < MAX_VERIFY_ATTEMPTS ? (
+                <p>{t("classroom.home.paymentPending", "Payment received — finishing your enrolment…")}</p>
+              ) : (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p>{t("classroom.home.paymentPendingTimeout", "This is taking longer than expected.")}</p>
+                  <button
+                    type="button"
+                    disabled={verifying}
+                    onClick={() => {
+                      setVerifyAttempts(0);
+                    }}
+                    className="rounded-lg bg-amber-600 px-2.5 py-1 font-semibold text-white hover:bg-amber-700 disabled:opacity-60"
+                  >
+                    {verifying ? t("classroom.home.checkingStatus", "Checking…") : t("classroom.home.checkStatus", "Check status")}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+          {paymentComplete && verifyFailed && !viewer.isEnrolled && (
+            <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
+              {t(
+                "classroom.home.paymentFailed",
+                "We couldn't confirm this payment. If you were charged, please contact support — otherwise you can try enrolling again."
+              )}
             </p>
           )}
 

@@ -21,6 +21,7 @@ import { ClassroomShareButton } from "@/components/classroom/ClassroomShareButto
 import { EventsPanel } from "@/components/classroom/EventsPanel";
 import { QuizzesPanel } from "@/components/classroom/QuizzesPanel";
 import { StatsPanel } from "@/components/classroom/studio/StatsPanel";
+import { PublishBar } from "@/components/classroom/studio/PublishBar";
 import { SettingsPanel } from "@/components/classroom/studio/SettingsPanel";
 import { SlugPanel } from "@/components/classroom/studio/SlugPanel";
 import { MembersPanel } from "@/components/classroom/studio/MembersPanel";
@@ -88,6 +89,8 @@ export default function ClassroomStudioDetailPage({ params }: { params: Promise<
           {data.viewer.can.manageClassroom && <BoostContentButton contentType="classroom" contentId={c.id} title={c.name} imageUrl={c.coverImageUrl} />}
         </div>
       </div>
+
+      {data.viewer.can.manageClassroom && <PublishBar home={data} />}
 
       <nav className="flex gap-1 overflow-x-auto rounded-xl border border-neutral-200 bg-white p-1 dark:border-neutral-800 dark:bg-neutral-900">
         {tabs.map((tb) => (

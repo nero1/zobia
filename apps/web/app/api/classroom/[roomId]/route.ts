@@ -96,6 +96,7 @@ export const PATCH = withAuth<{ roomId: string }>(async (req: NextRequest, { par
     if (body.isPublic !== undefined) {
       if (body.isPublic && !classroom.slug) throw badRequest("Set a URL for this classroom before making it public.");
       set("is_public", body.isPublic);
+      if (body.isPublic && !classroom.publishedAt) set("published_at", new Date().toISOString());
     }
     if (body.isActive !== undefined) set("is_active", body.isActive);
     if (body.enrolmentFeeNgn !== undefined) set("enrolment_fee_ngn", body.enrolmentFeeNgn);
