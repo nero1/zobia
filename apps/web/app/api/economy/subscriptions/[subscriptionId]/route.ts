@@ -14,6 +14,7 @@ import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, forbidden, handleApiError } from "@/lib/api/errors";
 import { db } from "@/lib/db";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Shared: load and authorize subscription
@@ -81,6 +82,11 @@ export const DELETE = withAuth(
          SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
          WHERE id = $1`,
         [subscriptionId]
+      );
+
+      logger.info(
+        { userId, subscriptionId, plan: subscription.plan, endsAt: subscription.ends_at },
+        "[subscriptions] cancelled"
       );
 
       return NextResponse.json({

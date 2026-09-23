@@ -24,6 +24,7 @@ import { requireCapability } from "@/lib/classroom/access";
 import { classroomContextFromParams, ok } from "@/lib/classroom/http";
 import { buildClassroomHome } from "@/lib/classroom/home";
 import { classroomSettingsPatchSchema, mergeClassroomSettings } from "@/lib/classroom/settings";
+import { canEnableClassroomChatRoom, getChatRoomMaxTotal } from "@/lib/classroom/chatRoom";
 
 /** Upper bound on a classroom's enrolment fee (₦10m) — well under the DB cap. */
 const MAX_ENROLMENT_FEE_NGN = 10_000_000;
@@ -96,6 +97,7 @@ export const PATCH = withAuth<{ roomId: string }>(async (req: NextRequest, { par
     if (body.isPublic !== undefined) {
       if (body.isPublic && !classroom.slug) throw badRequest("Set a URL for this classroom before making it public.");
       set("is_public", body.isPublic);
+      if (body.isPublic && !classroom.publishedAt) set("published_at", new Date().toISOString());
     }
     if (body.isActive !== undefined) set("is_active", body.isActive);
     if (body.enrolmentFeeNgn !== undefined) set("enrolment_fee_ngn", body.enrolmentFeeNgn);
@@ -103,6 +105,21 @@ export const PATCH = withAuth<{ roomId: string }>(async (req: NextRequest, { par
     if (body.classEndDate !== undefined) set("class_end_date", body.classEndDate);
     if (body.showInCreatorListing !== undefined) set("show_in_creator_listing", body.showInCreatorListing);
     if (body.settings !== undefined) {
+      if (body.settings.chatRoomEnabled === true && !classroom.settings.chatRoomEnabled) {
+        const { rows: planRows } = await db.query<{ plan: string; has_business: boolean }>(
+          `SELECT u.plan, EXISTS(
+             SELECT 1 FROM business_accounts ba WHERE ba.user_id = u.id AND ba.status = 'active'
+           ) AS has_business
+           FROM users u WHERE u.id = $1`,
+          [classroom.creatorId]
+        );
+        const { eligible, reason } = canEnableClassroomChatRoom(
+          planRows[0]?.plan ?? "free",
+          planRows[0]?.has_business ?? false
+        );
+        if (!eligible) throw forbidden(reason ?? "Not eligible for the chat Room", "CHAT_ROOM_NOT_ELIGIBLE");
+        set("max_members", await getChatRoomMaxTotal());
+      }
       set("classroom_settings", JSON.stringify(mergeClassroomSettings(classroom.settings, body.settings)));
       sets[sets.length - 1] += "::jsonb";
     }

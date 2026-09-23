@@ -115,13 +115,26 @@ export async function processChargeSuccess(
 
   // Capture referral commission params from within the transaction so we can
   // fire awardReferralCommissions after the transaction commits (B12).
-  let referralPayload: { userId: string; coins: number; paymentId: string; amountKobo: number } | null = null;
+  let referralPayload: {
+    userId: string;
+    coins: number;
+    paymentId: string;
+    amountKobo: number;
+    crypto: { currency: string; chain: string; expectedBaseUnits: string } | null;
+  } | null = null;
   let classroomEnrolmentXp: { roomId: string; userId: string } | null = null;
 
   await db.transaction(async (tx) => {
     // Idempotency guard — check if this reference was already processed
-    const { rows: existing } = await tx.query<{ id: string; status: string }>(
-      `SELECT id, status FROM payments
+    const { rows: existing } = await tx.query<{
+      id: string;
+      status: string;
+      provider: string | null;
+      chain: string | null;
+      token_symbol: string | null;
+      expected_token_amount: string | null;
+    }>(
+      `SELECT id, status, provider, chain, token_symbol, expected_token_amount FROM payments
        WHERE provider_reference = $1
        FOR UPDATE`,
       [reference]
@@ -591,7 +604,17 @@ export async function processChargeSuccess(
       );
 
       // Capture params for post-transaction referral commission award (B12 — reduces hot-path lock time)
-      referralPayload = { userId, coins: serverCoinsGranted, paymentId, amountKobo: amount };
+      const cryptoRow = existing[0];
+      referralPayload = {
+        userId,
+        coins: serverCoinsGranted,
+        paymentId,
+        amountKobo: amount,
+        crypto:
+          cryptoRow.provider === "crypto" && cryptoRow.chain && cryptoRow.token_symbol && cryptoRow.expected_token_amount
+            ? { currency: cryptoRow.token_symbol, chain: cryptoRow.chain, expectedBaseUnits: cryptoRow.expected_token_amount }
+            : null,
+      };
     }
 
     // Seed the Creator Fund from gross revenue (PRD §14; percent is admin-configurable)
@@ -602,10 +625,23 @@ export async function processChargeSuccess(
   // do not extend the hot-path lock hold time (B12).
   // Type assertion needed because TS narrows `let` vars assigned inside async callbacks to their
   // initial type (null) after the await; the runtime value is correct.
-  const capturedReferral = referralPayload as { userId: string; coins: number; paymentId: string; amountKobo: number } | null;
+  const capturedReferral = referralPayload as {
+    userId: string;
+    coins: number;
+    paymentId: string;
+    amountKobo: number;
+    crypto: { currency: string; chain: string; expectedBaseUnits: string } | null;
+  } | null;
   if (capturedReferral) {
     try {
-      await awardReferralCommissions(db, capturedReferral.userId, capturedReferral.coins, capturedReferral.paymentId, capturedReferral.amountKobo);
+      await awardReferralCommissions(
+        db,
+        capturedReferral.userId,
+        capturedReferral.coins,
+        capturedReferral.paymentId,
+        capturedReferral.amountKobo,
+        capturedReferral.crypto
+      );
     } catch (err) {
       logger.error({ err, paymentId: capturedReferral.paymentId, userId: capturedReferral.userId }, "[webhook/paystack] Referral commission error — writing to DLQ");
       await recordFailedCommission(

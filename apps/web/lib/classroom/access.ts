@@ -37,6 +37,10 @@ export interface ClassroomRecord {
   creatorAvatarUrl: string | null;
   isPublic: boolean;
   isActive: boolean;
+  /** Null until the creator's first Publish click (isPublic stays the
+   *  operative visibility gate — this is metadata for "has this classroom
+   *  ever gone live", used by studio UI and creator-facing plan limits). */
+  publishedAt: string | null;
   enrolmentFeeNgn: number;
   memberCount: number;
   maxMembers: number | null;
@@ -98,6 +102,7 @@ interface ContextRow {
   creator_avatar_url: string | null;
   is_public: boolean | null;
   is_active: boolean | null;
+  published_at: string | null;
   enrolment_fee_ngn: string | number | null;
   member_count: number;
   max_members: number | null;
@@ -132,7 +137,7 @@ export async function loadClassroomContext(
     `SELECT r.id, r.slug, r.name, r.description, r.category, r.cover_emoji, r.cover_image_url,
             r.creator_id, u.username AS creator_username, u.display_name AS creator_display_name,
             u.avatar_emoji AS creator_avatar_emoji, u.avatar_url AS creator_avatar_url,
-            r.is_public, r.is_active, r.enrolment_fee_ngn, r.member_count, r.max_members,
+            r.is_public, r.is_active, r.published_at, r.enrolment_fee_ngn, r.member_count, r.max_members,
             r.curriculum, r.class_start_date::text AS class_start_date,
             r.class_end_date::text AS class_end_date, r.show_in_creator_listing,
             r.classroom_settings, r.created_at, r.updated_at,
@@ -170,6 +175,7 @@ export async function loadClassroomContext(
     creatorAvatarUrl: row.creator_avatar_url,
     isPublic: row.is_public !== false,
     isActive: row.is_active !== false,
+    publishedAt: row.published_at ? new Date(row.published_at).toISOString() : null,
     enrolmentFeeNgn: Number(row.enrolment_fee_ngn ?? 0),
     memberCount: row.member_count,
     maxMembers: row.max_members,

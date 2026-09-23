@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { CancelPlanModal } from "@/components/settings/CancelPlanModal";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -306,7 +307,7 @@ export default function SubscriptionPage() {
   const [error, setError] = useState<string | null>(null);
   const [interval, setInterval] = useState<BillingInterval>("monthly");
   const [upgrading, setUpgrading] = useState<PlanId | null>(null);
-  const [cancelling, setCancelling] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: "success" | "error" } | null>(null);
 
   const showToast = useCallback((msg: string, type: "success" | "error" = "success") => {
@@ -459,19 +460,14 @@ export default function SubscriptionPage() {
     }
   }
 
-  async function handleCancel() {
-    if (!confirm(t('subscription.cancelConfirm'))) return;
-    setCancelling(true);
+  async function handleCancelConfirmed() {
     try {
       await cancelCurrentSubscription();
-      showToast(t('subscription.cancelledSuccess'));
       await loadPlanData();
     } catch (e) {
       const err = e as Error & { code?: string | null };
       const fallback = t('subscription.cancelFailed');
-      showToast(e instanceof Error ? translateApiError(t, err.code, err.message || fallback) : fallback, "error");
-    } finally {
-      setCancelling(false);
+      throw new Error(e instanceof Error ? translateApiError(t, err.code, err.message || fallback) : fallback);
     }
   }
 
@@ -524,6 +520,21 @@ export default function SubscriptionPage() {
         </div>
       )}
 
+      {showCancelModal && (
+        <CancelPlanModal
+          planName={PLANS.find((p) => p.id === currentPlan)?.name ?? currentPlan}
+          endDate={currentPeriodEnd ? formatDate(currentPeriodEnd) : null}
+          features={PLANS.find((p) => p.id === currentPlan)?.features ?? []}
+          onKeepPlan={() => setShowCancelModal(false)}
+          onChangePlan={() => {
+            setShowCancelModal(false);
+            document.getElementById("plan-comparison")?.scrollIntoView({ behavior: "smooth" });
+          }}
+          onConfirmCancel={handleCancelConfirmed}
+          onClose={() => setShowCancelModal(false)}
+        />
+      )}
+
       <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t('subscription.title')}</h1>
 
       {/* Current plan status banner */}
@@ -550,11 +561,10 @@ export default function SubscriptionPage() {
 
           {isPaidPlan && !isCancelled && (
             <button
-              onClick={handleCancel}
-              disabled={cancelling}
-              className="rounded-xl border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 disabled:opacity-60 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
+              onClick={() => setShowCancelModal(true)}
+              className="rounded-xl border border-red-300 px-4 py-2 text-sm font-semibold text-red-600 transition-colors hover:bg-red-50 dark:border-red-700 dark:text-red-400 dark:hover:bg-red-950"
             >
-              {cancelling ? t('subscription.cancelling') : t('subscription.cancelSubscription')}
+              {t('subscription.cancelSubscription')}
             </button>
           )}
         </div>
@@ -586,7 +596,7 @@ export default function SubscriptionPage() {
       </div>
 
       {/* Plan cards */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
+      <div id="plan-comparison" className="grid grid-cols-1 gap-5 sm:grid-cols-2">
         {PLANS.map((plan) => (
           <PlanCard
             key={plan.id}

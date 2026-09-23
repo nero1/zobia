@@ -180,6 +180,7 @@ When a user has an active Plus/Pro/Max subscription or a Business plan that is d
 - **Free → Plus/Pro/Max**: requires payment — the user is redirected to checkout, and the plan activates as soon as that payment is confirmed.
 - **Between two paid plans (e.g. Max → Pro, Plus → Pro)**: takes effect immediately with no new payment and no proration — the remaining time on the current billing period simply continues under the new plan. The plan-switch grid always shows a "Switch to Free" option too; picking it is a downgrade to no paid plan, handled identically to Cancel Subscription below (not a purchase, so it never goes through checkout).
 - **Cancel Subscription / Switch to Free**: the user keeps their current plan's benefits until the current billing period ends, then moves to Free. Switching to Free specifically prompts a confirmation dialog first, since it's easy to trigger by mistake from the plan grid.
+- **Cancel Plan modal** (Settings → Subscription): shows the current plan, the exact date access continues until, and the specific benefits that will be lost after that date. "Cancel Plan" is the primary (destructive-colored) action; "Change Plan" and "Keep Plan" are secondary pills. Confirming shows a brief "Cancelling plan…" progress state, then an optional exit survey: multi-select reasons (bugs/errors, missing features, taking a break, cost too high, other), each with its own conditional follow-up question shown only when that reason is selected, plus a general feedback box — every field optional, Skip or Submit both close the flow (the cancellation itself already completed before the survey appears). Feedback is stored for product review (`subscription_cancellation_feedback`), never surfaced to the user as "optional."
 
 ### Subscription Grace Period
 
@@ -584,6 +585,10 @@ A Room is a public or semi-public group conversation space — the social and co
 - **Per-classroom gamification:** each classroom runs its own points, nine levels, badges and leaderboard (7 days / 30 days / all time), visible only inside that classroom. Members earn points when others like their posts and comments (1 point per like), and by completing lessons, passing quizzes and finishing the course. The creator can rename the nine levels and gate lessons behind them. Classroom activity also earns a smaller bonus on the global Knowledge Track, so it still counts toward the member's platform-wide profile.
 - **Creator tools:** "My Classrooms" (`/classroom/by/<username>`) lists every classroom a creator runs, with a per-classroom switch to hide any of them from their public listing. The **Classroom Studio** summarises revenue, members and pending reports across all of a creator's classrooms, and gives each classroom its own panel: stats, lesson and quiz management, members and moderators, reports, live sessions, URL and settings (details, enrolment fee, dates, visibility, archive). Stats depth follows the creator's plan and creator tier — basic totals for Free/Rookie, activity and completion trends for Plus/Rising, and daily charts, lesson funnels and view-to-enrolment conversion for Pro/Max or Verified creators and above. Classroom earnings land in the creator's existing earnings balance and are withdrawn through the standard creator payout flow (bank transfer, Credits or crypto) — there is no separate classroom wallet. A classroom with paying members can be archived (no new enrolments) but not deleted.
 - **Discovery:** the Classroom hub offers a searchable directory of public classrooms (by name, topic or creator; free/paid; most popular or newest) next to the member's Enrolled classrooms with their progress and level in each.
+- **Draft & Publish:** a classroom is created unpublished (draft) — invisible to the directory, not enrollable, visible only to its creator and moderators — so the creator can build curriculum, pricing and settings at their own pace. Publishing is an explicit action in the Classroom Studio, with an option to also list it on the creator's public "Classrooms by" page. A classroom's public `/c/<slug>` URL is reserved immediately, even while still a draft, so the creator can preview it before publishing.
+  - **Per-plan classroom limits** (draft + live combined, admin-configurable per plan via `/gate44/config`): Free 3, Plus 10, Pro 15, Max 20. Every paid plan gets access at any creator level; a Free-plan user must additionally reach a minimum creator level (default 5, admin-configurable) before creating a classroom at all.
+- **Chat Room:** each classroom has an associated live chat Room (the same underlying Room the classroom itself is, reachable at `/rooms/<roomId>` and linked from the classroom homepage for enrolled members/moderators/creator). It's off by default and only Pro, Max and Business-plan creators may enable it (Classroom Studio → Settings); enabling it raises the classroom's total member cap to 150 (admin-configurable), with a target of 20 concurrently-active participants.
+- **Enrolment payment:** paying with Credits shows a confirmation ("X Credits will be deducted from your Zobia Wallet. Proceed?") before debiting. Pay-by-card (Paystack) only appears when the fee is at or above ₦100 (Paystack's own minimum) and the payer is in Nigeria — otherwise Credits is the only option shown. A card payment that returns from Paystack checkout is reconciled by the client calling a dedicated verify endpoint (which independently re-checks the charge with Paystack and finalizes the enrolment itself if the webhook hasn't landed yet) with a bounded retry, instead of polling indefinitely against data that may never change.
 
 **Guild Rooms**
 - Available to Platinum-tier Guilds and above. Private to Guild members only.
@@ -1867,7 +1872,10 @@ The i18n architecture must support adding additional languages without code chan
 - RTL layout support for Arabic. The UI must reflow correctly in RTL mode.
 - Number formatting (currencies, large numbers with separators) localised per user locale.
 - Date and time formatting localised per user locale.
-- Currency display derived from user locale (₦ for Nigeria, etc.). Conversion rates from CoinGecko or equivalent where needed (e.g., for cross-border coin pricing display).
+- Currency display derived from user **region**, independent of UI language: Nigeria (`country = "NG"`) sees Naira (₦); every other/unknown country sees a USD-equivalent, computed from the same admin-configurable USD/NGN rate the crypto checkout already uses (`payment_usd_to_ngn_rate`) so the two never disagree. All monetary values keep being stored in NGN kobo (the smallest unit) — currency selection is a display-layer concern only, never a storage concern (see §18).
+  - `users.country` previously defaulted to `"NG"` for every signup with nothing ever setting it from the user's real location, which silently showed Naira pricing to non-Nigerian users. It's now self-healed: `users.country_source` tracks whether the value is still the unconfirmed default, and the first authenticated request carrying a geo header (`x-vercel-ip-country` / `cf-ipcountry`) corrects it (`lib/currency/region.ts`).
+  - A user may override the auto-detected currency explicitly (`users.currency_preference`, `PATCH /api/me/currency`) — "Auto" (default), NGN, or USD.
+  - Crypto payments remain the sole checkout path for non-Nigerian users (§40); Paystack card checkout is Nigeria-only both server-side (`enforcePaymentContext`) and in the UI.
 
 ### Locale Detection
 
@@ -7474,6 +7482,51 @@ for the wallet-adapter UI — separate from `SOLANA_RPC_URL` since only
 `CRYPTO_RECEIVING_ADDRESS_BSC` / `CRYPTO_RECEIVING_ADDRESS_SOLANA`
 (**required** to actually accept crypto payments — must be set to wallet
 addresses the operator actually controls before going live).
+
+### Crypto-native payouts for creators & referrers
+
+Distinct from the Wallet page's existing Crypto tab above (which shows a
+*user's own spending* — on-chain balances they hold and crypto payments
+*they made*): this is a separate crypto-native *earnings* ledger for
+commissions and revenue paid *to* a creator or referrer, kept apart from
+NGN/Credits accounting so a JAGA/BNB/SOL-denominated earning is never
+silently exchange-rate-converted and merged into Naira bookkeeping.
+
+- **Referral commissions**: when a referred user's coin purchase was paid
+  with crypto, the referrer's Tier 1 (5%) / Tier 2 (2%) commission is
+  computed as the same percentage of the *token* amount paid, and credited
+  in that same currency — not converted to coins — whenever crypto payouts
+  are enabled in "crypto" mode. `lib/referrals/commissions.ts`,
+  `lib/payments/crypto/payouts.ts`.
+- **Admin controls** (`/gate44/config`, group "Crypto Payouts"):
+  `crypto_payouts_enabled` (default **off**), `crypto_payout_mode`
+  (`credits` default | `crypto`), and per-currency withdrawal thresholds
+  (`crypto_payout_threshold_JAGA/BNB/SOL`, default a computed ~$10
+  equivalent from the live price feed). While disabled, or while mode is
+  `credits`, every crypto-sourced commission still converts to Coins exactly
+  as before this feature existed — nothing changes for operators who don't
+  opt in.
+- **User-facing**: a Crypto Balances section on the Wallet page (hidden
+  entirely unless payouts are enabled in "crypto" mode) shows per-currency
+  balances, a Withdraw action gated by the admin threshold, saved
+  wallet-address management (`user_crypto_wallets`, reused as the
+  withdrawal destination), and recent transactions linking to the chain's
+  block explorer (BscScan / Solscan).
+- **Payout processing**: manual, admin-approved — mirrors the existing
+  Tron/USDT `creator_payouts` flow (`payout_method = 'crypto'`,
+  `requires_manual_approval = true`); `createPayout()` in
+  `lib/payments/crypto/index.ts` still always throws by design (no
+  automated on-chain sends).
+- All arithmetic uses `Decimal.js`/`bigint` base units throughout — never a
+  float — matching the rest of the crypto payment subsystem.
+
+**New migrations:** `db/migrations/0006_currency_crypto_classroom_billing.sql`
+— `crypto_balance_ledger`, `creator_crypto_balances` tables;
+`creator_payouts` gains `crypto_currency`/`crypto_chain`/
+`crypto_amount_base_units`/`crypto_tx_hash`; `creator_wallet_addresses`
+relaxed from one wallet per creator to one per (creator, network) so
+BSC/Solana receiving addresses can coexist with the legacy Tron/USDT one;
+seeds `crypto_payouts_enabled`/`crypto_payout_mode` manifest keys.
 
 ---
 

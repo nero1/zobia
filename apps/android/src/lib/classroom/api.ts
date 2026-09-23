@@ -135,6 +135,9 @@ export interface ClassroomSettings {
   postCategories: string[];
   postingPolicy: 'members' | 'moderators';
   moderatorPermissions: ModeratorPermissions;
+  /** Live chat Room linked from the classroom homepage — off by default,
+   *  Pro/Max/Business plans only. Mirrors apps/web's lib/classroom/settings.ts. */
+  chatRoomEnabled: boolean;
 }
 
 export interface ClassroomHome {
@@ -149,6 +152,8 @@ export interface ClassroomHome {
     creator: { id: string; username: string; displayName: string; avatarEmoji: string };
     isPublic: boolean;
     isActive: boolean;
+    publishedAt: string | null;
+    chatRoomEnabled: boolean;
     enrolmentFeeNgn: number;
     memberCount: number;
     classStartDate: string | null;
