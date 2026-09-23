@@ -26,6 +26,8 @@
  *  - blog_post        -> /blog-posts/<id>    -> redirects to /b/<blogSlug>/<postSlug>   (app/(app)/blog-posts/[id]/page.tsx)
  *  - forum_thread     -> /forum-threads/<id> -> redirects to /f/<threadSlug>            (app/(app)/forum-threads/[id]/page.tsx)
  *  - wiki_page        -> /wiki-pages/<id>    -> redirects to /wiki/<wikiSlug>/<pageSlug> (app/(app)/wiki-pages/[id]/page.tsx)
+ *  - poll             -> /polls/<id>         -> redirects to /poll/<slug>               (app/(app)/polls/[id]/page.tsx)
+ *  - quiz             -> /quizzes/<id>       -> redirects to /quiz/<slug>               (app/(app)/quizzes/[id]/page.tsx)
  *
  *  business_page_post has no standalone detail page at all (posts render
  *  inline on the business page) — /business-posts/<id> looks up the owning
@@ -75,6 +77,8 @@ export function deepLinkPathFor(contentType: FeedContentType, contentId: string)
     case "wiki_page": return `/wiki-pages/${contentId}`;
     case "game": return `/games`;
     case "business_page_post": return `/business-posts/${contentId}`;
+    case "poll": return `/polls/${contentId}`;
+    case "quiz": return `/quizzes/${contentId}`;
     default: return FALLBACK_PATH;
   }
 }

@@ -7,13 +7,14 @@
  * lib/feed/cache.ts for the two-tier memory+Redis cache this relies on).
  *
  * SCOPE NOTE: `friends` and `new` cover a curated subset of content types
- * (moments, tweets, blog posts, forum questions, rooms, wiki pages, games) —
- * not bbforum threads or business page posts — to keep their per-request
- * UNION query bounded and index-friendly. The precomputed `for_you`/
- * `trending` pools (built by the CRON, not per-request) cover every
- * boostable content type. This is a documented simplification, not a
- * platform limitation — extending the friends/new UNION to the remaining
- * two types is mechanical if product wants full parity later.
+ * (moments, tweets, blog posts, forum questions, rooms, classrooms, wiki
+ * pages, games, polls, quizzes) — not bbforum threads or business page
+ * posts — to keep their per-request UNION query bounded and index-friendly.
+ * The precomputed `for_you`/`trending` pools (built by the CRON, not
+ * per-request) cover every boostable content type. This is a documented
+ * simplification, not a platform limitation — extending the friends/new
+ * UNION to the remaining two types is mechanical if product wants full
+ * parity later.
  */
 
 import { db } from "@/lib/db";
@@ -126,6 +127,20 @@ const POPULAR_SOURCES: { sql: string }[] = [
             category AS tag
           FROM games
           WHERE deleted_at IS NULL AND is_active = true AND is_public = true
+          ORDER BY popularity_score DESC LIMIT $1`,
+  },
+  {
+    sql: `SELECT 'poll' AS content_type, id::text AS content_id, creator_id::text AS author_id,
+            title AS title, description AS excerpt, NULL::text AS image_url, created_at,
+            (voter_count * 3 + view_count + share_count * 2)::numeric AS popularity_score, NULL::text AS tag
+          FROM polls WHERE deleted_at IS NULL AND status = 'active'
+          ORDER BY popularity_score DESC LIMIT $1`,
+  },
+  {
+    sql: `SELECT 'quiz' AS content_type, id::text AS content_id, creator_id::text AS author_id,
+            title AS title, description AS excerpt, NULL::text AS image_url, created_at,
+            (attempt_count * 3 + view_count + share_count * 2)::numeric AS popularity_score, NULL::text AS tag
+          FROM quizzes WHERE deleted_at IS NULL AND status = 'active'
           ORDER BY popularity_score DESC LIMIT $1`,
   },
 ];
@@ -485,7 +500,12 @@ async function fetchNewPage(cursor: string | null, limit: number): Promise<FeedP
        UNION ALL
        SELECT * FROM (
          SELECT 'room', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
-         FROM rooms WHERE deleted_at IS NULL AND status = 'active' ORDER BY created_at DESC LIMIT 50
+         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type <> 'classroom' ORDER BY created_at DESC LIMIT 50
+       ) x
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'classroom', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
+         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type = 'classroom' ORDER BY created_at DESC LIMIT 50
        ) x
        UNION ALL
        SELECT * FROM (
@@ -496,6 +516,16 @@ async function fetchNewPage(cursor: string | null, limit: number): Promise<FeedP
        SELECT * FROM (
          SELECT 'game', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
          FROM games WHERE deleted_at IS NULL AND is_active = true AND is_public = true ORDER BY created_at DESC LIMIT 50
+       ) x
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'poll', id::text, creator_id::text, title, description, NULL, created_at, 0::numeric, NULL
+         FROM polls WHERE deleted_at IS NULL AND status = 'active' ORDER BY created_at DESC LIMIT 50
+       ) x
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'quiz', id::text, creator_id::text, title, description, NULL, created_at, 0::numeric, NULL
+         FROM quizzes WHERE deleted_at IS NULL AND status = 'active' ORDER BY created_at DESC LIMIT 50
        ) x
      ) feed
      WHERE $1::timestamptz IS NULL OR created_at < $1::timestamptz OR (created_at = $1::timestamptz AND content_id < $2)
@@ -563,9 +593,27 @@ async function fetchFriendsPage(userId: string, cursor: string | null, limit: nu
        UNION ALL
        SELECT * FROM (
          SELECT 'room', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
-         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND ${connectedTo("creator_id")}
+         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type <> 'classroom' AND ${connectedTo("creator_id")}
          ORDER BY created_at DESC LIMIT 30
        ) d
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'classroom', id::text, creator_id::text, name, description, cover_image_url, created_at, 0::numeric, category
+         FROM rooms WHERE deleted_at IS NULL AND status = 'active' AND type = 'classroom' AND ${connectedTo("creator_id")}
+         ORDER BY created_at DESC LIMIT 30
+       ) e
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'poll', id::text, creator_id::text, title, description, NULL, created_at, 0::numeric, NULL
+         FROM polls WHERE deleted_at IS NULL AND status = 'active' AND ${connectedTo("creator_id")}
+         ORDER BY created_at DESC LIMIT 30
+       ) f
+       UNION ALL
+       SELECT * FROM (
+         SELECT 'quiz', id::text, creator_id::text, title, description, NULL, created_at, 0::numeric, NULL
+         FROM quizzes WHERE deleted_at IS NULL AND status = 'active' AND ${connectedTo("creator_id")}
+         ORDER BY created_at DESC LIMIT 30
+       ) g
      ) feed
      WHERE $2::timestamptz IS NULL OR created_at < $2::timestamptz OR (created_at = $2::timestamptz AND content_id < $3)
      ORDER BY created_at DESC, content_id DESC

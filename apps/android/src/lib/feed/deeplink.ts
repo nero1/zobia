@@ -14,7 +14,8 @@
  *    pattern.
  *
  *  - blog_post (/blog-posts/<id>), forum_thread (/forum-threads/<id>),
- *    wiki_page (/wiki-pages/<id>), business_page_post (/business-posts/<id>):
+ *    wiki_page (/wiki-pages/<id>), business_page_post (/business-posts/<id>),
+ *    poll (/polls/<id>), quiz (/quizzes/<id>):
  *    these are SLUG-keyed canonical pages on web, resolved via one-off
  *    server-side id->slug DB redirect shims added alongside the web Home
  *    Dashboard work (app/(app)/blog-posts/[id]/page.tsx etc. — see
@@ -72,6 +73,8 @@ export function feedItemPath(contentType: FeedContentType, contentId: string, ur
     case 'wiki_page': return `/wiki-pages/${contentId}`;
     case 'game': return '/games';
     case 'business_page_post': return `/business-posts/${contentId}`;
+    case 'poll': return `/polls/${contentId}`;
+    case 'quiz': return `/quizzes/${contentId}`;
     default: return FALLBACK_PATH;
   }
 }

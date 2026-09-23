@@ -5752,13 +5752,14 @@ precomputed, cached **candidate pool** (see §39.3) rather than a live
 per-request query, so the ranking below only has to run occasionally, not
 on every page load. `friends` and `new` are lighter, live per-request
 queries over a curated subset of content types (moments, tweets, blog
-posts, forum questions, rooms, wiki pages, games — not bbforum threads or
-business page posts, to keep the query bounded); extending that subset to
-full parity is straightforward future work.
+posts, forum questions, rooms, classrooms, wiki pages, games, polls,
+quizzes — not bbforum threads or business page posts, to keep the query
+bounded); extending that subset to full parity is straightforward future
+work.
 
 Feed content types: moments, tweets, blog posts, bbforum threads, Answers
-questions (forum_question), rooms, classrooms, wiki pages, games, and
-business page posts.
+questions (forum_question), rooms, classrooms, wiki pages, games, polls,
+quizzes, and business page posts.
 
 For `for_you`, every candidate item is scored into exactly one of seven
 priority tiers (an item can only appear in the highest tier it qualifies
@@ -5867,7 +5868,7 @@ rather than uploading new ad creative from scratch:
 - A new objective, `boost_content`, whose `boosted_content_type` accepts
   any of: `moment`, `tweet`, `blog_post`, `forum_thread`,
   `forum_question`, `room`, `wiki_page`, `game`, `classroom`,
-  `business_page_post`.
+  `business_page_post`, `poll`, `quiz`.
 - `createContentBoostCampaign()` (`lib/ads/repo.ts`) builds the campaign
   from an existing piece of content's own metadata (title/body/image),
   exposed via `POST /api/content/boost`; `GET /api/ads/boostable` lists
@@ -5882,9 +5883,11 @@ rather than uploading new ad creative from scratch:
 - A **Boost** button was added to the owner-facing action row of tweets,
   blog posts (dashboard), Answers questions, bbforum threads, wiki pages,
   business page posts, and room/classroom creator panels. **Not yet
-  available** for moments or games (neither has owner-management UI on web
-  yet) or on the Capacitor Android app at all (web-only for now) — both
-  noted as follow-up work, not oversights.
+  available** for moments, games, polls, or quizzes (none has
+  owner-management UI wired to the Boost button on web yet — `getBoostableContentSummary`/`BOOSTABLE_TYPES`
+  already accept `poll`/`quiz` server-side, so wiring the button up is
+  mechanical) or on the Capacitor Android app at all (web-only for now) —
+  both noted as follow-up work, not oversights.
 
 ### 39.7 Notices, quests, and platform coverage
 

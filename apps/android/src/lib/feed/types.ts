@@ -20,7 +20,9 @@ export type FeedContentType =
   | 'wiki_page'
   | 'game'
   | 'classroom'
-  | 'business_page_post';
+  | 'business_page_post'
+  | 'poll'
+  | 'quiz';
 
 export interface FeedItem {
   contentType: FeedContentType;

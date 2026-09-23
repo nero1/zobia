@@ -23,6 +23,7 @@ import { getBoostableContentSummary } from "@/lib/ads/repo";
 const BOOSTABLE_TYPES = [
   "moment", "tweet", "blog_post", "forum_thread", "forum_question",
   "room", "wiki_page", "game", "classroom", "business_page_post",
+  "poll", "quiz",
 ] as const;
 
 const querySchema = z.object({
