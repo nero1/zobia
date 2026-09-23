@@ -391,7 +391,11 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    `creator_payouts` crypto columns, relaxed `creator_wallet_addresses`
    uniqueness; the `subscription_cancellation_feedback` table — see
    "ClassRooms", "Crypto Payments", and "Subscriptions & Billing" in
-   `docs/HOW-IT-WORKS.md`). `npm run migrate` does this for you.
+   `docs/HOW-IT-WORKS.md`), and `0008_account_appeals.sql` (the
+   `account_appeals` table plus the `appeals_max_refusals` /
+   `appeals_triage_mode` `x_manifest` keys — see "Suspended and Banned
+   Users" in the PRD and "Account Appeals" in `docs/HOW-IT-WORKS.md`).
+   `npm run migrate` does this for you.
 
    > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
    > `db/migrations/0001_consolidated_schema.sql` enables
