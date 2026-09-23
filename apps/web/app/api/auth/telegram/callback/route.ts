@@ -138,6 +138,16 @@ async function upsertTelegramUser(profile: {
     return u;
   }
 
+  // Signups toggle (/gate44/config, /gate44/users Settings tab) — only
+  // blocks brand-new account creation; existing users above already
+  // returned before reaching this point, so they can always still log in.
+  const signupsEnabledRaw = await getManifestValue("signups_enabled");
+  if (signupsEnabledRaw === "false") {
+    throw Object.assign(new Error("Signups are currently disabled"), {
+      code: "SIGNUPS_DISABLED",
+    });
+  }
+
   // Build display name from Telegram profile
   const displayName = [profile.firstName, profile.lastName]
     .filter(Boolean)
@@ -354,6 +364,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       if (blocked.reason) dest.searchParams.set("block_reason", blocked.reason);
       if (blocked.suspendedUntil) dest.searchParams.set("until", blocked.suspendedUntil);
       if (appealCode) dest.searchParams.set("appeal_code", appealCode);
+      return NextResponse.redirect(dest, { status: 302 });
+    }
+    if (code === "SIGNUPS_DISABLED") {
+      const reqOrigin = env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+      const dest = new URL("/auth/error?code=signups_disabled", reqOrigin);
       return NextResponse.redirect(dest, { status: 302 });
     }
     return handleApiError(err);

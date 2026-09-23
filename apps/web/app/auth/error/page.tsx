@@ -11,6 +11,7 @@
  *   rate_limited     — Too many login attempts
  *   invalid_request  — Malformed OAuth callback parameters
  *   unexpected       — Unhandled server error
+ *   signups_disabled — Admin has disabled new signups (/gate44/config); existing users are unaffected
  */
 
 import { Suspense } from "react";
@@ -18,7 +19,7 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 
-type ErrorCode = "session_expired" | "rate_limited" | "invalid_request" | "unexpected" | "email_not_verified";
+type ErrorCode = "session_expired" | "rate_limited" | "invalid_request" | "unexpected" | "email_not_verified" | "signups_disabled";
 
 function ErrorContent() {
   const { t } = useTranslation();
@@ -49,6 +50,12 @@ function ErrorContent() {
       title: t("authError.emailNotVerified.title"),
       body: t("authError.emailNotVerified.body"),
       hint: t("authError.emailNotVerified.hint"),
+    },
+    signups_disabled: {
+      icon: "🚪",
+      title: t("authError.signupsDisabled.title"),
+      body: t("authError.signupsDisabled.body"),
+      hint: t("authError.signupsDisabled.hint"),
     },
     unexpected: {
       icon: "⚠️",

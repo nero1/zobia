@@ -292,11 +292,77 @@ function UserDetailOverlay({
 // Main page
 // ---------------------------------------------------------------------------
 
+// User-related settings mirrored from the central site settings panel
+// (/gate44/config on web, admin/config.tsx here). NOTE: signups_enabled is
+// ALSO editable there — both write the same x_manifest key, so keep both
+// UIs in sync if this key or its default changes.
+function UserSettingsTab() {
+  const qc = useQueryClient();
+  const { data: values, status } = useQuery({
+    queryKey: ['admin', 'user-settings'],
+    queryFn: async () => {
+      const { data } = await apiClient.get<{ data?: { key: string; value: string }[]; entries?: { key: string; value: string }[] }>('/admin/config');
+      const entries = data?.data ?? data?.entries ?? [];
+      const map: Record<string, string> = {};
+      for (const e of entries) map[e.key] = e.value;
+      return map;
+    },
+  });
+  const [saving, setSaving] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
+
+  const save = async (value: boolean) => {
+    setSaving(true);
+    try {
+      await apiClient.put('/admin/config/signups_enabled', { value: value ? 'true' : 'false' });
+      qc.setQueryData<Record<string, string>>(['admin', 'user-settings'], (prev) => ({ ...(prev ?? {}), signups_enabled: value ? 'true' : 'false' }));
+      setToast({ msg: 'Saved', type: 'success' });
+    } catch {
+      setToast({ msg: 'Save failed', type: 'error' });
+    } finally {
+      setSaving(false);
+      setTimeout(() => setToast(null), 3000);
+    }
+  };
+
+  if (status === 'pending') {
+    return <div className="h-16 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />;
+  }
+
+  const enabled = (values?.['signups_enabled'] ?? 'true') === 'true';
+
+  return (
+    <div className="px-4">
+      {toast && <AdminToast message={toast.msg} type={toast.type} />}
+      <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">New Signups Enabled</p>
+            <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+              When off, new Google/Telegram sign-ins are refused (existing users can still log in). Also editable at
+              /gate44/config on web.
+            </p>
+          </div>
+          <button
+            type="button"
+            disabled={saving}
+            onClick={() => void save(!enabled)}
+            className={`relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors disabled:opacity-50 ${enabled ? 'bg-primary-600' : 'bg-neutral-300 dark:bg-neutral-700'}`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AdminUsersPage() {
   const { t } = useTranslation();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const { impersonate } = useAuth();
+  const [tab, setTab] = useState<'users' | 'settings'>('users');
   const [query, setQuery] = useState('');
   const [debouncedQuery, setDebouncedQuery] = useState('');
   const [cursorHistory, setCursorHistory] = useState<(string | undefined)[]>([undefined]);
@@ -355,8 +421,29 @@ function AdminUsersPage() {
     <div className="px-4 py-5">
       <h1 className="mb-4 text-xl font-bold text-neutral-900 dark:text-neutral-100">{t('admin.users.title', 'User Management')}</h1>
 
+      <div className="mb-4 flex w-fit gap-1 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-900 p-1">
+        {(['users', 'settings'] as const).map((tabKey) => (
+          <button
+            key={tabKey}
+            type="button"
+            onClick={() => setTab(tabKey)}
+            className={`rounded-lg px-4 py-1.5 text-sm font-medium capitalize transition-colors ${
+              tab === tabKey
+                ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100'
+                : 'text-neutral-500 dark:text-neutral-400'
+            }`}
+          >
+            {tabKey}
+          </button>
+        ))}
+      </div>
+
       {toast && <AdminToast message={toast.msg} type={toast.type} />}
 
+      {tab === 'settings' && <UserSettingsTab />}
+
+      {tab === 'users' && (
+      <>
       <form onSubmit={(e) => { e.preventDefault(); setDebouncedQuery(query); }} className="mb-4 flex gap-2">
         <input
           type="text"
@@ -436,6 +523,8 @@ function AdminUsersPage() {
           onImpersonate={() => impersonateMutation.mutate(selected.id)}
           impersonatePending={impersonateMutation.isPending}
         />
+      )}
+      </>
       )}
     </div>
   );

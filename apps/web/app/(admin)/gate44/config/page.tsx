@@ -77,6 +77,15 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     type: "string",
     group: "Maintenance Mode",
   },
+  // Signups — NOTE: this same x_manifest key is also editable at
+  // /gate44/users (Settings tab). Keep both UIs in sync if you change this
+  // key or its default.
+  signups_enabled: {
+    label: "New Signups Enabled",
+    description: "When off, new Google/Telegram sign-ins are refused (existing users can still log in). Also editable at /gate44/users (Settings tab).",
+    type: "boolean",
+    group: "Signups",
+  },
   // Group Chats
   group_chat_concurrent_cap: {
     label: "Default Concurrent Cap",

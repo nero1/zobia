@@ -116,6 +116,16 @@ export interface ZobiaManifest {
     enabled: boolean;
     message: string;
   };
+  /**
+   * Sitewide new-account signup toggle — admin-editable at /gate44/config
+   * AND at /gate44/users (Settings tab); both write the same `signups_enabled`
+   * x_manifest key, so keep them in sync if this key or its default changes.
+   * Existing users can always still log in; this only blocks NEW account
+   * creation (Google/Telegram OAuth callbacks create a new `users` row on
+   * first sign-in — see app/api/auth/google/callback and
+   * app/api/auth/telegram/callback).
+   */
+  signupsEnabled: boolean;
   // Auth
   auth: {
     googleEnabled: boolean;
@@ -746,6 +756,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     enabled: false,
     message: "Zobia is briefly unavailable at the moment due to system maintenance. Kindly check back later.",
   },
+  signupsEnabled: true,
   auth: {
     googleEnabled: true,
     telegramEnabled: true,
@@ -1336,6 +1347,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       enabled: parseBool(kv["maintenance_mode_enabled"] ?? "false", DEFAULT_MANIFEST.maintenance.enabled),
       message: unquote(kv["maintenance_message"]) ?? DEFAULT_MANIFEST.maintenance.message,
     },
+    signupsEnabled: parseBool(kv["signups_enabled"] ?? "true", DEFAULT_MANIFEST.signupsEnabled),
     auth: {
       googleEnabled:   parseBool(kv["auth_google_enabled"],   DEFAULT_MANIFEST.auth.googleEnabled),
       telegramEnabled: parseBool(kv["auth_telegram_enabled"], DEFAULT_MANIFEST.auth.telegramEnabled),

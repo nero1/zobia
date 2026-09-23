@@ -257,6 +257,16 @@ async function upsertGoogleUser(profile: {
     // Fall through to create a new user record below.
   }
 
+  // Signups toggle (/gate44/config, /gate44/users Settings tab) — only
+  // blocks brand-new account creation; existing users above already
+  // returned before reaching this point, so they can always still log in.
+  const signupsEnabledRaw = await getManifestValue("signups_enabled");
+  if (signupsEnabledRaw === "false") {
+    throw Object.assign(new Error("Signups are currently disabled"), {
+      code: "SIGNUPS_DISABLED",
+    });
+  }
+
   // Generate a unique username derived from the email
   const username = await uniqueUsername(baseUsernameFromEmail(profile.email));
 
@@ -648,6 +658,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
     if (errCode === "EMAIL_NOT_VERIFIED") {
       return authErrorRedirect(req, "email_not_verified");
+    }
+    if (errCode === "SIGNUPS_DISABLED") {
+      return authErrorRedirect(req, "signups_disabled");
     }
     // Any other error (e.g. a duplicate/prefetched request reusing an
     // already-consumed Google authorization code): if the user already has a

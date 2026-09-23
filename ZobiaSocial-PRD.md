@@ -1723,6 +1723,8 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 - Upgrade users to Moderator role.
 - Reset user passwords, force 2FA, manually verify accounts.
 
+**Signups Toggle** — a master on/off switch for new account creation (`signups_enabled` x_manifest key, default on). When off, a Google/Telegram sign-in for an account that doesn't yet exist is refused with a clear "New signups are paused" message (`/auth/error?code=signups_disabled`); existing users are entirely unaffected and can always still log in. Editable in two places, both writing the same key: the central site settings panel (`/gate44/config`) and a Settings tab on the User Management page (`/gate44/users`) — kept in sync by inline code comments in both files noting the mirror. Mirrored on the Capacitor Android app's `admin/users.tsx` Settings tab.
+
 **20.x Data Management Utility** (`/gate44/data-management`)
 
 A dedicated bulk-data utility, separate from the per-user search/detail flow
@@ -8564,6 +8566,26 @@ models").
 
 ---
 
-*ZobiaSocial PRD v2.32*
+### v2.33 — Changelog
+
+#### Signups Toggle (§20)
+
+- **New feature**: a sitewide `signups_enabled` x_manifest flag (default
+  on) blocks brand-new account creation in both the Google and Telegram
+  OAuth callbacks (`app/api/auth/google/callback`,
+  `app/api/auth/telegram/callback`) while leaving existing-user login
+  completely unaffected. A blocked attempt redirects to
+  `/auth/error?code=signups_disabled` with a clear, translated message.
+- **New migration**: `0010_signups_toggle.sql` — seeds the
+  `signups_enabled` x_manifest key.
+- **Admin UI**: editable from two places, both writing the same key —
+  the central site settings panel (`/gate44/config`, "Signups" group) and
+  a new Settings tab on `/gate44/users`. Each carries an inline code
+  comment pointing at the other so a future change doesn't desync them.
+  Mirrored on the Capacitor Android app's `admin/users.tsx` Settings tab.
+
+---
+
+*ZobiaSocial PRD v2.33*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*
