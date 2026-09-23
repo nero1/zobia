@@ -934,6 +934,86 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     type: "string",
     group: "Miscellaneous",
   },
+
+  // Crypto Payouts
+  crypto_payouts_enabled: {
+    label: "Crypto Payouts Enabled",
+    description: "Lets creators/referrers hold and withdraw crypto-native balances (JAGA/BNB/SOL) instead of always converting to Credits.",
+    type: "boolean",
+    group: "Crypto Payouts",
+  },
+  crypto_payout_mode: {
+    label: "Payout Mode",
+    description: "When enabled above: pay out in the currency it was earned, or always convert to Credits.",
+    type: "select",
+    group: "Crypto Payouts",
+    options: [
+      { value: "credits", label: "Credits" },
+      { value: "crypto", label: "Crypto (native currency)" },
+    ],
+  },
+  crypto_payout_threshold_JAGA: {
+    label: "JAGA Payout Threshold (base units)",
+    description: "Minimum JAGA balance (in wei, 18 decimals) before a withdrawal is allowed. Leave blank to use a computed ~$10 equivalent.",
+    type: "string",
+    group: "Crypto Payouts",
+  },
+  crypto_payout_threshold_BNB: {
+    label: "BNB Payout Threshold (base units)",
+    description: "Minimum BNB balance (in wei, 18 decimals) before a withdrawal is allowed. Leave blank to use a computed ~$10 equivalent.",
+    type: "string",
+    group: "Crypto Payouts",
+  },
+  crypto_payout_threshold_SOL: {
+    label: "SOL Payout Threshold (base units)",
+    description: "Minimum SOL balance (in lamports, 9 decimals) before a withdrawal is allowed. Leave blank to use a computed ~$10 equivalent.",
+    type: "string",
+    group: "Crypto Payouts",
+  },
+
+  // Classrooms
+  classroom_max_total_free: {
+    label: "Max Classrooms — Free",
+    description: "Max classrooms (draft + live combined) a Free plan user may own.",
+    type: "number",
+    group: "Classrooms",
+  },
+  classroom_max_total_plus: {
+    label: "Max Classrooms — Plus",
+    description: "Max classrooms (draft + live combined) a Plus plan user may own.",
+    type: "number",
+    group: "Classrooms",
+  },
+  classroom_max_total_pro: {
+    label: "Max Classrooms — Pro",
+    description: "Max classrooms (draft + live combined) a Pro plan user may own.",
+    type: "number",
+    group: "Classrooms",
+  },
+  classroom_max_total_max: {
+    label: "Max Classrooms — Max",
+    description: "Max classrooms (draft + live combined) a Max plan user may own.",
+    type: "number",
+    group: "Classrooms",
+  },
+  classroom_free_min_level: {
+    label: "Free Plan — Min Creator Level",
+    description: "Creator-track level a Free plan user must reach before creating any classroom.",
+    type: "number",
+    group: "Classrooms",
+  },
+  classroom_chat_max_active: {
+    label: "Chat Room — Max Active",
+    description: "Target max concurrently-active participants in a classroom chat Room.",
+    type: "number",
+    group: "Classrooms",
+  },
+  classroom_chat_max_total: {
+    label: "Chat Room — Max Total Members",
+    description: "Max total roster of a classroom once its chat Room is enabled (Pro/Max/Business only).",
+    type: "number",
+    group: "Classrooms",
+  },
 };
 
 // Groups that should be shown even if they have no items, and in what order.

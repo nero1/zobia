@@ -96,6 +96,11 @@ export const classroomSettingsSchema = z.object({
   /** Who may start a new community post: every member, or moderators/creator only. */
   postingPolicy: z.enum(["members", "moderators"]),
   moderatorPermissions: moderatorPermissionsSchema,
+  /** Live chat Room (/rooms/<roomId>) linked from the classroom homepage.
+   *  Off by default — only Pro/Max/Business creators may turn it on (see
+   *  lib/classroom/chatRoom.ts). Members-only "community" posts (above) are
+   *  unaffected either way. */
+  chatRoomEnabled: z.boolean(),
 });
 export type ClassroomSettings = z.infer<typeof classroomSettingsSchema>;
 
@@ -105,6 +110,7 @@ export const DEFAULT_CLASSROOM_SETTINGS: ClassroomSettings = {
   postCategories: DEFAULT_POST_CATEGORIES,
   postingPolicy: "members",
   moderatorPermissions: DEFAULT_MODERATOR_PERMISSIONS,
+  chatRoomEnabled: false,
 };
 
 /** Partial update accepted from the creator's settings page. */
@@ -115,6 +121,7 @@ export const classroomSettingsPatchSchema = z
     postCategories: z.array(z.string().trim().min(1).max(30)).min(1).max(12),
     postingPolicy: z.enum(["members", "moderators"]),
     moderatorPermissions: moderatorPermissionsSchema.partial(),
+    chatRoomEnabled: z.boolean(),
   })
   .partial();
 export type ClassroomSettingsPatch = z.infer<typeof classroomSettingsPatchSchema>;
@@ -141,6 +148,7 @@ export function parseClassroomSettings(raw: unknown): ClassroomSettings {
   const levels = z.array(z.string().max(40)).length(CLASSROOM_LEVEL_COUNT).safeParse(src.levelNames);
   const cats = classroomSettingsSchema.shape.postCategories.safeParse(src.postCategories);
   const posting = classroomSettingsSchema.shape.postingPolicy.safeParse(src.postingPolicy);
+  const chatRoomEnabled = typeof src.chatRoomEnabled === "boolean" ? src.chatRoomEnabled : false;
 
   return {
     slugPolicy: slug.success ? slug.data : DEFAULT_SLUG_POLICY,
@@ -148,6 +156,7 @@ export function parseClassroomSettings(raw: unknown): ClassroomSettings {
     postCategories: cats.success ? dedupeCategories(cats.data) : DEFAULT_POST_CATEGORIES,
     postingPolicy: posting.success ? posting.data : "members",
     moderatorPermissions: perms.success ? perms.data : DEFAULT_MODERATOR_PERMISSIONS,
+    chatRoomEnabled,
   };
 }
 
@@ -173,6 +182,7 @@ export function mergeClassroomSettings(
     ...(patch.levelNames ? { levelNames: patch.levelNames } : {}),
     ...(patch.postCategories ? { postCategories: patch.postCategories } : {}),
     ...(patch.postingPolicy ? { postingPolicy: patch.postingPolicy } : {}),
+    ...(patch.chatRoomEnabled !== undefined ? { chatRoomEnabled: patch.chatRoomEnabled } : {}),
     slugPolicy: { ...current.slugPolicy, ...(patch.slugPolicy ?? {}) },
     moderatorPermissions: { ...current.moderatorPermissions, ...(patch.moderatorPermissions ?? {}) },
   });

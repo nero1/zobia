@@ -179,7 +179,7 @@ export function ClassroomHome({ initial, signedIn }: { initial: ClassroomHomePay
                   ✓ {t("classroom.card.enrolled", "Enrolled")}
                 </span>
               ) : null}
-              {insider && (
+              {insider && classroom.chatRoomEnabled && (
                 <Link
                   href={`/rooms/${roomId}`}
                   className="rounded-xl bg-violet-100 px-3 py-1.5 text-sm font-semibold text-violet-700 hover:bg-violet-200 dark:bg-violet-900/40 dark:text-violet-300 dark:hover:bg-violet-900/60"

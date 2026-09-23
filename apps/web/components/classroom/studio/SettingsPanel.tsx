@@ -38,6 +38,7 @@ export function SettingsPanel({ home }: { home: ClassroomHomePayload }) {
   const [postingPolicy, setPostingPolicy] = useState(settings.postingPolicy);
   const [categories, setCategories] = useState(settings.postCategories.join(", "));
   const [levelNames, setLevelNames] = useState<string[]>(settings.levelNames);
+  const [chatRoomEnabled, setChatRoomEnabled] = useState(settings.chatRoomEnabled);
   const [perms, setPerms] = useState<ModeratorPermissions>(settings.moderatorPermissions);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
 
@@ -65,6 +66,7 @@ export function SettingsPanel({ home }: { home: ClassroomHomePayload }) {
               .filter(Boolean),
             levelNames,
             moderatorPermissions: perms,
+            chatRoomEnabled,
           },
         },
       }),
@@ -162,6 +164,10 @@ export function SettingsPanel({ home }: { home: ClassroomHomePayload }) {
           <input className={field} value={categories} onChange={(e) => setCategories(e.target.value)} />
           <p className="mt-1 text-[11px] text-neutral-500">{t("classroom.settings.categoriesHint", "“Announcements” posts are reserved for you and moderators, and notify every member.")}</p>
         </div>
+        <label className={check}>
+          <input type="checkbox" checked={chatRoomEnabled} onChange={(e) => setChatRoomEnabled(e.target.checked)} />
+          {t("classroom.settings.chatRoom", "Live chat Room (up to 150 members) — Pro, Max & Business plans")}
+        </label>
       </section>
 
       <section className={section}>

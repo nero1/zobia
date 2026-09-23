@@ -20,6 +20,8 @@ import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { logger } from "@/lib/logger";
 import { raiseAlert } from "@/lib/alerts/dispatch";
+import { getCryptoPayoutsEnabled, getCryptoPayoutMode, creditCryptoBalance } from "@/lib/payments/crypto/payouts";
+import type { CryptoCurrency } from "@zobia/types";
 // Schema-derived types: column name validation at compile time.
 // schema.users.referredBy.name === "referred_by" — any rename triggers a TS error.
 import { schema } from "@/lib/db/schema";
@@ -58,12 +60,21 @@ export interface CommissionResult {
  * @param paymentId          ID of the payment record — used to make each commission reference unique per purchase
  * @param paymentAmountKobo  Actual payment amount in kobo (smallest currency unit) for monetary audit records
  */
+export interface CryptoPurchaseContext {
+  currency: string;
+  chain: string;
+  /** Total base-unit amount the buyer paid, in `currency` — the referrer's
+   *  commission is the same tier percentage of this, in the same currency. */
+  expectedBaseUnits: string;
+}
+
 export async function awardReferralCommissions(
   db: DatabaseClient,
   buyerId: string,
   coinAmount: number,
   paymentId: string,
-  paymentAmountKobo: number = 0
+  paymentAmountKobo: number = 0,
+  cryptoContext: CryptoPurchaseContext | null = null
 ): Promise<CommissionResult> {
   const result: CommissionResult = {
     tier1ReferrerId: null,
@@ -129,10 +140,31 @@ export async function awardReferralCommissions(
 
   result.tier1ReferrerId = tier1Id;
 
+  // Crypto-sourced purchases pay commission in the same crypto currency
+  // (never merged into NGN/Credits accounting) when the admin has enabled
+  // crypto payouts in "crypto" mode. Otherwise — including while crypto
+  // payouts are disabled entirely — commission is credited as Coins exactly
+  // as before this feature existed.
+  const payCryptoNative =
+    cryptoContext !== null && (await getCryptoPayoutsEnabled()) && (await getCryptoPayoutMode()) === "crypto";
+
   // Calculate Tier 1 commission
   const tier1Coins = new Decimal(coinAmount).mul(TIER_1_RATE).toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber();
 
-  if (tier1Coins > 0) {
+  if (payCryptoNative && cryptoContext) {
+    const tier1Crypto = BigInt(
+      new Decimal(cryptoContext.expectedBaseUnits).mul(TIER_1_RATE).toFixed(0, Decimal.ROUND_DOWN)
+    );
+    await creditCryptoBalance(
+      db,
+      tier1Id,
+      cryptoContext.currency as CryptoCurrency,
+      tier1Crypto,
+      "referral_commission",
+      `referral:${paymentId}:t1`,
+      { tier: 1, buyerId, chain: cryptoContext.chain }
+    );
+  } else if (tier1Coins > 0) {
     await creditCoins(
       tier1Id,
       tier1Coins,
@@ -155,6 +187,9 @@ export async function awardReferralCommissions(
       [tier1Id, buyerId, `${paymentId}:t1`, paymentAmountKobo, tier1CommissionKobo, tier1Coins]
     );
   }
+  // Crypto commissions are recorded in crypto_balance_ledger (referral_commissions
+  // is kobo/coin-shaped and doesn't model per-token amounts) — that ledger's
+  // (currency, reference_id) uniqueness gives the same idempotency + audit trail.
 
   // Find Tier 2 referrer (referrer of the Tier 1 referrer).
   // Same column, same schema-validated type.
@@ -170,7 +205,20 @@ export async function awardReferralCommissions(
 
   const tier2Coins = new Decimal(coinAmount).mul(TIER_2_RATE).toDecimalPlaces(0, Decimal.ROUND_DOWN).toNumber();
 
-  if (tier2Coins > 0) {
+  if (payCryptoNative && cryptoContext) {
+    const tier2Crypto = BigInt(
+      new Decimal(cryptoContext.expectedBaseUnits).mul(TIER_2_RATE).toFixed(0, Decimal.ROUND_DOWN)
+    );
+    await creditCryptoBalance(
+      db,
+      tier2Id,
+      cryptoContext.currency as CryptoCurrency,
+      tier2Crypto,
+      "referral_commission",
+      `referral:${paymentId}:t2`,
+      { tier: 2, buyerId, chain: cryptoContext.chain }
+    );
+  } else if (tier2Coins > 0) {
     await creditCoins(
       tier2Id,
       tier2Coins,

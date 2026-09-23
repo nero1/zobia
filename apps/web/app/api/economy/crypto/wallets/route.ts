@@ -3,9 +3,11 @@ export const dynamic = 'force-dynamic';
 /**
  * /api/economy/crypto/wallets
  *
- * Manage the authenticated user's own saved wallet addresses, used to
- * *send* crypto payments (distinct from /api/creator/wallet-address, which
- * is where a creator *receives* payouts).
+ * Manage the authenticated user's own saved wallet addresses (BSC/Solana).
+ * Used both to *send* crypto payments and as the destination for a JAGA/BNB/
+ * SOL crypto payout withdrawal (POST /api/economy/crypto/withdraw) — the
+ * user's own wallet either way. Distinct from /api/creator/wallet-address,
+ * which is the legacy Tron/USDT address for manually-processed payouts.
  *
  * GET    — List saved wallets, address masked (first 4 + … + last 4).
  * POST   — Add or update the wallet for a chain.

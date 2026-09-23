@@ -67,3 +67,18 @@ export function getToken(symbol: CryptoCurrency): TokenDefinition {
 }
 
 export const SUPPORTED_CURRENCIES: CryptoCurrency[] = Object.keys(TOKEN_REGISTRY) as CryptoCurrency[];
+
+/** Block-explorer URL for a transaction hash, for "view on chain" links in
+ *  transaction history (wallet UI). */
+export function explorerTxUrl(chain: CryptoChain, txHash: string): string {
+  return chain === "bsc"
+    ? `https://bscscan.com/tx/${txHash}`
+    : `https://solscan.io/tx/${txHash}`;
+}
+
+/** Block-explorer URL for a wallet address. */
+export function explorerAddressUrl(chain: CryptoChain, address: string): string {
+  return chain === "bsc"
+    ? `https://bscscan.com/address/${address}`
+    : `https://solscan.io/account/${address}`;
+}

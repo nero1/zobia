@@ -2569,6 +2569,13 @@ export const creatorPayouts = pgTable(
   bankAccountLast4: text("bank_account_last4"),
   bankAccountSnapshot: jsonb("bank_account_snapshot"),
   walletAddressSnapshot: text("wallet_address_snapshot"),
+  // payoutMethod "crypto": paid from creator_crypto_balances, in the same
+  // currency it was earned. amountKobo is 0 for these rows — the real
+  // amount lives in cryptoAmountBaseUnits.
+  cryptoCurrency: text("crypto_currency"),
+  cryptoChain: text("crypto_chain"),
+  cryptoAmountBaseUnits: numeric("crypto_amount_base_units", { precision: 40, scale: 0 }),
+  cryptoTxHash: text("crypto_tx_hash"),
   payoutMethod: text("payout_method").default("bank_transfer"),
   region: text("region").default("nigeria"),
   status: text("status").notNull().default("pending"),
@@ -2639,22 +2646,31 @@ export const creatorBankAccounts = pgTable(
   })
 );
 
-export const creatorWalletAddresses = pgTable("creator_wallet_addresses", {
-  id: uuidPk(),
-  creatorId: uuid("creator_id")
-    .notNull()
-    .unique()
-    .references(() => users.id, { onDelete: "cascade" }),
-  network: text("network").notNull().default("tron"),
-  currency: text("currency").notNull().default("USDT"),
-  address: text("address").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const creatorWalletAddresses = pgTable(
+  "creator_wallet_addresses",
+  {
+    id: uuidPk(),
+    creatorId: uuid("creator_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    // "tron" (legacy manual USDT payouts) | "bsc" (JAGA/BNB) | "solana" (SOL).
+    // Migration 0006 relaxed this from one wallet per creator to one per
+    // (creator, network) so a creator can register separate receiving
+    // addresses for each chain their crypto payouts are actually paid in.
+    network: text("network").notNull().default("tron"),
+    currency: text("currency").notNull().default("USDT"),
+    address: text("address").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    creatorNetworkIdx: uniqueIndex("uidx_creator_wallet_addresses_creator_network").on(t.creatorId, t.network),
+  })
+);
 
 // Migration 0053: user-owned wallets used to *send* crypto payments — kept
 // distinct from creatorWalletAddresses above, which is where a creator
@@ -2670,6 +2686,48 @@ export const userCryptoWallets = pgTable("user_crypto_wallets", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
+
+// Migration 0006: crypto-native commission/earnings ledger — separate from
+// the NGN-kobo coin ledger so crypto-sourced earnings are paid back in the
+// same currency, never merged into or reconciled against Naira. See
+// lib/payments/crypto/payouts.ts.
+export const cryptoBalanceLedger = pgTable(
+  "crypto_balance_ledger",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    currency: text("currency").notNull(),
+    // Base units (wei / lamports) as text — arbitrary precision, never a float.
+    amountBaseUnits: numeric("amount_base_units", { precision: 40, scale: 0 }).notNull(),
+    sourceType: text("source_type").notNull(),
+    referenceId: text("reference_id").notNull(),
+    metadata: jsonb("metadata"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    // Idempotency: the same (currency, referenceId) can only ever post once.
+    refIdx: uniqueIndex("uidx_crypto_balance_ledger_currency_reference").on(t.currency, t.referenceId),
+    userIdx: index("idx_crypto_balance_ledger_user").on(t.userId, t.createdAt),
+  })
+);
+
+export const creatorCryptoBalances = pgTable(
+  "creator_crypto_balances",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    currency: text("currency").notNull(),
+    balanceBaseUnits: numeric("balance_base_units", { precision: 40, scale: 0 }).notNull().default("0"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    userCurrencyIdx: uniqueIndex("uidx_creator_crypto_balances_user_currency").on(t.userId, t.currency),
+  })
+);
 
 // Migration 0053: admin manual USD price override per crypto currency.
 export const cryptoExchangeRateOverrides = pgTable("crypto_exchange_rate_overrides", {

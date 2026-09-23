@@ -27,6 +27,7 @@ export interface ClassroomHomePayload {
     isPublic: boolean;
     isActive: boolean;
     publishedAt: string | null;
+    chatRoomEnabled: boolean;
     enrolmentFeeNgn: number;
     memberCount: number;
     classStartDate: string | null;
@@ -86,6 +87,7 @@ export async function buildClassroomHome(ctx: ClassroomContext): Promise<Classro
       isPublic: classroom.isPublic,
       isActive: classroom.isActive,
       publishedAt: classroom.publishedAt,
+      chatRoomEnabled: classroom.settings.chatRoomEnabled,
       enrolmentFeeNgn: classroom.enrolmentFeeNgn,
       memberCount: classroom.memberCount,
       classStartDate: classroom.classStartDate,
