@@ -399,6 +399,7 @@ export function SettingsPanel({ home }: { home: ClassroomHome }) {
   const [cats, setCats] = useState(settings.postCategories.join(', '));
   const [levels, setLevels] = useState(settings.levelNames);
   const [perms, setPerms] = useState<ModeratorPermissions>(settings.moderatorPermissions);
+  const [chatRoomEnabled, setChatRoomEnabled] = useState(settings.chatRoomEnabled);
   const [msg, setMsg] = useState<string | null>(null);
   const save = useMutation({
     mutationFn: () =>
@@ -409,7 +410,13 @@ export function SettingsPanel({ home }: { home: ClassroomHome }) {
         isPublic,
         isActive,
         showInCreatorListing: listed,
-        settings: { postingPolicy: posting, postCategories: cats.split(',').map((s) => s.trim()).filter(Boolean), levelNames: levels, moderatorPermissions: perms },
+        settings: {
+          postingPolicy: posting,
+          postCategories: cats.split(',').map((s) => s.trim()).filter(Boolean),
+          levelNames: levels,
+          moderatorPermissions: perms,
+          chatRoomEnabled,
+        },
       }),
     onSuccess: () => {
       setMsg(t('classroom.settings.saved', 'Settings saved'));
@@ -446,6 +453,10 @@ export function SettingsPanel({ home }: { home: ClassroomHome }) {
         <label className="block text-xs text-neutral-500">
           {t('classroom.settings.categories', 'Post categories (comma-separated)')}
           <input className={field} value={cats} onChange={(e) => setCats(e.target.value)} />
+        </label>
+        <label className={check}>
+          <input type="checkbox" checked={chatRoomEnabled} onChange={(e) => setChatRoomEnabled(e.target.checked)} />
+          {t('classroom.settings.chatRoom', 'Live chat Room (up to 150 members) — Pro, Max & Business plans')}
         </label>
       </div>
       <div className={card}>

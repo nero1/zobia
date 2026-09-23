@@ -150,6 +150,11 @@ function ClassroomHomePage() {
           ) : viewer.isEnrolled ? (
             <span className="rounded-full bg-teal-100 px-3 py-1 text-xs font-semibold text-teal-700">✓ {t('classroom.card.enrolled', 'Enrolled')}</span>
           ) : null}
+          {insider && classroom.chatRoomEnabled && (
+            <Link to="/rooms/$roomId" params={{ roomId: classroom.id }} className="rounded-xl bg-violet-100 px-3 py-1.5 text-sm font-semibold text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
+              💬 {t('classroom.home.openRoom', 'Open Room')}
+            </Link>
+          )}
           <ClassroomShareButton roomId={classroom.id} slug={classroom.slug} name={classroom.name} />
           {viewer.can.manageClassroom && <ClassroomBoostButton roomId={classroom.id} name={classroom.name} />}
           {(viewer.can.manageClassroom || viewer.isModerator) && (
