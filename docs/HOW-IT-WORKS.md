@@ -3051,9 +3051,40 @@ await Promise.allSettled(
 
 ## Auth Error Page
 
-When Google OAuth fails (CSRF expiry, rate limit, banned/suspended account, stale token), the callback redirects to `/auth/error?code=<errorCode>` instead of showing raw JSON. The page renders a user-friendly message with a "Back to sign in" button. The `/auth/error` route is public (no auth required). All OAuth cookies (`zobia_csrf_state`, `zobia_mobile_redirect`, `zobia_web_redirect`) are cleared on every error path.
+When Google OAuth fails (CSRF expiry, rate limit, stale token), the callback redirects to `/auth/error?code=<errorCode>` instead of showing raw JSON. The page renders a user-friendly message with a "Back to sign in" button. The `/auth/error` route is public (no auth required). All OAuth cookies (`zobia_csrf_state`, `zobia_mobile_redirect`, `zobia_web_redirect`) are cleared on every error path.
 
 Supported error codes: `session_expired`, `rate_limited`, `invalid_request`, `email_not_verified`, `unexpected`.
+
+A **banned or suspended** account is a distinct path, not one of the above codes — see "Blocked Login (Suspended/Banned) & Account Appeals" below; it redirects to `/auth/login` (or the native app's login screen on mobile), not `/auth/error`.
+
+---
+
+## Blocked Login (Suspended/Banned) & Account Appeals
+
+When `app/api/auth/google/callback` or `app/api/auth/telegram/callback` upserts a user and finds `is_banned`/`is_suspended`, it:
+
+1. Rate-limits the attempt with `RATE_LIMITS.loginBlocked` (5 / 15 min, keyed by `userId` — tighter than the general `RATE_LIMITS.login`/`RATE_LIMITS.auth`, since identity is already established via the OAuth provider's verified profile at this point).
+2. Issues a short-lived (30 min), Redis-backed, single-use **appeal token** via `lib/auth/appealToken.ts` (`issueAppealToken`/`peekAppealToken`/`consumeAppealToken`) — mirrors the existing `web_pre_auth:{code}`/`mobile_pre_auth:{code}` handoff pattern used for the 2FA gate.
+3. Redirects to `/auth/login` with `error=account_terminated` (banned) or `error=account_suspended`, plus `block_reason`, `until` (suspension end, ISO), and `appeal_code` query params. On the mobile flow, this redirect goes to the app's own deep link (re-derived from the `zobia_mobile_redirect` cookie/query param in the `catch` block, since the `try` block's local isn't in scope there) instead of the web login page, so the native Android login screen (`apps/android/src/routes/auth/login.tsx`) renders its own banner via `__root.tsx`'s `appUrlOpen` handler.
+
+`components/auth/LoginPageClient.tsx` renders a distinct banner per code (translated via `auth.error.accountTerminated`/`accountSuspended`, `auth.error.reasonLabel`, `auth.error.suspendedUntilLabel` — formatted with `lib/format/date.ts`'s `formatShortDateTime()`), with a "File an appeal" link to `/appeal?code=<appeal_code>` when one was issued. Note: `error` and `block_reason` are separate query params — `reason` was already in use by `SessionExpiredModal`/`silent-refresh` for `reason=session_expired`.
+
+**Appeal submission** (`app/appeal/page.tsx`, public route, reached only via `?code=`):
+- `GET /api/appeals/token?code=...` (`app/api/appeals/token/route.ts`) peeks the token (doesn't consume) to pre-fill the account email, original reason, and suspension end date.
+- `POST /api/appeals` (`app/api/appeals/route.ts`) consumes the token (identity + single-use), accepts `reason` (20-2000 chars) and an optional alternate `contactEmail`, and:
+  - refuses if the user's denied-appeal count for this `appeal_type` has reached `x_manifest appeals_max_refusals` (default 3, `ApiError` code `APPEAL_LIMIT_REACHED`);
+  - refuses if a `pending`/`under_review` appeal already exists for this user+type (`APPEAL_ALREADY_PENDING`);
+  - if `x_manifest appeals_triage_mode` is `ai_then_manual`, runs `classifyAccountAppeal()` (`lib/moderation/aiClassifier.ts`, reusing the same DeepSeek/Gemini `aiClient` pattern as `classifySponsoredQuest`/`classifyAdCreative`) and stores the result on `ai_triage_result` — advisory only, never auto-decides;
+  - inserts into `account_appeals` (`db/migrations/0008_account_appeals.sql`) and raises a `moderation`-category alert.
+
+**Admin review** — `/gate44/moderation/appeals` (nav entry next to Moderation/Moderation Settings/Moderation Roster):
+- `GET /api/admin/appeals?status=pending|approved|denied|all` lists appeals joined with the user's current suspend/ban state.
+- `PATCH /api/admin/appeals/[appealId]` with `{ action: "approve" | "deny", adminNotes? }`:
+  - `approve` calls `restoreUserAccount()` (`lib/moderation/accountActions.ts`) — the exact same unban/unsuspend logic the direct admin action (`POST /api/admin/users/[userId]/actions`, `action: "restore"`) uses, extracted so there is exactly one place that lifts a suspension/ban — and logs an `admin_actions` row (`action: "restore"`).
+  - `deny` increments `refusal_count` on the appeal row.
+- The same page has an inline settings panel for `appeals_max_refusals`/`appeals_triage_mode`, writing through the existing generic `PUT /api/admin/config/[key]` endpoint (same pattern as `/gate44/moderation/settings`).
+
+Android does not duplicate the appeal form natively — "File an appeal" opens the responsive `/appeal` web page in the in-app browser (`Browser.open`), the same pattern already used for Account Restore's `/auth/restore` link on Android.
 
 ---
 

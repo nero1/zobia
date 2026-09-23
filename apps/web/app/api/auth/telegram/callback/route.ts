@@ -38,6 +38,7 @@ import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, getUserAgent, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getManifestValue } from "@/lib/manifest";
 import { env } from "@/lib/env";
+import { issueAppealToken } from "@/lib/auth/appealToken";
 
 // ---------------------------------------------------------------------------
 // Allowed mobile redirect schemes (mirrors Google callback — ZB-01)
@@ -74,6 +75,9 @@ interface UserRow {
   is_moderator: boolean;
   is_banned: boolean;
   is_suspended: boolean;
+  suspension_reason: string | null;
+  suspended_until: string | null;
+  ban_reason: string | null;
   totp_enabled: boolean;
   onboarding_completed: boolean;
   display_name: string | null;
@@ -106,6 +110,7 @@ async function upsertTelegramUser(profile: {
   // Check if user already exists with this Telegram ID
   const existing = await db.query<UserRow>(
     `SELECT id, email, username, is_admin, is_moderator, is_banned, is_suspended,
+            suspension_reason, suspended_until, ban_reason,
             totp_enabled, onboarding_completed, display_name, avatar_emoji, city,
             xp_total, rank_name, plan, is_creator
      FROM users
@@ -116,9 +121,31 @@ async function upsertTelegramUser(profile: {
 
   if (existing.rows[0]) {
     const u = existing.rows[0];
-    if (u.is_banned) throw Object.assign(new Error("Account is banned"), { code: "ACCOUNT_BANNED" });
-    if (u.is_suspended) throw Object.assign(new Error("Account is suspended"), { code: "ACCOUNT_SUSPENDED" });
+    if (u.is_banned || u.is_suspended) {
+      // Keyed by userId — identity is already established via Telegram's
+      // signed widget payload at this point (BUG-060: bypassL1 on the general
+      // per-IP auth limiter alone doesn't stop a blocked account being
+      // re-tried repeatedly), so use the tighter RATE_LIMITS.loginBlocked.
+      await enforceRateLimit(u.id, "user", RATE_LIMITS.loginBlocked);
+      throw Object.assign(new Error(u.is_banned ? "Account is banned" : "Account is suspended"), {
+        code: u.is_banned ? "ACCOUNT_BANNED" : "ACCOUNT_SUSPENDED",
+        userId: u.id,
+        email: u.email ?? null,
+        reason: u.is_banned ? (u.ban_reason ?? null) : (u.suspension_reason ?? null),
+        suspendedUntil: u.is_banned ? null : (u.suspended_until ?? null),
+      });
+    }
     return u;
+  }
+
+  // Signups toggle (/gate44/config, /gate44/users Settings tab) — only
+  // blocks brand-new account creation; existing users above already
+  // returned before reaching this point, so they can always still log in.
+  const signupsEnabledRaw = await getManifestValue("signups_enabled");
+  if (signupsEnabledRaw === "false") {
+    throw Object.assign(new Error("Signups are currently disabled"), {
+      code: "SIGNUPS_DISABLED",
+    });
   }
 
   // Build display name from Telegram profile
@@ -134,6 +161,7 @@ async function upsertTelegramUser(profile: {
      )
      VALUES ($1, $2, $3, false, false, false, NOW(), NOW())
      RETURNING id, email, username, is_admin, is_moderator, is_banned, is_suspended,
+               suspension_reason, suspended_until, ban_reason,
                totp_enabled, onboarding_completed, display_name, avatar_emoji, city,
                xp_total, rank_name, plan, is_creator`,
     [profile.telegramId, displayName, profile.photoUrl ?? null]
@@ -309,11 +337,39 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   } catch (err) {
     const code = (err as { code?: string }).code;
     if (code === "ACCOUNT_BANNED" || code === "ACCOUNT_SUSPENDED") {
+      const blocked = err as {
+        userId: string;
+        email: string | null;
+        reason: string | null;
+        suspendedUntil: string | null;
+      };
+      const appealCode = await issueAppealToken({
+        userId: blocked.userId,
+        email: blocked.email,
+        appealType: code === "ACCOUNT_BANNED" ? "ban" : "suspension",
+        reason: blocked.reason,
+        suspendedUntil: blocked.suspendedUntil,
+      }).catch(() => null);
+
       const reqOrigin = env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
-      return NextResponse.redirect(
-        new URL(`/auth/login?error=${code.toLowerCase()}`, reqOrigin),
-        { status: 302 }
-      );
+      // Mobile flow: re-derive mobile_redirect from the query string (it's a
+      // param here, not a cookie) so the native app gets the blocked-account
+      // details via its own deep link instead of the web login page.
+      const mobileRedirectParam = new URL(req.url).searchParams.get("mobile_redirect");
+      const mobileRedirectDest = mobileRedirectParam && isRedirectAllowed(mobileRedirectParam)
+        ? new URL(mobileRedirectParam)
+        : new URL("/auth/login", reqOrigin);
+      const dest = mobileRedirectDest;
+      dest.searchParams.set("error", code === "ACCOUNT_BANNED" ? "account_terminated" : "account_suspended");
+      if (blocked.reason) dest.searchParams.set("block_reason", blocked.reason);
+      if (blocked.suspendedUntil) dest.searchParams.set("until", blocked.suspendedUntil);
+      if (appealCode) dest.searchParams.set("appeal_code", appealCode);
+      return NextResponse.redirect(dest, { status: 302 });
+    }
+    if (code === "SIGNUPS_DISABLED") {
+      const reqOrigin = env.NEXT_PUBLIC_APP_URL ?? new URL(req.url).origin;
+      const dest = new URL("/auth/error?code=signups_disabled", reqOrigin);
+      return NextResponse.redirect(dest, { status: 302 });
     }
     return handleApiError(err);
   }

@@ -764,6 +764,20 @@ A member can only claim a given reward once. Configuring a new reward replaces t
 
 Site admins can disable this feature entirely (master flag), and configure the minimum account level a room owner needs to create a reward and a server-side ceiling on "first N people" (abuse/spam guard) — `/gate44/config`.
 
+### Gift Messages ("Add a message")
+
+When sending a gift, the sender may optionally attach a short text message — a collapsible "+ Add a message (optional)" link below the gift grid reveals a textarea. Before the gift is actually sent, the sender sees a confirm/preview screen showing the gift, the recipient, and the exact message text, with **Edit** and **Confirm & Send** actions (plain gift sends with no message skip this step and stay one tap, as before).
+
+Eligibility and word limits are entirely admin-configurable, per plan/tier, at `/gate44/gifts/message-settings` (web) / `admin/gift-message-settings.tsx` (Capacitor Android):
+
+- **Free plan** — gated by a minimum account level (default **Level 5**). Below that level, the message box does not appear at all. Once eligible, the default max length is **40 words**.
+- **Plus** — on by default, max **50 words**.
+- **Pro** — on by default, max **100 words**.
+- **Max** — on by default, max **250 words**.
+- **Business accounts** (Starter/Growth/Enterprise) — on by default, with the same increasing word-limit pattern as personal plans (default 50/100/250 words).
+
+Every plan/tier's on/off toggle and max-word value is independently admin-editable, plus a sitewide master on/off switch and the Free plan's minimum-level gate. The word count is validated server-side (`POST /api/economy/gifts/send`) against the sender's plan, business tier (if any), and current account level — never trust the client-side counter alone. The attached message is stored on the `gifts` row (`message`, `message_word_count`) and surfaces in the recipient's DM/Room feed and both parties' gift history.
+
 ---
 
 ## 13. Guild System
@@ -1629,6 +1643,41 @@ Every user has a private Trust Score derived from: account age, report rate vs r
 - Temporarily banned users cannot receive Credits, gifts, or payouts during the ban period.
 - Permanent bans result in account deactivation. Creator payouts are held and reviewed before release.
 
+#### Login-time UX (v2.32)
+
+- A **banned** account attempting to log in sees a distinct, translated
+  message — "Your account has been terminated." — behind a distinct error
+  code, not a generic error. A **suspended** account sees the specific
+  suspension reason, the exact date/time the suspension lifts (localized),
+  and a link to file an appeal. Both are mirrored on the Capacitor Android
+  app's native login screen.
+- Repeated login attempts against an account already known to be
+  suspended/banned are rate-limited tighter than ordinary login attempts
+  (`RATE_LIMITS.loginBlocked`, 5 / 15 min, keyed by user id) so the
+  suspension/ban notice can't be hammered past.
+
+#### Account Appeals pipeline (v2.32)
+
+- **Identity-gated submission only.** An appeal can only be filed
+  immediately after a real login attempt with correct credentials that was
+  then blocked by the suspension/ban check — never through a public
+  "email us" form. The blocked login issues a short-lived, single-use
+  signed appeal link; the appeal form is reached only through that link,
+  pre-fills the account's email as the contact address, and lets the user
+  optionally supply an alternate contact email (their account email may be
+  inaccessible).
+- **Outcome timing**: on submission, the user is told a reply may take
+  several days and will be sent to the email they provided.
+- **Review**: `pending` → `approved` (lifts the suspension/ban — the exact
+  same action as an admin's direct "Restore" — for one place that action
+  lives) or `denied` (increments a per-appeal refusal counter). Default
+  review mode is fully manual; an admin may opt into an AI triage pass
+  first (recommendation + confidence + reasoning, shown to the reviewer,
+  never auto-deciding). Reviewed at `/gate44/moderation/appeals`.
+- **Refusal cap** (admin-configurable, default 3): once a user has been
+  denied that many times for the same suspension/ban, no further appeals
+  for it can be submitted.
+
 ### Anti-Bot & Anti-Spam
 
 - Rate limiting on all message-send endpoints (configurable by tier).
@@ -1673,6 +1722,8 @@ Admin interaction should be minimal and maintenance-oriented. The platform runs 
 - Suspend, ban (temporary or permanent), or restore users.
 - Upgrade users to Moderator role.
 - Reset user passwords, force 2FA, manually verify accounts.
+
+**Signups Toggle** — a master on/off switch for new account creation (`signups_enabled` x_manifest key, default on). When off, a Google/Telegram sign-in for an account that doesn't yet exist is refused with a clear "New signups are paused" message (`/auth/error?code=signups_disabled`); existing users are entirely unaffected and can always still log in. Editable in two places, both writing the same key: the central site settings panel (`/gate44/config`) and a Settings tab on the User Management page (`/gate44/users`) — kept in sync by inline code comments in both files noting the mirror. Mirrored on the Capacitor Android app's `admin/users.tsx` Settings tab.
 
 **20.x Data Management Utility** (`/gate44/data-management`)
 
@@ -8390,6 +8441,151 @@ models").
 
 ---
 
-*ZobiaSocial PRD v2.30*
+### v2.31 — Changelog
+
+#### Gift Messages — "Add a message" on Send Gift (§12)
+
+- **New feature**: sending a gift now supports an optional, collapsible
+  message box ("+ Add a message (optional)"), with a confirm/preview step
+  (message shown verbatim, Edit / Confirm & Send) before the gift is
+  actually sent. Plain gift sends with no message are unaffected — still
+  one tap.
+- **Eligibility & word limits, per plan/tier, all admin-configurable** at
+  `/gate44/gifts/message-settings` (web) / `admin/gift-message-settings.tsx`
+  (Capacitor Android): Free (gated by a minimum account level, default
+  Level 5, then 40 words), Plus (50 words), Pro (100 words), Max (250
+  words), and Business Starter/Growth/Enterprise (50/100/250 words) — each
+  tier has its own on/off toggle plus a sitewide master switch.
+  `lib/plans/giftMessage.ts` resolves eligibility server-side; validated
+  again in `POST /api/economy/gifts/send` (never trust the client word
+  counter).
+- **New migration**: `0007_gift_message.sql` — `gifts.message` (text),
+  `gifts.message_word_count` (integer), and seeds the `gift_message_*`
+  x_manifest keys.
+- **New endpoint**: `GET /api/economy/gifts/message-config` — returns the
+  current user's eligibility/word-limit so the UI knows whether to show the
+  message box before the user starts composing.
+- **Mirrored** in the Capacitor Android app (`apps/android/src/routes/gifts.tsx`,
+  `admin/gift-message-settings.tsx`) and in gift history on both platforms.
+
+#### Moderation Roster (§20)
+
+- **New feature**: a central admin page (`/gate44/moderation/roster`) lists
+  every account currently flagged as any staff role (Platform Mod, Ad
+  Moderator, Support, Senior Support) with inline promote/demote actions,
+  instead of requiring an admin to search for each user individually in
+  User Management. Reuses the existing
+  `POST /api/admin/users/[userId]/actions` action set
+  (`upgrade_moderator`/`downgrade_moderator`/etc.) — no new authorization
+  logic. Mirrored on Capacitor Android admin nav.
+- **No new migration** — reads/writes the existing `users.is_moderator` /
+  `is_ad_moderator` / `is_support` / `is_senior_support` boolean columns.
+
+---
+
+### v2.32 — Changelog (2026-09-23)
+
+#### Suspended/banned login UX, Account Appeals pipeline, blocked-login rate limit (§18 "Suspended and Banned Users", §20)
+
+- **Terminated (banned) login error**: a banned user attempting to log in
+  used to fall through to a generic "an unexpected error occurred" message
+  (`auth.error.unexpected`) — the OAuth callback threw `ACCOUNT_BANNED` but
+  the login UI (`components/auth/LoginPageClient.tsx`) never had a case for
+  it, only `account_suspended`. It now shows a distinct, translated
+  message — "Your account has been terminated." (`auth.error.accountTerminated`) —
+  behind a distinct error code (`ACCOUNT_TERMINATED`/`account_terminated`
+  in the redirect). Mirrored on Capacitor Android
+  (`apps/android/src/routes/auth/login.tsx`).
+- **Improved suspended-account login error**: now shows the suspension
+  reason, the exact date/time the suspension lifts (when
+  `suspended_until` is set, via the shared `formatShortDateTime()` in
+  `lib/format/date.ts` — new, mirrors the existing `formatShortDate()`
+  convention), and a "File an appeal" link. Mirrored on Android
+  (`lib/format/date.ts` there too).
+- **New: Account Appeals pipeline** (`account_appeals` table). A user can
+  only file an appeal after actually attempting to log in with correct
+  credentials and being blocked by the suspension/ban check — never via a
+  public "email us" form. The blocked Google/Telegram OAuth callback
+  issues a short-lived (30 min), Redis-backed, single-use "appeal token"
+  (`lib/auth/appealToken.ts`, mirrors the existing `web_pre_auth`/
+  `mobile_pre_auth` handoff pattern) and redirects to `/appeal?code=...`
+  (or the native app's `/auth/login` search params on mobile, which link
+  out to the same web page in an in-app browser — the same pattern already
+  used for Deleted Account Restore's `/auth/restore` link on Android).
+  - `POST /api/appeals` consumes the token (identity + single-use),
+    pre-fills the contact email from the account record, and accepts an
+    optional alternate contact email (the account's own email may be
+    inaccessible). On success, the user is told a reply may take several
+    days and will be sent to the email provided.
+  - `GET /api/appeals/token?code=...` lets the appeal page pre-fill
+    (without consuming) the account email, original reason, and
+    suspension end date.
+  - Admin-configurable via `x_manifest`/the manifest system
+    (`lib/manifest/index.ts` `appeals.maxRefusals` / `appeals.triageMode`,
+    editable via the settings panel on the review page below):
+    `appeals_max_refusals` (default 3) — once a user's denied appeals for
+    the same suspension/ban reach this count, `POST /api/appeals` refuses
+    further submissions for it (`APPEAL_LIMIT_REACHED`).
+    `appeals_triage_mode` — `"manual"` (default: every appeal goes
+    straight to human review) or `"ai_then_manual"` (an AI triage pass —
+    `classifyAccountAppeal()` in `lib/moderation/aiClassifier.ts`, reusing
+    the existing DeepSeek/Gemini `aiClient` pipeline the way
+    `classifySponsoredQuest`/`classifyAdCreative` already do — writes a
+    recommendation + confidence + reasoning to `ai_triage_result`. It is
+    surfaced to the human reviewer only; it never auto-approves or
+    auto-denies).
+  - **New admin review UI**: `/gate44/moderation/appeals` (nav entry added
+    next to Moderation/Moderation Settings/Moderation Roster), listing
+    Pending/Approved/Denied tabs. **Approve** lifts the suspension/ban by
+    calling the exact same restore logic as the direct admin "restore"
+    action — extracted into `lib/moderation/accountActions.ts`
+    (`restoreUserAccount()`) and now shared by both
+    `POST /api/admin/users/[userId]/actions` (`restore`) and the new
+    `PATCH /api/admin/appeals/[appealId]` (`approve`), so there is exactly
+    one place that lifts a suspension/ban. **Deny** increments the
+    appeal's `refusal_count`.
+- **New rate limit bucket**: `RATE_LIMITS.loginBlocked`
+  (`lib/security/rateLimit.ts`) — 5 attempts / 15 min, keyed by `userId`
+  once identity is established via the OAuth provider's verified profile,
+  tighter than the general `RATE_LIMITS.login`/`RATE_LIMITS.auth` limiters.
+  Applied in both `app/api/auth/google/callback` and
+  `app/api/auth/telegram/callback` at the point a suspended/banned account
+  is detected, so a blocked user can't hammer the login endpoint
+  repeatedly after already having seen the suspension/ban notice.
+- **New migration**: `0008_account_appeals.sql` — creates
+  `account_appeals` (id, user_id, appeal_type, reason, contact_email,
+  status, refusal_count, ai_triage_result jsonb, admin_notes,
+  reviewed_by, reviewed_at, created_at, updated_at) and seeds the
+  `appeals_max_refusals` / `appeals_triage_mode` `x_manifest` keys.
+- **Not done in this pass**: a fully native (non-browser) Android appeal
+  form — the Android login screen renders its own suspended/terminated
+  banner natively, but "File an appeal" opens the same responsive
+  `/appeal` web page in the in-app browser (Capacitor `Browser.open`),
+  consistent with how Account Restore already links out to
+  `/auth/restore` on Android rather than duplicating that flow natively.
+
+---
+
+### v2.33 — Changelog
+
+#### Signups Toggle (§20)
+
+- **New feature**: a sitewide `signups_enabled` x_manifest flag (default
+  on) blocks brand-new account creation in both the Google and Telegram
+  OAuth callbacks (`app/api/auth/google/callback`,
+  `app/api/auth/telegram/callback`) while leaving existing-user login
+  completely unaffected. A blocked attempt redirects to
+  `/auth/error?code=signups_disabled` with a clear, translated message.
+- **New migration**: `0010_signups_toggle.sql` — seeds the
+  `signups_enabled` x_manifest key.
+- **Admin UI**: editable from two places, both writing the same key —
+  the central site settings panel (`/gate44/config`, "Signups" group) and
+  a new Settings tab on `/gate44/users`. Each carries an inline code
+  comment pointing at the other so a future change doesn't desync them.
+  Mirrored on the Capacitor Android app's `admin/users.tsx` Settings tab.
+
+---
+
+*ZobiaSocial PRD v2.33*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

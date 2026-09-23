@@ -116,6 +116,16 @@ export interface ZobiaManifest {
     enabled: boolean;
     message: string;
   };
+  /**
+   * Sitewide new-account signup toggle — admin-editable at /gate44/config
+   * AND at /gate44/users (Settings tab); both write the same `signups_enabled`
+   * x_manifest key, so keep them in sync if this key or its default changes.
+   * Existing users can always still log in; this only blocks NEW account
+   * creation (Google/Telegram OAuth callbacks create a new `users` row on
+   * first sign-in — see app/api/auth/google/callback and
+   * app/api/auth/telegram/callback).
+   */
+  signupsEnabled: boolean;
   // Auth
   auth: {
     googleEnabled: boolean;
@@ -573,6 +583,13 @@ export interface ZobiaManifest {
     /** Active SMS provider key. Only used for Level 1/2 alerts. */
     smsProvider: string;
   };
+  // Account Appeals (suspension/ban appeals) — admin-editable at /gate44/moderation/appeals
+  appeals: {
+    /** Max number of times an appeal for the same suspension/ban may be denied before further submissions are blocked. */
+    maxRefusals: number;
+    /** "manual" (default): appeals always go straight to human review. "ai_then_manual": an AI triage step runs first and produces a recommendation, but a human still makes the final call. */
+    triageMode: "manual" | "ai_then_manual";
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -739,6 +756,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     enabled: false,
     message: "Zobia is briefly unavailable at the moment due to system maintenance. Kindly check back later.",
   },
+  signupsEnabled: true,
   auth: {
     googleEnabled: true,
     telegramEnabled: true,
@@ -912,6 +930,10 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     },
     notifyModsForInfraOther: false,
     smsProvider: "termii",
+  },
+  appeals: {
+    maxRefusals: 3,
+    triageMode: "manual",
   },
 };
 
@@ -1325,6 +1347,7 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       enabled: parseBool(kv["maintenance_mode_enabled"] ?? "false", DEFAULT_MANIFEST.maintenance.enabled),
       message: unquote(kv["maintenance_message"]) ?? DEFAULT_MANIFEST.maintenance.message,
     },
+    signupsEnabled: parseBool(kv["signups_enabled"] ?? "true", DEFAULT_MANIFEST.signupsEnabled),
     auth: {
       googleEnabled:   parseBool(kv["auth_google_enabled"],   DEFAULT_MANIFEST.auth.googleEnabled),
       telegramEnabled: parseBool(kv["auth_telegram_enabled"], DEFAULT_MANIFEST.auth.telegramEnabled),
@@ -1564,6 +1587,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       },
       notifyModsForInfraOther: parseBool(kv["alert_notify_mods_infra_other"], DEFAULT_MANIFEST.alerting.notifyModsForInfraOther),
       smsProvider: kv["alert_sms_provider"] ?? DEFAULT_MANIFEST.alerting.smsProvider,
+    },
+    appeals: {
+      maxRefusals: parseInt10(kv["appeals_max_refusals"], DEFAULT_MANIFEST.appeals.maxRefusals),
+      triageMode: kv["appeals_triage_mode"] === "ai_then_manual" ? "ai_then_manual" : "manual",
     },
   };
 }

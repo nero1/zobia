@@ -6,6 +6,7 @@ import { useTranslation } from "react-i18next";
 import Script from "next/script";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useScrollToError } from "@/lib/hooks/useScrollToError";
+import { formatShortDateTime } from "@/lib/format/date";
 
 // ---------------------------------------------------------------------------
 // Telegram Login Widget types
@@ -53,6 +54,9 @@ function LoginContent() {
   const error = searchParams?.get("error");
   const reason = searchParams?.get("reason");
   const redirectParam = searchParams?.get("redirect");
+  const blockedReason = searchParams?.get("block_reason");
+  const blockedUntil = searchParams?.get("until");
+  const appealCode = searchParams?.get("appeal_code");
 
   const [isLoading, setIsLoading] = useState<"google" | "telegram" | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
@@ -216,13 +220,62 @@ function LoginContent() {
             </div>
           )}
 
-          {/* Error banner */}
-          {error && (
+          {/* Terminated (banned) account banner — distinct from the generic error banner below */}
+          {error === "account_terminated" && (
+            <div role="alert" className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
+              <p className="text-center font-semibold">{t("auth.error.accountTerminated")}</p>
+              {blockedReason && (
+                <p className="mt-2 text-xs text-danger-600 dark:text-danger-400">
+                  <span className="font-semibold">{t("auth.error.reasonLabel")}:</span> {blockedReason}
+                </p>
+              )}
+              {appealCode && (
+                <p className="mt-3 text-center">
+                  <a
+                    href={`/appeal?code=${encodeURIComponent(appealCode)}`}
+                    className="font-semibold text-primary-600 underline hover:text-primary-700 dark:text-primary-400"
+                  >
+                    {t("auth.error.fileAppealLink")}
+                  </a>
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Suspended account banner — reason, exact lift date/time, and an appeal link */}
+          {error === "account_suspended" && (
+            <div role="alert" className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
+              <p className="text-center font-semibold">{t("auth.error.accountSuspended")}</p>
+              {blockedReason && (
+                <p className="mt-2 text-xs text-danger-600 dark:text-danger-400">
+                  <span className="font-semibold">{t("auth.error.reasonLabel")}:</span> {blockedReason}
+                </p>
+              )}
+              {blockedUntil && (
+                <p className="mt-1 text-xs text-danger-600 dark:text-danger-400">
+                  <span className="font-semibold">{t("auth.error.suspendedUntilLabel")}:</span>{" "}
+                  {formatShortDateTime(blockedUntil)}
+                </p>
+              )}
+              {appealCode && (
+                <p className="mt-3 text-center">
+                  <a
+                    href={`/appeal?code=${encodeURIComponent(appealCode)}`}
+                    className="font-semibold text-primary-600 underline hover:text-primary-700 dark:text-primary-400"
+                  >
+                    {t("auth.error.fileAppealLink")}
+                  </a>
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* Generic error banner (everything else) */}
+          {error && error !== "account_suspended" && error !== "account_terminated" && (
             <div role="alert" className="mb-6 rounded-lg border border-danger-200 bg-danger-50 px-4 py-3 text-center text-sm text-danger-700 dark:border-danger-800 dark:bg-danger-950 dark:text-danger-300">
               {error === "oauth_failed" && t("auth.error.oauthFailed")}
-              {error === "account_suspended" && t("auth.error.accountSuspended")}
               {error === "session_expired" && t("auth.error.sessionExpired")}
-              {!["oauth_failed", "account_suspended", "session_expired"].includes(error) &&
+              {!["oauth_failed", "session_expired"].includes(error) &&
                 t("auth.error.unexpected")}
             </div>
           )}

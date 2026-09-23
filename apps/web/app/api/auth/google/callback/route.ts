@@ -41,6 +41,8 @@ import { badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, getUserAgent, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
+import { issueAppealToken } from "@/lib/auth/appealToken";
+import { ApiError } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
 // Query param schema
@@ -87,6 +89,9 @@ interface UserRow {
   is_creator: boolean;
   is_banned: boolean;
   is_suspended: boolean;
+  suspension_reason: string | null;
+  suspended_until: string | null;
+  ban_reason: string | null;
   deleted_at: string | null;
   totp_enabled: boolean;
   onboarding_completed: boolean;
@@ -102,6 +107,36 @@ interface UserRow {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Rate-limit (tighter than the general auth limiter — RATE_LIMITS.loginBlocked)
+ * and throw a distinct, structured error for a blocked (suspended/banned)
+ * login attempt, carrying everything the login UI and the appeal pipeline
+ * need: the specific reason, when a suspension lifts, and enough identity to
+ * issue an appeal token.
+ */
+async function throwBlockedAccountError(u: UserRow): Promise<never> {
+  // Keyed by userId — identity is already established via Google's verified
+  // profile at this point, so a suspended/banned account can't be hammered
+  // past the general per-IP `RATE_LIMITS.auth` check by retrying login.
+  await enforceRateLimit(u.id, "user", RATE_LIMITS.loginBlocked);
+  if (u.is_banned) {
+    throw Object.assign(new Error("Account is banned"), {
+      code: "ACCOUNT_BANNED",
+      userId: u.id,
+      email: u.email ?? null,
+      reason: u.ban_reason ?? null,
+      suspendedUntil: null,
+    });
+  }
+  throw Object.assign(new Error("Account is suspended"), {
+    code: "ACCOUNT_SUSPENDED",
+    userId: u.id,
+    email: u.email ?? null,
+    reason: u.suspension_reason ?? null,
+    suspendedUntil: u.suspended_until ?? null,
+  });
+}
 
 /** Store Google's refresh token in Redis keyed to the session. */
 async function storeGoogleRefreshToken(
@@ -158,7 +193,7 @@ async function upsertGoogleUser(profile: {
   // Check if a user with this Google ID already exists (including soft-deleted for reactivation)
   const existing = await db.query<UserRow>(
     `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
-            is_banned, is_suspended, deleted_at,
+            is_banned, is_suspended, suspension_reason, suspended_until, ban_reason, deleted_at,
             totp_enabled, onboarding_completed, display_name, avatar_emoji, avatar_url, city, xp_total, rank_name, plan
      FROM users
      WHERE google_id = $1
@@ -168,8 +203,7 @@ async function upsertGoogleUser(profile: {
 
   if (existing.rows[0]) {
     const u = existing.rows[0];
-    if (u.is_banned) throw Object.assign(new Error("Account is banned"), { code: "ACCOUNT_BANNED" });
-    if (u.is_suspended) throw Object.assign(new Error("Account is suspended"), { code: "ACCOUNT_SUSPENDED" });
+    if (u.is_banned || u.is_suspended) await throwBlockedAccountError(u);
     // Reactivate if within grace period (soft-deleted but identifiers intact)
     if (u.deleted_at) {
       await db.query(
@@ -183,7 +217,7 @@ async function upsertGoogleUser(profile: {
   // Check if email is already associated with a different account (no google_id match)
   const emailMatch = await db.query<UserRow>(
     `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
-            is_banned, is_suspended, deleted_at,
+            is_banned, is_suspended, suspension_reason, suspended_until, ban_reason, deleted_at,
             totp_enabled, onboarding_completed, display_name, avatar_emoji, avatar_url, city, xp_total, rank_name, plan
      FROM users
      WHERE email = $1 AND deleted_at IS NULL
@@ -193,8 +227,7 @@ async function upsertGoogleUser(profile: {
 
   if (emailMatch.rows[0]) {
     const u = emailMatch.rows[0];
-    if (u.is_banned) throw Object.assign(new Error("Account is banned"), { code: "ACCOUNT_BANNED" });
-    if (u.is_suspended) throw Object.assign(new Error("Account is suspended"), { code: "ACCOUNT_SUSPENDED" });
+    if (u.is_banned || u.is_suspended) await throwBlockedAccountError(u);
 
     // Only auto-link if the existing account's google_id is already set
     // (clean re-auth path — e.g. google_id was stored from a previous session).
@@ -222,6 +255,16 @@ async function upsertGoogleUser(profile: {
     // Existing account with unverified email and no google_id — do NOT auto-link.
     // Treat this as a new account to avoid account takeover.
     // Fall through to create a new user record below.
+  }
+
+  // Signups toggle (/gate44/config, /gate44/users Settings tab) — only
+  // blocks brand-new account creation; existing users above already
+  // returned before reaching this point, so they can always still log in.
+  const signupsEnabledRaw = await getManifestValue("signups_enabled");
+  if (signupsEnabledRaw === "false") {
+    throw Object.assign(new Error("Signups are currently disabled"), {
+      code: "SIGNUPS_DISABLED",
+    });
   }
 
   // Generate a unique username derived from the email
@@ -569,17 +612,55 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // Always log the raw error so Vercel function logs capture it for diagnosis.
     logger.error({ err, code: errCode }, "[google-callback] Auth error");
     if (errCode === "ACCOUNT_BANNED" || errCode === "ACCOUNT_SUSPENDED") {
-      const res = NextResponse.redirect(
-        new URL(`/auth/login?error=${errCode.toLowerCase()}`, origin),
-        { status: 302 }
-      );
+      const blocked = err as {
+        userId: string;
+        email: string | null;
+        reason: string | null;
+        suspendedUntil: string | null;
+      };
+      // Issue a short-lived appeal token — this login attempt just proved the
+      // user's identity (verified Google profile), which is exactly the
+      // condition the appeal pipeline requires before letting someone file one.
+      const appealCode = await issueAppealToken({
+        userId: blocked.userId,
+        email: blocked.email,
+        appealType: errCode === "ACCOUNT_BANNED" ? "ban" : "suspension",
+        reason: blocked.reason,
+        suspendedUntil: blocked.suspendedUntil,
+      }).catch(() => null);
+
+      const uiErrorCode = errCode === "ACCOUNT_BANNED" ? "account_terminated" : "account_suspended";
+
+      // Mobile flow (Android/Expo Custom Tab): send the blocked-account
+      // details back through the app's deep link instead of the web login
+      // page, so the native app can render its own banner/appeal flow — the
+      // cookie was set during /api/auth/google initiation and is still
+      // present on this request even though the try block's own
+      // `mobileRedirect` local isn't in scope here.
+      const mobileRedirectRaw = req.cookies.get("zobia_mobile_redirect")?.value;
+      const mobileRedirectCookie = mobileRedirectRaw ? decodeURIComponent(mobileRedirectRaw) : null;
+      const dest = mobileRedirectCookie && isRedirectAllowed(mobileRedirectCookie)
+        ? new URL(mobileRedirectCookie)
+        : new URL(`/auth/login`, origin);
+      dest.searchParams.set("error", uiErrorCode);
+      if (blocked.reason) dest.searchParams.set("block_reason", blocked.reason);
+      if (blocked.suspendedUntil) dest.searchParams.set("until", blocked.suspendedUntil);
+      if (appealCode) dest.searchParams.set("appeal_code", appealCode);
+
+      const res = NextResponse.redirect(dest, { status: 302 });
       for (const name of ["zobia_csrf_state", "zobia_mobile_redirect", "zobia_web_redirect"]) {
         res.headers.append("Set-Cookie", clearCookie(name, secure));
       }
       return res;
     }
+    if (err instanceof ApiError && err.code === "RATE_LIMITED") {
+      return authErrorRedirect(req, "rate_limited");
+    }
     if (errCode === "EMAIL_NOT_VERIFIED") {
       return authErrorRedirect(req, "email_not_verified");
+    }
+    if (errCode === "SIGNUPS_DISABLED") {
+      return authErrorRedirect(req, "signups_disabled");
     }
     // Any other error (e.g. a duplicate/prefetched request reusing an
     // already-consumed Google authorization code): if the user already has a

@@ -10,3 +10,16 @@ export function formatShortDate(value: string | number | Date): string {
   if (Number.isNaN(date.getTime())) return "";
   return date.toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" });
 }
+
+/** Mirrors apps/web's formatShortDateTime — "3 Jul 2024, 14:30" style. */
+export function formatShortDateTime(value: string | number | Date): string {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("en-GB", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}

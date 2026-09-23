@@ -179,6 +179,26 @@ function AppShell() {
         const isOAuthCallback = isHttpsCallback || isCustomSchemeCallback;
         if (!isOAuthCallback) return;
 
+        // Blocked-account login (suspended/banned/rate-limited): the callback
+        // redirects here with `error` (+ block_reason/until/appeal_code) instead
+        // of an exchange code — mirrors web's /auth/login error banners.
+        const blockedError = parsed.searchParams.get('error');
+        if (blockedError) {
+          await Browser.close().catch(() => {});
+          endOAuthAttempt();
+          navigate({
+            to: '/auth/login',
+            search: {
+              error: blockedError,
+              block_reason: parsed.searchParams.get('block_reason') ?? undefined,
+              until: parsed.searchParams.get('until') ?? undefined,
+              appeal_code: parsed.searchParams.get('appeal_code') ?? undefined,
+            },
+            replace: true,
+          });
+          return;
+        }
+
         // ZSB-22 fix: the login/register screens' loading spinner used to
         // clear as soon as `Browser.open(...)` resolved (i.e. the instant the
         // Custom Tab opened), giving almost no protection against

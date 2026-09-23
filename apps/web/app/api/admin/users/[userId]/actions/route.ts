@@ -33,6 +33,7 @@ import { revokeUserAccess } from "@/lib/auth/session";
 import { sendEmail } from "@/lib/notifications/email";
 import { logger } from "@/lib/logger";
 import { syncSponsoredQuestTemplate } from "@/lib/quests/sponsoredQuestPacing";
+import { restoreUserAccount } from "@/lib/moderation/accountActions";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -179,15 +180,16 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
         }
 
         case "restore": {
-          if (!target.is_suspended && !target.is_banned) {
-            throw conflict("User is not suspended or banned");
-          }
-          updateSql = `UPDATE users
-            SET is_suspended = false, is_banned = false,
-                suspended_until = NULL, suspension_reason = NULL,
-                ban_reason = NULL, banned_at = NULL, updated_at = NOW()
-            WHERE id = $1`;
-          updateParams = [userId];
+          // Shared with the Account Appeals pipeline's approve action
+          // (app/api/admin/appeals/[appealId]/route.ts) — see
+          // lib/moderation/accountActions.ts. It re-validates and re-locks
+          // the row itself (harmless re-lock; already locked above in this
+          // same transaction) and throws `conflict` if not suspended/banned.
+          await restoreUserAccount(client, userId);
+          // No-op placeholder for the shared `client.query(updateSql, ...)`
+          // call below — the actual update already happened above.
+          updateSql = `SELECT 1`;
+          updateParams = [];
           break;
         }
 
