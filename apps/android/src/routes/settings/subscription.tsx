@@ -30,6 +30,7 @@ import {
   purchaseSubscription,
   type SubscriptionProduct,
 } from '@/lib/payments/googlePlay';
+import { CancelPlanModal, type CancelPlanFeature } from '@/components/settings/CancelPlanModal';
 
 type PlanId = 'free' | 'plus' | 'pro' | 'max';
 type BillingInterval = 'monthly' | 'annual';
@@ -42,6 +43,35 @@ const PLAN_BADGE: Record<PlanId, string> = {
   plus: 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300',
   pro: 'bg-teal-100 dark:bg-teal-900/40 text-teal-700 dark:text-teal-300',
   max: 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300',
+};
+
+/** Kept in sync with apps/web's PLANS feature lists (settings/subscription/page.tsx). */
+const PLAN_FEATURES: Record<PlanId, CancelPlanFeature[]> = {
+  free: [],
+  plus: [
+    { text: '1.5× XP multiplier', included: true },
+    { text: '4 daily quests', included: true },
+    { text: '50 monthly coin bonus', included: true },
+  ],
+  pro: [
+    { text: '3× XP multiplier', included: true },
+    { text: 'No ads', included: true },
+    { text: '5 daily quests', included: true },
+    { text: '200 monthly coin bonus', included: true },
+    { text: 'Custom chat themes', included: true },
+    { text: 'Priority support', included: true },
+    { text: 'Full creator tools', included: true },
+  ],
+  max: [
+    { text: '5× XP multiplier', included: true },
+    { text: 'No ads', included: true },
+    { text: '6 daily quests', included: true },
+    { text: '500 monthly coin bonus', included: true },
+    { text: 'Custom chat themes', included: true },
+    { text: 'Dedicated support', included: true },
+    { text: 'Full creator tools + boosts', included: true },
+    { text: 'Early feature access (2 weeks)', included: true },
+  ],
 };
 
 interface CurrentSubscription {
@@ -69,7 +99,7 @@ function SubscriptionPage() {
   const [error, setError] = useState<string | null>(null);
   const [interval, setIntervalPref] = useState<BillingInterval>('monthly');
   const [busy, setBusy] = useState<PlanId | null>(null);
-  const [cancelling, setCancelling] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -118,19 +148,18 @@ function SubscriptionPage() {
     }
   }
 
-  async function handleCancel() {
-    if (!sub?.id) return;
-    if (!window.confirm(t('subscription.cancelConfirm', "Are you sure you want to cancel your subscription? You'll keep your plan until the end of the billing period."))) return;
-    setCancelling(true);
+  async function handleCancelConfirmed() {
+    if (!sub?.id) throw new Error(t('subscription.cancelFailed', 'Cancel failed'));
     try {
       await apiClient.delete(`/economy/subscriptions/${sub.id}`);
-      showToast(t('subscription.cancelledSuccess', "Subscription cancelled. You'll retain access until the period ends."));
       await load();
     } catch {
-      showToast(t('subscription.cancelFailed', 'Cancel failed'), 'error');
-    } finally {
-      setCancelling(false);
+      throw new Error(t('subscription.cancelFailed', 'Cancel failed'));
     }
+  }
+
+  async function handleSubmitCancelFeedback(payload: { reasons: string[]; followUps: Record<string, string>; generalFeedback: string | null }) {
+    await apiClient.post('/economy/subscriptions/cancel-feedback', payload).catch(() => {});
   }
 
   if (loading) {
@@ -140,9 +169,26 @@ function SubscriptionPage() {
   const currentRank = planRank(plan);
   const isPaid = plan !== 'free';
   const isCancelled = sub?.status === 'cancelled';
+  // Paid plan but no Paystack-tracked subscription row => was purchased via
+  // Google Play Billing (see the module docstring) and can only actually be
+  // stopped through the Play Store.
+  const managedByPlayStore = isPaid && !sub;
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4 space-y-3">
+      {showCancelModal && (
+        <CancelPlanModal
+          planName={plan}
+          endDate={sub?.currentPeriodEnd ? formatDate(sub.currentPeriodEnd) : null}
+          features={PLAN_FEATURES[plan]}
+          managedByPlayStore={managedByPlayStore}
+          onKeepPlan={() => setShowCancelModal(false)}
+          onConfirmCancel={handleCancelConfirmed}
+          onSubmitFeedback={handleSubmitCancelFeedback}
+          onClose={() => setShowCancelModal(false)}
+        />
+      )}
+
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg ${toast.type === 'success' ? 'bg-teal-600' : 'bg-red-600'}`}>
           {toast.msg}
@@ -169,11 +215,10 @@ function SubscriptionPage() {
         </div>
         {isPaid && !isCancelled && (
           <button
-            onClick={() => void handleCancel()}
-            disabled={cancelling}
-            className="mt-3 w-full rounded-xl border border-red-300 py-2.5 text-sm font-semibold text-red-600 dark:text-red-300 disabled:opacity-60"
+            onClick={() => setShowCancelModal(true)}
+            className="mt-3 w-full rounded-xl border border-red-300 py-2.5 text-sm font-semibold text-red-600 dark:text-red-300"
           >
-            {cancelling ? t('subscription.cancelling', 'Cancelling…') : t('subscription.cancelSubscription', 'Cancel Subscription')}
+            {t('subscription.cancelSubscription', 'Cancel Subscription')}
           </button>
         )}
       </div>

@@ -40,6 +40,7 @@ interface SubscriptionRow {
   starts_at: string;
   ends_at: string | null;
   cancelled_at: string | null;
+  provider: string | null;
   provider_subscription_id: string | null;
   created_at: string;
 }
@@ -69,7 +70,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 
     const { rows } = await db.query<SubscriptionRow>(
       `SELECT id, user_id, plan, billing_period, status, starts_at,
-              ends_at, cancelled_at, provider_subscription_id, created_at
+              ends_at, cancelled_at, provider, provider_subscription_id, created_at
        FROM subscriptions
        WHERE user_id = $1 AND status IN ('active', 'cancelled')
        ORDER BY created_at DESC
@@ -97,6 +98,12 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
             currentPeriodStart: subscription.starts_at,
             currentPeriodEnd: subscription.ends_at,
             cancelledAt: subscription.cancelled_at,
+            // "google_play" | "paystack" | "crypto" — Android uses this to
+            // route cancellation through the Play Store subscription center
+            // instead of our own DELETE, since only Play can actually stop
+            // a Play-billed recurring charge (see routes/settings/subscription.tsx).
+            provider: subscription.provider,
+            providerSubscriptionId: subscription.provider_subscription_id,
             createdAt: subscription.created_at,
           }
         : null,
