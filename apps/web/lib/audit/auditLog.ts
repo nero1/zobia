@@ -55,7 +55,8 @@ export type AuditAction =
   | "user_crypto_wallet_deleted"
   | "admin_payment_context_updated"
   | "admin_crypto_rate_override_set"
-  | "admin_all_payments_made_free";
+  | "admin_all_payments_made_free"
+  | "crypto_withdrawal_requested";
 
 export interface AuditLogParams {
   actorId?: string | null;
