@@ -384,6 +384,13 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    `0005_boost_polls_quizzes.sql` (widens `ad_campaigns.boosted_content_type`
    to accept `poll`/`quiz`, so polls and quizzes can be boosted like every
    other Home Feed content type — see "Home Dashboard & Feed" in
+   `docs/HOW-IT-WORKS.md`), and `0006_currency_crypto_classroom_billing.sql`
+   (region-aware currency display fields on `users`; classroom draft/publish
+   `published_at` and per-plan classroom-count limits; the crypto-native
+   payout ledger — `crypto_balance_ledger`, `creator_crypto_balances`,
+   `creator_payouts` crypto columns, relaxed `creator_wallet_addresses`
+   uniqueness; the `subscription_cancellation_feedback` table — see
+   "ClassRooms", "Crypto Payments", and "Subscriptions & Billing" in
    `docs/HOW-IT-WORKS.md`). `npm run migrate` does this for you.
 
    > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
@@ -1035,6 +1042,14 @@ Get a free project ID at [cloud.reown.com](https://cloud.reown.com) and set `NEX
 #### 4. Token registry
 
 JAGA is a BEP-20 token on BNB Smart Chain (contract `0x6a093f2134f66d7625724bc775c3b437ea756588`, 18 decimals). To add a new supported currency later, add one entry to `apps/web/lib/payments/crypto/tokens.ts` (and a chain adapter in `apps/web/lib/payments/crypto/chains/` if it's a new chain).
+
+#### 5. (Optional) Crypto-native payouts for creators/referrers
+
+Off by default — crypto-sourced referral commissions and creator earnings keep converting to Credits until you turn this on. To enable:
+
+1. `/gate44/config` → group **"Crypto Payouts"** → turn on `crypto_payouts_enabled` and set `crypto_payout_mode` to `crypto` (leave as `credits` to keep the old behavior while still exposing the toggle).
+2. Optionally set explicit `crypto_payout_threshold_JAGA/BNB/SOL` (base units — wei for JAGA/BNB, lamports for SOL); leave blank to use a computed ~$10-equivalent default.
+3. Payouts are processed manually by an admin, same as the existing Tron/USDT `creator_payouts` flow — no automated on-chain sends.
 
 ### Creator Fund ad revenue tracking
 
