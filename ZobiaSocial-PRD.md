@@ -8586,6 +8586,68 @@ models").
 
 ---
 
-*ZobiaSocial PRD v2.33*
+### v2.34 — Changelog
+
+#### Session expiry countdown + fix for the persistent "session expired" popup (Auth)
+
+- **New feature**: while a user's tab/app is in the foreground, a 30-second
+  countdown modal warns them shortly before their access token expires
+  ("Your session is about to expire in **X seconds**"), with a "Don't log
+  me out" button that silently extends the session via the existing
+  refresh flow. Ships on web, the PWA, and the Capacitor Android app —
+  driven by `lib/auth/sessionExpiryBus.ts` on web (primed from
+  `GET /api/auth/me`'s new `expiresAt` field, since the access token itself
+  is an HttpOnly cookie) and by decoding the JWT's own `exp` claim directly
+  on Android (`apps/android/src/lib/auth/sessionExpiryBus.ts`), since that
+  app holds its access token in memory already.
+- **Bug fixed**: the "your session has expired" notice/redirect kept
+  reappearing indefinitely — even in a brand-new tab, even for a different
+  person opening the site fresh on a shared device — because a failed
+  token refresh (`/api/auth/refresh`, `/api/auth/silent-refresh`) never
+  cleared the dead `zobia_at`/`zobia_rt` cookies. The browser kept
+  resending the same unrecoverable refresh token on every page load, and
+  the edge middleware kept redirecting to the session-expired login screen
+  forever, until the cookie's own (up to 30-day) `Max-Age` finally ran out.
+  Both refresh routes now clear the cookie jar when
+  `refreshAccessToken()` throws a new `SessionRevokedError` (session
+  genuinely revoked/expired, reuse detected, or account no longer in good
+  standing) — but deliberately NOT on a transient failure (rate limiting,
+  lock contention, a DB hiccup), so a legitimately-still-valid refresh
+  token is never discarded by mistake. This bug was web/PWA-only — the
+  Capacitor app already cleared its stored tokens correctly on a dead
+  refresh.
+- **No new migration.**
+
+#### Sitewide Search (new §41 — see also `docs/SEARCH.md`)
+
+- **New feature**: a universal search icon (web top bar + drawer menu,
+  Android top bar + drawer menu) opens `/search` — a single results page
+  searching **People, Blogs, Wikis, Answers, and Games** at once, with
+  multi-select category filters, a date-published filter (This week /
+  month / quarter / year / All time), a default "most recent across
+  categories" browse view when no query is typed, and "Load more"
+  pagination (20 results/page). Ad slots (`search_top`, `search_after_3`,
+  `search_after_8`, `search_bottom`) reuse the existing plan-gated
+  `<AdSlot/>` component — no new ad logic.
+- **Backend**: `GET /api/search` — one `ILIKE`-filtered query per selected
+  category, `UNION ALL`'d and paginated, mirroring the existing
+  `/api/users/search` / `/api/help/search` pattern rather than introducing
+  a dedicated search service. See `docs/SEARCH.md` for the full
+  scalability write-up (when this stays fine as-is, and the two
+  Postgres-only upgrade paths — `pg_trgm` trigram indexes, then full-text
+  search — before a dedicated search engine would ever be worth the
+  operational cost).
+- **New migration**: `0011_search_ad_placements.sql` — registers the four
+  `ad_placements` rows above (existing table, existing grants — no new
+  `GRANT` statements needed).
+- **Android**: `apps/android/src/routes/search.tsx` calls the exact same
+  `GET /api/search` endpoint, so behavior never drifts between platforms;
+  result links are mapped from the API's web-style short URLs
+  (`/u/<username>`, `/g/<slug>`, etc.) to this app's own native route
+  shapes (`/profile/$username`, `/games/$slug`, etc.).
+
+---
+
+*ZobiaSocial PRD v2.34*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

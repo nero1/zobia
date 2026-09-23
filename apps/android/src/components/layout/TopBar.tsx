@@ -42,6 +42,7 @@ interface PrimaryNavItem {
 
 const primaryNavItems: PrimaryNavItem[] = [
   { href: '/home', labelKey: 'nav.home', icon: '🏠' },
+  { href: '/search', labelKey: 'nav.search', icon: '🔍' },
   { href: '/moments', labelKey: 'nav.moments', icon: '🎬', flagKey: 'moments' },
   { href: '/tweets', labelKey: 'nav.tweets', icon: '🐦', flagKey: 'tweets' },
   { href: '/answers', labelKey: 'nav.answers', icon: '❓', flagKey: 'forum' },
@@ -176,6 +177,13 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
           <h1 className="sr-only">{title}</h1>
 
           <div className="flex items-center gap-2">
+            <Link
+              to="/search"
+              aria-label={t('search.title')}
+              className="rounded-full p-2 text-neutral-500 dark:text-neutral-400 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700 hover:text-neutral-700 dark:hover:text-neutral-300"
+            >
+              <span aria-hidden="true" className="text-lg leading-none">🔍</span>
+            </Link>
             <Link
               to="/notifications"
               aria-label={unreadCount > 0 ? `${t('notifications.title')}, ${t('notifications.unread', { count: unreadCount })}` : t('notifications.title')}

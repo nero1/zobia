@@ -73,6 +73,7 @@ interface PrimaryNavItem {
 // Full nav for desktop + drawer
 const primaryNavItems: PrimaryNavItem[] = [
   { href: "/home",         labelKey: "nav.home",         icon: "🏠" },
+  { href: "/search",       labelKey: "nav.search",       icon: "🔍" },
   { href: "/moments",      labelKey: "nav.moments",      icon: "⚡", flagKey: "moments" },
   { href: "/tweets",       labelKey: "nav.tweets",       icon: "🐦", flagKey: "tweets" },
   { href: "/answers",      labelKey: "nav.answers",      icon: "❓", flagKey: "forum" },
@@ -716,6 +717,13 @@ export function Navbar() {
                 🧭 {t("moderation.title", "Moderation Center")}
               </Link>
             )}
+            <Link
+              href="/search"
+              aria-label={t("search.title")}
+              className="rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            >
+              <span aria-hidden="true" className="text-lg leading-none">🔍</span>
+            </Link>
             <Link
               href="/notifications"
               aria-label={unreadCount > 0 ? `${t("notifications.title")}, ${t("notifications.unread", { count: unreadCount })}` : t("notifications.title")}

@@ -20,6 +20,7 @@
  */
 
 import { markSessionExpired, rawFetch } from "@/lib/auth/sessionExpiredBus";
+import { setSessionExpiresAt } from "@/lib/auth/sessionExpiryBus";
 
 let refreshPromise: Promise<boolean> | null = null;
 
@@ -31,6 +32,12 @@ async function refreshOnce(): Promise<boolean> {
         method: "POST",
         credentials: "include",
       });
+      if (res.ok) {
+        const body = (await res.json().catch(() => null)) as { expiresIn?: number } | null;
+        if (typeof body?.expiresIn === "number") {
+          setSessionExpiresAt(Date.now() + body.expiresIn * 1000);
+        }
+      }
       return res.ok;
     } catch {
       return false;

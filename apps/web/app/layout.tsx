@@ -25,6 +25,7 @@ import { ReferralCapture } from "@/components/referral/ReferralCapture";
 import { SkipToMain } from "@/components/shared/SkipToMain";
 import { GlobalLoadingIndicator } from "@/components/shared/GlobalLoadingIndicator";
 import { SessionExpiredModal } from "@/components/auth/SessionExpiredModal";
+import { SessionExpiryCountdown } from "@/components/auth/SessionExpiryCountdown";
 import { ImpersonationBanner } from "@/components/admin/ImpersonationBanner";
 import { loadManifest } from "@/lib/manifest";
 import { db } from "@/lib/db";
@@ -191,6 +192,9 @@ export default async function RootLayout({ children }: RootLayoutProps) {
                     401 (e.g. failing to start/score a game) previously went
                     unnoticed. Self-guards against showing on /auth/* routes. */}
                 <SessionExpiredModal />
+                {/* Proactive 30s warning before the access token actually
+                    expires, shown only while the tab is visible. */}
+                <SessionExpiryCountdown />
                 <ImpersonationBanner />
                 <GlobalLoadingIndicator />
                 <main id="main-content">

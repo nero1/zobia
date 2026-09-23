@@ -22,6 +22,7 @@ import { focusManager, onlineManager } from '@tanstack/react-query';
 import { env } from '@/lib/env';
 import { secureGet, secureSet, secureRemove } from '@/lib/auth/secureTokenStore';
 import { reportRequestStart, reportRequestEnd } from '@/lib/loading/requestActivity';
+import { setSessionExpiresAtFromToken } from '@/lib/auth/sessionExpiryBus';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -65,6 +66,7 @@ function notifyUnauthenticated(): void {
  */
 export function signalUnauthenticated(): void {
   _cachedToken = null;
+  setSessionExpiresAtFromToken(null);
   _autoSignOutReason = 'session_expired';
   if (_notifiedUnauthenticated) return;
   _notifiedUnauthenticated = true;
@@ -151,6 +153,7 @@ export async function refreshAccessToken(): Promise<string | null> {
 
       await secureSet(JWT_KEY, newToken);
       _cachedToken = newToken;
+      setSessionExpiresAtFromToken(newToken);
 
       const newRefreshToken = res.data.refreshToken;
       if (newRefreshToken) {

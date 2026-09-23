@@ -62,6 +62,21 @@ export interface SessionRecord {
   impersonatedBy?: string;
 }
 
+/**
+ * Thrown by {@link refreshAccessToken} when the presented refresh token can
+ * never succeed again (session revoked/expired, reuse detected, or the
+ * account is no longer in good standing) — as opposed to a transient failure
+ * (lock contention, a DB hiccup) where the same token might still work on
+ * retry. Route handlers use this distinction to decide whether to clear the
+ * browser's auth cookies: clearing them on a transient failure would log out
+ * a user whose session is actually still fine, while NOT clearing them on a
+ * genuine revocation leaves a dead refresh token in the browser that keeps
+ * getting replayed on every page load — surfacing the "session expired"
+ * notice again and again until the cookie's own Max-Age finally runs out
+ * (BUG: persistent session-expired popup).
+ */
+export class SessionRevokedError extends Error {}
+
 /** Result of a successful login or token refresh. */
 export interface AuthTokens {
   accessToken: string;
@@ -424,7 +439,7 @@ export async function refreshAccessToken(
   // on every refresh, so a stale copy could mis-flag a valid token as reused.
   const session = await getSessionFresh(payload.sid!);
   if (!session) {
-    throw new Error("Session has been revoked or has expired");
+    throw new SessionRevokedError("Session has been revoked or has expired");
   }
 
   // AUTH-01: Acquire a distributed lock to prevent concurrent refresh races.
@@ -454,7 +469,7 @@ export async function refreshAccessToken(
       if (!withinGrace) {
         // Genuine token reuse — revoke entire session chain
         await invalidateAllSessions(session.uid).catch(() => {});
-        throw new Error("Refresh token reuse detected. All sessions revoked.");
+        throw new SessionRevokedError("Refresh token reuse detected. All sessions revoked.");
       }
       // Within grace window — treat as if the current token was presented so rotation proceeds
     }
@@ -514,7 +529,7 @@ export async function refreshAccessToken(
     (!statusRow.suspended_until || new Date(statusRow.suspended_until) > new Date());
   if (!statusRow || statusRow.is_banned || suspensionActive) {
     await invalidateAllSessions(session.uid).catch(() => {});
-    throw new Error("Account is not active. Please contact support.");
+    throw new SessionRevokedError("Account is not active. Please contact support.");
   }
 
   const currentEmail = staffRows[0]?.email ?? null;

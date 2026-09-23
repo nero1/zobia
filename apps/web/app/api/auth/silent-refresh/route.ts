@@ -16,8 +16,35 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { refreshAccessToken, buildCookieHeaders, REFRESH_TOKEN_COOKIE } from "@/lib/auth/session";
+import {
+  refreshAccessToken,
+  buildCookieHeaders,
+  buildClearCookieHeaders,
+  REFRESH_TOKEN_COOKIE,
+  SessionRevokedError,
+} from "@/lib/auth/session";
+import { JwtVerificationError } from "@/lib/auth/jwt";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
+
+/**
+ * Redirect to the login screen with a cleared cookie jar.
+ *
+ * BUG: persistent "session expired" popup — previously this route redirected
+ * to /auth/login on a failed refresh WITHOUT clearing the dead zobia_rt/zobia_at
+ * cookies. The browser kept sending that same dead refresh token on every
+ * subsequent page load / new tab, so this route (and the edge middleware that
+ * calls it) kept redirecting to the session-expired login screen forever —
+ * even for a different person opening the site fresh on a shared device.
+ * Clearing the cookies here breaks that loop: the next load has no refresh
+ * token and goes straight to a normal (non-"expired") login page.
+ */
+function redirectToLoginClearingCookies(loginUrl: URL): NextResponse {
+  const response = NextResponse.redirect(loginUrl);
+  const { accessCookie, refreshCookie } = buildClearCookieHeaders();
+  response.headers.append("Set-Cookie", accessCookie);
+  response.headers.append("Set-Cookie", refreshCookie);
+  return response;
+}
 
 /** Validate that a redirect target is a relative same-site path. */
 function isSafeRelativePath(value: string | null | undefined): value is string {
@@ -34,15 +61,32 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   loginUrl.searchParams.set("reason", "session_expired");
 
   try {
-    // Rate limit by IP
+    // Rate limit by IP. A 429 here is transient (nothing wrong with the
+    // refresh token itself), so it deliberately falls through to the
+    // catch-all below WITHOUT clearing cookies — the next attempt should
+    // still have a working refresh token.
     await enforceRateLimit(ip, "ip", RATE_LIMITS.auth);
 
     const refreshToken = req.cookies.get(REFRESH_TOKEN_COOKIE)?.value;
     if (!refreshToken) {
+      // No refresh token to begin with — nothing to clear, just send them to
+      // log in normally.
       return NextResponse.redirect(loginUrl);
     }
 
-    const result = await refreshAccessToken(refreshToken);
+    let result;
+    try {
+      result = await refreshAccessToken(refreshToken);
+    } catch (err) {
+      // Only a genuinely dead token (invalid/expired/revoked) should clear
+      // the cookie jar — see redirectToLoginClearingCookies's doc comment.
+      // Any other failure (lock contention, a DB hiccup) leaves the cookies
+      // alone since the same token may still work on the next attempt.
+      if (err instanceof JwtVerificationError || err instanceof SessionRevokedError) {
+        return redirectToLoginClearingCookies(loginUrl);
+      }
+      throw err;
+    }
 
     // Build full AuthTokens-compatible object for buildCookieHeaders
     const authTokens = {

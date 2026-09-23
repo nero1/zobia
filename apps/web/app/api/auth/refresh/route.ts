@@ -27,7 +27,9 @@ import { type NextRequest, NextResponse } from "next/server";
 import {
   refreshAccessToken,
   buildCookieHeaders,
+  buildClearCookieHeaders,
   REFRESH_TOKEN_COOKIE,
+  SessionRevokedError,
 } from "@/lib/auth/session";
 import { JwtVerificationError } from "@/lib/auth/jwt";
 import { handleApiError, unauthorized } from "@/lib/api/errors";
@@ -88,10 +90,27 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     // Surface JWT-specific error codes for the client to act on
     if (err instanceof JwtVerificationError) {
       const status = err.code === "EXPIRED" ? 401 : 400;
-      return NextResponse.json(
+      const response = NextResponse.json(
         { error: { code: err.code, message: err.message } },
         { status }
       );
+      // The presented refresh token is malformed/invalid/expired and can
+      // never succeed again — clear it so the browser stops replaying it on
+      // every subsequent page load (see SessionRevokedError doc comment).
+      const { accessCookie, refreshCookie } = buildClearCookieHeaders();
+      response.headers.append("Set-Cookie", accessCookie);
+      response.headers.append("Set-Cookie", refreshCookie);
+      return response;
+    }
+    if (err instanceof SessionRevokedError) {
+      const response = NextResponse.json(
+        { error: { code: "SESSION_REVOKED", message: err.message } },
+        { status: 401 }
+      );
+      const { accessCookie, refreshCookie } = buildClearCookieHeaders();
+      response.headers.append("Set-Cookie", accessCookie);
+      response.headers.append("Set-Cookie", refreshCookie);
+      return response;
     }
     return handleApiError(err);
   }
