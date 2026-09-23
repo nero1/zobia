@@ -35,6 +35,7 @@ interface GiftRecord {
   sender: GiftUser;
   recipient: GiftUser;
   giftItem: { name: string; emoji: string; tier: number };
+  message: string | null;
   reward: { label: string; description: string | null; customText: string | null; benefitType: string | null } | null;
 }
 
@@ -71,6 +72,20 @@ interface UserSuggestion {
 interface WalletBalance {
   coins: number;
   stars: number;
+}
+
+interface GiftMessageConfig {
+  globallyEnabled: boolean;
+  tierEnabled: boolean;
+  maxWords: number;
+  minLevel: number;
+  eligible: boolean;
+}
+
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).length;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,8 +148,14 @@ function SendGiftModal({
   const [pinInput, setPinInput] = useState("");
   const [pinError, setPinError] = useState<string | null>(null);
   const [verifyingPin, setVerifyingPin] = useState(false);
-  const pendingSend = useRef<{ giftItemId: string; recipientId: string } | null>(null);
+  const pendingSend = useRef<{ giftItemId: string; recipientId: string; message?: string } | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // "Add a message" box (click to reveal) — see lib/plans/giftMessage.ts
+  const [messageConfig, setMessageConfig] = useState<GiftMessageConfig | null>(null);
+  const [showMessageBox, setShowMessageBox] = useState(false);
+  const [messageText, setMessageText] = useState("");
+  const [showConfirm, setShowConfirm] = useState(false);
 
   // Load catalogue and wallet balance on mount
   useEffect(() => {
@@ -161,6 +182,11 @@ function SendGiftModal({
     fetch("/api/economy/coins/balance", { credentials: "include" })
       .then((r) => r.ok ? r.json() : null)
       .then((data) => { if (data) setWallet(data); })
+      .catch(() => {});
+
+    fetch("/api/economy/gifts/message-config", { credentials: "include" })
+      .then((r) => r.ok ? r.json() : null)
+      .then((data) => { if (data) setMessageConfig(data); })
       .catch(() => {});
   }, [prefilledGiftId]);
 
@@ -192,7 +218,7 @@ function SendGiftModal({
     }, 300);
   }, [search, recipient]);
 
-  const doSend = async (giftItemId: string, recipientId: string) => {
+  const doSend = async (giftItemId: string, recipientId: string, message?: string) => {
     setSending(true);
     setError(null);
     try {
@@ -200,14 +226,14 @@ function SendGiftModal({
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ giftItemId, recipientId }),
+        body: JSON.stringify({ giftItemId, recipientId, message: message || undefined }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         const errCode = typeof data.error === "string" ? null : data.error?.code ?? null;
         const errMsg = typeof data.error === "string" ? data.error : data.error?.message;
         if (errCode === "PIN_REQUIRED") {
-          pendingSend.current = { giftItemId, recipientId };
+          pendingSend.current = { giftItemId, recipientId, message };
           setPinInput("");
           setPinError(null);
           setShowPinModal(true);
@@ -217,6 +243,7 @@ function SendGiftModal({
         err.code = errCode;
         throw err;
       }
+      setShowConfirm(false);
       setSent(true);
     } catch (err) {
       const e = err as Error & { code?: string | null };
@@ -226,9 +253,27 @@ function SendGiftModal({
     }
   };
 
+  const messageWordCount = countWords(messageText);
+  const messageMaxWords = messageConfig?.maxWords ?? 40;
+  const messageOverLimit = messageWordCount > messageMaxWords;
+  const canShowMessageBox = !!messageConfig?.eligible;
+
   const handleSend = async () => {
     if (!recipient || !selectedGift) return;
+    const trimmedMessage = messageText.trim();
+    // Only show the confirm/preview step when a message was added — plain
+    // gift sends stay one tap, matching the existing flow.
+    if (trimmedMessage) {
+      if (messageOverLimit) return;
+      setShowConfirm(true);
+      return;
+    }
     await doSend(selectedGift.id, recipient.id);
+  };
+
+  const handleConfirmSend = async () => {
+    if (!recipient || !selectedGift) return;
+    await doSend(selectedGift.id, recipient.id, messageText.trim());
   };
 
   const handlePinVerify = async () => {
@@ -250,9 +295,9 @@ function SendGiftModal({
       setShowPinModal(false);
       setPinInput("");
       if (pendingSend.current) {
-        const { giftItemId, recipientId } = pendingSend.current;
+        const { giftItemId, recipientId, message } = pendingSend.current;
         pendingSend.current = null;
-        await doSend(giftItemId, recipientId);
+        await doSend(giftItemId, recipientId, message);
       }
     } catch {
       setPinError("Network error. Try again.");
@@ -308,6 +353,54 @@ function SendGiftModal({
     );
   }
 
+  if (showConfirm) {
+    return (
+      <div className="flex flex-col gap-4 py-4">
+        <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-50">
+          {t("gifts.confirm.title", { defaultValue: "Confirm your gift" })}
+        </h3>
+        <div className="flex items-center gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-700 dark:bg-neutral-800">
+          <span className="text-3xl leading-none" aria-hidden="true">{selectedGift?.emoji}</span>
+          <div>
+            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-50">{selectedGift?.name}</p>
+            <p className="text-xs text-neutral-500">
+              {t("gifts.confirm.to", { defaultValue: "To" })} @{recipient?.username}
+            </p>
+          </div>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500">
+            {t("gifts.confirm.messageLabel", { defaultValue: "Your message" })}
+          </p>
+          <p className="whitespace-pre-wrap rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-800 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200">
+            {messageText.trim()}
+          </p>
+        </div>
+        {error && (
+          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">{error}</p>
+        )}
+        <div className="flex gap-3">
+          <button
+            type="button"
+            onClick={() => setShowConfirm(false)}
+            disabled={sending}
+            className="flex-1 rounded-xl border border-neutral-200 py-2.5 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300"
+          >
+            {t("gifts.confirm.edit", { defaultValue: "Edit" })}
+          </button>
+          <button
+            type="button"
+            onClick={() => void handleConfirmSend()}
+            disabled={sending}
+            className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white hover:bg-primary-700 disabled:opacity-60"
+          >
+            {sending ? t("gifts.send.sending", { defaultValue: "Sending…" }) : t("gifts.confirm.confirmSend", { defaultValue: "Confirm & Send" })}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (sent) {
     return (
       <div className="flex flex-col items-center gap-4 py-8 text-center">
@@ -318,6 +411,11 @@ function SendGiftModal({
         <p className="text-sm text-neutral-500">
           You sent {selectedGift?.name} — they&apos;ll love it 🎉
         </p>
+        {messageText.trim() && (
+          <p className="max-w-xs whitespace-pre-wrap rounded-xl bg-neutral-50 px-3 py-2 text-sm text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300">
+            “{messageText.trim()}”
+          </p>
+        )}
         <button
           type="button"
           onClick={onClose}
@@ -458,6 +556,46 @@ function SendGiftModal({
         </>
       )}
 
+      {/* Optional "Add a message" box — click to reveal (PRD §12) */}
+      {recipient && selectedGift && canShowMessageBox && (
+        <div>
+          {!showMessageBox ? (
+            <button
+              type="button"
+              onClick={() => setShowMessageBox(true)}
+              className="text-sm font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400"
+            >
+              {t("gifts.message.addBtn", { defaultValue: "+ Add a message (optional)" })}
+            </button>
+          ) : (
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                  {t("gifts.message.label", { defaultValue: "Add a message (optional)" })}
+                </label>
+                <button
+                  type="button"
+                  onClick={() => { setShowMessageBox(false); setMessageText(""); }}
+                  className="text-xs text-neutral-500 hover:text-neutral-700 dark:text-neutral-400"
+                >
+                  {t("gifts.send.cancel", { defaultValue: "Cancel" })}
+                </button>
+              </div>
+              <textarea
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                rows={3}
+                placeholder={t("gifts.message.placeholder", { defaultValue: "Say something nice…" }) as string}
+                className="w-full resize-none rounded-xl border border-neutral-200 bg-white px-3 py-2.5 text-sm text-neutral-900 placeholder-neutral-400 focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-50 dark:placeholder-neutral-500"
+              />
+              <p className={clsx("mt-1 text-right text-xs", messageOverLimit ? "text-red-500" : "text-neutral-400")}>
+                {t("gifts.message.wordCount", { defaultValue: "{{count}}/{{max}} words", count: messageWordCount, max: messageMaxWords })}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-950 dark:text-red-400">{error}</p>
       )}
@@ -473,8 +611,8 @@ function SendGiftModal({
         </button>
         <button
           type="button"
-          onClick={handleSend}
-          disabled={!recipient || !selectedGift || sending}
+          onClick={() => void handleSend()}
+          disabled={!recipient || !selectedGift || sending || messageOverLimit}
           className="rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white hover:bg-primary-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {sending ? "Sending…" : selectedGift ? `Send ${selectedGift.emoji} ${selectedGift.name}` : "Send Gift"}
@@ -494,13 +632,15 @@ function GiftRow({ gift, currentUserId }: { gift: GiftRecord; currentUserId: str
   const displayName = other.displayName ?? other.username ?? "Unknown";
   const [expanded, setExpanded] = useState(false);
   const hasReward = isSent && !!gift.reward;
+  const hasMessage = !!gift.message;
+  const expandable = hasReward || hasMessage;
 
   return (
     <div className="rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-800/50">
       <button
         type="button"
-        onClick={() => hasReward && setExpanded((v) => !v)}
-        disabled={!hasReward}
+        onClick={() => expandable && setExpanded((v) => !v)}
+        disabled={!expandable}
         className="flex w-full items-center gap-3 px-3 py-3 text-left disabled:cursor-default"
       >
         <span className="text-2xl leading-none" aria-hidden="true">{gift.giftItem.emoji}</span>
@@ -516,6 +656,11 @@ function GiftRow({ gift, currentUserId }: { gift: GiftRecord; currentUserId: str
               ✨ Unlocked: {gift.reward!.label} {expanded ? "▲" : "▼"}
             </p>
           )}
+          {!hasReward && hasMessage && (
+            <p className="mt-0.5 truncate text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+              💬 {gift.message} {expanded ? "▲" : "▼"}
+            </p>
+          )}
         </div>
         <div className="flex flex-col items-end gap-0.5">
           <span className={clsx("rounded-full px-2 py-0.5 text-[10px] font-semibold", tierColour(gift.giftItem.tier))}>
@@ -526,11 +671,14 @@ function GiftRow({ gift, currentUserId }: { gift: GiftRecord; currentUserId: str
           </span>
         </div>
       </button>
-      {hasReward && expanded && (
-        <div className="mx-3 mb-3 -mt-1 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-          {gift.reward!.description && <p className="mb-1">{gift.reward!.description}</p>}
-          {gift.reward!.customText && (
+      {expandable && expanded && (
+        <div className="mx-3 mb-3 -mt-1 space-y-1.5 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          {hasReward && gift.reward!.description && <p>{gift.reward!.description}</p>}
+          {hasReward && gift.reward!.customText && (
             <p className="whitespace-pre-wrap border-t border-amber-200/60 pt-1 dark:border-amber-800/60">{gift.reward!.customText}</p>
+          )}
+          {hasMessage && (
+            <p className="whitespace-pre-wrap text-neutral-700 dark:text-neutral-300">{gift.message}</p>
           )}
         </div>
       )}

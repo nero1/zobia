@@ -25,12 +25,13 @@ import { Browser } from '@capacitor/browser';
 import { env } from '@/lib/env';
 import { OAUTH_CALLBACK_LINK } from '@/lib/deeplinks/routes';
 import { beginOAuthAttempt, endOAuthAttempt, onOAuthEnd } from '@/lib/auth/preAuth';
+import { formatShortDateTime } from '@/lib/format/date';
 
 const CALLBACK_DEEP_LINK = OAUTH_CALLBACK_LINK;
 
 function LoginPage() {
   const { t } = useTranslation();
-  const { reason } = Route.useSearch();
+  const { reason, error: blockedError, block_reason: blockedReason, until: blockedUntil, appeal_code: appealCode } = Route.useSearch();
 
   const [googleLoading, setGoogleLoading] = useState(false);
   const [telegramLoading, setTelegramLoading] = useState(false);
@@ -106,7 +107,45 @@ function LoginPage() {
           </div>
         )}
 
-        {error && (
+        {(blockedError === 'account_terminated' || blockedError === 'account_suspended') && (
+          <div className="bg-danger-50 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300 px-4 py-3 rounded-lg text-sm mb-4">
+            <p className="font-semibold text-center">
+              {blockedError === 'account_terminated'
+                ? t('auth.error.accountTerminated')
+                : t('auth.error.accountSuspended')}
+            </p>
+            {blockedReason && (
+              <p className="mt-2 text-xs">
+                <span className="font-semibold">{t('auth.error.reasonLabel')}:</span> {blockedReason}
+              </p>
+            )}
+            {blockedUntil && (
+              <p className="mt-1 text-xs">
+                <span className="font-semibold">{t('auth.error.suspendedUntilLabel')}:</span>{' '}
+                {formatShortDateTime(blockedUntil)}
+              </p>
+            )}
+            {appealCode && (
+              <p className="mt-3 text-center">
+                <a
+                  href={`${env.VITE_API_BASE_URL}/appeal?code=${encodeURIComponent(appealCode)}`}
+                  className="font-semibold text-primary-600 dark:text-primary-300 underline"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    void Browser.open({
+                      url: `${env.VITE_API_BASE_URL}/appeal?code=${encodeURIComponent(appealCode)}`,
+                      presentationStyle: 'popover',
+                    });
+                  }}
+                >
+                  {t('auth.error.fileAppealLink')}
+                </a>
+              </p>
+            )}
+          </div>
+        )}
+
+        {!blockedError && error && (
           <div className="bg-danger-50 dark:bg-danger-900/30 text-danger-700 dark:text-danger-300 px-4 py-3 rounded-lg text-sm mb-4">
             {error}
           </div>
@@ -179,9 +218,20 @@ function LoginPage() {
 export const Route = createFileRoute('/auth/login')({
   validateSearch: (
     search: Record<string, unknown>,
-  ): { reason?: string; redirect?: string } => ({
+  ): {
+    reason?: string;
+    redirect?: string;
+    error?: string;
+    block_reason?: string;
+    until?: string;
+    appeal_code?: string;
+  } => ({
     reason: typeof search.reason === 'string' ? search.reason : undefined,
     redirect: typeof search.redirect === 'string' ? search.redirect : undefined,
+    error: typeof search.error === 'string' ? search.error : undefined,
+    block_reason: typeof search.block_reason === 'string' ? search.block_reason : undefined,
+    until: typeof search.until === 'string' ? search.until : undefined,
+    appeal_code: typeof search.appeal_code === 'string' ? search.appeal_code : undefined,
   }),
   component: LoginPage,
 });

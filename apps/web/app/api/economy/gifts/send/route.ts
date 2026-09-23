@@ -36,6 +36,7 @@ import { logger } from "@/lib/logger";
 import type { Plan } from "@zobia/types";
 import type { RewardConfig } from "@/lib/economy/giftItems";
 import { claimRoomRewardOnGift } from "@/lib/contentTreasury";
+import { getGiftMessageConfig, countWords } from "@/lib/plans/giftMessage";
 
 // Platform takes 20% of gifts received by creators (PRD §14)
 const CREATOR_GIFT_FEE_PERCENT = 20;
@@ -61,6 +62,14 @@ const SendGiftSchema = z.object({
   blogId: z.string().uuid().optional(),
   /** Optional idempotency key — prevents double-send on client retry. */
   idempotencyKey: z.string().uuid("idempotencyKey must be a valid UUID").optional(),
+  /**
+   * Optional message attached to the gift (the "Add a message" box).
+   * Word-limit and on/off eligibility are enforced server-side per the
+   * sender's plan/business tier and account level — see
+   * lib/plans/giftMessage.ts. Hard character ceiling here just bounds the
+   * payload; the real limit is the word count check below.
+   */
+  message: z.string().trim().max(4000, "message is too long").optional(),
 }).superRefine((val, ctx) => {
   if (val.roomId && val.blogId) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["blogId"], message: "roomId and blogId cannot both be set" });
@@ -259,6 +268,43 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw forbidden("Your account trust score is too low to send gifts. Build your reputation first.", "TRUST_SCORE_TOO_LOW");
     }
 
+    // Gift message eligibility (the "Add a message" box) — validated up
+    // front so we never charge coins for a message we're about to reject.
+    let giftMessage: string | null = null;
+    let giftMessageWordCount: number | null = null;
+    const trimmedMessage = body.message?.trim();
+    if (trimmedMessage) {
+      const { rows: senderPlanRows } = await db.query<{ plan: Plan; rank_level: number }>(
+        `SELECT COALESCE(plan, 'free') AS plan, COALESCE(rank_level, 1) AS rank_level
+         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [senderId]
+      );
+      const { rows: senderBizRows } = await db.query<{ tier: string }>(
+        `SELECT tier FROM business_accounts WHERE user_id = $1 LIMIT 1`,
+        [senderId]
+      );
+      const config = await getGiftMessageConfig(
+        senderPlanRows[0]?.plan ?? "free",
+        senderBizRows[0]?.tier ?? null,
+        senderPlanRows[0]?.rank_level ?? 1
+      );
+      if (!config.eligible) {
+        throw forbidden(
+          "You're not eligible to attach a message to this gift yet.",
+          "GIFT_MESSAGE_NOT_ELIGIBLE"
+        );
+      }
+      const wordCount = countWords(trimmedMessage);
+      if (wordCount > config.maxWords) {
+        throw badRequest(
+          `Your message is too long — max ${config.maxWords} words for your plan.`,
+          "GIFT_MESSAGE_TOO_LONG"
+        );
+      }
+      giftMessage = trimmedMessage;
+      giftMessageWordCount = wordCount;
+    }
+
     // 1. Load gift item and resolve matching gift_type (if one exists by name)
     const { rows: giftRows } = await db.query<GiftItemRow>(
       `SELECT gi.id, gi.name, gi.emoji, gi.coin_cost, gi.tier,
@@ -394,8 +440,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // Create the gift record (coin_value is the original NOT NULL column; coin_cost is its alias)
       const { rows: giftInsert } = await tx.query<{ id: string }>(
         `INSERT INTO gifts
-           (sender_id, recipient_id, gift_item_id, gift_type_id, coin_value, coin_cost, room_id, status)
-         VALUES ($1, $2, $3, $4, $5, $5, $6, 'delivered')
+           (sender_id, recipient_id, gift_item_id, gift_type_id, coin_value, coin_cost, room_id, status, message, message_word_count)
+         VALUES ($1, $2, $3, $4, $5, $5, $6, 'delivered', $7, $8)
          RETURNING id`,
         [
           senderId,
@@ -404,6 +450,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           giftItem.gift_type_id ?? null,
           giftItem.coin_cost,
           body.roomId ?? null,
+          giftMessage,
+          giftMessageWordCount,
         ]
       );
 
@@ -425,6 +473,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
               recipientId: body.recipientId,
               coinCost: giftItem.coin_cost,
               tier: giftItem.tier,
+              message: giftMessage,
             }),
           ]
         );
@@ -463,14 +512,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         await tx.query(
           `INSERT INTO messages
              (sender_id, recipient_id, conversation_id, message_type, content,
-              media_url, coin_cost, reply_count_from_recipient)
-           VALUES ($1, $2, $3, 'gift', $4, NULL, $5, 0)`,
+              media_url, coin_cost, reply_count_from_recipient, metadata)
+           VALUES ($1, $2, $3, 'gift', $4, NULL, $5, 0, $6::jsonb)`,
           [
             senderId,
             body.recipientId,
             dmConversationId,
             `${giftItem.emoji} ${giftItem.name} (${giftItem.coin_cost} coins)`,
             giftItem.coin_cost,
+            JSON.stringify({ giftId, giftItemId: giftItem.id, message: giftMessage }),
           ]
         );
       }
@@ -621,6 +671,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         id: recipient.id,
         username: recipient.username,
       },
+      message: giftMessage,
       spectacleTriggered,
       rewardGranted: granted,
     });

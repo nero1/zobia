@@ -28,6 +28,21 @@ interface GiftRecord {
   sender: GiftUser;
   recipient: GiftUser;
   giftItem: { name: string; emoji: string; tier: number };
+  message: string | null;
+}
+
+interface GiftMessageConfig {
+  globallyEnabled: boolean;
+  tierEnabled: boolean;
+  maxWords: number;
+  minLevel: number;
+  eligible: boolean;
+}
+
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  if (!trimmed) return 0;
+  return trimmed.split(/\s+/).length;
 }
 
 interface GiftItem {
@@ -101,6 +116,7 @@ interface GiftHistoryRow {
   gift_name: string;
   gift_emoji: string;
   gift_tier: number;
+  message: string | null;
 }
 
 function mapGift(row: GiftHistoryRow): GiftRecord {
@@ -111,6 +127,7 @@ function mapGift(row: GiftHistoryRow): GiftRecord {
     sender: { id: row.sender_id, username: row.sender_username, displayName: row.sender_display_name, avatarEmoji: row.sender_avatar_emoji },
     recipient: { id: row.recipient_id, username: row.recipient_username, displayName: row.recipient_display_name, avatarEmoji: row.recipient_avatar_emoji },
     giftItem: { name: row.gift_name, emoji: row.gift_emoji, tier: row.gift_tier },
+    message: row.message ?? null,
   };
 }
 
@@ -121,6 +138,11 @@ async function fetchGifts(direction: Tab): Promise<GiftRecord[]> {
 
 async function fetchCatalogue(): Promise<Catalogue> {
   const { data } = await apiClient.get<Catalogue>('/economy/gifts/catalogue');
+  return data;
+}
+
+async function fetchMessageConfig(): Promise<GiftMessageConfig> {
+  const { data } = await apiClient.get<GiftMessageConfig>('/economy/gifts/message-config');
   return data;
 }
 
@@ -164,11 +186,22 @@ function SendGiftPanel({
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState<string | null>(null);
   const [verifyingPin, setVerifyingPin] = useState(false);
-  const pendingSend = useRef<{ giftItemId: string; recipientId: string } | null>(null);
+  const pendingSend = useRef<{ giftItemId: string; recipientId: string; message?: string } | null>(null);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // "Add a message" box (click to reveal) — see apps/web SendGiftModal / lib/plans/giftMessage.ts
+  const [showMessageBox, setShowMessageBox] = useState(false);
+  const [messageText, setMessageText] = useState('');
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const { data: catalogue } = useQuery({ queryKey: ['gifts', 'catalogue'], queryFn: fetchCatalogue, staleTime: 5 * 60_000 });
   const { data: wallet } = useQuery({ queryKey: ['gifts', 'wallet'], queryFn: fetchWallet });
+  const { data: messageConfig } = useQuery({ queryKey: ['gifts', 'message-config'], queryFn: fetchMessageConfig });
+
+  const messageWordCount = countWords(messageText);
+  const messageMaxWords = messageConfig?.maxWords ?? 40;
+  const messageOverLimit = messageWordCount > messageMaxWords;
+  const canShowMessageBox = !!messageConfig?.eligible;
 
   useEffect(() => {
     if (!catalogue || activeTier !== null) return;
@@ -200,10 +233,10 @@ function SendGiftPanel({
   }, [search, recipient]);
 
   const sendMutation = useMutation({
-    mutationFn: async ({ giftItemId, recipientId }: { giftItemId: string; recipientId: string }) => {
-      await apiClient.post('/economy/gifts/send', { giftItemId, recipientId });
+    mutationFn: async ({ giftItemId, recipientId, message }: { giftItemId: string; recipientId: string; message?: string }) => {
+      await apiClient.post('/economy/gifts/send', { giftItemId, recipientId, message: message || undefined });
     },
-    onSuccess: () => setSent(true),
+    onSuccess: () => { setShowConfirm(false); setSent(true); },
     onError: (err: unknown, variables) => {
       const e = err as { response?: { status?: number; data?: { code?: string; error?: string } } };
       if (e.response?.status === 403 && e.response.data?.code === 'PIN_REQUIRED') {
@@ -220,7 +253,20 @@ function SendGiftPanel({
   const handleSend = () => {
     if (!recipient || !selectedGift) return;
     setError(null);
+    const trimmedMessage = messageText.trim();
+    // Only show the confirm/preview step when a message was added — plain
+    // gift sends stay one tap, matching the web flow.
+    if (trimmedMessage) {
+      if (messageOverLimit) return;
+      setShowConfirm(true);
+      return;
+    }
     sendMutation.mutate({ giftItemId: selectedGift.id, recipientId: recipient.id });
+  };
+
+  const handleConfirmSend = () => {
+    if (!recipient || !selectedGift) return;
+    sendMutation.mutate({ giftItemId: selectedGift.id, recipientId: recipient.id, message: messageText.trim() });
   };
 
   const handlePinVerify = async () => {
@@ -232,9 +278,9 @@ function SendGiftPanel({
       setShowPin(false);
       setPin('');
       if (pendingSend.current) {
-        const { giftItemId, recipientId } = pendingSend.current;
+        const { giftItemId, recipientId, message } = pendingSend.current;
         pendingSend.current = null;
-        sendMutation.mutate({ giftItemId, recipientId });
+        sendMutation.mutate({ giftItemId, recipientId, message });
       }
     } catch {
       setPinError(t('error.generic'));
@@ -275,12 +321,55 @@ function SendGiftPanel({
     );
   }
 
+  if (showConfirm) {
+    return (
+      <div className="flex flex-col gap-4 px-4 py-4">
+        <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('gifts.confirm.title')}</h3>
+        <div className="flex items-center gap-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-900 p-3">
+          <span className="text-3xl leading-none">{selectedGift?.emoji}</span>
+          <div>
+            <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{selectedGift?.name}</p>
+            <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('gifts.confirm.to')} @{recipient?.username}</p>
+          </div>
+        </div>
+        <div>
+          <p className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-500 dark:text-neutral-400">{t('gifts.confirm.messageLabel')}</p>
+          <p className="whitespace-pre-wrap rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-900 px-3 py-2.5 text-sm text-neutral-800 dark:text-neutral-200">
+            {messageText.trim()}
+          </p>
+        </div>
+        {error && <p className="rounded-lg bg-red-50 dark:bg-red-900/30 px-3 py-2 text-sm text-red-600 dark:text-red-300">{error}</p>}
+        <div className="flex gap-3">
+          <button
+            onClick={() => setShowConfirm(false)}
+            disabled={sendMutation.isPending}
+            className="flex-1 rounded-xl border border-neutral-200 dark:border-neutral-700 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
+          >
+            {t('gifts.confirm.edit')}
+          </button>
+          <button
+            onClick={handleConfirmSend}
+            disabled={sendMutation.isPending}
+            className="flex-1 rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
+          >
+            {sendMutation.isPending ? t('gifts.send.sending') : t('gifts.confirm.confirmSend')}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (sent) {
     return (
       <div className="flex flex-col items-center gap-4 py-8 px-4 text-center">
         <span className="text-5xl">{selectedGift?.emoji}</span>
         <p className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t('gifts.send.success', { username: recipient?.username })}</p>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('gifts.send.successHint', { name: selectedGift?.name })}</p>
+        {messageText.trim() && (
+          <p className="max-w-xs whitespace-pre-wrap rounded-xl bg-neutral-50 dark:bg-neutral-900 px-3 py-2 text-sm text-neutral-600 dark:text-neutral-300">
+            “{messageText.trim()}”
+          </p>
+        )}
         <button onClick={onSent} className="rounded-xl bg-primary-600 px-6 py-2.5 text-sm font-semibold text-white">
           {t('gifts.send.done')}
         </button>
@@ -385,6 +474,36 @@ function SendGiftPanel({
         </>
       )}
 
+      {/* Optional "Add a message" box — click to reveal (PRD §12) */}
+      {recipient && selectedGift && canShowMessageBox && (
+        <div>
+          {!showMessageBox ? (
+            <button onClick={() => setShowMessageBox(true)} className="text-sm font-medium text-primary-600 dark:text-primary-400">
+              {t('gifts.message.addBtn')}
+            </button>
+          ) : (
+            <div>
+              <div className="mb-1 flex items-center justify-between">
+                <label className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t('gifts.message.label')}</label>
+                <button onClick={() => { setShowMessageBox(false); setMessageText(''); }} className="text-xs text-neutral-500 dark:text-neutral-400">
+                  {t('gifts.send.cancel')}
+                </button>
+              </div>
+              <textarea
+                value={messageText}
+                onChange={(e) => setMessageText(e.target.value)}
+                rows={3}
+                placeholder={t('gifts.message.placeholder')}
+                className="w-full resize-none rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-3 py-2.5 text-sm text-neutral-900 dark:text-neutral-100 focus:border-primary-500 focus:outline-none"
+              />
+              <p className={`mt-1 text-right text-xs ${messageOverLimit ? 'text-red-500' : 'text-neutral-400 dark:text-neutral-500'}`}>
+                {t('gifts.message.wordCount', { count: messageWordCount, max: messageMaxWords })}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
       {error && <p className="rounded-lg bg-red-50 dark:bg-red-900/30 px-3 py-2 text-sm text-red-600 dark:text-red-300">{error}</p>}
 
       <div className="flex justify-end gap-2 border-t border-neutral-100 dark:border-neutral-800 pt-4">
@@ -393,7 +512,7 @@ function SendGiftPanel({
         </button>
         <button
           onClick={handleSend}
-          disabled={!recipient || !selectedGift || sendMutation.isPending}
+          disabled={!recipient || !selectedGift || sendMutation.isPending || messageOverLimit}
           className="rounded-xl bg-primary-600 px-5 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
           {sendMutation.isPending
@@ -423,6 +542,9 @@ function GiftRow({ gift, tab }: { gift: GiftRecord; tab: Tab }) {
         <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
           {tab === 'sent' ? t('gifts.row.to') : t('gifts.row.from')} @{other.username ?? 'unknown'}
         </p>
+        {gift.message && (
+          <p className="truncate text-[11px] font-medium text-neutral-500 dark:text-neutral-400">💬 {gift.message}</p>
+        )}
       </div>
       <div className="flex flex-col items-end gap-0.5 shrink-0">
         <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${tierColour(gift.giftItem.tier)}`}>

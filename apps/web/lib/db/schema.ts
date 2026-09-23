@@ -2264,6 +2264,9 @@ export const gifts = pgTable("gifts", {
   }),
   status: text("status").notNull().default("delivered"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  // Migration 0007: optional gift message (the "Add a message" box).
+  message: text("message"),
+  messageWordCount: integer("message_word_count"),
 });
 
 // Migration 0026: durable record of a Rewarded Gift unlock — written
@@ -4422,6 +4425,28 @@ export const moderationReports = pgTable("moderation_reports", {
   isMalicious: boolean("is_malicious").notNull().default(false),
   rewardApplied: boolean("reward_applied").notNull().default(false),
   autoQuarantined: boolean("auto_quarantined").notNull().default(false),
+});
+
+// Account Appeals — suspension/ban appeal pipeline (0008_account_appeals.sql).
+// Submitted from a short-lived identity-verified appeal link issued at the
+// moment of a blocked login (lib/auth/appealToken.ts), reviewed at
+// /gate44/moderation/appeals.
+export const accountAppeals = pgTable("account_appeals", {
+  id: uuidPk(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  appealType: text("appeal_type").notNull(), // 'suspension' | 'ban'
+  reason: text("reason").notNull(),
+  contactEmail: text("contact_email"),
+  status: text("status").notNull().default("pending"), // pending | under_review | approved | denied
+  refusalCount: integer("refusal_count").notNull().default(0),
+  aiTriageResult: jsonb("ai_triage_result"),
+  adminNotes: text("admin_notes"),
+  reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
 export const moderationReportReporters = pgTable(

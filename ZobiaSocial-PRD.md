@@ -764,6 +764,20 @@ A member can only claim a given reward once. Configuring a new reward replaces t
 
 Site admins can disable this feature entirely (master flag), and configure the minimum account level a room owner needs to create a reward and a server-side ceiling on "first N people" (abuse/spam guard) — `/gate44/config`.
 
+### Gift Messages ("Add a message")
+
+When sending a gift, the sender may optionally attach a short text message — a collapsible "+ Add a message (optional)" link below the gift grid reveals a textarea. Before the gift is actually sent, the sender sees a confirm/preview screen showing the gift, the recipient, and the exact message text, with **Edit** and **Confirm & Send** actions (plain gift sends with no message skip this step and stay one tap, as before).
+
+Eligibility and word limits are entirely admin-configurable, per plan/tier, at `/gate44/gifts/message-settings` (web) / `admin/gift-message-settings.tsx` (Capacitor Android):
+
+- **Free plan** — gated by a minimum account level (default **Level 5**). Below that level, the message box does not appear at all. Once eligible, the default max length is **40 words**.
+- **Plus** — on by default, max **50 words**.
+- **Pro** — on by default, max **100 words**.
+- **Max** — on by default, max **250 words**.
+- **Business accounts** (Starter/Growth/Enterprise) — on by default, with the same increasing word-limit pattern as personal plans (default 50/100/250 words).
+
+Every plan/tier's on/off toggle and max-word value is independently admin-editable, plus a sitewide master on/off switch and the Free plan's minimum-level gate. The word count is validated server-side (`POST /api/economy/gifts/send`) against the sender's plan, business tier (if any), and current account level — never trust the client-side counter alone. The attached message is stored on the `gifts` row (`message`, `message_word_count`) and surfaces in the recipient's DM/Room feed and both parties' gift history.
+
 ---
 
 ## 13. Guild System
@@ -8390,6 +8404,48 @@ models").
 
 ---
 
-*ZobiaSocial PRD v2.30*
+### v2.31 — Changelog
+
+#### Gift Messages — "Add a message" on Send Gift (§12)
+
+- **New feature**: sending a gift now supports an optional, collapsible
+  message box ("+ Add a message (optional)"), with a confirm/preview step
+  (message shown verbatim, Edit / Confirm & Send) before the gift is
+  actually sent. Plain gift sends with no message are unaffected — still
+  one tap.
+- **Eligibility & word limits, per plan/tier, all admin-configurable** at
+  `/gate44/gifts/message-settings` (web) / `admin/gift-message-settings.tsx`
+  (Capacitor Android): Free (gated by a minimum account level, default
+  Level 5, then 40 words), Plus (50 words), Pro (100 words), Max (250
+  words), and Business Starter/Growth/Enterprise (50/100/250 words) — each
+  tier has its own on/off toggle plus a sitewide master switch.
+  `lib/plans/giftMessage.ts` resolves eligibility server-side; validated
+  again in `POST /api/economy/gifts/send` (never trust the client word
+  counter).
+- **New migration**: `0007_gift_message.sql` — `gifts.message` (text),
+  `gifts.message_word_count` (integer), and seeds the `gift_message_*`
+  x_manifest keys.
+- **New endpoint**: `GET /api/economy/gifts/message-config` — returns the
+  current user's eligibility/word-limit so the UI knows whether to show the
+  message box before the user starts composing.
+- **Mirrored** in the Capacitor Android app (`apps/android/src/routes/gifts.tsx`,
+  `admin/gift-message-settings.tsx`) and in gift history on both platforms.
+
+#### Moderation Roster (§20)
+
+- **New feature**: a central admin page (`/gate44/moderation/roster`) lists
+  every account currently flagged as any staff role (Platform Mod, Ad
+  Moderator, Support, Senior Support) with inline promote/demote actions,
+  instead of requiring an admin to search for each user individually in
+  User Management. Reuses the existing
+  `POST /api/admin/users/[userId]/actions` action set
+  (`upgrade_moderator`/`downgrade_moderator`/etc.) — no new authorization
+  logic. Mirrored on Capacitor Android admin nav.
+- **No new migration** — reads/writes the existing `users.is_moderator` /
+  `is_ad_moderator` / `is_support` / `is_senior_support` boolean columns.
+
+---
+
+*ZobiaSocial PRD v2.31*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

@@ -35,6 +35,7 @@ interface GiftHistoryRow {
   gift_emoji: string;
   gift_tier: number;
   gift_type_name: string | null;
+  message: string | null;
   // Rewarded Gifts (migration 0026) — present only when this gift send
   // triggered a reward grant (recipient was the actual room/blog owner).
   reward_label: string | null;
@@ -99,6 +100,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
               gi.emoji       AS gift_emoji,
               gi.tier        AS gift_tier,
               gt.name        AS gift_type_name,
+              g.message      AS message,
               rg.label       AS reward_label,
               rg.description AS reward_description,
               rg.custom_text AS reward_custom_text,
@@ -140,6 +142,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
         tier: row.gift_tier,
         typeName: row.gift_type_name ?? null,
       },
+      message: row.message ?? null,
       reward: row.reward_label
         ? {
             label: row.reward_label,

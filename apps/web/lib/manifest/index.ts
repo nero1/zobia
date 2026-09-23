@@ -573,6 +573,13 @@ export interface ZobiaManifest {
     /** Active SMS provider key. Only used for Level 1/2 alerts. */
     smsProvider: string;
   };
+  // Account Appeals (suspension/ban appeals) — admin-editable at /gate44/moderation/appeals
+  appeals: {
+    /** Max number of times an appeal for the same suspension/ban may be denied before further submissions are blocked. */
+    maxRefusals: number;
+    /** "manual" (default): appeals always go straight to human review. "ai_then_manual": an AI triage step runs first and produces a recommendation, but a human still makes the final call. */
+    triageMode: "manual" | "ai_then_manual";
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -912,6 +919,10 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     },
     notifyModsForInfraOther: false,
     smsProvider: "termii",
+  },
+  appeals: {
+    maxRefusals: 3,
+    triageMode: "manual",
   },
 };
 
@@ -1564,6 +1575,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       },
       notifyModsForInfraOther: parseBool(kv["alert_notify_mods_infra_other"], DEFAULT_MANIFEST.alerting.notifyModsForInfraOther),
       smsProvider: kv["alert_sms_provider"] ?? DEFAULT_MANIFEST.alerting.smsProvider,
+    },
+    appeals: {
+      maxRefusals: parseInt10(kv["appeals_max_refusals"], DEFAULT_MANIFEST.appeals.maxRefusals),
+      triageMode: kv["appeals_triage_mode"] === "ai_then_manual" ? "ai_then_manual" : "manual",
     },
   };
 }

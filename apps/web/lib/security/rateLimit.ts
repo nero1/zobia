@@ -169,6 +169,11 @@ export const RATE_LIMITS = {
   oauthCallback: { limit: 20, windowMs: 15 * 60 * 1000, name: "oauth:callback", bypassL1: true } as RateLimitOptions,
   /** Email/password login — bypassL1 so brute-force is never under-counted. */
   login: { limit: 15, windowMs: 15 * 60 * 1000, name: "auth:login", bypassL1: true } as RateLimitOptions,
+  /** Login attempts against an account already known to be suspended/banned —
+   *  tighter than `login` so someone can't hammer the endpoint repeatedly
+   *  after already having seen the suspension/ban notice (keyed by userId,
+   *  once identity is established via OAuth). bypassL1 for accuracy. */
+  loginBlocked: { limit: 5, windowMs: 15 * 60 * 1000, name: "auth:login-blocked", bypassL1: true } as RateLimitOptions,
   /** New account registration — tight hourly limit; bypassL1. */
   register: { limit: 5, windowMs: 60 * 60 * 1000, name: "auth:register", bypassL1: true } as RateLimitOptions,
   /** Posting a forum question or answer. */
