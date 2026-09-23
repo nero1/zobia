@@ -3,6 +3,7 @@ import axios, {
   type InternalAxiosRequestConfig,
 } from 'axios';
 import { markSessionExpired } from '@/lib/auth/sessionExpiredBus';
+import { setSessionExpiresAt } from '@/lib/auth/sessionExpiryBus';
 
 export const apiClient = axios.create({
   baseURL: typeof window !== 'undefined' ? window.location.origin : '',
@@ -21,10 +22,13 @@ async function refreshWebToken(): Promise<boolean> {
 
   webRefreshPromise = (async () => {
     try {
-      const res = await axios.post('/api/auth/refresh', null, {
+      const res = await axios.post<{ expiresIn?: number }>('/api/auth/refresh', null, {
         withCredentials: true,
         timeout: 10_000,
       });
+      if (res.status === 200 && typeof res.data?.expiresIn === 'number') {
+        setSessionExpiresAt(Date.now() + res.data.expiresIn * 1000);
+      }
       return res.status === 200;
     } catch {
       return false;

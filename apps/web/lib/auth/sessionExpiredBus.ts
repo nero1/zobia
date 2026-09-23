@@ -39,6 +39,9 @@ export function markSessionExpired(): void {
   if (typeof window !== "undefined") {
     window.dispatchEvent(new CustomEvent(EVENT));
   }
+  // Session is confirmed dead — stop the expiry countdown (imported lazily to
+  // avoid a module cycle; sessionExpiryBus never imports this file back).
+  void import("./sessionExpiryBus").then(({ setSessionExpiresAt }) => setSessionExpiresAt(null));
 }
 
 /** Clear the latch (e.g. after the user signs back in / navigates to login). */

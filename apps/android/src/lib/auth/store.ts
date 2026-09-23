@@ -11,6 +11,7 @@ import { AuthUserSchema, type AuthUser } from '@zobia/shared/schemas/auth';
 import { apiClient, setCachedToken, resetUnauthenticatedFlag, onUnauthenticated, JWT_KEY, REFRESH_TOKEN_KEY } from '@/lib/api/client';
 import { secureGet, secureSet, secureRemove } from '@/lib/auth/secureTokenStore';
 import { unregisterPushOnLogout } from '@/lib/push';
+import { setSessionExpiresAtFromToken } from '@/lib/auth/sessionExpiryBus';
 
 /**
  * One-time migration for installs that logged in before tokens moved to the
@@ -101,6 +102,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           setCachedToken(token);
           resetUnauthenticatedFlag();
         }
+        setSessionExpiresAtFromToken(token ?? null);
         // Adopt the restored user as the persisted-cache owner before any
         // query runs, so a boot never reads another account's IndexedDB
         // entries (see lib/query/cacheOwner.ts).
@@ -128,6 +130,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await Promise.all(writes);
     setCachedToken(token);
     resetUnauthenticatedFlag();
+    setSessionExpiresAtFromToken(token);
     // Switch the persisted-cache namespace to this user and drop anything the
     // previous owner left behind, in memory and on disk. Impersonation counts
     // as a different owner for this purpose — an admin acting as someone else
@@ -152,6 +155,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       Preferences.remove({ key: IMPERSONATED_BY_KEY }),
     ]);
     setCachedToken(null);
+    setSessionExpiresAtFromToken(null);
     // Sign-out must leave nothing readable for the next person to use this
     // device: clear the in-memory cache and purge the signed-out account's
     // persisted entries.

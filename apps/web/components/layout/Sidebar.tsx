@@ -59,6 +59,7 @@ interface PrimaryNavItem {
 
 const primaryNavItems: PrimaryNavItem[] = [
   { href: "/home", label: "Home" },
+  { href: "/search", label: "Search" },
   { href: "/moments", label: "Moments", flagKey: "moments" },
   { href: "/tweets", label: "Tweets", flagKey: "tweets" },
   { href: "/answers", label: "Answers", flagKey: "forum" },

@@ -54,6 +54,12 @@ export async function GET(req: NextRequest) {
         // lib/auth/session.ts createSession() and components/admin/ImpersonationBanner.tsx.
         impersonatedBy: payload.impersonated_by ?? null,
       },
+      // Epoch-ms the current access token expires at — read from the JWT's
+      // own `exp` claim (already verified above), so this costs nothing
+      // extra. Powers the client-side session-expiry countdown warning
+      // (lib/auth/sessionExpiryBus.ts); null only if the token is somehow
+      // missing a standard `exp` claim.
+      expiresAt: typeof payload.exp === "number" ? payload.exp * 1000 : null,
     });
   } catch {
     return NextResponse.json({ user: null }, { status: 401 });

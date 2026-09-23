@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { setSessionExpiresAt } from '@/lib/auth/sessionExpiryBus';
 
 export interface AuthUser {
   id: string;
@@ -41,7 +42,10 @@ function fetchAuthMe(): Promise<AuthUser | null> {
 
   _authPromise = fetch('/api/auth/me', { credentials: 'include' })
     .then((res) => (res.ok ? res.json() : null))
-    .then((data: { user?: AuthUser } | null) => data?.user ?? null)
+    .then((data: { user?: AuthUser; expiresAt?: number | null } | null) => {
+      setSessionExpiresAt(data?.expiresAt ?? null);
+      return data?.user ?? null;
+    })
     .catch(() => null)
     .finally(() => {
       // Clear after settling so the next page navigation re-fetches.
