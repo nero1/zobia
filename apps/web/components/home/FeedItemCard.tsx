@@ -39,6 +39,8 @@ const CONTENT_TYPE_ICON: Record<FeedContentType, string> = {
   game: "🎮",
   classroom: "🏫",
   business_page_post: "🏢",
+  poll: "🗳️",
+  quiz: "🧠",
 };
 
 function timeAgo(iso: string): string {

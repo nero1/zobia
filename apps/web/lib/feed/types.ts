@@ -18,7 +18,9 @@ export type FeedContentType =
   | "wiki_page"
   | "game"
   | "classroom"
-  | "business_page_post";
+  | "business_page_post"
+  | "poll"
+  | "quiz";
 
 /**
  * Which ranking tier an item was sourced from (see lib/feed/ranking.ts).

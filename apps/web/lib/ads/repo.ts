@@ -45,7 +45,9 @@ export type BoostableContentType =
   | "wiki_page"
   | "game"
   | "classroom"
-  | "business_page_post";
+  | "business_page_post"
+  | "poll"
+  | "quiz";
 export type AdCampaignStatus = "draft" | "pending_review" | "approved" | "rejected" | "active" | "paused" | "completed" | "stopped";
 export type AdCreativeFormat = "html" | "text" | "image" | "native" | "third_party";
 export type AdSize = "300x250" | "320x50" | "interstitial" | "rewarded" | "native";
@@ -264,6 +266,24 @@ export async function getBoostableContentSummary(
       const r = rows[0];
       if (!r) return null;
       return { ownerId: r.owner_id, title: r.title, body: r.body, imageUrl: r.image_url };
+    }
+    case "poll": {
+      const { rows } = await db.query<{ creator_id: string; title: string; description: string | null }>(
+        `SELECT creator_id, title, description FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [contentId]
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return { ownerId: r.creator_id, title: r.title, body: r.description, imageUrl: null };
+    }
+    case "quiz": {
+      const { rows } = await db.query<{ creator_id: string; title: string; description: string | null }>(
+        `SELECT creator_id, title, description FROM quizzes WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
+        [contentId]
+      );
+      const r = rows[0];
+      if (!r) return null;
+      return { ownerId: r.creator_id, title: r.title, body: r.description, imageUrl: null };
     }
     default:
       return null;

@@ -2007,6 +2007,8 @@
   "feedTabs.contentType.forum_thread": "Forum Thread",
   "feedTabs.contentType.game": "Game",
   "feedTabs.contentType.moment": "Moment",
+  "feedTabs.contentType.poll": "Poll",
+  "feedTabs.contentType.quiz": "Quiz",
   "feedTabs.contentType.room": "Room",
   "feedTabs.contentType.tweet": "Tweet",
   "feedTabs.contentType.wiki_page": "Wiki Page",

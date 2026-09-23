@@ -378,10 +378,13 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
    Moderator role), `0003_classroom_community.sql` (ClassRoom community
    feed, moderators, slug-change policy/history, live sessions, lesson
    progress and per-classroom points/levels/badges — see "ClassRooms" in
-   `docs/HOW-IT-WORKS.md`), and `0004_referral_visits.sql` (referral link
+   `docs/HOW-IT-WORKS.md`), `0004_referral_visits.sql` (referral link
    click/visit tracking + the `referral_stats_full_plans` admin config key —
-   see "Referral System" in `docs/HOW-IT-WORKS.md`). `npm run migrate` does
-   this for you.
+   see "Referral System" in `docs/HOW-IT-WORKS.md`), and
+   `0005_boost_polls_quizzes.sql` (widens `ad_campaigns.boosted_content_type`
+   to accept `poll`/`quiz`, so polls and quizzes can be boosted like every
+   other Home Feed content type — see "Home Dashboard & Feed" in
+   `docs/HOW-IT-WORKS.md`). `npm run migrate` does this for you.
 
    > **Monitoring dashboard slow-query stats (`/gate44/monitoring`):**
    > `db/migrations/0001_consolidated_schema.sql` enables

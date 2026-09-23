@@ -1572,7 +1572,7 @@ automatically via short Redis TTLs.
 
 ### Home Dashboard & Feed (PRD §39)
 
-The Home feed (`GET /api/feed`, `lib/feed/*`) ranks 10 content types into a
+The Home feed (`GET /api/feed`, `lib/feed/*`) ranks 12 content types into a
 7-tier priority order (`lib/feed/ranking.ts`) — boosted > organic popular >
 organic trending > business posts > in-house boosted > interest match >
 recency fallback — implemented as `finalScore = tierWeight*1_000_000 +
@@ -1597,12 +1597,29 @@ second DB round trip.
 
 **Gotcha:** `friends` and `new` are *not* served from the cached pool —
 they run a lighter, live per-request UNION query over a curated subset of
-content types (moments, tweets, blog posts, forum questions, rooms, wiki
-pages, games; not bbforum threads or business page posts) to keep that
-query bounded and index-friendly. Only `for_you`/`trending` go through the
-CRON-refreshed cache. Extending the live UNION to the remaining two
-content types is mechanical, not a platform limitation — see the header
-comment in `lib/feed/aggregator.ts`.
+content types (moments, tweets, blog posts, forum questions, rooms,
+classrooms, wiki pages, games, polls, quizzes; not bbforum threads or
+business page posts) to keep that query bounded and index-friendly. Only
+`for_you`/`trending` go through the CRON-refreshed cache. Extending the
+live UNION to the remaining two content types is mechanical, not a
+platform limitation — see the header comment in `lib/feed/aggregator.ts`.
+
+**Fix (2026-09):** polls and quizzes were missing from every feed tab
+entirely (no `POPULAR_SOURCES` entry, no UNION branch) — they now appear
+in `for_you`/`trending` (via `POPULAR_SOURCES`) and `friends`/`new` (via
+the live UNION), scored by `voter_count`/`attempt_count` + `view_count` +
+`share_count` same as other engagement-ranked types. Same pass also fixed
+a pre-existing bug where `friends`/`new`'s `rooms` UNION branch selected
+classroom rows (`rooms.type = 'classroom'`) without excluding them, so a
+classroom showed up mislabeled as a plain `room` card (wrong icon, wrong
+`feedTabs.contentType.*` label, missing the `classroom` interest tag) in
+those two tabs even though `for_you`/`trending` always labeled it
+correctly. Both tabs now split `rooms` from `classroom` the same way
+`POPULAR_SOURCES` already did. `deepLinkPathFor()`/`feedItemPath()` gained
+`poll -> /polls/<id>` and `quiz -> /quizzes/<id>` cases, each a thin
+id->slug DB redirect shim (mirroring the existing `blog_post`/`wiki_page`
+pattern) since `/poll/<slug>`/`/quiz/<slug>` are slug-keyed canonical
+pages and the feed only carries a content id.
 
 **`/api/cron/feed-refresh`** (`app/api/cron/feed-refresh/route.ts`) does
 three things on every run, independently try/caught so one failing step
@@ -1642,7 +1659,8 @@ caller happens to make first.
 (see "Advertising" below and PRD §17 Pillar 3 for the base pipeline). The
 generalized boost flow adds one new `ad_campaigns.objective` value,
 `boost_content`, and widens the `boosted_content_type` CHECK constraint
-(migration `0001_consolidated_schema.sql`) to accept any of the 10 feed content
+(migration `0001_consolidated_schema.sql`, extended by `0005_boost_polls_quizzes.sql`
+to add `poll`/`quiz`) to accept any of the 12 feed content
 types; `createContentBoostCampaign()` (`lib/ads/repo.ts`) builds a campaign
 from an existing piece of content's own title/body/image rather than new
 ad creative, then runs through the same moderation queue, CPM funding, and

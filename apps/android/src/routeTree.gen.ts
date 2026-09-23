@@ -122,6 +122,7 @@ import { Route as MomentsCreateRouteImport } from './routes/moments/create'
 import { Route as PollsIndexRouteImport } from './routes/polls/index'
 import { Route as PollsSlugRouteImport } from './routes/polls/$slug'
 import { Route as PollsNewRouteImport } from './routes/polls/new'
+import { Route as PollsIdRouteImport } from './routes/polls/$id'
 import { Route as ProfileIndexRouteImport } from './routes/profile/index'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as ProfileThemeRouteImport } from './routes/profile/theme'
@@ -130,6 +131,7 @@ import { Route as QuestsManageRouteImport } from './routes/quests/manage'
 import { Route as QuizzesIndexRouteImport } from './routes/quizzes/index'
 import { Route as QuizzesSlugRouteImport } from './routes/quizzes/$slug'
 import { Route as QuizzesNewRouteImport } from './routes/quizzes/new'
+import { Route as QuizzesIdRouteImport } from './routes/quizzes/$id'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as SettingsBusinessRouteImport } from './routes/settings/business'
@@ -746,6 +748,11 @@ const PollsNewRoute = PollsNewRouteImport.update({
   path: '/polls/new',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PollsIdRoute = PollsIdRouteImport.update({
+  id: '/polls/$id',
+  path: '/polls/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProfileIndexRoute = ProfileIndexRouteImport.update({
   id: '/profile/',
   path: '/profile/',
@@ -784,6 +791,11 @@ const QuizzesSlugRoute = QuizzesSlugRouteImport.update({
 const QuizzesNewRoute = QuizzesNewRouteImport.update({
   id: '/quizzes/new',
   path: '/quizzes/new',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const QuizzesIdRoute = QuizzesIdRouteImport.update({
+  id: '/quizzes/$id',
+  path: '/quizzes/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RoomsIndexRoute = RoomsIndexRouteImport.update({
@@ -1139,11 +1151,13 @@ export interface FileRoutesByFullPath {
   '/moments/create': typeof MomentsCreateRoute
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
+  '/polls/$id': typeof PollsIdRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/profile/theme': typeof ProfileThemeRoute
   '/quests/manage': typeof QuestsManageRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
+  '/quizzes/$id': typeof QuizzesIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/business': typeof SettingsBusinessRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
@@ -1312,11 +1326,13 @@ export interface FileRoutesByTo {
   '/moments/create': typeof MomentsCreateRoute
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
+  '/polls/$id': typeof PollsIdRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/profile/theme': typeof ProfileThemeRoute
   '/quests/manage': typeof QuestsManageRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
+  '/quizzes/$id': typeof QuizzesIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/business': typeof SettingsBusinessRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
@@ -1486,11 +1502,13 @@ export interface FileRoutesById {
   '/moments/create': typeof MomentsCreateRoute
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
+  '/polls/$id': typeof PollsIdRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/profile/theme': typeof ProfileThemeRoute
   '/quests/manage': typeof QuestsManageRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
+  '/quizzes/$id': typeof QuizzesIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/business': typeof SettingsBusinessRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
@@ -1661,11 +1679,13 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/polls/$slug'
     | '/polls/new'
+    | '/polls/$id'
     | '/profile/$username'
     | '/profile/theme'
     | '/quests/manage'
     | '/quizzes/$slug'
     | '/quizzes/new'
+    | '/quizzes/$id'
     | '/rooms/$roomId'
     | '/settings/business'
     | '/settings/notifications'
@@ -1834,11 +1854,13 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/polls/$slug'
     | '/polls/new'
+    | '/polls/$id'
     | '/profile/$username'
     | '/profile/theme'
     | '/quests/manage'
     | '/quizzes/$slug'
     | '/quizzes/new'
+    | '/quizzes/$id'
     | '/rooms/$roomId'
     | '/settings/business'
     | '/settings/notifications'
@@ -2007,11 +2029,13 @@ export interface FileRouteTypes {
     | '/moments/create'
     | '/polls/$slug'
     | '/polls/new'
+    | '/polls/$id'
     | '/profile/$username'
     | '/profile/theme'
     | '/quests/manage'
     | '/quizzes/$slug'
     | '/quizzes/new'
+    | '/quizzes/$id'
     | '/rooms/$roomId'
     | '/settings/business'
     | '/settings/notifications'
@@ -2181,11 +2205,13 @@ export interface RootRouteChildren {
   MomentsCreateRoute: typeof MomentsCreateRoute
   PollsSlugRoute: typeof PollsSlugRoute
   PollsNewRoute: typeof PollsNewRoute
+  PollsIdRoute: typeof PollsIdRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
   ProfileThemeRoute: typeof ProfileThemeRoute
   QuestsManageRoute: typeof QuestsManageRoute
   QuizzesSlugRoute: typeof QuizzesSlugRoute
   QuizzesNewRoute: typeof QuizzesNewRoute
+  QuizzesIdRoute: typeof QuizzesIdRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
   SupportTicketIdRoute: typeof SupportTicketIdRoute
   SupportNewRoute: typeof SupportNewRoute
@@ -3045,6 +3071,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PollsNewRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/polls/$id': {
+      id: '/polls/$id'
+      path: '/polls/$id'
+      fullPath: '/polls/$id'
+      preLoaderRoute: typeof PollsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/profile/': {
       id: '/profile/'
       path: '/profile'
@@ -3099,6 +3132,13 @@ declare module '@tanstack/react-router' {
       path: '/quizzes/new'
       fullPath: '/quizzes/new'
       preLoaderRoute: typeof QuizzesNewRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/quizzes/$id': {
+      id: '/quizzes/$id'
+      path: '/quizzes/$id'
+      fullPath: '/quizzes/$id'
+      preLoaderRoute: typeof QuizzesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/rooms/': {
@@ -3572,11 +3612,13 @@ const rootRouteChildren: RootRouteChildren = {
   MomentsCreateRoute: MomentsCreateRoute,
   PollsSlugRoute: PollsSlugRoute,
   PollsNewRoute: PollsNewRoute,
+  PollsIdRoute: PollsIdRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
   ProfileThemeRoute: ProfileThemeRoute,
   QuestsManageRoute: QuestsManageRoute,
   QuizzesSlugRoute: QuizzesSlugRoute,
   QuizzesNewRoute: QuizzesNewRoute,
+  QuizzesIdRoute: QuizzesIdRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
   SupportTicketIdRoute: SupportTicketIdRoute,
   SupportNewRoute: SupportNewRoute,
