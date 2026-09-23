@@ -120,18 +120,18 @@ import { Route as MessagesConversationIdRouteImport } from './routes/messages/$c
 import { Route as MomentsIndexRouteImport } from './routes/moments/index'
 import { Route as MomentsCreateRouteImport } from './routes/moments/create'
 import { Route as PollsIndexRouteImport } from './routes/polls/index'
+import { Route as PollsIdRouteImport } from './routes/polls/$id'
 import { Route as PollsSlugRouteImport } from './routes/polls/$slug'
 import { Route as PollsNewRouteImport } from './routes/polls/new'
-import { Route as PollsIdRouteImport } from './routes/polls/$id'
 import { Route as ProfileIndexRouteImport } from './routes/profile/index'
 import { Route as ProfileUsernameRouteImport } from './routes/profile/$username'
 import { Route as ProfileThemeRouteImport } from './routes/profile/theme'
 import { Route as QuestsIndexRouteImport } from './routes/quests/index'
 import { Route as QuestsManageRouteImport } from './routes/quests/manage'
 import { Route as QuizzesIndexRouteImport } from './routes/quizzes/index'
+import { Route as QuizzesIdRouteImport } from './routes/quizzes/$id'
 import { Route as QuizzesSlugRouteImport } from './routes/quizzes/$slug'
 import { Route as QuizzesNewRouteImport } from './routes/quizzes/new'
-import { Route as QuizzesIdRouteImport } from './routes/quizzes/$id'
 import { Route as RoomsIndexRouteImport } from './routes/rooms/index'
 import { Route as RoomsRoomIdRouteImport } from './routes/rooms/$roomId'
 import { Route as SettingsBusinessRouteImport } from './routes/settings/business'
@@ -738,6 +738,11 @@ const PollsIndexRoute = PollsIndexRouteImport.update({
   path: '/polls/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PollsIdRoute = PollsIdRouteImport.update({
+  id: '/polls/$id',
+  path: '/polls/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const PollsSlugRoute = PollsSlugRouteImport.update({
   id: '/polls/$slug',
   path: '/polls/$slug',
@@ -746,11 +751,6 @@ const PollsSlugRoute = PollsSlugRouteImport.update({
 const PollsNewRoute = PollsNewRouteImport.update({
   id: '/polls/new',
   path: '/polls/new',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PollsIdRoute = PollsIdRouteImport.update({
-  id: '/polls/$id',
-  path: '/polls/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProfileIndexRoute = ProfileIndexRouteImport.update({
@@ -783,6 +783,11 @@ const QuizzesIndexRoute = QuizzesIndexRouteImport.update({
   path: '/quizzes/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const QuizzesIdRoute = QuizzesIdRouteImport.update({
+  id: '/quizzes/$id',
+  path: '/quizzes/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const QuizzesSlugRoute = QuizzesSlugRouteImport.update({
   id: '/quizzes/$slug',
   path: '/quizzes/$slug',
@@ -791,11 +796,6 @@ const QuizzesSlugRoute = QuizzesSlugRouteImport.update({
 const QuizzesNewRoute = QuizzesNewRouteImport.update({
   id: '/quizzes/new',
   path: '/quizzes/new',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const QuizzesIdRoute = QuizzesIdRouteImport.update({
-  id: '/quizzes/$id',
-  path: '/quizzes/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RoomsIndexRoute = RoomsIndexRouteImport.update({
@@ -1149,15 +1149,15 @@ export interface FileRoutesByFullPath {
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
+  '/polls/$id': typeof PollsIdRoute
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
-  '/polls/$id': typeof PollsIdRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/profile/theme': typeof ProfileThemeRoute
   '/quests/manage': typeof QuestsManageRoute
+  '/quizzes/$id': typeof QuizzesIdRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
-  '/quizzes/$id': typeof QuizzesIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/business': typeof SettingsBusinessRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
@@ -1324,15 +1324,15 @@ export interface FileRoutesByTo {
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
+  '/polls/$id': typeof PollsIdRoute
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
-  '/polls/$id': typeof PollsIdRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/profile/theme': typeof ProfileThemeRoute
   '/quests/manage': typeof QuestsManageRoute
+  '/quizzes/$id': typeof QuizzesIdRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
-  '/quizzes/$id': typeof QuizzesIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/business': typeof SettingsBusinessRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
@@ -1500,15 +1500,15 @@ export interface FileRoutesById {
   '/merch/$creatorId': typeof MerchCreatorIdRoute
   '/messages/$conversationId': typeof MessagesConversationIdRoute
   '/moments/create': typeof MomentsCreateRoute
+  '/polls/$id': typeof PollsIdRoute
   '/polls/$slug': typeof PollsSlugRoute
   '/polls/new': typeof PollsNewRoute
-  '/polls/$id': typeof PollsIdRoute
   '/profile/$username': typeof ProfileUsernameRoute
   '/profile/theme': typeof ProfileThemeRoute
   '/quests/manage': typeof QuestsManageRoute
+  '/quizzes/$id': typeof QuizzesIdRoute
   '/quizzes/$slug': typeof QuizzesSlugRoute
   '/quizzes/new': typeof QuizzesNewRoute
-  '/quizzes/$id': typeof QuizzesIdRoute
   '/rooms/$roomId': typeof RoomsRoomIdRoute
   '/settings/business': typeof SettingsBusinessRoute
   '/settings/notifications': typeof SettingsNotificationsRoute
@@ -1677,15 +1677,15 @@ export interface FileRouteTypes {
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
+    | '/polls/$id'
     | '/polls/$slug'
     | '/polls/new'
-    | '/polls/$id'
     | '/profile/$username'
     | '/profile/theme'
     | '/quests/manage'
+    | '/quizzes/$id'
     | '/quizzes/$slug'
     | '/quizzes/new'
-    | '/quizzes/$id'
     | '/rooms/$roomId'
     | '/settings/business'
     | '/settings/notifications'
@@ -1852,15 +1852,15 @@ export interface FileRouteTypes {
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
+    | '/polls/$id'
     | '/polls/$slug'
     | '/polls/new'
-    | '/polls/$id'
     | '/profile/$username'
     | '/profile/theme'
     | '/quests/manage'
+    | '/quizzes/$id'
     | '/quizzes/$slug'
     | '/quizzes/new'
-    | '/quizzes/$id'
     | '/rooms/$roomId'
     | '/settings/business'
     | '/settings/notifications'
@@ -2027,15 +2027,15 @@ export interface FileRouteTypes {
     | '/merch/$creatorId'
     | '/messages/$conversationId'
     | '/moments/create'
+    | '/polls/$id'
     | '/polls/$slug'
     | '/polls/new'
-    | '/polls/$id'
     | '/profile/$username'
     | '/profile/theme'
     | '/quests/manage'
+    | '/quizzes/$id'
     | '/quizzes/$slug'
     | '/quizzes/new'
-    | '/quizzes/$id'
     | '/rooms/$roomId'
     | '/settings/business'
     | '/settings/notifications'
@@ -2203,15 +2203,15 @@ export interface RootRouteChildren {
   MerchCreatorIdRoute: typeof MerchCreatorIdRoute
   MessagesConversationIdRoute: typeof MessagesConversationIdRoute
   MomentsCreateRoute: typeof MomentsCreateRoute
+  PollsIdRoute: typeof PollsIdRoute
   PollsSlugRoute: typeof PollsSlugRoute
   PollsNewRoute: typeof PollsNewRoute
-  PollsIdRoute: typeof PollsIdRoute
   ProfileUsernameRoute: typeof ProfileUsernameRoute
   ProfileThemeRoute: typeof ProfileThemeRoute
   QuestsManageRoute: typeof QuestsManageRoute
+  QuizzesIdRoute: typeof QuizzesIdRoute
   QuizzesSlugRoute: typeof QuizzesSlugRoute
   QuizzesNewRoute: typeof QuizzesNewRoute
-  QuizzesIdRoute: typeof QuizzesIdRoute
   RoomsRoomIdRoute: typeof RoomsRoomIdRoute
   SupportTicketIdRoute: typeof SupportTicketIdRoute
   SupportNewRoute: typeof SupportNewRoute
@@ -3057,6 +3057,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PollsIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/polls/$id': {
+      id: '/polls/$id'
+      path: '/polls/$id'
+      fullPath: '/polls/$id'
+      preLoaderRoute: typeof PollsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/polls/$slug': {
       id: '/polls/$slug'
       path: '/polls/$slug'
@@ -3069,13 +3076,6 @@ declare module '@tanstack/react-router' {
       path: '/polls/new'
       fullPath: '/polls/new'
       preLoaderRoute: typeof PollsNewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/polls/$id': {
-      id: '/polls/$id'
-      path: '/polls/$id'
-      fullPath: '/polls/$id'
-      preLoaderRoute: typeof PollsIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/profile/': {
@@ -3120,6 +3120,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof QuizzesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/quizzes/$id': {
+      id: '/quizzes/$id'
+      path: '/quizzes/$id'
+      fullPath: '/quizzes/$id'
+      preLoaderRoute: typeof QuizzesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/quizzes/$slug': {
       id: '/quizzes/$slug'
       path: '/quizzes/$slug'
@@ -3132,13 +3139,6 @@ declare module '@tanstack/react-router' {
       path: '/quizzes/new'
       fullPath: '/quizzes/new'
       preLoaderRoute: typeof QuizzesNewRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/quizzes/$id': {
-      id: '/quizzes/$id'
-      path: '/quizzes/$id'
-      fullPath: '/quizzes/$id'
-      preLoaderRoute: typeof QuizzesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/rooms/': {
@@ -3610,15 +3610,15 @@ const rootRouteChildren: RootRouteChildren = {
   MerchCreatorIdRoute: MerchCreatorIdRoute,
   MessagesConversationIdRoute: MessagesConversationIdRoute,
   MomentsCreateRoute: MomentsCreateRoute,
+  PollsIdRoute: PollsIdRoute,
   PollsSlugRoute: PollsSlugRoute,
   PollsNewRoute: PollsNewRoute,
-  PollsIdRoute: PollsIdRoute,
   ProfileUsernameRoute: ProfileUsernameRoute,
   ProfileThemeRoute: ProfileThemeRoute,
   QuestsManageRoute: QuestsManageRoute,
+  QuizzesIdRoute: QuizzesIdRoute,
   QuizzesSlugRoute: QuizzesSlugRoute,
   QuizzesNewRoute: QuizzesNewRoute,
-  QuizzesIdRoute: QuizzesIdRoute,
   RoomsRoomIdRoute: RoomsRoomIdRoute,
   SupportTicketIdRoute: SupportTicketIdRoute,
   SupportNewRoute: SupportNewRoute,
