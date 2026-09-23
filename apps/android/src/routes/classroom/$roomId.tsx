@@ -21,6 +21,7 @@ import { apiError, get, send, type ClassroomHome } from '@/lib/classroom/api';
 import { ClassroomBoostButton, ClassroomShareButton } from '@/components/classroom/ClassroomActions';
 import { CommunityFeed } from '@/components/classroom/Community';
 import { EventsPanel, LeaderboardPanel, LessonsPanel, QuizzesPanel } from '@/components/classroom/Panels';
+import { useFiatCurrency, formatKoboClient } from '@/lib/hooks/useFiatCurrency';
 
 type Tab = 'community' | 'classroom' | 'calendar' | 'leaderboard' | 'about';
 
@@ -29,6 +30,7 @@ function EnrolAction({ home, onEnrolled }: { home: ClassroomHome; onEnrolled: ()
   const [open, setOpen] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const fee = home.classroom.enrolmentFeeNgn;
+  const { data: fiat = { currency: 'USD' as const, isNigeria: false, usdToNgnRate: '1600' } } = useFiatCurrency();
   const enrol = useMutation({
     mutationFn: (paymentMethod: 'balance' | 'card') => send<{ requiresCardPayment?: boolean; paymentUrl?: string }>('post', `/${home.classroom.id}/enroll`, { paymentMethod }),
     onSuccess: async (d) => {
@@ -65,7 +67,7 @@ function EnrolAction({ home, onEnrolled }: { home: ClassroomHome; onEnrolled: ()
           <div className="w-full max-w-sm space-y-2 rounded-2xl bg-white dark:bg-neutral-900 p-5" onClick={(e) => e.stopPropagation()}>
             <h2 className="font-bold">{t('classroom.enroll.modalTitle', 'Enrol in this classroom')}</h2>
             <p className="text-sm text-neutral-500">
-              {t('classroom.enroll.modalBody', 'One-time enrolment fee: {{amount}} Credits (₦{{amount}}). You keep access to the community, lessons and recordings.', { amount: fee.toLocaleString() })}
+              {t('classroom.enroll.modalBody', 'One-time enrolment fee: {{amount}} Credits (≈{{fiatAmount}}). You keep access to the community, lessons and recordings.', { amount: fee.toLocaleString(), fiatAmount: formatKoboClient(fee * 100, fiat) })}
             </p>
             {err && <p className="text-xs text-danger-600">{err}</p>}
             <button type="button" disabled={enrol.isPending} onClick={() => enrol.mutate('balance')} className="w-full rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-60">

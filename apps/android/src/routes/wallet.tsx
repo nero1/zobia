@@ -17,6 +17,8 @@ import { COIN_PRODUCTS, STAR_PRODUCTS, purchaseCoins, purchaseStars } from '@/li
 import RewardedAdButton from '@/components/ads/RewardedAdButton';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
 import { useAuth } from '@/lib/auth/store';
+import { useFiatCurrency, formatKoboClient, type FiatCurrency } from '@/lib/hooks/useFiatCurrency';
+import { CryptoBalancesSection } from '@/components/wallet/CryptoBalancesSection';
 
 const TX_PAGE_SIZE = 10;
 
@@ -95,23 +97,20 @@ interface CreatorPayoutsSummary {
   payoutConfig: unknown | null;
 }
 
-function formatNgn(kobo: number): string {
-  return new Intl.NumberFormat('en-NG', { style: 'currency', currency: 'NGN', maximumFractionDigits: 0 }).format(kobo / 100);
-}
-
 /**
  * Compact creator-earnings card for the wallet screen — mirrors
  * apps/web/app/(app)/wallet/page.tsx's `EarningsSection`. Only rendered for
  * creators (payoutConfig is non-null only when `is_creator = true` — see
  * GET /api/creator/payouts). Links to the full /creator dashboard to withdraw.
  */
-function CreatorEarningsCard({ payouts }: { payouts: CreatorPayoutsSummary }) {
+function CreatorEarningsCard({ payouts, fiat }: { payouts: CreatorPayoutsSummary; fiat: FiatCurrency }) {
   const { t } = useTranslation();
   const met = payouts.availableEarningsKobo >= payouts.minPayoutKobo;
   const pct = payouts.minPayoutKobo > 0
     ? Math.min(100, Math.round((payouts.availableEarningsKobo / payouts.minPayoutKobo) * 100))
     : 100;
   const remaining = Math.max(0, payouts.minPayoutKobo - payouts.availableEarningsKobo);
+  const fmt = (kobo: number) => formatKoboClient(kobo, fiat);
 
   return (
     <div className="mx-6 mb-3 rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
@@ -123,11 +122,11 @@ function CreatorEarningsCard({ payouts }: { payouts: CreatorPayoutsSummary }) {
           {t('creator.manageAndWithdraw', 'Manage & Withdraw →')}
         </Link>
       </div>
-      <p className="mt-1 text-xl font-bold text-neutral-900 dark:text-neutral-100">{formatNgn(payouts.availableEarningsKobo)}</p>
+      <p className="mt-1 text-xl font-bold text-neutral-900 dark:text-neutral-100">{fmt(payouts.availableEarningsKobo)}</p>
       <div className="mt-3">
         <div className="flex items-center justify-between text-xs">
           <span className={`font-semibold ${met ? 'text-teal-700 dark:text-teal-300' : 'text-amber-700 dark:text-amber-300'}`}>
-            {met ? t('creator.thresholdMet', '✅ Withdrawal threshold reached') : `${formatNgn(remaining)} ${t('creator.thresholdRemaining', 'more to reach the minimum payout')}`}
+            {met ? t('creator.thresholdMet', '✅ Withdrawal threshold reached') : `${fmt(remaining)} ${t('creator.thresholdRemaining', 'more to reach the minimum payout')}`}
           </span>
         </div>
         <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700" role="progressbar" aria-valuenow={pct} aria-valuemin={0} aria-valuemax={100}>
@@ -373,6 +372,7 @@ function WalletPage() {
   );
 
   const { data: me, status: meStatus } = useQuery({ queryKey: ['users', 'me'], queryFn: fetchMe });
+  const { data: fiat = { currency: 'USD' as const, isNigeria: false, usdToNgnRate: '1600' } } = useFiatCurrency();
 
   // Creator earnings card — silently absent for non-creators (payoutConfig is null).
   const { data: payouts } = useQuery({
@@ -412,7 +412,11 @@ function WalletPage() {
 
       {meStatus === 'success' && statsAccess.accessible && <RankBadgesSummary me={me} />}
 
-      {payouts?.payoutConfig != null && <CreatorEarningsCard payouts={payouts} />}
+      {payouts?.payoutConfig != null && <CreatorEarningsCard payouts={payouts} fiat={fiat} />}
+
+      <div className="mx-6 mb-3">
+        <CryptoBalancesSection />
+      </div>
 
       {meStatus === 'success' && (me.plan === 'free' || me.plan === 'plus') && (
         <div className="px-6 mb-3">
