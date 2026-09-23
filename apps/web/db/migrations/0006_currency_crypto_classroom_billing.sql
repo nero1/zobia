@@ -67,3 +67,18 @@ CREATE UNIQUE INDEX IF NOT EXISTS uidx_creator_wallet_addresses_creator_network 
 
 INSERT INTO x_manifest (key, value, description, updated_at) VALUES ('crypto_payouts_enabled', 'false', 'Whether creators/referrers can hold and withdraw crypto-native balances (JAGA/BNB/SOL) instead of always converting earnings to Credits.', NOW()) ON CONFLICT DO NOTHING;
 INSERT INTO x_manifest (key, value, description, updated_at) VALUES ('crypto_payout_mode', 'credits', 'When crypto payouts are enabled: "crypto" pays out in the earned currency, "credits" always converts to Credits.', NOW()) ON CONFLICT DO NOTHING;
+
+-- ---------------------------------------------------------------------------
+-- Subscription cancellation feedback
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS subscription_cancellation_feedback (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  plan text,
+  reasons text[] NOT NULL DEFAULT '{}',
+  follow_ups jsonb,
+  general_feedback text,
+  created_at timestamptz NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_subscription_cancellation_feedback_created ON subscription_cancellation_feedback (created_at);

@@ -4168,6 +4168,26 @@ export const subscriptions = pgTable(
   })
 );
 
+// Migration 0006: optional exit survey shown after a subscription cancels
+// (components/settings/CancelPlanModal.tsx / POST /api/economy/subscriptions/cancel-feedback).
+export const subscriptionCancellationFeedback = pgTable(
+  "subscription_cancellation_feedback",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    plan: text("plan"),
+    reasons: text("reasons").array().notNull().default(sql`'{}'::text[]`),
+    followUps: jsonb("follow_ups"),
+    generalFeedback: text("general_feedback"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    createdIdx: index("idx_subscription_cancellation_feedback_created").on(t.createdAt),
+  })
+);
+
 export const subscriptionPlans = pgTable(
   "subscription_plans",
   {

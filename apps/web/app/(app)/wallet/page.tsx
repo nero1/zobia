@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useCurrency, type CurrencyNames } from "@/lib/hooks/useCurrency";
 import { useFiatCurrency, formatKoboClient, type FiatCurrency } from "@/lib/hooks/useFiatCurrency";
+import { CryptoBalancesSection } from "@/components/wallet/CryptoBalancesSection";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { RANK_COLORS } from "@/lib/xp/rankColors";
 import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
@@ -962,6 +963,8 @@ function WalletContent() {
       {rank && statsEnabled && <RankBadgesSummary rank={rank} />}
 
       {data.earnings && <EarningsSection earnings={data.earnings} fiat={fiat} />}
+
+      <CryptoBalancesSection />
 
       {["free", "plus"].includes((data.activePlan ?? data.balance.plan ?? "free").toLowerCase()) ? (
         <RewardedAdButton
