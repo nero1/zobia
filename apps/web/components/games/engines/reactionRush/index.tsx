@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const ROUNDS = 5;
 const MIN_WAIT: Record<string, number> = { easy: 1200, medium: 800, hard: 500 };
@@ -118,7 +119,11 @@ export default function ReactionRushGame({ onReady, onGameOver, onScore, difficu
         className={`w-64 h-64 rounded-full flex items-center justify-center text-2xl font-bold text-white transition-all duration-150 shadow-lg ${bg}`}
       >
         <div className="flex flex-col items-center gap-2">
-          <span className="text-5xl">{phase === "ready" ? "🟢" : phase === "too_early" ? "❌" : phase === "tapped" ? "✅" : "🔴"}</span>
+          <Icon
+            emoji={phase === "ready" ? "🟢" : phase === "too_early" ? "❌" : phase === "tapped" ? "✅" : "🔴"}
+            size={40}
+            className="text-white"
+          />
           <span>{label}</span>
         </div>
       </button>
@@ -126,7 +131,7 @@ export default function ReactionRushGame({ onReady, onGameOver, onScore, difficu
       {times.length > 0 && (
         <div className="text-xs text-neutral-400 text-center">
           {times.map((t, i) => (
-            <span key={i} className="mx-1">{t >= 999 ? "❌" : `${t}ms`}</span>
+            <span key={i} className="mx-1 inline-flex items-center">{t >= 999 ? <Icon emoji="❌" size={14} /> : `${t}ms`}</span>
           ))}
         </div>
       )}

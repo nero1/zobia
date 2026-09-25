@@ -9,6 +9,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const CELLS = 20;
 const SIZE = 340;
@@ -200,14 +201,14 @@ export default function SnakeGame({ onReady, onGameOver, onScore, difficulty = "
       <div className="grid grid-cols-3 gap-1 w-36">
         <div />
         <button type="button" onClick={() => steer(0, -1)}
-          className="h-12 rounded-lg bg-neutral-800 text-white font-bold text-lg hover:bg-neutral-700 active:scale-90 transition-transform">▲</button>
+          className="h-12 rounded-lg bg-neutral-800 text-white font-bold text-lg hover:bg-neutral-700 active:scale-90 transition-transform flex items-center justify-center"><Icon emoji="▲" /></button>
         <div />
         <button type="button" onClick={() => steer(-1, 0)}
-          className="h-12 rounded-lg bg-neutral-800 text-white font-bold text-lg hover:bg-neutral-700 active:scale-90 transition-transform">◀</button>
+          className="h-12 rounded-lg bg-neutral-800 text-white font-bold text-lg hover:bg-neutral-700 active:scale-90 transition-transform flex items-center justify-center"><Icon emoji="◀" /></button>
         <button type="button" onClick={() => steer(0, 1)}
-          className="h-12 rounded-lg bg-neutral-800 text-white font-bold text-lg hover:bg-neutral-700 active:scale-90 transition-transform">▼</button>
+          className="h-12 rounded-lg bg-neutral-800 text-white font-bold text-lg hover:bg-neutral-700 active:scale-90 transition-transform flex items-center justify-center"><Icon emoji="▼" /></button>
         <button type="button" onClick={() => steer(1, 0)}
-          className="h-12 rounded-lg bg-neutral-800 text-white font-bold text-lg hover:bg-neutral-700 active:scale-90 transition-transform">▶</button>
+          className="h-12 rounded-lg bg-neutral-800 text-white font-bold text-lg hover:bg-neutral-700 active:scale-90 transition-transform flex items-center justify-center"><Icon emoji="▶" /></button>
       </div>
       <p className="text-xs text-muted-foreground">Arrow keys / WASD, swipe, or D-pad to steer.</p>
     </div>

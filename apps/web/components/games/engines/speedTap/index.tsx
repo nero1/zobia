@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const AREA_W = 300;
 const AREA_H = 380;
@@ -141,8 +142,8 @@ export default function SpeedTap({
     <div className="flex flex-col items-center gap-3 select-none w-full max-w-sm mx-auto">
       <div className="flex w-full items-center justify-between px-2 text-sm font-semibold">
         <span className="text-emerald-400">Score: {score}</span>
-        <span className={timeLeft <= 5 ? "text-red-400 animate-pulse" : "text-foreground"}>
-          ⏱ {timeLeft}s
+        <span className={`inline-flex items-center gap-1 ${timeLeft <= 5 ? "text-red-400 animate-pulse" : "text-foreground"}`}>
+          <Icon emoji="⏱" size={14} /> {timeLeft}s
         </span>
       </div>
 
@@ -173,14 +174,14 @@ export default function SpeedTap({
                 transition: t.hit ? "transform 0.2s, opacity 0.2s" : undefined,
               }}
             >
-              🎯
+              <Icon emoji="🎯" className="text-white" />
             </button>
           );
         })}
 
         {over && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-2xl">
-            <div className="text-4xl mb-2">🎯</div>
+            <Icon emoji="🎯" size={36} className="mb-2 text-white" />
             <div className="text-white font-bold text-xl">Time&apos;s Up!</div>
             <div className="text-emerald-400 font-bold text-lg mt-1">Score: {score}</div>
           </div>
