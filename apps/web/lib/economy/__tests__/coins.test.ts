@@ -1,26 +1,56 @@
 /**
  * Unit tests for coin economy operations.
  *
+ * lib/economy/coins.ts has been migrated to Drizzle ORM (getDb() /
+ * orm.transaction() / the query builder) instead of the raw `@/lib/db`
+ * adapter. Rather than hand-mock every `.select()/.insert()/.update()`
+ * chain shape (which would silently drift from what Drizzle actually
+ * compiles), these tests back a *real* `drizzle-orm/node-postgres`
+ * instance with a fake `pg`-shaped client whose `query()` is a jest.fn.
+ * Every query coins.ts issues still goes through real Drizzle query
+ * compilation — exactly like production — and lands on `mockQuery` as
+ * plain SQL text + params, which tests dispatch on (see
+ * lib/seasons/__tests__/seasonEngine.test.ts for the same pattern).
+ *
  * The database is fully mocked — no real DB connection is made.
  * Each test verifies the contract of creditCoins, debitCoins, transferCoins,
  * canAfford, and getBalance independently.
  */
 
 // ---------------------------------------------------------------------------
-// Mock @/lib/db before any import that transitively uses it
+// Build a real Drizzle instance backed by a mock client, then mock
+// @/lib/db/drizzle's getDb() to return it.
 // ---------------------------------------------------------------------------
 
-const mockQuery = jest.fn();
-const mockTransaction = jest.fn();
+import { drizzle } from "drizzle-orm/node-postgres";
+import { schema } from "@/lib/db/schema";
+import type { DbOrTx } from "@/lib/db/drizzle";
 
-jest.mock('@/lib/db', () => ({
-  db: {
-    query: (...args: unknown[]) => mockQuery(...args),
-    transaction: (...args: unknown[]) => mockTransaction(...args),
-    healthCheck: jest.fn().mockResolvedValue(true),
-    close: jest.fn().mockResolvedValue(undefined),
+const mockQuery = jest.fn();
+
+const fakeClient = {
+  query: (queryConfig: unknown, params?: unknown[]) => {
+    const text = typeof queryConfig === "string" ? queryConfig : (queryConfig as { text: string }).text;
+    return mockQuery(text, params);
   },
-}));
+};
+
+// `as any` on the client sidesteps drizzle-orm's `$client: Pool` typing
+// (a real Pool isn't needed at runtime — drizzle only ever calls
+// `client.query()` for a non-Pool client, including inside transactions).
+const mockDb = drizzle(fakeClient as any, { schema }) as unknown as DbOrTx;
+
+jest.mock("@/lib/db/drizzle", () => {
+  const actual = jest.requireActual("@/lib/db/drizzle");
+  return {
+    ...actual,
+    getDb: async () => mockDb,
+  };
+});
+
+// coins.ts does not import `@/lib/db` (the raw adapter) directly, but keep
+// this mocked defensively so no test accidentally opens a real connection.
+jest.mock("@/lib/db", () => ({ db: {} }));
 
 // ---------------------------------------------------------------------------
 // Imports — must come after jest.mock calls
@@ -32,59 +62,80 @@ import {
   transferCoins,
   canAfford,
   getBalance,
-} from '@/lib/economy/coins';
+} from "@/lib/economy/coins";
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Creates a mock TransactionClient that records every query call.
- * Responses can be overridden per test by mutating `balanceRows`.
+ * Wires `mockQuery` to simulate the users/coin_ledger tables for one or more
+ * users, keyed by userId. Handles:
+ *  - `select "coin_balance" from "users" ... [for update]`
+ *  - `select "id" from "users" ... for update` (transferCoins deadlock pre-lock)
+ *  - `insert into "coin_ledger" ... on conflict ... returning ...`
+ *  - `select ... from "coin_ledger" ...` (dedup / duplicate lookup — no-op by default)
+ *  - `update "users" set "coin_balance" = $1, "updated_at" = $2 where ...`
+ *
+ * Rows are returned in Drizzle's "array" row mode (positional, matching the
+ * selected/returned column order) since that's what the node-postgres driver
+ * adapter requests whenever `fields` are known (i.e. every query built
+ * through the query builder, as opposed to a raw `sql\`...\`` escape hatch).
  */
-function buildMockTxClient(initialBalance = 1000) {
-  let callCount = 0;
-  // Tracks every [sql, params] pair passed to tx.query
-  const queries: Array<{ sql: string; params: unknown[] }> = [];
+function installCoinsMock(initialBalances: Record<string, number>) {
+  const balances: Record<string, number> = { ...initialBalances };
+  const insertedParams: unknown[][] = [];
 
-  const txClient = {
-    query: jest.fn(async (sql: string, params: unknown[]) => {
-      queries.push({ sql, params });
-      // First SELECT (lockAndGetBalance) returns the balance
-      if (sql.includes('SELECT coin_balance FROM users') && sql.includes('FOR UPDATE')) {
-        return { rows: [{ coin_balance: String(initialBalance) }], rowCount: 1 };
-      }
-      // INSERT ... RETURNING * (writeLedgerEntry creates and returns the row in one query)
-      if (sql.includes('INSERT INTO coin_ledger')) {
-        const mockEntry = {
-          id: 'ledger-entry-id',
-          user_id: params[0],
-          amount: params[1],
-          balance_before: params[2],
-          balance_after: params[3],
-          transaction_type: params[4],
-          reference_id: params[5] ?? null,
-          description: params[6] ?? null,
-          metadata: params[7] ?? null,
-          created_at: new Date().toISOString(),
-        };
-        return { rows: [mockEntry], rowCount: 1 };
-      }
+  mockQuery.mockImplementation(async (text: string, params: unknown[] = []) => {
+    if (text.startsWith("insert into \"coin_ledger\"")) {
+      insertedParams.push([...params]);
+      const [userId, amount, balanceBefore, balanceAfter, transactionType, referenceId, description, metadata] =
+        params;
+      return {
+        rows: [
+          [
+            "ledger-entry-id",
+            userId,
+            amount,
+            balanceBefore,
+            balanceAfter,
+            transactionType,
+            referenceId ?? null,
+            description ?? null,
+            metadata ?? null,
+            new Date(),
+          ],
+        ],
+        rowCount: 1,
+      };
+    }
+
+    if (text.startsWith("select") && text.includes('"coin_balance"')) {
+      const userId = params[0] as string;
+      return { rows: [[String(balances[userId] ?? 0)]], rowCount: 1 };
+    }
+
+    if (text.startsWith("select") && text.includes('from "coin_ledger"')) {
+      // findExistingLedgerEntry / duplicate lookup — no existing row by default.
       return { rows: [], rowCount: 0 };
-    }),
-    queries,
-  };
-  return txClient;
-}
+    }
 
-/**
- * Wire up mockTransaction so that it immediately invokes the callback
- * with the provided txClient.
- */
-function setupTransaction(txClient: ReturnType<typeof buildMockTxClient>) {
-  mockTransaction.mockImplementation(async (fn: (tx: typeof txClient) => Promise<unknown>) => {
-    return fn(txClient);
+    if (text.startsWith("select") && text.includes('from "users"')) {
+      // transferCoins' generic "SELECT id FROM users ... FOR UPDATE" deadlock
+      // pre-lock — the returned id is never inspected.
+      return { rows: [[params[0]]], rowCount: 1 };
+    }
+
+    if (text.startsWith('update "users"') && text.includes('"coin_balance"')) {
+      const userId = params[2] as string;
+      balances[userId] = Number(params[0]);
+      return { rows: [], rowCount: 1 };
+    }
+
+    return { rows: [], rowCount: 0 };
   });
+
+  return { balances, insertedParams };
 }
 
 // ---------------------------------------------------------------------------
@@ -97,14 +148,12 @@ describe('creditCoins', () => {
   });
 
   it('credits a positive integer amount successfully', async () => {
-    const txClient = buildMockTxClient(500);
-    setupTransaction(txClient);
+    const { insertedParams } = installCoinsMock({ 'user-1': 500 });
 
     const entry = await creditCoins('user-1', 100, 'quest_reward');
     expect(entry).toBeDefined();
     // Verify an INSERT to coin_ledger was made
-    const insertCall = txClient.queries.find((q) => q.sql.includes('INSERT INTO coin_ledger'));
-    expect(insertCall).toBeDefined();
+    expect(insertedParams.length).toBe(1);
   });
 
   it('throws when amount is negative', async () => {
@@ -126,28 +175,26 @@ describe('creditCoins', () => {
   });
 
   it('writes a ledger entry (INSERT INTO coin_ledger)', async () => {
-    const txClient = buildMockTxClient(0);
-    setupTransaction(txClient);
+    const { insertedParams } = installCoinsMock({ 'user-2': 0 });
 
     await creditCoins('user-2', 250, 'purchase', 'ref-abc', 'Test credit');
-    const insertCall = txClient.queries.find((q) => q.sql.includes('INSERT INTO coin_ledger'));
-    expect(insertCall).toBeDefined();
+    expect(insertedParams.length).toBe(1);
   });
 
   it('updates user coin_balance', async () => {
-    const txClient = buildMockTxClient(200);
-    setupTransaction(txClient);
+    const { balances } = installCoinsMock({ 'user-3': 200 });
 
     await creditCoins('user-3', 50, 'admin_grant');
-    const updateCall = txClient.queries.find((q) => q.sql.includes('UPDATE users SET coin_balance'));
-    expect(updateCall).toBeDefined();
+    expect(balances['user-3']).toBe(250);
   });
 
   it('uses the provided txClient when passed', async () => {
-    const txClient = buildMockTxClient(100);
-    // When txClient is passed, db.transaction should NOT be called
-    await creditCoins('user-4', 10, 'quest_reward', null, null, null, txClient as any);
-    expect(mockTransaction).not.toHaveBeenCalled();
+    installCoinsMock({ 'user-4': 100 });
+    // When txClient is passed, getDb().transaction() should NOT be invoked —
+    // i.e. no "begin" statement is ever issued.
+    await creditCoins('user-4', 10, 'quest_reward', null, null, null, mockDb);
+    const beganTransaction = mockQuery.mock.calls.some(([text]) => text === 'begin');
+    expect(beganTransaction).toBe(false);
   });
 });
 
@@ -161,16 +208,14 @@ describe('debitCoins', () => {
   });
 
   it('debits successfully when balance is sufficient', async () => {
-    const txClient = buildMockTxClient(1000);
-    setupTransaction(txClient);
+    installCoinsMock({ 'user-1': 1000 });
 
     const entry = await debitCoins('user-1', 100, 'gift_sent');
     expect(entry).toBeDefined();
   });
 
   it('throws INSUFFICIENT_BALANCE when balance is too low', async () => {
-    const txClient = buildMockTxClient(50); // only 50 coins
-    setupTransaction(txClient);
+    installCoinsMock({ 'user-1': 50 }); // only 50 coins
 
     await expect(debitCoins('user-1', 200, 'gift_sent')).rejects.toMatchObject({
       code: 'INSUFFICIENT_BALANCE',
@@ -190,16 +235,18 @@ describe('debitCoins', () => {
   });
 
   it('stores a negative amount in the ledger entry for debits', async () => {
-    const txClient = buildMockTxClient(500);
-    setupTransaction(txClient);
+    const { insertedParams } = installCoinsMock({ 'user-1': 500 });
 
     await debitCoins('user-1', 100, 'dm_cost');
-    const insertCall = txClient.queries.find((q) => q.sql.includes('INSERT INTO coin_ledger'));
-    expect(insertCall).toBeDefined();
-    // The negated amount is passed as the second parameter (as a string — Decimal.toFixed(0))
-    const params = insertCall!.params as string[];
-    // params[1] is the amount passed to writeLedgerEntry — it should be "-100"
-    expect(params[1]).toBe('-100');
+    expect(insertedParams.length).toBe(1);
+    // params[1] is the `amount` value bound to the coin_ledger insert. It is
+    // a genuine BigInt (Drizzle's bigint("...", { mode: "bigint" }) columns
+    // pass their driver value through unchanged — see
+    // lib/seasons/__tests__/seasonEngine.test.ts's `expect(params[0]).toBe(0n)`
+    // for the same pattern), not a stringified Decimal like the old raw-SQL
+    // adapter produced.
+    const params = insertedParams[0];
+    expect(params[1]).toBe(-100n);
   });
 });
 
@@ -213,7 +260,7 @@ describe('getBalance', () => {
   });
 
   it('returns the current balance for a user', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ coin_balance: '750' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({ rows: [['750']], rowCount: 1 });
     const balance = await getBalance('user-1');
     expect(balance).toBe(750);
   });
@@ -234,22 +281,22 @@ describe('canAfford', () => {
   });
 
   it('returns true when balance equals the amount', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ coin_balance: '100' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({ rows: [['100']], rowCount: 1 });
     expect(await canAfford('user-1', 100)).toBe(true);
   });
 
   it('returns true when balance exceeds the amount', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ coin_balance: '500' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({ rows: [['500']], rowCount: 1 });
     expect(await canAfford('user-1', 100)).toBe(true);
   });
 
   it('returns false when balance is less than the amount', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ coin_balance: '50' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({ rows: [['50']], rowCount: 1 });
     expect(await canAfford('user-1', 200)).toBe(false);
   });
 
   it('returns false for zero balance', async () => {
-    mockQuery.mockResolvedValueOnce({ rows: [{ coin_balance: '0' }], rowCount: 1 });
+    mockQuery.mockResolvedValueOnce({ rows: [['0']], rowCount: 1 });
     expect(await canAfford('user-1', 1)).toBe(false);
   });
 });
@@ -263,59 +310,8 @@ describe('transferCoins', () => {
     jest.clearAllMocks();
   });
 
-  /**
-   * Build a tx client that tracks two users' balances in sequence.
-   * First lockAndGetBalance call → senderBalance
-   * Second lockAndGetBalance call → receiverBalance
-   */
-  function buildDualUserTxClient(senderBalance: number, receiverBalance: number) {
-    let lockCallCount = 0;
-    const queries: Array<{ sql: string; params: unknown[] }> = [];
-
-    const txClient = {
-      query: jest.fn(async (sql: string, params: unknown[]) => {
-        queries.push({ sql, params });
-
-        if (sql.includes('SELECT coin_balance FROM users') && sql.includes('FOR UPDATE')) {
-          lockCallCount++;
-          const bal = lockCallCount === 1 ? senderBalance : receiverBalance;
-          return { rows: [{ coin_balance: String(bal) }], rowCount: 1 };
-        }
-
-        if (sql.includes('INSERT INTO coin_ledger')) {
-          const mockEntry = {
-            id: `ledger-${lockCallCount}`,
-            user_id: params[0],
-            amount: params[1],
-            balance_before: params[2],
-            balance_after: params[3],
-            transaction_type: params[4],
-            reference_id: params[5] ?? null,
-            description: params[6] ?? null,
-            metadata: params[7] ?? null,
-            created_at: new Date().toISOString(),
-          };
-          return { rows: [mockEntry], rowCount: 1 };
-        }
-
-        return { rows: [], rowCount: 0 };
-      }),
-      queries,
-    };
-
-    return txClient;
-  }
-
   it('deducts from sender and credits receiver with 5% fee', async () => {
-    const txClient = buildDualUserTxClient(1000, 200);
-
-    // transferCoins wraps in a transaction internally, then calls debit/credit
-    // which each try to start their own transaction. We need to chain them.
-    let callCount = 0;
-    mockTransaction.mockImplementation(async (fn: (tx: typeof txClient) => Promise<unknown>) => {
-      callCount++;
-      return fn(txClient);
-    });
+    const { balances } = installCoinsMock({ 'sender-1': 1000, 'receiver-1': 200 });
 
     const result = await transferCoins('sender-1', 'receiver-1', 100, 'idem-ref-1');
 
@@ -323,13 +319,12 @@ describe('transferCoins', () => {
     expect(result.feeCoins).toBe(5);
     expect(result.debit).toBeDefined();
     expect(result.credit).toBeDefined();
+    expect(balances['sender-1']).toBe(900);
+    expect(balances['receiver-1']).toBe(295);
   });
 
   it('throws INSUFFICIENT_BALANCE when sender cannot afford gross amount', async () => {
-    const txClient = buildDualUserTxClient(10, 200); // sender only has 10 coins
-    mockTransaction.mockImplementation(async (fn: (tx: typeof txClient) => Promise<unknown>) => {
-      return fn(txClient);
-    });
+    installCoinsMock({ 'sender-1': 10, 'receiver-1': 200 }); // sender only has 10 coins
 
     await expect(transferCoins('sender-1', 'receiver-1', 100, 'idem-ref-2')).rejects.toMatchObject({
       code: 'INSUFFICIENT_BALANCE',
@@ -343,10 +338,7 @@ describe('transferCoins', () => {
   });
 
   it('computes fee correctly for 10% fee', async () => {
-    const txClient = buildDualUserTxClient(1000, 0);
-    mockTransaction.mockImplementation(async (fn: (tx: typeof txClient) => Promise<unknown>) => {
-      return fn(txClient);
-    });
+    installCoinsMock({ 'sender-1': 1000, 'receiver-1': 0 });
 
     const result = await transferCoins('sender-1', 'receiver-1', 200, 'idem-ref-4', 10);
     // 10% of 200 = 20 coins fee
