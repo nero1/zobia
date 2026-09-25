@@ -20,6 +20,7 @@ import { useCallback, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import {
+  clearAuthCookies,
   installSessionExpiryFetchGuard,
   onSessionExpired,
   resetSessionExpired,
@@ -55,9 +56,15 @@ export function SessionExpiredModal() {
     const loginPath = onAdminRoute ? "/gate44/login" : "/auth/login";
     const fallback = onAdminRoute ? "/gate44" : "/home";
     const redirect = pathname && !pathname?.startsWith("/auth") ? pathname : fallback;
-    router.push(
-      `${loginPath}?reason=session_expired&redirect=${encodeURIComponent(redirect)}`,
-    );
+    const target = `${loginPath}?reason=session_expired&redirect=${encodeURIComponent(redirect)}`;
+    // markSessionExpired() already fired clearAuthCookies() in the
+    // background when this notice first appeared, but await it explicitly
+    // here too: if the user clicks through fast enough that it's still in
+    // flight, navigating before it lands leaves the stale zobia_at cookie in
+    // place and middleware bounces /auth/login straight back to /home
+    // without ever showing the real sign-in screen (see markSessionExpired's
+    // doc comment in lib/auth/sessionExpiredBus.ts).
+    void clearAuthCookies().finally(() => router.push(target));
   }, [pathname, router]);
 
   if (!open) return null;

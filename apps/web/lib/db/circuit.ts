@@ -116,3 +116,58 @@ export async function withCircuitBreaker<T>(fn: () => Promise<T>): Promise<T> {
     throw err;
   }
 }
+
+// ---------------------------------------------------------------------------
+// Pool-level wrapping — covers Drizzle's direct pg.Pool usage
+// ---------------------------------------------------------------------------
+
+/**
+ * BUG (discovered while investigating a raw, unhandled-looking 500 on
+ * GET /api/creator/dashboard that happened to log a breaker state change
+ * nearby): every provider adapter's own `query()`/`transaction()` methods
+ * are wrapped in `withCircuitBreaker` above, but `lib/db/drizzle.ts`'s
+ * `getDb()` hands the *same* underlying `pg.Pool` straight to Drizzle
+ * (`drizzle(pool, { schema })`) and Drizzle calls `pool.query(...)` on it
+ * directly — completely bypassing the adapter wrapper, and therefore the
+ * breaker. Since "full Drizzle ORM coverage" (see PR #532) moved nearly all
+ * application code from `db.query()` (protected) onto `getDb()`/Drizzle
+ * (unprotected), the breaker had stopped protecting the vast majority of
+ * real traffic: during a DB outage, Drizzle-issued queries would each hang
+ * for the full `statement_timeout`/`connectionTimeoutMillis` instead of
+ * failing fast with a clean 503, and never contributed to (or benefited
+ * from) the breaker's OPEN/CLOSED state at all.
+ *
+ * Fix: wrap the Pool's own `query` method once, at the lowest shared layer
+ * (the Pool itself, not each caller), so both the legacy adapter and every
+ * Drizzle call issued against the same pool go through the same breaker.
+ * Only the non-transactional `pool.query(...)` path is wrapped — the
+ * per-adapter `transaction()` methods above already wrap their own
+ * `pool.connect()` + multi-statement unit of work, and Drizzle's own
+ * `.transaction()` similarly checks out a dedicated client via
+ * `pool.connect()`; wrapping `connect()` too would double-count a single
+ * transaction's queries against the breaker's window and is left alone.
+ * Callback-style `pool.query(text, cb)` calls (unused anywhere in this
+ * codebase — everything here is promise-based) fall through to the
+ * original method untouched rather than risk breaking that signature.
+ *
+ * Idempotent — safe to call on the same pool more than once (double-wrapping
+ * is a harmless no-op check via `__circuitWrapped`).
+ */
+export function wrapPoolWithCircuitBreaker(pool: {
+  query: (...args: unknown[]) => unknown;
+  __circuitWrapped?: boolean;
+}): void {
+  if (pool.__circuitWrapped) return;
+  pool.__circuitWrapped = true;
+
+  const originalQuery = pool.query.bind(pool);
+  pool.query = (...args: unknown[]) => {
+    const lastArg = args[args.length - 1];
+    if (typeof lastArg === "function") {
+      // Callback style — bypass the breaker rather than risk mismatching pg's
+      // callback-based overload signature. Not used anywhere in this codebase.
+      return originalQuery(...args);
+    }
+    return withCircuitBreaker(() => Promise.resolve(originalQuery(...args)) as Promise<unknown>);
+  };
+}

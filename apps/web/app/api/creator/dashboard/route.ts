@@ -26,6 +26,7 @@ import { handleApiError, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { redis } from "@/lib/redis";
 import { memGet, memSet } from "@/lib/cache/memory";
+import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -76,6 +77,25 @@ interface RoomHealthRow {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Run one of this route's per-panel stat queries and return its rows, or
+ * `[]` on failure so one broken/degraded panel (a transient DB hiccup, a
+ * future schema drift) never 500s the whole dashboard — mirrors the
+ * try/catch-with-fallback pattern `fetchAvgSessionTimeMinutes` below already
+ * used. Failures are still logged (not silently swallowed) so a genuine bug
+ * remains discoverable instead of just quietly returning zeros forever.
+ */
+async function fetchRows<T>(query: ReturnType<typeof sql>): Promise<T[]> {
+  try {
+    const orm = await getDb();
+    const { rows } = await orm.execute<T & Record<string, unknown>>(query);
+    return rows as T[];
+  } catch (err) {
+    logger.error({ err }, "[api:creator:dashboard] Stat panel query failed");
+    return [];
+  }
+}
 
 /**
  * Estimate average session time in minutes from room_messages activity.
@@ -209,7 +229,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       Object.values(map).reduce((a, b) => a + b, 0);
 
     // Member stats across all creator rooms
-    const { rows: memberRows } = await orm.execute<MemberStatsRow & Record<string, unknown>>(sql`
+    const memberRows = await fetchRows<MemberStatsRow>(sql`
        SELECT
          SUM(r.member_count)::int               AS total_members,
          (SELECT COUNT(DISTINCT rm2.user_id)::int
@@ -235,7 +255,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         : 0;
 
     // Top 5 gifters (lifetime)
-    const { rows: topGifters } = await orm.execute<TopGifterRow & Record<string, unknown>>(sql`
+    const topGifters = await fetchRows<TopGifterRow>(sql`
        SELECT
          g.sender_id   AS user_id,
          u.username,
@@ -251,18 +271,31 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
        LIMIT 5
     `);
 
-    // Quest performance (sponsored quests)
-    const { rows: questRows } = await orm.execute<QuestRow & Record<string, unknown>>(sql`
+    // Quest performance: this creator's own sponsored_quest_applications
+    // (they apply to a brand's quest and complete it in their room — see
+    // app/api/creator/sponsored-quests/[questId]/{apply,complete}/route.ts).
+    // NOTE: sponsored_quests itself has neither a `status` nor a
+    // `creator_id` column (it's owner_user_id/business_account_id/
+    // submitted_by) — the previous query here referenced both and threw a
+    // real Postgres "column does not exist" error on every call, which is
+    // what actually produced the reported 500 (the "[database] Circuit
+    // CLOSED after recovery" log nearby was an unrelated coincidence: the DB
+    // circuit breaker only wraps the legacy db.query()/transaction() path,
+    // not these direct Drizzle orm.execute() calls, and its own rejections
+    // surface as a distinct 503 DB_UNAVAILABLE, not this generic 500).
+    // "pending" mirrors the pre-completion states the complete/route.ts
+    // guard accepts ('applied', 'accepted').
+    const questRows = await fetchRows<QuestRow>(sql`
        SELECT
-         COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
-         COUNT(*) FILTER (WHERE status = 'pending')::int   AS pending
-       FROM sponsored_quests
+         COUNT(*) FILTER (WHERE status = 'completed')::int             AS completed,
+         COUNT(*) FILTER (WHERE status IN ('applied', 'accepted'))::int AS pending
+       FROM sponsored_quest_applications
        WHERE creator_id = ${creatorId}
     `);
     const questPerformance = questRows[0] ?? { completed: 0, pending: 0 };
 
     // Payout history (last 10)
-    const { rows: payouts } = await orm.execute<PayoutRow & Record<string, unknown>>(sql`
+    const payouts = await fetchRows<PayoutRow>(sql`
        SELECT id, amount_kobo, status, provider, created_at, processed_at
        FROM creator_payouts
        WHERE creator_id = ${creatorId}
@@ -271,7 +304,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     `);
 
     // Average room health score
-    const { rows: healthRows } = await orm.execute<RoomHealthRow & Record<string, unknown>>(sql`
+    const healthRows = await fetchRows<RoomHealthRow>(sql`
        SELECT COALESCE(AVG(health_score), 100)::int AS avg_health
        FROM rooms
        WHERE creator_id = ${creatorId} AND is_active = TRUE

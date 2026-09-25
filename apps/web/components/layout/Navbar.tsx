@@ -22,27 +22,7 @@ import { useUnreadNotificationsCount } from "@/lib/notifications/useUnreadCount"
 import { useHasNewNotifications } from "@/lib/notifications/useHasNewNotifications";
 import { useHasNewMessages, useHasNewAnnouncements } from "@/lib/notifications/useHasNewSince";
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
-
-interface NavUser {
-  display_name: string | null;
-  username: string | null;
-  avatar_emoji: string | null;
-  plan?: string | null;
-  is_admin?: boolean;
-  is_moderator?: boolean;
-  is_council_member?: boolean;
-}
-
-function useNavUser() {
-  const [user, setUser] = useState<NavUser | null>(null);
-  useEffect(() => {
-    fetch("/api/users/me", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((json) => { if (json) setUser(json.user ?? json); })
-      .catch(() => {});
-  }, []);
-  return user;
-}
+import { useUserProfile, type NavProfile } from "@/lib/auth/hooks";
 
 // ---------------------------------------------------------------------------
 // Nav item definitions
@@ -403,7 +383,7 @@ function ProfileDropdown({
   user,
   onLogout,
 }: {
-  user: NavUser | null;
+  user: NavProfile | null;
   onLogout: () => void;
 }) {
   const { t } = useTranslation();
@@ -560,7 +540,7 @@ export function Navbar() {
   const { t } = useTranslation();
   const pathname = usePathname();
   const router = useRouter();
-  const navUser = useNavUser();
+  const navUser = useUserProfile();
   const displayName = navUser?.display_name ?? navUser?.username ?? "User";
   const unreadCount = useUnreadNotificationsCount();
   const hasNewNotifications = useHasNewNotifications();
