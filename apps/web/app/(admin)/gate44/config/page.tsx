@@ -86,6 +86,14 @@ const CONFIG_META: Record<string, ConfigMeta> = {
     type: "boolean",
     group: "Signups",
   },
+  // Phone Verification — see lib/phone/verification.ts. Default off: the
+  // Settings "Phone Number" field saves whatever the user types, unverified.
+  phone_verification_required: {
+    label: "Require SMS Verification for Phone Numbers",
+    description: "When on, a user must confirm a typed phone number via a one-time SMS code (sent through the same Termii integration used for admin/mod SMS alerting) before it's saved. When off (default), the number is saved as-is, unverified.",
+    type: "boolean",
+    group: "Phone Verification",
+  },
   // Group Chats
   group_chat_concurrent_cap: {
     label: "Default Concurrent Cap",

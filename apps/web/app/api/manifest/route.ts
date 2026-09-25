@@ -50,6 +50,7 @@ type PublicManifest = {
 } & {
   featureModVisibility: string[];
   auth: { telegramEnabled: boolean };
+  phoneVerificationRequired: boolean;
   captchaProvider: "recaptcha" | "turnstile" | "none";
   captchaEnabledSurfaces: string[];
   recaptchaSiteKey?: string;
@@ -119,6 +120,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       auth: {
         telegramEnabled: manifest.auth.telegramEnabled,
       },
+      phoneVerificationRequired: manifest.phoneVerificationRequired,
       payment: {
         // Never expose secret keys – only public-facing config
         primaryProvider: manifest.payment.primaryProvider,

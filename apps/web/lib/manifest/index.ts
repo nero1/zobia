@@ -126,6 +126,17 @@ export interface ZobiaManifest {
    * app/api/auth/telegram/callback).
    */
   signupsEnabled: boolean;
+  /**
+   * Admin-toggleable SMS OTP verification for the Settings "Phone Number"
+   * field (x_manifest `phone_verification_required`, seeded false in
+   * migration 0013). Default OFF: a typed number is saved as-is, unverified
+   * (self-attested capture) — matching the platform's baseline "No SMS
+   * anything" policy (PRD §22). Turning this on is a deliberate, scoped
+   * exception that routes through the same Termii integration used for
+   * admin/mod SMS alerting (lib/notifications/sms.ts) — see
+   * lib/phone/verification.ts. Editable at /gate44/config.
+   */
+  phoneVerificationRequired: boolean;
   // Auth
   auth: {
     googleEnabled: boolean;
@@ -757,6 +768,7 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
     message: "Zobia is briefly unavailable at the moment due to system maintenance. Kindly check back later.",
   },
   signupsEnabled: true,
+  phoneVerificationRequired: false,
   auth: {
     googleEnabled: true,
     telegramEnabled: true,
@@ -1348,6 +1360,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
       message: unquote(kv["maintenance_message"]) ?? DEFAULT_MANIFEST.maintenance.message,
     },
     signupsEnabled: parseBool(kv["signups_enabled"] ?? "true", DEFAULT_MANIFEST.signupsEnabled),
+    phoneVerificationRequired: parseBool(
+      kv["phone_verification_required"] ?? "false",
+      DEFAULT_MANIFEST.phoneVerificationRequired
+    ),
     auth: {
       googleEnabled:   parseBool(kv["auth_google_enabled"],   DEFAULT_MANIFEST.auth.googleEnabled),
       telegramEnabled: parseBool(kv["auth_telegram_enabled"], DEFAULT_MANIFEST.auth.telegramEnabled),
