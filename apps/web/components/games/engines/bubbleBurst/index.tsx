@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const COLORS = ["#f87171","#fb923c","#fbbf24","#4ade80","#38bdf8","#818cf8","#e879f9","#f472b6"];
 const MISS_LIMIT: Record<string, number> = { easy: 8, medium: 5, hard: 3 };
@@ -134,12 +135,12 @@ export default function BubbleBurstGame({ onReady, onGameOver, onScore, difficul
             }}
             disabled={b.popped || over}
           >
-            <span className="text-white text-xs font-bold select-none">✕</span>
+            <Icon emoji="✕" size={12} className="text-white" />
           </button>
         ))}
         {over && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 rounded-2xl">
-            <div className="text-4xl mb-2">💥</div>
+            <div className="mb-2"><Icon emoji="💥" size={36} /></div>
             <div className="text-white font-bold text-xl">Game Over!</div>
             <div className="text-neutral-300 text-sm mt-1">Final score: {score}</div>
           </div>

@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const W = 320;
 const H = 420;
@@ -167,7 +168,11 @@ export default function ColorRain({
           <span className="text-2xl">{targetDef.emoji}</span>
           <span className="text-foreground font-bold">{targetDef.label}</span>
         </div>
-        <span className="text-red-400">{"❤️".repeat(Math.max(0, lives))}</span>
+        <span className="text-red-400 flex items-center gap-0.5">
+          {Array.from({ length: Math.max(0, lives) }, (_, i) => (
+            <Icon key={i} emoji="❤️" size={14} />
+          ))}
+        </span>
       </div>
 
       {/* Play area */}
@@ -208,7 +213,7 @@ export default function ColorRain({
 
         {over && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/70 rounded-2xl">
-            <div className="text-5xl mb-3">🌧️</div>
+            <div className="mb-3"><Icon emoji="🌧️" size={44} /></div>
             <div className="text-white font-bold text-2xl">Game Over!</div>
             <div className="text-emerald-400 font-bold text-lg mt-1">Score: {score}</div>
           </div>
