@@ -8,14 +8,16 @@
  * still-default look) or a matching monochrome lucide-react vector icon
  * ("Pro (Black & White)", styled like GitHub/YouTube's nav iconography).
  *
- * IMPORTANT — SCOPE: this is a PARTIAL migration. Only the primary nav
- * chrome (top bar, bottom tab bar, side drawer/menu) has been converted to
- * use <Icon>. The rest of the app (post reactions, gift emojis, badges,
- * achievement icons, etc.) still uses raw emoji characters directly in
- * JSX, and that is intentional — not an oversight to "finish later" by
- * grep-replacing every emoji in the codebase. A future task may extend the
- * <Icon> vocabulary to more surfaces, but should treat every emoji outside
- * nav chrome as deliberately out of scope unless told otherwise.
+ * Two ways to use it:
+ *  - `<Icon name="home" />` — the curated nav-chrome vocabulary below, with
+ *    per-icon active/inactive emoji pairs.
+ *  - `<Icon emoji="🎁" />` — the general-purpose path for every other UI
+ *    icon across the app, resolved via shared/utils/emojiIconMap.ts's
+ *    EMOJI_TO_LUCIDE_NAME table. An emoji with no entry there renders as
+ *    the plain character in BOTH icon sets (never broken) — see that
+ *    file's header for which emoji are deliberately excluded (game
+ *    content, country flags, avatar picker options) and must NEVER be
+ *    routed through <Icon>, because the emoji IS the content there.
  *
  * Compromises (lucide-react has no exact match for a few source emoji):
  *  - tweets (🐦): lucide dropped its Twitter/bird glyph; using `Rss` (feed).
@@ -73,6 +75,8 @@ import {
   NotebookPen,
   type LucideIcon,
 } from 'lucide-react';
+import * as LucideIcons from 'lucide-react';
+import { EMOJI_TO_LUCIDE_NAME } from '@zobia/shared/utils';
 import { useTheme } from '@/lib/theme/ThemeProvider';
 
 /** The curated icon-name vocabulary for nav chrome (web + Android share this list). */
@@ -217,43 +221,75 @@ const LUCIDE: Record<IconName, LucideIcon> = {
   star: Star,
 };
 
-export interface IconProps {
-  name: IconName;
-  /** Filled/active variant — swaps the emoji glyph (e.g. home/games tab icons) or bumps stroke weight for mono. */
-  active?: boolean;
+interface IconPropsBase {
   className?: string;
   size?: number;
   /** Forwarded to the rendered element; usually left `true` since the caller supplies its own accessible label. */
   ['aria-hidden']?: boolean;
 }
 
+interface IconPropsByName extends IconPropsBase {
+  name: IconName;
+  emoji?: undefined;
+  /** Filled/active variant — swaps the emoji glyph (e.g. home/games tab icons) or bumps stroke weight for mono. Only applies to `name`. */
+  active?: boolean;
+}
+
+interface IconPropsByEmoji extends IconPropsBase {
+  name?: undefined;
+  /** A raw UI-chrome emoji character, e.g. "🎁". Looked up in shared/utils/emojiIconMap.ts — see that file's header for which emoji must NEVER be passed here. */
+  emoji: string;
+  active?: undefined;
+}
+
+export type IconProps = IconPropsByName | IconPropsByEmoji;
+
 /**
- * Renders the current icon set's version of `name`. See file header for
- * scope notes (nav chrome only) and known lucide substitutions.
+ * Renders the current icon set's version of `name` (curated nav vocabulary)
+ * or `emoji` (general-purpose, looked up in EMOJI_TO_LUCIDE_NAME). See file
+ * header for the two usage modes and known lucide substitutions.
  */
-export function Icon({ name, active, className, size = 20, ...rest }: IconProps) {
+export function Icon(props: IconProps) {
+  const { className, size = 20 } = props;
   const { iconSet } = useTheme();
-  const ariaHidden = rest['aria-hidden'] ?? true;
+  const ariaHidden = props['aria-hidden'] ?? true;
 
   if (iconSet === 'mono') {
-    const LucideComponent = LUCIDE[name];
+    let LucideComponent: LucideIcon | undefined;
+    if (props.name) {
+      LucideComponent = LUCIDE[props.name];
+    } else {
+      const lucideName = EMOJI_TO_LUCIDE_NAME[props.emoji];
+      LucideComponent = lucideName ? (LucideIcons as unknown as Record<string, LucideIcon>)[lucideName] : undefined;
+    }
+    if (LucideComponent) {
+      return (
+        <LucideComponent
+          aria-hidden={ariaHidden}
+          className={className}
+          width={size}
+          height={size}
+          strokeWidth={1.75}
+          color="currentColor"
+        />
+      );
+    }
+    // No mono mapping (deliberately, or a gap) — fall through to the emoji glyph so nothing ever renders broken.
+  }
+
+  if (props.name) {
+    const pair = EMOJI[props.name];
+    const glyph = props.active && pair.active ? pair.active : pair.default;
     return (
-      <LucideComponent
-        aria-hidden={ariaHidden}
-        className={className}
-        width={size}
-        height={size}
-        strokeWidth={1.75}
-        color="currentColor"
-      />
+      <span aria-hidden={ariaHidden} className={className}>
+        {glyph}
+      </span>
     );
   }
 
-  const pair = EMOJI[name];
-  const glyph = active && pair.active ? pair.active : pair.default;
   return (
     <span aria-hidden={ariaHidden} className={className}>
-      {glyph}
+      {props.emoji}
     </span>
   );
 }
