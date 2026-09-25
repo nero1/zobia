@@ -80,6 +80,37 @@ export async function runMigrations(): Promise<void> {
   const pool = getTestPool();
   const client = await pool.connect();
   try {
+    // BUG (pre-existing, unrelated to any single migration): CI's test
+    // database is a plain `postgres:16-alpine` container, not a real
+    // Supabase project, so it has none of Supabase's built-in
+    // `anon`/`authenticated`/`service_role` roles. Since the Supabase
+    // Data-API grant convention (see any migration's `GRANT ... TO anon`
+    // statements, e.g. 0013_phone_verification.sql) started being used,
+    // every migration that grants to those roles has been failing
+    // integration tests in CI with "role \"anon\" does not exist" — this
+    // reproduces identically on `main` (not just this branch), so it isn't
+    // any particular migration's bug. Create the three roles the same way
+    // Supabase provisions them (NOLOGIN — the Data API/PostgREST connects
+    // as `authenticator` and switches role per-request; test code never
+    // authenticates *as* these roles, it only needs GRANT ... TO <role> to
+    // resolve) before any migration runs, so this stays correct for every
+    // future migration that follows the same GRANT convention.
+    await client.query(`
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
+          CREATE ROLE anon NOLOGIN;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
+          CREATE ROLE authenticated NOLOGIN;
+        END IF;
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+          CREATE ROLE service_role NOLOGIN;
+        END IF;
+      END
+      $$;
+    `);
+
     await client.query(`
       CREATE TABLE IF NOT EXISTS _test_applied_migrations (
         filename   TEXT PRIMARY KEY,
