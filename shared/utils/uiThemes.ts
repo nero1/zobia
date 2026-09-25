@@ -71,7 +71,7 @@ export const FONT_ZOOM_STEPS = [70, 80, 90, 100, 110, 125, 140, 160, 180, 200] a
 export const FONT_ZOOM_DEFAULT_PERCENT = 100;
 
 export function clampFontZoomPercent(percent: number): number {
-  let closest = FONT_ZOOM_STEPS[0];
+  let closest: number = FONT_ZOOM_STEPS[0];
   let closestDiff = Math.abs(percent - closest);
   for (const step of FONT_ZOOM_STEPS) {
     const diff = Math.abs(percent - step);

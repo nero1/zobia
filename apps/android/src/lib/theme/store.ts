@@ -18,7 +18,7 @@
  */
 
 import { Preferences } from '@capacitor/preferences';
-import { SITE_THEME_IDS, FONT_ZOOM_STEPS, type SiteThemeId } from '@zobia/shared/utils';
+import { SITE_THEME_IDS, ICON_SET_IDS, FONT_ZOOM_STEPS, type SiteThemeId, type IconSetId } from '@zobia/shared/utils';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
@@ -77,6 +77,52 @@ export async function setStoredSiteTheme(theme: SiteThemeId | null): Promise<voi
   try {
     if (theme) await Preferences.set({ key: SITE_THEME_STORAGE_KEY, value: theme });
     else await Preferences.remove({ key: SITE_THEME_STORAGE_KEY });
+  } catch { /* non-fatal, offline-friendly */ }
+}
+
+// ---------------------------------------------------------------------------
+// Icon set (emoji vs. mono/pro vector nav icons) — separate axis from
+// light/dark and site theme above. "emoji" is the historical default;
+// "mono" is the black-and-white lucide-react vector set (see
+// components/ui/Icon.tsx). Admin-set default comes from /api/manifest
+// (see lib/hooks/useManifest.ts useUiManifest); anything stored here is a
+// per-device override, following the exact same pattern as site theme.
+// ---------------------------------------------------------------------------
+
+const ICON_SET_STORAGE_KEY = 'zobia_icon_set';
+
+function isValidIconSet(v: unknown): v is IconSetId {
+  return typeof v === 'string' && (ICON_SET_IDS as readonly string[]).includes(v);
+}
+
+export function getStoredIconSetSync(): IconSetId | null {
+  try {
+    const v = localStorage.getItem(ICON_SET_STORAGE_KEY);
+    return isValidIconSet(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getStoredIconSet(): Promise<IconSetId | null> {
+  try {
+    const { value } = await Preferences.get({ key: ICON_SET_STORAGE_KEY });
+    if (isValidIconSet(value)) return value;
+  } catch {
+    // fall through
+  }
+  return getStoredIconSetSync();
+}
+
+/** `null` clears the per-device override, reverting to the admin default. */
+export async function setStoredIconSet(iconSet: IconSetId | null): Promise<void> {
+  try {
+    if (iconSet) localStorage.setItem(ICON_SET_STORAGE_KEY, iconSet);
+    else localStorage.removeItem(ICON_SET_STORAGE_KEY);
+  } catch { /* private mode etc — non-fatal */ }
+  try {
+    if (iconSet) await Preferences.set({ key: ICON_SET_STORAGE_KEY, value: iconSet });
+    else await Preferences.remove({ key: ICON_SET_STORAGE_KEY });
   } catch { /* non-fatal, offline-friendly */ }
 }
 

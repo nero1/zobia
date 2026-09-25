@@ -7,23 +7,21 @@
 import { useNavigate, useRouterState } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/lib/auth/store';
+import { Icon, type IconName } from '@/components/ui/Icon';
 
-const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
-  Home: { active: '🏠', inactive: '🏡' },
-  Quests: { active: '🎯', inactive: '🎯' },
-  Games: { active: '🎮', inactive: '🕹️' },
-  Friends: { active: '👥', inactive: '👥' },
-  Wallet: { active: '🪙', inactive: '🪙' },
-  Profile: { active: '👤', inactive: '👤' },
+const TAB_ICON_NAMES: Record<string, IconName> = {
+  Home: 'home',
+  Quests: 'quests',
+  Games: 'games',
+  Friends: 'friends',
+  Wallet: 'wallet',
+  Profile: 'profile',
 };
 
 function TabIcon({ label, isActive }: { label: string; isActive: boolean }) {
-  const icon = TAB_ICONS[label];
-  return (
-    <span className="text-xl leading-none" aria-hidden="true">
-      {isActive ? icon?.active : icon?.inactive}
-    </span>
-  );
+  const name = TAB_ICON_NAMES[label];
+  if (!name) return null;
+  return <Icon name={name} active={isActive} className="text-xl leading-none" />;
 }
 
 export function BottomNav() {

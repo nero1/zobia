@@ -675,7 +675,8 @@ export function Navbar() {
                     : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
                 )}
               >
-                🛡️ {t("admin.link")}
+                <Icon name="admin" className="mr-1 inline-block align-[-2px]" />
+                {t("admin.link")}
               </Link>
             )}
             {(navUser?.is_moderator || navUser?.is_admin) && (
@@ -689,7 +690,8 @@ export function Navbar() {
                     : "text-neutral-600 hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-50"
                 )}
               >
-                🧭 {t("moderation.title", "Moderation Center")}
+                <Icon name="moderation" className="mr-1 inline-block align-[-2px]" />
+                {t("moderation.title", "Moderation Center")}
               </Link>
             )}
             <Link
@@ -697,14 +699,14 @@ export function Navbar() {
               aria-label={t("search.title")}
               className="rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
             >
-              <span aria-hidden="true" className="text-lg leading-none">🔍</span>
+              <Icon name="search" className="text-lg leading-none" />
             </Link>
             <Link
               href="/notifications"
               aria-label={unreadCount > 0 ? `${t("notifications.title")}, ${t("notifications.unread", { count: unreadCount })}` : t("notifications.title")}
               className="relative rounded-full p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800"
             >
-              <span aria-hidden="true" className="text-lg leading-none">🔔</span>
+              <Icon name="notifications" className="text-lg leading-none" />
               {hasNewNotifications && (
                 <span
                   aria-hidden="true"
