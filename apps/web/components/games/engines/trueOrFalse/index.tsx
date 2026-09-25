@@ -8,6 +8,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 interface TFStatement { s: string; answer: boolean }
 
@@ -206,8 +207,12 @@ export default function TrueOrFalseGame({
       </div>
 
       {flash && (
-        <p className={`font-bold text-lg ${flash === "correct" ? "text-emerald-400" : "text-red-400"}`}>
-          {flash === "correct" ? "✅ Correct!" : `❌ Wrong! It was ${stmt.answer ? "TRUE" : "FALSE"}`}
+        <p className={`font-bold text-lg inline-flex items-center gap-1 ${flash === "correct" ? "text-emerald-400" : "text-red-400"}`}>
+          {flash === "correct" ? (
+            <><Icon emoji="✅" size={18} /> Correct!</>
+          ) : (
+            <><Icon emoji="❌" size={18} /> Wrong! It was {stmt.answer ? "TRUE" : "FALSE"}</>
+          )}
         </p>
       )}
 
@@ -217,17 +222,17 @@ export default function TrueOrFalseGame({
           type="button"
           disabled={answered}
           onClick={() => handleAnswer(true)}
-          className="rounded-xl py-4 px-4 font-bold text-lg border-2 border-emerald-600 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 transition-all disabled:opacity-40"
+          className="rounded-xl py-4 px-4 font-bold text-lg border-2 border-emerald-600 bg-emerald-600/20 hover:bg-emerald-600/40 text-emerald-400 transition-all disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
         >
-          ✅ TRUE
+          <Icon emoji="✅" size={18} /> TRUE
         </button>
         <button
           type="button"
           disabled={answered}
           onClick={() => handleAnswer(false)}
-          className="rounded-xl py-4 px-4 font-bold text-lg border-2 border-red-600 bg-red-600/20 hover:bg-red-600/40 text-red-400 transition-all disabled:opacity-40"
+          className="rounded-xl py-4 px-4 font-bold text-lg border-2 border-red-600 bg-red-600/20 hover:bg-red-600/40 text-red-400 transition-all disabled:opacity-40 inline-flex items-center justify-center gap-1.5"
         >
-          ❌ FALSE
+          <Icon emoji="❌" size={18} /> FALSE
         </button>
       </div>
     </div>

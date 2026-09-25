@@ -8,6 +8,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const WORD_LISTS: Record<string, string[]> = {
   easy: ["APPLE","MANGO","BEACH","DANCE","HAPPY","LIGHT","MUSIC","OCEAN","PLANT","SMILE","WATER","WORLD","BREAD","CLOCK","DREAM"],
@@ -125,7 +126,7 @@ export default function WordScrambleGame({ onReady, onGameOver, onScore, difficu
       }`}>
         <p className="text-xs text-muted-foreground mb-2">Unscramble this word:</p>
         <p className="text-4xl font-black tracking-widest text-foreground">{scrambled}</p>
-        {feedback === "correct" && <p className="text-emerald-400 font-bold mt-2">✅ {words[round - 1]}!</p>}
+        {feedback === "correct" && <p className="text-emerald-400 font-bold mt-2 inline-flex items-center gap-1"><Icon emoji="✅" size={16} /> {words[round - 1]}!</p>}
         {feedback === "skipped" && <p className="text-amber-400 mt-2">Skipped — it was: {words[round - 1]}</p>}
       </div>
 

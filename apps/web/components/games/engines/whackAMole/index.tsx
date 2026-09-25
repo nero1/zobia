@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const VISIBLE_MS: Record<string, number> = { easy: 1500, medium: 1000, hard: 700 };
 const MAX_ACTIVE: Record<string, number> = { easy: 1, medium: 2, hard: 3 };
@@ -144,8 +145,8 @@ export default function WhackAMole({
       {/* HUD */}
       <div className="flex w-full items-center justify-between px-2 text-sm font-semibold">
         <span className="text-emerald-400">Score: {score}</span>
-        <span className={timeLeft <= 5 ? "text-red-400 animate-pulse" : "text-foreground"}>
-          ⏱ {timeLeft}s
+        <span className={`inline-flex items-center gap-1 ${timeLeft <= 5 ? "text-red-400 animate-pulse" : "text-foreground"}`}>
+          <Icon emoji="⏱" size={14} /> {timeLeft}s
         </span>
       </div>
 
@@ -178,8 +179,8 @@ export default function WhackAMole({
 
       {over && (
         <div className="text-center py-2">
-          <div className="text-2xl font-bold text-foreground">
-            {score > 0 ? "🎉 Time's Up!" : "😔 Better Luck!"}
+          <div className="text-2xl font-bold text-foreground inline-flex items-center gap-1.5">
+            {score > 0 ? (<><Icon emoji="🎉" size={20} /> Time&apos;s Up!</>) : (<><Icon emoji="😔" size={20} /> Better Luck!</>)}
           </div>
           <div className="text-emerald-400 font-bold text-lg">Final Score: {score}</div>
         </div>

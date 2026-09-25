@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const COLS = 10;
 const ROWS = 20;
@@ -253,9 +254,9 @@ export default function TetrisGame({ onReady, onGameOver, onScore, difficulty = 
     <button
       type="button"
       onPointerDown={(e) => { e.preventDefault(); fn(); }}
-      className={`rounded-lg bg-neutral-800 text-white font-bold hover:bg-neutral-700 active:scale-90 transition-transform touch-none select-none ${className}`}
+      className={`rounded-lg bg-neutral-800 text-white font-bold hover:bg-neutral-700 active:scale-90 transition-transform touch-none select-none flex items-center justify-center ${className}`}
     >
-      {label}
+      <Icon emoji={label} size={22} />
     </button>
   ), []);
 
