@@ -10,6 +10,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 /* ─── Types ─── */
 type PlayerColor = "red" | "green" | "yellow" | "blue";
@@ -411,8 +412,8 @@ export default function LudoGame({ onReady, onGameOver, onScore, difficulty = "m
     <div className="flex flex-col items-center gap-4 select-none w-full max-w-sm mx-auto">
       {/* Status */}
       <div className="w-full rounded-xl border border-border bg-card px-4 py-2 text-center">
-        <p className={`text-sm font-semibold ${winner === "red" ? "text-emerald-400" : winner ? "text-red-400" : "text-foreground"}`}>
-          {winner ? (winner === "red" ? "🏆 You Win!" : `${winner.charAt(0).toUpperCase() + winner.slice(1)} wins!`) : message}
+        <p className={`text-sm font-semibold flex items-center justify-center gap-1 ${winner === "red" ? "text-emerald-400" : winner ? "text-red-400" : "text-foreground"}`}>
+          {winner ? (winner === "red" ? <><Icon emoji="🏆" size={18} /> You Win!</> : `${winner.charAt(0).toUpperCase() + winner.slice(1)} wins!`) : message}
         </p>
       </div>
 

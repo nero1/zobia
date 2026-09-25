@@ -8,6 +8,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const SUITS = ["♠","♥","♦","♣"];
 const VALUES = ["2","3","4","5","6","7","8","9","10","J","Q","K","A"];
@@ -123,20 +124,24 @@ export default function HigherOrLowerGame({ onReady, onGameOver, onScore, diffic
       </div>
 
       {flash && (
-        <div className={`text-lg font-bold ${flash === "correct" ? "text-emerald-400" : "text-red-400"}`}>
-          {flash === "correct" ? "✅ Correct!" : "❌ Wrong!"}
+        <div className={`text-lg font-bold flex items-center gap-1 ${flash === "correct" ? "text-emerald-400" : "text-red-400"}`}>
+          {flash === "correct" ? (
+            <><Icon emoji="✅" size={20} /> Correct!</>
+          ) : (
+            <><Icon emoji="❌" size={20} /> Wrong!</>
+          )}
         </div>
       )}
 
       {!over && !reveal && (
         <div className="flex gap-4 w-full">
           <button type="button" onClick={() => guess("lower")}
-            className="flex-1 py-4 rounded-xl border-2 border-blue-500/50 bg-blue-950/30 text-blue-300 font-bold hover:bg-blue-950/50 text-lg">
-            ⬇ Lower
+            className="flex-1 py-4 rounded-xl border-2 border-blue-500/50 bg-blue-950/30 text-blue-300 font-bold hover:bg-blue-950/50 text-lg flex items-center justify-center gap-1.5">
+            <Icon emoji="⬇" size={18} /> Lower
           </button>
           <button type="button" onClick={() => guess("higher")}
-            className="flex-1 py-4 rounded-xl border-2 border-amber-500/50 bg-amber-950/30 text-amber-300 font-bold hover:bg-amber-950/50 text-lg">
-            ⬆ Higher
+            className="flex-1 py-4 rounded-xl border-2 border-amber-500/50 bg-amber-950/30 text-amber-300 font-bold hover:bg-amber-950/50 text-lg flex items-center justify-center gap-1.5">
+            <Icon emoji="⬆" size={18} /> Higher
           </button>
         </div>
       )}
