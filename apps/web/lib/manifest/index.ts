@@ -26,6 +26,7 @@ import { env } from "@/lib/env";
 import { memGet, memSet, memDel } from "@/lib/cache/memory";
 import { logger } from "@/lib/logger";
 import { DEFAULT_CAPTCHA_ENABLED_SURFACES } from "@/lib/security/captchaSurfaces";
+import { isSiteThemeId, isIconSetId, type SiteThemeId, type IconSetId } from "@zobia/shared/utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -601,6 +602,18 @@ export interface ZobiaManifest {
     /** "manual" (default): appeals always go straight to human review. "ai_then_manual": an AI triage step runs first and produces a recommendation, but a human still makes the final call. */
     triageMode: "manual" | "ai_then_manual";
   };
+  /**
+   * Sitewide UI defaults — admin-editable at /gate44/config ("Theming").
+   * Applied to any device that has not chosen its own per-device override
+   * (Settings > Appearance, localStorage/Capacitor Preferences only — never
+   * synced server-side, same policy as the existing light/dark preference).
+   * See shared/utils/uiThemes.ts for the SiteThemeId/IconSetId vocabulary and
+   * apps/web/app/globals.css's `[data-site-theme="..."]` blocks.
+   */
+  ui: {
+    siteTheme: SiteThemeId;
+    iconSet: IconSetId;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -946,6 +959,10 @@ const DEFAULT_MANIFEST: ZobiaManifest = {
   appeals: {
     maxRefusals: 3,
     triageMode: "manual",
+  },
+  ui: {
+    siteTheme: "default",
+    iconSet: "emoji",
   },
 };
 
@@ -1607,6 +1624,10 @@ function buildManifest(kv: Record<string, string>): ZobiaManifest {
     appeals: {
       maxRefusals: parseInt10(kv["appeals_max_refusals"], DEFAULT_MANIFEST.appeals.maxRefusals),
       triageMode: kv["appeals_triage_mode"] === "ai_then_manual" ? "ai_then_manual" : "manual",
+    },
+    ui: {
+      siteTheme: isSiteThemeId(unquote(kv["ui_site_theme"])) ? (unquote(kv["ui_site_theme"]) as SiteThemeId) : DEFAULT_MANIFEST.ui.siteTheme,
+      iconSet: isIconSetId(unquote(kv["ui_icon_set"])) ? (unquote(kv["ui_icon_set"]) as IconSetId) : DEFAULT_MANIFEST.ui.iconSet,
     },
   };
 }

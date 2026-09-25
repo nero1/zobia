@@ -356,8 +356,8 @@ function ProfilePageInner() {
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="flex items-center gap-1.5 text-xl font-bold" style={{ color: themeTokens.text }}>
-                {profile.displayName}
+              <h1 className="flex min-w-0 items-center gap-1.5 text-xl font-bold" style={{ color: themeTokens.text }}>
+                <span className="min-w-0 break-words">{profile.displayName}</span>
                 <XpLevelBadge rank={profile.rankName as RankName} size="md" />
                 <VerifiedBadge show={profile.isVerified} size="md" />
               </h1>

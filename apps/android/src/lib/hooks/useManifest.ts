@@ -23,9 +23,17 @@ export interface ManifestCurrency {
   premiumNamePlural?: string;
 }
 
+export interface ManifestUi {
+  /** Admin default at gate44/config "Theming" — see shared/utils/uiThemes.ts SiteThemeId. Per-device override lives in lib/theme/store.ts. */
+  siteTheme?: string;
+  /** Admin default icon set — see shared/utils/uiThemes.ts IconSetId. */
+  iconSet?: string;
+}
+
 export interface Manifest {
   features?: ManifestFeatureFlags;
   currency?: ManifestCurrency;
+  ui?: ManifestUi;
   /** Feature keys moderators may still see/access while their master flag is off. */
   featureModVisibility?: string[];
   /**
@@ -71,6 +79,12 @@ export function useFeatureModVisibility(): string[] {
 export function usePhoneVerificationRequired(): boolean {
   const manifest = useManifest();
   return manifest?.phoneVerificationRequired ?? false;
+}
+
+/** Admin-set sitewide UI defaults (theme + icon set) — see ManifestUi. */
+export function useUiManifest(): ManifestUi {
+  const manifest = useManifest();
+  return manifest?.ui ?? {};
 }
 
 export interface FeatureAccessRole {

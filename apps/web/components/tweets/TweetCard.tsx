@@ -117,7 +117,11 @@ export function TweetCard({
         )}
 
         {tweet.imageUrl && (
-          <div className="mt-3 max-h-[420px] overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800">
+          // sm:max-w-md caps the image well short of the full card width on
+          // wider viewports (desktop web) — full-bleed edge-to-edge only
+          // made sense on a narrow phone screen. w-full below the sm
+          // breakpoint keeps mobile/PWA unchanged.
+          <div className="mt-3 max-h-[420px] w-full overflow-hidden rounded-xl border border-neutral-200 dark:border-neutral-800 sm:max-w-md">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={tweet.imageUrl}

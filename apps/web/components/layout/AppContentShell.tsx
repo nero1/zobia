@@ -56,8 +56,13 @@ export function AppContentShell({ children, hasEmail }: AppContentShellProps) {
   }
 
   return (
-    <div className="min-w-0 flex-1 px-4 py-6 pb-24 sm:px-6 lg:ml-64 lg:px-8 lg:pb-6">
-      <div className="mx-auto max-w-3xl space-y-3">
+    // px-3 (not px-4): trims the gap between the phone screen edge and page
+    // content on mobile, where every pixel of the 320-390px viewport counts.
+    <div className="min-w-0 flex-1 px-3 py-6 pb-24 sm:px-6 lg:ml-64 lg:px-8 lg:pb-6">
+      {/* site-container tracks the active site theme's column width (see
+          globals.css --content-max-w) — 48rem by default, i.e. identical to
+          the old hardcoded max-w-3xl. */}
+      <div className="site-container space-y-3">
         {/* Account recovery nudge (shown when user has no email) */}
         <NudgeBanner hasEmail={hasEmail} />
         {children}

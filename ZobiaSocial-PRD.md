@@ -8758,6 +8758,118 @@ models").
 
 ---
 
-*ZobiaSocial PRD v2.35*
+## 41. Sitewide UI Theming, Icon Sets & Accessibility Text Zoom (v2.36)
+
+A cross-cutting visual/legibility pass across the web app, PWA, and
+Capacitor Android app, covering: a +30% base font-size increase plus a
+user-adjustable accessibility zoom control, darker/more legible gray tones,
+tighter mobile edge padding, narrower tweet images on wide viewports, an
+admin-configurable sitewide UI theme system (with Reddit-style, Facebook-
+style, and Christmas presets in addition to the Default look), and a
+second, monochrome icon set alongside the existing emoji icons.
+
+### Architecture — "skin, not structure"
+
+Sitewide themes follow the same contract the existing per-profile
+(`lib/profile/themes.ts`) and per-blog (`lib/blogs/themes.ts`) theme engines
+already use: a theme is a set of color/shape/density **tokens**, never a
+different component tree. No page renders different markup per theme.
+
+- `shared/tailwind-tokens.js` — the `neutral` (gray) color scale, previously
+  static hex values, is now backed by CSS variables
+  (`neutral.500: "hsl(var(--neutral-500))"`, etc.). Every existing
+  `bg-neutral-*`/`text-neutral-*`/`border-neutral-*` utility class across the
+  whole codebase therefore re-colors automatically when the active theme's
+  CSS variables change — no per-component edits were needed to make theming
+  reach the entire app. `borderRadius` similarly reads a `--radius-scale`
+  multiplier, and a new `fontSize` scale (Tailwind's stock sizes × 1.3,
+  wrapped in `calc(<size> * var(--font-zoom, 1))`) backs both the sitewide
+  font-size increase and the user zoom control.
+- `apps/web/app/globals.css` and `apps/android/src/styles/globals.css`
+  (kept in sync) define the actual token values: a darkened `:root`/`.dark`
+  neutral scale (the stock Tailwind gray scale was too pale for comfortable
+  contrast at the 200-500 steps, used for dividers and muted text), and
+  `[data-site-theme="reddit"|"facebook"|"christmas"]` (×`.dark`) blocks
+  each overriding `--background`, `--card`, `--border`, `--muted-foreground`,
+  the neutral scale, `--radius-scale`, and `--content-max-w`. A new
+  `.site-container` utility (`max-width: var(--content-max-w, 48rem)`)
+  replaces the hardcoded `max-w-3xl` on `AppContentShell` (the wrapper
+  nearly every authenticated web/PWA page renders inside), so a theme's
+  column width reaches the whole app from one place.
+- `shared/utils/uiThemes.ts` — cross-app vocabulary: `SITE_THEME_IDS`
+  (`default`/`reddit`/`facebook`/`christmas`), `ICON_SET_IDS`
+  (`emoji`/`mono`), and the font-zoom step table (70%-200%, default 100% —
+  100% already includes the +30% baseline bump).
+- **Admin default**: two new `x_manifest` keys, `ui_site_theme` and
+  `ui_icon_set` (migration `0015_ui_site_theme_icon_set.sql`, seeded
+  `default`/`emoji`), editable at `/gate44/config` under a new "Theming"
+  group, exposed publicly via the existing `/api/manifest` endpoint's `ui`
+  section (no new Redis cost — it rides the same cached manifest object
+  every other public flag already uses).
+- **Per-device override**: exactly like the existing light/dark preference
+  next to it in Settings, the sitewide theme, icon set, and font-zoom
+  choices are device-scoped `localStorage` (web) / `@capacitor/preferences`
+  + localStorage mirror (Android) values — never synced to the server, no
+  DB write, fully offline-friendly. Web applies the per-device override
+  before first paint via a small blocking inline `<script nonce>` in
+  `app/layout.tsx` (the same FOUC-prevention technique `next-themes` uses
+  for light/dark), falling back server-side to the admin default rendered
+  directly into the SSR'd `<html data-site-theme>` attribute. Android
+  applies it at module scope in `lib/theme/ThemeProvider.tsx`, mirroring the
+  existing light/dark theme's no-flash pattern exactly.
+- Settings > Appearance (`/settings`, and the Android equivalent) exposes a
+  Site Theme picker, Icon Set picker, and a `+`/`−` Text Size stepper
+  ("Zoom: − 100% +").
+
+### Icon sets
+
+A new `<Icon name="..." />` component (`apps/web/components/ui/Icon.tsx`,
+mirrored at `apps/android/src/components/ui/Icon.tsx`) renders either the
+existing emoji character or a matching `lucide-react` monochrome vector
+icon depending on the active icon set, resolved the same way the site theme
+is (per-device override, else the admin default). This first pass migrates
+the highest-visibility surface — each app's primary navigation chrome (top
+bar, bottom tab bar, side drawer/menu, profile dropdown) — to the `<Icon>`
+abstraction. The rest of the app (post reactions, gift emojis, badges, and
+other decorative emoji throughout feeds/chat/games) intentionally still
+uses raw emoji; migrating those is a separate, much larger follow-up, not
+an oversight.
+
+### Other fixes in this pass
+
+- Mobile edge padding tightened (`px-4` → `px-3`) on `AppContentShell` and
+  the top nav bar, so page content sits closer to the phone screen edge.
+- Tweet images (`TweetCard.tsx`, `PublicTweetView.tsx`) now cap at
+  `sm:max-w-md` instead of stretching full-width on desktop/tablet
+  viewports — unchanged on mobile, where the card is already narrow.
+- Profile page alignment/overflow bugs (long display names/usernames/bios
+  breaking layout, stat-pill wrapping on narrow viewports, spacing
+  inconsistent with the rest of the app) audited and fixed on both web/PWA
+  and the Capacitor app — see the repository's commit history for the
+  itemized list; this was a bug-fix pass against the existing profile
+  pages, not a redesign.
+
+### Scope notes / deliberate simplifications
+
+- Reddit-style and Facebook-style themes are color/density/shape re-skins
+  (page background, card contrast, corner radius, column width) — not
+  pixel-accurate clones of either product's full visual language.
+- The Christmas theme is a festive red/green color re-skin only; no
+  animated snow or other decorative effects, to keep the change purely
+  additive/low-risk.
+- The Capacitor Android app does not yet have a single shared
+  page-container component the way `AppContentShell` centralizes it on
+  web/PWA, so the mobile-edge-padding tightening above was not
+  mechanically retrofitted across its many individual route files in this
+  pass — the CSS-variable/theme infrastructure itself (globals.css,
+  ThemeProvider, Icon component) is fully mirrored, but a route-by-route
+  padding pass on Android is a follow-up.
+- No new database table — `ui_site_theme`/`ui_icon_set` reuse the existing
+  `x_manifest` key/value table, which already has its Supabase Data API
+  grants from its original migration.
+
+---
+
+*ZobiaSocial PRD v2.36*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

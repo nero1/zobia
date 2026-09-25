@@ -12,27 +12,37 @@ export interface FeatureFlags {
   [key: string]: boolean;
 }
 
+/** Admin-set sitewide UI defaults (Settings > Appearance follows these when a device has no override) — see shared/utils/uiThemes.ts. */
+export interface ManifestUi {
+  siteTheme?: string;
+  iconSet?: string;
+}
+
 interface ManifestFeaturesResponse {
   features: FeatureFlags;
   featureModVisibility: string[];
+  ui: ManifestUi;
 }
 
 const DEFAULTS: FeatureFlags = { forum: true };
+const DEFAULT_UI: ManifestUi = { siteTheme: "default", iconSet: "emoji" };
 
 async function fetchManifestFeatures(): Promise<ManifestFeaturesResponse> {
   try {
     const res = await fetch("/api/manifest");
-    if (!res.ok) return { features: DEFAULTS, featureModVisibility: [] };
+    if (!res.ok) return { features: DEFAULTS, featureModVisibility: [], ui: DEFAULT_UI };
     const data = (await res.json()) as {
       features?: Record<string, boolean>;
       featureModVisibility?: string[];
+      ui?: ManifestUi;
     };
     return {
       features: { ...DEFAULTS, ...(data.features ?? {}) },
       featureModVisibility: data.featureModVisibility ?? [],
+      ui: { ...DEFAULT_UI, ...(data.ui ?? {}) },
     };
   } catch {
-    return { features: DEFAULTS, featureModVisibility: [] };
+    return { features: DEFAULTS, featureModVisibility: [], ui: DEFAULT_UI };
   }
 }
 
@@ -48,7 +58,7 @@ function useManifestFeaturesQuery() {
     queryKey: ["manifest", "features"],
     queryFn: fetchManifestFeatures,
     staleTime: 5 * 60_000,
-    placeholderData: { features: DEFAULTS, featureModVisibility: [] },
+    placeholderData: { features: DEFAULTS, featureModVisibility: [], ui: DEFAULT_UI },
   });
 }
 
@@ -66,6 +76,12 @@ export function useFeatureFlags(): FeatureFlags {
 /** Convenience for a single flag, e.g. `useFeatureEnabled("forum")`. */
 export function useFeatureEnabled(key: keyof FeatureFlags): boolean {
   return useFeatureFlags()[key] ?? true;
+}
+
+/** Admin-set sitewide UI defaults (theme + icon set) — see lib/hooks/useSiteTheme.ts for the per-device override that takes precedence over this. */
+export function useUiManifest(): ManifestUi {
+  const { data } = useManifestFeaturesQuery();
+  return data?.ui ?? DEFAULT_UI;
 }
 
 /**

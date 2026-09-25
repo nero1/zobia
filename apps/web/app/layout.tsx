@@ -163,16 +163,53 @@ export default async function RootLayout({ children }: RootLayoutProps) {
     : DEFAULT_LOCALE;
   const dir = getDir(locale);
 
+  // Admin-set sitewide theme default (see /gate44/config "Theming"). Read
+  // here (not just via the client /api/manifest fetch) so the very first
+  // server-rendered HTML already carries the right `data-site-theme` — the
+  // inline script below only needs to override it for a device that picked
+  // its own theme, avoiding a flash of the admin default on every load.
+  let siteThemeDefault = "default";
+  try {
+    const manifest = await loadManifest();
+    siteThemeDefault = manifest.ui.siteTheme;
+  } catch {
+    // Manifest unavailable — default theme
+  }
+
   return (
     <html
       lang={locale}
       dir={dir}
       suppressHydrationWarning
       className={inter.variable}
+      {...(siteThemeDefault !== "default" ? { "data-site-theme": siteThemeDefault } : {})}
     >
       <body className="min-h-screen overflow-x-hidden bg-neutral-50 text-neutral-900 font-sans antialiased dark:bg-neutral-950 dark:text-neutral-50">
         {/* Accessibility: Skip to main content link (only visible on focus) */}
         <SkipToMain />
+
+        {/*
+          Blocking FOUC-prevention script for the per-device site-theme/
+          font-zoom overrides (Settings > Appearance) — same technique
+          next-themes uses for light/dark below, kept as a plain inline
+          script (not next-themes itself) because these are a separate,
+          orthogonal preference axis. Device-scoped only (matches the
+          existing light/dark preference immediately below, which is also
+          not per-account) — see shared/utils/uiThemes.ts.
+        */}
+        <script
+          nonce={nonce}
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{
+              var t=localStorage.getItem("zobia:site-theme:device");
+              if(t&&t!=="default"){document.documentElement.setAttribute("data-site-theme",t);}
+              else if(t==="default"){document.documentElement.removeAttribute("data-site-theme");}
+              var z=localStorage.getItem("zobia:font-zoom:device");
+              if(z){document.documentElement.style.setProperty("--font-zoom",(parseInt(z,10)/100).toString());}
+            }catch(e){}})();`,
+          }}
+        />
 
         <ThemeProviderWithNonce
           attribute="class"

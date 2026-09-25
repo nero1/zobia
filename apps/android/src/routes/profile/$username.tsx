@@ -152,9 +152,9 @@ function ProfilePage() {
           <div className="w-20 h-20 rounded-full bg-primary-100 dark:bg-primary-900/40 flex items-center justify-center text-4xl">
             {profile.avatarEmoji || '👤'}
           </div>
-          <div>
-            <h2 className="inline-flex items-center gap-1.5 text-xl font-bold" style={{ color: themeTokens.text }}>
-              {profile.displayName ?? profile.username}
+          <div className="max-w-full min-w-0">
+            <h2 className="inline-flex max-w-full items-center gap-1.5 text-xl font-bold" style={{ color: themeTokens.text }}>
+              <span className="min-w-0 break-words">{profile.displayName ?? profile.username}</span>
               <UserBadgeRow rank={profile.rankName as RankName} prestige={profile.prestige} verified={profile.isVerified} size="md" />
             </h2>
             <p className="text-sm" style={{ color: themeTokens.muted }}>@{profile.username}</p>

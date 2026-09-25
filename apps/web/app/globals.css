@@ -30,6 +30,38 @@
     --muted-foreground: 0 0% 45%;
     --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
+
+    /* neutral-* Tailwind scale (see shared/tailwind-tokens.js), light mode.
+       Darkened from Tailwind's stock scale at the 200-500 steps — those are
+       the shades most used for muted text (`text-neutral-400/500`) and
+       dividers (`border-neutral-200`), and the stock values are too pale for
+       comfortable contrast against a white/near-white background. 50/100
+       (large background fills) are left close to stock. */
+    --neutral-50: 0 0% 97%;
+    --neutral-100: 0 0% 94%;
+    --neutral-200: 0 0% 86%;
+    --neutral-300: 0 0% 74%;
+    --neutral-400: 0 0% 55%;
+    --neutral-500: 0 0% 38%;
+    --neutral-600: 0 0% 28%;
+    --neutral-700: 0 0% 20%;
+    --neutral-800: 0 0% 13%;
+    --neutral-900: 0 0% 8%;
+    --neutral-950: 0 0% 4%;
+
+    /* User accessibility zoom (Settings > Appearance), 1 = 100% = the
+       already-bumped +30% baseline in shared/tailwind-tokens.js fontSize.
+       Set inline on <html> by the blocking script in app/layout.tsx once a
+       per-device preference exists (shared/utils/uiThemes.ts). */
+    --font-zoom: 1;
+    /* Corner sharpness multiplier — themed below per data-site-theme. */
+    --radius-scale: 1;
+    /* Main content column width — themed below per data-site-theme. Consumed by
+       the `.site-container` utility, which replaces the hardcoded
+       `max-w-3xl` on AppContentShell (the wrapper nearly every authenticated
+       page renders inside). 48rem === Tailwind's `max-w-3xl`, so the default
+       theme is visually identical to before this feature existed. */
+    --content-max-w: 48rem;
   }
 
   .dark {
@@ -47,6 +79,183 @@
     --muted-foreground: 0 0% 64%;
     --primary: 217 91% 60%;
     --primary-foreground: 0 0% 100%;
+
+    /* neutral-* scale, dark mode — Tailwind's stock scale (unchanged): the
+       "too-light gray" legibility complaint was specifically about light
+       mode, where pale gray-on-white text/dividers all but disappear. */
+    --neutral-50: 0 0% 98%;
+    --neutral-100: 0 0% 96%;
+    --neutral-200: 0 0% 90%;
+    --neutral-300: 0 0% 83%;
+    --neutral-400: 0 0% 64%;
+    --neutral-500: 0 0% 45%;
+    --neutral-600: 0 0% 32%;
+    --neutral-700: 0 0% 25%;
+    --neutral-800: 0 0% 15%;
+    --neutral-900: 0 0% 9%;
+    --neutral-950: 0 0% 4%;
+  }
+
+  /* -------------------------------------------------------------------
+     Sitewide UI themes (admin default at gate44/config "Theming", per-
+     device override at Settings > Appearance — see
+     shared/utils/uiThemes.ts SITE_THEME_IDS). Applied as `data-site-theme` on
+     <html> alongside next-themes' `.dark`/no-class, so each theme needs a
+     light AND dark variant. Deliberately color/shape/density tokens only
+     (same "skin, not structure" contract as lib/profile/themes.ts) — no
+     component ships different markup per theme. */
+
+  [data-site-theme="reddit"] {
+    --background: 210 20% 90%;
+    --foreground: 210 10% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 210 10% 15%;
+    --border: 210 14% 80%;
+    --input: 210 14% 80%;
+    --accent: 210 20% 94%;
+    --accent-foreground: 210 10% 15%;
+    --muted: 210 16% 92%;
+    --muted-foreground: 210 8% 40%;
+    --neutral-50: 210 20% 95%;
+    --neutral-100: 210 16% 90%;
+    --neutral-200: 210 14% 82%;
+    --neutral-300: 210 12% 70%;
+    --neutral-400: 210 8% 52%;
+    --neutral-500: 210 8% 38%;
+    --neutral-600: 210 9% 28%;
+    --neutral-700: 210 10% 20%;
+    --neutral-800: 210 10% 13%;
+    --neutral-900: 210 10% 8%;
+    --neutral-950: 210 10% 4%;
+    --radius-scale: 0.5;
+    --content-max-w: 40rem;
+  }
+  [data-site-theme="reddit"].dark {
+    --background: 0 0% 5%;
+    --foreground: 0 0% 93%;
+    --card: 0 0% 10%;
+    --card-foreground: 0 0% 93%;
+    --border: 0 0% 22%;
+    --input: 0 0% 22%;
+    --accent: 0 0% 16%;
+    --accent-foreground: 0 0% 93%;
+    --muted: 0 0% 12%;
+    --muted-foreground: 0 0% 62%;
+    --neutral-50: 0 0% 95%;
+    --neutral-100: 0 0% 88%;
+    --neutral-200: 0 0% 78%;
+    --neutral-300: 0 0% 62%;
+    --neutral-400: 0 0% 50%;
+    --neutral-500: 0 0% 40%;
+    --neutral-600: 0 0% 30%;
+    --neutral-700: 0 0% 22%;
+    --neutral-800: 0 0% 14%;
+    --neutral-900: 0 0% 9%;
+    --neutral-950: 0 0% 3%;
+    --radius-scale: 0.5;
+    --content-max-w: 40rem;
+  }
+
+  [data-site-theme="facebook"] {
+    --background: 220 14% 96%;
+    --foreground: 220 12% 15%;
+    --card: 0 0% 100%;
+    --card-foreground: 220 12% 15%;
+    --border: 220 13% 88%;
+    --input: 220 13% 88%;
+    --accent: 220 16% 93%;
+    --accent-foreground: 220 12% 15%;
+    --muted: 220 14% 93%;
+    --muted-foreground: 220 9% 42%;
+    --primary: 214 89% 52%;
+    --neutral-50: 220 16% 96%;
+    --neutral-100: 220 14% 91%;
+    --neutral-200: 220 13% 83%;
+    --neutral-300: 220 11% 70%;
+    --neutral-400: 220 8% 52%;
+    --neutral-500: 220 9% 38%;
+    --neutral-600: 220 10% 28%;
+    --neutral-700: 220 11% 20%;
+    --neutral-800: 220 12% 13%;
+    --neutral-900: 220 12% 8%;
+    --neutral-950: 220 12% 4%;
+    --radius-scale: 1.5;
+    --content-max-w: 54rem;
+  }
+  [data-site-theme="facebook"].dark {
+    --background: 0 0% 10%;
+    --foreground: 0 0% 92%;
+    --card: 220 5% 14%;
+    --card-foreground: 0 0% 92%;
+    --border: 220 5% 24%;
+    --input: 220 5% 24%;
+    --accent: 220 5% 18%;
+    --accent-foreground: 0 0% 92%;
+    --muted: 220 5% 16%;
+    --muted-foreground: 0 0% 65%;
+    --primary: 214 89% 60%;
+    --neutral-50: 0 0% 94%;
+    --neutral-100: 0 0% 87%;
+    --neutral-200: 0 0% 76%;
+    --neutral-300: 0 0% 60%;
+    --neutral-400: 0 0% 48%;
+    --neutral-500: 0 0% 40%;
+    --neutral-600: 220 5% 30%;
+    --neutral-700: 220 5% 22%;
+    --neutral-800: 220 5% 15%;
+    --neutral-900: 220 5% 10%;
+    --neutral-950: 220 5% 5%;
+    --radius-scale: 1.5;
+    --content-max-w: 54rem;
+  }
+
+  [data-site-theme="christmas"] {
+    --background: 150 25% 97%;
+    --foreground: 150 15% 12%;
+    --card: 0 0% 100%;
+    --card-foreground: 150 15% 12%;
+    --border: 150 20% 85%;
+    --input: 150 20% 85%;
+    --accent: 150 40% 94%;
+    --accent-foreground: 150 45% 22%;
+    --muted: 150 20% 94%;
+    --muted-foreground: 150 10% 38%;
+    --primary: 0 65% 45%;
+    --neutral-50: 150 20% 96%;
+    --neutral-100: 150 16% 91%;
+    --neutral-200: 150 12% 83%;
+    --neutral-300: 150 10% 70%;
+    --neutral-400: 150 6% 52%;
+    --neutral-500: 150 8% 36%;
+    --neutral-600: 150 9% 27%;
+    --neutral-700: 150 10% 19%;
+    --neutral-800: 150 10% 13%;
+    --neutral-900: 150 10% 8%;
+    --neutral-950: 150 10% 4%;
+  }
+  [data-site-theme="christmas"].dark {
+    --background: 150 15% 7%;
+    --foreground: 150 10% 92%;
+    --card: 150 12% 11%;
+    --card-foreground: 150 10% 92%;
+    --border: 150 12% 22%;
+    --input: 150 12% 22%;
+    --accent: 150 25% 16%;
+    --accent-foreground: 150 40% 80%;
+    --muted: 150 12% 13%;
+    --muted-foreground: 150 8% 64%;
+    --primary: 0 60% 55%;
+    --neutral-50: 150 8% 92%;
+    --neutral-100: 150 8% 85%;
+    --neutral-200: 150 8% 74%;
+    --neutral-300: 150 8% 58%;
+    --neutral-400: 150 6% 46%;
+    --neutral-500: 150 6% 38%;
+    --neutral-600: 150 8% 28%;
+    --neutral-700: 150 10% 20%;
+    --neutral-800: 150 12% 13%;
+    --neutral-900: 150 12% 8%;
+    --neutral-950: 150 12% 4%;
   }
 
   * {
@@ -121,5 +330,15 @@
   }
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
+  }
+
+  /* Sitewide theme content width (see [data-site-theme=...] --content-max-w above).
+     Opt-in replacement for hardcoded `max-w-6xl`/`max-w-4xl` wrappers on
+     pages that should follow the active site theme's column width
+     (Reddit-style narrow, Facebook-style medium, default wide). */
+  .site-container {
+    max-width: var(--content-max-w, 48rem);
+    margin-left: auto;
+    margin-right: auto;
   }
 }

@@ -728,6 +728,33 @@ A dedicated Stats page at `/profile/[userId]/stats`, backed by `GET /api/users/[
 
 **Wallet integration.** The Wallet page shows a compact rank/badges/prestige summary (reading `GET /api/users/me`, which now also returns a cheap `badge_count` via one correlated subquery) linking to this Stats page, so users don't have to leave Wallet to see their standing.
 
+### Sitewide Appearance: Themes, Icon Sets & Text Zoom (PRD §41)
+
+Settings > Appearance (web/PWA and the Capacitor app) exposes three
+device-only preferences, none of which are sent to the server:
+
+- **Site Theme** — a color/shape/density re-skin of the whole app shell:
+  Default, Reddit-style (narrower column, sharper corners), Facebook-style
+  (wider column, rounder corners, soft gray page background), or Christmas
+  (festive red/green colors). Implemented as CSS variable overrides keyed
+  off a `data-site-theme` attribute on `<html>` — every existing
+  `bg-neutral-*`/`text-neutral-*`/`border-neutral-*` class across the app
+  already reads these variables, so no page needed per-theme markup.
+- **Icon Set** — Emoji (default) or a monochrome vector set (`lucide-react`)
+  via the shared `<Icon name="..." />` component. Currently covers each
+  app's primary navigation chrome (top bar, bottom tabs, drawer, profile
+  menu); the rest of the app's decorative emoji are unchanged.
+- **Text Size** — a `+`/`−` stepper (70%-200%, default 100%) that scales
+  every `text-*` Tailwind class via a `--font-zoom` CSS variable. 100%
+  already includes a platform-wide +30% base font-size increase applied to
+  everyone regardless of this setting.
+
+An admin sets the platform-wide default for the first two at `/gate44/config`
+("Theming" group — `ui_site_theme`/`ui_icon_set` x_manifest keys, exposed
+publicly via `/api/manifest`'s `ui` section); any device that hasn't picked
+its own override follows that default. See `shared/utils/uiThemes.ts` for
+the shared vocabulary and PRD §41 for the full architecture.
+
 ### Wallet Transaction Pagination
 
 The Wallet page previously fetched up to 30 transactions once with no way to see older ones, even though `GET /api/economy/coins/balance` already supported cursor pagination (`cursor`/`star_cursor` query params, `nextCursor`/`nextStarCursor` in the response) — the UI just never read those fields. Now the page requests **10 at a time** and exposes a "Load more" button per currency tab (Credits/Stars have independent cursors, mirroring the notifications page's `cursor`/`hasMore`/`loadingMore` pattern), appending results client-side. No backend changes were needed.

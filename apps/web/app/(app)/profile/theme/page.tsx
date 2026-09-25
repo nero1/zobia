@@ -104,7 +104,7 @@ export default function ProfileThemePage() {
             >
               <div className="h-16" style={{ background: `linear-gradient(135deg, ${theme.config.bg}, ${theme.config.accent})` }} />
               <div className="p-3">
-                <p className="text-sm font-semibold" style={{ color: theme.config.text }}>{theme.name}</p>
+                <p className="truncate text-sm font-semibold" style={{ color: theme.config.text }}>{theme.name}</p>
                 {theme.availability === "purchasable" && theme.credits_cost && (
                   <p className="mt-1 text-xs" style={{ color: theme.config.muted }}>🪙 {theme.credits_cost.toLocaleString()}</p>
                 )}
