@@ -15,13 +15,43 @@
  */
 
 import Decimal from "decimal.js";
-import type { TransactionClient } from "@/lib/db/interface";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import type { CoinTransactionType, CoinLedgerEntry } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Maps a Drizzle coin_ledger row (camelCase, bigint columns) onto the shared
+ * `CoinLedgerEntry` shape, which callers across the codebase read via both
+ * camelCase AND snake_case keys (e.g. `entry.balance_after`,
+ * `entry.transaction_type`) — both are populated here so no caller outside
+ * this migration batch is broken by the raw-SQL -> Drizzle swap.
+ */
+function toLedgerEntry(row: typeof schema.coinLedger.$inferSelect): CoinLedgerEntry {
+  const amount = Number(row.amount);
+  const balanceBefore = Number(row.balanceBefore);
+  const balanceAfter = Number(row.balanceAfter);
+  return {
+    id: row.id,
+    userId: row.userId,
+    user_id: row.userId,
+    amount,
+    balanceBefore,
+    balance_before: balanceBefore,
+    balanceAfter,
+    balance_after: balanceAfter,
+    transactionType: row.transactionType as CoinTransactionType,
+    transaction_type: row.transactionType as CoinTransactionType,
+    referenceId: row.referenceId ?? undefined,
+    reference_id: row.referenceId ?? undefined,
+    description: row.description ?? undefined,
+    metadata: (row.metadata as Record<string, unknown> | null) ?? undefined,
+    createdAt: row.createdAt ? row.createdAt.toISOString() : undefined,
+  };
+}
 
 /**
  * Fetch and lock the user's current coin balance inside a transaction.
@@ -32,18 +62,16 @@ import type { CoinTransactionType, CoinLedgerEntry } from "@zobia/types";
  * @returns Current coin balance as a Decimal
  * @throws If the user row is not found
  */
-async function lockAndGetBalance(
-  userId: string,
-  tx: TransactionClient
-): Promise<Decimal> {
-  const { rows } = await tx.query<{ coin_balance: string }>(
-    `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-    [userId]
-  );
+async function lockAndGetBalance(userId: string, tx: DbOrTx): Promise<Decimal> {
+  const rows = await tx
+    .select({ coinBalance: schema.users.coinBalance })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+    .for("update");
   if (!rows[0]) {
     throw new Error(`[coins] User not found: ${userId}`);
   }
-  return new Decimal(rows[0].coin_balance);
+  return new Decimal(rows[0].coinBalance.toString());
 }
 
 /**
@@ -58,7 +86,7 @@ async function lockAndGetBalance(
  * so a legitimate retry never double-credits/debits the user.
  */
 async function writeLedgerEntry(
-  tx: TransactionClient,
+  tx: DbOrTx,
   userId: string,
   amount: Decimal,
   balanceBefore: Decimal,
@@ -68,33 +96,38 @@ async function writeLedgerEntry(
   description: string | null,
   metadata: Record<string, unknown> | null
 ): Promise<{ entry: CoinLedgerEntry; inserted: boolean }> {
-  const { rows } = await tx.query<CoinLedgerEntry>(
-    `INSERT INTO coin_ledger
-       (user_id, amount, balance_before, balance_after,
-        transaction_type, reference_id, description, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-     ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-     RETURNING *`,
-    [
+  const inserted = await tx
+    .insert(schema.coinLedger)
+    .values({
       userId,
-      amount.toFixed(0),
-      balanceBefore.toFixed(0),
-      balanceAfter.toFixed(0),
-      type,
-      referenceId ?? null,
-      description ?? null,
-      metadata ? JSON.stringify(metadata) : null,
-    ]
-  );
-  if (rows[0]) return { entry: rows[0], inserted: true };
+      amount: BigInt(amount.toFixed(0)),
+      balanceBefore: BigInt(balanceBefore.toFixed(0)),
+      balanceAfter: BigInt(balanceAfter.toFixed(0)),
+      transactionType: type,
+      referenceId: referenceId ?? null,
+      description: description ?? null,
+      metadata: metadata ?? null,
+    })
+    .onConflictDoNothing({
+      target: [schema.coinLedger.userId, schema.coinLedger.transactionType, schema.coinLedger.referenceId],
+      where: sql`${schema.coinLedger.referenceId} IS NOT NULL`,
+    })
+    .returning();
 
-  const { rows: existing } = await tx.query<CoinLedgerEntry>(
-    `SELECT * FROM coin_ledger
-     WHERE user_id = $1 AND transaction_type = $2 AND reference_id = $3
-     LIMIT 1`,
-    [userId, type, referenceId]
-  );
-  return { entry: existing[0], inserted: false };
+  if (inserted[0]) return { entry: toLedgerEntry(inserted[0]), inserted: true };
+
+  const existing = await tx
+    .select()
+    .from(schema.coinLedger)
+    .where(
+      and(
+        eq(schema.coinLedger.userId, userId),
+        eq(schema.coinLedger.transactionType, type),
+        eq(schema.coinLedger.referenceId, referenceId as string)
+      )
+    )
+    .limit(1);
+  return { entry: toLedgerEntry(existing[0]), inserted: false };
 }
 
 /**
@@ -105,19 +138,24 @@ async function writeLedgerEntry(
  * with INSUFFICIENT_BALANCE.
  */
 async function findExistingLedgerEntry(
-  tx: TransactionClient,
+  tx: DbOrTx,
   userId: string,
   type: CoinTransactionType,
   referenceId: string | null
 ): Promise<CoinLedgerEntry | null> {
   if (!referenceId) return null;
-  const { rows } = await tx.query<CoinLedgerEntry>(
-    `SELECT * FROM coin_ledger
-     WHERE user_id = $1 AND transaction_type = $2 AND reference_id = $3
-     LIMIT 1`,
-    [userId, type, referenceId]
-  );
-  return rows[0] ?? null;
+  const rows = await tx
+    .select()
+    .from(schema.coinLedger)
+    .where(
+      and(
+        eq(schema.coinLedger.userId, userId),
+        eq(schema.coinLedger.transactionType, type),
+        eq(schema.coinLedger.referenceId, referenceId)
+      )
+    )
+    .limit(1);
+  return rows[0] ? toLedgerEntry(rows[0]) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -147,14 +185,14 @@ export async function creditCoins(
   referenceId: string | null = null,
   description: string | null = null,
   metadata: Record<string, unknown> | null = null,
-  txClient?: TransactionClient
+  txClient?: DbOrTx
 ): Promise<CoinLedgerEntry> {
   const dec = new Decimal(amount);
   if (!dec.isInteger() || dec.lte(0)) {
     throw new Error(`[coins] creditCoins: amount must be a positive integer, got ${amount}`);
   }
 
-  const run = async (tx: TransactionClient): Promise<CoinLedgerEntry> => {
+  const run = async (tx: DbOrTx): Promise<CoinLedgerEntry> => {
     const dup = await findExistingLedgerEntry(tx, userId, type, referenceId);
     if (dup) return dup;
 
@@ -168,17 +206,18 @@ export async function creditCoins(
     // Only apply the balance change if this is a genuinely new ledger entry —
     // a duplicate reference means an earlier call already updated the balance.
     if (inserted) {
-      await tx.query(
-        `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-        [balanceAfter.toFixed(0), userId]
-      );
+      await tx
+        .update(schema.users)
+        .set({ coinBalance: BigInt(balanceAfter.toFixed(0)), updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
     }
 
     return entry;
   };
 
   if (txClient) return run(txClient);
-  return db.transaction(run);
+  const orm = await getDb();
+  return orm.transaction(run);
 }
 
 /**
@@ -204,14 +243,14 @@ export async function debitCoins(
   referenceId: string | null = null,
   description: string | null = null,
   metadata: Record<string, unknown> | null = null,
-  txClient?: TransactionClient
+  txClient?: DbOrTx
 ): Promise<CoinLedgerEntry> {
   const dec = new Decimal(amount);
   if (!dec.isInteger() || dec.lte(0)) {
     throw new Error(`[coins] debitCoins: amount must be a positive integer, got ${amount}`);
   }
 
-  const run = async (tx: TransactionClient): Promise<CoinLedgerEntry> => {
+  const run = async (tx: DbOrTx): Promise<CoinLedgerEntry> => {
     const dup = await findExistingLedgerEntry(tx, userId, type, referenceId);
     if (dup) return dup;
 
@@ -231,17 +270,18 @@ export async function debitCoins(
     );
 
     if (inserted) {
-      await tx.query(
-        `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-        [balanceAfter.toFixed(0), userId]
-      );
+      await tx
+        .update(schema.users)
+        .set({ coinBalance: BigInt(balanceAfter.toFixed(0)), updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
     }
 
     return entry;
   };
 
   if (txClient) return run(txClient);
-  return db.transaction(run);
+  const orm = await getDb();
+  return orm.transaction(run);
 }
 
 /**
@@ -253,15 +293,16 @@ export async function debitCoins(
  */
 export async function getBalance(
   userId: string,
-  txClient?: TransactionClient
+  txClient?: DbOrTx
 ): Promise<number> {
-  const query = txClient ?? db;
-  const { rows } = await query.query<{ coin_balance: string }>(
-    `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [userId]
-  );
+  const client = txClient ?? (await getDb());
+  const rows = await client
+    .select({ coinBalance: schema.users.coinBalance })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+    .limit(1);
   if (!rows[0]) throw new Error(`[coins] User not found: ${userId}`);
-  return new Decimal(rows[0].coin_balance).toNumber();
+  return new Decimal(rows[0].coinBalance.toString()).toNumber();
 }
 
 /**
@@ -284,7 +325,7 @@ export async function getBalance(
 export async function canAfford(
   userId: string,
   amount: number,
-  txClient?: TransactionClient
+  txClient?: DbOrTx
 ): Promise<boolean> {
   const balance = await getBalance(userId, txClient);
   return new Decimal(balance).gte(new Decimal(amount));
@@ -315,7 +356,7 @@ export async function checkAndDebit(
   referenceId: string | null = null,
   description: string | null = null,
   metadata: Record<string, unknown> | null = null,
-  txClient?: TransactionClient
+  txClient?: DbOrTx
 ): Promise<CoinLedgerEntry> {
   // debitCoins already does SELECT FOR UPDATE + balance check atomically
   return debitCoins(userId, amount, type, referenceId, description, metadata, txClient);
@@ -347,7 +388,7 @@ export async function transferCoins(
   amount: number,
   idempotencyRef: string,
   feePercent: number = 5,
-  txClient?: TransactionClient,
+  txClient?: DbOrTx,
   senderTransactionType: CoinTransactionType = "gift_sent",
   recipientTransactionType: CoinTransactionType = "gift_received"
 ): Promise<{ debit: CoinLedgerEntry; credit: CoinLedgerEntry; feeCoins: number }> {
@@ -361,19 +402,13 @@ export async function transferCoins(
   const debitRef = `${idempotencyRef}:debit`;
   const creditRef = `${idempotencyRef}:credit`;
 
-  const run = async (tx: TransactionClient) => {
+  const run = async (tx: DbOrTx) => {
     // Lock both rows in deterministic ascending UUID order to prevent deadlocks (BUG-20)
     const [firstId, secondId] = fromUserId < toUserId
       ? [fromUserId, toUserId]
       : [toUserId, fromUserId];
-    await tx.query(
-      `SELECT id FROM users WHERE id = $1 FOR UPDATE`,
-      [firstId]
-    );
-    await tx.query(
-      `SELECT id FROM users WHERE id = $1 FOR UPDATE`,
-      [secondId]
-    );
+    await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, firstId)).for("update");
+    await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, secondId)).for("update");
     // debitCoins and creditCoins will re-lock their rows (already locked above)
 
     const debit = await debitCoins(
@@ -400,7 +435,8 @@ export async function transferCoins(
   };
 
   if (txClient) return run(txClient);
-  return db.transaction(run);
+  const orm = await getDb();
+  return orm.transaction(run);
 }
 
 /**
@@ -424,34 +460,33 @@ export interface LedgerPage {
 export async function getLedgerEntries(
   userId: string,
   limit: number = 20,
-  txClient?: TransactionClient,
+  txClient?: DbOrTx,
   cursor?: LedgerCursor | null
 ): Promise<LedgerPage> {
-  const query = txClient ?? db;
-  const params: (string | number)[] = [userId, limit];
-  let cursorClause = "";
+  const client = txClient ?? (await getDb());
 
+  const conditions = [eq(schema.coinLedger.userId, userId)];
   if (cursor) {
-    cursorClause = `AND (created_at, id) < ($3::timestamptz, $4::uuid)`;
-    params.push(cursor.createdAt, cursor.id);
+    // Keyset pagination on (created_at, id) — must match the ORDER BY below
+    // exactly so a page boundary that lands mid-timestamp-tie is stable.
+    conditions.push(
+      sql`(${schema.coinLedger.createdAt}, ${schema.coinLedger.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`
+    );
   }
 
-  const { rows } = await query.query<CoinLedgerEntry>(
-    `SELECT id, user_id, amount, balance_before, balance_after,
-            transaction_type, reference_id, description, metadata, created_at
-     FROM coin_ledger
-     WHERE user_id = $1
-       ${cursorClause}
-     ORDER BY created_at DESC, id DESC
-     LIMIT $2`,
-    params
-  );
+  const rows = await client
+    .select()
+    .from(schema.coinLedger)
+    .where(and(...conditions))
+    .orderBy(desc(schema.coinLedger.createdAt), desc(schema.coinLedger.id))
+    .limit(limit);
 
+  const entries = rows.map(toLedgerEntry);
   const lastRow = rows[rows.length - 1];
   const nextCursor: LedgerCursor | null =
     rows.length === limit && lastRow
-      ? { createdAt: String(lastRow.created_at), id: lastRow.id }
+      ? { createdAt: lastRow.createdAt ? lastRow.createdAt.toISOString() : "", id: lastRow.id }
       : null;
 
-  return { entries: rows, nextCursor };
+  return { entries, nextCursor };
 }

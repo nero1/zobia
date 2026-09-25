@@ -14,7 +14,8 @@
  * @module lib/currency/region
  */
 
-import { db } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getRequestCountry } from "@/lib/geo/country";
 import { currencyForCountry, type CurrencyCode } from "@/lib/currency";
 
@@ -24,38 +25,39 @@ export interface UserRegion {
   currency: CurrencyCode;
 }
 
-interface UserCountryRow {
-  country: string | null;
-  country_source: string;
-  currency_preference: string | null;
-}
-
 /**
  * @param req Optional — pass the incoming request to enable geo self-heal
  *            and to fall back to live IP-geolocation for a still-unconfirmed
  *            account instead of the stale "NG" default.
  */
 export async function getUserRegion(userId: string, req?: Request): Promise<UserRegion> {
-  const { rows } = await db.query<UserCountryRow>(
-    `SELECT country, country_source, currency_preference FROM users WHERE id = $1 LIMIT 1`,
-    [userId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      country: schema.users.country,
+      countrySource: schema.users.countrySource,
+      currencyPreference: schema.users.currencyPreference,
+    })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId))
+    .limit(1);
   const row = rows[0];
   const requestCountry = req ? getRequestCountry(req) : null;
 
   let country = row?.country ?? "NG";
-  const source = row?.country_source ?? "default";
+  const source = row?.countrySource ?? "default";
 
   if (source === "default" && requestCountry) {
     country = requestCountry;
     // Fire-and-forget — never block the response on this write.
-    db.query(
-      `UPDATE users SET country = $1, country_source = 'geo' WHERE id = $2 AND country_source = 'default'`,
-      [requestCountry, userId]
-    ).catch(() => {});
+    orm
+      .update(schema.users)
+      .set({ country: requestCountry, countrySource: "geo" })
+      .where(and(eq(schema.users.id, userId), eq(schema.users.countrySource, "default")))
+      .catch(() => {});
   }
 
-  const preference = row?.currency_preference;
+  const preference = row?.currencyPreference;
   const currency: CurrencyCode =
     preference === "NGN" || preference === "USD" ? preference : currencyForCountry(country);
 

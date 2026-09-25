@@ -17,33 +17,11 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, gte, inArray, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface ChallengeRow {
-  id: string;
-  challenger_id: string;
-  challenged_id: string;
-  status: string;
-  created_at: string;
-  expires_at: string;
-}
-
-interface UserProfileRow {
-  id: string;
-  username: string;
-  avatar_emoji: string;
-}
-
-interface XPEarnedRow {
-  xp_earned: number;
-}
 
 // ---------------------------------------------------------------------------
 // GET /api/nemesis/challenge/[challengeId]/standings
@@ -67,62 +45,78 @@ export const GET = withAuth(
 
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiRead);
 
+      const db = await getDb();
+
       // 1. Fetch the challenge
-      const challengeResult = await db.query<ChallengeRow>(
-        `SELECT id, challenger_id, challenged_id, status, created_at, expires_at
-         FROM nemesis_challenges
-         WHERE id = $1`,
-        [challengeId]
-      );
-      const challenge = challengeResult.rows[0];
+      const [challenge] = await db
+        .select({
+          id: schema.nemesisChallenges.id,
+          challengerId: schema.nemesisChallenges.challengerId,
+          challengedId: schema.nemesisChallenges.challengedId,
+          status: schema.nemesisChallenges.status,
+          createdAt: schema.nemesisChallenges.createdAt,
+          expiresAt: schema.nemesisChallenges.expiresAt,
+        })
+        .from(schema.nemesisChallenges)
+        .where(eq(schema.nemesisChallenges.id, challengeId));
       if (!challenge) throw notFound("Challenge not found");
 
       // 2. Verify caller is challenger or target
-      const isChallenger = challenge.challenger_id === userId;
-      const isChallenged = challenge.challenged_id === userId;
+      const isChallenger = challenge.challengerId === userId;
+      const isChallenged = challenge.challengedId === userId;
       if (!isChallenger && !isChallenged) {
         throw forbidden("You are not a participant in this challenge");
       }
 
-      const challengerId = challenge.challenger_id;
-      const targetId = challenge.challenged_id;
-      const challengeStartedAt = challenge.created_at;
+      const challengerId = challenge.challengerId;
+      const targetId = challenge.challengedId;
+      const challengeStartedAt = challenge.createdAt as unknown as string;
 
       // 3. Calculate XP earned since challenge start for both users
+      const xpEarnedSelect = (uid: string) =>
+        db
+          .select({
+            xpEarned: sql<number>`COALESCE(SUM(${schema.xpLedger.amount}), 0)::int`,
+          })
+          .from(schema.xpLedger)
+          .where(
+            and(
+              eq(schema.xpLedger.userId, uid),
+              gte(schema.xpLedger.createdAt, challenge.createdAt as any)
+            )
+          );
+
       const [challengerXPResult, targetXPResult] = await Promise.all([
-        db.query<XPEarnedRow>(
-          `SELECT COALESCE(SUM(amount), 0)::int AS xp_earned
-           FROM xp_ledger
-           WHERE user_id = $1 AND created_at >= $2`,
-          [challengerId, challengeStartedAt]
-        ),
-        db.query<XPEarnedRow>(
-          `SELECT COALESCE(SUM(amount), 0)::int AS xp_earned
-           FROM xp_ledger
-           WHERE user_id = $1 AND created_at >= $2`,
-          [targetId, challengeStartedAt]
-        ),
+        xpEarnedSelect(challengerId),
+        xpEarnedSelect(targetId),
       ]);
 
-      const challengerXP = challengerXPResult.rows[0]?.xp_earned ?? 0;
-      const targetXP = targetXPResult.rows[0]?.xp_earned ?? 0;
+      const challengerXP = challengerXPResult[0]?.xpEarned ?? 0;
+      const targetXP = targetXPResult[0]?.xpEarned ?? 0;
 
       // 4. Calculate days remaining
-      const endsAt = new Date(challenge.expires_at);
+      const endsAt = new Date(challenge.expiresAt as unknown as string);
       const now = Date.now();
       const msRemaining = endsAt.getTime() - now;
       const daysRemaining = Math.max(0, Math.ceil(msRemaining / 86400000));
 
       // 5. Fetch usernames and avatar emojis for both parties
-      const profilesResult = await db.query<UserProfileRow>(
-        `SELECT id, username, avatar_emoji
-         FROM users
-         WHERE id = ANY($1) AND deleted_at IS NULL`,
-        [[challengerId, targetId]]
-      );
+      const profiles = await db
+        .select({
+          id: schema.users.id,
+          username: schema.users.username,
+          avatarEmoji: schema.users.avatarEmoji,
+        })
+        .from(schema.users)
+        .where(
+          and(
+            inArray(schema.users.id, [challengerId, targetId]),
+            isNull(schema.users.deletedAt)
+          )
+        );
 
-      const profileMap = new Map<string, UserProfileRow>();
-      for (const profile of profilesResult.rows) {
+      const profileMap = new Map<string, (typeof profiles)[number]>();
+      for (const profile of profiles) {
         profileMap.set(profile.id, profile);
       }
 
@@ -137,17 +131,17 @@ export const GET = withAuth(
           challenger: {
             userId: challengerId,
             username: challengerProfile?.username ?? null,
-            avatarEmoji: challengerProfile?.avatar_emoji ?? null,
+            avatarEmoji: challengerProfile?.avatarEmoji ?? null,
             xpEarned: challengerXP,
           },
           target: {
             userId: targetId,
             username: targetProfile?.username ?? null,
-            avatarEmoji: targetProfile?.avatar_emoji ?? null,
+            avatarEmoji: targetProfile?.avatarEmoji ?? null,
             xpEarned: targetXP,
           },
           daysRemaining,
-          endsAt: challenge.expires_at,
+          endsAt: challenge.expiresAt,
           status: challenge.status,
         },
         error: null,

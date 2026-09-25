@@ -16,7 +16,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // Patterns that indicate extension or third-party injection — not actionable
@@ -63,23 +63,26 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  for (const report of reports) {
-    if (isNoise(report)) continue;
+  if (reports.length > 0) {
+    const orm = await getDb();
+    for (const report of reports) {
+      if (isNoise(report)) continue;
 
-    const documentUri = String(report["document-uri"] ?? report["documentURL"] ?? "");
-    const violatedDirective = String(report["violated-directive"] ?? report["effectiveDirective"] ?? "");
-    const blockedUri = String(report["blocked-uri"] ?? report["blockedURL"] ?? "");
+      const documentUri = String(report["document-uri"] ?? report["documentURL"] ?? "");
+      const violatedDirective = String(report["violated-directive"] ?? report["effectiveDirective"] ?? "");
+      const blockedUri = String(report["blocked-uri"] ?? report["blockedURL"] ?? "");
 
-    // Persist to system_alerts (best-effort — never fail the response)
-    raiseAlert(db, {
-      type: "csp_violation",
-      category: "security",
-      priorityLevel: 6,
-      title: "CSP violation reported",
-      message: `CSP violation: ${violatedDirective} blocked ${blockedUri || "(inline)"}`,
-      metadata: { documentUri, violatedDirective, blockedUri, raw: report },
-      dedupeKey: `csp_violation:${violatedDirective}:${blockedUri}`,
-    }).catch(() => {});
+      // Persist to system_alerts (best-effort — never fail the response)
+      raiseAlert(orm, {
+        type: "csp_violation",
+        category: "security",
+        priorityLevel: 6,
+        title: "CSP violation reported",
+        message: `CSP violation: ${violatedDirective} blocked ${blockedUri || "(inline)"}`,
+        metadata: { documentUri, violatedDirective, blockedUri, raw: report },
+        dedupeKey: `csp_violation:${violatedDirective}:${blockedUri}`,
+      }).catch(() => {});
+    }
   }
 
   // Always return 204 — browsers don't need a body

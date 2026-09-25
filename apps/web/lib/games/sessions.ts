@@ -17,7 +17,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { badRequest, notFound } from "@/lib/api/errors";
 import { debitCoins } from "@/lib/economy/coins";
 import { debitStars } from "@/lib/economy/stars";
@@ -50,8 +51,13 @@ export async function startPlaySession(
   const costCredits = isChallenge ? 0 : game.play_cost_credits;
   const costStars = isChallenge ? 0 : game.play_cost_stars;
 
-  return db.transaction(async (tx) => {
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
     if (costCredits > 0) {
+      // NOTE: lib/economy/coins.ts (debitCoins) is being migrated to Drizzle
+      // concurrently by another agent — it may still type its txClient param
+      // as the legacy TransactionClient, producing a transient type mismatch
+      // here that resolves once that migration lands.
       await debitCoins(
         userId,
         costCredits,
@@ -73,14 +79,17 @@ export async function startPlaySession(
       );
     }
 
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO game_plays (game_id, user_id, session_nonce, challenge_round_id, started_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       RETURNING id`,
-      [game.id, userId, nonce, challengeRoundId ?? null]
-    );
+    const [row] = await tx
+      .insert(schema.gamePlays)
+      .values({
+        gameId: game.id,
+        userId,
+        sessionNonce: nonce,
+        challengeRoundId: challengeRoundId ?? null,
+      })
+      .returning({ id: schema.gamePlays.id });
 
-    return { playId: rows[0].id, nonce, costCredits, costStars };
+    return { playId: row.id, nonce, costCredits, costStars };
   });
 }
 
@@ -123,14 +132,14 @@ export async function finalizeScore(
   }
 
   // Load the play by nonce and confirm ownership + un-counted state.
-  const { rows: playRows } = await db.query<PlayRow>(
-    `SELECT id, game_id, user_id, counted, challenge_round_id, started_at
-     FROM game_plays
-     WHERE session_nonce = $1
-     LIMIT 1`,
-    [nonce]
+  const db = await getDb();
+  const result = await db.execute<PlayRow & Record<string, unknown>>(
+    sql`SELECT id, game_id, user_id, counted, challenge_round_id, started_at
+        FROM game_plays
+        WHERE session_nonce = ${nonce}
+        LIMIT 1`
   );
-  const play = playRows[0];
+  const play = result.rows[0];
   if (!play) throw notFound("Play session not found.");
   if (play.user_id !== userId || play.game_id !== game.id) {
     throw badRequest("Play session does not match this game/user.");
@@ -161,28 +170,27 @@ export async function finalizeScore(
   // once we have the atomic best-score check.
   const cfg = sessionCfg;
 
-  await db.transaction(async (tx) => {
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
     // Mark the play counted (consumes the nonce). Guarded so a concurrent
     // double-submit can't both succeed.
-    const { rows: updated } = await tx.query<{ id: string }>(
-      `UPDATE game_plays
-       SET score = $1, counted = TRUE, ended_at = NOW()
-       WHERE id = $2 AND counted = FALSE
-       RETURNING id`,
-      [score, play.id]
-    );
-    if (updated.length === 0) {
+    const updated = await tx.execute<{ id: string }>(sql`
+      UPDATE game_plays
+      SET score = ${score}, counted = TRUE, ended_at = NOW()
+      WHERE id = ${play.id} AND counted = FALSE
+      RETURNING id
+    `);
+    if (updated.rows.length === 0) {
       throw badRequest("This play session has already been scored.");
     }
 
     // Personal-best check is inside the transaction so it's atomic with the
     // counted=TRUE mark. Two concurrent plays cannot both see the same stale
     // previousBest and both claim a new-personal-best reward.
-    const { rows: bestRows } = await tx.query<{ best_score: number }>(
-      `SELECT best_score FROM game_best_scores WHERE game_id = $1 AND user_id = $2 LIMIT 1 FOR UPDATE`,
-      [game.id, userId]
-    );
-    const previousBest = bestRows[0]?.best_score ?? -1;
+    const bestResult = await tx.execute<{ best_score: number }>(sql`
+      SELECT best_score FROM game_best_scores WHERE game_id = ${game.id} AND user_id = ${userId} LIMIT 1 FOR UPDATE
+    `);
+    const previousBest = bestResult.rows[0]?.best_score ?? -1;
     isNewBest = score > previousBest;
 
     // A non-challenge "win" = a new personal best with a positive score.
@@ -190,10 +198,9 @@ export async function finalizeScore(
 
     await updateBestScore(game.id, userId, score, isWin, tx);
 
-    await tx.query(
-      `UPDATE games SET play_count = play_count + 1, updated_at = NOW() WHERE id = $1`,
-      [game.id]
-    );
+    await tx.execute(sql`
+      UPDATE games SET play_count = play_count + 1, updated_at = NOW() WHERE id = ${game.id}
+    `);
 
     // Standard per-win reward is granted inside the transaction so a failure
     // rolls back the counted flag and reward atomically (no partial-credit risk).

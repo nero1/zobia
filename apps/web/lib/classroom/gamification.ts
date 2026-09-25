@@ -18,8 +18,8 @@
  * `fireKnowledgeBonuses()`.
  */
 
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { and, desc, asc, eq, gt, gte, inArray, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 import { memGet, memSet, memDelPrefix } from "@/lib/cache/memory";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
@@ -36,7 +36,7 @@ import {
   type LevelProgress,
 } from "@/lib/classroom/levels";
 
-type Queryable = Pick<TransactionClient, "query">;
+type Queryable = DbOrTx;
 
 export interface KnowledgeBonus {
   userId: string;
@@ -89,13 +89,25 @@ const EMPTY_RESULT: Omit<PointsAwardResult, "points" | "level"> = {
 export async function awardClassroomPoints(input: AwardInput, client: Queryable): Promise<PointsAwardResult> {
   const rule = CLASSROOM_POINT_RULES[input.source];
 
-  const { rows: ledgerRows } = await client.query<{ id: string }>(
-    `INSERT INTO classroom_points_ledger (room_id, user_id, amount, source, reference_id, created_at)
-     VALUES ($1, $2, $3, $4, $5, NOW())
-     ON CONFLICT (room_id, user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-     RETURNING id`,
-    [input.roomId, input.userId, rule.points, input.source, input.referenceId]
-  );
+  const ledgerRows = await client
+    .insert(schema.classroomPointsLedger)
+    .values({
+      roomId: input.roomId,
+      userId: input.userId,
+      amount: rule.points,
+      source: input.source,
+      referenceId: input.referenceId,
+    })
+    .onConflictDoNothing({
+      target: [
+        schema.classroomPointsLedger.roomId,
+        schema.classroomPointsLedger.userId,
+        schema.classroomPointsLedger.source,
+        schema.classroomPointsLedger.referenceId,
+      ],
+      where: sql`${schema.classroomPointsLedger.referenceId} IS NOT NULL`,
+    })
+    .returning({ id: schema.classroomPointsLedger.id });
 
   if (!ledgerRows[0]) {
     const standing = await readPoints(input.roomId, input.userId, client);
@@ -104,24 +116,31 @@ export async function awardClassroomPoints(input: AwardInput, client: Queryable)
 
   // RETURNING yields the pre-existing `level` (this statement never touches it),
   // so we get old level + new points in one round trip.
-  const { rows } = await client.query<{ points: string; level: number }>(
-    `INSERT INTO classroom_member_points (room_id, user_id, points, level, updated_at)
-     VALUES ($1, $2, GREATEST($3::bigint, 0), 1, NOW())
-     ON CONFLICT (room_id, user_id) DO UPDATE
-       SET points = GREATEST(classroom_member_points.points + $3::bigint, 0),
-           updated_at = NOW()
-     RETURNING points, level`,
-    [input.roomId, input.userId, rule.points]
-  );
+  const rows = await client
+    .insert(schema.classroomMemberPoints)
+    .values({
+      roomId: input.roomId,
+      userId: input.userId,
+      points: Math.max(rule.points, 0),
+      level: 1,
+    })
+    .onConflictDoUpdate({
+      target: [schema.classroomMemberPoints.roomId, schema.classroomMemberPoints.userId],
+      set: {
+        points: sql`GREATEST(${schema.classroomMemberPoints.points} + ${rule.points}, 0)`,
+        updatedAt: new Date(),
+      },
+    })
+    .returning({ points: schema.classroomMemberPoints.points, level: schema.classroomMemberPoints.level });
   const points = Number(rows[0]?.points ?? 0);
   const oldLevel = rows[0]?.level ?? 1;
   const level = levelForPoints(points);
 
   if (level !== oldLevel) {
-    await client.query(
-      `UPDATE classroom_member_points SET level = $3 WHERE room_id = $1 AND user_id = $2`,
-      [input.roomId, input.userId, level]
-    );
+    await client
+      .update(schema.classroomMemberPoints)
+      .set({ level })
+      .where(and(eq(schema.classroomMemberPoints.roomId, input.roomId), eq(schema.classroomMemberPoints.userId, input.userId)));
   }
   const leveledUp = level > oldLevel;
 
@@ -197,36 +216,39 @@ export async function evaluateBadges(
   const signals: BadgeSignals = { ...known };
 
   if (checks.includes("posts")) {
-    const { rows } = await client.query<{ n: string }>(
-      `SELECT COUNT(*)::text AS n FROM classroom_posts
-        WHERE room_id = $1 AND author_id = $2 AND deleted_at IS NULL`,
-      [roomId, userId]
-    );
-    signals.postCount = Number(rows[0]?.n ?? 0);
+    const [row] = await client
+      .select({ n: sql<string>`COUNT(*)` })
+      .from(schema.classroomPosts)
+      .where(
+        and(
+          eq(schema.classroomPosts.roomId, roomId),
+          eq(schema.classroomPosts.authorId, userId),
+          sql`${schema.classroomPosts.deletedAt} IS NULL`
+        )
+      );
+    signals.postCount = Number(row?.n ?? 0);
   }
   if (checks.includes("likes")) {
-    const { rows } = await client.query<{ n: string }>(
-      `SELECT (
+    const [row] = await client.execute<{ n: string }>(sql`
+      SELECT (
           COALESCE((SELECT SUM(like_count) FROM classroom_posts
-                     WHERE room_id = $1 AND author_id = $2 AND deleted_at IS NULL), 0)
+                     WHERE room_id = ${roomId} AND author_id = ${userId} AND deleted_at IS NULL), 0)
         + COALESCE((SELECT SUM(like_count) FROM classroom_post_comments
-                     WHERE room_id = $1 AND author_id = $2 AND deleted_at IS NULL), 0)
-        )::text AS n`,
-      [roomId, userId]
-    );
-    signals.likesReceived = Number(rows[0]?.n ?? 0);
+                     WHERE room_id = ${roomId} AND author_id = ${userId} AND deleted_at IS NULL), 0)
+        )::text AS n
+    `).then((r) => r.rows);
+    signals.likesReceived = Number(row?.n ?? 0);
   }
   if (checks.includes("lessons")) {
-    const { rows } = await client.query<{ n: string; total: number }>(
-      `SELECT COUNT(*)::text AS n,
+    const [row] = await client.execute<{ n: string; total: number }>(sql`
+      SELECT COUNT(*)::text AS n,
               (SELECT COALESCE(jsonb_array_length(curriculum->'modules'), 0)
-                 FROM rooms WHERE id = $1) AS total
+                 FROM rooms WHERE id = ${roomId}) AS total
          FROM classroom_lesson_completions
-        WHERE room_id = $1 AND user_id = $2`,
-      [roomId, userId]
-    );
-    const done = Number(rows[0]?.n ?? 0);
-    const total = Number(rows[0]?.total ?? 0);
+        WHERE room_id = ${roomId} AND user_id = ${userId}
+    `).then((r) => r.rows);
+    const done = Number(row?.n ?? 0);
+    const total = Number(row?.total ?? 0);
     signals.lessonsCompleted = done;
     signals.courseCompleted = total > 0 && done >= total;
   }
@@ -234,14 +256,14 @@ export async function evaluateBadges(
   const qualified = badgesForSignals(signals);
   if (qualified.length === 0) return [];
 
-  const { rows } = await client.query<{ badge_key: ClassroomBadgeKey }>(
-    `INSERT INTO classroom_member_badges (room_id, user_id, badge_key, awarded_at)
-     SELECT $1, $2, k, NOW() FROM unnest($3::text[]) AS k
-     ON CONFLICT (room_id, user_id, badge_key) DO NOTHING
-     RETURNING badge_key`,
-    [roomId, userId, qualified]
-  );
-  return rows.map((r) => r.badge_key);
+  const rows = await client
+    .insert(schema.classroomMemberBadges)
+    .values(qualified.map((badgeKey) => ({ roomId, userId, badgeKey })))
+    .onConflictDoNothing({
+      target: [schema.classroomMemberBadges.roomId, schema.classroomMemberBadges.userId, schema.classroomMemberBadges.badgeKey],
+    })
+    .returning({ badgeKey: schema.classroomMemberBadges.badgeKey });
+  return rows.map((r) => r.badgeKey as ClassroomBadgeKey);
 }
 
 async function notifyProgress(
@@ -281,11 +303,11 @@ async function notifyProgress(
 }
 
 async function readPoints(roomId: string, userId: string, client: Queryable): Promise<{ points: number; level: number }> {
-  const { rows } = await client.query<{ points: string; level: number }>(
-    `SELECT points, level FROM classroom_member_points WHERE room_id = $1 AND user_id = $2`,
-    [roomId, userId]
-  );
-  return { points: Number(rows[0]?.points ?? 0), level: rows[0]?.level ?? 1 };
+  const [row] = await client
+    .select({ points: schema.classroomMemberPoints.points, level: schema.classroomMemberPoints.level })
+    .from(schema.classroomMemberPoints)
+    .where(and(eq(schema.classroomMemberPoints.roomId, roomId), eq(schema.classroomMemberPoints.userId, userId)));
+  return { points: Number(row?.points ?? 0), level: row?.level ?? 1 };
 }
 
 // ---------------------------------------------------------------------------
@@ -341,33 +363,70 @@ export async function getClassroomLeaderboard(
     level: number | null;
   }
 
+  const orm = await getDb();
   let rows: Row[];
   if (period === "all") {
-    ({ rows } = await db.query<Row>(
-      `SELECT mp.user_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url,
-              mp.points::text AS points, mp.level
-         FROM classroom_member_points mp
-         JOIN users u ON u.id = mp.user_id AND u.deleted_at IS NULL
-        WHERE mp.room_id = $1 AND mp.points > 0
-        ORDER BY mp.points DESC, mp.updated_at ASC
-        LIMIT 100`,
-      [roomId]
-    ));
+    const r = await orm
+      .select({
+        user_id: schema.classroomMemberPoints.userId,
+        username: schema.users.username,
+        display_name: schema.users.displayName,
+        avatar_emoji: schema.users.avatarEmoji,
+        avatar_url: schema.users.avatarUrl,
+        points: sql<string>`${schema.classroomMemberPoints.points}::text`,
+        level: schema.classroomMemberPoints.level,
+      })
+      .from(schema.classroomMemberPoints)
+      .innerJoin(
+        schema.users,
+        and(eq(schema.users.id, schema.classroomMemberPoints.userId), sql`${schema.users.deletedAt} IS NULL`)
+      )
+      .where(and(eq(schema.classroomMemberPoints.roomId, roomId), gt(schema.classroomMemberPoints.points, 0)))
+      .orderBy(desc(schema.classroomMemberPoints.points), asc(schema.classroomMemberPoints.updatedAt))
+      .limit(100);
+    rows = r as Row[];
   } else {
     const days = period === "7d" ? 7 : 30;
-    ({ rows } = await db.query<Row>(
-      `SELECT l.user_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url,
-              SUM(l.amount)::text AS points, mp.level
-         FROM classroom_points_ledger l
-         JOIN users u ON u.id = l.user_id AND u.deleted_at IS NULL
-         LEFT JOIN classroom_member_points mp ON mp.room_id = l.room_id AND mp.user_id = l.user_id
-        WHERE l.room_id = $1 AND l.created_at >= NOW() - ($2::int * INTERVAL '1 day')
-        GROUP BY l.user_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url, mp.level
-       HAVING SUM(l.amount) > 0
-        ORDER BY SUM(l.amount) DESC, l.user_id
-        LIMIT 100`,
-      [roomId, days]
-    ));
+    const r = await orm
+      .select({
+        user_id: schema.classroomPointsLedger.userId,
+        username: schema.users.username,
+        display_name: schema.users.displayName,
+        avatar_emoji: schema.users.avatarEmoji,
+        avatar_url: schema.users.avatarUrl,
+        points: sql<string>`SUM(${schema.classroomPointsLedger.amount})::text`,
+        level: schema.classroomMemberPoints.level,
+      })
+      .from(schema.classroomPointsLedger)
+      .innerJoin(
+        schema.users,
+        and(eq(schema.users.id, schema.classroomPointsLedger.userId), sql`${schema.users.deletedAt} IS NULL`)
+      )
+      .leftJoin(
+        schema.classroomMemberPoints,
+        and(
+          eq(schema.classroomMemberPoints.roomId, schema.classroomPointsLedger.roomId),
+          eq(schema.classroomMemberPoints.userId, schema.classroomPointsLedger.userId)
+        )
+      )
+      .where(
+        and(
+          eq(schema.classroomPointsLedger.roomId, roomId),
+          gte(schema.classroomPointsLedger.createdAt, sql`NOW() - (${days}::int * INTERVAL '1 day')`)
+        )
+      )
+      .groupBy(
+        schema.classroomPointsLedger.userId,
+        schema.users.username,
+        schema.users.displayName,
+        schema.users.avatarEmoji,
+        schema.users.avatarUrl,
+        schema.classroomMemberPoints.level
+      )
+      .having(sql`SUM(${schema.classroomPointsLedger.amount}) > 0`)
+      .orderBy(desc(sql`SUM(${schema.classroomPointsLedger.amount})`), asc(schema.classroomPointsLedger.userId))
+      .limit(100);
+    rows = r as Row[];
   }
 
   let rank = 0;
@@ -399,28 +458,28 @@ export interface MemberStanding extends LevelProgress {
 
 /** A member's own all-time standing in a classroom. */
 export async function getMemberStanding(roomId: string, userId: string): Promise<MemberStanding> {
-  const [{ rows: pRows }, { rows: bRows }] = await Promise.all([
-    db.query<{ points: string; rank: string | null }>(
-      `SELECT mp.points::text AS points,
+  const orm = await getDb();
+  const [{ rows: pRows }, bRows] = await Promise.all([
+    orm.execute<{ points: string; rank: string | null }>(sql`
+      SELECT mp.points::text AS points,
               (SELECT COUNT(*) + 1 FROM classroom_member_points o
                 WHERE o.room_id = mp.room_id AND o.points > mp.points)::text AS rank
          FROM classroom_member_points mp
-        WHERE mp.room_id = $1 AND mp.user_id = $2`,
-      [roomId, userId]
-    ),
-    db.query<{ badge_key: ClassroomBadgeKey; awarded_at: string }>(
-      `SELECT badge_key, awarded_at FROM classroom_member_badges
-        WHERE room_id = $1 AND user_id = $2 ORDER BY awarded_at`,
-      [roomId, userId]
-    ),
+        WHERE mp.room_id = ${roomId} AND mp.user_id = ${userId}
+    `),
+    orm
+      .select({ badgeKey: schema.classroomMemberBadges.badgeKey, awardedAt: schema.classroomMemberBadges.awardedAt })
+      .from(schema.classroomMemberBadges)
+      .where(and(eq(schema.classroomMemberBadges.roomId, roomId), eq(schema.classroomMemberBadges.userId, userId)))
+      .orderBy(asc(schema.classroomMemberBadges.awardedAt)),
   ]);
   const points = Number(pRows[0]?.points ?? 0);
   return {
     ...levelProgress(points),
     rank: pRows[0] && points > 0 ? Number(pRows[0].rank) : null,
     badges: bRows
-      .filter((b) => b.badge_key in CLASSROOM_BADGES)
-      .map((b) => ({ key: b.badge_key, awardedAt: new Date(b.awarded_at).toISOString() })),
+      .filter((b) => b.badgeKey in CLASSROOM_BADGES)
+      .map((b) => ({ key: b.badgeKey as ClassroomBadgeKey, awardedAt: new Date(b.awardedAt).toISOString() })),
   };
 }
 
@@ -428,10 +487,16 @@ export async function getMemberStanding(roomId: string, userId: string): Promise
 export async function getLevelsForUsers(roomId: string, userIds: string[]): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   if (userIds.length === 0) return out;
-  const { rows } = await db.query<{ user_id: string; level: number }>(
-    `SELECT user_id, level FROM classroom_member_points WHERE room_id = $1 AND user_id = ANY($2::uuid[])`,
-    [roomId, Array.from(new Set(userIds))]
-  );
-  for (const r of rows) out.set(r.user_id, r.level);
+  const orm = await getDb();
+  const rows = await orm
+    .select({ userId: schema.classroomMemberPoints.userId, level: schema.classroomMemberPoints.level })
+    .from(schema.classroomMemberPoints)
+    .where(
+      and(
+        eq(schema.classroomMemberPoints.roomId, roomId),
+        inArray(schema.classroomMemberPoints.userId, Array.from(new Set(userIds)))
+      )
+    );
+  for (const r of rows) out.set(r.userId, r.level);
   return out;
 }

@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { compare, hash } from "bcryptjs"; // BUG-PERF-03: static import avoids per-request module resolution
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { handleApiError, unauthorized, ApiError } from "@/lib/api/errors";
 import { validateBody } from "@/lib/api/middleware";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -78,16 +79,21 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       );
     }
 
-    const { rows } = await db.query<AdminUserRow>(
-      `SELECT id, email, username, password_hash, totp_secret, totp_enabled,
-              is_admin, deleted_at
-       FROM users
-       WHERE email = $1
-       LIMIT 1`,
-      [body.email.toLowerCase()]
-    );
-
-    const user = rows[0];
+    const orm = await getDb();
+    const [user] = await orm
+      .select({
+        id: schema.users.id,
+        email: schema.users.email,
+        username: schema.users.username,
+        password_hash: schema.users.passwordHash,
+        totp_secret: schema.users.totpSecret,
+        totp_enabled: schema.users.totpEnabled,
+        is_admin: schema.users.isAdmin,
+        deleted_at: schema.users.deletedAt,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.email, body.email.toLowerCase()))
+      .limit(1);
 
     // Always run bcrypt to prevent timing attacks
     const passwordHash = user?.password_hash ?? (await DUMMY_HASH_PROMISE);

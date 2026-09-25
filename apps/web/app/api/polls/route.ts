@@ -13,7 +13,7 @@ import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middlewa
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { listPolls, createPoll } from "@/lib/polls/service";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const listQuerySchema = z.object({
@@ -46,7 +46,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.pollQuizWrite);
     const body = await validateBody(req, createPollSchema);
     const result = await createPoll({ userId: auth.user.sub, ...body });
-    void triggerActivityQuestProgress(auth.user.sub, "poll_create", db);
+    const orm = await getDb();
+    void triggerActivityQuestProgress(auth.user.sub, "poll_create", orm);
     return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

@@ -19,9 +19,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq, sql } from "drizzle-orm";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 interface DlqParams {
   dlqId: string;
@@ -41,83 +42,72 @@ export const POST = withAdminAuth<DlqParams>(async (req: NextRequest, { params, 
     const body = await validateBody(req, retrySchema);
     const adminNote = body.note ?? "Re-queued by admin";
 
-    await db.transaction(async (tx) => {
+    const orm = await getDb();
+    await orm.transaction(async (tx) => {
       // 1. Load the DLQ item and lock it
-      const { rows: dlqRows } = await tx.query<{
-        id: string;
-        payout_id: string;
-        creator_id: string;
-        resolved_at: string | null;
-      }>(
-        `SELECT id, payout_id, creator_id, resolved_at
-         FROM payout_dead_letter_queue
-         WHERE id = $1
-         FOR UPDATE`,
-        [dlqId]
-      );
+      const [dlq] = await tx
+        .select({
+          id: schema.payoutDeadLetterQueue.id,
+          payout_id: schema.payoutDeadLetterQueue.payoutId,
+          creator_id: schema.payoutDeadLetterQueue.creatorId,
+          resolved_at: schema.payoutDeadLetterQueue.resolvedAt,
+        })
+        .from(schema.payoutDeadLetterQueue)
+        .where(eq(schema.payoutDeadLetterQueue.id, dlqId))
+        .for("update");
 
-      const dlq = dlqRows[0];
       if (!dlq) throw notFound("DLQ item not found");
       if (dlq.resolved_at) throw badRequest("This DLQ item has already been resolved");
 
       // 2. Load the originating payout
-      const { rows: payoutRows } = await tx.query<{
-        id: string;
-        status: string;
-        gross_kobo: number;
-        creator_id: string;
-      }>(
-        `SELECT id, status, gross_kobo, creator_id
-         FROM creator_payouts
-         WHERE id = $1
-         FOR UPDATE`,
-        [dlq.payout_id]
-      );
+      const [payout] = await tx
+        .select({
+          id: schema.creatorPayouts.id,
+          status: schema.creatorPayouts.status,
+          gross_kobo: schema.creatorPayouts.grossKobo,
+          creator_id: schema.creatorPayouts.creatorId,
+        })
+        .from(schema.creatorPayouts)
+        .where(eq(schema.creatorPayouts.id, dlq.payout_id))
+        .for("update");
 
-      const payout = payoutRows[0];
       if (!payout) throw notFound("Originating payout not found");
+      const grossKobo = payout.gross_kobo ?? BigInt(0);
 
       // 3. Debit creator's available_earnings_kobo (restored when item was DLQ'd)
       //    before re-queuing — otherwise the creator would have free earnings.
-      const { rows: userRows } = await tx.query<{ available_earnings_kobo: number }>(
-        `SELECT available_earnings_kobo FROM users WHERE id = $1 FOR UPDATE`,
-        [dlq.creator_id]
-      );
-      const available = userRows[0]?.available_earnings_kobo ?? 0;
-      if (available < payout.gross_kobo) {
+      const [userRow] = await tx
+        .select({ available_earnings_kobo: schema.users.availableEarningsKobo })
+        .from(schema.users)
+        .where(eq(schema.users.id, dlq.creator_id))
+        .for("update");
+      const available = userRow?.available_earnings_kobo ?? BigInt(0);
+      if (available < grossKobo) {
         throw badRequest(
           "Creator's available earnings balance is insufficient to re-queue this payout. " +
           "Ensure the creator's balance has been restored before retrying."
         );
       }
 
-      await tx.query(
-        `UPDATE users
-         SET available_earnings_kobo = available_earnings_kobo - $1,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [payout.gross_kobo, dlq.creator_id]
-      );
+      await tx
+        .update(schema.users)
+        .set({
+          availableEarningsKobo: sql`${schema.users.availableEarningsKobo} - ${grossKobo}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.users.id, dlq.creator_id));
 
       // 4. Reset the payout back to 'pending' with a fresh retry counter
-      await tx.query(
-        `UPDATE creator_payouts
-         SET status = 'pending',
-             retry_count = 0,
-             next_retry_at = NULL,
-             updated_at = NOW()
-         WHERE id = $1`,
-        [payout.id]
-      );
+      await tx
+        .update(schema.creatorPayouts)
+        .set({ status: "pending", retryCount: 0, nextRetryAt: null, updatedAt: new Date() })
+        .where(eq(schema.creatorPayouts.id, payout.id));
 
       // 5. Mark the DLQ item as resolved
-      await tx.query(
-        `UPDATE payout_dead_letter_queue
-         SET resolved_at = NOW(),
-             resolution_note = $1
-         WHERE id = $2`,
-        [`[Admin: ${auth.user.sub}] ${adminNote}`, dlqId]
-      );
+      await tx
+        .update(schema.payoutDeadLetterQueue)
+        .set({ resolvedAt: new Date(), resolutionNote: `[Admin: ${auth.user.sub}] ${adminNote}` })
+        .where(eq(schema.payoutDeadLetterQueue.id, dlqId));
     });
 
     return NextResponse.json({ success: true, message: "Payout re-queued for processing" });

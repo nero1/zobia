@@ -9,7 +9,8 @@
  * author (see components/blogs/PostBody.tsx).
  */
 
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, asc, desc, eq, isNull } from "drizzle-orm";
 import { sanitizeBlogPostHtml, plainTextToBlogPostHtml } from "@/lib/security/htmlSanitizer";
 
 export interface PublicBlogPost {
@@ -48,40 +49,87 @@ export interface PublicBlogPost {
  * before passing this true; this function itself does no auth.
  */
 export async function resolvePublicBlogPost(blogId: string, postSlug: string, opts?: { allowUnpublished?: boolean }): Promise<PublicBlogPost | null> {
-  const statusClause = opts?.allowUnpublished ? "" : "AND p.status = 'published'";
-  const { rows } = await db.query<{
-    id: string; blog_id: string; author_id: string; category_id: string | null; category_name: string | null;
-    type: string; status: string; title: string; slug: string; page_key: string | null; excerpt: string | null; body_markdown: string; content_format: string;
-    featured_image_url: string | null; is_paywalled: boolean; paywall_credits_cost: number; word_count: number;
-    view_count: number; like_count: number; comment_count: number; published_at: string | null; updated_at: string;
-    author_username: string | null; author_display_name: string | null; author_avatar_url: string | null;
-  }>(
-    `SELECT p.id, p.blog_id, p.author_id, p.category_id, c.name AS category_name,
-            p.type, p.status, p.title, p.slug, p.page_key, p.excerpt, p.body_markdown, p.content_format, p.featured_image_url,
-            p.is_paywalled, p.paywall_credits_cost, p.word_count, p.view_count, p.like_count, p.comment_count,
-            p.published_at, p.updated_at, u.username AS author_username, u.display_name AS author_display_name, u.avatar_url AS author_avatar_url
-     FROM blog_posts p
-     LEFT JOIN blog_categories c ON c.id = p.category_id
-     JOIN users u ON u.id = p.author_id
-     WHERE p.blog_id = $1 AND p.slug = $2 ${statusClause} AND p.deleted_at IS NULL
-     LIMIT 1`,
-    [blogId, postSlug]
-  );
-  const row = rows[0];
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      id: schema.blogPosts.id,
+      blogId: schema.blogPosts.blogId,
+      authorId: schema.blogPosts.authorId,
+      categoryId: schema.blogPosts.categoryId,
+      categoryName: schema.blogCategories.name,
+      type: schema.blogPosts.type,
+      status: schema.blogPosts.status,
+      title: schema.blogPosts.title,
+      slug: schema.blogPosts.slug,
+      pageKey: schema.blogPosts.pageKey,
+      excerpt: schema.blogPosts.excerpt,
+      bodyMarkdown: schema.blogPosts.bodyMarkdown,
+      contentFormat: schema.blogPosts.contentFormat,
+      featuredImageUrl: schema.blogPosts.featuredImageUrl,
+      isPaywalled: schema.blogPosts.isPaywalled,
+      paywallCreditsCost: schema.blogPosts.paywallCreditsCost,
+      wordCount: schema.blogPosts.wordCount,
+      viewCount: schema.blogPosts.viewCount,
+      likeCount: schema.blogPosts.likeCount,
+      commentCount: schema.blogPosts.commentCount,
+      publishedAt: schema.blogPosts.publishedAt,
+      updatedAt: schema.blogPosts.updatedAt,
+      authorUsername: schema.users.username,
+      authorDisplayName: schema.users.displayName,
+      authorAvatarUrl: schema.users.avatarUrl,
+    })
+    .from(schema.blogPosts)
+    .leftJoin(schema.blogCategories, eq(schema.blogCategories.id, schema.blogPosts.categoryId))
+    .innerJoin(schema.users, eq(schema.users.id, schema.blogPosts.authorId))
+    .where(
+      and(
+        eq(schema.blogPosts.blogId, blogId),
+        eq(schema.blogPosts.slug, postSlug),
+        isNull(schema.blogPosts.deletedAt),
+        opts?.allowUnpublished ? undefined : eq(schema.blogPosts.status, "published")
+      )
+    )
+    .limit(1);
   if (!row) return null;
 
-  const render = row.content_format === "plaintext" ? plainTextToBlogPostHtml : sanitizeBlogPostHtml;
-  const locked = row.is_paywalled && row.paywall_credits_cost > 0;
+  const render = row.contentFormat === "plaintext" ? plainTextToBlogPostHtml : sanitizeBlogPostHtml;
+  const locked = row.isPaywalled && row.paywallCreditsCost > 0;
   let bodyHtml: string;
   if (locked) {
-    const previewWords = Math.max(100, Math.round(row.word_count * 0.2));
-    const truncated = row.body_markdown.trim().split(/\s+/).slice(0, previewWords).join(" ");
+    const previewWords = Math.max(100, Math.round(row.wordCount * 0.2));
+    const truncated = row.bodyMarkdown.trim().split(/\s+/).slice(0, previewWords).join(" ");
     bodyHtml = render(truncated);
   } else {
-    bodyHtml = render(row.body_markdown);
+    bodyHtml = render(row.bodyMarkdown);
   }
 
-  return { ...row, body_html: bodyHtml, locked };
+  return {
+    id: row.id,
+    blog_id: row.blogId,
+    author_id: row.authorId,
+    category_id: row.categoryId,
+    category_name: row.categoryName,
+    type: row.type,
+    status: row.status,
+    title: row.title,
+    slug: row.slug,
+    page_key: row.pageKey,
+    excerpt: row.excerpt,
+    body_html: bodyHtml,
+    featured_image_url: row.featuredImageUrl,
+    is_paywalled: row.isPaywalled,
+    paywall_credits_cost: row.paywallCreditsCost,
+    word_count: row.wordCount,
+    view_count: row.viewCount,
+    like_count: row.likeCount,
+    comment_count: row.commentCount,
+    published_at: row.publishedAt ? row.publishedAt.toISOString() : null,
+    updated_at: row.updatedAt.toISOString(),
+    author_username: row.authorUsername,
+    author_display_name: row.authorDisplayName,
+    author_avatar_url: row.authorAvatarUrl,
+    locked,
+  };
 }
 
 export interface PublicBlogPostSummary {
@@ -101,32 +149,100 @@ export interface PublicBlogPostSummary {
 }
 
 export async function listPublicBlogPosts(blogId: string, type: "article" | "page", limit = 20): Promise<PublicBlogPostSummary[]> {
-  const orderBy = type === "page" ? "p.sort_order ASC, p.created_at ASC" : "p.published_at DESC NULLS LAST, p.created_at DESC";
-  const { rows } = await db.query<PublicBlogPostSummary>(
-    `SELECT p.id, p.slug, p.type, p.title, p.excerpt, p.featured_image_url, p.is_paywalled,
-            p.view_count, p.like_count, p.comment_count, p.published_at, p.sort_order,
-            c.name AS category_name
-     FROM blog_posts p
-     LEFT JOIN blog_categories c ON c.id = p.category_id
-     WHERE p.blog_id = $1 AND p.status = 'published' AND p.deleted_at IS NULL AND p.type = $2
-     ORDER BY ${orderBy}
-     LIMIT $3`,
-    [blogId, type, limit]
-  );
-  return rows;
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: schema.blogPosts.id,
+      slug: schema.blogPosts.slug,
+      type: schema.blogPosts.type,
+      title: schema.blogPosts.title,
+      excerpt: schema.blogPosts.excerpt,
+      featuredImageUrl: schema.blogPosts.featuredImageUrl,
+      isPaywalled: schema.blogPosts.isPaywalled,
+      viewCount: schema.blogPosts.viewCount,
+      likeCount: schema.blogPosts.likeCount,
+      commentCount: schema.blogPosts.commentCount,
+      publishedAt: schema.blogPosts.publishedAt,
+      sortOrder: schema.blogPosts.sortOrder,
+      categoryName: schema.blogCategories.name,
+      createdAt: schema.blogPosts.createdAt,
+    })
+    .from(schema.blogPosts)
+    .leftJoin(schema.blogCategories, eq(schema.blogCategories.id, schema.blogPosts.categoryId))
+    .where(
+      and(
+        eq(schema.blogPosts.blogId, blogId),
+        eq(schema.blogPosts.status, "published"),
+        isNull(schema.blogPosts.deletedAt),
+        eq(schema.blogPosts.type, type)
+      )
+    )
+    .orderBy(
+      ...(type === "page"
+        ? [asc(schema.blogPosts.sortOrder), asc(schema.blogPosts.createdAt)]
+        : [desc(schema.blogPosts.publishedAt), desc(schema.blogPosts.createdAt)])
+    )
+    .limit(limit);
+  return rows.map((r) => ({
+    id: r.id,
+    slug: r.slug,
+    type: r.type,
+    title: r.title,
+    excerpt: r.excerpt,
+    featured_image_url: r.featuredImageUrl,
+    is_paywalled: r.isPaywalled,
+    view_count: r.viewCount,
+    like_count: r.likeCount,
+    comment_count: r.commentCount,
+    published_at: r.publishedAt ? r.publishedAt.toISOString() : null,
+    category_name: r.categoryName,
+    sort_order: r.sortOrder,
+  }));
 }
 
 export async function listPopularBlogPosts(blogId: string, limit = 5): Promise<PublicBlogPostSummary[]> {
-  const { rows } = await db.query<PublicBlogPostSummary>(
-    `SELECT p.id, p.slug, p.type, p.title, p.excerpt, p.featured_image_url, p.is_paywalled,
-            p.view_count, p.like_count, p.comment_count, p.published_at, p.sort_order,
-            c.name AS category_name
-     FROM blog_posts p
-     LEFT JOIN blog_categories c ON c.id = p.category_id
-     WHERE p.blog_id = $1 AND p.status = 'published' AND p.deleted_at IS NULL AND p.type = 'article'
-     ORDER BY p.view_count DESC, p.like_count DESC
-     LIMIT $2`,
-    [blogId, limit]
-  );
-  return rows;
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: schema.blogPosts.id,
+      slug: schema.blogPosts.slug,
+      type: schema.blogPosts.type,
+      title: schema.blogPosts.title,
+      excerpt: schema.blogPosts.excerpt,
+      featuredImageUrl: schema.blogPosts.featuredImageUrl,
+      isPaywalled: schema.blogPosts.isPaywalled,
+      viewCount: schema.blogPosts.viewCount,
+      likeCount: schema.blogPosts.likeCount,
+      commentCount: schema.blogPosts.commentCount,
+      publishedAt: schema.blogPosts.publishedAt,
+      sortOrder: schema.blogPosts.sortOrder,
+      categoryName: schema.blogCategories.name,
+    })
+    .from(schema.blogPosts)
+    .leftJoin(schema.blogCategories, eq(schema.blogCategories.id, schema.blogPosts.categoryId))
+    .where(
+      and(
+        eq(schema.blogPosts.blogId, blogId),
+        eq(schema.blogPosts.status, "published"),
+        isNull(schema.blogPosts.deletedAt),
+        eq(schema.blogPosts.type, "article")
+      )
+    )
+    .orderBy(desc(schema.blogPosts.viewCount), desc(schema.blogPosts.likeCount))
+    .limit(limit);
+  return rows.map((r) => ({
+    id: r.id,
+    slug: r.slug,
+    type: r.type,
+    title: r.title,
+    excerpt: r.excerpt,
+    featured_image_url: r.featuredImageUrl,
+    is_paywalled: r.isPaywalled,
+    view_count: r.viewCount,
+    like_count: r.likeCount,
+    comment_count: r.commentCount,
+    published_at: r.publishedAt ? r.publishedAt.toISOString() : null,
+    category_name: r.categoryName,
+    sort_order: r.sortOrder,
+  }));
 }

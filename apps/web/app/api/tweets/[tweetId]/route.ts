@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -19,17 +20,18 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const { tweetId } = await params as { tweetId: string };
     const userId = auth.user.sub;
 
-    const { rows } = await db.query(
-      `SELECT t.id, t.user_id, t.parent_tweet_id, u.username, u.avatar_emoji, u.avatar_url,
+    const orm = await getDb();
+    const result = await orm.execute(sql`
+       SELECT t.id, t.user_id, t.parent_tweet_id, u.username, u.avatar_emoji, u.avatar_url,
               u.is_verified, u.prestige_count, u.xp_total,
               t.content, t.image_url, t.video_provider, t.video_url, t.video_embed_id,
               t.is_pinned, t.likes_count, t.replies_count, t.retweets_count, t.created_at,
-              (EXISTS (SELECT 1 FROM tweet_likes tl WHERE tl.tweet_id = t.id AND tl.user_id = $2)) AS liked,
-              (EXISTS (SELECT 1 FROM tweet_retweets tr WHERE tr.tweet_id = t.id AND tr.user_id = $2)) AS retweeted
+              (EXISTS (SELECT 1 FROM tweet_likes tl WHERE tl.tweet_id = t.id AND tl.user_id = ${userId})) AS liked,
+              (EXISTS (SELECT 1 FROM tweet_retweets tr WHERE tr.tweet_id = t.id AND tr.user_id = ${userId})) AS retweeted
        FROM tweets t JOIN users u ON u.id = t.user_id
-       WHERE t.id = $1 AND t.deleted_at IS NULL`,
-      [tweetId, userId]
-    );
+       WHERE t.id = ${tweetId} AND t.deleted_at IS NULL
+    `);
+    const rows = result.rows;
     if (!rows[0]) throw notFound("Tweet not found");
 
     return NextResponse.json({ success: true, data: rows[0], error: null });

@@ -31,7 +31,8 @@ import {
 } from "@/lib/auth/session";
 import { signAccessToken, verifyAccessToken } from "@/lib/auth/jwt";
 import { redis } from "@/lib/redis";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getManifestValue } from "@/lib/manifest";
 import {
   validateCsrfState,
@@ -105,6 +106,47 @@ interface UserRow {
 }
 
 // ---------------------------------------------------------------------------
+// Drizzle select-column map — aliased to the UserRow (snake_case) shape so
+// the rest of this file (originally written against raw db.query rows) did
+// not need to be rewritten field-by-field.
+// ---------------------------------------------------------------------------
+
+const userSelectCols = {
+  id: schema.users.id,
+  email: schema.users.email,
+  username: schema.users.username,
+  google_id: schema.users.googleId,
+  is_email_verified: schema.users.isEmailVerified,
+  is_admin: schema.users.isAdmin,
+  is_moderator: schema.users.isModerator,
+  is_creator: schema.users.isCreator,
+  is_banned: schema.users.isBanned,
+  is_suspended: schema.users.isSuspended,
+  suspension_reason: schema.users.suspensionReason,
+  suspended_until: schema.users.suspendedUntil,
+  ban_reason: schema.users.banReason,
+  deleted_at: schema.users.deletedAt,
+  totp_enabled: schema.users.totpEnabled,
+  onboarding_completed: schema.users.onboardingCompleted,
+  display_name: schema.users.displayName,
+  avatar_emoji: schema.users.avatarEmoji,
+  avatar_url: schema.users.avatarUrl,
+  city: schema.users.city,
+  xp_total: schema.users.xpTotal,
+  rank_name: schema.users.rankName,
+  plan: schema.users.plan,
+} as const;
+
+/** Normalize a Drizzle row (bigint xp_total) into the plain UserRow shape. */
+function toUserRow(row: Record<string, unknown>): UserRow {
+  const xp = (row as { xp_total?: unknown }).xp_total;
+  return {
+    ...(row as unknown as UserRow),
+    xp_total: typeof xp === "bigint" ? Number(xp) : ((xp as number) ?? 0),
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -165,12 +207,16 @@ async function uniqueUsername(base: string): Promise<string> {
   // wrong matches (e.g. '.' matches any char) or catastrophic backtracking (ReDoS).
   // Strip to only safe alphanumeric/underscore characters.
   const safeBase = base.replace(/[^a-z0-9_]/gi, "").slice(0, DB_USERNAME_MAX_LENGTH) || "user";
-  const { rows } = await db.query<{ username: string }>(
-    `SELECT username FROM users
-     WHERE (username = $1 OR username ~ ('^' || $1 || '[0-9]+$'))
-       AND deleted_at IS NULL`,
-    [safeBase]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ username: schema.users.username })
+    .from(schema.users)
+    .where(
+      and(
+        sql`(${schema.users.username} = ${safeBase} OR ${schema.users.username} ~ ('^' || ${safeBase} || '[0-9]+$'))`,
+        isNull(schema.users.deletedAt)
+      )
+    );
   const taken = new Set(rows.map((r) => r.username));
   if (!taken.has(safeBase)) return safeBase;
   for (let i = 2; i < 10_000; i++) {
@@ -191,42 +237,35 @@ async function upsertGoogleUser(profile: {
   picture: string;
 }): Promise<UserRow> {
   // Check if a user with this Google ID already exists (including soft-deleted for reactivation)
-  const existing = await db.query<UserRow>(
-    `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
-            is_banned, is_suspended, suspension_reason, suspended_until, ban_reason, deleted_at,
-            totp_enabled, onboarding_completed, display_name, avatar_emoji, avatar_url, city, xp_total, rank_name, plan
-     FROM users
-     WHERE google_id = $1
-     LIMIT 1`,
-    [profile.googleId]
-  );
+  const orm = await getDb();
+  const [existingRow] = await orm
+    .select(userSelectCols)
+    .from(schema.users)
+    .where(eq(schema.users.googleId, profile.googleId))
+    .limit(1);
 
-  if (existing.rows[0]) {
-    const u = existing.rows[0];
+  if (existingRow) {
+    const u = toUserRow(existingRow);
     if (u.is_banned || u.is_suspended) await throwBlockedAccountError(u);
     // Reactivate if within grace period (soft-deleted but identifiers intact)
     if (u.deleted_at) {
-      await db.query(
-        `UPDATE users SET deleted_at = NULL, updated_at = NOW() WHERE id = $1`,
-        [u.id]
-      );
+      await orm
+        .update(schema.users)
+        .set({ deletedAt: null, updatedAt: new Date() })
+        .where(eq(schema.users.id, u.id));
     }
     return u;
   }
 
   // Check if email is already associated with a different account (no google_id match)
-  const emailMatch = await db.query<UserRow>(
-    `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
-            is_banned, is_suspended, suspension_reason, suspended_until, ban_reason, deleted_at,
-            totp_enabled, onboarding_completed, display_name, avatar_emoji, avatar_url, city, xp_total, rank_name, plan
-     FROM users
-     WHERE email = $1 AND deleted_at IS NULL
-     LIMIT 1`,
-    [profile.email]
-  );
+  const [emailMatchRow] = await orm
+    .select(userSelectCols)
+    .from(schema.users)
+    .where(and(eq(schema.users.email, profile.email), isNull(schema.users.deletedAt)))
+    .limit(1);
 
-  if (emailMatch.rows[0]) {
-    const u = emailMatch.rows[0];
+  if (emailMatchRow) {
+    const u = toUserRow(emailMatchRow);
     if (u.is_banned || u.is_suspended) await throwBlockedAccountError(u);
 
     // Only auto-link if the existing account's google_id is already set
@@ -244,11 +283,14 @@ async function upsertGoogleUser(profile: {
 
     if (u.is_email_verified === true) {
       // Existing account has a verified email — safe to link Google ID
-      await db.query(
-        `UPDATE users SET google_id = $1, avatar_url = COALESCE(avatar_url, $2), updated_at = NOW()
-         WHERE id = $3`,
-        [profile.googleId, profile.picture, u.id]
-      );
+      await orm
+        .update(schema.users)
+        .set({
+          googleId: profile.googleId,
+          avatarUrl: sql`COALESCE(${schema.users.avatarUrl}, ${profile.picture})`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.users.id, u.id));
       return u;
     }
 
@@ -275,33 +317,37 @@ async function upsertGoogleUser(profile: {
   for (let attempt = 0; attempt < 3; attempt++) {
     const candidateUsername = attempt === 0 ? username : await uniqueUsername(baseUsernameFromEmail(profile.email));
     try {
-      const inserted = await db.query<UserRow>(
-        `INSERT INTO users (google_id, email, username, display_name, avatar_url, onboarding_completed, is_admin, is_email_verified, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, false, false, true, NOW(), NOW())
-         RETURNING id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
-                   is_banned, is_suspended, deleted_at,
-                   totp_enabled, onboarding_completed,
-                   display_name, avatar_emoji, avatar_url, city, xp_total, rank_name, plan`,
-        [profile.googleId, profile.email, candidateUsername, profile.name, profile.picture]
-      );
-      if (inserted.rows[0]) return inserted.rows[0];
+      const [inserted] = await orm
+        .insert(schema.users)
+        .values({
+          googleId: profile.googleId,
+          email: profile.email,
+          username: candidateUsername,
+          displayName: profile.name,
+          avatarUrl: profile.picture,
+          onboardingCompleted: false,
+          isAdmin: false,
+          isEmailVerified: true,
+        })
+        .returning(userSelectCols);
+      if (inserted) return toUserRow(inserted);
     } catch (insertErr) {
-      const pgErr = insertErr as { code?: string; constraint?: string };
-      if (pgErr.code === "23505") {
+      const pgErr = insertErr as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } };
+      const code = pgErr.code ?? pgErr.cause?.code;
+      const constraint = pgErr.constraint ?? pgErr.cause?.constraint;
+      if (code === "23505") {
         // BUG-L07: distinguish username race from email race.
         // If the email unique constraint fired, a concurrent request just beat us
         // to the insert — look up and return that newly-created row instead of
         // retrying the insert (which would just fail again for the same reason).
-        const constraintName = pgErr.constraint ?? "";
+        const constraintName = constraint ?? "";
         if (constraintName.includes("email") || constraintName === "users_email_key") {
-          const raceMatch = await db.query<UserRow>(
-            `SELECT id, email, username, google_id, is_email_verified, is_admin, is_moderator, is_creator,
-                    is_banned, is_suspended, deleted_at,
-                    totp_enabled, onboarding_completed, display_name, avatar_emoji, avatar_url, city, xp_total, rank_name, plan
-             FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
-            [profile.email]
-          );
-          if (raceMatch.rows[0]) return raceMatch.rows[0];
+          const [raceMatch] = await orm
+            .select(userSelectCols)
+            .from(schema.users)
+            .where(and(eq(schema.users.email, profile.email), isNull(schema.users.deletedAt)))
+            .limit(1);
+          if (raceMatch) return toUserRow(raceMatch);
         }
         if (attempt < 2) continue;
       }

@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -44,13 +45,14 @@ interface BoostRow {
 export const GET = withAdminAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
-    const { rows } = await db.query<BoostRow>(
-      `SELECT b.id, b.feature_key, b.weight_multiplier, b.starts_at, b.ends_at, b.note, b.created_by,
+    const orm = await getDb();
+    const { rows } = await orm.execute<BoostRow & Record<string, unknown>>(sql`
+      SELECT b.id, b.feature_key, b.weight_multiplier, b.starts_at, b.ends_at, b.note, b.created_by,
               u.username AS created_by_username, b.created_at
        FROM quest_feature_boosts b
        LEFT JOIN users u ON u.id = b.created_by
-       ORDER BY b.ends_at DESC`
-    );
+       ORDER BY b.ends_at DESC
+    `);
     return NextResponse.json({ success: true, data: { boosts: rows, featureKeys: QUEST_FEATURE_KEYS }, error: null });
   } catch (err) {
     return handleApiError(err);
@@ -64,11 +66,11 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     if (new Date(body.endsAt) <= new Date(body.startsAt)) {
       throw badRequest("endsAt must be after startsAt");
     }
-    const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO quest_feature_boosts (feature_key, weight_multiplier, starts_at, ends_at, note, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [body.featureKey, body.weightMultiplier, body.startsAt, body.endsAt, body.note ?? null, auth.user.sub]
-    );
+    const orm = await getDb();
+    const { rows } = await orm.execute<{ id: string }>(sql`
+      INSERT INTO quest_feature_boosts (feature_key, weight_multiplier, starts_at, ends_at, note, created_by)
+       VALUES (${body.featureKey}, ${body.weightMultiplier}, ${body.startsAt}, ${body.endsAt}, ${body.note ?? null}, ${auth.user.sub}) RETURNING id
+    `);
     return NextResponse.json({ success: true, data: { boostId: rows[0].id }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

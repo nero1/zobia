@@ -5,8 +5,11 @@
  * Mirrors lib/blogs/repo.ts's cursor-pagination and row-shape conventions.
  */
 
-import { db } from "@/lib/db";
-import type { SqlParam, TransactionClient } from "@/lib/db/interface";
+import { and, asc, desc, eq, ilike, lt, ne, sql, type SQL } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
+
+const lastEditorUsers = alias(schema.users, "wiki_repo_last_editor");
 
 export interface WikiSummaryRow {
   id: string;
@@ -27,14 +30,39 @@ export interface WikiSummaryRow {
 
 export type WikiTab = "popular" | "trending" | "new" | "random";
 
-const WIKI_SELECT = `
-  SELECT w.id, w.owner_id, w.slug, w.name, w.description, w.avatar_url, w.cover_image_url,
-         w.contribute_policy, w.status, w.page_count, w.contributor_count, w.view_count, w.created_at,
-         u.username AS owner_username
-  FROM wikis w
-  JOIN users u ON u.id = w.owner_id
-  WHERE w.status = 'active' AND w.deleted_at IS NULL
-`;
+function toSummary(row: {
+  id: string;
+  ownerId: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  avatarUrl: string | null;
+  coverImageUrl: string | null;
+  contributePolicy: string;
+  status: string;
+  pageCount: number;
+  contributorCount: number;
+  viewCount: number;
+  createdAt: Date;
+  ownerUsername: string | null;
+}): WikiSummaryRow {
+  return {
+    id: row.id,
+    owner_id: row.ownerId,
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    avatar_url: row.avatarUrl,
+    cover_image_url: row.coverImageUrl,
+    contribute_policy: row.contributePolicy,
+    status: row.status,
+    page_count: row.pageCount,
+    contributor_count: row.contributorCount,
+    view_count: row.viewCount,
+    created_at: row.createdAt.toISOString(),
+    owner_username: row.ownerUsername,
+  };
+}
 
 export interface ListWikisResult {
   wikis: WikiSummaryRow[];
@@ -48,35 +76,47 @@ export async function listWikis(
   limit: number,
   search?: string
 ): Promise<ListWikisResult> {
-  const params: SqlParam[] = [];
-  let where = "";
-  if (search?.trim()) {
-    params.push(`%${search.trim()}%`);
-    where += ` AND w.name ILIKE $${params.length}`;
-  }
+  const orm = await getDb();
 
-  let orderBy = "w.view_count DESC, w.page_count DESC";
-  if (tab === "trending") orderBy = "w.edit_count DESC, w.updated_at DESC";
-  else if (tab === "new") orderBy = "w.created_at DESC";
-  else if (tab === "random") orderBy = "RANDOM()";
+  const conditions: SQL[] = [eq(schema.wikis.status, "active"), sql`${schema.wikis.deletedAt} IS NULL`];
+  if (search?.trim()) conditions.push(ilike(schema.wikis.name, `%${search.trim()}%`));
+  if (cursor && tab !== "random") conditions.push(lt(schema.wikis.id, cursor));
 
-  let cursorClause = "";
-  if (cursor && tab !== "random") {
-    params.push(cursor);
-    cursorClause = ` AND w.id < $${params.length}::uuid`;
-  }
+  let orderBy: SQL[];
+  if (tab === "trending") orderBy = [desc(schema.wikis.editCount), desc(schema.wikis.updatedAt)];
+  else if (tab === "new") orderBy = [desc(schema.wikis.createdAt)];
+  else if (tab === "random") orderBy = [sql`RANDOM()`];
+  else orderBy = [desc(schema.wikis.viewCount), desc(schema.wikis.pageCount)];
 
-  params.push(limit + 1);
-  const { rows } = await db.query<WikiSummaryRow>(
-    `${WIKI_SELECT}${where}${cursorClause} ORDER BY ${orderBy} LIMIT $${params.length}`,
-    params
-  );
+  const rows = await orm
+    .select({
+      id: schema.wikis.id,
+      ownerId: schema.wikis.ownerId,
+      slug: schema.wikis.slug,
+      name: schema.wikis.name,
+      description: schema.wikis.description,
+      avatarUrl: schema.wikis.avatarUrl,
+      coverImageUrl: schema.wikis.coverImageUrl,
+      contributePolicy: schema.wikis.contributePolicy,
+      status: schema.wikis.status,
+      pageCount: schema.wikis.pageCount,
+      contributorCount: schema.wikis.contributorCount,
+      viewCount: schema.wikis.viewCount,
+      createdAt: schema.wikis.createdAt,
+      ownerUsername: schema.users.username,
+    })
+    .from(schema.wikis)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikis.ownerId))
+    .where(and(...conditions))
+    .orderBy(...orderBy)
+    .limit(limit + 1);
 
   const hasMore = rows.length > limit;
   const page = hasMore ? rows.slice(0, limit) : rows;
+  const wikis = page.map(toSummary);
   return {
-    wikis: page,
-    nextCursor: hasMore ? page[page.length - 1]?.id ?? null : null,
+    wikis,
+    nextCursor: hasMore ? wikis[wikis.length - 1]?.id ?? null : null,
     hasMore,
   };
 }
@@ -88,58 +128,126 @@ export interface WikiRow extends WikiSummaryRow {
   owner_avatar_url: string | null;
 }
 
+function wikiFullSelection() {
+  return {
+    id: schema.wikis.id,
+    ownerId: schema.wikis.ownerId,
+    slug: schema.wikis.slug,
+    name: schema.wikis.name,
+    description: schema.wikis.description,
+    avatarUrl: schema.wikis.avatarUrl,
+    coverImageUrl: schema.wikis.coverImageUrl,
+    contributePolicy: schema.wikis.contributePolicy,
+    status: schema.wikis.status,
+    statusReason: schema.wikis.statusReason,
+    pageCount: schema.wikis.pageCount,
+    contributorCount: schema.wikis.contributorCount,
+    viewCount: schema.wikis.viewCount,
+    editCount: schema.wikis.editCount,
+    createdAt: schema.wikis.createdAt,
+    ownerUsername: schema.users.username,
+    ownerDisplayName: schema.users.displayName,
+    ownerAvatarUrl: schema.users.avatarUrl,
+  };
+}
+
+interface WikiFullSelectionRow {
+  id: string;
+  ownerId: string;
+  slug: string;
+  name: string;
+  description: string | null;
+  avatarUrl: string | null;
+  coverImageUrl: string | null;
+  contributePolicy: string;
+  status: string;
+  statusReason: string | null;
+  pageCount: number;
+  contributorCount: number;
+  viewCount: number;
+  editCount: number;
+  createdAt: Date;
+  ownerUsername: string | null;
+  ownerDisplayName: string | null;
+  ownerAvatarUrl: string | null;
+}
+
+function toFullRow(row: WikiFullSelectionRow): WikiRow {
+  return {
+    ...toSummary(row),
+    status_reason: row.statusReason,
+    edit_count: row.editCount,
+    owner_display_name: row.ownerDisplayName,
+    owner_avatar_url: row.ownerAvatarUrl,
+  };
+}
+
 export async function getWikiBySlug(slug: string): Promise<WikiRow | null> {
-  const { rows } = await db.query<WikiRow>(
-    `SELECT w.*, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url
-     FROM wikis w JOIN users u ON u.id = w.owner_id
-     WHERE w.slug = $1 AND w.deleted_at IS NULL LIMIT 1`,
-    [slug]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select(wikiFullSelection())
+    .from(schema.wikis)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikis.ownerId))
+    .where(and(eq(schema.wikis.slug, slug), sql`${schema.wikis.deletedAt} IS NULL`))
+    .limit(1);
+  return row ? toFullRow(row) : null;
 }
 
 export async function getWikiById(id: string): Promise<WikiRow | null> {
-  const { rows } = await db.query<WikiRow>(
-    `SELECT w.*, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url
-     FROM wikis w JOIN users u ON u.id = w.owner_id
-     WHERE w.id = $1 AND w.deleted_at IS NULL LIMIT 1`,
-    [id]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select(wikiFullSelection())
+    .from(schema.wikis)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikis.ownerId))
+    .where(and(eq(schema.wikis.id, id), sql`${schema.wikis.deletedAt} IS NULL`))
+    .limit(1);
+  return row ? toFullRow(row) : null;
 }
 
 export async function getWikisOwnedBy(ownerId: string): Promise<WikiRow[]> {
-  const { rows } = await db.query<WikiRow>(
-    `SELECT w.*, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url
-     FROM wikis w JOIN users u ON u.id = w.owner_id
-     WHERE w.owner_id = $1 AND w.deleted_at IS NULL
-     ORDER BY w.created_at DESC`,
-    [ownerId]
-  );
-  return rows;
+  const orm = await getDb();
+  const rows = await orm
+    .select(wikiFullSelection())
+    .from(schema.wikis)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikis.ownerId))
+    .where(and(eq(schema.wikis.ownerId, ownerId), sql`${schema.wikis.deletedAt} IS NULL`))
+    .orderBy(desc(schema.wikis.createdAt));
+  return rows.map(toFullRow);
 }
 
 /** Wikis a user actively collaborates on (any role), excluding ones they own. */
 export async function getWikisContributedTo(userId: string): Promise<WikiRow[]> {
-  const { rows } = await db.query<WikiRow>(
-    `SELECT w.*, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url
-     FROM wikis w
-     JOIN users u ON u.id = w.owner_id
-     JOIN wiki_collaborators c ON c.wiki_id = w.id AND c.user_id = $1 AND c.status = 'active'
-     WHERE w.deleted_at IS NULL AND w.owner_id != $1
-     ORDER BY w.updated_at DESC`,
-    [userId]
-  );
-  return rows;
+  const orm = await getDb();
+  const rows = await orm
+    .select(wikiFullSelection())
+    .from(schema.wikis)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikis.ownerId))
+    .innerJoin(
+      schema.wikiCollaborators,
+      and(
+        eq(schema.wikiCollaborators.wikiId, schema.wikis.id),
+        eq(schema.wikiCollaborators.userId, userId),
+        eq(schema.wikiCollaborators.status, "active")
+      )
+    )
+    .where(and(sql`${schema.wikis.deletedAt} IS NULL`, ne(schema.wikis.ownerId, userId)))
+    .orderBy(desc(schema.wikis.updatedAt));
+  return rows.map(toFullRow);
 }
 
-export async function countOwnedWikis(ownerId: string, tx?: TransactionClient): Promise<number> {
-  const client = tx ?? db;
-  const { rows } = await client.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM wikis WHERE owner_id = $1 AND deleted_at IS NULL AND status != 'deactivated'`,
-    [ownerId]
-  );
-  return parseInt(rows[0]?.count ?? "0", 10);
+export async function countOwnedWikis(ownerId: string, tx?: DbOrTx): Promise<number> {
+  const orm = tx ?? (await getDb());
+  const [row] = await orm
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(schema.wikis)
+    .where(
+      and(
+        eq(schema.wikis.ownerId, ownerId),
+        sql`${schema.wikis.deletedAt} IS NULL`,
+        ne(schema.wikis.status, "deactivated")
+      )
+    );
+  return row?.count ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,38 +268,49 @@ export interface WikiPageSummaryRow {
   updated_at: string;
 }
 
+function toPageSummary(row: typeof schema.wikiPages.$inferSelect): WikiPageSummaryRow {
+  return {
+    id: row.id,
+    wiki_id: row.wikiId,
+    slug: row.slug,
+    title: row.title,
+    status: row.status,
+    revision_count: row.revisionCount,
+    view_count: row.viewCount,
+    created_by: row.createdBy,
+    last_edited_by: row.lastEditedBy,
+    created_at: row.createdAt.toISOString(),
+    updated_at: row.updatedAt.toISOString(),
+  };
+}
+
 export async function listWikiPages(
   wikiId: string,
   opts: { cursor?: string | null; limit: number; search?: string }
 ): Promise<{ pages: WikiPageSummaryRow[]; nextCursor: string | null; hasMore: boolean }> {
-  const params: SqlParam[] = [wikiId];
-  let where = "WHERE p.wiki_id = $1 AND p.deleted_at IS NULL AND p.status = 'published'";
+  const orm = await getDb();
 
-  if (opts.search?.trim()) {
-    params.push(`%${opts.search.trim()}%`);
-    where += ` AND p.title ILIKE $${params.length}`;
-  }
-  if (opts.cursor) {
-    params.push(opts.cursor);
-    where += ` AND p.id < $${params.length}::uuid`;
-  }
+  const conditions: SQL[] = [
+    eq(schema.wikiPages.wikiId, wikiId),
+    sql`${schema.wikiPages.deletedAt} IS NULL`,
+    eq(schema.wikiPages.status, "published"),
+  ];
+  if (opts.search?.trim()) conditions.push(ilike(schema.wikiPages.title, `%${opts.search.trim()}%`));
+  if (opts.cursor) conditions.push(lt(schema.wikiPages.id, opts.cursor));
 
-  params.push(opts.limit + 1);
-  const { rows } = await db.query<WikiPageSummaryRow>(
-    `SELECT p.id, p.wiki_id, p.slug, p.title, p.status, p.revision_count, p.view_count,
-            p.created_by, p.last_edited_by, p.created_at, p.updated_at
-     FROM wiki_pages p
-     ${where}
-     ORDER BY p.title ASC
-     LIMIT $${params.length}`,
-    params
-  );
+  const rows = await orm
+    .select()
+    .from(schema.wikiPages)
+    .where(and(...conditions))
+    .orderBy(asc(schema.wikiPages.title))
+    .limit(opts.limit + 1);
 
   const hasMore = rows.length > opts.limit;
   const page = hasMore ? rows.slice(0, opts.limit) : rows;
+  const pages = page.map(toPageSummary);
   return {
-    pages: page,
-    nextCursor: hasMore ? page[page.length - 1]?.id ?? null : null,
+    pages,
+    nextCursor: hasMore ? pages[pages.length - 1]?.id ?? null : null,
     hasMore,
   };
 }
@@ -205,36 +324,62 @@ export interface WikiPageRow extends WikiPageSummaryRow {
 }
 
 export async function getWikiPageBySlug(wikiId: string, pageSlug: string): Promise<WikiPageRow | null> {
-  const { rows } = await db.query<WikiPageRow>(
-    `SELECT p.*, cu.username AS creator_username, eu.username AS last_editor_username
-     FROM wiki_pages p
-     JOIN users cu ON cu.id = p.created_by
-     LEFT JOIN users eu ON eu.id = p.last_edited_by
-     WHERE p.wiki_id = $1 AND p.slug = $2 AND p.deleted_at IS NULL LIMIT 1`,
-    [wikiId, pageSlug]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      page: schema.wikiPages,
+      creatorUsername: schema.users.username,
+      lastEditorUsername: lastEditorUsers.username,
+    })
+    .from(schema.wikiPages)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikiPages.createdBy))
+    .leftJoin(lastEditorUsers, eq(lastEditorUsers.id, schema.wikiPages.lastEditedBy))
+    .where(
+      and(eq(schema.wikiPages.wikiId, wikiId), eq(schema.wikiPages.slug, pageSlug), sql`${schema.wikiPages.deletedAt} IS NULL`)
+    )
+    .limit(1);
+  if (!row) return null;
+  return {
+    ...toPageSummary(row.page),
+    content_markdown: row.page.contentMarkdown,
+    content_html: row.page.contentHtml,
+    content_format: row.page.contentFormat,
+    creator_username: row.creatorUsername,
+    last_editor_username: row.lastEditorUsername,
+  };
 }
 
 export async function getWikiPageById(pageId: string): Promise<WikiPageRow | null> {
-  const { rows } = await db.query<WikiPageRow>(
-    `SELECT p.*, cu.username AS creator_username, eu.username AS last_editor_username
-     FROM wiki_pages p
-     JOIN users cu ON cu.id = p.created_by
-     LEFT JOIN users eu ON eu.id = p.last_edited_by
-     WHERE p.id = $1 AND p.deleted_at IS NULL LIMIT 1`,
-    [pageId]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      page: schema.wikiPages,
+      creatorUsername: schema.users.username,
+      lastEditorUsername: lastEditorUsers.username,
+    })
+    .from(schema.wikiPages)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikiPages.createdBy))
+    .leftJoin(lastEditorUsers, eq(lastEditorUsers.id, schema.wikiPages.lastEditedBy))
+    .where(and(eq(schema.wikiPages.id, pageId), sql`${schema.wikiPages.deletedAt} IS NULL`))
+    .limit(1);
+  if (!row) return null;
+  return {
+    ...toPageSummary(row.page),
+    content_markdown: row.page.contentMarkdown,
+    content_html: row.page.contentHtml,
+    content_format: row.page.contentFormat,
+    creator_username: row.creatorUsername,
+    last_editor_username: row.lastEditorUsername,
+  };
 }
 
-export async function countActivePages(wikiId: string, tx?: TransactionClient): Promise<number> {
-  const client = tx ?? db;
-  const { rows } = await client.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM wiki_pages WHERE wiki_id = $1 AND deleted_at IS NULL`,
-    [wikiId]
-  );
-  return parseInt(rows[0]?.count ?? "0", 10);
+export async function countActivePages(wikiId: string, tx?: DbOrTx): Promise<number> {
+  const orm = tx ?? (await getDb());
+  const [row] = await orm
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(schema.wikiPages)
+    .where(and(eq(schema.wikiPages.wikiId, wikiId), sql`${schema.wikiPages.deletedAt} IS NULL`));
+  return row?.count ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -255,29 +400,71 @@ export interface WikiPageRevisionRow {
 }
 
 export async function listPageRevisions(pageId: string, limit = 100): Promise<WikiPageRevisionRow[]> {
-  const { rows } = await db.query<WikiPageRevisionRow>(
-    `SELECT r.id, r.page_id, r.revision_number, r.title, r.content_markdown, r.content_format,
-            r.edit_summary, r.edited_by, u.username AS editor_username, r.created_at
-     FROM wiki_page_revisions r
-     JOIN users u ON u.id = r.edited_by
-     WHERE r.page_id = $1
-     ORDER BY r.revision_number DESC
-     LIMIT $2`,
-    [pageId, limit]
-  );
-  return rows;
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: schema.wikiPageRevisions.id,
+      pageId: schema.wikiPageRevisions.pageId,
+      revisionNumber: schema.wikiPageRevisions.revisionNumber,
+      title: schema.wikiPageRevisions.title,
+      contentMarkdown: schema.wikiPageRevisions.contentMarkdown,
+      contentFormat: schema.wikiPageRevisions.contentFormat,
+      editSummary: schema.wikiPageRevisions.editSummary,
+      editedBy: schema.wikiPageRevisions.editedBy,
+      editorUsername: schema.users.username,
+      createdAt: schema.wikiPageRevisions.createdAt,
+    })
+    .from(schema.wikiPageRevisions)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikiPageRevisions.editedBy))
+    .where(eq(schema.wikiPageRevisions.pageId, pageId))
+    .orderBy(desc(schema.wikiPageRevisions.revisionNumber))
+    .limit(limit);
+  return rows.map((r) => ({
+    id: r.id,
+    page_id: r.pageId,
+    revision_number: r.revisionNumber,
+    title: r.title,
+    content_markdown: r.contentMarkdown,
+    content_format: r.contentFormat,
+    edit_summary: r.editSummary,
+    edited_by: r.editedBy,
+    editor_username: r.editorUsername,
+    created_at: r.createdAt.toISOString(),
+  }));
 }
 
 export async function getPageRevision(pageId: string, revisionNumber: number): Promise<WikiPageRevisionRow | null> {
-  const { rows } = await db.query<WikiPageRevisionRow>(
-    `SELECT r.id, r.page_id, r.revision_number, r.title, r.content_markdown, r.content_format,
-            r.edit_summary, r.edited_by, u.username AS editor_username, r.created_at
-     FROM wiki_page_revisions r
-     JOIN users u ON u.id = r.edited_by
-     WHERE r.page_id = $1 AND r.revision_number = $2 LIMIT 1`,
-    [pageId, revisionNumber]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [r] = await orm
+    .select({
+      id: schema.wikiPageRevisions.id,
+      pageId: schema.wikiPageRevisions.pageId,
+      revisionNumber: schema.wikiPageRevisions.revisionNumber,
+      title: schema.wikiPageRevisions.title,
+      contentMarkdown: schema.wikiPageRevisions.contentMarkdown,
+      contentFormat: schema.wikiPageRevisions.contentFormat,
+      editSummary: schema.wikiPageRevisions.editSummary,
+      editedBy: schema.wikiPageRevisions.editedBy,
+      editorUsername: schema.users.username,
+      createdAt: schema.wikiPageRevisions.createdAt,
+    })
+    .from(schema.wikiPageRevisions)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikiPageRevisions.editedBy))
+    .where(and(eq(schema.wikiPageRevisions.pageId, pageId), eq(schema.wikiPageRevisions.revisionNumber, revisionNumber)))
+    .limit(1);
+  if (!r) return null;
+  return {
+    id: r.id,
+    page_id: r.pageId,
+    revision_number: r.revisionNumber,
+    title: r.title,
+    content_markdown: r.contentMarkdown,
+    content_format: r.contentFormat,
+    edit_summary: r.editSummary,
+    edited_by: r.editedBy,
+    editor_username: r.editorUsername,
+    created_at: r.createdAt.toISOString(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -299,38 +486,82 @@ export interface WikiCollaboratorRow {
   avatar_url: string | null;
 }
 
+function collaboratorSelection() {
+  return {
+    id: schema.wikiCollaborators.id,
+    wikiId: schema.wikiCollaborators.wikiId,
+    userId: schema.wikiCollaborators.userId,
+    role: schema.wikiCollaborators.role,
+    isModerator: schema.wikiCollaborators.isModerator,
+    moderatorGrantedAt: schema.wikiCollaborators.moderatorGrantedAt,
+    status: schema.wikiCollaborators.status,
+    pageEditCount: schema.wikiCollaborators.pageEditCount,
+    createdAt: schema.wikiCollaborators.createdAt,
+    username: schema.users.username,
+    displayName: schema.users.displayName,
+    avatarUrl: schema.users.avatarUrl,
+  };
+}
+
+function toCollaboratorRow(row: {
+  id: string;
+  wikiId: string;
+  userId: string;
+  role: string;
+  isModerator: boolean;
+  moderatorGrantedAt: Date | null;
+  status: string;
+  pageEditCount: number;
+  createdAt: Date;
+  username: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+}): WikiCollaboratorRow {
+  return {
+    id: row.id,
+    wiki_id: row.wikiId,
+    user_id: row.userId,
+    role: row.role,
+    is_moderator: row.isModerator,
+    moderator_granted_at: row.moderatorGrantedAt ? row.moderatorGrantedAt.toISOString() : null,
+    status: row.status,
+    page_edit_count: row.pageEditCount,
+    created_at: row.createdAt.toISOString(),
+    username: row.username,
+    display_name: row.displayName,
+    avatar_url: row.avatarUrl,
+  };
+}
+
 export async function listCollaborators(wikiId: string): Promise<WikiCollaboratorRow[]> {
-  const { rows } = await db.query<WikiCollaboratorRow>(
-    `SELECT c.id, c.wiki_id, c.user_id, c.role, c.is_moderator, c.moderator_granted_at, c.status,
-            c.page_edit_count, c.created_at, u.username, u.display_name, u.avatar_url
-     FROM wiki_collaborators c
-     JOIN users u ON u.id = c.user_id
-     WHERE c.wiki_id = $1 AND c.status = 'active'
-     ORDER BY c.is_moderator DESC, c.page_edit_count DESC, c.created_at ASC`,
-    [wikiId]
-  );
-  return rows;
+  const orm = await getDb();
+  const rows = await orm
+    .select(collaboratorSelection())
+    .from(schema.wikiCollaborators)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikiCollaborators.userId))
+    .where(and(eq(schema.wikiCollaborators.wikiId, wikiId), eq(schema.wikiCollaborators.status, "active")))
+    .orderBy(desc(schema.wikiCollaborators.isModerator), desc(schema.wikiCollaborators.pageEditCount), asc(schema.wikiCollaborators.createdAt));
+  return rows.map(toCollaboratorRow);
 }
 
 export async function getCollaborator(wikiId: string, userId: string): Promise<WikiCollaboratorRow | null> {
-  const { rows } = await db.query<WikiCollaboratorRow>(
-    `SELECT c.id, c.wiki_id, c.user_id, c.role, c.is_moderator, c.moderator_granted_at, c.status,
-            c.page_edit_count, c.created_at, u.username, u.display_name, u.avatar_url
-     FROM wiki_collaborators c
-     JOIN users u ON u.id = c.user_id
-     WHERE c.wiki_id = $1 AND c.user_id = $2 LIMIT 1`,
-    [wikiId, userId]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select(collaboratorSelection())
+    .from(schema.wikiCollaborators)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikiCollaborators.userId))
+    .where(and(eq(schema.wikiCollaborators.wikiId, wikiId), eq(schema.wikiCollaborators.userId, userId)))
+    .limit(1);
+  return row ? toCollaboratorRow(row) : null;
 }
 
-export async function countSelectedCollaborators(wikiId: string, tx?: TransactionClient): Promise<number> {
-  const client = tx ?? db;
-  const { rows } = await client.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM wiki_collaborators WHERE wiki_id = $1 AND status = 'active'`,
-    [wikiId]
-  );
-  return parseInt(rows[0]?.count ?? "0", 10);
+export async function countSelectedCollaborators(wikiId: string, tx?: DbOrTx): Promise<number> {
+  const orm = tx ?? (await getDb());
+  const [row] = await orm
+    .select({ count: sql<number>`COUNT(*)::int` })
+    .from(schema.wikiCollaborators)
+    .where(and(eq(schema.wikiCollaborators.wikiId, wikiId), eq(schema.wikiCollaborators.status, "active")));
+  return row?.count ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -350,26 +581,40 @@ export interface WikiInviteRow {
   invited_username: string | null;
 }
 
+function toInviteRow(row: typeof schema.wikiInvites.$inferSelect, invitedUsername: string | null): WikiInviteRow {
+  return {
+    id: row.id,
+    wiki_id: row.wikiId,
+    token: row.token,
+    invited_user_id: row.invitedUserId,
+    created_by: row.createdBy,
+    expires_at: row.expiresAt.toISOString(),
+    used_at: row.usedAt ? row.usedAt.toISOString() : null,
+    used_by_user_id: row.usedByUserId,
+    created_at: row.createdAt.toISOString(),
+    invited_username: invitedUsername,
+  };
+}
+
 export async function listWikiInvites(wikiId: string): Promise<WikiInviteRow[]> {
-  const { rows } = await db.query<WikiInviteRow>(
-    `SELECT i.*, u.username AS invited_username
-     FROM wiki_invites i
-     LEFT JOIN users u ON u.id = i.invited_user_id
-     WHERE i.wiki_id = $1
-     ORDER BY i.created_at DESC
-     LIMIT 200`,
-    [wikiId]
-  );
-  return rows;
+  const orm = await getDb();
+  const rows = await orm
+    .select({ invite: schema.wikiInvites, invitedUsername: schema.users.username })
+    .from(schema.wikiInvites)
+    .leftJoin(schema.users, eq(schema.users.id, schema.wikiInvites.invitedUserId))
+    .where(eq(schema.wikiInvites.wikiId, wikiId))
+    .orderBy(desc(schema.wikiInvites.createdAt))
+    .limit(200);
+  return rows.map((r) => toInviteRow(r.invite, r.invitedUsername));
 }
 
 export async function getInviteByToken(token: string): Promise<WikiInviteRow | null> {
-  const { rows } = await db.query<WikiInviteRow>(
-    `SELECT i.*, u.username AS invited_username
-     FROM wiki_invites i
-     LEFT JOIN users u ON u.id = i.invited_user_id
-     WHERE i.token = $1 LIMIT 1`,
-    [token]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ invite: schema.wikiInvites, invitedUsername: schema.users.username })
+    .from(schema.wikiInvites)
+    .leftJoin(schema.users, eq(schema.users.id, schema.wikiInvites.invitedUserId))
+    .where(eq(schema.wikiInvites.token, token))
+    .limit(1);
+  return row ? toInviteRow(row.invite, row.invitedUsername) : null;
 }

@@ -11,9 +11,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, eq, isNull } from "drizzle-orm";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 interface FollowCtx {
@@ -31,18 +32,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }: FollowCt
     if (!targetId) throw badRequest("userId is required");
     if (targetId === callerId) throw badRequest("Cannot follow yourself");
 
-    const { rows: targetRows } = await db.query(
-      "SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1",
-      [targetId]
-    );
-    if (!targetRows[0]) throw notFound("User not found");
+    const db = await getDb();
 
-    await db.query(
-      `INSERT INTO follows (follower_id, following_id)
-       VALUES ($1, $2)
-       ON CONFLICT (follower_id, following_id) DO NOTHING`,
-      [callerId, targetId]
-    );
+    const [targetRow] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, targetId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    if (!targetRow) throw notFound("User not found");
+
+    await db
+      .insert(schema.follows)
+      .values({ followerId: callerId, followingId: targetId })
+      .onConflictDoNothing();
 
     return NextResponse.json({ success: true });
   } catch (err) {

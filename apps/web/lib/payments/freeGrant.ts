@@ -14,7 +14,7 @@
  * @module lib/payments/freeGrant
  */
 
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 import { processChargeSuccess, type PaystackChargeEvent } from "@/lib/payments/paystackWebhookHandler";
 
@@ -26,14 +26,21 @@ export async function grantFreePayment(params: {
   idempotencyKey: string;
   metadata: PaystackChargeEvent["data"]["metadata"];
 }): Promise<void> {
-  await db.query(
-    `INSERT INTO payments
-       (user_id, payment_type, amount_kobo, currency, provider, status,
-        idempotency_key, provider_reference, metadata)
-     VALUES ($1, $2, $3, $4, 'free', 'pending', $5, $5, $6)
-     ON CONFLICT (idempotency_key) DO NOTHING`,
-    [params.userId, params.paymentType, params.amountKobo, params.currency, params.idempotencyKey, JSON.stringify(params.metadata)]
-  );
+  const orm = await getDb();
+  await orm
+    .insert(schema.payments)
+    .values({
+      userId: params.userId,
+      paymentType: params.paymentType,
+      amountKobo: BigInt(params.amountKobo),
+      currency: params.currency,
+      provider: "free",
+      status: "pending",
+      idempotencyKey: params.idempotencyKey,
+      providerReference: params.idempotencyKey,
+      metadata: params.metadata,
+    })
+    .onConflictDoNothing({ target: schema.payments.idempotencyKey });
 
   logger.info({ userId: params.userId, paymentType: params.paymentType, idempotencyKey: params.idempotencyKey }, "[payments/freeGrant] Granting purchase for free (admin is_free toggle)");
 

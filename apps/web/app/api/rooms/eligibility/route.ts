@@ -20,7 +20,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 
@@ -28,43 +29,49 @@ const CREATOR_TIERS_ALLOWED = ["rising", "verified", "elite", "icon"] as const;
 
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
-    const { rows: userRows } = await db.query<{
-      creator_role: boolean;
-      creator_tier: string | null;
-      is_admin: boolean;
-    }>(
-      `SELECT creator_role, creator_tier, is_admin
-       FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [auth.user.sub]
-    );
+    const db = await getDb();
+    const userRows = await db
+      .select({
+        creatorRole: schema.users.creatorRole,
+        creatorTier: schema.users.creatorTier,
+        isAdmin: schema.users.isAdmin,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)));
     const user = userRows[0];
     if (!user) throw forbidden("User not found");
 
-    const isAdmin = user.is_admin;
+    const isAdmin = user.isAdmin;
     const isCreatorEligible =
       isAdmin ||
-      user.creator_role ||
-      (user.creator_tier !== null &&
-        CREATOR_TIERS_ALLOWED.includes(user.creator_tier as (typeof CREATOR_TIERS_ALLOWED)[number]));
+      user.creatorRole ||
+      (user.creatorTier !== null &&
+        CREATOR_TIERS_ALLOWED.includes(user.creatorTier as (typeof CREATOR_TIERS_ALLOWED)[number]));
 
     let hasEligibleGuild = false;
     let guilds: Array<{ id: string; name: string; tier: string }> = [];
     if (isAdmin) {
       // Admins can attach a Guild Room to any guild — offer the full list.
-      const { rows } = await db.query<{ id: string; name: string; tier: string }>(
-        `SELECT id, name, tier FROM guilds ORDER BY name ASC LIMIT 200`
-      );
+      const rows = await db
+        .select({ id: schema.guilds.id, name: schema.guilds.name, tier: schema.guilds.tier })
+        .from(schema.guilds)
+        .orderBy(asc(schema.guilds.name))
+        .limit(200);
       guilds = rows;
       hasEligibleGuild = rows.length > 0;
     } else {
       const platinumAndAbove = ["platinum_1", "platinum_2", "platinum_3", "legend"];
-      const { rows } = await db.query<{ id: string; name: string; tier: string }>(
-        `SELECT g.id, g.name, g.tier FROM guilds g
-         JOIN guild_members gm ON gm.guild_id = g.id
-         WHERE gm.user_id = $1 AND gm.role IN ('owner', 'admin')
-         ORDER BY g.name ASC`,
-        [auth.user.sub]
-      );
+      const rows = await db
+        .select({ id: schema.guilds.id, name: schema.guilds.name, tier: schema.guilds.tier })
+        .from(schema.guilds)
+        .innerJoin(schema.guildMembers, eq(schema.guildMembers.guildId, schema.guilds.id))
+        .where(
+          and(
+            eq(schema.guildMembers.userId, auth.user.sub),
+            inArray(schema.guildMembers.role, ["owner", "admin"])
+          )
+        )
+        .orderBy(asc(schema.guilds.name));
       guilds = rows.filter((g) => platinumAndAbove.includes(g.tier));
       hasEligibleGuild = guilds.length > 0;
     }

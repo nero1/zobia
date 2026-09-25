@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { assignNemesis } from "@/lib/nemesis/nemesisEngine";
@@ -19,17 +20,17 @@ import { assignNemesis } from "@/lib/nemesis/nemesisEngine";
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // Mark current assignment as dismissed and inactive so it is never returned by GET/challenge
-    const { rowCount } = await db.query(
-      `UPDATE nemesis_assignments
-       SET dismissed_at = NOW(), is_active = false
-       WHERE user_id = $1 AND is_active = true`,
-      [userId]
-    );
+    const updateResult = await orm
+      .update(schema.nemesisAssignments)
+      .set({ dismissedAt: sql`NOW()`, isActive: false })
+      .where(and(eq(schema.nemesisAssignments.userId, userId), eq(schema.nemesisAssignments.isActive, true)));
+    const rowCount = updateResult.rowCount;
 
     // Assign a fresh nemesis immediately
-    const newAssignment = await assignNemesis(userId, db);
+    const newAssignment = await assignNemesis(userId, orm);
 
     return NextResponse.json({
       success: true,

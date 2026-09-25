@@ -15,9 +15,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 
 interface DlqRow {
   id: string;
@@ -46,10 +47,11 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10), 200);
     const offset = Math.max(parseInt(url.searchParams.get("offset") ?? "0", 10), 0);
 
-    const whereClause = includeResolved ? "" : "WHERE d.resolved_at IS NULL";
+    const whereClause = includeResolved ? sql`` : sql`WHERE d.resolved_at IS NULL`;
 
-    const { rows } = await db.query<DlqRow>(
-      `SELECT
+    const orm = await getDb();
+    const { rows } = await orm.execute<DlqRow & Record<string, unknown>>(sql`
+      SELECT
          d.id,
          d.payout_id,
          d.creator_id,
@@ -71,15 +73,14 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
        JOIN users u ON u.id = d.creator_id
        ${whereClause}
        ORDER BY d.created_at DESC
-       LIMIT $1 OFFSET $2`,
-      [limit, offset]
-    );
+       LIMIT ${limit} OFFSET ${offset}
+    `);
 
-    const { rows: countRows } = await db.query<{ total: string }>(
-      `SELECT COUNT(*)::TEXT AS total
+    const { rows: countRows } = await orm.execute<{ total: string }>(sql`
+      SELECT COUNT(*)::TEXT AS total
        FROM payout_dead_letter_queue d
-       ${whereClause}`
-    );
+       ${whereClause}
+    `);
 
     return NextResponse.json({
       items: rows.map((d) => ({

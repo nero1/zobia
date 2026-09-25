@@ -2035,6 +2035,16 @@ All three supported providers use standard PostgreSQL. The same migration files 
 
 **Important:** When `DATABASE_PROVIDER` is not `supabase`, the codebase must have zero imports from any Supabase SDK package (`@supabase/supabase-js`, `@supabase/auth-helpers-*`, etc.). This is enforced with an ESLint rule that flags Supabase imports when the provider is not set to `supabase`. The developer must validate this during build.
 
+#### 22.1.1 — Data Access Layer: Drizzle ORM
+
+All three providers connect to plain Postgres through the `pg` driver (`lib/db/providers/*.ts`), so a single Drizzle ORM instance (`lib/db/drizzle.ts` → `getDb()`) wraps the same connection pool uniformly across Supabase, Railway, and DigitalOcean — Drizzle is not tied to any one provider and does not change how RLS or authentication is enforced.
+
+- **Schema**: `lib/db/schema.ts` is the single source of truth for every table (camelCase fields mapping to the snake_case columns defined in `db/migrations/`), kept in sync with the SQL migrations by hand. `npx drizzle-kit generate`/`check` (via `drizzle.config.ts`) can be used to validate the schema against a live database.
+- **Primary access pattern**: application code calls `const orm = await getDb();` and uses Drizzle's type-safe query builder (`orm.select()/.insert()/.update()/.delete()`, `orm.transaction(async (tx) => {...})`) against `schema.<table>`. Row locking (`FOR UPDATE`), atomic increments, and `ON CONFLICT` upserts all have direct Drizzle equivalents (`.for("update")`, `sql\`col + amount\``, `.onConflictDoUpdate()`/`.onConflictDoNothing()`).
+- **Shared helpers that run either standalone or inside a caller's transaction** take a `DbOrTx` parameter (the union of the top-level Drizzle instance and its transaction handle) rather than accepting a raw connection.
+- **Escape hatch**: a small number of genuinely complex statements (recursive/window-function queries, dynamic multi-table filters) go through Drizzle's own `sql` tagged-template via `client.execute(sql\`...\`)` instead of the query builder — still fully parameterized and running through the same Drizzle-wrapped pool, just not expressed as chained builder calls.
+- **Legacy raw adapter**: `db.query()`/`db.transaction()` from `@/lib/db` (the pre-Drizzle `DatabaseAdapter` interface) is retained only for low-level infrastructure that must stay provider-agnostic and outside the ORM layer — the connection-health circuit breaker (`lib/db/circuit.ts`) and the adapters themselves. Application/business-logic code should not use it for new work.
+
 ### 22.2 — Auth Architecture
 
 Authentication is handled by the platform's own JWT system, not Supabase Auth. This ensures auth works identically regardless of the database provider.

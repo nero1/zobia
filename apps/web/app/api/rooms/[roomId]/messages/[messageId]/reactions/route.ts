@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -63,82 +64,81 @@ export const POST = withAuth<ReactParams>(async (req: NextRequest, { params, aut
 
     const body = await validateBody(req, reactSchema);
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // Verify message exists in this room and is not deleted
-    const { rows: msgRows } = await db.query<{
-      id: string;
-      sender_id: string;
-      room_id: string;
-    }>(
-      `SELECT id, sender_id, room_id
-       FROM room_messages
-       WHERE id = $1 AND room_id = $2 AND is_deleted = FALSE
-       LIMIT 1`,
-      [messageId, roomId]
-    );
-    const message = msgRows[0];
+    const [message] = await orm
+      .select({ id: schema.roomMessages.id, senderId: schema.roomMessages.senderId, roomId: schema.roomMessages.roomId })
+      .from(schema.roomMessages)
+      .where(and(
+        eq(schema.roomMessages.id, messageId),
+        eq(schema.roomMessages.roomId, roomId),
+        eq(schema.roomMessages.isDeleted, false),
+      ))
+      .limit(1);
     if (!message) throw notFound("Message not found");
 
     // Verify caller is a room member or creator
-    const { rows: roomRows } = await db.query<{ creator_id: string }>(
-      `SELECT creator_id FROM rooms WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [roomId]
-    );
-    if (!roomRows[0]) throw notFound("Room not found");
+    const [room] = await orm
+      .select({ creatorId: schema.rooms.creatorId })
+      .from(schema.rooms)
+      .where(and(eq(schema.rooms.id, roomId), sql`${schema.rooms.deletedAt} IS NULL`))
+      .limit(1);
+    if (!room) throw notFound("Room not found");
 
-    const isCreator = roomRows[0].creator_id === userId;
+    const isCreator = room.creatorId === userId;
     if (!isCreator) {
-      const { rows: memberRows } = await db.query<{ id: string }>(
-        `SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
-        [roomId, userId]
-      );
-      if (!memberRows[0]) {
+      const [member] = await orm
+        .select({ id: schema.roomMembers.id })
+        .from(schema.roomMembers)
+        .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, userId)))
+        .limit(1);
+      if (!member) {
         throw forbidden("You must be a room member to react to messages");
       }
     }
 
     // Toggle the reaction
-    const { rows: existingRows } = await db.query<{ id: string }>(
-      `SELECT id FROM room_message_reactions
-       WHERE message_id = $1 AND user_id = $2 AND emoji = $3
-       LIMIT 1`,
-      [messageId, userId, body.emoji]
-    );
+    const [existing] = await orm
+      .select({ id: schema.roomMessageReactions.id })
+      .from(schema.roomMessageReactions)
+      .where(and(
+        eq(schema.roomMessageReactions.messageId, messageId),
+        eq(schema.roomMessageReactions.userId, userId),
+        eq(schema.roomMessageReactions.emoji, body.emoji),
+      ))
+      .limit(1);
 
     let added: boolean;
 
-    if (existingRows[0]) {
+    if (existing) {
       // Remove existing reaction
-      await db.query(
-        `DELETE FROM room_message_reactions WHERE id = $1`,
-        [existingRows[0].id]
-      );
+      await orm.delete(schema.roomMessageReactions).where(eq(schema.roomMessageReactions.id, existing.id));
       added = false;
     } else {
       // Add new reaction
-      await db.query(
-        `INSERT INTO room_message_reactions (message_id, user_id, room_id, emoji)
-         VALUES ($1, $2, $3, $4)`,
-        [messageId, userId, roomId, body.emoji]
-      );
+      await orm.insert(schema.roomMessageReactions).values({
+        messageId,
+        userId,
+        roomId,
+        emoji: body.emoji,
+      });
       added = true;
 
       // 5-reactor milestone: award 10 XP to message sender (fire-and-forget)
       void (async () => {
         try {
-          const { rows: countRows } = await db.query<{ cnt: string }>(
-            `SELECT COUNT(DISTINCT user_id)::text AS cnt
-             FROM room_message_reactions
-             WHERE message_id = $1`,
-            [messageId]
-          );
-          const reactorCount = parseInt(countRows[0]?.cnt ?? "0");
+          const [{ count }] = await orm
+            .select({ count: sql<string>`COUNT(DISTINCT ${schema.roomMessageReactions.userId})` })
+            .from(schema.roomMessageReactions)
+            .where(eq(schema.roomMessageReactions.messageId, messageId));
+          const reactorCount = parseInt(count ?? "0");
 
-          if (reactorCount === 5 && message.sender_id !== userId) {
+          if (reactorCount === 5 && message.senderId !== userId) {
             // Award 10 XP to message sender on 5th unique reactor milestone.
             // reference_id is per-message so the award fires exactly once.
             await safeAwardXP(
-              message.sender_id,
+              message.senderId,
               10,
               "social",
               "message_reaction_milestone",
@@ -163,14 +163,12 @@ export const POST = withAuth<ReactParams>(async (req: NextRequest, { params, aut
     }
 
     // Return current reaction counts for this message
-    const { rows: countsRows } = await db.query<{ emoji: string; count: string }>(
-      `SELECT emoji, COUNT(*)::text AS count
-       FROM room_message_reactions
-       WHERE message_id = $1
-       GROUP BY emoji
-       ORDER BY count DESC`,
-      [messageId]
-    );
+    const countsRows = await orm
+      .select({ emoji: schema.roomMessageReactions.emoji, count: sql<string>`COUNT(*)` })
+      .from(schema.roomMessageReactions)
+      .where(eq(schema.roomMessageReactions.messageId, messageId))
+      .groupBy(schema.roomMessageReactions.emoji)
+      .orderBy(sql`COUNT(*) DESC`);
 
     return NextResponse.json(
       {

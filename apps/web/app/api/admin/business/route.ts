@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, count, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -33,59 +34,49 @@ export const GET = withAdminAuth(async (req: NextRequest) => {
     const limit = 50;
     const offset = (page - 1) * limit;
 
-    const conditions: string[] = [];
-    const params: (string | number)[] = [];
-    let idx = 1;
-
+    const filters = [];
     if (verificationStatus && verificationStatus !== "all") {
-      conditions.push(`ba.verification_status = $${idx++}`);
-      params.push(verificationStatus);
+      filters.push(eq(schema.businessAccounts.verificationStatus, verificationStatus));
     }
     if (tier && tier !== "all") {
-      conditions.push(`ba.tier = $${idx++}`);
-      params.push(tier);
+      filters.push(eq(schema.businessAccounts.tier, tier));
     }
+    const whereClause = filters.length > 0 ? and(...filters) : undefined;
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const orm = await getDb();
 
-    params.push(limit, offset);
+    const rows = await orm
+      .select({
+        id: schema.businessAccounts.id,
+        user_id: schema.businessAccounts.userId,
+        business_name: schema.businessAccounts.businessName,
+        business_type: schema.businessAccounts.businessType,
+        tier: schema.businessAccounts.tier,
+        status: schema.businessAccounts.status,
+        verification_status: schema.businessAccounts.verificationStatus,
+        verification_requested_at: schema.businessAccounts.verificationRequestedAt,
+        verified: schema.businessAccounts.verified,
+        created_at: schema.businessAccounts.createdAt,
+        username: schema.users.username,
+        email: schema.users.email,
+      })
+      .from(schema.businessAccounts)
+      .innerJoin(schema.users, eq(schema.users.id, schema.businessAccounts.userId))
+      .where(whereClause)
+      .orderBy(sql`${schema.businessAccounts.verificationRequestedAt} DESC NULLS LAST`, sql`${schema.businessAccounts.createdAt} DESC`)
+      .limit(limit)
+      .offset(offset);
 
-    const { rows } = await db.query<{
-      id: string;
-      user_id: string;
-      business_name: string;
-      business_type: string | null;
-      tier: string;
-      status: string;
-      verification_status: string;
-      verification_requested_at: string | null;
-      verified: boolean;
-      created_at: string;
-      username: string;
-      email: string | null;
-    }>(
-      `SELECT ba.id, ba.user_id, ba.business_name, ba.business_type, ba.tier,
-              ba.status, ba.verification_status, ba.verification_requested_at,
-              ba.verified, ba.created_at,
-              u.username, u.email
-       FROM business_accounts ba
-       JOIN users u ON u.id = ba.user_id
-       ${where}
-       ORDER BY ba.verification_requested_at DESC NULLS LAST, ba.created_at DESC
-       LIMIT $${idx++} OFFSET $${idx++}`,
-      params
-    );
-
-    const { rows: countRows } = await db.query<{ total: string }>(
-      `SELECT COUNT(*) AS total FROM business_accounts ba ${where}`,
-      params.slice(0, -2)
-    );
+    const [countRow] = await orm
+      .select({ total: count() })
+      .from(schema.businessAccounts)
+      .where(whereClause);
 
     return NextResponse.json({
       success: true,
       data: {
         businesses: rows,
-        total: parseInt(countRows[0]?.total ?? "0", 10),
+        total: countRow?.total ?? 0,
         page,
         limit,
       },
@@ -113,13 +104,20 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
     const body = await validateBody(req, adminActionSchema);
     const { id, action, reason } = body;
 
-    const { rows } = await db.query<{ id: string; user_id: string; verification_status: string; status: string }>(
-      `SELECT id, user_id, verification_status, status FROM business_accounts WHERE id = $1 LIMIT 1`,
-      [id]
-    );
-    if (!rows[0]) throw notFound("Business account not found");
+    const orm = await getDb();
 
-    const biz = rows[0];
+    const [biz] = await orm
+      .select({
+        id: schema.businessAccounts.id,
+        user_id: schema.businessAccounts.userId,
+        verification_status: schema.businessAccounts.verificationStatus,
+        status: schema.businessAccounts.status,
+      })
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.id, id))
+      .limit(1);
+    if (!biz) throw notFound("Business account not found");
+
     let notifTitle = "";
     let notifBody = "";
     let notifType = "";
@@ -128,16 +126,16 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
       if (biz.verification_status !== "pending") {
         throw badRequest("Account is not in pending verification status");
       }
-      await db.query(
-        `UPDATE business_accounts
-         SET verification_status = 'verified',
-             verified = TRUE,
-             verification_reviewed_at = NOW(),
-             verification_reject_reason = NULL,
-             updated_at = NOW()
-         WHERE id = $1`,
-        [id]
-      );
+      await orm
+        .update(schema.businessAccounts)
+        .set({
+          verificationStatus: "verified",
+          verified: true,
+          verificationReviewedAt: new Date(),
+          verificationRejectReason: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.businessAccounts.id, id));
       notifType = "business_verified";
       notifTitle = "Business Account Verified";
       notifBody = "Your business account has been verified. Your verified badge is now active.";
@@ -146,16 +144,16 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
       if (biz.verification_status !== "pending") {
         throw badRequest("Account is not in pending verification status");
       }
-      await db.query(
-        `UPDATE business_accounts
-         SET verification_status = 'rejected',
-             verified = FALSE,
-             verification_reviewed_at = NOW(),
-             verification_reject_reason = $1,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [reason ?? null, id]
-      );
+      await orm
+        .update(schema.businessAccounts)
+        .set({
+          verificationStatus: "rejected",
+          verified: false,
+          verificationReviewedAt: new Date(),
+          verificationRejectReason: reason ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.businessAccounts.id, id));
       notifType = "business_verification_rejected";
       notifTitle = "Business Verification Unsuccessful";
       notifBody = reason
@@ -163,12 +161,10 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
         : "Your verification request was not approved. You may reapply after addressing any issues.";
 
     } else if (action === "suspend") {
-      await db.query(
-        `UPDATE business_accounts
-         SET status = 'suspended', updated_at = NOW()
-         WHERE id = $1`,
-        [id]
-      );
+      await orm
+        .update(schema.businessAccounts)
+        .set({ status: "suspended", updatedAt: new Date() })
+        .where(eq(schema.businessAccounts.id, id));
       notifType = "business_suspended";
       notifTitle = "Business Account Suspended";
       notifBody = reason
@@ -176,12 +172,10 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
         : "Your business account has been suspended. Contact support for more information.";
 
     } else if (action === "restore") {
-      await db.query(
-        `UPDATE business_accounts
-         SET status = 'active', updated_at = NOW()
-         WHERE id = $1`,
-        [id]
-      );
+      await orm
+        .update(schema.businessAccounts)
+        .set({ status: "active", updatedAt: new Date() })
+        .where(eq(schema.businessAccounts.id, id));
       notifType = "business_restored";
       notifTitle = "Business Account Restored";
       notifBody = "Your business account has been restored and is now active.";
@@ -189,32 +183,30 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
 
     // Notify user
     if (notifType) {
-      await db.query(
-        `INSERT INTO notifications
-           (user_id, type, title, body, metadata, is_read, created_at)
-         VALUES ($1, $2, $3, $4, $5::jsonb, false, NOW())`,
-        [
-          biz.user_id,
-          notifType,
-          notifTitle,
-          notifBody,
-          JSON.stringify({ businessAccountId: id, action }),
-        ]
-      ).catch(() => {});
+      await orm
+        .insert(schema.notifications)
+        .values({
+          userId: biz.user_id,
+          type: notifType,
+          title: notifTitle,
+          body: notifBody,
+          metadata: { businessAccountId: id, action },
+          isRead: false,
+        })
+        .catch(() => {});
     }
 
     // Audit log
-    await db.query(
-      `INSERT INTO admin_audit_log
-         (admin_id, action, resource, resource_id, after_val, created_at)
-       VALUES ($1, $2, 'business_account', $3, $4::jsonb, NOW())`,
-      [
-        auth.user.sub,
-        `business_${action}`,
-        id,
-        JSON.stringify({ action, reason: reason ?? null }),
-      ]
-    ).catch(() => {});
+    await orm
+      .insert(schema.adminAuditLog)
+      .values({
+        adminId: auth.user.sub,
+        action: `business_${action}`,
+        resource: "business_account",
+        resourceId: id,
+        afterVal: { action, reason: reason ?? null },
+      })
+      .catch(() => {});
 
     return NextResponse.json({
       success: true,

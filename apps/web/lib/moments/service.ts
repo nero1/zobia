@@ -11,8 +11,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { getDb } from "@/lib/db/drizzle";
+import { sql } from "drizzle-orm";
 import { loadManifest, requireFeatureEnabled } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
 import { debitCoins } from "@/lib/economy/coins";
@@ -64,15 +64,15 @@ export async function getMomentPricing(): Promise<MomentPricing> {
  * server-side gate use the same numbers.
  */
 export async function getMomentEligibility(userId: string): Promise<MomentEligibility> {
+  const orm = await getDb();
   const [pricing, userRows] = await Promise.all([
     getMomentPricing(),
-    db.query<{ xp_total: number; coin_balance: number; star_balance: number }>(
-      `SELECT COALESCE(xp_total, 0) AS xp_total,
-              COALESCE(coin_balance, 0) AS coin_balance,
-              COALESCE(star_balance, 0) AS star_balance
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    ),
+    orm.execute<{ xp_total: number; coin_balance: number; star_balance: number }>(sql`
+      SELECT COALESCE(xp_total, 0) AS xp_total,
+             COALESCE(coin_balance, 0) AS coin_balance,
+             COALESCE(star_balance, 0) AS star_balance
+      FROM users WHERE id = ${userId} AND deleted_at IS NULL LIMIT 1
+    `),
   ]);
   const row = userRows.rows[0];
   if (!row) throw forbidden("User account not found");
@@ -182,9 +182,9 @@ export async function createMoment(input: CreateMomentInput): Promise<CreateMome
   const eligibility = await getMomentEligibility(input.userId);
   assertMomentLevelGate(eligibility);
 
-  const { rows: countRows } = await db.query<{ cnt: string }>(
-    `SELECT COUNT(*)::text AS cnt FROM moments WHERE user_id = $1 AND expires_at > NOW()`,
-    [input.userId]
+  const orm = await getDb();
+  const { rows: countRows } = await orm.execute<{ cnt: string }>(
+    sql`SELECT COUNT(*)::text AS cnt FROM moments WHERE user_id = ${input.userId} AND expires_at > NOW()`
   );
   if (parseInt(countRows[0]?.cnt ?? "0", 10) >= MAX_ACTIVE_MOMENTS_PER_USER) {
     throw badRequest(`You can have at most ${MAX_ACTIVE_MOMENTS_PER_USER} active moments at a time`, "MOMENTS_LIMIT_REACHED");
@@ -196,26 +196,18 @@ export async function createMoment(input: CreateMomentInput): Promise<CreateMome
   const { pricing } = eligibility;
   const referenceId = `moment_create:${input.userId}:${randomUUID()}`;
 
-  const created = await db.transaction(async (tx: TransactionClient) => {
+  const created = await orm.transaction(async (tx) => {
     if (currency === "credits") {
       await debitCoins(input.userId, pricing.costCredits, "moment_created", referenceId, "Shared a Moment", { source: input.source }, tx);
     } else if (currency === "stars") {
       await debitStars(input.userId, pricing.costStars, "moment_created", referenceId, "Shared a Moment", tx);
     }
 
-    const { rows } = await tx.query<{ id: string; expires_at: string }>(
-      `INSERT INTO moments (user_id, content, content_type, media_url, thumbnail_url, caption)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING id, expires_at`,
-      [
-        input.userId,
-        input.content,
-        input.contentType,
-        input.mediaUrl ?? null,
-        input.thumbnailUrl ?? null,
-        input.caption ?? null,
-      ]
-    );
+    const { rows } = await tx.execute<{ id: string; expires_at: string } & Record<string, unknown>>(sql`
+      INSERT INTO moments (user_id, content, content_type, media_url, thumbnail_url, caption)
+      VALUES (${input.userId}, ${input.content}, ${input.contentType}, ${input.mediaUrl ?? null}, ${input.thumbnailUrl ?? null}, ${input.caption ?? null})
+      RETURNING id, expires_at
+    `);
     return rows[0];
   });
 

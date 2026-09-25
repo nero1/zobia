@@ -19,7 +19,8 @@
  */
 
 import Decimal from "decimal.js";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 import { getManifestValue } from "@/lib/manifest";
 import { cryptoPriceFeedBreaker } from "@/lib/payments/circuit";
@@ -63,20 +64,17 @@ export async function getPriceRefreshIntervalMinutes(): Promise<number> {
 // Manual admin override
 // ---------------------------------------------------------------------------
 
-interface OverrideRow {
-  usd_price: string;
-  expires_at: string | null;
-}
-
 async function getActiveManualOverride(symbol: CryptoCurrency): Promise<{ usdPrice: Decimal } | null> {
-  const { rows } = await db.query<OverrideRow>(
-    `SELECT usd_price, expires_at FROM crypto_exchange_rate_overrides WHERE token_symbol = $1 LIMIT 1`,
-    [symbol]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ usdPrice: schema.cryptoExchangeRateOverrides.usdPrice, expiresAt: schema.cryptoExchangeRateOverrides.expiresAt })
+    .from(schema.cryptoExchangeRateOverrides)
+    .where(eq(schema.cryptoExchangeRateOverrides.tokenSymbol, symbol))
+    .limit(1);
   const row = rows[0];
   if (!row) return null;
-  if (row.expires_at && new Date(row.expires_at).getTime() <= Date.now()) return null;
-  return { usdPrice: new Decimal(row.usd_price) };
+  if (row.expiresAt && row.expiresAt.getTime() <= Date.now()) return null;
+  return { usdPrice: new Decimal(row.usdPrice) };
 }
 
 export async function setManualOverride(
@@ -85,20 +83,31 @@ export async function setManualOverride(
   adminId: string,
   expiresAt: Date | null
 ): Promise<void> {
-  await db.query(
-    `INSERT INTO crypto_exchange_rate_overrides (token_symbol, usd_price, set_by_admin_id, expires_at, updated_at)
-     VALUES ($1, $2, $3, $4, NOW())
-     ON CONFLICT (token_symbol) DO UPDATE
-       SET usd_price = EXCLUDED.usd_price,
-           set_by_admin_id = EXCLUDED.set_by_admin_id,
-           expires_at = EXCLUDED.expires_at,
-           updated_at = NOW()`,
-    [symbol, new Decimal(usdPrice).toString(), adminId, expiresAt]
-  );
+  const orm = await getDb();
+  const value = new Decimal(usdPrice).toString();
+  await orm
+    .insert(schema.cryptoExchangeRateOverrides)
+    .values({
+      tokenSymbol: symbol,
+      usdPrice: value,
+      setByAdminId: adminId,
+      expiresAt,
+      updatedAt: sql`NOW()`,
+    })
+    .onConflictDoUpdate({
+      target: schema.cryptoExchangeRateOverrides.tokenSymbol,
+      set: {
+        usdPrice: value,
+        setByAdminId: adminId,
+        expiresAt,
+        updatedAt: sql`NOW()`,
+      },
+    });
 }
 
 export async function clearManualOverride(symbol: CryptoCurrency): Promise<void> {
-  await db.query(`DELETE FROM crypto_exchange_rate_overrides WHERE token_symbol = $1`, [symbol]);
+  const orm = await getDb();
+  await orm.delete(schema.cryptoExchangeRateOverrides).where(eq(schema.cryptoExchangeRateOverrides.tokenSymbol, symbol));
 }
 
 // ---------------------------------------------------------------------------
@@ -106,26 +115,35 @@ export async function clearManualOverride(symbol: CryptoCurrency): Promise<void>
 // ---------------------------------------------------------------------------
 
 interface CacheRow {
-  usd_price: string;
+  usdPrice: string;
   source: string;
-  fetched_at: string;
+  fetchedAt: Date;
 }
 
 async function getCachedPrice(symbol: CryptoCurrency): Promise<CacheRow | null> {
-  const { rows } = await db.query<CacheRow>(
-    `SELECT usd_price, source, fetched_at FROM crypto_price_cache WHERE token_symbol = $1 LIMIT 1`,
-    [symbol]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      usdPrice: schema.cryptoPriceCache.usdPrice,
+      source: schema.cryptoPriceCache.source,
+      fetchedAt: schema.cryptoPriceCache.fetchedAt,
+    })
+    .from(schema.cryptoPriceCache)
+    .where(eq(schema.cryptoPriceCache.tokenSymbol, symbol))
+    .limit(1);
   return rows[0] ?? null;
 }
 
 async function writeCachedPrice(symbol: CryptoCurrency, usdPrice: Decimal): Promise<void> {
-  await db.query(
-    `INSERT INTO crypto_price_cache (token_symbol, usd_price, source, fetched_at)
-     VALUES ($1, $2, 'live', NOW())
-     ON CONFLICT (token_symbol) DO UPDATE SET usd_price = EXCLUDED.usd_price, source = 'live', fetched_at = NOW()`,
-    [symbol, usdPrice.toString()]
-  );
+  const orm = await getDb();
+  const value = usdPrice.toString();
+  await orm
+    .insert(schema.cryptoPriceCache)
+    .values({ tokenSymbol: symbol, usdPrice: value, source: "live", fetchedAt: sql`NOW()` })
+    .onConflictDoUpdate({
+      target: schema.cryptoPriceCache.tokenSymbol,
+      set: { usdPrice: value, source: "live", fetchedAt: sql`NOW()` },
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -199,10 +217,10 @@ export async function getUsdPrice(symbol: CryptoCurrency): Promise<ResolvedPrice
 
   const cached = await getCachedPrice(symbol);
   const refreshMinutes = await getPriceRefreshIntervalMinutes();
-  const isStale = !cached || Date.now() - new Date(cached.fetched_at).getTime() > refreshMinutes * 60_000;
+  const isStale = !cached || Date.now() - cached.fetchedAt.getTime() > refreshMinutes * 60_000;
 
   if (!isStale && cached) {
-    return { usdPrice: new Decimal(cached.usd_price), source: "live", fetchedAt: new Date(cached.fetched_at) };
+    return { usdPrice: new Decimal(cached.usdPrice), source: "live", fetchedAt: cached.fetchedAt };
   }
 
   try {
@@ -215,7 +233,7 @@ export async function getUsdPrice(symbol: CryptoCurrency): Promise<ResolvedPrice
       "[crypto/priceFeed] Live price fetch failed — falling back to cache/manual"
     );
     if (cached) {
-      return { usdPrice: new Decimal(cached.usd_price), source: "stale-cache", fetchedAt: new Date(cached.fetched_at) };
+      return { usdPrice: new Decimal(cached.usdPrice), source: "stale-cache", fetchedAt: cached.fetchedAt };
     }
     throw new PriceFeedUnavailableError(symbol);
   }

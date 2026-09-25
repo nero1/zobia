@@ -37,21 +37,10 @@ import {
   ADMIN_BACKUP_ACCESS_COOKIE,
   ADMIN_BACKUP_REFRESH_COOKIE,
 } from "@/lib/auth/session";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getClientIp } from "@/lib/security/rateLimit";
 import { logger } from "@/lib/logger";
-
-interface AdminRow {
-  id: string;
-  email: string | null;
-  username: string;
-  is_admin: boolean;
-  is_moderator: boolean;
-  is_creator: boolean;
-  onboarding_completed: boolean;
-  plan: string | null;
-  avatar_url: string | null;
-}
 
 export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
@@ -67,24 +56,39 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       // impersonation started) — mirrors the cookie-mode guard below, which
       // also checks restorability before invalidating the impersonation
       // session.
-      const { rows } = await db.query<AdminRow>(
-        `SELECT id, email, username, is_admin, is_moderator, is_creator,
-                onboarding_completed, plan, avatar_url
-         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [auth.user.impersonated_by]
-      );
-      const admin = rows[0];
-      if (!admin || !admin.is_admin) {
+      const orm = await getDb();
+      const [admin] = await orm
+        .select({
+          id: schema.users.id,
+          email: schema.users.email,
+          username: schema.users.username,
+          isAdmin: schema.users.isAdmin,
+          isModerator: schema.users.isModerator,
+          isCreator: schema.users.isCreator,
+          onboardingCompleted: schema.users.onboardingCompleted,
+          plan: schema.users.plan,
+          avatarUrl: schema.users.avatarUrl,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, auth.user.impersonated_by), isNull(schema.users.deletedAt)))
+        .limit(1);
+      if (!admin || !admin.isAdmin) {
         throw badRequest("Original admin session could not be restored — please sign in again.");
       }
 
       await invalidateSession(auth.user.sid, auth.user.sub);
 
-      db.query(
-        `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, before_val, after_val, created_at)
-         VALUES ($1, 'impersonate_end', 'users', $2, NULL, NULL, NOW())`,
-        [auth.user.impersonated_by, auth.user.sub]
-      ).catch((err) => logger.error({ err }, "[admin:impersonate] Failed to write admin_audit_log entry (non-fatal)"));
+      orm
+        .insert(schema.adminAuditLog)
+        .values({
+          adminId: auth.user.impersonated_by,
+          action: "impersonate_end",
+          resource: "users",
+          resourceId: auth.user.sub,
+          beforeVal: null,
+          afterVal: null,
+        })
+        .catch((err) => logger.error({ err }, "[admin:impersonate] Failed to write admin_audit_log entry (non-fatal)"));
 
       const ip = getClientIp(req);
       const ua = req.headers.get("user-agent") ?? undefined;
@@ -93,10 +97,10 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
           id: admin.id,
           email: admin.email,
           username: admin.username,
-          is_admin: admin.is_admin,
-          is_moderator: admin.is_moderator,
-          is_creator: admin.is_creator,
-          onboarding_completed: admin.onboarding_completed,
+          is_admin: admin.isAdmin,
+          is_moderator: admin.isModerator,
+          is_creator: admin.isCreator,
+          onboarding_completed: admin.onboardingCompleted ?? undefined,
         },
         { ip, ua }
       );
@@ -112,10 +116,10 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
             email: admin.email,
             username: admin.username,
             plan: (admin.plan ?? "free") as "free" | "plus" | "pro" | "max",
-            is_admin: admin.is_admin,
-            is_moderator: admin.is_moderator,
-            is_creator: admin.is_creator,
-            avatar_url: admin.avatar_url ?? null,
+            is_admin: admin.isAdmin,
+            is_moderator: admin.isModerator,
+            is_creator: admin.isCreator,
+            avatar_url: admin.avatarUrl ?? null,
           },
         },
         error: null,
@@ -130,11 +134,18 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     await invalidateSession(auth.user.sid, auth.user.sub);
 
-    db.query(
-      `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, before_val, after_val, created_at)
-       VALUES ($1, 'impersonate_end', 'users', $2, NULL, NULL, NOW())`,
-      [auth.user.impersonated_by, auth.user.sub]
-    ).catch((err) => logger.error({ err }, "[admin:impersonate] Failed to write admin_audit_log entry (non-fatal)"));
+    const orm = await getDb();
+    orm
+      .insert(schema.adminAuditLog)
+      .values({
+        adminId: auth.user.impersonated_by,
+        action: "impersonate_end",
+        resource: "users",
+        resourceId: auth.user.sub,
+        beforeVal: null,
+        afterVal: null,
+      })
+      .catch((err) => logger.error({ err }, "[admin:impersonate] Failed to write admin_audit_log entry (non-fatal)"));
 
     const secure = process.env.NODE_ENV === "production";
     const flags = `HttpOnly; Path=/; SameSite=Lax${secure ? "; Secure" : ""}`;

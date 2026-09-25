@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -84,13 +85,15 @@ export const PUT = withAdminAuth<ManifestKeyParams>(async (req, { params, auth }
     };
 
     // Persist to app_settings table
-    await db.query(
-      `INSERT INTO app_settings (key, value, updated_at)
-       VALUES ('manifest', $1, NOW())
-       ON CONFLICT (key) DO UPDATE
-         SET value = $1, updated_at = NOW()`,
-      [JSON.stringify(updatedManifest)]
-    );
+    const orm = await getDb();
+    const serialized = JSON.stringify(updatedManifest);
+    await orm
+      .insert(schema.appSettings)
+      .values({ key: "manifest", value: serialized })
+      .onConflictDoUpdate({
+        target: schema.appSettings.key,
+        set: { value: serialized, updatedAt: sql`NOW()` },
+      });
 
     // Invalidate Redis cache so next request reads fresh value
     await invalidateManifestCache();

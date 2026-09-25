@@ -22,7 +22,8 @@
  * endpoint exactly like a manual "Remove Content" action.
  */
 
-import type { TransactionClient } from "@/lib/db/interface";
+import { sql } from "drizzle-orm";
+import type { DbOrTx } from "@/lib/db/drizzle";
 import { loadManifest } from "@/lib/manifest";
 import { logger } from "@/lib/logger";
 import { raiseAlert } from "@/lib/alerts/dispatch";
@@ -77,54 +78,49 @@ export interface JoinClusterResult {
  * a fresh moderation_reports row and then call `registerFirstReporter`.
  */
 export async function findExistingCluster(
-  tx: TransactionClient,
+  tx: DbOrTx,
   clusterKey: string,
   reporterId: string
 ): Promise<JoinClusterResult | null> {
   const manifest = await loadManifest();
   const windowHours = manifest.moderation.duplicateClusterWindowHours;
 
-  const { rows } = await tx.query<{ id: string }>(
-    `SELECT id FROM moderation_reports
-     WHERE cluster_key = $1
+  const { rows } = await tx.execute<{ id: string }>(sql`
+    SELECT id FROM moderation_reports
+     WHERE cluster_key = ${clusterKey}
        AND status = 'pending'
-       AND created_at > NOW() - ($2 || ' hours')::interval
+       AND created_at > NOW() - (${String(windowHours)} || ' hours')::interval
      ORDER BY created_at DESC
-     LIMIT 1`,
-    [clusterKey, String(windowHours)]
-  );
+     LIMIT 1
+  `);
   const existing = rows[0];
   if (!existing) return null;
 
-  await tx.query(
-    `INSERT INTO moderation_report_reporters (report_id, reporter_id, is_first)
-     VALUES ($1, $2, false)
-     ON CONFLICT (report_id, reporter_id) DO NOTHING`,
-    [existing.id, reporterId]
-  );
+  await tx.execute(sql`
+    INSERT INTO moderation_report_reporters (report_id, reporter_id, is_first)
+     VALUES (${existing.id}, ${reporterId}, false)
+     ON CONFLICT (report_id, reporter_id) DO NOTHING
+  `);
 
-  const { rows: countRows } = await tx.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM moderation_report_reporters WHERE report_id = $1`,
-    [existing.id]
-  );
+  const { rows: countRows } = await tx.execute<{ count: string }>(sql`
+    SELECT COUNT(*)::text AS count FROM moderation_report_reporters WHERE report_id = ${existing.id}
+  `);
   const duplicateCount = parseInt(countRows[0]?.count ?? "1", 10);
 
-  await tx.query(
-    `UPDATE moderation_reports SET duplicate_count = $2, updated_at = NOW() WHERE id = $1`,
-    [existing.id, duplicateCount]
-  );
+  await tx.execute(sql`
+    UPDATE moderation_reports SET duplicate_count = ${duplicateCount}, updated_at = NOW() WHERE id = ${existing.id}
+  `);
 
   return { reportId: existing.id, isNew: false, duplicateCount };
 }
 
 /** Registers the first reporter of a freshly-inserted moderation_reports row. */
-export async function registerFirstReporter(tx: TransactionClient, reportId: string, reporterId: string): Promise<void> {
-  await tx.query(
-    `INSERT INTO moderation_report_reporters (report_id, reporter_id, is_first)
-     VALUES ($1, $2, true)
-     ON CONFLICT (report_id, reporter_id) DO NOTHING`,
-    [reportId, reporterId]
-  );
+export async function registerFirstReporter(tx: DbOrTx, reportId: string, reporterId: string): Promise<void> {
+  await tx.execute(sql`
+    INSERT INTO moderation_report_reporters (report_id, reporter_id, is_first)
+     VALUES (${reportId}, ${reporterId}, true)
+     ON CONFLICT (report_id, reporter_id) DO NOTHING
+  `);
 }
 
 /**
@@ -137,7 +133,7 @@ export async function registerFirstReporter(tx: TransactionClient, reportId: str
  * automated takedown of content types moderators haven't reviewed yet.
  */
 export async function maybeAutoQuarantine(
-  tx: TransactionClient,
+  tx: DbOrTx,
   reportId: string,
   clusterKey: string,
   duplicateCount: number
@@ -146,10 +142,9 @@ export async function maybeAutoQuarantine(
   const threshold = manifest.moderation.duplicateAutoQuarantineThreshold;
   if (threshold <= 0 || duplicateCount < threshold) return;
 
-  const { rows } = await tx.query<{ auto_quarantined: boolean; status: string }>(
-    `SELECT auto_quarantined, status FROM moderation_reports WHERE id = $1`,
-    [reportId]
-  );
+  const { rows } = await tx.execute<{ auto_quarantined: boolean; status: string }>(sql`
+    SELECT auto_quarantined, status FROM moderation_reports WHERE id = ${reportId}
+  `);
   const report = rows[0];
   if (!report || report.auto_quarantined || report.status !== "pending") return;
 
@@ -158,16 +153,16 @@ export async function maybeAutoQuarantine(
 
   try {
     if (kind === "message") {
-      await tx.query(`UPDATE messages SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, [id]);
+      await tx.execute(sql`UPDATE messages SET deleted_at = NOW() WHERE id = ${id} AND deleted_at IS NULL`);
       quarantined = true;
     } else if (kind === "guild_message") {
-      await tx.query(`UPDATE guild_messages SET is_deleted = true WHERE id = $1 AND is_deleted = false`, [id]);
+      await tx.execute(sql`UPDATE guild_messages SET is_deleted = true WHERE id = ${id} AND is_deleted = false`);
       quarantined = true;
     } else if (kind === "bb_post") {
-      await tx.query(`UPDATE bb_posts SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, [id]);
+      await tx.execute(sql`UPDATE bb_posts SET deleted_at = NOW() WHERE id = ${id} AND deleted_at IS NULL`);
       quarantined = true;
     } else if (kind === "bb_thread") {
-      await tx.query(`UPDATE bb_threads SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, [id]);
+      await tx.execute(sql`UPDATE bb_threads SET deleted_at = NOW() WHERE id = ${id} AND deleted_at IS NULL`);
       quarantined = true;
     }
   } catch (err) {
@@ -177,20 +172,16 @@ export async function maybeAutoQuarantine(
 
   if (!quarantined) return;
 
-  await tx.query(
-    `UPDATE moderation_reports SET auto_quarantined = true, updated_at = NOW() WHERE id = $1`,
-    [reportId]
-  );
-  await tx.query(
-    `INSERT INTO moderation_actions (target_user_id, action_type, reason, report_id, actor_type, created_at, metadata)
-     SELECT reported_user_id, 'remove_content', $2, id, 'automated', NOW(), $3::jsonb
-     FROM moderation_reports WHERE id = $1`,
-    [
-      reportId,
-      `Auto-quarantined after ${duplicateCount} distinct reports (threshold: ${threshold}).`,
-      JSON.stringify({ duplicateCount, threshold, clusterKey }),
-    ]
-  );
+  await tx.execute(sql`
+    UPDATE moderation_reports SET auto_quarantined = true, updated_at = NOW() WHERE id = ${reportId}
+  `);
+  const metadataJson = JSON.stringify({ duplicateCount, threshold, clusterKey });
+  const reasonText = `Auto-quarantined after ${duplicateCount} distinct reports (threshold: ${threshold}).`;
+  await tx.execute(sql`
+    INSERT INTO moderation_actions (target_user_id, action_type, reason, report_id, actor_type, created_at, metadata)
+     SELECT reported_user_id, 'remove_content', ${reasonText}, id, 'automated', NOW(), ${metadataJson}::jsonb
+     FROM moderation_reports WHERE id = ${reportId}
+  `);
 }
 
 /**
@@ -201,7 +192,7 @@ export async function maybeAutoQuarantine(
  * Levels 5 -> 4 -> 3 -> 2 as duplicateCount climbs, instead of a new alert
  * every time another reporter piles on.
  */
-export async function maybeRaiseReportSpikeAlert(tx: TransactionClient, clusterKey: string, duplicateCount: number): Promise<void> {
+export async function maybeRaiseReportSpikeAlert(tx: DbOrTx, clusterKey: string, duplicateCount: number): Promise<void> {
   const manifest = await loadManifest();
   const { level5Threshold, level4Threshold, level3Threshold } = manifest.alerting.reportSpike;
 

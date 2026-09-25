@@ -12,12 +12,45 @@
  * applied to the kobo-equivalent value of the unlock per the product spec
  * (the platform does not re-charge a referral commission at unlock time —
  * that commission was already paid out when the reader bought the Credits).
+ *
+ * DRIZZLE MIGRATION NOTES:
+ *  - `lib/economy/coins.ts` and `lib/economy/stars.ts` (debitCoins,
+ *    creditCoins, checkAndDebit, debitStars, creditStars) have already been
+ *    migrated to Drizzle (they take `DbOrTx`), so every transaction below —
+ *    including the ones sharing atomicity with those calls — runs as a
+ *    Drizzle `orm.transaction()`.
+ *  - `lib/slug.ts` (generateUniqueSlug, generateUniqueBlogPostSlug,
+ *    recordSlugRedirect) and `lib/blogs/repo.ts` (countActiveBlogsForScope)
+ *    are outside this migration's file list and still take the legacy
+ *    `Queryable`/`TransactionClient` adapter — the raw `db` handle is kept
+ *    in scope solely to pass into `generateUniqueSlug`, never for direct
+ *    `db.query()`/`db.transaction()` calls here. `createBlog`'s active-blog
+ *    count + row lock are done inline with Drizzle instead of calling
+ *    `countActiveBlogsForScope` so its transaction can stay pure Drizzle.
+ *  - The following columns/tables have no Drizzle definition in
+ *    lib/db/schema.ts and are read/written via `sql` templates through the
+ *    Drizzle instance instead of the query builder: `blogs.menu_config`,
+ *    `blogs.active_theme_id`, `blog_posts.page_key`, the `blog_gift_tiers` /
+ *    `blog_gift_purchases` / `blog_gift_claims` tables, and
+ *    `blog_contact_messages`. Also, `blog_post_treasuries` is used here with
+ *    `blog_id`/`gift_tier_id` columns and a nullable `post_id` for
+ *    blog-level gift reward pots (see
+ *    fundBlogGiftTreasury/sendGift/getGiftTierTreasury below), but the
+ *    Drizzle schema only models it with a NOT NULL `post_id` and no
+ *    `blog_id`/`gift_tier_id` columns — those specific statements also stay
+ *    on `sql` templates. Flagged for the schema owner.
  */
 
 import { randomUUID } from "crypto";
 import Decimal from "decimal.js";
 import { db } from "@/lib/db";
-import type { SqlParam, TransactionClient } from "@/lib/db/interface";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
+// `blogPostTreasuries` and `blogPostShares` are defined in lib/db/schema.ts
+// but not included in that file's bundled `schema` registry object, so they
+// are imported directly here instead of via `blogPostTreasuries`/
+// `blogPostShares`.
+import { blogPostTreasuries, blogPostShares } from "@/lib/db/schema";
+import { and, count, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 import { debitCoins, checkAndDebit, creditCoins } from "@/lib/economy/coins";
@@ -56,16 +89,18 @@ import {
 export { isUserModeratorOrAdmin } from "@/lib/forum/service";
 
 async function assertBlogWritable(blogId: string): Promise<{ ownerId: string; status: string }> {
-  const { rows } = await db.query<{ owner_id: string; status: string }>(
-    `SELECT owner_id, status FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [blogId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ ownerId: schema.blogs.ownerId, status: schema.blogs.status })
+    .from(schema.blogs)
+    .where(and(eq(schema.blogs.id, blogId), isNull(schema.blogs.deletedAt)))
+    .limit(1);
   const blog = rows[0];
   if (!blog) throw notFound("Blog not found");
   if (blog.status !== "active" && blog.status !== "paused") {
     throw forbidden("This blog has been restricted by an administrator.", "BLOG_RESTRICTED");
   }
-  return { ownerId: blog.owner_id, status: blog.status };
+  return { ownerId: blog.ownerId, status: blog.status };
 }
 
 function wordCount(text: string): number {
@@ -124,16 +159,19 @@ export interface CreateBlogResult {
 export async function createBlog(input: CreateBlogInput): Promise<CreateBlogResult> {
   await requireFeatureEnabled("blogs");
 
+  const orm = await getDb();
+
   let businessAccountId: string | null = null;
   let businessTier: string | null = null;
   if (input.businessAccountId) {
-    const { rows } = await db.query<{ id: string; user_id: string; tier: string; status: string }>(
-      `SELECT id, user_id, tier, status FROM business_accounts WHERE id = $1 LIMIT 1`,
-      [input.businessAccountId]
-    );
+    const rows = await orm
+      .select({ id: schema.businessAccounts.id, userId: schema.businessAccounts.userId, tier: schema.businessAccounts.tier, status: schema.businessAccounts.status })
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.id, input.businessAccountId))
+      .limit(1);
     const account = rows[0];
     if (!account) throw notFound("Business account not found");
-    if (account.user_id !== input.userId) throw forbidden("You don't own this business account.");
+    if (account.userId !== input.userId) throw forbidden("You don't own this business account.");
     if (account.status !== "active") {
       throw forbidden("Your business account must be active to create a blog.", "BUSINESS_ACCOUNT_INACTIVE");
     }
@@ -141,16 +179,17 @@ export async function createBlog(input: CreateBlogInput): Promise<CreateBlogResu
     businessTier = account.tier;
   }
 
-  const { rows: userRows } = await db.query<{ plan: string; level_creator: number }>(
-    `SELECT plan, level_creator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [input.userId]
-  );
+  const userRows = await orm
+    .select({ plan: schema.users.plan, levelCreator: schema.users.levelCreator })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, input.userId), isNull(schema.users.deletedAt)))
+    .limit(1);
   const user = userRows[0];
   if (!user) throw notFound("User not found");
 
   const includedCount = businessAccountId
     ? await getIncludedBusinessBlogCount(businessTier!)
-    : await getIncludedPersonalBlogCount(user.plan, user.level_creator);
+    : await getIncludedPersonalBlogCount(user.plan, user.levelCreator);
 
   const blogId = randomUUID();
   const slug = await generateUniqueSlug("blog", slugSourceWords(input.title), blogId);
@@ -159,14 +198,23 @@ export async function createBlog(input: CreateBlogInput): Promise<CreateBlogResu
   // blog, the user for a personal blog) across the count-check + insert so
   // two concurrent creates for the same scope can't both slip in under the
   // quota — mirrors POST /api/business/pages's BIZ-PAGE-RACE guard.
-  const lockSql = businessAccountId
-    ? `SELECT id FROM business_accounts WHERE id = $1 FOR UPDATE`
-    : `SELECT id FROM users WHERE id = $1 FOR UPDATE`;
-  const lockParam = businessAccountId ?? input.userId;
+  const outcome = await orm.transaction(async (tx) => {
+    if (businessAccountId) {
+      await tx.select({ id: schema.businessAccounts.id }).from(schema.businessAccounts).where(eq(schema.businessAccounts.id, businessAccountId)).for("update");
+    } else {
+      await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, input.userId)).for("update");
+    }
 
-  const outcome = await db.transaction(async (tx: TransactionClient) => {
-    await tx.query(lockSql, [lockParam]);
-    const used = await countActiveBlogsForScope({ ownerId: input.userId, businessAccountId }, tx);
+    const usedRows = businessAccountId
+      ? await tx
+          .select({ count: count() })
+          .from(schema.blogs)
+          .where(and(eq(schema.blogs.businessAccountId, businessAccountId), isNull(schema.blogs.deletedAt), ne(schema.blogs.status, "deactivated")))
+      : await tx
+          .select({ count: count() })
+          .from(schema.blogs)
+          .where(and(eq(schema.blogs.ownerId, input.userId), isNull(schema.blogs.businessAccountId), isNull(schema.blogs.deletedAt), ne(schema.blogs.status, "deactivated")));
+    const used = usedRows[0]?.count ?? 0;
 
     let slotSource: "included" | "purchased" = "included";
     let slotCurrency: BlogSlotCurrency | null = null;
@@ -199,15 +247,20 @@ export async function createBlog(input: CreateBlogInput): Promise<CreateBlogResu
       slotCurrency = currency;
     }
 
-    await tx.query(
-      `INSERT INTO blogs
-         (id, owner_id, slug, title, tagline, description, status, business_account_id, slot_source, slot_unlock_currency, slot_unlock_cost, slot_unlock_reference_id)
-       VALUES ($1, $2, $3, $4, $5, $6, 'active', $7, $8, $9, $10, $11)`,
-      [
-        blogId, input.userId, slug, input.title.trim(), input.tagline?.trim() || null, input.description?.trim() || null,
-        businessAccountId, slotSource, slotCurrency, slotCost, referenceId,
-      ]
-    );
+    await tx.insert(schema.blogs).values({
+      id: blogId,
+      ownerId: input.userId,
+      slug,
+      title: input.title.trim(),
+      tagline: input.tagline?.trim() || null,
+      description: input.description?.trim() || null,
+      status: "active",
+      businessAccountId,
+      slotSource,
+      slotUnlockCurrency: slotCurrency,
+      slotUnlockCost: slotCost,
+      slotUnlockReferenceId: referenceId,
+    });
 
     await createDefaultPagesAndMenu(tx, blogId, input.userId, input.title.trim());
 
@@ -229,26 +282,32 @@ const DEFAULT_PAGE_KEYS: DefaultPageKey[] = ["about", "privacy", "contact"];
  * transaction. Slugs are fixed ('about'/'privacy'/'contact') — safe because
  * the blog was just created in this same transaction, so nothing can
  * already occupy them.
+ *
+ * Called from createBlog's Drizzle transaction above; `blogs.menu_config`
+ * and `blog_posts.page_key` have no Drizzle column (schema gap — flagged
+ * for the schema owner), so both are read/written via `sql` templates.
  */
-async function createDefaultPagesAndMenu(tx: TransactionClient, blogId: string, authorId: string, blogTitle: string): Promise<void> {
+async function createDefaultPagesAndMenu(tx: DbOrTx, blogId: string, authorId: string, blogTitle: string): Promise<void> {
   const menuItems: BlogMenuItem[] = [];
   for (const key of DEFAULT_PAGE_KEYS) {
     const postId = randomUUID();
     const bodyMarkdown = getDefaultPageContent(key, blogTitle);
     const bodyHtml = renderBodyHtml(bodyMarkdown, "markdown");
-    await tx.query(
-      `INSERT INTO blog_posts (id, blog_id, author_id, type, page_key, title, slug, body_markdown, body_html, content_format, status, published_at, word_count)
-       VALUES ($1, $2, $3, 'page', $4, $5, $4, $6, $7, 'markdown', 'published', NOW(), $8)`,
-      [postId, blogId, authorId, key, DEFAULT_PAGE_TITLES[key], bodyMarkdown, bodyHtml, wordCount(bodyMarkdown)]
-    );
+    await tx.execute(sql`
+      INSERT INTO blog_posts (id, blog_id, author_id, type, page_key, title, slug, body_markdown, body_html, content_format, status, published_at, word_count)
+      VALUES (${postId}, ${blogId}, ${authorId}, 'page', ${key}, ${DEFAULT_PAGE_TITLES[key]}, ${key}, ${bodyMarkdown}, ${bodyHtml}, 'markdown', 'published', NOW(), ${wordCount(bodyMarkdown)})
+    `);
     menuItems.push({ id: `page-${key}`, label: DEFAULT_PAGE_TITLES[key], type: "page", targetId: key });
   }
-  await tx.query(`UPDATE blogs SET post_count = post_count + $2 WHERE id = $1`, [blogId, DEFAULT_PAGE_KEYS.length]);
+  await tx
+    .update(schema.blogs)
+    .set({ postCount: sql`${schema.blogs.postCount} + ${DEFAULT_PAGE_KEYS.length}` })
+    .where(eq(schema.blogs.id, blogId));
 
-  const { rows } = await tx.query<{ menu_config: BlogMenuConfig }>(`SELECT menu_config FROM blogs WHERE id = $1 LIMIT 1`, [blogId]);
+  const { rows } = await tx.execute<{ menu_config: BlogMenuConfig } & Record<string, unknown>>(sql`SELECT menu_config FROM blogs WHERE id = ${blogId} LIMIT 1`);
   const current = normalizeMenuConfig(rows[0]?.menu_config);
   const nextConfig: BlogMenuConfig = { ...current, items: [...current.items, ...menuItems] };
-  await tx.query(`UPDATE blogs SET menu_config = $2::jsonb WHERE id = $1`, [blogId, JSON.stringify(nextConfig)]);
+  await tx.execute(sql`UPDATE blogs SET menu_config = ${JSON.stringify(nextConfig)}::jsonb WHERE id = ${blogId}`);
 }
 
 /**
@@ -258,23 +317,29 @@ async function createDefaultPagesAndMenu(tx: TransactionClient, blogId: string, 
  * moderator/admin only, mirroring updatePost's permission shape.
  */
 export async function resetDefaultPage(blogId: string, callerId: string, callerIsModerator: boolean, pageKey: DefaultPageKey): Promise<void> {
-  const { rows } = await db.query<{ id: string; owner_id: string; title: string }>(
-    `SELECT p.id, b.owner_id, b.title
-     FROM blog_posts p JOIN blogs b ON b.id = p.blog_id
-     WHERE p.blog_id = $1 AND p.page_key = $2 AND p.deleted_at IS NULL LIMIT 1`,
-    [blogId, pageKey]
-  );
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ id: string; owner_id: string; title: string }>(sql`
+    SELECT p.id, b.owner_id, b.title
+    FROM blog_posts p JOIN blogs b ON b.id = p.blog_id
+    WHERE p.blog_id = ${blogId} AND p.page_key = ${pageKey} AND p.deleted_at IS NULL LIMIT 1
+  `);
   const row = rows[0];
   if (!row) throw notFound("Default page not found");
   if (row.owner_id !== callerId && !callerIsModerator) throw forbidden("You can't manage this page.");
 
   const bodyMarkdown = getDefaultPageContent(pageKey, row.title);
   const bodyHtml = renderBodyHtml(bodyMarkdown, "markdown");
-  await db.query(
-    `UPDATE blog_posts SET title = $2, body_markdown = $3, body_html = $4, content_format = 'markdown', word_count = $5, updated_at = NOW()
-     WHERE id = $1`,
-    [row.id, DEFAULT_PAGE_TITLES[pageKey], bodyMarkdown, bodyHtml, wordCount(bodyMarkdown)]
-  );
+  await orm
+    .update(schema.blogPosts)
+    .set({
+      title: DEFAULT_PAGE_TITLES[pageKey],
+      bodyMarkdown,
+      bodyHtml,
+      contentFormat: "markdown",
+      wordCount: wordCount(bodyMarkdown),
+      updatedAt: sql`NOW()`,
+    })
+    .where(eq(schema.blogPosts.id, row.id));
 }
 
 export interface UpdateBlogSettingsInput {
@@ -303,46 +368,56 @@ export interface UpdateBlogSettingsInput {
  * over-engineering for what's a rare, owner-initiated action.
  */
 export async function updateBlogSettings(blogId: string, callerId: string, input: UpdateBlogSettingsInput): Promise<void> {
-  const { rows } = await db.query<{ owner_id: string; title: string; slug: string }>(`SELECT owner_id, title, slug FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [blogId]);
+  const orm = await getDb();
+  const rows = await orm
+    .select({ ownerId: schema.blogs.ownerId, title: schema.blogs.title, slug: schema.blogs.slug })
+    .from(schema.blogs)
+    .where(and(eq(schema.blogs.id, blogId), isNull(schema.blogs.deletedAt)))
+    .limit(1);
   const blog = rows[0];
   if (!blog) throw notFound("Blog not found");
-  if (blog.owner_id !== callerId) throw forbidden("Only the blog owner can update these settings.");
+  if (blog.ownerId !== callerId) throw forbidden("Only the blog owner can update these settings.");
 
-  const fields: string[] = [];
-  const params: SqlParam[] = [blogId];
-  const push = (col: string, value: SqlParam, cast?: string) => {
-    params.push(value);
-    fields.push(`${col} = $${params.length}${cast ? `::${cast}` : ""}`);
-  };
-
+  const patch: Partial<typeof schema.blogs.$inferInsert> = {};
   let newSlug: string | null = null;
   if (input.title !== undefined) {
     const trimmedTitle = input.title.trim();
-    push("title", trimmedTitle);
+    patch.title = trimmedTitle;
     if (trimmedTitle && trimmedTitle !== blog.title) {
+      // `db` (the legacy adapter) is passed through because generateUniqueSlug
+      // (lib/slug.ts) is out of this migration's scope and still expects it.
       newSlug = await generateUniqueSlug("blog", slugSourceWords(trimmedTitle), blogId, db, blogId);
-      if (newSlug !== blog.slug) push("slug", newSlug);
+      if (newSlug !== blog.slug) patch.slug = newSlug;
       else newSlug = null;
     }
   }
-  if (input.tagline !== undefined) push("tagline", input.tagline?.trim() || null);
-  if (input.description !== undefined) push("description", input.description?.trim() || null);
-  if (input.avatarUrl !== undefined) push("avatar_url", input.avatarUrl || null);
-  if (input.coverImageUrl !== undefined) push("cover_image_url", input.coverImageUrl || null);
-  if (input.commentsEnabled !== undefined) push("comments_enabled", input.commentsEnabled);
-  if (input.commentsModerationEnabled !== undefined) push("comments_moderation_enabled", input.commentsModerationEnabled);
-  if (input.hideAuthorInfo !== undefined) push("hide_author_info", input.hideAuthorInfo);
-  if (input.showSubscriberCount !== undefined) push("show_subscriber_count", input.showSubscriberCount);
-  if (input.menuConfig !== undefined) push("menu_config", JSON.stringify(normalizeMenuConfig(input.menuConfig)), "jsonb");
+  if (input.tagline !== undefined) patch.tagline = input.tagline?.trim() || null;
+  if (input.description !== undefined) patch.description = input.description?.trim() || null;
+  if (input.avatarUrl !== undefined) patch.avatarUrl = input.avatarUrl || null;
+  if (input.coverImageUrl !== undefined) patch.coverImageUrl = input.coverImageUrl || null;
+  if (input.commentsEnabled !== undefined) patch.commentsEnabled = input.commentsEnabled;
+  if (input.commentsModerationEnabled !== undefined) patch.commentsModerationEnabled = input.commentsModerationEnabled;
+  if (input.hideAuthorInfo !== undefined) patch.hideAuthorInfo = input.hideAuthorInfo;
+  if (input.showSubscriberCount !== undefined) patch.showSubscriberCount = input.showSubscriberCount;
 
-  if (fields.length === 0) return;
-  await db.query(`UPDATE blogs SET ${fields.join(", ")}, updated_at = NOW() WHERE id = $1`, params);
+  const hasMenuConfig = input.menuConfig !== undefined;
+  if (Object.keys(patch).length === 0 && !hasMenuConfig) return;
+
+  if (Object.keys(patch).length > 0) {
+    await orm.update(schema.blogs).set({ ...patch, updatedAt: sql`NOW()` }).where(eq(schema.blogs.id, blogId));
+  }
+  // `blogs.menu_config` has no Drizzle column — kept as a `sql` template.
+  if (hasMenuConfig) {
+    await orm.execute(sql`UPDATE blogs SET menu_config = ${JSON.stringify(normalizeMenuConfig(input.menuConfig))}::jsonb, updated_at = NOW() WHERE id = ${blogId}`);
+  }
   if (newSlug) await recordSlugRedirect("blog", blog.slug, blogId, newSlug).catch(() => {});
 }
 
 // ---------------------------------------------------------------------------
 // Contact form (migration 0023) — open to every visitor, logged in or not,
 // regardless of the blog's comment settings; see app/api/blogs/[slug]/contact.
+// NOTE: `blog_contact_messages` has no Drizzle table definition — kept as
+// `sql` templates.
 // ---------------------------------------------------------------------------
 
 export interface SubmitContactMessageInput {
@@ -356,22 +431,24 @@ export interface SubmitContactMessageInput {
 export async function submitContactMessage(input: SubmitContactMessageInput): Promise<{ id: string }> {
   await requireFeatureEnabled("blogs");
 
-  const { rows: blogRows } = await db.query<{ id: string; owner_id: string; slug: string; title: string }>(
-    `SELECT id, owner_id, slug, title FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [input.blogId]
-  );
+  const orm = await getDb();
+  const blogRows = await orm
+    .select({ id: schema.blogs.id, ownerId: schema.blogs.ownerId, slug: schema.blogs.slug, title: schema.blogs.title })
+    .from(schema.blogs)
+    .where(and(eq(schema.blogs.id, input.blogId), isNull(schema.blogs.deletedAt)))
+    .limit(1);
   const blog = blogRows[0];
   if (!blog) throw notFound("Blog not found");
 
-  const { rows } = await db.query<{ id: string }>(
-    `INSERT INTO blog_contact_messages (blog_id, sender_user_id, sender_name, sender_email, message)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [blog.id, input.senderUserId ?? null, input.senderName?.trim() || null, input.senderEmail?.trim() || null, input.message.trim()]
-  );
+  const { rows } = await orm.execute<{ id: string }>(sql`
+    INSERT INTO blog_contact_messages (blog_id, sender_user_id, sender_name, sender_email, message)
+    VALUES (${blog.id}, ${input.senderUserId ?? null}, ${input.senderName?.trim() || null}, ${input.senderEmail?.trim() || null}, ${input.message.trim()})
+    RETURNING id
+  `);
 
   await insertNotificationBatch(
-    db,
-    [blog.owner_id],
+    orm,
+    [blog.ownerId],
     "blog_contact_message",
     `New message on ${blog.title}`,
     input.message.trim().slice(0, 140),
@@ -383,7 +460,7 @@ export async function submitContactMessage(input: SubmitContactMessageInput): Pr
   return { id: rows[0].id };
 }
 
-export interface BlogContactMessageRow {
+export type BlogContactMessageRow = {
   id: string;
   sender_name: string | null;
   sender_email: string | null;
@@ -391,29 +468,38 @@ export interface BlogContactMessageRow {
   message: string;
   is_read: boolean;
   created_at: string;
-}
+};
 
 export async function listContactMessages(blogId: string, callerId: string): Promise<BlogContactMessageRow[]> {
-  const { rows: blogRows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [blogId]);
+  const orm = await getDb();
+  const blogRows = await orm
+    .select({ ownerId: schema.blogs.ownerId })
+    .from(schema.blogs)
+    .where(and(eq(schema.blogs.id, blogId), isNull(schema.blogs.deletedAt)))
+    .limit(1);
   const blog = blogRows[0];
   if (!blog) throw notFound("Blog not found");
-  if (blog.owner_id !== callerId) throw forbidden("Only the blog owner can view contact messages.");
+  if (blog.ownerId !== callerId) throw forbidden("Only the blog owner can view contact messages.");
 
-  const { rows } = await db.query<BlogContactMessageRow>(
-    `SELECT m.id, m.sender_name, m.sender_email, u.username AS sender_username, m.message, m.is_read, m.created_at
-     FROM blog_contact_messages m LEFT JOIN users u ON u.id = m.sender_user_id
-     WHERE m.blog_id = $1 ORDER BY m.created_at DESC LIMIT 200`,
-    [blogId]
-  );
+  const { rows } = await orm.execute<BlogContactMessageRow>(sql`
+    SELECT m.id, m.sender_name, m.sender_email, u.username AS sender_username, m.message, m.is_read, m.created_at
+    FROM blog_contact_messages m LEFT JOIN users u ON u.id = m.sender_user_id
+    WHERE m.blog_id = ${blogId} ORDER BY m.created_at DESC LIMIT 200
+  `);
   return rows;
 }
 
 export async function markContactMessageRead(blogId: string, callerId: string, messageId: string): Promise<void> {
-  const { rows: blogRows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [blogId]);
+  const orm = await getDb();
+  const blogRows = await orm
+    .select({ ownerId: schema.blogs.ownerId })
+    .from(schema.blogs)
+    .where(and(eq(schema.blogs.id, blogId), isNull(schema.blogs.deletedAt)))
+    .limit(1);
   const blog = blogRows[0];
   if (!blog) throw notFound("Blog not found");
-  if (blog.owner_id !== callerId) throw forbidden("Only the blog owner can manage contact messages.");
-  await db.query(`UPDATE blog_contact_messages SET is_read = TRUE WHERE id = $1 AND blog_id = $2`, [messageId, blogId]);
+  if (blog.ownerId !== callerId) throw forbidden("Only the blog owner can manage contact messages.");
+  await orm.execute(sql`UPDATE blog_contact_messages SET is_read = TRUE WHERE id = ${messageId} AND blog_id = ${blogId}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -424,16 +510,21 @@ export async function createCategory(blogId: string, callerId: string, name: str
   const blog = await assertBlogWritable(blogId);
   if (blog.ownerId !== callerId) throw forbidden("Only the blog owner can manage categories.");
 
+  const orm = await getDb();
   const categoryId = randomUUID();
   const base = name.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "").slice(0, 60) || "category";
   let slug = base;
   for (let i = 2; i <= 50; i++) {
-    const { rows } = await db.query<{ id: string }>(`SELECT id FROM blog_categories WHERE blog_id = $1 AND slug = $2 LIMIT 1`, [blogId, slug]);
+    const rows = await orm
+      .select({ id: schema.blogCategories.id })
+      .from(schema.blogCategories)
+      .where(and(eq(schema.blogCategories.blogId, blogId), eq(schema.blogCategories.slug, slug)))
+      .limit(1);
     if (!rows[0]) break;
     slug = `${base}-${i}`;
   }
 
-  await db.query(`INSERT INTO blog_categories (id, blog_id, name, slug) VALUES ($1, $2, $3, $4)`, [categoryId, blogId, name.trim(), slug]);
+  await orm.insert(schema.blogCategories).values({ id: categoryId, blogId, name: name.trim(), slug });
   return { id: categoryId, slug };
 }
 
@@ -461,19 +552,20 @@ export async function createPost(input: CreatePostInput): Promise<{ id: string; 
   await requireFeatureEnabled("blogs");
   await assertBlogWritable(input.blogId);
 
-  const { rows: ownerRows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM blogs WHERE id = $1`, [input.blogId]);
-  if (ownerRows[0]?.owner_id !== input.authorId) throw forbidden("Only the blog owner can publish posts on this blog.");
+  const orm = await getDb();
+  const ownerRows = await orm.select({ ownerId: schema.blogs.ownerId }).from(schema.blogs).where(eq(schema.blogs.id, input.blogId));
+  if (ownerRows[0]?.ownerId !== input.authorId) throw forbidden("Only the blog owner can publish posts on this blog.");
 
   const [maxPosts, maxWords] = await Promise.all([
     getMaxBlogPosts(input.authorPlan),
     getMaxWordsForPlan(input.authorPlan),
   ]);
 
-  const { rows: countRows } = await db.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM blog_posts WHERE blog_id = $1 AND deleted_at IS NULL`,
-    [input.blogId]
-  );
-  if (parseInt(countRows[0]?.count ?? "0", 10) >= maxPosts) {
+  const countRows = await orm
+    .select({ count: count() })
+    .from(schema.blogPosts)
+    .where(and(eq(schema.blogPosts.blogId, input.blogId), isNull(schema.blogPosts.deletedAt)));
+  if ((countRows[0]?.count ?? 0) >= maxPosts) {
     throw forbidden(`Your plan allows a maximum of ${maxPosts} articles and pages. Upgrade your plan to publish more.`, "BLOG_POST_LIMIT_REACHED", { maxPosts });
   }
 
@@ -483,7 +575,11 @@ export async function createPost(input: CreatePostInput): Promise<{ id: string; 
   }
 
   if (input.categoryId) {
-    const { rows: catRows } = await db.query<{ id: string }>(`SELECT id FROM blog_categories WHERE id = $1 AND blog_id = $2 LIMIT 1`, [input.categoryId, input.blogId]);
+    const catRows = await orm
+      .select({ id: schema.blogCategories.id })
+      .from(schema.blogCategories)
+      .where(and(eq(schema.blogCategories.id, input.categoryId), eq(schema.blogCategories.blogId, input.blogId)))
+      .limit(1);
     if (!catRows[0]) throw badRequest("Unknown category.", "BLOG_UNKNOWN_CATEGORY");
   }
 
@@ -493,21 +589,32 @@ export async function createPost(input: CreatePostInput): Promise<{ id: string; 
   const bodyHtml = renderBodyHtml(input.bodyMarkdown, contentFormat);
   const isPaywalled = input.type === "article" && !!input.isPaywalled;
   const paywallCost = isPaywalled ? Math.max(0, Math.floor(input.paywallCreditsCost ?? 0)) : 0;
-  const publishedAt = input.status === "published" ? new Date().toISOString() : null;
+  const publishedAt = input.status === "published" ? new Date() : null;
 
-  await db.transaction(async (tx: TransactionClient) => {
-    await tx.query(
-      `INSERT INTO blog_posts
-         (id, blog_id, author_id, category_id, type, title, slug, excerpt, body_markdown, body_html, content_format,
-          featured_image_url, status, is_paywalled, paywall_credits_cost, word_count, published_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)`,
-      [
-        postId, input.blogId, input.authorId, input.categoryId ?? null, input.type, input.title.trim(),
-        slug, input.excerpt?.trim() || null, input.bodyMarkdown, bodyHtml, contentFormat,
-        input.featuredImageUrl || null, input.status, isPaywalled, paywallCost, words, publishedAt,
-      ]
-    );
-    await tx.query(`UPDATE blogs SET post_count = post_count + 1, updated_at = NOW() WHERE id = $1`, [input.blogId]);
+  await orm.transaction(async (tx) => {
+    await tx.insert(schema.blogPosts).values({
+      id: postId,
+      blogId: input.blogId,
+      authorId: input.authorId,
+      categoryId: input.categoryId ?? null,
+      type: input.type,
+      title: input.title.trim(),
+      slug,
+      excerpt: input.excerpt?.trim() || null,
+      bodyMarkdown: input.bodyMarkdown,
+      bodyHtml,
+      contentFormat,
+      featuredImageUrl: input.featuredImageUrl || null,
+      status: input.status,
+      isPaywalled,
+      paywallCreditsCost: paywallCost,
+      wordCount: words,
+      publishedAt,
+    });
+    await tx
+      .update(schema.blogs)
+      .set({ postCount: sql`${schema.blogs.postCount} + 1`, updatedAt: sql`NOW()` })
+      .where(eq(schema.blogs.id, input.blogId));
   });
 
   if (input.status === "published" && input.type === "article") {
@@ -534,28 +641,32 @@ export interface UpdatePostInput {
 }
 
 export async function updatePost(postId: string, callerId: string, callerPlan: string, input: UpdatePostInput): Promise<void> {
-  const { rows } = await db.query<{ blog_id: string; author_id: string; type: string; status: string; slug: string; content_format: string }>(
-    `SELECT blog_id, author_id, type, status, slug, content_format FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [postId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      blogId: schema.blogPosts.blogId,
+      authorId: schema.blogPosts.authorId,
+      type: schema.blogPosts.type,
+      status: schema.blogPosts.status,
+      slug: schema.blogPosts.slug,
+      contentFormat: schema.blogPosts.contentFormat,
+    })
+    .from(schema.blogPosts)
+    .where(and(eq(schema.blogPosts.id, postId), isNull(schema.blogPosts.deletedAt)))
+    .limit(1);
   const post = rows[0];
   if (!post) throw notFound("Post not found");
-  if (post.author_id !== callerId) throw forbidden("You can't edit this post.");
+  if (post.authorId !== callerId) throw forbidden("You can't edit this post.");
 
-  const fields: string[] = [];
-  const params: SqlParam[] = [postId];
-  const push = (col: string, value: SqlParam) => {
-    params.push(value);
-    fields.push(`${col} = $${params.length}`);
-  };
+  const patch: Partial<typeof schema.blogPosts.$inferInsert> = {};
 
-  if (input.title !== undefined) push("title", input.title.trim());
-  if (input.excerpt !== undefined) push("excerpt", input.excerpt?.trim() || null);
-  if (input.featuredImageUrl !== undefined) push("featured_image_url", input.featuredImageUrl || null);
-  if (input.categoryId !== undefined) push("category_id", input.categoryId || null);
-  if (input.sortOrder !== undefined) push("sort_order", input.sortOrder);
+  if (input.title !== undefined) patch.title = input.title.trim();
+  if (input.excerpt !== undefined) patch.excerpt = input.excerpt?.trim() || null;
+  if (input.featuredImageUrl !== undefined) patch.featuredImageUrl = input.featuredImageUrl || null;
+  if (input.categoryId !== undefined) patch.categoryId = input.categoryId || null;
+  if (input.sortOrder !== undefined) patch.sortOrder = input.sortOrder;
 
-  if (input.contentFormat !== undefined) push("content_format", input.contentFormat);
+  if (input.contentFormat !== undefined) patch.contentFormat = input.contentFormat;
 
   if (input.bodyMarkdown !== undefined) {
     const maxWords = await getMaxWordsForPlan(callerPlan);
@@ -563,42 +674,47 @@ export async function updatePost(postId: string, callerId: string, callerPlan: s
     if (post.type === "article" && words > maxWords) {
       throw new ApiError(400, "BLOG_WORD_LIMIT_EXCEEDED", `Your plan allows articles up to ${maxWords} words. This article is ${words} words.`, undefined, undefined, { maxWords, words });
     }
-    const contentFormat: BlogPostContentFormat = (input.contentFormat ?? (post.content_format as BlogPostContentFormat)) === "plaintext" ? "plaintext" : "markdown";
-    push("body_markdown", input.bodyMarkdown);
-    push("body_html", renderBodyHtml(input.bodyMarkdown, contentFormat));
-    push("word_count", words);
+    const contentFormat: BlogPostContentFormat = (input.contentFormat ?? (post.contentFormat as BlogPostContentFormat)) === "plaintext" ? "plaintext" : "markdown";
+    patch.bodyMarkdown = input.bodyMarkdown;
+    patch.bodyHtml = renderBodyHtml(input.bodyMarkdown, contentFormat);
+    patch.wordCount = words;
   }
 
-  if (input.isPaywalled !== undefined) push("is_paywalled", post.type === "article" && input.isPaywalled);
-  if (input.paywallCreditsCost !== undefined) push("paywall_credits_cost", Math.max(0, Math.floor(input.paywallCreditsCost)));
+  if (input.isPaywalled !== undefined) patch.isPaywalled = post.type === "article" && input.isPaywalled;
+  if (input.paywallCreditsCost !== undefined) patch.paywallCreditsCost = Math.max(0, Math.floor(input.paywallCreditsCost));
 
   const wasPublished = post.status === "published";
   if (input.status !== undefined && input.status !== post.status) {
-    push("status", input.status);
-    if (input.status === "published" && !wasPublished) push("published_at", new Date().toISOString());
+    patch.status = input.status;
+    if (input.status === "published" && !wasPublished) patch.publishedAt = new Date();
   }
 
-  if (fields.length === 0) return;
-  await db.query(`UPDATE blog_posts SET ${fields.join(", ")}, updated_at = NOW() WHERE id = $1`, params);
+  if (Object.keys(patch).length === 0) return;
+  await orm.update(schema.blogPosts).set({ ...patch, updatedAt: sql`NOW()` }).where(eq(schema.blogPosts.id, postId));
 
   if (input.status === "published" && !wasPublished && post.type === "article") {
     safeAwardXPFireAndForget(callerId, 10, "creator", "blog_post_published", `blog_post_reward:${postId}`);
-    await notifySubscribers(post.blog_id, postId, input.title ?? post.slug, post.slug).catch(() => {});
+    await notifySubscribers(post.blogId, postId, input.title ?? post.slug, post.slug).catch(() => {});
   }
 }
 
 export async function deletePost(postId: string, callerId: string, callerIsModerator: boolean): Promise<void> {
-  const { rows } = await db.query<{ author_id: string; blog_id: string }>(
-    `SELECT author_id, blog_id FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [postId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ authorId: schema.blogPosts.authorId, blogId: schema.blogPosts.blogId })
+    .from(schema.blogPosts)
+    .where(and(eq(schema.blogPosts.id, postId), isNull(schema.blogPosts.deletedAt)))
+    .limit(1);
   const post = rows[0];
   if (!post) throw notFound("Post not found");
-  if (post.author_id !== callerId && !callerIsModerator) throw forbidden("You can't delete this post.");
+  if (post.authorId !== callerId && !callerIsModerator) throw forbidden("You can't delete this post.");
 
-  await db.transaction(async (tx: TransactionClient) => {
-    await tx.query(`UPDATE blog_posts SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [postId]);
-    await tx.query(`UPDATE blogs SET post_count = GREATEST(post_count - 1, 0), updated_at = NOW() WHERE id = $1`, [post.blog_id]);
+  await orm.transaction(async (tx) => {
+    await tx.update(schema.blogPosts).set({ deletedAt: sql`NOW()`, updatedAt: sql`NOW()` }).where(eq(schema.blogPosts.id, postId));
+    await tx
+      .update(schema.blogs)
+      .set({ postCount: sql`GREATEST(${schema.blogs.postCount} - 1, 0)`, updatedAt: sql`NOW()` })
+      .where(eq(schema.blogs.id, post.blogId));
   });
 }
 
@@ -617,33 +733,41 @@ export async function batchUpdatePosts(
   action: "draft" | "delete"
 ): Promise<{ affected: number }> {
   if (postIds.length === 0) return { affected: 0 };
-  const { rows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [blogId]);
+  const orm = await getDb();
+  const rows = await orm
+    .select({ ownerId: schema.blogs.ownerId })
+    .from(schema.blogs)
+    .where(and(eq(schema.blogs.id, blogId), isNull(schema.blogs.deletedAt)))
+    .limit(1);
   const blog = rows[0];
   if (!blog) throw notFound("Blog not found");
-  if (blog.owner_id !== callerId) throw forbidden("Only the blog owner can manage these posts.");
+  if (blog.ownerId !== callerId) throw forbidden("Only the blog owner can manage these posts.");
 
   if (action === "delete") {
-    const result = await db.transaction(async (tx: TransactionClient) => {
-      const { rowCount } = await tx.query(
-        `UPDATE blog_posts SET deleted_at = NOW(), updated_at = NOW()
-         WHERE blog_id = $1 AND id = ANY($2::uuid[]) AND deleted_at IS NULL`,
-        [blogId, postIds]
-      );
-      const affected = rowCount ?? 0;
+    const result = await orm.transaction(async (tx) => {
+      const updated = await tx
+        .update(schema.blogPosts)
+        .set({ deletedAt: sql`NOW()`, updatedAt: sql`NOW()` })
+        .where(and(eq(schema.blogPosts.blogId, blogId), inArray(schema.blogPosts.id, postIds), isNull(schema.blogPosts.deletedAt)))
+        .returning({ id: schema.blogPosts.id });
+      const affected = updated.length;
       if (affected > 0) {
-        await tx.query(`UPDATE blogs SET post_count = GREATEST(post_count - $2, 0), updated_at = NOW() WHERE id = $1`, [blogId, affected]);
+        await tx
+          .update(schema.blogs)
+          .set({ postCount: sql`GREATEST(${schema.blogs.postCount} - ${affected}, 0)`, updatedAt: sql`NOW()` })
+          .where(eq(schema.blogs.id, blogId));
       }
       return affected;
     });
     return { affected: result };
   }
 
-  const { rowCount } = await db.query(
-    `UPDATE blog_posts SET status = 'draft', updated_at = NOW()
-     WHERE blog_id = $1 AND id = ANY($2::uuid[]) AND deleted_at IS NULL AND status != 'draft'`,
-    [blogId, postIds]
-  );
-  return { affected: rowCount ?? 0 };
+  const updated = await orm
+    .update(schema.blogPosts)
+    .set({ status: "draft", updatedAt: sql`NOW()` })
+    .where(and(eq(schema.blogPosts.blogId, blogId), inArray(schema.blogPosts.id, postIds), isNull(schema.blogPosts.deletedAt), ne(schema.blogPosts.status, "draft")))
+    .returning({ id: schema.blogPosts.id });
+  return { affected: updated.length };
 }
 
 // ---------------------------------------------------------------------------
@@ -651,16 +775,17 @@ export async function batchUpdatePosts(
 // ---------------------------------------------------------------------------
 
 async function notifySubscribers(blogId: string, postId: string, postTitle: string, postSlug: string): Promise<void> {
-  const { rows: blogRows } = await db.query<{ slug: string; title: string }>(`SELECT slug, title FROM blogs WHERE id = $1 LIMIT 1`, [blogId]);
+  const orm = await getDb();
+  const blogRows = await orm.select({ slug: schema.blogs.slug, title: schema.blogs.title }).from(schema.blogs).where(eq(schema.blogs.id, blogId)).limit(1);
   const blog = blogRows[0];
   if (!blog) return;
 
-  const { rows: subRows } = await db.query<{ user_id: string }>(`SELECT user_id FROM blog_subscriptions WHERE blog_id = $1`, [blogId]);
+  const subRows = await orm.select({ userId: schema.blogSubscriptions.userId }).from(schema.blogSubscriptions).where(eq(schema.blogSubscriptions.blogId, blogId));
   if (subRows.length === 0) return;
 
   await insertNotificationBatch(
-    db,
-    subRows.map((r) => r.user_id),
+    orm,
+    subRows.map((r) => r.userId),
     "blog_new_post",
     `New post on ${blog.title}`,
     postTitle,
@@ -675,36 +800,49 @@ async function notifySubscribers(blogId: string, postId: string, postTitle: stri
 export async function toggleLike(postId: string, userId: string, next: boolean): Promise<{ likeCount: number }> {
   await requireFeatureEnabled("blogs");
 
-  const result = await db.transaction(async (tx: TransactionClient) => {
-    const { rows: postRows } = await tx.query<{ id: string; author_id: string; blog_id: string }>(
-      `SELECT id, author_id, blog_id FROM blog_posts WHERE id = $1 AND deleted_at IS NULL AND status = 'published' FOR UPDATE`,
-      [postId]
-    );
+  const orm = await getDb();
+  const result = await orm.transaction(async (tx) => {
+    const postRows = await tx
+      .select({ id: schema.blogPosts.id, authorId: schema.blogPosts.authorId, blogId: schema.blogPosts.blogId })
+      .from(schema.blogPosts)
+      .where(and(eq(schema.blogPosts.id, postId), isNull(schema.blogPosts.deletedAt), eq(schema.blogPosts.status, "published")))
+      .for("update");
     const post = postRows[0];
     if (!post) throw notFound("Post not found");
 
     let becameLiked = false;
     if (next) {
-      const { rowCount } = await tx.query(`INSERT INTO blog_post_likes (post_id, user_id) VALUES ($1, $2) ON CONFLICT (post_id, user_id) DO NOTHING`, [postId, userId]);
-      if (rowCount && rowCount > 0) {
-        await tx.query(`UPDATE blog_posts SET like_count = like_count + 1 WHERE id = $1`, [postId]);
+      const inserted = await tx
+        .insert(schema.blogPostLikes)
+        .values({ postId, userId })
+        .onConflictDoNothing({ target: [schema.blogPostLikes.postId, schema.blogPostLikes.userId] })
+        .returning({ postId: schema.blogPostLikes.postId });
+      if (inserted.length > 0) {
+        await tx.update(schema.blogPosts).set({ likeCount: sql`${schema.blogPosts.likeCount} + 1` }).where(eq(schema.blogPosts.id, postId));
         becameLiked = true;
       }
     } else {
-      const { rowCount } = await tx.query(`DELETE FROM blog_post_likes WHERE post_id = $1 AND user_id = $2`, [postId, userId]);
-      if (rowCount && rowCount > 0) await tx.query(`UPDATE blog_posts SET like_count = GREATEST(like_count - 1, 0) WHERE id = $1`, [postId]);
+      const deleted = await tx
+        .delete(schema.blogPostLikes)
+        .where(and(eq(schema.blogPostLikes.postId, postId), eq(schema.blogPostLikes.userId, userId)))
+        .returning({ postId: schema.blogPostLikes.postId });
+      if (deleted.length > 0) {
+        await tx.update(schema.blogPosts).set({ likeCount: sql`GREATEST(${schema.blogPosts.likeCount} - 1, 0)` }).where(eq(schema.blogPosts.id, postId));
+      }
     }
 
     if (becameLiked) {
-      await tx.query(
-        `INSERT INTO blog_post_daily_stats (post_id, date, likes) VALUES ($1, CURRENT_DATE, 1)
-         ON CONFLICT (post_id, date) DO UPDATE SET likes = blog_post_daily_stats.likes + 1`,
-        [postId]
-      );
+      await tx
+        .insert(schema.blogPostDailyStats)
+        .values({ postId, date: sql`CURRENT_DATE`, likes: 1 })
+        .onConflictDoUpdate({
+          target: [schema.blogPostDailyStats.postId, schema.blogPostDailyStats.date],
+          set: { likes: sql`${schema.blogPostDailyStats.likes} + 1` },
+        });
     }
 
-    const { rows } = await tx.query<{ like_count: number }>(`SELECT like_count FROM blog_posts WHERE id = $1`, [postId]);
-    return { likeCount: rows[0].like_count, authorId: post.author_id, becameLiked };
+    const rows = await tx.select({ likeCount: schema.blogPosts.likeCount }).from(schema.blogPosts).where(eq(schema.blogPosts.id, postId));
+    return { likeCount: rows[0].likeCount, authorId: post.authorId, becameLiked };
   });
 
   if (result.becameLiked) {
@@ -728,39 +866,47 @@ export interface AddCommentInput {
 export async function addComment(input: AddCommentInput): Promise<{ id: string; status: string }> {
   await requireFeatureEnabled("blogs");
 
-  const { rows: postRows } = await db.query<{ id: string; blog_id: string }>(
-    `SELECT id, blog_id FROM blog_posts WHERE id = $1 AND deleted_at IS NULL AND status = 'published' LIMIT 1`,
-    [input.postId]
-  );
+  const orm = await getDb();
+  const postRows = await orm
+    .select({ id: schema.blogPosts.id, blogId: schema.blogPosts.blogId })
+    .from(schema.blogPosts)
+    .where(and(eq(schema.blogPosts.id, input.postId), isNull(schema.blogPosts.deletedAt), eq(schema.blogPosts.status, "published")))
+    .limit(1);
   const post = postRows[0];
   if (!post) throw notFound("Post not found");
 
-  const { rows: blogRows } = await db.query<{ comments_enabled: boolean; comments_moderation_enabled: boolean }>(
-    `SELECT comments_enabled, comments_moderation_enabled FROM blogs WHERE id = $1 LIMIT 1`,
-    [post.blog_id]
-  );
+  const blogRows = await orm
+    .select({ commentsEnabled: schema.blogs.commentsEnabled, commentsModerationEnabled: schema.blogs.commentsModerationEnabled })
+    .from(schema.blogs)
+    .where(eq(schema.blogs.id, post.blogId))
+    .limit(1);
   const blog = blogRows[0];
-  if (!blog?.comments_enabled) throw forbidden("Comments are disabled on this blog.", "BLOG_COMMENTS_DISABLED");
+  if (!blog?.commentsEnabled) throw forbidden("Comments are disabled on this blog.", "BLOG_COMMENTS_DISABLED");
 
   if (input.parentCommentId) {
-    const { rows: parentRows } = await db.query<{ id: string }>(`SELECT id FROM blog_post_comments WHERE id = $1 AND post_id = $2 AND deleted_at IS NULL LIMIT 1`, [input.parentCommentId, input.postId]);
+    const parentRows = await orm
+      .select({ id: schema.blogPostComments.id })
+      .from(schema.blogPostComments)
+      .where(and(eq(schema.blogPostComments.id, input.parentCommentId), eq(schema.blogPostComments.postId, input.postId), isNull(schema.blogPostComments.deletedAt)))
+      .limit(1);
     if (!parentRows[0]) throw notFound("Parent comment not found");
   }
 
-  const status = blog.comments_moderation_enabled ? "pending" : "visible";
-  const commentId = await db.transaction(async (tx: TransactionClient) => {
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO blog_post_comments (post_id, author_id, parent_comment_id, body, status)
-       VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-      [input.postId, input.authorId, input.parentCommentId ?? null, input.body.trim(), status]
-    );
+  const status = blog.commentsModerationEnabled ? "pending" : "visible";
+  const commentId = await orm.transaction(async (tx) => {
+    const rows = await tx
+      .insert(schema.blogPostComments)
+      .values({ postId: input.postId, authorId: input.authorId, parentCommentId: input.parentCommentId ?? null, body: input.body.trim(), status })
+      .returning({ id: schema.blogPostComments.id });
     if (status === "visible") {
-      await tx.query(`UPDATE blog_posts SET comment_count = comment_count + 1 WHERE id = $1`, [input.postId]);
-      await tx.query(
-        `INSERT INTO blog_post_daily_stats (post_id, date, comments) VALUES ($1, CURRENT_DATE, 1)
-         ON CONFLICT (post_id, date) DO UPDATE SET comments = blog_post_daily_stats.comments + 1`,
-        [input.postId]
-      );
+      await tx.update(schema.blogPosts).set({ commentCount: sql`${schema.blogPosts.commentCount} + 1` }).where(eq(schema.blogPosts.id, input.postId));
+      await tx
+        .insert(schema.blogPostDailyStats)
+        .values({ postId: input.postId, date: sql`CURRENT_DATE`, comments: 1 })
+        .onConflictDoUpdate({
+          target: [schema.blogPostDailyStats.postId, schema.blogPostDailyStats.date],
+          set: { comments: sql`${schema.blogPostDailyStats.comments} + 1` },
+        });
     }
     return rows[0].id;
   });
@@ -777,26 +923,37 @@ export async function addComment(input: AddCommentInput): Promise<{ id: string; 
 }
 
 export async function moderateComment(commentId: string, callerId: string, callerIsModerator: boolean, action: "approve" | "remove"): Promise<void> {
-  const { rows } = await db.query<{ post_id: string; blog_owner_id: string }>(
-    `SELECT c.post_id, b.owner_id AS blog_owner_id
-     FROM blog_post_comments c
-     JOIN blog_posts p ON p.id = c.post_id
-     JOIN blogs b ON b.id = p.blog_id
-     WHERE c.id = $1 AND c.deleted_at IS NULL LIMIT 1`,
-    [commentId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ postId: schema.blogPostComments.postId, blogOwnerId: schema.blogs.ownerId })
+    .from(schema.blogPostComments)
+    .innerJoin(schema.blogPosts, eq(schema.blogPosts.id, schema.blogPostComments.postId))
+    .innerJoin(schema.blogs, eq(schema.blogs.id, schema.blogPosts.blogId))
+    .where(and(eq(schema.blogPostComments.id, commentId), isNull(schema.blogPostComments.deletedAt)))
+    .limit(1);
   const row = rows[0];
   if (!row) throw notFound("Comment not found");
-  if (row.blog_owner_id !== callerId && !callerIsModerator) throw forbidden("You can't moderate this comment.");
+  if (row.blogOwnerId !== callerId && !callerIsModerator) throw forbidden("You can't moderate this comment.");
 
   if (action === "approve") {
-    const { rowCount } = await db.query(`UPDATE blog_post_comments SET status = 'visible', updated_at = NOW() WHERE id = $1 AND status = 'pending'`, [commentId]);
-    if (rowCount && rowCount > 0) await db.query(`UPDATE blog_posts SET comment_count = comment_count + 1 WHERE id = $1`, [row.post_id]);
+    const updated = await orm
+      .update(schema.blogPostComments)
+      .set({ status: "visible", updatedAt: sql`NOW()` })
+      .where(and(eq(schema.blogPostComments.id, commentId), eq(schema.blogPostComments.status, "pending")))
+      .returning({ id: schema.blogPostComments.id });
+    if (updated.length > 0) {
+      await orm.update(schema.blogPosts).set({ commentCount: sql`${schema.blogPosts.commentCount} + 1` }).where(eq(schema.blogPosts.id, row.postId));
+    }
   } else {
-    const { rows: beforeRows } = await db.query<{ status: string }>(`SELECT status FROM blog_post_comments WHERE id = $1`, [commentId]);
+    const beforeRows = await orm.select({ status: schema.blogPostComments.status }).from(schema.blogPostComments).where(eq(schema.blogPostComments.id, commentId));
     const wasVisible = beforeRows[0]?.status === "visible";
-    await db.query(`UPDATE blog_post_comments SET status = 'removed', deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [commentId]);
-    if (wasVisible) await db.query(`UPDATE blog_posts SET comment_count = GREATEST(comment_count - 1, 0) WHERE id = $1`, [row.post_id]);
+    await orm
+      .update(schema.blogPostComments)
+      .set({ status: "removed", deletedAt: sql`NOW()`, updatedAt: sql`NOW()` })
+      .where(eq(schema.blogPostComments.id, commentId));
+    if (wasVisible) {
+      await orm.update(schema.blogPosts).set({ commentCount: sql`GREATEST(${schema.blogPosts.commentCount} - 1, 0)` }).where(eq(schema.blogPosts.id, row.postId));
+    }
   }
 }
 
@@ -818,20 +975,36 @@ export async function deleteComment(commentId: string, callerId: string, callerI
 
 export async function toggleSubscription(blogId: string, userId: string, next: boolean): Promise<{ subscriberCount: number }> {
   await requireFeatureEnabled("blogs");
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows: blogRows } = await tx.query<{ id: string }>(`SELECT id FROM blogs WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [blogId]);
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const blogRows = await tx
+      .select({ id: schema.blogs.id })
+      .from(schema.blogs)
+      .where(and(eq(schema.blogs.id, blogId), isNull(schema.blogs.deletedAt)))
+      .for("update");
     if (!blogRows[0]) throw notFound("Blog not found");
 
     if (next) {
-      const { rowCount } = await tx.query(`INSERT INTO blog_subscriptions (blog_id, user_id) VALUES ($1, $2) ON CONFLICT (blog_id, user_id) DO NOTHING`, [blogId, userId]);
-      if (rowCount && rowCount > 0) await tx.query(`UPDATE blogs SET subscriber_count = subscriber_count + 1 WHERE id = $1`, [blogId]);
+      const inserted = await tx
+        .insert(schema.blogSubscriptions)
+        .values({ blogId, userId })
+        .onConflictDoNothing({ target: [schema.blogSubscriptions.blogId, schema.blogSubscriptions.userId] })
+        .returning({ blogId: schema.blogSubscriptions.blogId });
+      if (inserted.length > 0) {
+        await tx.update(schema.blogs).set({ subscriberCount: sql`${schema.blogs.subscriberCount} + 1` }).where(eq(schema.blogs.id, blogId));
+      }
     } else {
-      const { rowCount } = await tx.query(`DELETE FROM blog_subscriptions WHERE blog_id = $1 AND user_id = $2`, [blogId, userId]);
-      if (rowCount && rowCount > 0) await tx.query(`UPDATE blogs SET subscriber_count = GREATEST(subscriber_count - 1, 0) WHERE id = $1`, [blogId]);
+      const deleted = await tx
+        .delete(schema.blogSubscriptions)
+        .where(and(eq(schema.blogSubscriptions.blogId, blogId), eq(schema.blogSubscriptions.userId, userId)))
+        .returning({ blogId: schema.blogSubscriptions.blogId });
+      if (deleted.length > 0) {
+        await tx.update(schema.blogs).set({ subscriberCount: sql`GREATEST(${schema.blogs.subscriberCount} - 1, 0)` }).where(eq(schema.blogs.id, blogId));
+      }
     }
 
-    const { rows } = await tx.query<{ subscriber_count: number }>(`SELECT subscriber_count FROM blogs WHERE id = $1`, [blogId]);
-    return { subscriberCount: rows[0].subscriber_count };
+    const rows = await tx.select({ subscriberCount: schema.blogs.subscriberCount }).from(schema.blogs).where(eq(schema.blogs.id, blogId));
+    return { subscriberCount: rows[0].subscriberCount };
   });
 }
 
@@ -840,13 +1013,19 @@ export async function toggleSubscription(blogId: string, userId: string, next: b
 // ---------------------------------------------------------------------------
 
 export async function recordView(postId: string): Promise<void> {
-  await db.transaction(async (tx: TransactionClient) => {
-    await tx.query(`UPDATE blog_posts SET view_count = view_count + 1 WHERE id = $1 AND deleted_at IS NULL`, [postId]);
-    await tx.query(
-      `INSERT INTO blog_post_daily_stats (post_id, date, views) VALUES ($1, CURRENT_DATE, 1)
-       ON CONFLICT (post_id, date) DO UPDATE SET views = blog_post_daily_stats.views + 1`,
-      [postId]
-    );
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    await tx
+      .update(schema.blogPosts)
+      .set({ viewCount: sql`${schema.blogPosts.viewCount} + 1` })
+      .where(and(eq(schema.blogPosts.id, postId), isNull(schema.blogPosts.deletedAt)));
+    await tx
+      .insert(schema.blogPostDailyStats)
+      .values({ postId, date: sql`CURRENT_DATE`, views: 1 })
+      .onConflictDoUpdate({
+        target: [schema.blogPostDailyStats.postId, schema.blogPostDailyStats.date],
+        set: { views: sql`${schema.blogPostDailyStats.views} + 1` },
+      });
   });
 }
 
@@ -863,43 +1042,65 @@ export async function unlockPost(postId: string, userId: string, userPlan: strin
   await requireFeatureEnabled("blogs");
   await requireFeatureEnabled("blogMonetization");
 
-  const { rows: postRows } = await db.query<{ id: string; blog_id: string; author_id: string; is_paywalled: boolean; paywall_credits_cost: number }>(
-    `SELECT id, blog_id, author_id, is_paywalled, paywall_credits_cost FROM blog_posts WHERE id = $1 AND deleted_at IS NULL AND status = 'published' LIMIT 1`,
-    [postId]
-  );
+  const orm = await getDb();
+  const postRows = await orm
+    .select({
+      id: schema.blogPosts.id,
+      blogId: schema.blogPosts.blogId,
+      authorId: schema.blogPosts.authorId,
+      isPaywalled: schema.blogPosts.isPaywalled,
+      paywallCreditsCost: schema.blogPosts.paywallCreditsCost,
+    })
+    .from(schema.blogPosts)
+    .where(and(eq(schema.blogPosts.id, postId), isNull(schema.blogPosts.deletedAt), eq(schema.blogPosts.status, "published")))
+    .limit(1);
   const post = postRows[0];
   if (!post) throw notFound("Post not found");
-  if (!post.is_paywalled || post.paywall_credits_cost <= 0) return { alreadyUnlocked: true, creditsSpent: 0 };
-  if (post.author_id === userId) return { alreadyUnlocked: true, creditsSpent: 0 };
+  if (!post.isPaywalled || post.paywallCreditsCost <= 0) return { alreadyUnlocked: true, creditsSpent: 0 };
+  if (post.authorId === userId) return { alreadyUnlocked: true, creditsSpent: 0 };
 
-  const { rows: existingRows } = await db.query<{ id: string }>(`SELECT id FROM blog_post_unlocks WHERE post_id = $1 AND user_id = $2 LIMIT 1`, [postId, userId]);
+  const existingRows = await orm
+    .select({ id: schema.blogPostUnlocks.id })
+    .from(schema.blogPostUnlocks)
+    .where(and(eq(schema.blogPostUnlocks.postId, postId), eq(schema.blogPostUnlocks.userId, userId)))
+    .limit(1);
   if (existingRows[0]) return { alreadyUnlocked: true, creditsSpent: 0 };
 
-  const cost = post.paywall_credits_cost;
+  const cost = post.paywallCreditsCost;
   const referenceId = `blog_paywall_unlock:${postId}:${userId}`;
 
-  await db.transaction(async (tx: TransactionClient) => {
-    await debitCoins(userId, cost, "blog_paywall_unlock", referenceId, "Unlocked a paywalled blog article", { postId, blogId: post.blog_id }, tx);
-    await tx.query(`INSERT INTO blog_post_unlocks (post_id, user_id, credits_spent) VALUES ($1, $2, $3) ON CONFLICT (post_id, user_id) DO NOTHING`, [postId, userId, cost]);
-    await tx.query(
-      `INSERT INTO blog_post_daily_stats (post_id, date, unlock_count, unlock_credits) VALUES ($1, CURRENT_DATE, 1, $2)
-       ON CONFLICT (post_id, date) DO UPDATE SET unlock_count = blog_post_daily_stats.unlock_count + 1, unlock_credits = blog_post_daily_stats.unlock_credits + $2`,
-      [postId, cost]
-    );
+  await orm.transaction(async (tx) => {
+    await debitCoins(userId, cost, "blog_paywall_unlock", referenceId, "Unlocked a paywalled blog article", { postId, blogId: post.blogId }, tx);
+    await tx
+      .insert(schema.blogPostUnlocks)
+      .values({ postId, userId, creditsSpent: cost })
+      .onConflictDoNothing({ target: [schema.blogPostUnlocks.postId, schema.blogPostUnlocks.userId] });
+    await tx
+      .insert(schema.blogPostDailyStats)
+      .values({ postId, date: sql`CURRENT_DATE`, unlockCount: 1, unlockCredits: cost })
+      .onConflictDoUpdate({
+        target: [schema.blogPostDailyStats.postId, schema.blogPostDailyStats.date],
+        set: { unlockCount: sql`${schema.blogPostDailyStats.unlockCount} + 1`, unlockCredits: sql`${schema.blogPostDailyStats.unlockCredits} + ${cost}` },
+      });
   });
 
-  await creditPaywallEarnings(post.author_id, postId, cost, referenceId).catch((err) => {
-    logger.error({ err, postId, authorId: post.author_id }, "[blogs/service] failed to credit paywall earnings");
+  await creditPaywallEarnings(post.authorId, postId, cost, referenceId).catch((err) => {
+    logger.error({ err, postId, authorId: post.authorId }, "[blogs/service] failed to credit paywall earnings");
   });
 
-  safeAwardXPFireAndForget(post.author_id, 5, "creator", "blog_paywall_unlocked", `blog_paywall_xp:${postId}:${userId}`);
+  safeAwardXPFireAndForget(post.authorId, 5, "creator", "blog_paywall_unlocked", `blog_paywall_xp:${postId}:${userId}`);
 
   return { alreadyUnlocked: false, creditsSpent: cost };
 }
 
 /** Credits the creator's cash-equivalent earnings for a paywall unlock, using their plan's revenue-share rate. */
 async function creditPaywallEarnings(creatorId: string, postId: string, creditsSpent: number, referenceId: string): Promise<void> {
-  const { rows } = await db.query<{ plan: string }>(`SELECT plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [creatorId]);
+  const orm = await getDb();
+  const rows = await orm
+    .select({ plan: schema.users.plan })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, creatorId), isNull(schema.users.deletedAt)))
+    .limit(1);
   const plan = rows[0]?.plan ?? "free";
 
   const [revSharePct, economy, manifest] = await Promise.all([getBlogRevSharePct(plan), getBlogEconomyConfig(), loadManifest()]);
@@ -914,17 +1115,22 @@ async function creditPaywallEarnings(creatorId: string, postId: string, creditsS
 
   if (netKobo.lte(0)) return;
 
-  await db.transaction(async (tx: TransactionClient) => {
-    await tx.query(
-      `INSERT INTO creator_earnings (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
-       VALUES ($1, 'blog_paywall', $2, $3, $4, $5)
-       ON CONFLICT (creator_id, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-      [creatorId, grossKobo.toFixed(0), platformFeeKobo.toFixed(0), netKobo.toFixed(0), referenceId]
-    );
-    await tx.query(
-      `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1, updated_at = NOW() WHERE id = $2`,
-      [netKobo.toFixed(0), creatorId]
-    );
+  await orm.transaction(async (tx) => {
+    await tx
+      .insert(schema.creatorEarnings)
+      .values({
+        creatorId,
+        sourceType: "blog_paywall",
+        grossAmountKobo: BigInt(grossKobo.toFixed(0)),
+        platformFeeKobo: BigInt(platformFeeKobo.toFixed(0)),
+        netAmountKobo: BigInt(netKobo.toFixed(0)),
+        referenceId,
+      })
+      .onConflictDoNothing({ target: [schema.creatorEarnings.creatorId, schema.creatorEarnings.referenceId] });
+    await tx
+      .update(schema.users)
+      .set({ availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${netKobo.toFixed(0)}`, updatedAt: sql`NOW()` })
+      .where(eq(schema.users.id, creatorId));
   });
 }
 
@@ -935,11 +1141,16 @@ async function creditPaywallEarnings(creatorId: string, postId: string, creditsS
 export type BlogAdminAction = "suspend" | "ban" | "deactivate" | "pause" | "restore" | "delete" | "transfer_ownership";
 
 export async function logBlogModeration(moderatorId: string, blogId: string | null, postId: string | null, targetUserId: string | null, action: string, reason?: string | null, metadata?: Record<string, unknown>): Promise<void> {
-  await db.query(
-    `INSERT INTO blog_moderation_log (moderator_id, blog_id, post_id, target_user_id, action, reason, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
-    [moderatorId, blogId, postId, targetUserId, action, reason ?? null, JSON.stringify(metadata ?? {})]
-  );
+  const orm = await getDb();
+  await orm.insert(schema.blogModerationLog).values({
+    moderatorId,
+    blogId,
+    postId,
+    targetUserId,
+    action,
+    reason: reason ?? null,
+    metadata: metadata ?? {},
+  });
 }
 
 const STATUS_FOR_ACTION: Partial<Record<BlogAdminAction, string>> = {
@@ -951,40 +1162,55 @@ const STATUS_FOR_ACTION: Partial<Record<BlogAdminAction, string>> = {
 };
 
 export async function setBlogStatus(blogId: string, moderatorId: string, action: BlogAdminAction, reason?: string | null): Promise<void> {
+  const orm = await getDb();
   if (action === "delete") {
-    const { rows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [blogId]);
+    const rows = await orm
+      .select({ ownerId: schema.blogs.ownerId })
+      .from(schema.blogs)
+      .where(and(eq(schema.blogs.id, blogId), isNull(schema.blogs.deletedAt)))
+      .limit(1);
     if (!rows[0]) throw notFound("Blog not found");
-    await db.query(`UPDATE blogs SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [blogId]);
-    await logBlogModeration(moderatorId, blogId, null, rows[0].owner_id, "delete", reason);
+    await orm.update(schema.blogs).set({ deletedAt: sql`NOW()`, updatedAt: sql`NOW()` }).where(eq(schema.blogs.id, blogId));
+    await logBlogModeration(moderatorId, blogId, null, rows[0].ownerId, "delete", reason);
     return;
   }
 
   const status = STATUS_FOR_ACTION[action];
   if (!status) throw new ApiError(400, "BLOG_INVALID_ACTION", `Unsupported action: ${action}`);
 
-  const { rows } = await db.query<{ owner_id: string }>(
-    `UPDATE blogs SET status = $2, status_reason = $3, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING owner_id`,
-    [blogId, status, reason ?? null]
-  );
+  const rows = await orm
+    .update(schema.blogs)
+    .set({ status, statusReason: reason ?? null, updatedAt: sql`NOW()` })
+    .where(and(eq(schema.blogs.id, blogId), isNull(schema.blogs.deletedAt)))
+    .returning({ ownerId: schema.blogs.ownerId });
   if (!rows[0]) throw notFound("Blog not found");
-  await logBlogModeration(moderatorId, blogId, null, rows[0].owner_id, action, reason);
+  await logBlogModeration(moderatorId, blogId, null, rows[0].ownerId, action, reason);
 }
 
 export async function transferBlogOwnership(blogId: string, moderatorId: string, newOwnerId: string): Promise<void> {
-  const { rows: userRows } = await db.query<{ id: string }>(`SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [newOwnerId]);
+  const orm = await getDb();
+  const userRows = await orm
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, newOwnerId), isNull(schema.users.deletedAt)))
+    .limit(1);
   if (!userRows[0]) throw notFound("Target user not found");
 
   // Blogs are no longer 1:1 with an owner (migration 0018) — a target user
   // already having other blogs is no longer a conflict, so there's nothing
   // to check here beyond the target existing.
-  const { rows } = await db.query<{ owner_id: string }>(
-    `UPDATE blogs SET owner_id = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING owner_id`,
-    [blogId, newOwnerId]
-  );
+  const rows = await orm
+    .update(schema.blogs)
+    .set({ ownerId: newOwnerId, updatedAt: sql`NOW()` })
+    .where(and(eq(schema.blogs.id, blogId), isNull(schema.blogs.deletedAt)))
+    .returning({ ownerId: schema.blogs.ownerId });
   if (!rows[0]) throw notFound("Blog not found");
 
-  await db.query(`UPDATE blog_posts SET author_id = $2 WHERE blog_id = $1 AND author_id != $2`, [blogId, newOwnerId]);
-  await logBlogModeration(moderatorId, blogId, null, newOwnerId, "transfer_ownership", null, { previousOwnerId: rows[0].owner_id });
+  await orm
+    .update(schema.blogPosts)
+    .set({ authorId: newOwnerId })
+    .where(and(eq(schema.blogPosts.blogId, blogId), ne(schema.blogPosts.authorId, newOwnerId)));
+  await logBlogModeration(moderatorId, blogId, null, newOwnerId, "transfer_ownership", null, { previousOwnerId: rows[0].ownerId });
 }
 
 // ---------------------------------------------------------------------------
@@ -1015,12 +1241,32 @@ function toTreasuryState(row: { id: string; funded_amount: number; remaining_amo
   };
 }
 
+function toTreasuryStateFromDrizzle(row: { id: string; fundedAmount: number; remainingAmount: number; maxClaimants: number; claimantCount: number; status: string }): TreasuryState {
+  return toTreasuryState({
+    id: row.id,
+    funded_amount: row.fundedAmount,
+    remaining_amount: row.remainingAmount,
+    max_claimants: row.maxClaimants,
+    claimant_count: row.claimantCount,
+    status: row.status,
+  });
+}
+
 export async function getPostTreasury(postId: string): Promise<TreasuryState | null> {
-  const { rows } = await db.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
-    `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status FROM blog_post_treasuries WHERE post_id = $1 LIMIT 1`,
-    [postId]
-  );
-  return rows[0] ? toTreasuryState(rows[0]) : null;
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: blogPostTreasuries.id,
+      fundedAmount: blogPostTreasuries.fundedAmount,
+      remainingAmount: blogPostTreasuries.remainingAmount,
+      maxClaimants: blogPostTreasuries.maxClaimants,
+      claimantCount: blogPostTreasuries.claimantCount,
+      status: blogPostTreasuries.status,
+    })
+    .from(blogPostTreasuries)
+    .where(eq(blogPostTreasuries.postId, postId))
+    .limit(1);
+  return rows[0] ? toTreasuryStateFromDrizzle(rows[0]) : null;
 }
 
 /**
@@ -1041,16 +1287,16 @@ export async function fundPostTreasury(ownerId: string, postId: string, amount: 
   if (!Number.isInteger(amount) || amount <= 0) throw badRequest("Amount must be a positive integer.", "BLOG_TREASURY_INVALID_AMOUNT");
   if (!Number.isInteger(maxClaimants) || maxClaimants <= 0) throw badRequest("Max claimants must be a positive integer.", "BLOG_TREASURY_INVALID_MAX_CLAIMANTS");
 
-  const { rows: postRows } = await db.query<{ author_id: string }>(`SELECT author_id FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [postId]);
+  const orm = await getDb();
+  const postRows = await orm.select({ authorId: schema.blogPosts.authorId }).from(schema.blogPosts).where(and(eq(schema.blogPosts.id, postId), isNull(schema.blogPosts.deletedAt))).limit(1);
   const post = postRows[0];
   if (!post) throw notFound("Post not found");
-  if (post.author_id !== ownerId) throw forbidden("Only the post's author can fund its reward pot.");
+  if (post.authorId !== ownerId) throw forbidden("Only the post's author can fund its reward pot.");
 
   const referenceId = `blog_treasury_fund:${postId}:${Date.now()}`;
-  const result = await db.transaction(async (tx: TransactionClient) => {
-    const { rows: existingRows } = await tx.query<{ status: string }>(
-      `SELECT status FROM blog_post_treasuries WHERE post_id = $1 FOR UPDATE`,
-      [postId]
+  const result = await orm.transaction(async (tx) => {
+    const { rows: existingRows } = await tx.execute<{ status: string } & Record<string, unknown>>(
+      sql`SELECT status FROM blog_post_treasuries WHERE post_id = ${postId} FOR UPDATE`
     );
     if (existingRows[0] && existingRows[0].status !== "closed") {
       throw badRequest(
@@ -1060,20 +1306,21 @@ export async function fundPostTreasury(ownerId: string, postId: string, amount: 
     }
 
     await checkAndDebit(ownerId, amount, "blog_treasury_fund", referenceId, "Funded a blog post reward pot", { postId }, tx);
-    const { rows } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
-      `INSERT INTO blog_post_treasuries (post_id, owner_id, funded_amount, remaining_amount, max_claimants)
-       VALUES ($1, $2, $3, $3, $4)
-       ON CONFLICT (post_id) DO UPDATE SET
-         owner_id = $2,
-         funded_amount = $3,
-         remaining_amount = $3,
-         max_claimants = $4,
-         claimant_count = 0,
-         status = 'active',
-         updated_at = NOW()
-       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
-      [postId, ownerId, amount, maxClaimants]
-    );
+    const { rows } = await tx.execute<
+      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string } & Record<string, unknown>
+    >(sql`
+      INSERT INTO blog_post_treasuries (post_id, owner_id, funded_amount, remaining_amount, max_claimants)
+      VALUES (${postId}, ${ownerId}, ${amount}, ${amount}, ${maxClaimants})
+      ON CONFLICT (post_id) DO UPDATE SET
+        owner_id = ${ownerId},
+        funded_amount = ${amount},
+        remaining_amount = ${amount},
+        max_claimants = ${maxClaimants},
+        claimant_count = 0,
+        status = 'active',
+        updated_at = NOW()
+      RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status
+    `);
     return rows[0];
   });
 
@@ -1094,17 +1341,19 @@ export async function editPostTreasury(ownerId: string, postId: string, newAmoun
     throw badRequest("Max claimants must be a positive integer.", "BLOG_TREASURY_INVALID_MAX_CLAIMANTS");
   }
 
-  const { rows: postRows } = await db.query<{ author_id: string }>(`SELECT author_id FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [postId]);
+  const orm = await getDb();
+  const postRows = await orm.select({ authorId: schema.blogPosts.authorId }).from(schema.blogPosts).where(and(eq(schema.blogPosts.id, postId), isNull(schema.blogPosts.deletedAt))).limit(1);
   const post = postRows[0];
   if (!post) throw notFound("Post not found");
-  if (post.author_id !== ownerId) throw forbidden("Only the post's author can edit its reward pot.");
+  if (post.authorId !== ownerId) throw forbidden("Only the post's author can edit its reward pot.");
 
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
-      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status
-       FROM blog_post_treasuries WHERE post_id = $1 FOR UPDATE`,
-      [postId]
-    );
+  return orm.transaction(async (tx) => {
+    const { rows } = await tx.execute<
+      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string } & Record<string, unknown>
+    >(sql`
+      SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status
+      FROM blog_post_treasuries WHERE post_id = ${postId} FOR UPDATE
+    `);
     const treasury = rows[0];
     if (!treasury) throw notFound("Reward pot not found.");
     if (treasury.status === "closed") throw badRequest("This reward pot is closed. Fund a new one instead.", "BLOG_TREASURY_CLOSED");
@@ -1135,12 +1384,13 @@ export async function editPostTreasury(ownerId: string, postId: string, newAmoun
         ? "exhausted"
         : "active";
 
-    const { rows: updated } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
-      `UPDATE blog_post_treasuries SET funded_amount = $2, remaining_amount = $3, max_claimants = $4, status = $5, updated_at = NOW()
-       WHERE id = $1
-       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
-      [treasury.id, newAmount, newRemaining, newMaxClaimants, newStatus]
-    );
+    const { rows: updated } = await tx.execute<
+      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string } & Record<string, unknown>
+    >(sql`
+      UPDATE blog_post_treasuries SET funded_amount = ${newAmount}, remaining_amount = ${newRemaining}, max_claimants = ${newMaxClaimants}, status = ${newStatus}, updated_at = NOW()
+      WHERE id = ${treasury.id}
+      RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status
+    `);
     return toTreasuryState(updated[0]);
   });
 }
@@ -1151,17 +1401,19 @@ export async function editPostTreasury(ownerId: string, postId: string, newAmoun
  */
 export async function closePostTreasury(ownerId: string, postId: string): Promise<TreasuryState> {
   await requireFeatureEnabled("blogs");
-  const { rows: postRows } = await db.query<{ author_id: string }>(`SELECT author_id FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [postId]);
+  const orm = await getDb();
+  const postRows = await orm.select({ authorId: schema.blogPosts.authorId }).from(schema.blogPosts).where(and(eq(schema.blogPosts.id, postId), isNull(schema.blogPosts.deletedAt))).limit(1);
   const post = postRows[0];
   if (!post) throw notFound("Post not found");
-  if (post.author_id !== ownerId) throw forbidden("Only the post's author can turn off its reward pot.");
+  if (post.authorId !== ownerId) throw forbidden("Only the post's author can turn off its reward pot.");
 
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
-      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status
-       FROM blog_post_treasuries WHERE post_id = $1 FOR UPDATE`,
-      [postId]
-    );
+  return orm.transaction(async (tx) => {
+    const { rows } = await tx.execute<
+      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string } & Record<string, unknown>
+    >(sql`
+      SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status
+      FROM blog_post_treasuries WHERE post_id = ${postId} FOR UPDATE
+    `);
     const treasury = rows[0];
     if (!treasury) throw notFound("Reward pot not found.");
     if (treasury.status === "closed") throw badRequest("This reward pot is already off.", "BLOG_TREASURY_ALREADY_CLOSED");
@@ -1170,11 +1422,12 @@ export async function closePostTreasury(ownerId: string, postId: string): Promis
       await creditCoins(ownerId, treasury.remaining_amount, "blog_treasury_refund", `blog_treasury_close_refund:${treasury.id}`, "Reward pot turned off — unclaimed funds refunded", { postId }, tx);
     }
 
-    const { rows: updated } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string }>(
-      `UPDATE blog_post_treasuries SET remaining_amount = 0, status = 'closed', updated_at = NOW() WHERE id = $1
-       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
-      [treasury.id]
-    );
+    const { rows: updated } = await tx.execute<
+      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string } & Record<string, unknown>
+    >(sql`
+      UPDATE blog_post_treasuries SET remaining_amount = 0, status = 'closed', updated_at = NOW() WHERE id = ${treasury.id}
+      RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status
+    `);
     return toTreasuryState(updated[0]);
   });
 }
@@ -1192,11 +1445,11 @@ export async function claimTreasuryReward(postId: string, userId: string, claimT
   const manifest = await loadManifest();
   if (!manifest.features.blogMonetization) return null;
 
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows: treasuryRows } = await tx.query<{ id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string; owner_id: string }>(
-      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id FROM blog_post_treasuries WHERE post_id = $1 FOR UPDATE`,
-      [postId]
-    );
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const { rows: treasuryRows } = await tx.execute<
+      { id: string; funded_amount: number; remaining_amount: number; max_claimants: number; claimant_count: number; status: string; owner_id: string } & Record<string, unknown>
+    >(sql`SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id FROM blog_post_treasuries WHERE post_id = ${postId} FOR UPDATE`);
     const treasury = treasuryRows[0];
     if (!treasury || treasury.status !== "active") return null;
     if (treasury.claimant_count >= treasury.max_claimants) return null;
@@ -1205,18 +1458,16 @@ export async function claimTreasuryReward(postId: string, userId: string, claimT
     const rewardPerClaimant = Math.floor(treasury.funded_amount / treasury.max_claimants);
     if (rewardPerClaimant <= 0 || treasury.remaining_amount < rewardPerClaimant) return null;
 
-    const { rowCount } = await tx.query(
-      `INSERT INTO blog_post_treasury_claims (treasury_id, user_id, claim_type, amount) VALUES ($1, $2, $3, $4) ON CONFLICT (treasury_id, user_id) DO NOTHING`,
-      [treasury.id, userId, claimType, rewardPerClaimant]
+    const { rowCount } = await tx.execute(
+      sql`INSERT INTO blog_post_treasury_claims (treasury_id, user_id, claim_type, amount) VALUES (${treasury.id}, ${userId}, ${claimType}, ${rewardPerClaimant}) ON CONFLICT (treasury_id, user_id) DO NOTHING`
     );
     if (!rowCount || rowCount === 0) return null; // already claimed
 
     const newClaimantCount = treasury.claimant_count + 1;
     const newRemaining = treasury.remaining_amount - rewardPerClaimant;
     const newStatus = newClaimantCount >= treasury.max_claimants || newRemaining < rewardPerClaimant ? "exhausted" : "active";
-    await tx.query(
-      `UPDATE blog_post_treasuries SET claimant_count = $2, remaining_amount = $3, status = $4, updated_at = NOW() WHERE id = $1`,
-      [treasury.id, newClaimantCount, newRemaining, newStatus]
+    await tx.execute(
+      sql`UPDATE blog_post_treasuries SET claimant_count = ${newClaimantCount}, remaining_amount = ${newRemaining}, status = ${newStatus}, updated_at = NOW() WHERE id = ${treasury.id}`
     );
 
     await creditCoins(userId, rewardPerClaimant, "blog_treasury_claim", `blog_treasury_claim:${treasury.id}:${userId}`, "Reward pot claim", { postId, claimType }, tx);
@@ -1228,12 +1479,21 @@ export async function claimTreasuryReward(postId: string, userId: string, claimT
 /** Records a share event (idempotent per user/post) and attempts a treasury claim. */
 export async function recordShare(postId: string, userId: string): Promise<{ shareCount: number; rewardClaimed: number | null }> {
   await requireFeatureEnabled("blogs");
-  const { rows: postRows } = await db.query<{ id: string }>(`SELECT id FROM blog_posts WHERE id = $1 AND deleted_at IS NULL AND status = 'published' LIMIT 1`, [postId]);
+  const orm = await getDb();
+  const postRows = await orm
+    .select({ id: schema.blogPosts.id })
+    .from(schema.blogPosts)
+    .where(and(eq(schema.blogPosts.id, postId), isNull(schema.blogPosts.deletedAt), eq(schema.blogPosts.status, "published")))
+    .limit(1);
   if (!postRows[0]) throw notFound("Post not found");
 
-  const { rowCount } = await db.query(`INSERT INTO blog_post_shares (post_id, user_id) VALUES ($1, $2) ON CONFLICT (post_id, user_id) DO NOTHING`, [postId, userId]);
-  if (rowCount && rowCount > 0) {
-    await db.query(`UPDATE blog_posts SET share_count = share_count + 1 WHERE id = $1`, [postId]);
+  const inserted = await orm
+    .insert(blogPostShares)
+    .values({ postId, userId })
+    .onConflictDoNothing({ target: [blogPostShares.postId, blogPostShares.userId] })
+    .returning({ postId: blogPostShares.postId });
+  if (inserted.length > 0) {
+    await orm.update(schema.blogPosts).set({ shareCount: sql`${schema.blogPosts.shareCount} + 1` }).where(eq(schema.blogPosts.id, postId));
   }
 
   const claim = await claimTreasuryReward(postId, userId, "share").catch((err) => {
@@ -1241,8 +1501,8 @@ export async function recordShare(postId: string, userId: string): Promise<{ sha
     return null;
   });
 
-  const { rows: countRows } = await db.query<{ share_count: number }>(`SELECT share_count FROM blog_posts WHERE id = $1`, [postId]);
-  return { shareCount: countRows[0]?.share_count ?? 0, rewardClaimed: claim?.amount ?? null };
+  const countRows = await orm.select({ shareCount: schema.blogPosts.shareCount }).from(schema.blogPosts).where(eq(schema.blogPosts.id, postId));
+  return { shareCount: countRows[0]?.shareCount ?? 0, rewardClaimed: claim?.amount ?? null };
 }
 
 // ---------------------------------------------------------------------------
@@ -1261,6 +1521,12 @@ export async function recordShare(postId: string, userId: string): Promise<{ sha
 // conversion elsewhere in the codebase, so the owner is credited Stars
 // directly, net of the same revenue-share percentage (no fee/VAT — those
 // only apply to the cash-equivalent kobo ledger).
+//
+// `blog_gift_tiers`, `blog_gift_purchases` and `blog_gift_claims` have no
+// Drizzle table definitions, and `blog_post_treasuries` is used here with
+// `blog_id`/`gift_tier_id` columns and a nullable `post_id` that the
+// Drizzle schema doesn't model either — this whole section stays on `sql`
+// templates through the Drizzle instance.
 // ---------------------------------------------------------------------------
 
 export type GiftBenefitType = "vip_badge" | "vip_section_access" | "custom_reward";
@@ -1341,13 +1607,13 @@ export async function createGiftTier(ownerId: string, blogId: string, input: Gif
   if (blog.ownerId !== ownerId) throw forbidden("Only the blog owner can manage gift tiers.");
 
   const n = normalizeGiftTierInput(input);
-  const { rows } = await db.query<BlogGiftTierRow>(
-    `INSERT INTO blog_gift_tiers (blog_id, name, description, credits_price, stars_price, benefit_type, benefit_config, max_redemptions, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
-     RETURNING id, blog_id, name, description, credits_price, stars_price, benefit_type, benefit_config, max_redemptions, redemption_count, expires_at, enabled, created_at, updated_at`,
-    [blogId, n.name, n.description, n.creditsPrice, n.starsPrice, n.benefitType, JSON.stringify(n.benefitConfig), n.maxRedemptions, n.expiresAt]
-  );
-  return rows[0];
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`
+    INSERT INTO blog_gift_tiers (blog_id, name, description, credits_price, stars_price, benefit_type, benefit_config, max_redemptions, expires_at)
+    VALUES (${blogId}, ${n.name}, ${n.description}, ${n.creditsPrice}, ${n.starsPrice}, ${n.benefitType}, ${JSON.stringify(n.benefitConfig)}::jsonb, ${n.maxRedemptions}, ${n.expiresAt})
+    RETURNING id, blog_id, name, description, credits_price, stars_price, benefit_type, benefit_config, max_redemptions, redemption_count, expires_at, enabled, created_at, updated_at
+  `);
+  return rows[0] as unknown as BlogGiftTierRow;
 }
 
 export async function updateGiftTier(
@@ -1357,7 +1623,8 @@ export async function updateGiftTier(
 ): Promise<BlogGiftTierRow> {
   await assertGiftsEnabled();
 
-  const { rows: existingRows } = await db.query<{
+  const orm = await getDb();
+  const { rows: existingRows } = await orm.execute<{
     owner_id: string;
     name: string;
     description: string | null;
@@ -1368,11 +1635,10 @@ export async function updateGiftTier(
     max_redemptions: number | null;
     expires_at: string | null;
     enabled: boolean;
-  }>(
-    `SELECT b.owner_id, t.name, t.description, t.credits_price, t.stars_price, t.benefit_type, t.benefit_config, t.max_redemptions, t.expires_at, t.enabled
-     FROM blog_gift_tiers t JOIN blogs b ON b.id = t.blog_id WHERE t.id = $1 LIMIT 1`,
-    [tierId]
-  );
+  }>(sql`
+    SELECT b.owner_id, t.name, t.description, t.credits_price, t.stars_price, t.benefit_type, t.benefit_config, t.max_redemptions, t.expires_at, t.enabled
+    FROM blog_gift_tiers t JOIN blogs b ON b.id = t.blog_id WHERE t.id = ${tierId} LIMIT 1
+  `);
   const existing = existingRows[0];
   if (!existing) throw notFound("Gift tier not found");
   if (existing.owner_id !== ownerId) throw forbidden("Only the blog owner can manage gift tiers.");
@@ -1389,21 +1655,21 @@ export async function updateGiftTier(
   });
   const enabled = patch.enabled !== undefined ? patch.enabled : existing.enabled;
 
-  const { rows } = await db.query<BlogGiftTierRow>(
-    `UPDATE blog_gift_tiers
-     SET name = $2, description = $3, credits_price = $4, stars_price = $5, benefit_type = $6,
-         benefit_config = $7::jsonb, max_redemptions = $8, expires_at = $9, enabled = $10, updated_at = NOW()
-     WHERE id = $1
-     RETURNING id, blog_id, name, description, credits_price, stars_price, benefit_type, benefit_config, max_redemptions, redemption_count, expires_at, enabled, created_at, updated_at`,
-    [tierId, merged.name, merged.description, merged.creditsPrice, merged.starsPrice, merged.benefitType, JSON.stringify(merged.benefitConfig), merged.maxRedemptions, merged.expiresAt, enabled]
-  );
-  return rows[0];
+  const { rows } = await orm.execute(sql`
+    UPDATE blog_gift_tiers
+    SET name = ${merged.name}, description = ${merged.description}, credits_price = ${merged.creditsPrice}, stars_price = ${merged.starsPrice}, benefit_type = ${merged.benefitType},
+        benefit_config = ${JSON.stringify(merged.benefitConfig)}::jsonb, max_redemptions = ${merged.maxRedemptions}, expires_at = ${merged.expiresAt}, enabled = ${enabled}, updated_at = NOW()
+    WHERE id = ${tierId}
+    RETURNING id, blog_id, name, description, credits_price, stars_price, benefit_type, benefit_config, max_redemptions, redemption_count, expires_at, enabled, created_at, updated_at
+  `);
+  return rows[0] as unknown as BlogGiftTierRow;
 }
 
 /** Admin override (gate44/blogs/gifts): disable a tier platform-wide regardless of ownership. */
 export async function adminSetGiftTierEnabled(tierId: string, enabled: boolean): Promise<void> {
-  const { rowCount } = await db.query(`UPDATE blog_gift_tiers SET enabled = $2, updated_at = NOW() WHERE id = $1`, [tierId, enabled]);
-  if (!rowCount) throw notFound("Gift tier not found");
+  const orm = await getDb();
+  const result = await orm.execute(sql`UPDATE blog_gift_tiers SET enabled = ${enabled}, updated_at = NOW() WHERE id = ${tierId}`);
+  if (!result.rowCount) throw notFound("Gift tier not found");
 }
 
 export async function listGiftTiersForOwner(ownerId: string, blogId: string): Promise<BlogGiftTierRow[]> {
@@ -1431,9 +1697,9 @@ export interface GiftTreasuryState {
 }
 
 export async function getGiftTierTreasury(tierId: string): Promise<GiftTreasuryState | null> {
-  const { rows } = await db.query<{ funded_amount: number; remaining_amount: number }>(
-    `SELECT funded_amount, remaining_amount FROM blog_post_treasuries WHERE gift_tier_id = $1 LIMIT 1`,
-    [tierId]
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ funded_amount: number; remaining_amount: number }>(
+    sql`SELECT funded_amount, remaining_amount FROM blog_post_treasuries WHERE gift_tier_id = ${tierId} LIMIT 1`
   );
   return rows[0] ? { fundedAmount: rows[0].funded_amount, remainingAmount: rows[0].remaining_amount } : null;
 }
@@ -1443,29 +1709,28 @@ export async function fundBlogGiftTreasury(ownerId: string, tierId: string, amou
   await assertGiftsEnabled();
   if (!Number.isInteger(amount) || amount <= 0) throw badRequest("Amount must be a positive integer.", "BLOG_GIFT_TREASURY_INVALID_AMOUNT");
 
-  const { rows: tierRows } = await db.query<{ blog_id: string; owner_id: string; benefit_type: GiftBenefitType }>(
-    `SELECT t.blog_id, b.owner_id, t.benefit_type FROM blog_gift_tiers t JOIN blogs b ON b.id = t.blog_id WHERE t.id = $1 LIMIT 1`,
-    [tierId]
-  );
+  const orm = await getDb();
+  const { rows: tierRows } = await orm.execute<{ blog_id: string; owner_id: string; benefit_type: GiftBenefitType }>(sql`
+    SELECT t.blog_id, b.owner_id, t.benefit_type FROM blog_gift_tiers t JOIN blogs b ON b.id = t.blog_id WHERE t.id = ${tierId} LIMIT 1
+  `);
   const tier = tierRows[0];
   if (!tier) throw notFound("Gift tier not found");
   if (tier.owner_id !== ownerId) throw forbidden("Only the blog owner can fund a gift tier's reward pot.");
   if (tier.benefit_type !== "custom_reward") throw badRequest("Only custom_reward tiers have a fundable reward pot.", "BLOG_GIFT_NOT_CUSTOM_REWARD");
 
   const referenceId = `blog_gift_treasury_fund:${tierId}:${Date.now()}`;
-  const result = await db.transaction(async (tx: TransactionClient) => {
+  const result = await orm.transaction(async (tx) => {
     await checkAndDebit(ownerId, amount, "blog_gift_treasury_fund", referenceId, "Funded a blog gift reward pot", { tierId }, tx);
-    const { rows } = await tx.query<{ funded_amount: number; remaining_amount: number }>(
-      `INSERT INTO blog_post_treasuries (blog_id, gift_tier_id, owner_id, funded_amount, remaining_amount)
-       VALUES ($1, $2, $3, $4, $4)
-       ON CONFLICT (gift_tier_id) DO UPDATE SET
-         funded_amount = blog_post_treasuries.funded_amount + $4,
-         remaining_amount = blog_post_treasuries.remaining_amount + $4,
-         status = CASE WHEN blog_post_treasuries.status = 'closed' THEN 'closed' ELSE 'active' END,
-         updated_at = NOW()
-       RETURNING funded_amount, remaining_amount`,
-      [tier.blog_id, tierId, ownerId, amount]
-    );
+    const { rows } = await tx.execute<{ funded_amount: number; remaining_amount: number } & Record<string, unknown>>(sql`
+      INSERT INTO blog_post_treasuries (blog_id, gift_tier_id, owner_id, funded_amount, remaining_amount)
+      VALUES (${tier.blog_id}, ${tierId}, ${ownerId}, ${amount}, ${amount})
+      ON CONFLICT (gift_tier_id) DO UPDATE SET
+        funded_amount = blog_post_treasuries.funded_amount + ${amount},
+        remaining_amount = blog_post_treasuries.remaining_amount + ${amount},
+        status = CASE WHEN blog_post_treasuries.status = 'closed' THEN 'closed' ELSE 'active' END,
+        updated_at = NOW()
+      RETURNING funded_amount, remaining_amount
+    `);
     return rows[0];
   });
 
@@ -1500,15 +1765,15 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
   await assertGiftsEnabled();
   if (currency !== "credits" && currency !== "stars") throw badRequest("Invalid currency.", "BLOG_GIFT_INVALID_CURRENCY");
 
-  const { rows: tierRows } = await db.query<{
+  const orm = await getDb();
+  const { rows: tierRows } = await orm.execute<{
     id: string; blog_id: string; owner_id: string; name: string;
     credits_price: number | null; stars_price: number | null;
     benefit_type: GiftBenefitType; benefit_config: Record<string, unknown>;
-  }>(
-    `SELECT t.id, t.blog_id, b.owner_id, t.name, t.credits_price, t.stars_price, t.benefit_type, t.benefit_config
-     FROM blog_gift_tiers t JOIN blogs b ON b.id = t.blog_id WHERE t.id = $1 AND b.deleted_at IS NULL LIMIT 1`,
-    [tierId]
-  );
+  }>(sql`
+    SELECT t.id, t.blog_id, b.owner_id, t.name, t.credits_price, t.stars_price, t.benefit_type, t.benefit_config
+    FROM blog_gift_tiers t JOIN blogs b ON b.id = t.blog_id WHERE t.id = ${tierId} AND b.deleted_at IS NULL LIMIT 1
+  `);
   const tier = tierRows[0];
   if (!tier) throw notFound("Gift tier not found");
   if (tier.owner_id === buyerId) throw forbidden("You can't send a gift to your own blog.", "BLOG_GIFT_SELF");
@@ -1518,11 +1783,10 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
 
   const referenceId = `blog_gift:${tierId}:${buyerId}:${Date.now()}`;
 
-  const outcome = await db.transaction(async (tx: TransactionClient) => {
-    const { rows: lockRows } = await tx.query<{ enabled: boolean; expires_at: string | null; max_redemptions: number | null; redemption_count: number }>(
-      `SELECT enabled, expires_at, max_redemptions, redemption_count FROM blog_gift_tiers WHERE id = $1 FOR UPDATE`,
-      [tierId]
-    );
+  const outcome = await orm.transaction(async (tx) => {
+    const { rows: lockRows } = await tx.execute<
+      { enabled: boolean; expires_at: string | null; max_redemptions: number | null; redemption_count: number } & Record<string, unknown>
+    >(sql`SELECT enabled, expires_at, max_redemptions, redemption_count FROM blog_gift_tiers WHERE id = ${tierId} FOR UPDATE`);
     const locked = lockRows[0];
     if (!locked) throw notFound("Gift tier not found");
     if (!locked.enabled) throw forbidden("This gift tier is no longer available.", "BLOG_GIFT_TIER_DISABLED");
@@ -1532,9 +1796,8 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
     }
 
     if (tier.benefit_type === "vip_badge") {
-      const { rows: existingVip } = await tx.query<{ id: string }>(
-        `SELECT id FROM blog_gift_purchases WHERE blog_id = $1 AND buyer_id = $2 AND benefit_type = 'vip_badge' AND status = 'active' LIMIT 1`,
-        [tier.blog_id, buyerId]
+      const { rows: existingVip } = await tx.execute<{ id: string } & Record<string, unknown>>(
+        sql`SELECT id FROM blog_gift_purchases WHERE blog_id = ${tier.blog_id} AND buyer_id = ${buyerId} AND benefit_type = 'vip_badge' AND status = 'active' LIMIT 1`
       );
       if (existingVip[0]) throw badRequest("You already hold an active VIP badge for this blog.", "BLOG_GIFT_ALREADY_VIP");
     }
@@ -1545,23 +1808,21 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
       await debitStars(buyerId, price, "blog_gift_purchase", referenceId, `Gift: ${tier.name}`, tx);
     }
 
-    await tx.query(`UPDATE blog_gift_tiers SET redemption_count = redemption_count + 1, updated_at = NOW() WHERE id = $1`, [tierId]);
+    await tx.execute(sql`UPDATE blog_gift_tiers SET redemption_count = redemption_count + 1, updated_at = NOW() WHERE id = ${tierId}`);
 
-    const { rows: purchaseRows } = await tx.query<{ id: string }>(
-      `INSERT INTO blog_gift_purchases (tier_id, blog_id, buyer_id, currency, amount_paid, benefit_type)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-      [tierId, tier.blog_id, buyerId, currency, price, tier.benefit_type]
-    );
+    const { rows: purchaseRows } = await tx.execute<{ id: string } & Record<string, unknown>>(sql`
+      INSERT INTO blog_gift_purchases (tier_id, blog_id, buyer_id, currency, amount_paid, benefit_type)
+      VALUES (${tierId}, ${tier.blog_id}, ${buyerId}, ${currency}, ${price}, ${tier.benefit_type}) RETURNING id
+    `);
     const purchaseId = purchaseRows[0].id;
     const result: GiftPurchaseResult = { purchaseId, benefitType: tier.benefit_type };
 
     if (tier.benefit_type === "vip_section_access") {
       const unlockPostId = typeof tier.benefit_config?.unlockPostId === "string" ? (tier.benefit_config.unlockPostId as string) : null;
       if (unlockPostId) {
-        await tx.query(
-          `INSERT INTO blog_post_unlocks (post_id, user_id, credits_spent) VALUES ($1, $2, $3) ON CONFLICT (post_id, user_id) DO NOTHING`,
-          [unlockPostId, buyerId, currency === "credits" ? price : 0]
-        );
+        await tx.execute(sql`
+          INSERT INTO blog_post_unlocks (post_id, user_id, credits_spent) VALUES (${unlockPostId}, ${buyerId}, ${currency === "credits" ? price : 0}) ON CONFLICT (post_id, user_id) DO NOTHING
+        `);
         result.unlockedPostId = unlockPostId;
       }
     } else if (tier.benefit_type === "custom_reward") {
@@ -1571,16 +1832,14 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
 
       let payoutAmount: number | null = null;
       if (treasuryAmount != null) {
-        const { rows: treasuryRows } = await tx.query<{ id: string; remaining_amount: number }>(
-          `SELECT id, remaining_amount FROM blog_post_treasuries WHERE gift_tier_id = $1 FOR UPDATE`,
-          [tierId]
+        const { rows: treasuryRows } = await tx.execute<{ id: string; remaining_amount: number } & Record<string, unknown>>(
+          sql`SELECT id, remaining_amount FROM blog_post_treasuries WHERE gift_tier_id = ${tierId} FOR UPDATE`
         );
         const treasury = treasuryRows[0];
         if (treasury && treasury.remaining_amount >= treasuryAmount) {
-          await tx.query(
-            `UPDATE blog_post_treasuries SET remaining_amount = remaining_amount - $2, claimant_count = claimant_count + 1, updated_at = NOW() WHERE id = $1`,
-            [treasury.id, treasuryAmount]
-          );
+          await tx.execute(sql`
+            UPDATE blog_post_treasuries SET remaining_amount = remaining_amount - ${treasuryAmount}, claimant_count = claimant_count + 1, updated_at = NOW() WHERE id = ${treasury.id}
+          `);
           await creditCoins(buyerId, treasuryAmount, "blog_gift_treasury_claim", `blog_gift_treasury_claim:${purchaseId}`, "Gift reward pot payout", { tierId, purchaseId }, tx);
           payoutAmount = treasuryAmount;
         } else {
@@ -1588,10 +1847,9 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
         }
       }
 
-      await tx.query(
-        `INSERT INTO blog_gift_claims (purchase_id, treasury_payout_amount, text_revealed) VALUES ($1, $2, $3)`,
-        [purchaseId, payoutAmount, textInstructions != null]
-      );
+      await tx.execute(sql`
+        INSERT INTO blog_gift_claims (purchase_id, treasury_payout_amount, text_revealed) VALUES (${purchaseId}, ${payoutAmount}, ${textInstructions != null})
+      `);
       result.treasuryPayout = payoutAmount ?? undefined;
       result.textInstructions = textInstructions;
     }
@@ -1604,13 +1862,13 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
   });
 
   await insertNotificationBatch(
-    db, [tier.owner_id], "blog_gift_received",
+    orm, [tier.owner_id], "blog_gift_received",
     `New gift: ${tier.name}`, `Someone sent your blog a "${tier.name}" gift.`,
     { blogId: tier.blog_id, tierId, purchaseId: outcome.purchaseId }
   ).catch((err) => logger.error({ err, tierId }, "[blogs/service] failed to notify blog owner of a gift"));
 
   await insertNotificationBatch(
-    db, [buyerId], "blog_gift_sent",
+    orm, [buyerId], "blog_gift_sent",
     "Gift sent", `Your "${tier.name}" gift was sent successfully.`,
     { blogId: tier.blog_id, tierId, purchaseId: outcome.purchaseId }
   ).catch((err) => logger.error({ err, tierId }, "[blogs/service] failed to notify buyer of a gift"));
@@ -1622,7 +1880,12 @@ export async function sendGift(buyerId: string, tierId: string, currency: GiftCu
 
 /** Credits the blog owner's earnings for a gift purchase, using the same revenue-share convention as paywall unlocks. */
 async function creditGiftEarnings(creatorId: string, amountPaid: number, currency: GiftCurrency, referenceId: string): Promise<void> {
-  const { rows } = await db.query<{ plan: string }>(`SELECT plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [creatorId]);
+  const orm = await getDb();
+  const rows = await orm
+    .select({ plan: schema.users.plan })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, creatorId), isNull(schema.users.deletedAt)))
+    .limit(1);
   const plan = rows[0]?.plan ?? "free";
   const revSharePct = await getBlogRevSharePct(plan);
 
@@ -1643,16 +1906,21 @@ async function creditGiftEarnings(creatorId: string, amountPaid: number, currenc
   const platformFeeKobo = grossKobo.minus(netKobo);
   if (netKobo.lte(0)) return;
 
-  await db.transaction(async (tx: TransactionClient) => {
-    await tx.query(
-      `INSERT INTO creator_earnings (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
-       VALUES ($1, 'blog_gift', $2, $3, $4, $5)
-       ON CONFLICT (creator_id, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-      [creatorId, grossKobo.toFixed(0), platformFeeKobo.toFixed(0), netKobo.toFixed(0), `${referenceId}:earnings`]
-    );
-    await tx.query(
-      `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1, updated_at = NOW() WHERE id = $2`,
-      [netKobo.toFixed(0), creatorId]
-    );
+  await orm.transaction(async (tx) => {
+    await tx
+      .insert(schema.creatorEarnings)
+      .values({
+        creatorId,
+        sourceType: "blog_gift",
+        grossAmountKobo: BigInt(grossKobo.toFixed(0)),
+        platformFeeKobo: BigInt(platformFeeKobo.toFixed(0)),
+        netAmountKobo: BigInt(netKobo.toFixed(0)),
+        referenceId: `${referenceId}:earnings`,
+      })
+      .onConflictDoNothing({ target: [schema.creatorEarnings.creatorId, schema.creatorEarnings.referenceId] });
+    await tx
+      .update(schema.users)
+      .set({ availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${netKobo.toFixed(0)}`, updatedAt: sql`NOW()` })
+      .where(eq(schema.users.id, creatorId));
   });
 }

@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -69,12 +70,23 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-    const { rows } = await db.query<SeasonRow>(
-      `SELECT id, name, theme, starts_at, ends_at, is_active,
-              pass_price_coins, reward_pool_coins, description, created_at, created_by
-       FROM seasons
-       ORDER BY starts_at DESC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.seasons.id,
+        name: schema.seasons.name,
+        theme: schema.seasons.theme,
+        starts_at: schema.seasons.startsAt,
+        ends_at: schema.seasons.endsAt,
+        is_active: schema.seasons.isActive,
+        pass_price_coins: schema.seasons.passPriceCoins,
+        reward_pool_coins: schema.seasons.rewardPoolCoins,
+        description: schema.seasons.description,
+        created_at: schema.seasons.createdAt,
+        created_by: schema.seasons.createdBy,
+      })
+      .from(schema.seasons)
+      .orderBy(sql`${schema.seasons.startsAt} DESC`);
 
     return NextResponse.json({
       success: true,
@@ -118,15 +130,16 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
 
     const isImmediatelyActive = startsAt <= new Date();
 
-    const season = await db.transaction(async (tx) => {
+    const orm = await getDb();
+    const season = await orm.transaction(async (tx) => {
       // Check for overlapping active seasons
-      const { rows: overlapping } = await tx.query<{ id: string; name: string }>(
-        `SELECT id, name FROM seasons
-         WHERE is_active = TRUE
-           AND NOT (ends_at <= $1 OR starts_at >= $2)
-         LIMIT 1`,
-        [body.startsAt, body.endsAt]
-      );
+      const overlapping = await tx
+        .select({ id: schema.seasons.id, name: schema.seasons.name })
+        .from(schema.seasons)
+        .where(
+          sql`${schema.seasons.isActive} = TRUE AND NOT (${schema.seasons.endsAt} <= ${startsAt} OR ${schema.seasons.startsAt} >= ${endsAt})`
+        )
+        .limit(1);
 
       if (overlapping.length > 0) {
         throw conflict(
@@ -137,34 +150,40 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
 
       // If starting now (or in the past), deactivate any currently active season
       if (isImmediatelyActive) {
-        await tx.query(
-          `UPDATE seasons SET is_active = FALSE, updated_at = NOW()
-           WHERE is_active = TRUE AND ends_at > NOW()`
-        );
+        await tx
+          .update(schema.seasons)
+          .set({ isActive: false, updatedAt: new Date() })
+          .where(sql`${schema.seasons.isActive} = TRUE AND ${schema.seasons.endsAt} > NOW()`);
       }
 
-      // Insert the new season
-      const { rows: newRows } = await tx.query<SeasonRow>(
-        `INSERT INTO seasons
-           (name, theme, starts_at, ends_at, is_active,
-            pass_price_coins, reward_pool_coins, description,
-            created_by, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-         RETURNING *`,
-        [
-          body.name,
-          body.theme,
-          body.startsAt,
-          body.endsAt,
-          isImmediatelyActive,
-          body.passPriceCoins,
-          body.rewardPoolCoins,
-          body.description ?? null,
-          auth.user.sub,
-        ]
+      // BUG-FIX: `season_number` is NOT NULL with no DB default (migration
+      // 0001) — the previous raw-SQL INSERT never populated it, so creating a
+      // season would fail with a "null value in column season_number
+      // violates not-null constraint" error. Fixed by assigning the next
+      // sequential number here.
+      const { rows: nextNumberRows } = await tx.execute<{ nextNumber: number }>(
+        sql`SELECT COALESCE(MAX(season_number), 0) + 1 AS "nextNumber" FROM seasons`
       );
+      const nextNumber = nextNumberRows[0].nextNumber;
 
-      return newRows[0];
+      // Insert the new season
+      const [newRow] = await tx
+        .insert(schema.seasons)
+        .values({
+          name: body.name,
+          theme: body.theme,
+          seasonNumber: nextNumber,
+          startsAt,
+          endsAt,
+          isActive: isImmediatelyActive,
+          passPriceCoins: body.passPriceCoins,
+          rewardPoolCoins: body.rewardPoolCoins,
+          description: body.description ?? null,
+          createdBy: auth.user.sub,
+        })
+        .returning();
+
+      return newRow;
     });
 
     if (!season) throw new Error("Season creation failed");

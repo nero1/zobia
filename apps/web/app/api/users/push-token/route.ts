@@ -23,7 +23,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -61,13 +62,23 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, pushTokenSchema);
 
-    await db.query(
-      `INSERT INTO user_push_tokens (user_id, token, platform, device_id, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, NOW(), NOW())
-       ON CONFLICT (user_id, token)
-       DO UPDATE SET platform = $3, device_id = COALESCE($4, user_push_tokens.device_id), updated_at = NOW()`,
-      [userId, body.token, body.platform, body.deviceId ?? null]
-    );
+    const db = await getDb();
+    await db
+      .insert(schema.userPushTokens)
+      .values({
+        userId,
+        token: body.token,
+        platform: body.platform,
+        deviceId: body.deviceId ?? null,
+      })
+      .onConflictDoUpdate({
+        target: [schema.userPushTokens.userId, schema.userPushTokens.token],
+        set: {
+          platform: body.platform,
+          deviceId: sql`COALESCE(${body.deviceId ?? null}, ${schema.userPushTokens.deviceId})`,
+          updatedAt: new Date(),
+        },
+      });
 
     return NextResponse.json({ success: true, data: { registered: true }, error: null });
   } catch (err) {
@@ -98,10 +109,15 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, pushTokenUnregisterSchema);
 
-    await db.query(
-      `DELETE FROM user_push_tokens WHERE user_id = $1 AND token = $2`,
-      [userId, body.token]
-    );
+    const db = await getDb();
+    await db
+      .delete(schema.userPushTokens)
+      .where(
+        and(
+          eq(schema.userPushTokens.userId, userId),
+          eq(schema.userPushTokens.token, body.token)
+        )
+      );
 
     return NextResponse.json({ success: true, data: { unregistered: true }, error: null });
   } catch (err) {

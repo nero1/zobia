@@ -10,9 +10,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
-import { handleApiError, forbidden, notFound } from "@/lib/api/errors";
+import { handleApiError, notFound } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
 // DELETE
@@ -30,14 +31,20 @@ export const DELETE = withAuth(
       const elderId = auth.user.sub;
       const menteeId = params.userId;
 
-      const result = await db.query(
-        `UPDATE elder_mentorships
-         SET ended_at = NOW()
-         WHERE elder_id = $1 AND mentee_id = $2 AND ended_at IS NULL`,
-        [elderId, menteeId]
-      );
+      const orm = await getDb();
+      const updated = await orm
+        .update(schema.elderMentorships)
+        .set({ endedAt: new Date() })
+        .where(
+          and(
+            eq(schema.elderMentorships.elderId, elderId),
+            eq(schema.elderMentorships.menteeId, menteeId),
+            isNull(schema.elderMentorships.endedAt)
+          )
+        )
+        .returning({ id: schema.elderMentorships.id });
 
-      if (result.rowCount === 0) {
+      if (updated.length === 0) {
         throw notFound("Active mentorship not found");
       }
 

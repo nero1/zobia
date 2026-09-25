@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
@@ -21,10 +22,12 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<{ locale: string | null; username: string | null }>(
-      `SELECT locale, username FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ locale: schema.users.locale, username: schema.users.username })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
 
     return NextResponse.json({
       id: userId,

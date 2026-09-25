@@ -18,7 +18,8 @@
  */
 
 import type { ProgressionTrack } from "@zobia/types";
-import type { DatabaseAdapter } from "@/lib/db";
+import { and, eq, sql } from "drizzle-orm";
+import { schema, type DbOrTx } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -233,7 +234,7 @@ export async function checkAndAwardTrackMilestones(
   userId: string,
   track: string,
   newLevel: number,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<TrackMilestone[]> {
   // 1. All milestones for this track reachable at or below newLevel
   const candidates = milestonesForTrack(track).filter((m) => m.level <= newLevel);
@@ -242,13 +243,11 @@ export async function checkAndAwardTrackMilestones(
   // 2. Find which milestones are already recorded in the DB
   let alreadyUnlocked: Set<number> = new Set();
   try {
-    const { rows } = await db.query<{ milestone_level: number }>(
-      `SELECT milestone_level
-       FROM track_milestone_unlocks
-       WHERE user_id = $1 AND track = $2`,
-      [userId, track]
-    );
-    alreadyUnlocked = new Set(rows.map((r) => r.milestone_level));
+    const rows = await db
+      .select({ milestoneLevel: schema.trackMilestoneUnlocks.milestoneLevel })
+      .from(schema.trackMilestoneUnlocks)
+      .where(and(eq(schema.trackMilestoneUnlocks.userId, userId), eq(schema.trackMilestoneUnlocks.track, track)));
+    alreadyUnlocked = new Set(rows.map((r) => r.milestoneLevel));
   } catch {
     // Table may not exist yet — treat all as unawarded (safe: ON CONFLICT handles dupes)
   }
@@ -261,13 +260,21 @@ export async function checkAndAwardTrackMilestones(
   for (const milestone of newlyUnlocked) {
     // Insert into track_milestone_unlocks (best-effort)
     try {
-      await db.query(
-        `INSERT INTO track_milestone_unlocks
-           (user_id, track, milestone_level, unlock_key, unlocked_at)
-         VALUES ($1, $2, $3, $4, NOW())
-         ON CONFLICT (user_id, track, milestone_level) DO NOTHING`,
-        [userId, milestone.track, milestone.level, milestone.unlockKey]
-      );
+      await db
+        .insert(schema.trackMilestoneUnlocks)
+        .values({
+          userId,
+          track: milestone.track,
+          milestoneLevel: milestone.level,
+          unlockKey: milestone.unlockKey,
+        })
+        .onConflictDoNothing({
+          target: [
+            schema.trackMilestoneUnlocks.userId,
+            schema.trackMilestoneUnlocks.track,
+            schema.trackMilestoneUnlocks.milestoneLevel,
+          ],
+        });
     } catch (err) {
       logger.warn(
         { err, userId, track: milestone.track, level: milestone.level },
@@ -277,21 +284,21 @@ export async function checkAndAwardTrackMilestones(
 
     // Insert title badge into user_badges (best-effort)
     try {
-      await db.query(
-        `INSERT INTO user_badges
-           (user_id, badge_type, badge_key, awarded_at, metadata)
-         VALUES ($1, 'title', $2, NOW(), $3)
-         ON CONFLICT (user_id, badge_key) DO NOTHING`,
-        [
+      await db
+        .insert(schema.userBadges)
+        .values({
           userId,
-          `title_${milestone.unlockKey}`,
-          JSON.stringify({
+          badgeType: "title",
+          badgeKey: `title_${milestone.unlockKey}`,
+          metadata: {
             track: milestone.track,
             milestoneLevel: milestone.level,
             title: milestone.title,
-          }),
-        ]
-      );
+          },
+        })
+        .onConflictDoNothing({
+          target: [schema.userBadges.userId, schema.userBadges.badgeKey],
+        });
     } catch {
       // user_badges table may not exist or have a different schema — non-fatal
     }
@@ -315,24 +322,22 @@ export async function checkAndAwardTrackMilestones(
  */
 export async function getUserUnlockedMilestones(
   userId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<{ track: string; milestoneLevel: number; unlockedAt: string }[]> {
   try {
-    const { rows } = await db.query<{
-      track: string;
-      milestone_level: number;
-      unlocked_at: string;
-    }>(
-      `SELECT track, milestone_level, unlocked_at
-       FROM track_milestone_unlocks
-       WHERE user_id = $1
-       ORDER BY unlocked_at ASC`,
-      [userId]
-    );
+    const rows = await db
+      .select({
+        track: schema.trackMilestoneUnlocks.track,
+        milestoneLevel: schema.trackMilestoneUnlocks.milestoneLevel,
+        unlockedAt: schema.trackMilestoneUnlocks.unlockedAt,
+      })
+      .from(schema.trackMilestoneUnlocks)
+      .where(eq(schema.trackMilestoneUnlocks.userId, userId))
+      .orderBy(schema.trackMilestoneUnlocks.unlockedAt);
     return rows.map((r) => ({
       track: r.track,
-      milestoneLevel: r.milestone_level,
-      unlockedAt: r.unlocked_at,
+      milestoneLevel: r.milestoneLevel,
+      unlockedAt: r.unlockedAt.toISOString(),
     }));
   } catch {
     return [];
@@ -351,19 +356,24 @@ export async function getUserUnlockedMilestones(
 export async function hasTrackUnlock(
   userId: string,
   unlockKey: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<boolean> {
   // Find the milestone(s) with this key
   const milestone = TRACK_MILESTONES.find((m) => m.unlockKey === unlockKey);
   if (!milestone) return false;
 
   try {
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM track_milestone_unlocks
-       WHERE user_id = $1 AND track = $2 AND milestone_level = $3
-       LIMIT 1`,
-      [userId, milestone.track, milestone.level]
-    );
+    const rows = await db
+      .select({ id: schema.trackMilestoneUnlocks.id })
+      .from(schema.trackMilestoneUnlocks)
+      .where(
+        and(
+          eq(schema.trackMilestoneUnlocks.userId, userId),
+          eq(schema.trackMilestoneUnlocks.track, milestone.track),
+          eq(schema.trackMilestoneUnlocks.milestoneLevel, milestone.level)
+        )
+      )
+      .limit(1);
     return rows.length > 0;
   } catch {
     return false;
@@ -381,7 +391,7 @@ export async function hasTrackUnlock(
  */
 export async function getCoinPurchaseBonus(
   userId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<number> {
   const hasBonus = await hasTrackUnlock(
     userId,
@@ -427,7 +437,7 @@ const WANDERER_PIN_MINIMUM = 5;
 export async function getRoomPinLimit(
   userId: string,
   plan: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<number> {
   const planLimit = PLAN_PIN_LIMITS[plan] ?? PLAN_PIN_LIMITS.free;
 

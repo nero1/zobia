@@ -21,7 +21,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -48,6 +49,7 @@ export const POST = withAuth<{ roomId: string }>(async (req: NextRequest, { para
     const roomId = assertUuid(params.roomId);
     const userId = auth.user.sub;
     const body = await validateBody(req, enrolSchema);
+    const orm = await getDb();
 
     const room = await loadEnrolmentRoom(roomId);
     if (!room.isActive) throw badRequest("This classroom isn't accepting new members right now.", "CLASSROOM_ARCHIVED");
@@ -68,37 +70,42 @@ export const POST = withAuth<{ roomId: string }>(async (req: NextRequest, { para
         );
       }
 
-      const { rows: existing } = await db.query<{ id: string }>(
-        `SELECT id FROM classroom_enrolments WHERE room_id = $1 AND user_id = $2`,
-        [roomId, userId]
-      );
-      if (existing[0]) throw conflict("You are already enrolled in this classroom");
+      const [existing] = await orm
+        .select({ id: schema.classroomEnrolments.id })
+        .from(schema.classroomEnrolments)
+        .where(and(eq(schema.classroomEnrolments.roomId, roomId), eq(schema.classroomEnrolments.userId, userId)))
+        .limit(1);
+      if (existing) throw conflict("You are already enrolled in this classroom");
 
-      const { rows: userRows } = await db.query<{ email: string | null }>(
-        `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      const email = userRows[0]?.email ?? `${userId}@zobia.social`;
+      const [userRow] = await orm
+        .select({ email: schema.users.email })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .limit(1);
+      const email = userRow?.email ?? `${userId}@zobia.social`;
       const amountKobo = room.feeNgn * 100;
       const reference = classroomPaymentReference(roomId, userId);
 
-      await db.query(
-        `INSERT INTO payments
-           (user_id, reference_id, provider, provider_reference, payment_type, amount_kobo, currency,
-            status, metadata, idempotency_key, created_at)
-         VALUES ($1, $2, 'paystack', $3, 'room_entry', $4, 'NGN', 'pending', $5::jsonb, $3, NOW())`,
-        [
-          userId,
-          roomId,
-          reference,
-          amountKobo,
-          JSON.stringify({ roomId, roomName: room.name, userId, itemType: "classroom_enrolment" }),
-        ]
-      );
+      await orm.insert(schema.payments).values({
+        userId,
+        referenceId: roomId,
+        provider: "paystack",
+        providerReference: reference,
+        paymentType: "room_entry",
+        amountKobo: BigInt(amountKobo),
+        currency: "NGN",
+        status: "pending",
+        metadata: { roomId, roomName: room.name, userId, itemType: "classroom_enrolment" },
+        idempotencyKey: reference,
+      });
 
       const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
-      const { rows: slugRows } = await db.query<{ slug: string | null }>(`SELECT slug FROM rooms WHERE id = $1`, [roomId]);
-      const callbackUrl = `${appUrl}/c/${slugRows[0]?.slug ?? roomId}?payment=complete`;
+      const [slugRow] = await orm
+        .select({ slug: schema.rooms.slug })
+        .from(schema.rooms)
+        .where(eq(schema.rooms.id, roomId))
+        .limit(1);
+      const callbackUrl = `${appUrl}/c/${slugRow?.slug ?? roomId}?payment=complete`;
       const payment = await initializePayment(
         amountKobo,
         email,

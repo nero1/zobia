@@ -19,7 +19,8 @@ import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { equipProfileTheme, purchaseAndEquipProfileTheme } from "@/lib/profile/themes";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { eq } from "drizzle-orm";
 
 const bodySchema = z.object({
   themeId: z.string().min(1).max(60),
@@ -31,20 +32,27 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const body = await validateBody(req, bodySchema);
 
-    const { rows } = await db.query<{ plan: string; business_account_id: string | null }>(
-      `SELECT u.plan, ba.id AS business_account_id
-       FROM users u LEFT JOIN business_accounts ba ON ba.user_id = u.id
-       WHERE u.id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
-    const plan = rows[0]?.plan ?? "free";
-    const businessTier = rows[0]?.business_account_id
-      ? (await db.query<{ tier: string }>(`SELECT tier FROM business_accounts WHERE user_id = $1 LIMIT 1`, [auth.user.sub])).rows[0]?.tier ?? null
-      : null;
+    const orm = await getDb();
+    const [row] = await orm
+      .select({ plan: schema.users.plan, businessAccountId: schema.businessAccounts.id })
+      .from(schema.users)
+      .leftJoin(schema.businessAccounts, eq(schema.businessAccounts.userId, schema.users.id))
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
+    const plan = row?.plan ?? "free";
+    let businessTier: string | null = null;
+    if (row?.businessAccountId) {
+      const [biz] = await orm
+        .select({ tier: schema.businessAccounts.tier })
+        .from(schema.businessAccounts)
+        .where(eq(schema.businessAccounts.userId, auth.user.sub))
+        .limit(1);
+      businessTier = biz?.tier ?? null;
+    }
 
     if (body.currency) {
       const result = await purchaseAndEquipProfileTheme(auth.user.sub, plan, businessTier, body.themeId, body.currency);
-      if (!result.alreadyOwned) void triggerActivityQuestProgress(auth.user.sub, "market_purchase", db);
+      if (!result.alreadyOwned) void triggerActivityQuestProgress(auth.user.sub, "market_purchase", orm);
       return NextResponse.json({ success: true, data: { themeId: body.themeId, alreadyOwned: result.alreadyOwned }, error: null });
     }
 

@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -32,27 +33,30 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { params, auth }: Ct
     const { campaignId } = await params;
     const body = await validateBody(req, patchSchema);
 
-    const { rows: existing } = await db.query<AdCampaignRow>(
-      `SELECT * FROM ad_campaigns WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [campaignId]
-    );
-    if (!existing[0]) throw notFound("Campaign not found");
+    // NOTE: `ad_campaigns` is not present in lib/db/schema.ts (schema/DB
+    // mismatch — reported upstream), so this uses Drizzle's `sql` tag
+    // directly rather than the query builder.
+    const orm = await getDb();
+    const existingResult = await orm.execute(sql`
+      SELECT * FROM ad_campaigns WHERE id = ${campaignId} AND deleted_at IS NULL LIMIT 1
+    `);
+    const existing = existingResult.rows[0] as unknown as AdCampaignRow | undefined;
+    if (!existing) throw notFound("Campaign not found");
     if (!body.action && !body.addBudgetCredits) throw badRequest("Nothing to update");
 
     if (body.addBudgetCredits) {
-      await db.query(
-        `UPDATE ad_campaigns SET total_budget_credits = total_budget_credits + $1, updated_at = NOW() WHERE id = $2`,
-        [body.addBudgetCredits, campaignId]
-      );
+      await orm.execute(sql`
+        UPDATE ad_campaigns SET total_budget_credits = total_budget_credits + ${body.addBudgetCredits}, updated_at = NOW() WHERE id = ${campaignId}
+      `);
     }
     if (body.action) {
-      if (existing[0].moderation_status !== "approved") throw badRequest("Campaign must be approved before it can run.");
+      if (existing.moderation_status !== "approved") throw badRequest("Campaign must be approved before it can run.");
       const state = body.action === "activate" ? "active" : body.action === "pause" ? "paused" : "stopped";
-      await db.query(`UPDATE ad_campaigns SET status = $1, updated_at = NOW() WHERE id = $2`, [state, campaignId]);
+      await orm.execute(sql`UPDATE ad_campaigns SET status = ${state}, updated_at = NOW() WHERE id = ${campaignId}`);
     }
 
-    const { rows } = await db.query<AdCampaignRow>(`SELECT * FROM ad_campaigns WHERE id = $1`, [campaignId]);
-    return NextResponse.json({ success: true, data: { campaign: rows[0] }, error: null });
+    const result = await orm.execute(sql`SELECT * FROM ad_campaigns WHERE id = ${campaignId}`);
+    return NextResponse.json({ success: true, data: { campaign: result.rows[0] as unknown as AdCampaignRow }, error: null });
   } catch (err) {
     return handleApiError(err);
   }

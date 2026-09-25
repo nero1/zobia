@@ -12,16 +12,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
-
-interface ChallengeRow {
-  id: string;
-  challenger_id: string;
-  challenged_id: string;
-  status: string;
-}
 
 export const POST = withAuth(
   async (
@@ -32,30 +26,42 @@ export const POST = withAuth(
       const { challengeId } = await params;
       const userId = auth.user.sub;
 
-      const { rows } = await db.query<ChallengeRow>(
-        `SELECT id, challenger_id, challenged_id, status FROM nemesis_challenges WHERE id = $1`,
-        [challengeId]
-      );
+      const orm = await getDb();
+
+      const rows = await orm
+        .select({
+          id: schema.nemesisChallenges.id,
+          challengerId: schema.nemesisChallenges.challengerId,
+          challengedId: schema.nemesisChallenges.challengedId,
+          status: schema.nemesisChallenges.status,
+        })
+        .from(schema.nemesisChallenges)
+        .where(eq(schema.nemesisChallenges.id, challengeId))
+        .limit(1);
       const challenge = rows[0];
       if (!challenge) throw notFound("Challenge not found");
-      if (challenge.challenged_id !== userId) {
+      if (challenge.challengedId !== userId) {
         throw forbidden("Only the challenged user can accept this challenge");
       }
       if (challenge.status !== "pending") {
         throw conflict(`Challenge is already ${challenge.status}`, "CHALLENGE_NOT_PENDING");
       }
 
-      await db.query(
-        `UPDATE nemesis_challenges SET status = 'accepted' WHERE id = $1`,
-        [challengeId]
-      );
+      await orm
+        .update(schema.nemesisChallenges)
+        .set({ status: "accepted" })
+        .where(eq(schema.nemesisChallenges.id, challengeId));
 
       // Notify the challenger (fire-and-forget)
-      db.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-         VALUES ($1, 'nemesis_challenge_accepted', $2, false, NOW())`,
-        [challenge.challenger_id, JSON.stringify({ accepted_by: userId })]
-      ).catch(() => {});
+      orm
+        .insert(schema.notifications)
+        .values({
+          userId: challenge.challengerId,
+          type: "nemesis_challenge_accepted",
+          payload: { accepted_by: userId },
+          isRead: false,
+        })
+        .catch(() => {});
 
       return NextResponse.json({ success: true, data: { accepted: true }, error: null });
     } catch (err) {

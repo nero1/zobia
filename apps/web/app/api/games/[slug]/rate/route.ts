@@ -8,11 +8,12 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, eq } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { assertGamesEnabled } from "@/lib/games/config";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getActiveGameBySlug, upsertGameRating } from "@/lib/games/repo";
 
 export const POST = withAuth(
@@ -31,11 +32,13 @@ export const POST = withAuth(
       if (!game) throw notFound("Game not found.");
 
       // Enforce play-gate: user must have played at least once.
-      const { rows: playRows } = await db.query<{ exists: boolean }>(
-        `SELECT EXISTS(SELECT 1 FROM game_best_scores WHERE game_id = $1 AND user_id = $2) AS exists`,
-        [game.id, auth.user.sub]
-      );
-      if (!playRows[0]?.exists) {
+      const orm = await getDb();
+      const playRows = await orm
+        .select({ gameId: schema.gameBestScores.gameId })
+        .from(schema.gameBestScores)
+        .where(and(eq(schema.gameBestScores.gameId, game.id), eq(schema.gameBestScores.userId, auth.user.sub)))
+        .limit(1);
+      if (playRows.length === 0) {
         throw badRequest("You must play this game at least once before rating it.");
       }
 

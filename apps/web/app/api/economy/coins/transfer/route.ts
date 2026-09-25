@@ -22,7 +22,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, forbidden, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { transferCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -62,11 +63,13 @@ async function awardTransferXP(
 ): Promise<void> {
   try {
     // Fetch sender plan for multiplier (BUG-06: apply plan multiplier per PRD §6)
-    const { rows: planRows } = await db.query<{ plan: Plan }>(
-      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [senderId]
-    );
-    const senderPlan: Plan = planRows[0]?.plan ?? 'free';
+    const orm = await getDb();
+    const [planRow] = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, senderId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    const senderPlan: Plan = (planRow?.plan as Plan) ?? 'free';
 
     // Sender: send_gift_message is a messaging action — apply plan multiplier per PRD §6
     const { finalXp: senderXP } = calculateFinalXP(
@@ -142,30 +145,37 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Verify the recipient exists
-    const { rows: recipientRows } = await db.query<{ id: string; username: string }>(
-      `SELECT id, username FROM users
-       WHERE id = $1 AND deleted_at IS NULL AND COALESCE(is_banned, false) = false
-       LIMIT 1`,
-      [body.recipientId]
-    );
+    const orm = await getDb();
+    const [recipient] = await orm
+      .select({ id: schema.users.id, username: schema.users.username })
+      .from(schema.users)
+      .where(
+        and(
+          eq(schema.users.id, body.recipientId),
+          isNull(schema.users.deletedAt),
+          eq(sql`COALESCE(${schema.users.isBanned}, false)`, false)
+        )
+      )
+      .limit(1);
 
-    if (!recipientRows[0]) {
+    if (!recipient) {
       // Remove the key so a corrected retry can succeed
       if (idempKey) await redis.del(idempKey).catch(() => {});
       throw notFound("Recipient user not found");
     }
 
-    const recipient = recipientRows[0];
-
     // Block relationship check
-    const { rows: blockRows } = await db.query<{ id: string }>(
-      `SELECT id FROM user_blocks
-       WHERE (blocker_id = $1 AND blocked_id = $2)
-          OR (blocker_id = $2 AND blocked_id = $1)
-       LIMIT 1`,
-      [senderId, body.recipientId]
-    );
-    if (blockRows[0]) {
+    const [blockRow] = await orm
+      .select({ id: schema.userBlocks.id })
+      .from(schema.userBlocks)
+      .where(
+        or(
+          and(eq(schema.userBlocks.blockerId, senderId), eq(schema.userBlocks.blockedId, body.recipientId)),
+          and(eq(schema.userBlocks.blockerId, body.recipientId), eq(schema.userBlocks.blockedId, senderId))
+        )
+      )
+      .limit(1);
+    if (blockRow) {
       throw forbidden("Cannot transfer coins to this user", "USER_BLOCKED");
     }
 

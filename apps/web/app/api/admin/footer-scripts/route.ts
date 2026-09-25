@@ -19,9 +19,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { asc } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { normalizeFooterScriptContent } from "@/lib/admin/footerScriptNormalize";
 import { raiseAlert } from "@/lib/alerts/dispatch";
 
@@ -40,25 +41,17 @@ const CreateScriptSchema = z.object({
 // Types
 // ---------------------------------------------------------------------------
 
-interface FooterScriptRow {
-  id: string;
-  name: string;
-  content: string;
-  is_active: boolean;
-  position: number;
-  created_at: string;
-  updated_at: string;
-}
+type FooterScriptRow = typeof schema.footerScripts.$inferSelect;
 
 function formatScript(row: FooterScriptRow) {
   return {
     id: row.id,
     name: row.name,
     content: row.content,
-    isActive: row.is_active,
+    isActive: row.isActive,
     position: row.position,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   };
 }
 
@@ -73,11 +66,11 @@ function formatScript(row: FooterScriptRow) {
  */
 export const GET = withAdminAuth(async (_req: NextRequest) => {
   try {
-    const { rows } = await db.query<FooterScriptRow>(
-      `SELECT id, name, content, is_active, position, created_at, updated_at
-       FROM footer_scripts
-       ORDER BY position ASC, created_at ASC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select()
+      .from(schema.footerScripts)
+      .orderBy(asc(schema.footerScripts.position), asc(schema.footerScripts.createdAt));
 
     return NextResponse.json({
       success: true,
@@ -118,28 +111,27 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       throw badRequest("Script content is empty after normalization.");
     }
 
-    const { rows } = await db.query<FooterScriptRow>(
-      `INSERT INTO footer_scripts (name, content, is_active, position, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, NOW(), NOW())
-       RETURNING id, name, content, is_active, position, created_at, updated_at`,
-      [name, normalizedContent, isActive, position]
-    );
+    const orm = await getDb();
+    const [row] = await orm
+      .insert(schema.footerScripts)
+      .values({ name, content: normalizedContent, isActive, position })
+      .returning();
 
     // BUG-020: Audit-log all footer script writes — raw script injection is
     // high-risk and must be attributable to a specific admin user.
-    await raiseAlert(db, {
+    await raiseAlert(orm, {
       type: "footer_script_created",
       category: "security",
       priorityLevel: 6,
       title: "Footer script created",
       message: `Footer script "${name}" created by admin ${auth.user.sub}`,
-      metadata: { scriptId: rows[0].id, name, adminId: auth.user.sub },
+      metadata: { scriptId: row.id, name, adminId: auth.user.sub },
     }).catch(() => {});
 
     return NextResponse.json(
       {
         success: true,
-        data: { script: formatScript(rows[0]) },
+        data: { script: formatScript(row) },
         error: null,
       },
       { status: 201 }

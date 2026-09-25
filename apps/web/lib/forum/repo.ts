@@ -11,20 +11,20 @@
  * @module lib/forum/repo
  */
 
-import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db/interface";
+import { getDb } from "@/lib/db/drizzle";
+import { sql, type SQL } from "drizzle-orm";
 import { MAX_ANSWER_DEPTH } from "@/lib/forum/service";
 
 export type ForumTab = "popular" | "trending" | "new" | "favorites";
 export type PublicCategoryTab = "latest" | "new" | "trending" | "popular";
 export type AnswerSort = "best" | "new";
 
-const AUTHOR_COLUMNS = `
+const AUTHOR_COLUMNS = sql.raw(`
   u.id AS author_id,
   u.username AS author_username,
   u.display_name AS author_display_name,
   u.avatar_emoji AS author_avatar_emoji
-`;
+`);
 
 export interface ForumAuthor {
   id: string;
@@ -113,63 +113,64 @@ export async function listQuestions(
   cursor: string | undefined,
   limit: number
 ): Promise<ListQuestionsResult> {
+  const orm = await getDb();
   const pageSize = Math.min(limit, 50);
-  const params: SqlParam[] = [callerId];
 
   const favoritesJoin = tab === "favorites"
-    ? `JOIN forum_favorites ff ON ff.question_id = q.id AND ff.user_id = $1`
-    : "";
+    ? sql`JOIN forum_favorites ff ON ff.question_id = q.id AND ff.user_id = ${callerId}`
+    : sql``;
 
-  let cursorClause = "";
-  let orderClause = "";
+  let cursorClause: SQL = sql``;
+  let orderClause: SQL;
 
   if (tab === "new") {
-    orderClause = "q.created_at DESC";
-    if (cursor) { params.push(cursor); cursorClause = `AND q.created_at < $${params.length}`; }
+    orderClause = sql.raw("q.created_at DESC");
+    if (cursor) cursorClause = sql`AND q.created_at < ${cursor}`;
   } else if (tab === "popular") {
-    orderClause = "q.vote_score DESC, q.created_at DESC";
+    orderClause = sql.raw("q.vote_score DESC, q.created_at DESC");
     if (cursor) {
       const [voteScore, createdAt] = cursor.split("|");
-      params.push(Number(voteScore), createdAt);
-      cursorClause = `AND (q.vote_score < $${params.length - 1} OR (q.vote_score = $${params.length - 1} AND q.created_at < $${params.length}))`;
+      const vs = Number(voteScore);
+      cursorClause = sql`AND (q.vote_score < ${vs} OR (q.vote_score = ${vs} AND q.created_at < ${createdAt}))`;
     }
   } else if (tab === "favorites") {
-    orderClause = "ff.created_at DESC";
-    if (cursor) { params.push(cursor); cursorClause = `AND ff.created_at < $${params.length}`; }
+    orderClause = sql.raw("ff.created_at DESC");
+    if (cursor) cursorClause = sql`AND ff.created_at < ${cursor}`;
   } else {
     // trending
-    orderClause = "trending_score DESC, q.last_activity_at DESC";
+    orderClause = sql.raw("trending_score DESC, q.last_activity_at DESC");
     if (cursor) {
       const [score, lastActivity] = cursor.split("|");
-      params.push(Number(score), lastActivity);
-      cursorClause = `AND (trending_score < $${params.length - 1} OR (trending_score = $${params.length - 1} AND q.last_activity_at < $${params.length}))`;
+      const sc = Number(score);
+      cursorClause = sql`AND (trending_score < ${sc} OR (trending_score = ${sc} AND q.last_activity_at < ${lastActivity}))`;
     }
   }
 
-  params.push(pageSize + 1);
-
-  const trendingExpr = `(
+  const trendingExpr = sql.raw(`(
     COALESCE((SELECT COUNT(*) FROM forum_votes v WHERE v.target_type = 'question' AND v.target_id = q.id AND v.created_at > NOW() - INTERVAL '48 hours'), 0) +
     COALESCE((SELECT COUNT(*) FROM forum_answers a WHERE a.question_id = q.id AND a.created_at > NOW() - INTERVAL '48 hours' AND a.deleted_at IS NULL), 0)
-  )`;
+  )`);
 
-  const { rows } = await db.query<QuestionRow & { trending_score?: number }>(
-    `SELECT q.id, q.slug, q.title, q.body, ${AUTHOR_COLUMNS},
+  const isFavoritedExpr = tab === "favorites" ? sql.raw("TRUE") : sql.raw("(fav.id IS NOT NULL)");
+  const trendingSelect = tab === "trending" ? sql`, ${trendingExpr} AS trending_score` : sql``;
+  const favVoteJoin = tab === "favorites" ? sql`` : sql`LEFT JOIN forum_favorites fav ON fav.question_id = q.id AND fav.user_id = ${callerId}`;
+
+  const { rows } = await orm.execute<QuestionRow & { trending_score?: number } & Record<string, unknown>>(sql`
+    SELECT q.id, q.slug, q.title, q.body, ${AUTHOR_COLUMNS},
             q.vote_score, q.answer_count, q.favorite_count, q.is_locked, q.best_answer_id,
             q.created_at, q.last_activity_at,
             v.value AS my_vote,
-            ${tab === "favorites" ? "TRUE" : "(fav.id IS NOT NULL)"} AS is_favorited
-            ${tab === "trending" ? `, ${trendingExpr} AS trending_score` : ""}
+            ${isFavoritedExpr} AS is_favorited
+            ${trendingSelect}
      FROM forum_questions q
      JOIN users u ON u.id = q.author_id
      ${favoritesJoin}
-     LEFT JOIN forum_votes v ON v.target_type = 'question' AND v.target_id = q.id AND v.user_id = $1
-     ${tab === "favorites" ? "" : "LEFT JOIN forum_favorites fav ON fav.question_id = q.id AND fav.user_id = $1"}
+     LEFT JOIN forum_votes v ON v.target_type = 'question' AND v.target_id = q.id AND v.user_id = ${callerId}
+     ${favVoteJoin}
      WHERE q.status = 'visible' AND q.deleted_at IS NULL ${cursorClause}
      ORDER BY ${orderClause}
-     LIMIT $${params.length}`,
-    params
-  );
+     LIMIT ${pageSize + 1}
+  `);
 
   const hasMore = rows.length > pageSize;
   const items = hasMore ? rows.slice(0, pageSize) : rows;
@@ -202,29 +203,30 @@ export interface PublicCategory {
 }
 
 export async function getPublicCategory(slug: string): Promise<PublicCategory | null> {
-  const { rows } = await db.query<{ id: string; slug: string; name: string; description: string | null; icon_emoji: string; question_count: string }>(
-    `SELECT c.id, c.slug, c.name, c.description, c.icon_emoji,
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ id: string; slug: string; name: string; description: string | null; icon_emoji: string; question_count: string }>(sql`
+    SELECT c.id, c.slug, c.name, c.description, c.icon_emoji,
             COUNT(q.id) FILTER (WHERE q.status = 'visible' AND q.deleted_at IS NULL) AS question_count
      FROM forum_categories c
      LEFT JOIN forum_questions q ON q.category_id = c.id
-     WHERE c.slug = $1
-     GROUP BY c.id`,
-    [slug]
-  );
+     WHERE c.slug = ${slug}
+     GROUP BY c.id
+  `);
   const row = rows[0];
   if (!row) return null;
   return { id: row.id, slug: row.slug, name: row.name, description: row.description, iconEmoji: row.icon_emoji, questionCount: Number(row.question_count) };
 }
 
 export async function listAllCategoriesPublic(): Promise<PublicCategory[]> {
-  const { rows } = await db.query<{ id: string; slug: string; name: string; description: string | null; icon_emoji: string; question_count: string }>(
-    `SELECT c.id, c.slug, c.name, c.description, c.icon_emoji,
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ id: string; slug: string; name: string; description: string | null; icon_emoji: string; question_count: string }>(sql`
+    SELECT c.id, c.slug, c.name, c.description, c.icon_emoji,
             COUNT(q.id) FILTER (WHERE q.status = 'visible' AND q.deleted_at IS NULL) AS question_count
      FROM forum_categories c
      LEFT JOIN forum_questions q ON q.category_id = c.id
      GROUP BY c.id
-     ORDER BY c.sort_order ASC, c.name ASC`
-  );
+     ORDER BY c.sort_order ASC, c.name ASC
+  `);
   return rows.map((row) => ({ id: row.id, slug: row.slug, name: row.name, description: row.description, iconEmoji: row.icon_emoji, questionCount: Number(row.question_count) }));
 }
 
@@ -238,70 +240,72 @@ export interface PublicQuestionCard {
   authorUsername: string | null;
 }
 
-function publicOrderClause(tab: PublicCategoryTab): string {
-  if (tab === "new" || tab === "latest") return "q.created_at DESC";
-  if (tab === "popular") return "q.vote_score DESC, q.created_at DESC";
+function publicOrderClause(tab: PublicCategoryTab): SQL {
+  if (tab === "new" || tab === "latest") return sql.raw("q.created_at DESC");
+  if (tab === "popular") return sql.raw("q.vote_score DESC, q.created_at DESC");
   // trending: recency-windowed activity, same simple formula as listQuestions above
-  return `(
+  return sql.raw(`(
     COALESCE((SELECT COUNT(*) FROM forum_votes v WHERE v.target_type = 'question' AND v.target_id = q.id AND v.created_at > NOW() - INTERVAL '48 hours'), 0) +
     COALESCE((SELECT COUNT(*) FROM forum_answers a WHERE a.question_id = q.id AND a.created_at > NOW() - INTERVAL '48 hours' AND a.deleted_at IS NULL), 0)
-  ) DESC, q.last_activity_at DESC`;
+  ) DESC, q.last_activity_at DESC`);
 }
 
 /** Public, cursor-less (LIMIT only) question list scoped to one category — used by the SEO category page's tabs. */
 export async function listPublicQuestionsByCategory(categoryId: string, tab: PublicCategoryTab, limit = 15): Promise<PublicQuestionCard[]> {
-  const { rows } = await db.query<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(
-    `SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(sql`
+    SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
      FROM forum_questions q
      JOIN users u ON u.id = q.author_id
-     WHERE q.category_id = $1 AND q.status = 'visible' AND q.deleted_at IS NULL
+     WHERE q.category_id = ${categoryId} AND q.status = 'visible' AND q.deleted_at IS NULL
      ORDER BY ${publicOrderClause(tab)}
-     LIMIT $2`,
-    [categoryId, Math.min(limit, 50)]
-  );
+     LIMIT ${Math.min(limit, 50)}
+  `);
   return rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, voteScore: r.vote_score, answerCount: r.answer_count, createdAt: r.created_at, authorUsername: r.author_username }));
 }
 
 /** Up to `limit` other visible questions in the same category (excludes `excludeQuestionId`). */
 export async function listRelatedQuestions(categoryId: string | null, excludeQuestionId: string, limit = 5): Promise<PublicQuestionCard[]> {
   if (!categoryId) return [];
-  const { rows } = await db.query<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(
-    `SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(sql`
+    SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
      FROM forum_questions q
      JOIN users u ON u.id = q.author_id
-     WHERE q.category_id = $1 AND q.id != $2 AND q.status = 'visible' AND q.deleted_at IS NULL
+     WHERE q.category_id = ${categoryId} AND q.id != ${excludeQuestionId} AND q.status = 'visible' AND q.deleted_at IS NULL
      ORDER BY q.last_activity_at DESC
-     LIMIT $3`,
-    [categoryId, excludeQuestionId, limit]
-  );
+     LIMIT ${limit}
+  `);
   return rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, voteScore: r.vote_score, answerCount: r.answer_count, createdAt: r.created_at, authorUsername: r.author_username }));
 }
 
 /** Most recently created questions platform-wide, for "New posts" mini-lists. */
 export async function listNewQuestions(limit = 3, excludeQuestionId?: string): Promise<PublicQuestionCard[]> {
-  const { rows } = await db.query<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(
-    `SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
+  const orm = await getDb();
+  const excludeClause = excludeQuestionId ? sql`AND q.id != ${excludeQuestionId}` : sql``;
+  const { rows } = await orm.execute<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(sql`
+    SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
      FROM forum_questions q
      JOIN users u ON u.id = q.author_id
-     WHERE q.status = 'visible' AND q.deleted_at IS NULL ${excludeQuestionId ? "AND q.id != $2" : ""}
+     WHERE q.status = 'visible' AND q.deleted_at IS NULL ${excludeClause}
      ORDER BY q.created_at DESC
-     LIMIT $1`,
-    excludeQuestionId ? [limit, excludeQuestionId] : [limit]
-  );
+     LIMIT ${limit}
+  `);
   return rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, voteScore: r.vote_score, answerCount: r.answer_count, createdAt: r.created_at, authorUsername: r.author_username }));
 }
 
 /** Most recently answered questions (an answer was posted, or best-answer marked), for "Recently answered" mini-lists. */
 export async function listRecentlyAnsweredQuestions(limit = 3, excludeQuestionId?: string): Promise<PublicQuestionCard[]> {
-  const { rows } = await db.query<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(
-    `SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
+  const orm = await getDb();
+  const excludeClause = excludeQuestionId ? sql`AND q.id != ${excludeQuestionId}` : sql``;
+  const { rows } = await orm.execute<{ id: string; slug: string | null; title: string; vote_score: number; answer_count: number; created_at: string; author_username: string | null }>(sql`
+    SELECT q.id, q.slug, q.title, q.vote_score, q.answer_count, q.created_at, u.username AS author_username
      FROM forum_questions q
      JOIN users u ON u.id = q.author_id
-     WHERE q.status = 'visible' AND q.deleted_at IS NULL AND q.answer_count > 0 ${excludeQuestionId ? "AND q.id != $2" : ""}
+     WHERE q.status = 'visible' AND q.deleted_at IS NULL AND q.answer_count > 0 ${excludeClause}
      ORDER BY q.last_activity_at DESC
-     LIMIT $1`,
-    excludeQuestionId ? [limit, excludeQuestionId] : [limit]
-  );
+     LIMIT ${limit}
+  `);
   return rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, voteScore: r.vote_score, answerCount: r.answer_count, createdAt: r.created_at, authorUsername: r.author_username }));
 }
 
@@ -315,20 +319,20 @@ export interface ForumQuestionDetail extends ForumQuestionSummary {
  * variant that also handles legacy/retired slugs via slug_redirects).
  */
 export async function getQuestionDetail(callerId: string, identifier: string): Promise<ForumQuestionDetail | null> {
-  const { rows } = await db.query<QuestionRow>(
-    `SELECT q.id, q.slug, q.title, q.body, ${AUTHOR_COLUMNS},
+  const orm = await getDb();
+  const { rows } = await orm.execute<QuestionRow & Record<string, unknown>>(sql`
+    SELECT q.id, q.slug, q.title, q.body, ${AUTHOR_COLUMNS},
             q.vote_score, q.answer_count, q.favorite_count, q.is_locked, q.best_answer_id,
             q.created_at, q.last_activity_at,
             v.value AS my_vote,
             (fav.id IS NOT NULL) AS is_favorited
      FROM forum_questions q
      JOIN users u ON u.id = q.author_id
-     LEFT JOIN forum_votes v ON v.target_type = 'question' AND v.target_id = q.id AND v.user_id = $2
-     LEFT JOIN forum_favorites fav ON fav.question_id = q.id AND fav.user_id = $2
-     WHERE (q.id::text = $1 OR q.slug = $1) AND q.status = 'visible' AND q.deleted_at IS NULL
-     LIMIT 1`,
-    [identifier, callerId]
-  );
+     LEFT JOIN forum_votes v ON v.target_type = 'question' AND v.target_id = q.id AND v.user_id = ${callerId}
+     LEFT JOIN forum_favorites fav ON fav.question_id = q.id AND fav.user_id = ${callerId}
+     WHERE (q.id::text = ${identifier} OR q.slug = ${identifier}) AND q.status = 'visible' AND q.deleted_at IS NULL
+     LIMIT 1
+  `);
   const row = rows[0];
   if (!row) return null;
   return { ...toQuestionSummary(row), isAuthor: row.author_id === callerId };
@@ -411,41 +415,37 @@ export async function listAnswers(
   limit: number,
   sort: AnswerSort
 ): Promise<ListAnswersResult> {
+  const orm = await getDb();
   const pageSize = Math.min(limit, 25);
-  const params: SqlParam[] = [questionId, callerId];
-  let cursorClause = "";
-  const orderClause = sort === "best" ? "a.vote_score DESC, a.created_at ASC" : "a.created_at DESC";
+  let cursorClause: SQL = sql``;
+  const orderClause = sort === "best" ? sql.raw("a.vote_score DESC, a.created_at ASC") : sql.raw("a.created_at DESC");
 
   if (cursor) {
     if (sort === "best") {
       const [voteScore, createdAt] = cursor.split("|");
-      params.push(Number(voteScore), createdAt);
-      cursorClause = `AND (a.vote_score < $${params.length - 1} OR (a.vote_score = $${params.length - 1} AND a.created_at > $${params.length}))`;
+      const vs = Number(voteScore);
+      cursorClause = sql`AND (a.vote_score < ${vs} OR (a.vote_score = ${vs} AND a.created_at > ${createdAt}))`;
     } else {
-      params.push(cursor);
-      cursorClause = `AND a.created_at < $${params.length}`;
+      cursorClause = sql`AND a.created_at < ${cursor}`;
     }
   }
-  params.push(pageSize + 1);
 
-  const { rows: topRows } = await db.query<AnswerRow>(
-    `SELECT a.id, a.question_id, a.parent_answer_id, a.depth, a.body, ${AUTHOR_COLUMNS},
+  const { rows: topRows } = await orm.execute<AnswerRow & Record<string, unknown>>(sql`
+    SELECT a.id, a.question_id, a.parent_answer_id, a.depth, a.body, ${AUTHOR_COLUMNS},
             a.vote_score, a.created_at, v.value AS my_vote
      FROM forum_answers a
      JOIN users u ON u.id = a.author_id
-     LEFT JOIN forum_votes v ON v.target_type = 'answer' AND v.target_id = a.id AND v.user_id = $2
-     WHERE a.question_id = $1 AND a.parent_answer_id IS NULL AND a.status = 'visible' AND a.deleted_at IS NULL ${cursorClause}
+     LEFT JOIN forum_votes v ON v.target_type = 'answer' AND v.target_id = a.id AND v.user_id = ${callerId}
+     WHERE a.question_id = ${questionId} AND a.parent_answer_id IS NULL AND a.status = 'visible' AND a.deleted_at IS NULL ${cursorClause}
      ORDER BY ${orderClause}
-     LIMIT $${params.length}`,
-    params
-  );
+     LIMIT ${pageSize + 1}
+  `);
 
   const hasMore = topRows.length > pageSize;
   const topItems = hasMore ? topRows.slice(0, pageSize) : topRows;
 
-  const { rows: qRows } = await db.query<{ best_answer_id: string | null }>(
-    `SELECT best_answer_id FROM forum_questions WHERE id = $1 LIMIT 1`,
-    [questionId]
+  const { rows: qRows } = await orm.execute<{ best_answer_id: string | null }>(
+    sql`SELECT best_answer_id FROM forum_questions WHERE id = ${questionId} LIMIT 1`
   );
   const bestAnswerId = qRows[0]?.best_answer_id ?? null;
 
@@ -455,30 +455,28 @@ export async function listAnswers(
 
   const topIds = topItems.map((r) => r.id);
 
-  const { rows: replyCountRows } = await db.query<{ parent_answer_id: string; cnt: string }>(
-    `SELECT parent_answer_id, COUNT(*)::text AS cnt
+  const { rows: replyCountRows } = await orm.execute<{ parent_answer_id: string; cnt: string }>(sql`
+    SELECT parent_answer_id, COUNT(*)::text AS cnt
      FROM forum_answers
-     WHERE parent_answer_id = ANY($1::uuid[]) AND status = 'visible' AND deleted_at IS NULL
-     GROUP BY parent_answer_id`,
-    [topIds]
-  );
+     WHERE parent_answer_id = ANY(${topIds}::uuid[]) AND status = 'visible' AND deleted_at IS NULL
+     GROUP BY parent_answer_id
+  `);
   const replyCounts = new Map(replyCountRows.map((r) => [r.parent_answer_id, parseInt(r.cnt, 10)]));
 
-  const { rows: replyRows } = await db.query<AnswerRow>(
-    `SELECT id, question_id, parent_answer_id, depth, body, author_id, author_username, author_display_name, author_avatar_emoji, vote_score, created_at, my_vote
+  const { rows: replyRows } = await orm.execute<AnswerRow & Record<string, unknown>>(sql`
+    SELECT id, question_id, parent_answer_id, depth, body, author_id, author_username, author_display_name, author_avatar_emoji, vote_score, created_at, my_vote
      FROM (
        SELECT a.id, a.question_id, a.parent_answer_id, a.depth, a.body,
               ${AUTHOR_COLUMNS}, a.vote_score, a.created_at, v.value AS my_vote,
               ROW_NUMBER() OVER (PARTITION BY a.parent_answer_id ORDER BY a.vote_score DESC, a.created_at ASC) AS rn
        FROM forum_answers a
        JOIN users u ON u.id = a.author_id
-       LEFT JOIN forum_votes v ON v.target_type = 'answer' AND v.target_id = a.id AND v.user_id = $2
-       WHERE a.parent_answer_id = ANY($1::uuid[]) AND a.status = 'visible' AND a.deleted_at IS NULL
+       LEFT JOIN forum_votes v ON v.target_type = 'answer' AND v.target_id = a.id AND v.user_id = ${callerId}
+       WHERE a.parent_answer_id = ANY(${topIds}::uuid[]) AND a.status = 'visible' AND a.deleted_at IS NULL
      ) ranked
      WHERE rn <= 3
-     ORDER BY parent_answer_id, vote_score DESC, created_at ASC`,
-    [topIds, callerId]
-  );
+     ORDER BY parent_answer_id, vote_score DESC, created_at ASC
+  `);
 
   // BUG FIX: `replyCounts` above only covers the TOP-level answers' direct
   // (depth-1) reply counts. Without also counting each depth-1 reply's own
@@ -490,13 +488,12 @@ export async function listAnswers(
   // reply ids too and merge them into the same map.
   const replyIds = replyRows.map((r) => r.id);
   if (replyIds.length > 0) {
-    const { rows: grandchildCountRows } = await db.query<{ parent_answer_id: string; cnt: string }>(
-      `SELECT parent_answer_id, COUNT(*)::text AS cnt
+    const { rows: grandchildCountRows } = await orm.execute<{ parent_answer_id: string; cnt: string }>(sql`
+      SELECT parent_answer_id, COUNT(*)::text AS cnt
        FROM forum_answers
-       WHERE parent_answer_id = ANY($1::uuid[]) AND status = 'visible' AND deleted_at IS NULL
-       GROUP BY parent_answer_id`,
-      [replyIds]
-    );
+       WHERE parent_answer_id = ANY(${replyIds}::uuid[]) AND status = 'visible' AND deleted_at IS NULL
+       GROUP BY parent_answer_id
+    `);
     for (const r of grandchildCountRows) replyCounts.set(r.parent_answer_id, parseInt(r.cnt, 10));
   }
 
@@ -531,35 +528,33 @@ export async function listAnswers(
  * (unfetched, deeper) replies.
  */
 export async function getAnswerThread(callerId: string, answerId: string): Promise<ForumAnswerSummary[]> {
-  const { rows: rootRows } = await db.query<{ question_id: string }>(
-    `SELECT question_id FROM forum_answers WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [answerId]
+  const orm = await getDb();
+  const { rows: rootRows } = await orm.execute<{ question_id: string }>(
+    sql`SELECT question_id FROM forum_answers WHERE id = ${answerId} AND deleted_at IS NULL LIMIT 1`
   );
   if (!rootRows[0]) return [];
 
-  const { rows: qRows } = await db.query<{ best_answer_id: string | null }>(
-    `SELECT best_answer_id FROM forum_questions WHERE id = $1 LIMIT 1`,
-    [rootRows[0].question_id]
+  const { rows: qRows } = await orm.execute<{ best_answer_id: string | null }>(
+    sql`SELECT best_answer_id FROM forum_questions WHERE id = ${rootRows[0].question_id} LIMIT 1`
   );
   const bestAnswerId = qRows[0]?.best_answer_id ?? null;
 
-  const { rows } = await db.query<AnswerRow>(
-    `WITH RECURSIVE subtree AS (
-       SELECT a.*, 0 AS rel_depth FROM forum_answers a WHERE a.id = $1 AND a.deleted_at IS NULL
+  const { rows } = await orm.execute<AnswerRow & Record<string, unknown>>(sql`
+    WITH RECURSIVE subtree AS (
+       SELECT a.*, 0 AS rel_depth FROM forum_answers a WHERE a.id = ${answerId} AND a.deleted_at IS NULL
        UNION ALL
        SELECT a.*, s.rel_depth + 1
        FROM forum_answers a
        JOIN subtree s ON a.parent_answer_id = s.id
-       WHERE a.status = 'visible' AND a.deleted_at IS NULL AND s.rel_depth < $2
+       WHERE a.status = 'visible' AND a.deleted_at IS NULL AND s.rel_depth < ${MAX_ANSWER_DEPTH}
      )
      SELECT subtree.id, subtree.question_id, subtree.parent_answer_id, subtree.depth, subtree.body,
             ${AUTHOR_COLUMNS}, subtree.vote_score, subtree.created_at, v.value AS my_vote
      FROM subtree
      JOIN users u ON u.id = subtree.author_id
-     LEFT JOIN forum_votes v ON v.target_type = 'answer' AND v.target_id = subtree.id AND v.user_id = $3
-     ORDER BY subtree.depth ASC, subtree.vote_score DESC, subtree.created_at ASC`,
-    [answerId, MAX_ANSWER_DEPTH, callerId]
-  );
+     LEFT JOIN forum_votes v ON v.target_type = 'answer' AND v.target_id = subtree.id AND v.user_id = ${callerId}
+     ORDER BY subtree.depth ASC, subtree.vote_score DESC, subtree.created_at ASC
+  `);
 
   const replyCounts = new Map<string, number>();
   return rows.map((row) => toAnswerSummary(row, bestAnswerId, replyCounts));

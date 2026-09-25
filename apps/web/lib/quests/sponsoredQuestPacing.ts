@@ -15,7 +15,8 @@
  * mental model rather than inventing a new one).
  */
 
-import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+import { and, eq, gte, isNull, lt, lte, ne, sql } from "drizzle-orm";
+import { schema, type DbOrTx } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 
 /**
@@ -57,52 +58,52 @@ export type SponsoredQuestDurationPresetKey = (typeof SPONSORED_QUEST_DURATION_P
  * sponsored_quests row.
  */
 export async function syncSponsoredQuestTemplate(
-  db: DatabaseAdapter | TransactionClient,
+  db: DbOrTx,
   questId: string
 ): Promise<void> {
   try {
-    const { rows } = await db.query<{
-      id: string;
-      title: string;
-      description: string;
-      target_action: string | null;
-      target_value: number | null;
-      reward_coins: number | null;
-      is_active: boolean;
-      moderation_status: string;
-      is_daily_quest_eligible: boolean;
-      flag_status: string;
-      starts_at: string | null;
-      ends_at: string | null;
-      total_budget_credits: string;
-      spent_credits: string;
-    }>(
-      `SELECT id, title, description, target_action, target_value, reward_coins,
-              is_active, moderation_status, is_daily_quest_eligible, flag_status,
-              starts_at, ends_at, total_budget_credits, spent_credits
-       FROM sponsored_quests WHERE id = $1 AND deleted_at IS NULL`,
-      [questId]
-    );
-    const quest = rows[0];
+    const [quest] = await db
+      .select({
+        id: schema.sponsoredQuests.id,
+        title: schema.sponsoredQuests.title,
+        description: schema.sponsoredQuests.description,
+        targetAction: schema.sponsoredQuests.targetAction,
+        targetValue: schema.sponsoredQuests.targetValue,
+        rewardCoins: schema.sponsoredQuests.rewardCoins,
+        isActive: schema.sponsoredQuests.isActive,
+        moderationStatus: schema.sponsoredQuests.moderationStatus,
+        isDailyQuestEligible: schema.sponsoredQuests.isDailyQuestEligible,
+        flagStatus: schema.sponsoredQuests.flagStatus,
+        startsAt: schema.sponsoredQuests.startsAt,
+        endsAt: schema.sponsoredQuests.endsAt,
+        totalBudgetCredits: schema.sponsoredQuests.totalBudgetCredits,
+        spentCredits: schema.sponsoredQuests.spentCredits,
+      })
+      .from(schema.sponsoredQuests)
+      .where(and(eq(schema.sponsoredQuests.id, questId), isNull(schema.sponsoredQuests.deletedAt)))
+      .limit(1);
 
     // Quest deleted, or not opted into daily-deck distribution — make sure
     // no stale shadow template row lingers (it just won't be selected once
     // is_active flips false, but delete it outright on hard removal).
-    if (!quest || !quest.is_daily_quest_eligible) {
-      await db.query(`UPDATE quest_templates SET is_active = FALSE WHERE sponsored_quest_id = $1`, [questId]);
+    if (!quest || !quest.isDailyQuestEligible) {
+      await db
+        .update(schema.questTemplates)
+        .set({ isActive: false })
+        .where(eq(schema.questTemplates.sponsoredQuestId, questId));
       return;
     }
 
     const now = Date.now();
     const withinWindow =
-      (!quest.starts_at || new Date(quest.starts_at).getTime() <= now) &&
-      (!quest.ends_at || new Date(quest.ends_at).getTime() >= now);
-    const budgetRemaining = Number(quest.total_budget_credits) - Number(quest.spent_credits);
+      (!quest.startsAt || new Date(quest.startsAt).getTime() <= now) &&
+      (!quest.endsAt || new Date(quest.endsAt).getTime() >= now);
+    const budgetRemaining = Number(quest.totalBudgetCredits) - Number(quest.spentCredits);
 
     const eligible =
-      quest.is_active &&
-      quest.moderation_status === "approved" &&
-      quest.flag_status !== "flagged" &&
+      quest.isActive &&
+      quest.moderationStatus === "approved" &&
+      quest.flagStatus !== "flagged" &&
       withinWindow &&
       budgetRemaining > 0;
 
@@ -110,36 +111,42 @@ export async function syncSponsoredQuestTemplate(
     // other daily quest — no XP track skew, small flat XP for consistency
     // with the deck's XP economy.
     const xpReward = 50;
-    const coinReward = Math.max(0, Math.min(quest.reward_coins ?? 0, 100_000));
-    const actionType = quest.target_action?.trim() || "sponsored_quest_action";
-    const targetCount = quest.target_value && quest.target_value > 0 ? quest.target_value : 1;
+    const coinReward = Math.max(0, Math.min(quest.rewardCoins ?? 0, 100_000));
+    const actionType = quest.targetAction?.trim() || "sponsored_quest_action";
+    const targetCount = quest.targetValue && quest.targetValue > 0 ? quest.targetValue : 1;
+    // Prefix so a sponsored quest can never collide with a regular
+    // template's globally-unique title.
+    const title = `[Sponsored] ${quest.title}`.slice(0, 250);
 
-    await db.query(
-      `INSERT INTO quest_templates
-         (title, description, action_type, target_count, xp_reward, coin_reward,
-          track, plan_required, category, icon, feature_key, sponsored_quest_id, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, 'main', NULL, 'sponsored', '⭐', NULL, $7, $8)
-       ON CONFLICT (sponsored_quest_id) WHERE sponsored_quest_id IS NOT NULL
-       DO UPDATE SET
-         title = EXCLUDED.title,
-         description = EXCLUDED.description,
-         action_type = EXCLUDED.action_type,
-         target_count = EXCLUDED.target_count,
-         coin_reward = EXCLUDED.coin_reward,
-         is_active = EXCLUDED.is_active`,
-      [
-        // Prefix so a sponsored quest can never collide with a regular
-        // template's globally-unique title.
-        `[Sponsored] ${quest.title}`.slice(0, 250),
-        quest.description,
+    await db
+      .insert(schema.questTemplates)
+      .values({
+        title,
+        description: quest.description,
         actionType,
         targetCount,
         xpReward,
         coinReward,
-        questId,
-        eligible,
-      ]
-    );
+        track: "main",
+        planRequired: null,
+        category: "sponsored",
+        icon: "⭐",
+        featureKey: null,
+        sponsoredQuestId: questId,
+        isActive: eligible,
+      })
+      .onConflictDoUpdate({
+        target: schema.questTemplates.sponsoredQuestId,
+        targetWhere: sql`sponsored_quest_id IS NOT NULL`,
+        set: {
+          title,
+          description: quest.description,
+          actionType,
+          targetCount,
+          coinReward,
+          isActive: eligible,
+        },
+      });
   } catch (err) {
     logger.error({ err, questId }, "[sponsoredQuestPacing] Failed to sync shadow quest_templates row (non-fatal)");
   }
@@ -154,26 +161,34 @@ export async function syncSponsoredQuestTemplate(
  * guarantee against a stale read).
  */
 export async function recordSponsoredQuestImpression(
-  db: DatabaseAdapter | TransactionClient,
+  db: DbOrTx,
   questId: string,
   userId: string,
   costCredits: number
 ): Promise<boolean> {
   try {
-    const { rowCount } = await db.query(
-      `UPDATE sponsored_quests
-       SET spent_credits = spent_credits + $1, impressions_count = impressions_count + 1
-       WHERE id = $2 AND spent_credits + $1 <= total_budget_credits`,
-      [costCredits, questId]
-    );
-    if (!rowCount) return false;
+    const updated = await db
+      .update(schema.sponsoredQuests)
+      .set({
+        spentCredits: sql`${schema.sponsoredQuests.spentCredits} + ${costCredits}`,
+        impressionsCount: sql`${schema.sponsoredQuests.impressionsCount} + 1`,
+      })
+      .where(
+        and(
+          eq(schema.sponsoredQuests.id, questId),
+          lte(
+            sql`${schema.sponsoredQuests.spentCredits} + ${costCredits}`,
+            schema.sponsoredQuests.totalBudgetCredits
+          )
+        )
+      )
+      .returning({ id: schema.sponsoredQuests.id });
+    if (updated.length === 0) return false;
 
-    await db.query(
-      `INSERT INTO sponsored_quest_events (quest_id, user_id, event_type, cost_credits)
-       VALUES ($1, $2, 'impression', $3)
-       ON CONFLICT DO NOTHING`,
-      [questId, userId, costCredits]
-    );
+    await db
+      .insert(schema.sponsoredQuestEvents)
+      .values({ questId, userId, eventType: "impression", costCredits: String(costCredits) })
+      .onConflictDoNothing();
     return true;
   } catch (err) {
     logger.error({ err, questId, userId }, "[sponsoredQuestPacing] Failed to record impression (non-fatal)");
@@ -182,13 +197,18 @@ export async function recordSponsoredQuestImpression(
 }
 
 /** Today's already-spent Credits for a quest, for daily_budget_credits pacing. */
-export async function getSponsoredQuestSpendToday(db: DatabaseAdapter, questId: string): Promise<number> {
-  const { rows } = await db.query<{ total: string | null }>(
-    `SELECT SUM(cost_credits) AS total FROM sponsored_quest_events
-     WHERE quest_id = $1 AND event_type = 'impression' AND created_at >= CURRENT_DATE`,
-    [questId]
-  );
-  return Number(rows[0]?.total ?? 0);
+export async function getSponsoredQuestSpendToday(db: DbOrTx, questId: string): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<string | null>`SUM(${schema.sponsoredQuestEvents.costCredits})` })
+    .from(schema.sponsoredQuestEvents)
+    .where(
+      and(
+        eq(schema.sponsoredQuestEvents.questId, questId),
+        eq(schema.sponsoredQuestEvents.eventType, "impression"),
+        gte(schema.sponsoredQuestEvents.createdAt, sql`CURRENT_DATE`)
+      )
+    );
+  return Number(row?.total ?? 0);
 }
 
 interface EligibleSponsoredTemplateRow {
@@ -216,22 +236,54 @@ interface EligibleSponsoredTemplateRow {
  * subquery for quests that don't set a daily cap.
  */
 export async function getEligibleSponsoredQuestTemplates(
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<EligibleSponsoredTemplateRow[]> {
-  const { rows } = await db.query<EligibleSponsoredTemplateRow>(
-    `SELECT qt.id, qt.title, qt.description, qt.action_type, qt.target_count,
-            qt.xp_reward, qt.coin_reward, qt.category, qt.icon, qt.plan_required, qt.track,
-            sq.id AS sponsored_quest_id, sq.cpm_credits, sq.daily_budget_credits
-     FROM quest_templates qt
-     JOIN sponsored_quests sq ON sq.id = qt.sponsored_quest_id
-     WHERE qt.is_active = TRUE
-       AND sq.is_active = TRUE
-       AND sq.moderation_status = 'approved'
-       AND sq.flag_status != 'flagged'
-       AND sq.is_daily_quest_eligible = TRUE
-       AND (sq.starts_at IS NULL OR sq.starts_at <= NOW())
-       AND (sq.ends_at IS NULL OR sq.ends_at >= NOW())
-       AND sq.spent_credits < sq.total_budget_credits`
-  );
-  return rows;
+  const rows = await db
+    .select({
+      id: schema.questTemplates.id,
+      title: schema.questTemplates.title,
+      description: schema.questTemplates.description,
+      actionType: schema.questTemplates.actionType,
+      targetCount: schema.questTemplates.targetCount,
+      xpReward: schema.questTemplates.xpReward,
+      coinReward: schema.questTemplates.coinReward,
+      category: schema.questTemplates.category,
+      icon: schema.questTemplates.icon,
+      planRequired: schema.questTemplates.planRequired,
+      track: schema.questTemplates.track,
+      sponsoredQuestId: schema.sponsoredQuests.id,
+      cpmCredits: schema.sponsoredQuests.cpmCredits,
+      dailyBudgetCredits: schema.sponsoredQuests.dailyBudgetCredits,
+    })
+    .from(schema.questTemplates)
+    .innerJoin(schema.sponsoredQuests, eq(schema.sponsoredQuests.id, schema.questTemplates.sponsoredQuestId))
+    .where(
+      and(
+        eq(schema.questTemplates.isActive, true),
+        eq(schema.sponsoredQuests.isActive, true),
+        eq(schema.sponsoredQuests.moderationStatus, "approved"),
+        ne(schema.sponsoredQuests.flagStatus, "flagged"),
+        eq(schema.sponsoredQuests.isDailyQuestEligible, true),
+        sql`(${schema.sponsoredQuests.startsAt} IS NULL OR ${schema.sponsoredQuests.startsAt} <= NOW())`,
+        sql`(${schema.sponsoredQuests.endsAt} IS NULL OR ${schema.sponsoredQuests.endsAt} >= NOW())`,
+        lt(schema.sponsoredQuests.spentCredits, schema.sponsoredQuests.totalBudgetCredits)
+      )
+    );
+
+  return rows.map((r) => ({
+    id: r.id,
+    title: r.title,
+    description: r.description,
+    action_type: r.actionType,
+    target_count: r.targetCount,
+    xp_reward: r.xpReward,
+    coin_reward: r.coinReward,
+    category: r.category,
+    icon: r.icon,
+    plan_required: r.planRequired,
+    track: r.track ?? "main",
+    sponsored_quest_id: r.sponsoredQuestId,
+    cpm_credits: r.cpmCredits,
+    daily_budget_credits: r.dailyBudgetCredits,
+  }));
 }

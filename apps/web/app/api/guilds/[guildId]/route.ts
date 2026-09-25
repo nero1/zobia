@@ -14,7 +14,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { guildTierXpRequired, guildTierMaxMembers } from "@/lib/guilds/tiers";
@@ -33,78 +35,6 @@ const updateGuildSchema = z.object({
 // ---------------------------------------------------------------------------
 // GET /api/guilds/[guildId]
 // ---------------------------------------------------------------------------
-
-interface GuildDetailRow {
-  id: string;
-  name: string;
-  crest_emoji: string;
-  description: string | null;
-  city: string | null;
-  country: string;
-  captain_id: string;
-  tier: string;
-  guild_xp: number;
-  member_count: number;
-  treasury_balance: number;
-  treasury_cap: number;
-  recruitment_type: string;
-  wars_won: number;
-  wars_lost: number;
-  is_active: boolean;
-  created_at: string;
-  updated_at: string;
-}
-
-interface MemberRow {
-  id: string;
-  user_id: string;
-  role: string;
-  contribution_score: number;
-  war_points_total: number;
-  joined_at: string;
-  username: string;
-  display_name: string;
-  avatar_emoji: string;
-  rank_name: string;
-  xp_total: number;
-  is_moderator: boolean;
-}
-
-interface WarRow {
-  id: string;
-  challenger_guild_id: string;
-  defender_guild_id: string;
-  status: string;
-  challenger_points: number;
-  defender_points: number;
-  winner_guild_id: string | null;
-  starts_at: string;
-  ends_at: string;
-  final_hour_starts_at: string;
-  created_at: string;
-}
-
-interface WarWithOpponentRow extends WarRow {
-  opponent_name: string;
-  opponent_crest_emoji: string;
-}
-
-interface QuestRow {
-  id: string;
-  title: string;
-  description: string;
-  target_count: number;
-  current_count: number;
-  reward_guild_xp: number;
-  week_end: string;
-}
-
-interface AllianceRow {
-  alliance_id: string;
-  alliance_name: string;
-  founded_by: string;
-  joined_at: string;
-}
 
 /**
  * Fetch full guild detail — public profile shape consumed by
@@ -126,61 +56,103 @@ export const GET = withAuth(
     try {
       const { guildId } = params;
       const userId = auth.user.sub;
+      const orm = await getDb();
 
-      const guildResult = await db.query<GuildDetailRow>(
-        `SELECT id, name, crest_emoji, description, city, country, captain_id,
-                tier, guild_xp, member_count, treasury_balance, treasury_cap,
-                recruitment_type, wars_won, wars_lost, is_active, created_at, updated_at
-         FROM guilds WHERE id = $1 AND is_active = TRUE`,
-        [guildId]
-      );
+      const [guild] = await orm
+        .select({
+          id: schema.guilds.id,
+          name: schema.guilds.name,
+          crest_emoji: schema.guilds.crestEmoji,
+          description: schema.guilds.description,
+          city: schema.guilds.city,
+          country: schema.guilds.country,
+          captain_id: schema.guilds.captainId,
+          tier: schema.guilds.tier,
+          guild_xp: schema.guilds.guildXp,
+          member_count: schema.guilds.memberCount,
+          treasury_balance: schema.guilds.treasuryBalance,
+          treasury_cap: schema.guilds.treasuryCap,
+          recruitment_type: schema.guilds.recruitmentType,
+          wars_won: schema.guilds.warsWon,
+          wars_lost: schema.guilds.warsLost,
+          is_active: schema.guilds.isActive,
+          created_at: schema.guilds.createdAt,
+          updated_at: schema.guilds.updatedAt,
+        })
+        .from(schema.guilds)
+        .where(and(eq(schema.guilds.id, guildId), eq(schema.guilds.isActive, true)))
+        .limit(1);
 
-      if (!guildResult.rows[0]) throw notFound("Guild not found");
-      const guild = guildResult.rows[0];
+      if (!guild) throw notFound("Guild not found");
 
-      const membershipResult = await db.query<{ role: string; is_moderator: boolean }>(
-        `SELECT role, is_moderator FROM guild_members WHERE guild_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
-        [guildId, userId]
-      );
-      const isMember = membershipResult.rows.length > 0;
+      const [membership] = await orm
+        .select({ role: schema.guildMembers.role, is_moderator: schema.guildMembers.isModerator })
+        .from(schema.guildMembers)
+        .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, userId), sql`${schema.guildMembers.leftAt} IS NULL`))
+        .limit(1);
+      const isMember = Boolean(membership);
       const isCaptain = guild.captain_id === userId;
-      const isModerator = isCaptain || Boolean(membershipResult.rows[0]?.is_moderator);
+      const isModerator = isCaptain || Boolean(membership?.is_moderator);
 
       // Fetch members with public profile info. The roster (usernames,
       // contribution scores) is member/captain-only for invite-only guilds —
       // non-members only see the aggregate memberCount for those.
       const isInviteOnly = guild.recruitment_type === "invite_only";
       const canSeeRoster = isMember || isCaptain || !isInviteOnly;
-      const membersResult = canSeeRoster
-        ? await db.query<MemberRow>(
-            `SELECT gm.id, gm.user_id, gm.role, gm.contribution_score,
-                    gm.war_points_total, gm.joined_at, gm.is_moderator,
-                    u.username, u.display_name, u.avatar_emoji, u.rank_name, u.xp_total
-             FROM guild_members gm
-             JOIN users u ON u.id = gm.user_id
-             WHERE gm.guild_id = $1 AND gm.left_at IS NULL
-             ORDER BY gm.contribution_score DESC`,
-            [guildId]
-          )
-        : { rows: [] as MemberRow[] };
+      const membersRows = canSeeRoster
+        ? await orm
+            .select({
+              id: schema.guildMembers.id,
+              user_id: schema.guildMembers.userId,
+              role: schema.guildMembers.role,
+              contribution_score: schema.guildMembers.contributionScore,
+              war_points_total: schema.guildMembers.warPointsTotal,
+              joined_at: schema.guildMembers.joinedAt,
+              is_moderator: schema.guildMembers.isModerator,
+              username: schema.users.username,
+              display_name: schema.users.displayName,
+              avatar_emoji: schema.users.avatarEmoji,
+              rank_name: schema.users.rankName,
+              xp_total: schema.users.xpTotal,
+            })
+            .from(schema.guildMembers)
+            .innerJoin(schema.users, eq(schema.users.id, schema.guildMembers.userId))
+            .where(and(eq(schema.guildMembers.guildId, guildId), sql`${schema.guildMembers.leftAt} IS NULL`))
+            .orderBy(desc(schema.guildMembers.contributionScore))
+        : [];
 
       // Fetch recent war history (last 10) with opponent info resolved
-      const warsResult = await db.query<WarWithOpponentRow>(
-        `SELECT gw.id, gw.challenger_guild_id, gw.defender_guild_id, gw.status,
-                gw.challenger_points, gw.defender_points, gw.winner_guild_id,
-                gw.starts_at, gw.ends_at, gw.final_hour_starts_at, gw.created_at,
-                og.name AS opponent_name, og.crest_emoji AS opponent_crest_emoji
-         FROM guild_wars gw
-         JOIN guilds og ON og.id = (
-           CASE WHEN gw.challenger_guild_id = $1 THEN gw.defender_guild_id ELSE gw.challenger_guild_id END
-         )
-         WHERE gw.challenger_guild_id = $1 OR gw.defender_guild_id = $1
-         ORDER BY gw.created_at DESC
-         LIMIT 10`,
-        [guildId]
-      );
+      const opponentGuild = alias(schema.guilds, "og");
+      const warsRows = await orm
+        .select({
+          id: schema.guildWars.id,
+          challenger_guild_id: schema.guildWars.challengerGuildId,
+          defender_guild_id: schema.guildWars.defenderGuildId,
+          status: schema.guildWars.status,
+          challenger_points: schema.guildWars.challengerPoints,
+          defender_points: schema.guildWars.defenderPoints,
+          winner_guild_id: schema.guildWars.winnerGuildId,
+          starts_at: schema.guildWars.startsAt,
+          ends_at: schema.guildWars.endsAt,
+          final_hour_starts_at: schema.guildWars.finalHourStartsAt,
+          created_at: schema.guildWars.createdAt,
+          opponent_name: opponentGuild.name,
+          opponent_crest_emoji: opponentGuild.crestEmoji,
+        })
+        .from(schema.guildWars)
+        .innerJoin(
+          opponentGuild,
+          eq(
+            opponentGuild.id,
+            sql`CASE WHEN ${schema.guildWars.challengerGuildId} = ${guildId} THEN ${schema.guildWars.defenderGuildId} ELSE ${schema.guildWars.challengerGuildId} END`
+          )
+        )
+        .where(or(eq(schema.guildWars.challengerGuildId, guildId), eq(schema.guildWars.defenderGuildId, guildId)))
+        .orderBy(desc(schema.guildWars.createdAt))
+        .limit(10);
 
-      const activeWarRow = warsResult.rows.find((w) => w.status === "active" || w.status === "final_hour");
+      type WarWithOpponentRow = (typeof warsRows)[number];
+      const activeWarRow = warsRows.find((w) => w.status === "active" || w.status === "final_hour");
       const myScore = (w: WarWithOpponentRow) => (w.challenger_guild_id === guildId ? w.challenger_points : w.defender_points);
       const opponentScore = (w: WarWithOpponentRow) => (w.challenger_guild_id === guildId ? w.defender_points : w.challenger_points);
 
@@ -196,7 +168,7 @@ export const GET = withAuth(
           }
         : null;
 
-      const warHistory = warsResult.rows
+      const warHistory = warsRows
         .filter((w) => w.status === "completed" || w.status === "resolved")
         .map((w) => ({
           id: w.id,
@@ -211,15 +183,18 @@ export const GET = withAuth(
       // Current alliance (if any) — guild_alliance_members has no departure
       // tracking (no left_at column), so "history" here is just the active
       // alliance, not a full past-alliances list.
-      const allianceResult = await db.query<AllianceRow>(
-        `SELECT ga.id AS alliance_id, ga.name AS alliance_name, ga.founded_by, gam.joined_at
-         FROM guild_alliance_members gam
-         JOIN guild_alliances ga ON ga.id = gam.alliance_id
-         WHERE gam.guild_id = $1 AND ga.is_active = TRUE
-         LIMIT 1`,
-        [guildId]
-      );
-      const allianceHistory = allianceResult.rows.map((a) => ({
+      const allianceRows = await orm
+        .select({
+          alliance_id: schema.guildAlliances.id,
+          alliance_name: schema.guildAlliances.name,
+          founded_by: schema.guildAlliances.foundedBy,
+          joined_at: schema.guildAllianceMembers.joinedAt,
+        })
+        .from(schema.guildAllianceMembers)
+        .innerJoin(schema.guildAlliances, eq(schema.guildAlliances.id, schema.guildAllianceMembers.allianceId))
+        .where(and(eq(schema.guildAllianceMembers.guildId, guildId), eq(schema.guildAlliances.isActive, true)))
+        .limit(1);
+      const allianceHistory = allianceRows.map((a) => ({
         id: a.alliance_id,
         allianceName: a.alliance_name,
         role: a.founded_by === guildId ? "initiator" : "ally",
@@ -230,14 +205,20 @@ export const GET = withAuth(
       // Active guild quests (current week), members-only detail
       const activeQuests = isMember
         ? (
-            await db.query<QuestRow>(
-              `SELECT id, title, description, target_count, current_count, reward_guild_xp, week_end
-               FROM guild_quests
-               WHERE guild_id = $1 AND week_start <= NOW() AND week_end >= NOW()
-               ORDER BY created_at ASC`,
-              [guildId]
-            )
-          ).rows.map((q) => ({
+            await orm
+              .select({
+                id: schema.guildQuests.id,
+                title: schema.guildQuests.title,
+                description: schema.guildQuests.description,
+                target_count: schema.guildQuests.targetCount,
+                current_count: schema.guildQuests.currentCount,
+                reward_guild_xp: schema.guildQuests.rewardGuildXp,
+                week_end: schema.guildQuests.weekEnd,
+              })
+              .from(schema.guildQuests)
+              .where(and(eq(schema.guildQuests.guildId, guildId), sql`${schema.guildQuests.weekStart} <= NOW()`, sql`${schema.guildQuests.weekEnd} >= NOW()`))
+              .orderBy(sql`${schema.guildQuests.createdAt} ASC`)
+          ).map((q) => ({
             id: q.id,
             title: q.title,
             description: q.description,
@@ -266,7 +247,7 @@ export const GET = withAuth(
         isCaptain,
         isModerator,
         activeWar,
-        members: membersResult.rows.map((m) => ({
+        members: membersRows.map((m) => ({
           userId: m.user_id,
           username: m.username,
           displayName: m.display_name,
@@ -307,46 +288,30 @@ export const PUT = withAuth(
       const { guildId } = params;
       const userId = auth.user.sub;
       const body = await validateBody(req, updateGuildSchema);
+      const orm = await getDb();
 
       // Verify user is captain
-      const captainCheck = await db.query<{ captain_id: string }>(
-        `SELECT captain_id FROM guilds WHERE id = $1 AND is_active = TRUE`,
-        [guildId]
-      );
-      if (!captainCheck.rows[0]) throw notFound("Guild not found");
-      if (captainCheck.rows[0].captain_id !== userId) {
+      const [captainCheck] = await orm
+        .select({ captain_id: schema.guilds.captainId })
+        .from(schema.guilds)
+        .where(and(eq(schema.guilds.id, guildId), eq(schema.guilds.isActive, true)))
+        .limit(1);
+      if (!captainCheck) throw notFound("Guild not found");
+      if (captainCheck.captain_id !== userId) {
         throw forbidden("Only the guild captain can update guild info");
       }
 
       // Build dynamic update
-      const updates: string[] = ["updated_at = NOW()"];
-      const values: (string | null)[] = [];
-      let idx = 1;
+      const updates: Partial<typeof schema.guilds.$inferInsert> = {};
+      if (body.name !== undefined) updates.name = body.name;
+      if (body.crestEmoji !== undefined) updates.crestEmoji = body.crestEmoji;
+      if (body.description !== undefined) updates.description = body.description;
+      if (body.recruitmentType !== undefined) updates.recruitmentType = body.recruitmentType;
 
-      if (body.name !== undefined) {
-        updates.push(`name = $${idx++}`);
-        values.push(body.name);
-      }
-      if (body.crestEmoji !== undefined) {
-        updates.push(`crest_emoji = $${idx++}`);
-        values.push(body.crestEmoji);
-      }
-      if (body.description !== undefined) {
-        updates.push(`description = $${idx++}`);
-        values.push(body.description);
-      }
-      if (body.recruitmentType !== undefined) {
-        updates.push(`recruitment_type = $${idx++}`);
-        values.push(body.recruitmentType);
-      }
+      if (Object.keys(updates).length === 0) throw badRequest("No fields to update");
 
-      if (updates.length === 1) throw badRequest("No fields to update");
-
-      values.push(guildId);
-      await db.query(
-        `UPDATE guilds SET ${updates.join(", ")} WHERE id = $${idx}`,
-        values
-      );
+      updates.updatedAt = new Date();
+      await orm.update(schema.guilds).set(updates).where(eq(schema.guilds.id, guildId));
 
       return NextResponse.json({ success: true, data: { updated: true }, error: null });
     } catch (err) {

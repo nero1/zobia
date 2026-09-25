@@ -15,7 +15,8 @@
  * Tracks: main | social | creator | competitor | generosity | knowledge | explorer
  */
 
-import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+import { sql, type SQL } from "drizzle-orm";
+import { type DbOrTx } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { memGet, memSet } from "@/lib/cache/memory";
 
@@ -86,14 +87,14 @@ export interface LeaderboardPage {
  * @param userId - UUID of the user.
  * @param track  - Which XP track to query.
  * @param scope  - Leaderboard scope (global, city, guild, season).
- * @param db     - Active database adapter.
+ * @param db     - Drizzle db instance or an active transaction handle.
  * @returns The 1-based rank number, or null if the user has no snapshot.
  */
 export async function getUserRank(
   userId: string,
   track: LeaderboardTrack,
   scope: LeaderboardScope,
-  db: DatabaseAdapter,
+  db: DbOrTx,
   options?: { city?: string; guildId?: string; seasonId?: string; country?: string }
 ): Promise<number | null> {
   // BUG-M04: The original implementation used two separate queries (fetch user XP,
@@ -108,71 +109,58 @@ export async function getUserRank(
   // Map scope to the stored scope value (national uses global rows filtered by country)
   const dbScope = scope === "national" ? "global" : scope;
 
-  // Build the scope conditions shared by both the my_xp CTE and the rank count.
-  const rankConditions: string[] = [
-    `ls.track = $1`,
-    `ls.scope = $2`,
-    `u.deleted_at IS NULL`,
+  // Build the scope conditions shared by the rank count.
+  const rankConditions: SQL[] = [
+    sql`ls.track = ${track}`,
+    sql`ls.scope = ${dbScope}`,
+    sql`u.deleted_at IS NULL`,
   ];
-  const params: (string | number | null)[] = [track, dbScope];
-  let paramIdx = 3;
 
   if (scope === "national" && options?.country) {
-    rankConditions.push(`COALESCE(u.country, '') = $${paramIdx++}`);
-    params.push(options.country);
+    rankConditions.push(sql`COALESCE(u.country, '') = ${options.country}`);
   } else if (scope === "city" && options?.city) {
-    rankConditions.push(`ls.city = $${paramIdx++}`);
-    params.push(options.city);
+    rankConditions.push(sql`ls.city = ${options.city}`);
   } else if (scope === "guild" && options?.guildId) {
-    rankConditions.push(`u.guild_id = $${paramIdx++}`);
-    params.push(options.guildId);
+    rankConditions.push(sql`u.guild_id = ${options.guildId}`);
   }
 
   if (options?.seasonId) {
-    rankConditions.push(`ls.season_id = $${paramIdx++}`);
-    params.push(options.seasonId);
+    rankConditions.push(sql`ls.season_id = ${options.seasonId}`);
   } else {
-    rankConditions.push(`ls.season_id IS NULL`);
+    rankConditions.push(sql`ls.season_id IS NULL`);
   }
 
   if (scope !== "city") {
-    rankConditions.push(`ls.city IS NULL`);
+    rankConditions.push(sql`ls.city IS NULL`);
   }
-
-  // userId placeholder for the CTE user filter and rank exclusion
-  const userIdIdx = paramIdx++;
-  params.push(userId);
 
   const cityParam = options?.city ?? null;
   const seasonParam = options?.seasonId ?? null;
-  const cityIdx = paramIdx++;
-  const seasonIdx = paramIdx++;
-  params.push(cityParam, seasonParam);
 
-  const { rows } = await db.query<{ rank: string | null }>(
-    `WITH my_xp AS (
-       SELECT xp_value
-       FROM leaderboard_snapshots
-       WHERE user_id = $${userIdIdx}
-         AND track = $1
-         AND scope = $2
-         AND (city IS NOT DISTINCT FROM $${cityIdx})
-         AND (season_id IS NOT DISTINCT FROM $${seasonIdx})
-       LIMIT 1
-     )
-     SELECT
-       CASE WHEN (SELECT xp_value FROM my_xp) IS NULL THEN NULL
-            ELSE (
-              SELECT COUNT(*) + 1
-              FROM leaderboard_snapshots ls
-              JOIN users u ON u.id = ls.user_id
-              WHERE ${rankConditions.join(" AND ")}
-                AND ls.xp_value > (SELECT xp_value FROM my_xp)
-            )
-       END AS rank`,
-    params
-  );
+  const result = await db.execute<{ rank: string | null }>(sql`
+    WITH my_xp AS (
+      SELECT xp_value
+      FROM leaderboard_snapshots
+      WHERE user_id = ${userId}
+        AND track = ${track}
+        AND scope = ${dbScope}
+        AND (city IS NOT DISTINCT FROM ${cityParam})
+        AND (season_id IS NOT DISTINCT FROM ${seasonParam})
+      LIMIT 1
+    )
+    SELECT
+      CASE WHEN (SELECT xp_value FROM my_xp) IS NULL THEN NULL
+           ELSE (
+             SELECT COUNT(*) + 1
+             FROM leaderboard_snapshots ls
+             JOIN users u ON u.id = ls.user_id
+             WHERE ${sql.join(rankConditions, sql` AND `)}
+               AND ls.xp_value > (SELECT xp_value FROM my_xp)
+           )
+      END AS rank
+  `);
 
+  const rows = result.rows as { rank: string | null }[];
   const rankVal = rows[0]?.rank;
   if (rankVal === null || rankVal === undefined) return null;
   return parseInt(rankVal);
@@ -191,7 +179,7 @@ export async function getUserRank(
  * @param scope    - Scope filter (global, city, guild, season).
  * @param city     - Required when scope = 'city'.
  * @param page     - 1-indexed page number.
- * @param db       - Active database adapter.
+ * @param db       - Drizzle db instance or an active transaction handle.
  * @param options  - Additional scope parameters.
  * @returns Paginated leaderboard page.
  */
@@ -200,7 +188,7 @@ export async function getLeaderboard(
   scope: LeaderboardScope,
   city: string | null,
   page: number,
-  db: DatabaseAdapter,
+  db: DbOrTx,
   options?: {
     pageSize?: number;
     guildId?: string;
@@ -230,55 +218,44 @@ export async function getLeaderboard(
   // Map scope to the stored scope value (national uses global rows filtered by country)
   const dbScope = scope === "national" ? "global" : scope;
 
-  const conditions: string[] = [
-    `ls.track = $1`,
-    `ls.scope = $2`,
-    `u.deleted_at IS NULL`,
+  const conditions: SQL[] = [
+    sql`ls.track = ${track}`,
+    sql`ls.scope = ${dbScope}`,
+    sql`u.deleted_at IS NULL`,
   ];
-  const params: (string | number | null)[] = [track, dbScope];
-  let paramIdx = 3;
 
   if (scope === "national") {
     if (!options?.country) {
       throw new Error("country is required for national leaderboard scope");
     }
-    conditions.push(`COALESCE(u.country, '') = $${paramIdx++}`);
-    params.push(options.country);
+    conditions.push(sql`COALESCE(u.country, '') = ${options.country}`);
   } else if (scope === "city" && city) {
-    conditions.push(`ls.city = $${paramIdx++}`);
-    params.push(city);
+    conditions.push(sql`ls.city = ${city}`);
   } else if (scope === "guild" && options?.guildId) {
-    conditions.push(`u.guild_id = $${paramIdx++}`);
-    params.push(options.guildId);
+    conditions.push(sql`u.guild_id = ${options.guildId}`);
   }
 
   if (options?.seasonId) {
-    conditions.push(`ls.season_id = $${paramIdx++}`);
-    params.push(options.seasonId);
+    conditions.push(sql`ls.season_id = ${options.seasonId}`);
   } else {
-    conditions.push(`ls.season_id IS NULL`);
+    conditions.push(sql`ls.season_id IS NULL`);
   }
 
   // City filter for city scope
   if (scope !== "city") {
-    conditions.push(`ls.city IS NULL`);
+    conditions.push(sql`ls.city IS NULL`);
   }
+
+  // Count query uses the conditions WITHOUT the cursor condition — COUNT(*)
+  // over a cursor-filtered query would return the current page's count only,
+  // not the full result set (BUG-PERF-01) — so it is computed before the
+  // cursor condition is appended below.
+  const countWhere = sql.join(conditions, sql` AND `);
 
   // Cursor condition: keyset pagination avoids O(N) OFFSET scans
   if (cursor) {
-    conditions.push(`(ls.xp_value, ls.user_id) < ($${paramIdx}, $${paramIdx + 1})`);
-    params.push(cursor.xpValue, cursor.userId);
-    paramIdx += 2;
+    conditions.push(sql`(ls.xp_value, ls.user_id) < (${cursor.xpValue}, ${cursor.userId})`);
   }
-
-  // Build a WHERE clause without the cursor condition for the count query.
-  // COUNT(*) OVER() inside a cursor-filtered query returns the count of the
-  // current page only, not the full result set (BUG-PERF-01).
-  const countConditions = conditions.filter(
-    (c) => !c.startsWith("(ls.xp_value, ls.user_id) <")
-  );
-  const countWhere = `WHERE ${countConditions.join(" AND ")}`;
-  const countParams = params.slice(0, params.length - (cursor ? 2 : 0));
 
   // Cache the total count to avoid a full-table count on every page flip.
   //
@@ -302,10 +279,10 @@ export async function getLeaderboard(
       if (cached !== null) {
         total = parseInt(cached, 10);
       } else {
-        const { rows: countRows } = await db.query<{ count: string }>(
-          `SELECT COUNT(*) AS count FROM leaderboard_snapshots ls JOIN users u ON u.id = ls.user_id ${countWhere}`,
-          countParams
+        const countResult = await db.execute<{ count: string }>(
+          sql`SELECT COUNT(*) AS count FROM leaderboard_snapshots ls JOIN users u ON u.id = ls.user_id WHERE ${countWhere}`
         );
+        const countRows = countResult.rows as { count: string }[];
         total = parseInt(countRows[0]?.count ?? "0", 10);
         await redis.set(countCacheKey, String(total), "EX", COUNT_REDIS_TTL_SECONDS);
       }
@@ -315,27 +292,27 @@ export async function getLeaderboard(
     }
   }
 
-  const where = `WHERE ${conditions.join(" AND ")}`;
+  const where = sql.join(conditions, sql` AND `);
 
-  const queryText = `SELECT
-       ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC) AS rank,
-       ls.user_id,
-       u.username,
-       u.display_name,
-       u.avatar_emoji,
-       u.rank_name,
-       COALESCE(ls.xp_value, 0) AS xp_value,
-       u.city,
-       u.plan
-     FROM leaderboard_snapshots ls
-     JOIN users u ON u.id = ls.user_id
-     ${where}
-     ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC
-     LIMIT $${paramIdx}`;
+  const result = await db.execute<LeaderboardEntry & Record<string, unknown>>(sql`
+    SELECT
+      ROW_NUMBER() OVER (ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC) AS rank,
+      ls.user_id,
+      u.username,
+      u.display_name,
+      u.avatar_emoji,
+      u.rank_name,
+      COALESCE(ls.xp_value, 0) AS xp_value,
+      u.city,
+      u.plan
+    FROM leaderboard_snapshots ls
+    JOIN users u ON u.id = ls.user_id
+    WHERE ${where}
+    ORDER BY ls.xp_value DESC NULLS LAST, ls.user_id ASC
+    LIMIT ${pageSize}
+  `);
 
-  const queryParams = [...params, pageSize];
-
-  const { rows } = await db.query<LeaderboardEntry>(queryText, queryParams);
+  const rows = result.rows as LeaderboardEntry[];
   let hofCount = 0;
   const entries: LeaderboardEntry[] = rows.map((r) => ({
     // LB-01: add rankOffset so cursor pages show true global rank, not page-local ROW_NUMBER
@@ -368,24 +345,25 @@ export async function getLeaderboard(
         plan: string;
       }
       const presentIds = new Set(entries.map((e) => e.user_id));
-      const { rows: hofRows } = await db.query<HofRow>(
-        `SELECT
-           hof.user_id,
-           u.username,
-           u.display_name,
-           u.avatar_emoji,
-           u.rank_name,
-           COALESCE(ls.xp_value, u.legacy_score, 0)::text AS xp_value,
-           u.city,
-           u.custom_crest,
-           u.plan
-         FROM hall_of_fame hof
-         JOIN users u ON u.id = hof.user_id AND u.deleted_at IS NULL
-         LEFT JOIN leaderboard_snapshots ls ON ls.user_id = hof.user_id
-           AND ls.track = 'main' AND ls.scope = 'global' AND ls.city IS NULL
-           AND ls.season_id IS NULL
-         ORDER BY COALESCE(ls.xp_value, u.legacy_score, 0) DESC`
-      );
+      const hofResult = await db.execute<HofRow & Record<string, unknown>>(sql`
+        SELECT
+          hof.user_id,
+          u.username,
+          u.display_name,
+          u.avatar_emoji,
+          u.rank_name,
+          COALESCE(ls.xp_value, u.legacy_score, 0)::text AS xp_value,
+          u.city,
+          u.custom_crest,
+          u.plan
+        FROM hall_of_fame hof
+        JOIN users u ON u.id = hof.user_id AND u.deleted_at IS NULL
+        LEFT JOIN leaderboard_snapshots ls ON ls.user_id = hof.user_id
+          AND ls.track = 'main' AND ls.scope = 'global' AND ls.city IS NULL
+          AND ls.season_id IS NULL
+        ORDER BY COALESCE(ls.xp_value, u.legacy_score, 0) DESC
+      `);
+      const hofRows = hofResult.rows as HofRow[];
 
       // Mark already-present HoF users
       for (const hof of hofRows) {
@@ -412,23 +390,23 @@ export async function getLeaderboard(
       const missingHof = hofRows.filter((h) => !presentIds.has(h.user_id));
       if (missingHof.length > 0) {
         const missingIds = missingHof.map((h) => h.user_id);
-        const { rows: rankRows } = await db.query<{ user_id: string; rank: string | null; has_snapshot: boolean }>(
-          `SELECT
-             target.user_id,
-             ls.user_id IS NOT NULL AS has_snapshot,
-             CASE WHEN ls.user_id IS NULL THEN NULL
-               ELSE (SELECT COUNT(*) + 1
-                     FROM leaderboard_snapshots ls2
-                     JOIN users u2 ON u2.id = ls2.user_id AND u2.deleted_at IS NULL
-                     WHERE ls2.track = 'main' AND ls2.scope = 'global'
-                       AND ls2.season_id IS NULL
-                       AND ls2.xp_value > COALESCE(ls.xp_value, 0))::text
-             END AS rank
-           FROM leaderboard_snapshots ls
-           RIGHT JOIN (SELECT unnest($1::uuid[]) AS user_id) target ON ls.user_id = target.user_id
-             AND ls.track = 'main' AND ls.scope = 'global' AND ls.season_id IS NULL`,
-          [missingIds]
-        );
+        const rankResult = await db.execute<{ user_id: string; rank: string | null; has_snapshot: boolean }>(sql`
+          SELECT
+            target.user_id,
+            ls.user_id IS NOT NULL AS has_snapshot,
+            CASE WHEN ls.user_id IS NULL THEN NULL
+              ELSE (SELECT COUNT(*) + 1
+                    FROM leaderboard_snapshots ls2
+                    JOIN users u2 ON u2.id = ls2.user_id AND u2.deleted_at IS NULL
+                    WHERE ls2.track = 'main' AND ls2.scope = 'global'
+                      AND ls2.season_id IS NULL
+                      AND ls2.xp_value > COALESCE(ls.xp_value, 0))::text
+            END AS rank
+          FROM leaderboard_snapshots ls
+          RIGHT JOIN (SELECT unnest(${missingIds}::uuid[]) AS user_id) target ON ls.user_id = target.user_id
+            AND ls.track = 'main' AND ls.scope = 'global' AND ls.season_id IS NULL
+        `);
+        const rankRows = rankResult.rows as { user_id: string; rank: string | null; has_snapshot: boolean }[];
         const rankMap = new Map(rankRows.map((r) => [
           r.user_id,
           // null rank means no snapshot — assign total+1 (honest "unranked" position)
@@ -498,14 +476,14 @@ export async function getLeaderboard(
  * @param userId   - UUID of the user receiving XP.
  * @param track    - The track that received the XP.
  * @param xpValue  - The user's new total XP value on this track.
- * @param db       - Active database adapter.
+ * @param db       - Drizzle db instance or an active transaction handle.
  * @param options  - Optional scope/city/seasonId overrides.
  */
 export async function upsertLeaderboardSnapshot(
   userId: string,
   track: LeaderboardTrack,
   xpValue: number,
-  db: DatabaseAdapter | TransactionClient,
+  db: DbOrTx,
   options?: { scope?: string; city?: string; seasonId?: string }
 ): Promise<void> {
   const scope = options?.scope ?? "global";
@@ -517,14 +495,18 @@ export async function upsertLeaderboardSnapshot(
   // unique index created in migration 0001_consolidated_schema.sql (leaderboard_snapshots_upsert_idx).
   // If either is changed, PostgreSQL will fall back to INSERT and silently create duplicates.
   // Index definition: ON leaderboard_snapshots (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
-  await db.query(
-    `INSERT INTO leaderboard_snapshots
-       (user_id, track, scope, city, season_id, xp_value, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, NOW())
-     ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
-     DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
-    [userId, track, scope, city, seasonId, xpValue]
-  );
+  //
+  // Kept as a raw `sql` statement (executed through the Drizzle instance)
+  // rather than the query builder's `.onConflictDoUpdate()` because the
+  // conflict target is an expression index, which the query builder's
+  // `target` option (column references only) cannot express.
+  await db.execute(sql`
+    INSERT INTO leaderboard_snapshots
+      (user_id, track, scope, city, season_id, xp_value, updated_at)
+    VALUES (${userId}, ${track}, ${scope}, ${city}, ${seasonId}, ${xpValue}, NOW())
+    ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
+    DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()
+  `);
 }
 
 // Rankings are based on raw XP from leaderboard_snapshots — no weighted scoring.

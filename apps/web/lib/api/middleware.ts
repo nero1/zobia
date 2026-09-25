@@ -33,7 +33,6 @@ import {
   REFRESH_TOKEN_COOKIE,
   type SessionRecord,
 } from "@/lib/auth/session";
-import { db } from "@/lib/db";
 import {
   ApiError,
   unauthorized,
@@ -51,7 +50,8 @@ import {
   recordAndCheckAnomaly,
 } from "@/lib/security/geoAnomaly";
 import { requestContext, logger } from "@/lib/logger";
-import type { TransactionClient } from "@/lib/db/interface";
+import { eq, and, isNull, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -68,7 +68,7 @@ export interface AuthContext {
    * Uses `SET LOCAL` which is scoped to the transaction and is safe with
    * PgBouncer in transaction-mode pooling.
    */
-  withRLS: <T>(fn: (client: TransactionClient) => Promise<T>) => Promise<T>;
+  withRLS: <T>(fn: (client: DbOrTx) => Promise<T>) => Promise<T>;
 }
 
 /** Context object injected into admin handlers. */
@@ -236,24 +236,22 @@ async function assertAccountActive(userId: string): Promise<void> {
     | {
         is_banned: boolean;
         is_suspended: boolean;
-        suspended_until: string | null;
-        deleted_at: string | null;
+        suspended_until: Date | null;
+        deleted_at: Date | null;
       }
     | undefined;
   try {
-    const { rows } = await db.query<{
-      is_banned: boolean;
-      is_suspended: boolean;
-      suspended_until: string | null;
-      deleted_at: string | null;
-    }>(
-      `SELECT COALESCE(is_banned, false) AS is_banned,
-              COALESCE(is_suspended, false) AS is_suspended,
-              suspended_until,
-              deleted_at
-       FROM users WHERE id = $1 LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        is_banned: sql<boolean>`COALESCE(${schema.users.isBanned}, false)`,
+        is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false)`,
+        suspended_until: schema.users.suspendedUntil,
+        deleted_at: schema.users.deletedAt,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
     row = rows[0];
   } catch {
     throw unauthorized("Account status check failed. Please try again.");
@@ -271,10 +269,14 @@ async function assertAccountActive(userId: string): Promise<void> {
 
   // Clear a stale is_suspended flag whose expiry has passed (fire-and-forget).
   if (row.is_suspended && row.suspended_until && new Date(row.suspended_until) <= new Date()) {
-    db.query(
-      `UPDATE users SET is_suspended = false WHERE id = $1 AND suspended_until <= NOW()`,
-      [userId]
-    ).catch(() => {});
+    getDb()
+      .then((orm) =>
+        orm
+          .update(schema.users)
+          .set({ isSuspended: false })
+          .where(and(eq(schema.users.id, userId), sql`${schema.users.suspendedUntil} <= NOW()`))
+      )
+      .catch(() => {});
   }
 }
 
@@ -384,11 +386,13 @@ export function withAuth<TParams = Record<string, string>>(
 
       // BUG-SEC-03: Build a withRLS helper that sets app.current_user_id via SET LOCAL
       // inside a transaction, enabling PostgreSQL RLS policies per request.
-      const withRLS = <T>(fn: (client: TransactionClient) => Promise<T>): Promise<T> =>
-        db.transaction(async (client) => {
-          await client.query(`SELECT set_config('app.current_user_id', $1, TRUE)`, [payload.sub]);
-          return fn(client);
-        });
+      const withRLS = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
+        getDb().then((orm) =>
+          orm.transaction(async (client) => {
+            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE)`);
+            return fn(client);
+          })
+        );
 
       const start = Date.now();
       let result: NextResponse | ApiError;
@@ -473,13 +477,16 @@ export function withAdminAuth<TParams = Record<string, string>>(
       }
 
       // ALWAYS check is_admin from the database – never trust JWT claim alone
-      const { rows } = await db.query<{ is_admin: boolean; is_banned: boolean; is_suspended: boolean }>(
-        `SELECT is_admin,
-                COALESCE(is_banned, false) AS is_banned,
-                COALESCE(is_suspended, false) AS is_suspended
-         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [payload.sub]
-      );
+      const orm = await getDb();
+      const rows = await orm
+        .select({
+          is_admin: schema.users.isAdmin,
+          is_banned: sql<boolean>`COALESCE(${schema.users.isBanned}, false)`,
+          is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false)`,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt)))
+        .limit(1);
 
       if (!rows[0]?.is_admin) {
         throw forbidden("Administrator access required");
@@ -504,11 +511,13 @@ export function withAdminAuth<TParams = Record<string, string>>(
         );
       }
 
-      const withRLSAdmin = <T>(fn: (client: TransactionClient) => Promise<T>): Promise<T> =>
-        db.transaction(async (client) => {
-          await client.query(`SELECT set_config('app.current_user_id', $1, TRUE)`, [payload.sub]);
-          return fn(client);
-        });
+      const withRLSAdmin = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
+        getDb().then((orm) =>
+          orm.transaction(async (client) => {
+            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE)`);
+            return fn(client);
+          })
+        );
 
       const start = Date.now();
       let result: NextResponse | ApiError;
@@ -596,13 +605,17 @@ export function withModeratorOrAdminAuth<TParams = Record<string, string>>(
       }
 
       // ALWAYS check is_admin/is_moderator from the database – never trust JWT claim alone
-      const { rows } = await db.query<{ is_admin: boolean; is_moderator: boolean; is_banned: boolean; is_suspended: boolean }>(
-        `SELECT is_admin, COALESCE(is_moderator, false) AS is_moderator,
-                COALESCE(is_banned, false) AS is_banned,
-                COALESCE(is_suspended, false) AS is_suspended
-         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [payload.sub]
-      );
+      const orm = await getDb();
+      const rows = await orm
+        .select({
+          is_admin: schema.users.isAdmin,
+          is_moderator: sql<boolean>`COALESCE(${schema.users.isModerator}, false)`,
+          is_banned: sql<boolean>`COALESCE(${schema.users.isBanned}, false)`,
+          is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false)`,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt)))
+        .limit(1);
 
       const isAdmin = !!rows[0]?.is_admin;
       const isModerator = !!rows[0]?.is_moderator;
@@ -628,11 +641,13 @@ export function withModeratorOrAdminAuth<TParams = Record<string, string>>(
         );
       }
 
-      const withRLSMod = <T>(fn: (client: TransactionClient) => Promise<T>): Promise<T> =>
-        db.transaction(async (client) => {
-          await client.query(`SELECT set_config('app.current_user_id', $1, TRUE)`, [payload.sub]);
-          return fn(client);
-        });
+      const withRLSMod = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
+        getDb().then((orm) =>
+          orm.transaction(async (client) => {
+            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE)`);
+            return fn(client);
+          })
+        );
 
       const start = Date.now();
       let result: NextResponse | ApiError;
@@ -719,13 +734,21 @@ export function withAdModeratorOrAdminAuth<TParams = Record<string, string>>(
       }
 
       // ALWAYS check is_admin/is_ad_moderator from the database – never trust JWT claim alone
-      const { rows } = await db.query<{ is_admin: boolean; is_ad_moderator: boolean; is_banned: boolean; is_suspended: boolean }>(
-        `SELECT is_admin, COALESCE(is_ad_moderator, false) AS is_ad_moderator,
-                COALESCE(is_banned, false) AS is_banned,
-                COALESCE(is_suspended, false) AS is_suspended
-         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [payload.sub]
-      );
+      //
+      // NOTE (schema gap): `users.is_ad_moderator` (migration 0002) is not modeled
+      // in lib/db/schema.ts's `users` table, so it's selected here as a raw `sql`
+      // expression rather than a query-builder column, alongside the modeled ones.
+      const orm = await getDb();
+      const rows = await orm
+        .select({
+          is_admin: schema.users.isAdmin,
+          is_ad_moderator: sql<boolean>`COALESCE(is_ad_moderator, false)`,
+          is_banned: sql<boolean>`COALESCE(${schema.users.isBanned}, false)`,
+          is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false)`,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, payload.sub), isNull(schema.users.deletedAt)))
+        .limit(1);
 
       const isAdmin = !!rows[0]?.is_admin;
       const isAdModerator = !!rows[0]?.is_ad_moderator;
@@ -751,11 +774,13 @@ export function withAdModeratorOrAdminAuth<TParams = Record<string, string>>(
         );
       }
 
-      const withRLSAdMod = <T>(fn: (client: TransactionClient) => Promise<T>): Promise<T> =>
-        db.transaction(async (client) => {
-          await client.query(`SELECT set_config('app.current_user_id', $1, TRUE)`, [payload.sub]);
-          return fn(client);
-        });
+      const withRLSAdMod = <T>(fn: (client: DbOrTx) => Promise<T>): Promise<T> =>
+        getDb().then((orm) =>
+          orm.transaction(async (client) => {
+            await client.execute(sql`SELECT set_config('app.current_user_id', ${payload.sub}, TRUE)`);
+            return fn(client);
+          })
+        );
 
       const start = Date.now();
       let result: NextResponse | ApiError;

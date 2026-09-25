@@ -10,8 +10,8 @@
  *     AND status = 'active').
  */
 
-import type { DatabaseAdapter } from "@/lib/db/interface";
-import { db as globalDb } from "@/lib/db";
+import { and, eq, inArray, isNull } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 
 export type MerchSellerAccountType = "individual" | "business";
 
@@ -27,29 +27,37 @@ export interface MerchSellerEligibility {
  */
 export async function getMerchSellerEligibility(
   userId: string,
-  db: Pick<DatabaseAdapter, "query"> = globalDb
+  db?: DbOrTx
 ): Promise<MerchSellerEligibility> {
-  const { rows } = await db.query<{
-    is_elite_creator: boolean;
-    is_verified_business: boolean;
-  }>(
-    `SELECT
-       EXISTS(
-         SELECT 1 FROM users
-         WHERE id = $1 AND deleted_at IS NULL
-           AND is_creator = TRUE
-           AND creator_tier IN ('elite', 'icon', 'zobia_icon')
-       ) AS is_elite_creator,
-       EXISTS(
-         SELECT 1 FROM business_accounts
-         WHERE user_id = $1 AND verified = TRUE AND status = 'active'
-       ) AS is_verified_business`,
-    [userId]
-  );
+  const orm = db ?? (await getDb());
 
-  const row = rows[0];
-  if (row?.is_elite_creator) return { qualified: true, accountType: "individual" };
-  if (row?.is_verified_business) return { qualified: true, accountType: "business" };
+  const [eliteCreator] = await orm
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(
+      and(
+        eq(schema.users.id, userId),
+        isNull(schema.users.deletedAt),
+        eq(schema.users.isCreator, true),
+        inArray(schema.users.creatorTier, ["elite", "icon", "zobia_icon"])
+      )
+    )
+    .limit(1);
+  if (eliteCreator) return { qualified: true, accountType: "individual" };
+
+  const [verifiedBusiness] = await orm
+    .select({ id: schema.businessAccounts.id })
+    .from(schema.businessAccounts)
+    .where(
+      and(
+        eq(schema.businessAccounts.userId, userId),
+        eq(schema.businessAccounts.verified, true),
+        eq(schema.businessAccounts.status, "active")
+      )
+    )
+    .limit(1);
+  if (verifiedBusiness) return { qualified: true, accountType: "business" };
+
   return { qualified: false, accountType: "individual" };
 }
 

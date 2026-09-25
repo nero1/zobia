@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -45,10 +46,12 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const { groupId } = (await params) as { groupId: string };
     if (!UUID_RE.test(groupId)) throw badRequest("groupId must be a valid UUID");
 
-    const { rows } = await db.query<GroupRow>(
-      `SELECT creator_id, concurrent_cap, is_active, is_deactivated FROM group_chats WHERE id = $1`,
-      [groupId],
-    );
+    // group_chats.concurrent_cap / is_deactivated exist in the DB (migration
+    // 0001) but are not present in lib/db/schema.ts, so this stays raw SQL.
+    const orm = await getDb();
+    const { rows } = await orm.execute<GroupRow & Record<string, unknown>>(sql`
+      SELECT creator_id, concurrent_cap, is_active, is_deactivated FROM group_chats WHERE id = ${groupId}
+    `);
     const group = rows[0];
     if (!group || !group.is_active || group.is_deactivated) throw notFound("Group not found");
 
@@ -84,19 +87,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const { steps } = await validateBody(req, bodySchema);
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<GroupRow>(
-      `SELECT creator_id, concurrent_cap, is_active, is_deactivated FROM group_chats WHERE id = $1`,
-      [groupId],
-    );
+    const orm = await getDb();
+    const { rows } = await orm.execute<GroupRow & Record<string, unknown>>(sql`
+      SELECT creator_id, concurrent_cap, is_active, is_deactivated FROM group_chats WHERE id = ${groupId}
+    `);
     const group = rows[0];
     if (!group || !group.is_active || group.is_deactivated) throw notFound("Group not found");
 
-    const { rows: userRows } = await db.query<UserRow>(
-      `SELECT COALESCE(is_admin, FALSE) AS is_admin, COALESCE(is_moderator, FALSE) AS is_moderator
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId],
-    );
-    const isPrivileged = userRows[0]?.is_admin || userRows[0]?.is_moderator;
+    const [userRow] = await orm
+      .select({ is_admin: schema.users.isAdmin, is_moderator: schema.users.isModerator })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    const isPrivileged = userRow?.is_admin || userRow?.is_moderator;
 
     if (group.creator_id !== userId && !isPrivileged) {
       throw forbidden("Only the group creator can upgrade capacity");
@@ -113,7 +116,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const cost = costCoinsPerStep * steps;
 
     try {
-      await db.transaction(async (tx) => {
+      await orm.transaction(async (tx) => {
         // Idempotent on the target cap: a retry to the same cap is a no-op.
         await debitCoins(
           userId,
@@ -124,10 +127,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           { groupId, currentCap, newCap, steps },
           tx,
         );
-        await tx.query(
-          `UPDATE group_chats SET concurrent_cap = $1, updated_at = NOW() WHERE id = $2`,
-          [newCap, groupId],
-        );
+        // group_chats.concurrent_cap exists in the DB (migration 0001) but is
+        // not present in lib/db/schema.ts, so this stays raw SQL.
+        await tx.execute(sql`
+          UPDATE group_chats SET concurrent_cap = ${newCap}, updated_at = NOW() WHERE id = ${groupId}
+        `);
       });
     } catch (err) {
       if ((err as NodeJS.ErrnoException)?.code === "INSUFFICIENT_BALANCE") {

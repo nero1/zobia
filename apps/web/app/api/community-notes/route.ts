@@ -23,7 +23,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, badRequest } from "@/lib/api/errors";
@@ -103,17 +104,17 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         throw badRequest("Invalid targetType");
       }
 
-      const { rows } = await db.query<CommunityNoteRow>(
-        `SELECT ${AUTHOR_JOIN_SELECT},
-                (SELECT helpful FROM community_note_votes cnv WHERE cnv.note_id = cn.id AND cnv.user_id = $3) AS user_helpful
+      const orm = await getDb();
+      const { rows } = await orm.execute<CommunityNoteRow & Record<string, unknown>>(sql`
+         SELECT ${sql.raw(AUTHOR_JOIN_SELECT)},
+                (SELECT helpful FROM community_note_votes cnv WHERE cnv.note_id = cn.id AND cnv.user_id = ${userId}) AS user_helpful
          FROM community_notes cn
          JOIN users u ON u.id = cn.author_id
-         WHERE cn.target_type = $1
-           AND cn.target_id = $2
-           AND (cn.status = 'shown' OR cn.author_id = $3)
-         ORDER BY cn.helpful_votes DESC, cn.created_at DESC`,
-        [targetType, targetId, userId]
-      );
+         WHERE cn.target_type = ${targetType}
+           AND cn.target_id = ${targetId}
+           AND (cn.status = 'shown' OR cn.author_id = ${userId})
+         ORDER BY cn.helpful_votes DESC, cn.created_at DESC
+      `);
 
       return NextResponse.json({ items: rows, nextCursor: null, hasMore: false });
     }
@@ -124,35 +125,27 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const cursor = searchParams.get("cursor");
     const limit = Math.min(parseInt(searchParams.get("limit") ?? "20", 10) || 20, 50);
 
-    const conditions: string[] = [];
-    const params: (string | number | null)[] = [];
-    let i = 1;
+    const conditions: ReturnType<typeof sql>[] = [];
     if (status && validStatuses.includes(status)) {
-      conditions.push(`cn.status = $${i++}`);
-      params.push(status);
+      conditions.push(sql`cn.status = ${status}`);
     }
     if (cursor) {
       const cursorMs = parseInt(cursor, 10);
       if (!Number.isFinite(cursorMs) || cursorMs <= 0) throw badRequest("Invalid cursor");
-      conditions.push(`cn.created_at < $${i++}`);
-      params.push(new Date(cursorMs).toISOString());
+      conditions.push(sql`cn.created_at < ${new Date(cursorMs).toISOString()}`);
     }
-    const whereClause = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-    params.push(userId);
-    const userIdParamIdx = i++;
-    params.push(limit);
-    const limitParamIdx = i;
+    const whereClause = conditions.length ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
 
-    const { rows } = await db.query<CommunityNoteRow>(
-      `SELECT ${AUTHOR_JOIN_SELECT},
-              (SELECT helpful FROM community_note_votes cnv WHERE cnv.note_id = cn.id AND cnv.user_id = $${userIdParamIdx}) AS user_helpful
+    const orm = await getDb();
+    const { rows } = await orm.execute<CommunityNoteRow & Record<string, unknown>>(sql`
+       SELECT ${sql.raw(AUTHOR_JOIN_SELECT)},
+              (SELECT helpful FROM community_note_votes cnv WHERE cnv.note_id = cn.id AND cnv.user_id = ${userId}) AS user_helpful
        FROM community_notes cn
        JOIN users u ON u.id = cn.author_id
        ${whereClause}
        ORDER BY cn.created_at DESC
-       LIMIT $${limitParamIdx}`,
-      params
-    );
+       LIMIT ${limit}
+    `);
 
     const last = rows[rows.length - 1];
     const nextCursor = last && rows.length === limit ? String(new Date(last.created_at).getTime()) : null;
@@ -175,27 +168,43 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, createNoteSchema);
 
-    const { rows } = await db.query<Omit<CommunityNoteRow, "author_username" | "author_avatar_emoji" | "user_helpful">>(
-      `INSERT INTO community_notes
-         (target_type, target_id, author_id, content,
-          helpful_votes, unhelpful_votes, status, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 0, 0, 'needs_review', NOW(), NOW())
-       RETURNING id, target_type, target_id, author_id, content,
-                 helpful_votes, unhelpful_votes, status, created_at, updated_at`,
-      [body.targetType, body.targetId, userId, body.content]
-    );
+    const orm = await getDb();
+    const [inserted] = await orm
+      .insert(schema.communityNotes)
+      .values({
+        targetType: body.targetType,
+        targetId: body.targetId,
+        authorId: userId,
+        content: body.content,
+        helpfulVotes: 0,
+        unhelpfulVotes: 0,
+        status: "needs_review",
+      })
+      .returning({
+        id: schema.communityNotes.id,
+        target_type: schema.communityNotes.targetType,
+        target_id: schema.communityNotes.targetId,
+        author_id: schema.communityNotes.authorId,
+        content: schema.communityNotes.content,
+        helpful_votes: schema.communityNotes.helpfulVotes,
+        unhelpful_votes: schema.communityNotes.unhelpfulVotes,
+        status: schema.communityNotes.status,
+        created_at: schema.communityNotes.createdAt,
+        updated_at: schema.communityNotes.updatedAt,
+      });
 
-    const { rows: authorRows } = await db.query<{ username: string; avatar_emoji: string }>(
-      `SELECT username, avatar_emoji FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const [authorRow] = await orm
+      .select({ username: schema.users.username, avatar_emoji: schema.users.avatarEmoji })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
 
     const note: CommunityNoteRow = {
-      ...rows[0],
-      author_username: authorRows[0]?.username ?? "",
-      author_avatar_emoji: authorRows[0]?.avatar_emoji ?? "😊",
+      ...inserted,
+      author_username: authorRow?.username ?? "",
+      author_avatar_emoji: authorRow?.avatar_emoji ?? "😊",
       user_helpful: null,
-    };
+    } as unknown as CommunityNoteRow;
 
     return NextResponse.json(
       { success: true, data: { note }, error: null },

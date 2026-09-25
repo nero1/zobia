@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, asc, desc, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { handleApiError } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
@@ -42,35 +43,50 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const { searchParams } = new URL(req.url);
     const creatorId = searchParams.get("creatorId");
 
-    const params: string[] = [];
-    let whereClause = `WHERE ms.is_active = TRUE`;
+    const orm = await getDb();
+    const whereClause = creatorId
+      ? and(eq(schema.merchStores.isActive, true), eq(schema.merchStores.creatorId, creatorId))
+      : eq(schema.merchStores.isActive, true);
 
-    if (creatorId) {
-      params.push(creatorId);
-      whereClause += ` AND ms.creator_id = $1`;
-    }
+    const dbRows = await orm
+      .select({
+        store_id: schema.merchStores.id,
+        creator_id: schema.merchStores.creatorId,
+        store_name: schema.merchStores.name,
+        store_description: schema.merchStores.description,
+        store_created_at: schema.merchStores.createdAt,
+        product_id: schema.merchProducts.id,
+        product_name: schema.merchProducts.name,
+        product_description: schema.merchProducts.description,
+        product_type: schema.merchProducts.productType,
+        price_kobo: schema.merchProducts.priceKobo,
+        is_active: schema.merchProducts.isActive,
+        stock: schema.merchProducts.stock,
+        product_created_at: schema.merchProducts.createdAt,
+      })
+      .from(schema.merchStores)
+      .leftJoin(
+        schema.merchProducts,
+        and(eq(schema.merchProducts.storeId, schema.merchStores.id), eq(schema.merchProducts.isActive, true))
+      )
+      .where(whereClause)
+      .orderBy(desc(schema.merchStores.createdAt), asc(schema.merchProducts.createdAt));
 
-    const { rows } = await db.query<MerchStoreRow>(
-      `SELECT
-         ms.id AS store_id,
-         ms.creator_id,
-         ms.name AS store_name,
-         ms.description AS store_description,
-         ms.created_at AS store_created_at,
-         mp.id AS product_id,
-         mp.name AS product_name,
-         mp.description AS product_description,
-         mp.product_type,
-         mp.price_kobo::TEXT AS price_kobo,
-         mp.is_active,
-         mp.stock,
-         mp.created_at AS product_created_at
-       FROM merch_stores ms
-       LEFT JOIN merch_products mp ON mp.store_id = ms.id AND mp.is_active = TRUE
-       ${whereClause}
-       ORDER BY ms.created_at DESC, mp.created_at ASC`,
-      params
-    );
+    const rows: MerchStoreRow[] = dbRows.map((row) => ({
+      store_id: row.store_id,
+      creator_id: row.creator_id,
+      store_name: row.store_name,
+      store_description: row.store_description,
+      store_created_at: (row.store_created_at ?? new Date()).toString(),
+      product_id: row.product_id,
+      product_name: row.product_name,
+      product_description: row.product_description,
+      product_type: row.product_type,
+      price_kobo: row.price_kobo !== null ? String(row.price_kobo) : null,
+      is_active: row.is_active,
+      stock: row.stock,
+      product_created_at: row.product_created_at ? row.product_created_at.toString() : null,
+    }));
 
     // Group products by store
     const storesMap = new Map<

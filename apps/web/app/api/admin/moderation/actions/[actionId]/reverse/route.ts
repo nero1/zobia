@@ -27,10 +27,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq, sql } from "drizzle-orm";
 import { withModeratorOrAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { canPlatformModPerform } from "@/lib/moderation/capabilities";
 
 const reverseActionSchema = z.object({
@@ -70,13 +71,30 @@ export const POST = withModeratorOrAdminAuth<{ actionId: string }>(async (req: N
     const { actionId } = await params;
     const body = await validateBody(req, reverseActionSchema);
 
-    const { rows } = await db.query<ModerationActionRow>(
-      `SELECT id, action_type, actor_type, target_user_id, report_id, reversed_at
-       FROM moderation_actions
-       WHERE id = $1`,
-      [actionId]
-    );
-    const action = rows[0];
+    const orm = await getDb();
+
+    const [actionRow] = await orm
+      .select({
+        id: schema.moderationActions.id,
+        actionType: schema.moderationActions.actionType,
+        actorType: schema.moderationActions.actorType,
+        targetUserId: schema.moderationActions.targetUserId,
+        reportId: schema.moderationActions.reportId,
+        reversedAt: schema.moderationActions.reversedAt,
+      })
+      .from(schema.moderationActions)
+      .where(eq(schema.moderationActions.id, actionId))
+      .limit(1);
+    const action: ModerationActionRow | undefined = actionRow
+      ? {
+          id: actionRow.id,
+          action_type: actionRow.actionType ?? "",
+          actor_type: actionRow.actorType,
+          target_user_id: actionRow.targetUserId,
+          report_id: actionRow.reportId,
+          reversed_at: actionRow.reversedAt ? actionRow.reversedAt.toISOString() : null,
+        }
+      : undefined;
     if (!action) throw notFound("Moderation action not found");
     if (action.reversed_at !== null) throw badRequest("Action already reversed", "ALREADY_REVERSED");
 
@@ -87,91 +105,104 @@ export const POST = withModeratorOrAdminAuth<{ actionId: string }>(async (req: N
 
     let reportContent: ReportContentRow | null = null;
     if (action.report_id) {
-      const { rows: reportRows } = await db.query<ReportContentRow>(
-        `SELECT r.reported_message_id, r.reported_guild_message_id, r.reported_forum_question_id, r.reported_forum_answer_id,
-                r.reported_bb_post_id, r.reported_bb_thread_id,
-                COALESCE(r.reported_guild_id, gmsg.guild_id) AS reported_guild_id
-         FROM moderation_reports r
-         LEFT JOIN guild_messages gmsg ON gmsg.id = r.reported_guild_message_id
-         WHERE r.id = $1`,
-        [action.report_id]
-      );
+      // NOTE: bb_post_id/bb_thread_id live on moderation_reports and are part
+      // of the Drizzle schema, but this SELECT also needs the LEFT JOIN onto
+      // guild_messages for the COALESCE fallback, so it stays as one `sql`
+      // template rather than a builder query + separate lookup.
+      const { rows: reportRows } = await orm.execute<ReportContentRow & Record<string, unknown>>(sql`
+        SELECT r.reported_message_id, r.reported_guild_message_id, r.reported_forum_question_id, r.reported_forum_answer_id,
+               r.reported_bb_post_id, r.reported_bb_thread_id,
+               COALESCE(r.reported_guild_id, gmsg.guild_id) AS reported_guild_id
+        FROM moderation_reports r
+        LEFT JOIN guild_messages gmsg ON gmsg.id = r.reported_guild_message_id
+        WHERE r.id = ${action.report_id}
+      `);
       reportContent = reportRows[0] ?? null;
     }
 
-    await db.transaction(async (tx) => {
+    await orm.transaction(async (tx) => {
       if (action.action_type === "warn" && action.target_user_id) {
-        await tx.query(
-          `UPDATE users SET warning_count = GREATEST(COALESCE(warning_count, 0) - 1, 0) WHERE id = $1`,
-          [action.target_user_id]
-        );
+        await tx
+          .update(schema.users)
+          .set({ warningCount: sql`GREATEST(COALESCE(${schema.users.warningCount}, 0) - 1, 0)` })
+          .where(eq(schema.users.id, action.target_user_id));
       } else if (
         (action.action_type === "suspend" || action.action_type === "suspend_user") &&
         action.target_user_id
       ) {
-        await tx.query(
-          `UPDATE users SET is_suspended = false, suspended_until = NULL WHERE id = $1`,
-          [action.target_user_id]
-        );
+        await tx
+          .update(schema.users)
+          .set({ isSuspended: false, suspendedUntil: null })
+          .where(eq(schema.users.id, action.target_user_id));
       } else if ((action.action_type === "ban" || action.action_type === "ban_user") && action.target_user_id) {
-        await tx.query(
-          `UPDATE users SET is_banned = false, banned_at = NULL, banned_by = NULL WHERE id = $1`,
-          [action.target_user_id]
-        );
+        await tx
+          .update(schema.users)
+          .set({ isBanned: false, bannedAt: null, bannedBy: null })
+          .where(eq(schema.users.id, action.target_user_id));
       } else if (action.action_type === "remove_content" && reportContent) {
         if (reportContent.reported_message_id) {
-          await tx.query(
-            `UPDATE messages SET deleted_at = NULL, deleted_by = NULL WHERE id = $1`,
-            [reportContent.reported_message_id]
-          );
+          await tx
+            .update(schema.messages)
+            .set({ deletedAt: null, deletedBy: null })
+            .where(eq(schema.messages.id, reportContent.reported_message_id));
         } else if (reportContent.reported_guild_message_id) {
-          await tx.query(
-            `UPDATE guild_messages SET is_deleted = false, deleted_by = NULL WHERE id = $1`,
-            [reportContent.reported_guild_message_id]
-          );
+          await tx
+            .update(schema.guildMessages)
+            .set({ isDeleted: false, deletedBy: null })
+            .where(eq(schema.guildMessages.id, reportContent.reported_guild_message_id));
         } else if (reportContent.reported_forum_question_id) {
-          await tx.query(
-            `UPDATE forum_questions SET deleted_at = NULL WHERE id = $1`,
-            [reportContent.reported_forum_question_id]
-          );
+          await tx
+            .update(schema.forumQuestions)
+            .set({ deletedAt: null })
+            .where(eq(schema.forumQuestions.id, reportContent.reported_forum_question_id));
         } else if (reportContent.reported_forum_answer_id) {
-          await tx.query(
-            `UPDATE forum_answers SET deleted_at = NULL WHERE id = $1`,
-            [reportContent.reported_forum_answer_id]
-          );
+          await tx
+            .update(schema.forumAnswers)
+            .set({ deletedAt: null })
+            .where(eq(schema.forumAnswers.id, reportContent.reported_forum_answer_id));
         } else if (reportContent.reported_bb_post_id) {
-          await tx.query(`UPDATE bb_posts SET deleted_at = NULL WHERE id = $1`, [reportContent.reported_bb_post_id]);
+          // NOTE: bb_posts is not present in lib/db/schema.ts (schema/DB
+          // mismatch — reported separately).
+          await tx.execute(sql`UPDATE bb_posts SET deleted_at = NULL WHERE id = ${reportContent.reported_bb_post_id}`);
         } else if (reportContent.reported_bb_thread_id) {
-          await tx.query(`UPDATE bb_threads SET deleted_at = NULL WHERE id = $1`, [reportContent.reported_bb_thread_id]);
+          // NOTE: bb_threads is not present in lib/db/schema.ts (schema/DB
+          // mismatch — reported separately).
+          await tx.execute(sql`UPDATE bb_threads SET deleted_at = NULL WHERE id = ${reportContent.reported_bb_thread_id}`);
         }
       } else if (action.action_type === "mute_member" && action.target_user_id && reportContent?.reported_guild_id) {
-        await tx.query(
-          `UPDATE guild_members SET is_muted = false, muted_until = NULL WHERE guild_id = $1 AND user_id = $2`,
-          [reportContent.reported_guild_id, action.target_user_id]
-        );
+        await tx
+          .update(schema.guildMembers)
+          .set({ isMuted: false, mutedUntil: null })
+          .where(
+            sql`${schema.guildMembers.guildId} = ${reportContent.reported_guild_id} AND ${schema.guildMembers.userId} = ${action.target_user_id}`
+          );
       }
       // dismiss/escalate/escalate_ai/kick_member: no domain mutation to undo
       // (a kicked member must be re-invited/re-approved like anyone else).
 
-      await tx.query(
-        `UPDATE moderation_actions
-         SET reversed_at = NOW(), reversed_by = $1, reversal_note = $2
-         WHERE id = $3`,
-        [auth.user.sub, body.note ?? null, actionId]
-      );
+      await tx
+        .update(schema.moderationActions)
+        .set({ reversedAt: new Date(), reversedBy: auth.user.sub, reversalNote: body.note ?? null })
+        .where(eq(schema.moderationActions.id, actionId));
 
       if (action.report_id) {
         // Reversing the automated auto-quarantine action also clears the
         // auto_quarantined flag; reversing a manual action leaves it as-is.
         const clearAutoQuarantine = action.actor_type === "automated";
-        await tx.query(
-          `UPDATE moderation_reports
-           SET status = 'pending', resolved_at = NULL, resolved_by = NULL, resolution_note = NULL,
-               reward_applied = false, is_malicious = false,
-               auto_quarantined = CASE WHEN $2 THEN false ELSE auto_quarantined END
-           WHERE id = $1`,
-          [action.report_id, clearAutoQuarantine]
-        );
+        await tx
+          .update(schema.moderationReports)
+          .set({
+            status: "pending",
+            resolvedAt: null,
+            resolvedBy: null,
+            resolutionNote: null,
+            rewardApplied: false,
+            isMalicious: false,
+            autoQuarantined: clearAutoQuarantine
+              ? false
+              : sql`${schema.moderationReports.autoQuarantined}`,
+          })
+          .where(eq(schema.moderationReports.id, action.report_id));
       }
     });
 

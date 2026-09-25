@@ -25,7 +25,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, asc, eq, gt, lte, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { handleApiError } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
@@ -36,10 +37,10 @@ interface FlashXPEventRow {
   id: string;
   name: string;
   description: string | null;
-  xp_multiplier: number;
-  starts_at: string;
-  ends_at: string;
-  is_active: boolean;
+  xp_multiplier: string | null;
+  starts_at: Date;
+  ends_at: Date;
+  is_active: boolean | null;
 }
 
 interface FlashXPEvent {
@@ -65,48 +66,51 @@ interface FlashXPEvent {
  */
 export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
+    const orm = await getDb();
+    const selectCols = {
+      id: schema.platformEvents.id,
+      name: schema.platformEvents.name,
+      description: schema.platformEvents.description,
+      xp_multiplier: schema.platformEvents.xpMultiplier,
+      starts_at: schema.platformEvents.startsAt,
+      ends_at: schema.platformEvents.endsAt,
+      is_active: schema.platformEvents.isActive,
+    };
+
     // Active flash XP events
-    const { rows: activeRows } = await db.query<FlashXPEventRow>(
-      `SELECT
-         id,
-         name,
-         description,
-         xp_multiplier,
-         starts_at,
-         ends_at,
-         is_active
-       FROM platform_events
-       WHERE event_type = 'flash_xp'
-         AND is_active = TRUE
-         AND ends_at > NOW()
-       ORDER BY starts_at ASC`
-    );
+    const activeRows = await orm
+      .select(selectCols)
+      .from(schema.platformEvents)
+      .where(
+        and(
+          eq(schema.platformEvents.eventType, "flash_xp"),
+          eq(schema.platformEvents.isActive, true),
+          gt(schema.platformEvents.endsAt, sql`NOW()`)
+        )
+      )
+      .orderBy(asc(schema.platformEvents.startsAt));
 
     // Upcoming flash XP events (not yet started, but starting within 24 hours)
-    const { rows: upcomingRows } = await db.query<FlashXPEventRow>(
-      `SELECT
-         id,
-         name,
-         description,
-         xp_multiplier,
-         starts_at,
-         ends_at,
-         is_active
-       FROM platform_events
-       WHERE event_type = 'flash_xp'
-         AND starts_at > NOW()
-         AND starts_at <= NOW() + INTERVAL '24 hours'
-       ORDER BY starts_at ASC`
-    );
+    const upcomingRows = await orm
+      .select(selectCols)
+      .from(schema.platformEvents)
+      .where(
+        and(
+          eq(schema.platformEvents.eventType, "flash_xp"),
+          gt(schema.platformEvents.startsAt, sql`NOW()`),
+          lte(schema.platformEvents.startsAt, sql`NOW() + INTERVAL '24 hours'`)
+        )
+      )
+      .orderBy(asc(schema.platformEvents.startsAt));
 
     const toEvent = (row: FlashXPEventRow): FlashXPEvent => ({
       id: row.id,
       title: row.name,
       description: row.description,
-      multiplier: row.xp_multiplier,
-      startsAt: row.starts_at,
-      endsAt: row.ends_at,
-      isActive: row.is_active,
+      multiplier: parseFloat(row.xp_multiplier ?? "1.0"),
+      startsAt: row.starts_at instanceof Date ? row.starts_at.toISOString() : row.starts_at,
+      endsAt: row.ends_at instanceof Date ? row.ends_at.toISOString() : row.ends_at,
+      isActive: row.is_active ?? false,
     });
 
     return NextResponse.json(

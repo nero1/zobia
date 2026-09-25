@@ -13,7 +13,8 @@ import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug, getBlogPostBySlug } from "@/lib/blogs/repo";
 import { unlockPost } from "@/lib/blogs/service";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 export const POST = withAuth<{ slug: string; postSlug: string }>(async (_req: NextRequest, { params, auth }) => {
   try {
@@ -23,8 +24,13 @@ export const POST = withAuth<{ slug: string; postSlug: string }>(async (_req: Ne
     const post = await getBlogPostBySlug(blog.id, params.postSlug);
     if (!post || post.status !== "published") throw notFound("Post not found");
 
-    const { rows } = await db.query<{ plan: string }>(`SELECT plan FROM users WHERE id = $1 LIMIT 1`, [auth.user.sub]);
-    const result = await unlockPost(post.id, auth.user.sub, rows[0]?.plan ?? "free");
+    const orm = await getDb();
+    const [userRow] = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
+    const result = await unlockPost(post.id, auth.user.sub, userRow?.plan ?? "free");
     return NextResponse.json({ success: true, data: result, error: null });
   } catch (err) {
     return handleApiError(err);

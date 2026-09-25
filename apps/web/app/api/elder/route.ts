@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, gt, gte, isNull, lt, ne, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, notFound, conflict } from "@/lib/api/errors";
 import { ELDER_MIN_PRESTIGE, ELDER_ACTIVITY_DAYS, MAX_MENTEES, MENTEE_MAX_XP } from "@/lib/elder/constants";
@@ -36,30 +37,6 @@ const acceptMenteeSchema = z.object({
 // Row types
 // ---------------------------------------------------------------------------
 
-interface MenteeRow {
-  id: string;
-  mentee_id: string;
-  elder_id: string;
-  started_at: string;
-  username: string;
-  display_name: string;
-  avatar_emoji: string;
-  rank_name: string;
-  xp_total: number;
-}
-
-interface PendingRequestRow {
-  id: string;
-  mentee_id: string;
-  elder_id: string;
-  message: string | null;
-  created_at: string;
-  mentee_username: string;
-  mentee_avatar_emoji: string;
-  mentee_rank_name: string;
-  mentee_xp_total: number;
-}
-
 // ---------------------------------------------------------------------------
 // GET /api/elder
 // ---------------------------------------------------------------------------
@@ -70,19 +47,19 @@ interface PendingRequestRow {
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
+    const orm = await getDb();
 
-    const userResult = await db.query<{
-      prestige_count: number;
-      rank_name: string;
-      last_active_at: string | null;
-      xp_total: number;
-    }>(
-      `SELECT prestige_count, rank_name, last_active_at, xp_total
-       FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [userId]
-    );
-    const user = userResult.rows[0];
+    const [user] = await orm
+      .select({
+        prestige_count: schema.users.prestigeCount,
+        rank_name: schema.users.rankName,
+        last_active_at: schema.users.lastActiveAt,
+        xp_total: schema.users.xpTotal,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)));
     if (!user) throw forbidden("User not found");
+    const userXpTotal = Number(user.xp_total);
 
     const recentlyActive =
       user.last_active_at !== null &&
@@ -95,50 +72,65 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const isEligible = prestigeMet && !recentlyActive;
 
     // Current mentees (only meaningful if isElder)
-    const menteeResult = await db.query<MenteeRow>(
-      `SELECT em.id, em.mentee_id, em.elder_id, em.started_at,
-              u.username, u.display_name, u.avatar_emoji, u.rank_name, u.xp_total
-       FROM elder_mentorships em
-       JOIN users u ON u.id = em.mentee_id
-       WHERE em.elder_id = $1 AND em.ended_at IS NULL
-       ORDER BY em.started_at DESC`,
-      [userId]
-    );
+    const menteeRows = await orm
+      .select({
+        id: schema.elderMentorships.id,
+        mentee_id: schema.elderMentorships.menteeId,
+        elder_id: schema.elderMentorships.elderId,
+        started_at: schema.elderMentorships.startedAt,
+        username: schema.users.username,
+        display_name: schema.users.displayName,
+        avatar_emoji: schema.users.avatarEmoji,
+        rank_name: schema.users.rankName,
+        xp_total: schema.users.xpTotal,
+      })
+      .from(schema.elderMentorships)
+      .innerJoin(schema.users, eq(schema.users.id, schema.elderMentorships.menteeId))
+      .where(and(eq(schema.elderMentorships.elderId, userId), isNull(schema.elderMentorships.endedAt)))
+      .orderBy(desc(schema.elderMentorships.startedAt));
+    const mentees = menteeRows.map((r) => ({ ...r, xp_total: Number(r.xp_total) }));
 
     // Pending requests to accept (only meaningful if isElder)
-    const pendingResult = await db.query<PendingRequestRow>(
-      `SELECT er.id, er.mentee_id, er.elder_id, er.message, er.created_at,
-              u.username AS mentee_username,
-              u.avatar_emoji AS mentee_avatar_emoji,
-              u.rank_name AS mentee_rank_name,
-              u.xp_total AS mentee_xp_total
-       FROM elder_requests er
-       JOIN users u ON u.id = er.mentee_id
-       WHERE er.elder_id = $1 AND er.status = 'pending'
-       ORDER BY er.created_at DESC`,
-      [userId]
-    );
+    const pendingRows = await orm
+      .select({
+        id: schema.elderRequests.id,
+        mentee_id: schema.elderRequests.menteeId,
+        elder_id: schema.elderRequests.elderId,
+        message: schema.elderRequests.message,
+        created_at: schema.elderRequests.createdAt,
+        mentee_username: schema.users.username,
+        mentee_avatar_emoji: schema.users.avatarEmoji,
+        mentee_rank_name: schema.users.rankName,
+        mentee_xp_total: schema.users.xpTotal,
+      })
+      .from(schema.elderRequests)
+      .innerJoin(schema.users, eq(schema.users.id, schema.elderRequests.menteeId))
+      .where(and(eq(schema.elderRequests.elderId, userId), eq(schema.elderRequests.status, "pending")))
+      .orderBy(desc(schema.elderRequests.createdAt));
+    const pendingRequests = pendingRows.map((r) => ({ ...r, mentee_xp_total: Number(r.mentee_xp_total) }));
 
     // Mentorship XP earned as an elder (10% bonus on mentees' quest XP)
-    const mentorshipXpResult = await db.query<{ total: string | null }>(
-      `SELECT SUM(amount) AS total FROM xp_ledger WHERE user_id = $1 AND source = 'mentorship_bonus'`,
-      [userId]
-    );
-    const mentorshipXpEarned = Number(mentorshipXpResult.rows[0]?.total ?? 0);
+    const [mentorshipXpRow] = await orm
+      .select({ total: sql<string | null>`SUM(${schema.xpLedger.amount})` })
+      .from(schema.xpLedger)
+      .where(and(eq(schema.xpLedger.userId, userId), eq(schema.xpLedger.source, "mentorship_bonus")));
+    const mentorshipXpEarned = Number(mentorshipXpRow?.total ?? 0);
 
     // Mentee-side state: do they already have a mentor, and can they request one?
-    const activeMentorshipResult = await db.query<{ id: string }>(
-      `SELECT id FROM elder_mentorships WHERE mentee_id = $1 AND ended_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    const hasMentor = activeMentorshipResult.rows.length > 0;
+    const [activeMentorship] = await orm
+      .select({ id: schema.elderMentorships.id })
+      .from(schema.elderMentorships)
+      .where(and(eq(schema.elderMentorships.menteeId, userId), isNull(schema.elderMentorships.endedAt)))
+      .limit(1);
+    const hasMentor = !!activeMentorship;
 
-    const pendingSentResult = await db.query<{ id: string }>(
-      `SELECT id FROM elder_requests WHERE mentee_id = $1 AND status = 'pending' LIMIT 1`,
-      [userId]
-    );
-    const hasPendingRequest = pendingSentResult.rows.length > 0;
-    const canRequestMentor = user.xp_total < MENTEE_MAX_XP && !hasMentor && !hasPendingRequest;
+    const [pendingSent] = await orm
+      .select({ id: schema.elderRequests.id })
+      .from(schema.elderRequests)
+      .where(and(eq(schema.elderRequests.menteeId, userId), eq(schema.elderRequests.status, "pending")))
+      .limit(1);
+    const hasPendingRequest = !!pendingSent;
+    const canRequestMentor = userXpTotal < MENTEE_MAX_XP && !hasMentor && !hasPendingRequest;
 
     // Directory of elders a non-elder can request as a mentor (only fetched
     // when it can actually be used — avoids the extra query for elders).
@@ -151,29 +143,34 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       menteeCount: number;
     }[] = [];
     if (canRequestMentor) {
-      const eldersResult = await db.query<{
-        id: string;
-        username: string;
-        display_name: string;
-        avatar_emoji: string;
-        rank_name: string;
-        mentee_count: string;
-      }>(
-        `SELECT u.id, u.username, u.display_name, u.avatar_emoji, u.rank_name,
-                COUNT(em.id) FILTER (WHERE em.ended_at IS NULL) AS mentee_count
-         FROM users u
-         LEFT JOIN elder_mentorships em ON em.elder_id = u.id AND em.ended_at IS NULL
-         WHERE u.id != $1
-           AND u.deleted_at IS NULL
-           AND u.prestige_count >= $2
-           AND u.last_active_at > NOW() - ($3 || ' days')::interval
-         GROUP BY u.id
-         HAVING COUNT(em.id) FILTER (WHERE em.ended_at IS NULL) < $4
-         ORDER BY COUNT(em.id) FILTER (WHERE em.ended_at IS NULL) ASC, u.xp_total DESC
-         LIMIT 20`,
-        [userId, ELDER_MIN_PRESTIGE, ELDER_ACTIVITY_DAYS, MAX_MENTEES]
-      );
-      availableElders = eldersResult.rows.map((row) => ({
+      const activeMenteeCount = sql<string>`COUNT(${schema.elderMentorships.id}) FILTER (WHERE ${schema.elderMentorships.endedAt} IS NULL)`;
+      const eldersRows = await orm
+        .select({
+          id: schema.users.id,
+          username: schema.users.username,
+          display_name: schema.users.displayName,
+          avatar_emoji: schema.users.avatarEmoji,
+          rank_name: schema.users.rankName,
+          mentee_count: activeMenteeCount,
+        })
+        .from(schema.users)
+        .leftJoin(
+          schema.elderMentorships,
+          and(eq(schema.elderMentorships.elderId, schema.users.id), isNull(schema.elderMentorships.endedAt))
+        )
+        .where(
+          and(
+            ne(schema.users.id, userId),
+            isNull(schema.users.deletedAt),
+            gte(schema.users.prestigeCount, ELDER_MIN_PRESTIGE),
+            gt(schema.users.lastActiveAt, sql`NOW() - (${ELDER_ACTIVITY_DAYS} || ' days')::interval`)
+          )
+        )
+        .groupBy(schema.users.id)
+        .having(sql`${activeMenteeCount} < ${MAX_MENTEES}`)
+        .orderBy(sql`${activeMenteeCount} ASC`, desc(schema.users.xpTotal))
+        .limit(20);
+      availableElders = eldersRows.map((row) => ({
         id: row.id,
         username: row.username,
         displayName: row.display_name,
@@ -199,9 +196,9 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         lastActiveAt: user.last_active_at,
         minPrestigeRequired: ELDER_MIN_PRESTIGE,
         maxMentees: MAX_MENTEES,
-        currentMenteeCount: menteeResult.rows.length,
-        mentees: menteeResult.rows,
-        pendingRequests: pendingResult.rows,
+        currentMenteeCount: mentees.length,
+        mentees,
+        pendingRequests,
         mentorshipXpEarned,
         hasMentor,
         canRequestMentor,
@@ -227,48 +224,48 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
     const body = await validateBody(req, acceptMenteeSchema);
 
-    const result = await db.transaction(async (client) => {
+    const orm = await getDb();
+    const result = await orm.transaction(async (tx) => {
       // 1. Verify elder eligibility (prestige >= 3 AND active in past 30 days)
-      const userRow = await client.query<{
-        prestige_count: number;
-        last_active_at: string | null;
-      }>(
-        `SELECT prestige_count, last_active_at FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-        [userId]
-      );
-      if (!userRow.rows[0]) throw forbidden("User not found");
+      const [userRow] = await tx
+        .select({
+          prestige_count: schema.users.prestigeCount,
+          last_active_at: schema.users.lastActiveAt,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .for("update");
+      if (!userRow) throw forbidden("User not found");
       const isActive =
-        userRow.rows[0].last_active_at !== null &&
-        new Date(userRow.rows[0].last_active_at) >
+        userRow.last_active_at !== null &&
+        new Date(userRow.last_active_at) >
           new Date(Date.now() - ELDER_ACTIVITY_DAYS * 86400_000);
-      if (userRow.rows[0].prestige_count < ELDER_MIN_PRESTIGE || !isActive) {
+      if (userRow.prestige_count < ELDER_MIN_PRESTIGE || !isActive) {
         throw forbidden(
           "You must have Prestiged at least 3 times and been active in the past 30 days to become an Elder"
         );
       }
 
       // 2. Check mentee cap
-      const menteeCountResult = await client.query<{ count: string }>(
-        `SELECT COUNT(*) AS count FROM elder_mentorships
-         WHERE elder_id = $1 AND ended_at IS NULL`,
-        [userId]
-      );
-      if (parseInt(menteeCountResult.rows[0].count) >= MAX_MENTEES) {
+      const [menteeCountRow] = await tx
+        .select({ count: sql<string>`COUNT(*)` })
+        .from(schema.elderMentorships)
+        .where(and(eq(schema.elderMentorships.elderId, userId), isNull(schema.elderMentorships.endedAt)));
+      if (parseInt(menteeCountRow.count) >= MAX_MENTEES) {
         throw badRequest(`Maximum of ${MAX_MENTEES} mentees reached`, "MENTEE_CAP_REACHED");
       }
 
       // 3. Validate request
-      const requestRow = await client.query<{
-        id: string;
-        mentee_id: string;
-        elder_id: string;
-        status: string;
-      }>(
-        `SELECT id, mentee_id, elder_id, status
-         FROM elder_requests WHERE id = $1 FOR UPDATE`,
-        [body.requestId]
-      );
-      const request = requestRow.rows[0];
+      const [request] = await tx
+        .select({
+          id: schema.elderRequests.id,
+          mentee_id: schema.elderRequests.menteeId,
+          elder_id: schema.elderRequests.elderId,
+          status: schema.elderRequests.status,
+        })
+        .from(schema.elderRequests)
+        .where(eq(schema.elderRequests.id, body.requestId))
+        .for("update");
       if (!request) throw notFound("Mentorship request not found");
       if (request.elder_id !== userId) throw forbidden("This request is not for you");
       if (request.status !== "pending") {
@@ -276,20 +273,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
 
       // 4. Accept request
-      await client.query(
-        `UPDATE elder_requests SET status = 'accepted', updated_at = NOW() WHERE id = $1`,
-        [body.requestId]
-      );
+      await tx
+        .update(schema.elderRequests)
+        .set({ status: "accepted", updatedAt: new Date() })
+        .where(eq(schema.elderRequests.id, body.requestId));
 
       // 5. Create mentorship
-      const mentorshipResult = await client.query<{ id: string }>(
-        `INSERT INTO elder_mentorships (elder_id, mentee_id, started_at)
-         VALUES ($1, $2, NOW())
-         RETURNING id`,
-        [userId, request.mentee_id]
-      );
+      const [mentorship] = await tx
+        .insert(schema.elderMentorships)
+        .values({ elderId: userId, menteeId: request.mentee_id })
+        .returning({ id: schema.elderMentorships.id });
 
-      return { mentorshipId: mentorshipResult.rows[0].id, menteeId: request.mentee_id };
+      return { mentorshipId: mentorship.id, menteeId: request.mentee_id };
     });
 
     return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });

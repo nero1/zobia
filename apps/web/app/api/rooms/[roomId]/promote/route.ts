@@ -23,7 +23,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -122,15 +123,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const coinCost = PROMOTION_COSTS[body.hours];
 
     // 1. Verify room exists and caller is the creator
-    const { rows: roomRows } = await db.query<RoomOwnerRow>(
-      `SELECT id, creator_id
-       FROM rooms
-       WHERE id = $1 AND is_active = TRUE
-       LIMIT 1`,
-      [roomId]
-    );
-
-    const room = roomRows[0];
+    const orm = await getDb();
+    const [room] = await orm
+      .select({ id: schema.rooms.id, creator_id: schema.rooms.creatorId })
+      .from(schema.rooms)
+      .where(and(eq(schema.rooms.id, roomId), eq(schema.rooms.isActive, true)))
+      .limit(1);
     if (!room) throw notFound("Room not found");
     if (room.creator_id !== auth.user.sub) {
       throw forbidden("Only the room creator can promote this room");
@@ -152,21 +150,33 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     );
 
     // 3. Upsert room_promotions — extend ends_at if an active promotion exists
-    const { rows: promotionRows } = await db.query<PromotionRow>(
-      `INSERT INTO room_promotions
-         (room_id, promoted_by, coin_cost, starts_at, ends_at)
-       VALUES
-         ($1, $2, $3, NOW(), NOW() + ($4 || ' hours')::interval)
-       ON CONFLICT (room_id)
-       DO UPDATE SET
-         ends_at    = GREATEST(room_promotions.ends_at, EXCLUDED.ends_at),
-         coin_cost  = room_promotions.coin_cost + EXCLUDED.coin_cost,
-         updated_at = NOW()
-       RETURNING id, room_id, promoted_by, coin_cost, starts_at, ends_at`,
-      [roomId, auth.user.sub, coinCost, body.hours]
-    );
-
-    const promotion = promotionRows[0];
+    const newEndsAt = sql`NOW() + (${body.hours} || ' hours')::interval`;
+    const [promotion] = await orm
+      .insert(schema.roomPromotions)
+      .values({
+        roomId,
+        creatorId: room.creator_id,
+        promotedBy: auth.user.sub,
+        coinCost,
+        startsAt: new Date(),
+        endsAt: newEndsAt,
+      })
+      .onConflictDoUpdate({
+        target: schema.roomPromotions.roomId,
+        set: {
+          endsAt: sql`GREATEST(${schema.roomPromotions.endsAt}, ${newEndsAt})`,
+          coinCost: sql`${schema.roomPromotions.coinCost} + ${coinCost}`,
+          updatedAt: new Date(),
+        },
+      })
+      .returning({
+        id: schema.roomPromotions.id,
+        room_id: schema.roomPromotions.roomId,
+        promoted_by: schema.roomPromotions.promotedBy,
+        coin_cost: schema.roomPromotions.coinCost,
+        starts_at: schema.roomPromotions.startsAt,
+        ends_at: schema.roomPromotions.endsAt,
+      });
 
     return NextResponse.json(
       {

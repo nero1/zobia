@@ -14,10 +14,11 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { eq } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getCreatorFundSplitPercent, type CreatorFundActivity } from "@/lib/creator/fundContribution";
 
 const ACTIVITIES: CreatorFundActivity[] = [
@@ -32,10 +33,13 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-    const { rows } = await db.query<{ value: string }>(
-      `SELECT value FROM x_manifest WHERE key = 'creator_fund_balance_kobo' LIMIT 1`
-    );
-    const balanceKobo = parseInt(rows[0]?.value ?? "0", 10);
+    const orm = await getDb();
+    const [row] = await orm
+      .select({ value: schema.xManifest.value })
+      .from(schema.xManifest)
+      .where(eq(schema.xManifest.key, "creator_fund_balance_kobo"))
+      .limit(1);
+    const balanceKobo = parseInt(row?.value ?? "0", 10);
 
     const splits = Object.fromEntries(
       await Promise.all(ACTIVITIES.map(async (a) => [a, await getCreatorFundSplitPercent(a)] as const))

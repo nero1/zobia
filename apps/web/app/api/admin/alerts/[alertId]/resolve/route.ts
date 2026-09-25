@@ -11,11 +11,18 @@ export const dynamic = 'force-dynamic';
  * Body (optional): { note: string }
  *
  * Response: { alertId: string, resolvedAt: string }
+ *
+ * NOTE: `lib/db/schema.ts`'s `systemAlerts` table is missing several
+ * columns this route needs (escalation_complete, next_escalation_at, and
+ * the rest of the Level 1/2 escalation-schedule columns used by
+ * ../route.ts) — a genuine schema gap. Kept as a raw SQL statement executed
+ * via `orm.execute(sql...)` (getDb()'s pg pool) rather than `db.query`.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import {
   withAdminAuth,
   validateBody,
@@ -60,21 +67,22 @@ export const POST = withAdminAuth(
 
       const resolvedAt = new Date().toISOString();
 
+      const orm = await getDb();
+
       // Resolving stops the Level 1/2 escalation schedule immediately — no more
       // pages for this alert until a fresh trigger reopens it (see raiseAlert()).
-      const result = await db.query<{ id: string; resolved: boolean }>(
-        `UPDATE system_alerts
-         SET resolved            = true,
-             resolved_at         = $1,
-             resolved_by         = $2,
-             resolution_note     = $3,
-             escalation_complete = true,
-             next_escalation_at  = NULL,
-             updated_at          = NOW()
-         WHERE id = $4
-         RETURNING id, resolved`,
-        [resolvedAt, auth.user.sub, note ?? null, alertId]
-      );
+      const result = await orm.execute<{ id: string; resolved: boolean }>(sql`
+        UPDATE system_alerts
+        SET resolved            = true,
+            resolved_at         = ${resolvedAt},
+            resolved_by         = ${auth.user.sub},
+            resolution_note     = ${note ?? null},
+            escalation_complete = true,
+            next_escalation_at  = NULL,
+            updated_at          = NOW()
+        WHERE id = ${alertId}
+        RETURNING id, resolved
+      `);
 
       if (result.rows.length === 0) {
         throw badRequest(`Alert '${alertId}' not found.`, "ALERT_NOT_FOUND");

@@ -27,7 +27,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -125,14 +126,19 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     const activeOnly = url.searchParams.get("active") !== "false";
     const moderationStatus = url.searchParams.get("moderationStatus");
 
-    const conditions: string[] = ["sq.deleted_at IS NULL"];
-    if (activeOnly) conditions.push("sq.is_active = TRUE");
+    const conditions = [sql`sq.deleted_at IS NULL`];
+    if (activeOnly) conditions.push(sql`sq.is_active = TRUE`);
     if (moderationStatus && ["pending", "approved", "rejected"].includes(moderationStatus)) {
-      conditions.push(`sq.moderation_status = '${moderationStatus}'`);
+      conditions.push(sql`sq.moderation_status = ${moderationStatus}`);
     }
+    const whereClause = sql.join(conditions, sql` AND `);
 
-    const { rows } = await db.query<SponsoredQuestAdminRow>(
-      `SELECT
+    const orm = await getDb();
+    // Kept as a raw parameterized `sql` template (multi-join aggregation with
+    // FILTER isn't cleanly expressible via the Drizzle query builder) rather
+    // than db.query — this still goes through the shared Drizzle client/pool.
+    const { rows } = await orm.execute<SponsoredQuestAdminRow & Record<string, unknown>>(sql`
+      SELECT
          sq.id,
          sq.brand_name,
          sq.brand_logo_url,
@@ -170,14 +176,14 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
          sq.ends_at,
          COUNT(sqa.id)::int                                     AS application_count,
          COUNT(sqa.id) FILTER (WHERE sqa.status = 'approved')::int AS approved_count
-       FROM sponsored_quests sq
-       LEFT JOIN sponsored_quest_applications sqa ON sqa.quest_id = sq.id
-       LEFT JOIN users u ON u.id = sq.submitted_by
-       LEFT JOIN users owner ON owner.id = sq.owner_user_id
-       WHERE ${conditions.join(" AND ")}
-       GROUP BY sq.id, u.username, owner.username
-       ORDER BY (sq.moderation_status = 'pending') DESC, sq.created_at DESC`,
-    );
+      FROM sponsored_quests sq
+      LEFT JOIN sponsored_quest_applications sqa ON sqa.quest_id = sq.id
+      LEFT JOIN users u ON u.id = sq.submitted_by
+      LEFT JOIN users owner ON owner.id = sq.owner_user_id
+      WHERE ${whereClause}
+      GROUP BY sq.id, u.username, owner.username
+      ORDER BY (sq.moderation_status = 'pending') DESC, sq.created_at DESC
+    `);
 
     return NextResponse.json({
       success: true,
@@ -216,14 +222,16 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
       throw badRequest("endsAt must be after startsAt");
     }
 
+    const orm = await getDb();
     let ownerUserId: string | null = null;
     if (body.ownerUsername) {
-      const { rows: ownerRows } = await db.query<{ id: string }>(
-        `SELECT id FROM users WHERE username = $1 AND deleted_at IS NULL LIMIT 1`,
-        [body.ownerUsername]
-      );
-      if (!ownerRows[0]) throw badRequest(`No user found with username '${body.ownerUsername}'`);
-      ownerUserId = ownerRows[0].id;
+      const [ownerRow] = await orm
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(and(eq(schema.users.username, body.ownerUsername), isNull(schema.users.deletedAt)))
+        .limit(1);
+      if (!ownerRow) throw badRequest(`No user found with username '${body.ownerUsername}'`);
+      ownerUserId = ownerRow.id;
     }
 
     const durationDays = body.startsAt && body.endsAt
@@ -233,49 +241,42 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
       ? estimateSponsoredQuestReach(body.totalBudgetCredits, body.cpmCredits, durationDays).totalImpressions
       : null;
 
-    const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO sponsored_quests
-         (brand_name, brand_logo_url, title, description, requirements,
-          reward_coins, creator_share_percent, platform_share_percent,
-          max_applications, deadline, min_creator_tier, is_active, created_at,
-          owner_user_id, is_daily_quest_eligible, starts_at, ends_at,
-          pricing_model, total_budget_credits, daily_budget_credits, cpm_credits,
-          estimated_reach, funded_by_user_id, target_action, target_value)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,TRUE,NOW(),
-               $12,$13,$14,$15,'hybrid',$16,$17,$18,$19,$20,$21,$22)
-       RETURNING id`,
-      [
-        body.brandName,
-        body.brandLogoUrl ?? null,
-        body.title,
-        body.description,
-        body.requirements,
-        body.rewardCoins,
-        body.creatorSharePercent,
-        body.platformSharePercent,
-        body.maxApplications,
-        body.deadline,
-        body.minCreatorTier,
+    const [row] = await orm
+      .insert(schema.sponsoredQuests)
+      .values({
+        brandName: body.brandName,
+        brandLogoUrl: body.brandLogoUrl ?? null,
+        title: body.title,
+        description: body.description,
+        requirements: body.requirements,
+        rewardCoins: body.rewardCoins,
+        creatorSharePercent: body.creatorSharePercent,
+        platformSharePercent: body.platformSharePercent,
+        maxApplications: body.maxApplications,
+        deadline: new Date(body.deadline),
+        minCreatorTier: body.minCreatorTier,
+        isActive: true,
         ownerUserId,
-        body.isDailyQuestEligible,
-        body.startsAt ?? null,
-        body.endsAt ?? null,
-        body.totalBudgetCredits,
-        body.dailyBudgetCredits ?? null,
-        body.cpmCredits,
+        isDailyQuestEligible: body.isDailyQuestEligible,
+        startsAt: body.startsAt ? new Date(body.startsAt) : null,
+        endsAt: body.endsAt ? new Date(body.endsAt) : null,
+        pricingModel: "hybrid",
+        totalBudgetCredits: String(body.totalBudgetCredits),
+        dailyBudgetCredits: body.dailyBudgetCredits != null ? String(body.dailyBudgetCredits) : null,
+        cpmCredits: String(body.cpmCredits),
         estimatedReach,
-        auth.user.sub,
-        body.targetAction ?? null,
-        body.targetValue ?? null,
-      ]
-    );
+        fundedByUserId: auth.user.sub,
+        targetAction: body.targetAction ?? null,
+        targetValue: body.targetValue ?? null,
+      })
+      .returning({ id: schema.sponsoredQuests.id });
 
     if (body.isDailyQuestEligible) {
-      await syncSponsoredQuestTemplate(db, rows[0].id);
+      await syncSponsoredQuestTemplate(orm, row.id);
     }
 
     return NextResponse.json(
-      { success: true, data: { questId: rows[0].id }, error: null },
+      { success: true, data: { questId: row.id }, error: null },
       { status: 201 }
     );
   } catch (err) {

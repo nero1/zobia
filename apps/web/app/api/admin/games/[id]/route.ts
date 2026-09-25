@@ -12,7 +12,9 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, type SqlParam } from "@/lib/db";
+import { and, eq, isNull, ne } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
+import { games } from "@/lib/db/schema";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { recordSlugRedirect } from "@/lib/slug";
@@ -42,69 +44,62 @@ const updateSchema = z.object({
   isPublic: z.boolean().optional(),
 });
 
-// Maps camelCase body keys → snake_case columns.
-const COLUMN_MAP: Record<string, string> = {
-  name: "name",
-  category: "category",
-  engineKey: "engine_key",
-  tagline: "tagline",
-  description: "description",
-  longDescription: "long_description",
-  coverEmoji: "cover_emoji",
-  coverImageUrl: "cover_image_url",
-  rewardCreditsPerWin: "reward_credits_per_win",
-  rewardXpPerWin: "reward_xp_per_win",
-  rewardStarsPerWin: "reward_stars_per_win",
-  playCostCredits: "play_cost_credits",
-  playCostStars: "play_cost_stars",
-  maxScore: "max_score",
-  minPlaySeconds: "min_play_seconds",
-  sortOrder: "sort_order",
-  isActive: "is_active",
-  isPublic: "is_public",
-};
-
 export const PUT = withAdminAuth(
   async (req: NextRequest, { params }: { params: { id: string }; auth: any }) => {
     try {
       const body = await validateBody(req, updateSchema);
+      const orm = await getDb();
 
-      const { rows: existingRows } = await db.query<{ slug: string }>(
-        `SELECT slug FROM games WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [params.id]
-      );
-      const existing = existingRows[0];
+      const [existing] = await orm
+        .select({ slug: games.slug })
+        .from(games)
+        .where(and(eq(games.id, params.id), isNull(games.deletedAt)))
+        .limit(1);
       if (!existing) throw notFound("Game not found.");
 
       // Handle slug change (uniqueness + redirect from the old slug).
       let newSlug: string | null = null;
       if (body.slug && body.slug !== existing.slug) {
-        const { rows: dup } = await db.query<{ id: string }>(
-          `SELECT id FROM games WHERE slug = $1 AND deleted_at IS NULL AND id <> $2 LIMIT 1`,
-          [body.slug, params.id]
-        );
-        if (dup[0]) throw badRequest("A game with that slug already exists.");
+        const [dup] = await orm
+          .select({ id: games.id })
+          .from(games)
+          .where(
+            and(
+              eq(games.slug, body.slug),
+              isNull(games.deletedAt),
+              ne(games.id, params.id)
+            )
+          )
+          .limit(1);
+        if (dup) throw badRequest("A game with that slug already exists.");
         newSlug = body.slug;
       }
 
-      const sets: string[] = [];
-      const values: SqlParam[] = [];
-      let i = 1;
-      for (const [key, col] of Object.entries(COLUMN_MAP)) {
-        if (key in body && body[key as keyof typeof body] !== undefined) {
-          sets.push(`${col} = $${i++}`);
-          values.push(body[key as keyof typeof body] as SqlParam);
-        }
-      }
-      if (newSlug) {
-        sets.push(`slug = $${i++}`);
-        values.push(newSlug);
-      }
-      if (sets.length === 0) throw badRequest("No fields to update.");
+      const updates: Partial<typeof games.$inferInsert> = {};
+      if (body.name !== undefined) updates.name = body.name;
+      if (body.category !== undefined) updates.category = body.category;
+      if (body.engineKey !== undefined) updates.engineKey = body.engineKey;
+      if (body.tagline !== undefined) updates.tagline = body.tagline;
+      if (body.description !== undefined) updates.description = body.description;
+      if (body.longDescription !== undefined) updates.longDescription = body.longDescription;
+      if (body.coverEmoji !== undefined) updates.coverEmoji = body.coverEmoji;
+      if (body.coverImageUrl !== undefined) updates.coverImageUrl = body.coverImageUrl;
+      if (body.rewardCreditsPerWin !== undefined) updates.rewardCreditsPerWin = body.rewardCreditsPerWin;
+      if (body.rewardXpPerWin !== undefined) updates.rewardXpPerWin = body.rewardXpPerWin;
+      if (body.rewardStarsPerWin !== undefined) updates.rewardStarsPerWin = body.rewardStarsPerWin;
+      if (body.playCostCredits !== undefined) updates.playCostCredits = body.playCostCredits;
+      if (body.playCostStars !== undefined) updates.playCostStars = body.playCostStars;
+      if (body.maxScore !== undefined) updates.maxScore = body.maxScore === null ? null : BigInt(body.maxScore);
+      if (body.minPlaySeconds !== undefined) updates.minPlaySeconds = body.minPlaySeconds;
+      if (body.sortOrder !== undefined) updates.sortOrder = body.sortOrder;
+      if (body.isActive !== undefined) updates.isActive = body.isActive;
+      if (body.isPublic !== undefined) updates.isPublic = body.isPublic;
+      if (newSlug) updates.slug = newSlug;
 
-      sets.push(`updated_at = NOW()`);
-      values.push(params.id);
-      await db.query(`UPDATE games SET ${sets.join(", ")} WHERE id = $${i}`, values);
+      if (Object.keys(updates).length === 0) throw badRequest("No fields to update.");
+      updates.updatedAt = new Date();
+
+      await orm.update(games).set(updates).where(eq(games.id, params.id));
 
       if (newSlug) {
         await recordSlugRedirect("game", existing.slug, params.id, newSlug).catch(() => {});
@@ -120,12 +115,13 @@ export const PUT = withAdminAuth(
 export const DELETE = withAdminAuth(
   async (_req: NextRequest, { params }: { params: { id: string }; auth: any }) => {
     try {
-      const { rowCount } = await db.query(
-        `UPDATE games SET deleted_at = NOW(), is_active = FALSE, updated_at = NOW()
-         WHERE id = $1 AND deleted_at IS NULL`,
-        [params.id]
-      );
-      if (!rowCount) throw notFound("Game not found.");
+      const orm = await getDb();
+      const result = await orm
+        .update(games)
+        .set({ deletedAt: new Date(), isActive: false, updatedAt: new Date() })
+        .where(and(eq(games.id, params.id), isNull(games.deletedAt)))
+        .returning({ id: games.id });
+      if (result.length === 0) throw notFound("Game not found.");
       return NextResponse.json({ success: true, data: { deleted: true }, error: null });
     } catch (err) {
       return handleApiError(err);

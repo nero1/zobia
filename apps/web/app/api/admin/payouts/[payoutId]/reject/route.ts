@@ -10,9 +10,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq, sql } from "drizzle-orm";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 interface PayoutRow {
   id: string;
@@ -41,57 +42,63 @@ export const POST = withAdminAuth(
       const { payoutId } = params;
       const body = await validateBody(req, RejectSchema);
 
-      const { rows } = await db.query<PayoutRow>(
-        `SELECT id, creator_id, gross_kobo, status
-         FROM creator_payouts WHERE id = $1 LIMIT 1`,
-        [payoutId]
-      );
+      const orm = await getDb();
 
-      if (!rows[0]) {
+      const [payoutRow] = await orm
+        .select({
+          id: schema.creatorPayouts.id,
+          creator_id: schema.creatorPayouts.creatorId,
+          gross_kobo: schema.creatorPayouts.grossKobo,
+          status: schema.creatorPayouts.status,
+        })
+        .from(schema.creatorPayouts)
+        .where(eq(schema.creatorPayouts.id, payoutId))
+        .limit(1);
+
+      if (!payoutRow) {
         throw notFound("Payout not found");
       }
 
-      const payout = rows[0];
+      const payout = payoutRow;
+      const grossKobo = payout.gross_kobo ?? BigInt(0);
 
       if (payout.status !== "awaiting_approval") {
         throw badRequest(`Cannot reject a payout in status: ${payout.status}`);
       }
 
       // Atomically: mark rejected and restore earnings
-      await db.transaction(async (tx) => {
-        await tx.query(
-          `UPDATE creator_payouts
-           SET status = 'rejected',
-               rejection_reason = $1,
-               rejected_at = NOW(),
-               appeal_status = NULL,
-               updated_at = NOW()
-           WHERE id = $2`,
-          [body.reason, payoutId]
-        );
+      await orm.transaction(async (tx) => {
+        await tx
+          .update(schema.creatorPayouts)
+          .set({
+            status: "rejected",
+            rejectionReason: body.reason,
+            rejectedAt: new Date(),
+            appealStatus: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.creatorPayouts.id, payoutId));
 
         // Restore the gross amount to the creator's available earnings
-        await tx.query(
-          `UPDATE users
-           SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
-           WHERE id = $2`,
-          [payout.gross_kobo, payout.creator_id]
-        );
+        await tx
+          .update(schema.users)
+          .set({
+            availableEarningsKobo: sql`${schema.users.availableEarningsKobo} + ${grossKobo}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.users.id, payout.creator_id));
       });
 
       // Notify creator
-      await db
-        .query(
-          `INSERT INTO notifications
-             (user_id, type, title, body, metadata, created_at)
-           VALUES ($1, 'payout_rejected', 'Payout Rejected',
-             $2, $3::jsonb, NOW())`,
-          [
-            payout.creator_id,
-            `Your payout was rejected. Reason: ${body.reason} You may submit an appeal if you believe this is an error.`,
-            JSON.stringify({ payoutId, reason: body.reason }),
-          ]
-        )
+      await orm
+        .insert(schema.notifications)
+        .values({
+          userId: payout.creator_id,
+          type: "payout_rejected",
+          title: "Payout Rejected",
+          body: `Your payout was rejected. Reason: ${body.reason} You may submit an appeal if you believe this is an error.`,
+          metadata: { payoutId, reason: body.reason },
+        })
         .catch(() => {});
 
       return NextResponse.json({
@@ -99,7 +106,7 @@ export const POST = withAdminAuth(
         payoutId,
         status: "rejected",
         reason: body.reason,
-        earningsRestored: payout.gross_kobo,
+        earningsRestored: Number(grossKobo),
       });
     } catch (err) {
       return handleApiError(err);

@@ -21,7 +21,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -73,9 +73,10 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
     const body = await validateBody(req, progressSchema);
     const today = new Date().toISOString().slice(0, 10);
 
+    const orm = await getDb();
     let outcome;
     try {
-      outcome = await updateQuestProgress(auth.user.sub, questId, body.increment, db);
+      outcome = await updateQuestProgress(auth.user.sub, questId, body.increment, orm);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       if (message.includes("not in user's deck") || message.includes("Quest not found")) {
@@ -88,7 +89,7 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
     let deckBonusXP = 0;
 
     if (outcome.newly_completed) {
-      recordWarContribution(auth.user.sub, 'complete_quest', db).catch((err) => {
+      recordWarContribution(auth.user.sub, 'complete_quest', orm).catch((err) => {
         logger.error({ err }, '[quests:progress] war contribution failed');
       });
 
@@ -100,7 +101,7 @@ export const POST = withAuth<QuestParams>(async (req, { params, auth }) => {
         }).catch(() => {});
       }
 
-      const deckResult = await checkDeckCompletion(auth.user.sub, today, db);
+      const deckResult = await checkDeckCompletion(auth.user.sub, today, orm);
       if (deckResult.bonusAwarded) {
         deckCompleted = true;
         deckBonusXP = deckResult.bonusXP;

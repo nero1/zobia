@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { ONLINE_WINDOW_MS } from "@/lib/presence/keys";
@@ -27,10 +28,6 @@ type PresenceStatus = "online" | "recently_active" | "offline";
 
 /** Threshold (ms) for "recently active" when Redis key is absent. */
 const RECENTLY_ACTIVE_MS = 60 * 60 * 1000; // 1 hour
-
-interface UserPresenceRow {
-  last_active_at: string | null;
-}
 
 // ---------------------------------------------------------------------------
 // Handler
@@ -61,17 +58,18 @@ export const GET = withAuth(
       // be a Redis GET for "online" plus a DB read for "recently active" —
       // two round-trips and a Redis command for information `last_active_at`
       // already held on its own. See lib/presence/keys.ts.
-      const result = await db.query<UserPresenceRow>(
-        `SELECT last_active_at FROM users
-         WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      );
+      const db = await getDb();
+      const [row] = await db
+        .select({ lastActiveAt: schema.users.lastActiveAt })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .limit(1);
 
-      const lastActiveAt = result.rows[0]?.last_active_at ?? null;
+      const lastActiveAtDate = row?.lastActiveAt ?? null;
 
       let status: PresenceStatus = "offline";
-      if (lastActiveAt) {
-        const sinceLastActive = Date.now() - new Date(lastActiveAt).getTime();
+      if (lastActiveAtDate) {
+        const sinceLastActive = Date.now() - lastActiveAtDate.getTime();
         if (sinceLastActive <= ONLINE_WINDOW_MS) {
           status = "online";
         } else if (sinceLastActive <= RECENTLY_ACTIVE_MS) {
@@ -81,7 +79,7 @@ export const GET = withAuth(
 
       return NextResponse.json({
         success: true,
-        data: { status, lastActiveAt },
+        data: { status, lastActiveAt: lastActiveAtDate ? lastActiveAtDate.toISOString() : null },
         error: null,
       });
     } catch (err) {

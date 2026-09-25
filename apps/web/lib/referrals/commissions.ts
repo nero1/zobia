@@ -11,11 +11,11 @@
  * All operations are atomic within a DB transaction.
  */
 
-import type { TransactionClient as DatabaseClient } from "@/lib/db";
-import { db as globalDb } from "@/lib/db";
 import Decimal from "decimal.js";
+import { and, eq, sql } from "drizzle-orm";
 import { XP_VALUES } from "@/lib/xp/engine";
 import { getManifestValue } from "@/lib/manifest";
+import { db as globalRawDb } from "@/lib/db";
 import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { logger } from "@/lib/logger";
@@ -25,6 +25,12 @@ import type { CryptoCurrency } from "@zobia/types";
 // Schema-derived types: column name validation at compile time.
 // schema.users.referredBy.name === "referred_by" — any rename triggers a TS error.
 import { schema } from "@/lib/db/schema";
+import { getDb, type DbOrTx } from "@/lib/db/drizzle";
+// `failedCommissions` is not included in the aggregate `schema` object
+// exported from lib/db/schema.ts (schema/DB mismatch — reported upstream),
+// even though the table itself is defined and exported there — imported
+// directly to work around that gap.
+import { failedCommissions } from "@/lib/db/schema";
 
 // ---------------------------------------------------------------------------
 // Commission rates
@@ -42,6 +48,16 @@ export interface CommissionResult {
   tier1Coins: number;
   tier2ReferrerId: string | null;
   tier2Coins: number;
+}
+
+async function getReferredBy(db: DbOrTx, userId: string): Promise<string | null> {
+  // Column name validated via schema.users.referredBy.name === "referred_by".
+  const rows = await db
+    .select({ referredBy: schema.users.referredBy })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), sql`${schema.users.deletedAt} IS NULL`))
+    .limit(1);
+  return rows[0]?.referredBy ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +85,7 @@ export interface CryptoPurchaseContext {
 }
 
 export async function awardReferralCommissions(
-  db: DatabaseClient,
+  db: DbOrTx,
   buyerId: string,
   coinAmount: number,
   paymentId: string,
@@ -86,25 +102,17 @@ export async function awardReferralCommissions(
   if (coinAmount <= 0) return result;
 
   // Find the direct referrer (Tier 1).
-  // Column name validated via schema.users.referredBy.name === "referred_by".
-  type ReferredByRow = { [K in typeof schema.users.referredBy.name]: string | null };
-  const { rows: tier1Rows } = await db.query<ReferredByRow>(
-    `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [buyerId]
-  );
-
-  const tier1Id = tier1Rows[0]?.referred_by ?? null;
+  const tier1Id = await getReferredBy(db, buyerId);
   // BUG-REFERRAL-01: also reject self-referrals (data constraint should prevent this,
   // but guard here in case the CHECK constraint was not applied on an older schema).
   if (!tier1Id || tier1Id === buyerId) return result;
 
   // Mark referral as qualified on first purchase and award 500 XP to referrer (PRD §referrals)
-  const { rows: qualifyRows } = await db.query<{ id: string }>(
-    `UPDATE referrals SET qualified = true, qualified_at = NOW()
-     WHERE referred_id = $1 AND referrer_id = $2 AND qualified = false
-     RETURNING id`,
-    [buyerId, tier1Id]
-  );
+  const qualifyRows = await db
+    .update(schema.referrals)
+    .set({ qualified: true, qualifiedAt: sql`NOW()` })
+    .where(and(eq(schema.referrals.referredId, buyerId), eq(schema.referrals.referrerId, tier1Id), eq(schema.referrals.qualified, false)))
+    .returning({ id: schema.referrals.id });
   if (qualifyRows[0]) {
     // First qualifying purchase — award one-time XP + coin bonus to referrer (PRD §15)
     const xpBonusStr = await getManifestValue("referral_tier1_xp_bonus");
@@ -114,7 +122,7 @@ export async function awardReferralCommissions(
     const coinBonus = parseInt(coinBonusStr ?? "100", 10) || 100;
 
     // Award XP within the caller's transaction so it rolls back atomically if the
-    // coin credit fails. When db is a TransactionClient safeAwardXP rethrows on
+    // coin credit fails. When db is a transaction client, safeAwardXP rethrows on
     // failure (no phantom DLQ entry) — the caller must handle/retry the error.
     await safeAwardXP(tier1Id, xpBonus, 'social', 'referral_first_purchase', `referral_qualified:${qualifyRows[0].id}`, db);
 
@@ -132,10 +140,10 @@ export async function awardReferralCommissions(
     }
 
     // Update referrals table with reward amounts
-    await db.query(
-      `UPDATE referrals SET coin_reward = $1, xp_reward = $2 WHERE id = $3`,
-      [coinBonus, xpBonus, qualifyRows[0].id]
-    );
+    await db
+      .update(schema.referrals)
+      .set({ coinReward: coinBonus, xpReward: xpBonus })
+      .where(eq(schema.referrals.id, qualifyRows[0].id));
   }
 
   result.tier1ReferrerId = tier1Id;
@@ -179,26 +187,26 @@ export async function awardReferralCommissions(
     const tier1CommissionKobo = paymentAmountKobo > 0
       ? Math.round(paymentAmountKobo * Number(TIER_1_RATE))
       : 0;
-    await db.query(
-      `INSERT INTO referral_commissions
-         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, '1', 'credited', NOW())
-       ON CONFLICT (trigger_event_id) DO NOTHING`,
-      [tier1Id, buyerId, `${paymentId}:t1`, paymentAmountKobo, tier1CommissionKobo, tier1Coins]
-    );
+    await db
+      .insert(schema.referralCommissions)
+      .values({
+        referrerId: tier1Id,
+        referredUserId: buyerId,
+        triggerEventId: `${paymentId}:t1`,
+        purchaseAmountKobo: BigInt(paymentAmountKobo),
+        commissionKobo: BigInt(tier1CommissionKobo),
+        commissionCoins: BigInt(tier1Coins),
+        tier: 1,
+        status: "credited",
+      })
+      .onConflictDoNothing({ target: schema.referralCommissions.triggerEventId });
   }
   // Crypto commissions are recorded in crypto_balance_ledger (referral_commissions
   // is kobo/coin-shaped and doesn't model per-token amounts) — that ledger's
   // (currency, reference_id) uniqueness gives the same idempotency + audit trail.
 
   // Find Tier 2 referrer (referrer of the Tier 1 referrer).
-  // Same column, same schema-validated type.
-  const { rows: tier2Rows } = await db.query<ReferredByRow>(
-    `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [tier1Id]
-  );
-
-  const tier2Id = tier2Rows[0]?.referred_by ?? null;
+  const tier2Id = await getReferredBy(db, tier1Id);
   if (!tier2Id || tier2Id === buyerId || tier2Id === tier1Id) return result;
 
   result.tier2ReferrerId = tier2Id;
@@ -233,13 +241,19 @@ export async function awardReferralCommissions(
     const tier2CommissionKobo = paymentAmountKobo > 0
       ? Math.round(paymentAmountKobo * Number(TIER_2_RATE))
       : 0;
-    await db.query(
-      `INSERT INTO referral_commissions
-         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, '2', 'credited', NOW())
-       ON CONFLICT (trigger_event_id) DO NOTHING`,
-      [tier2Id, buyerId, `${paymentId}:t2`, paymentAmountKobo, tier2CommissionKobo, tier2Coins]
-    );
+    await db
+      .insert(schema.referralCommissions)
+      .values({
+        referrerId: tier2Id,
+        referredUserId: buyerId,
+        triggerEventId: `${paymentId}:t2`,
+        purchaseAmountKobo: BigInt(paymentAmountKobo),
+        commissionKobo: BigInt(tier2CommissionKobo),
+        commissionCoins: BigInt(tier2Coins),
+        tier: 2,
+        status: "credited",
+      })
+      .onConflictDoNothing({ target: schema.referralCommissions.triggerEventId });
   }
 
   return result;
@@ -268,7 +282,7 @@ function koboToCoinsFloor(kobo: number): number {
  * no gating, it only pays out.
  */
 export async function awardMerchDigitalReferralCommission(
-  db: DatabaseClient,
+  db: DbOrTx,
   buyerId: string,
   priceKobo: number,
   orderId: string
@@ -281,12 +295,7 @@ export async function awardMerchDigitalReferralCommission(
   };
   if (priceKobo <= 0) return result;
 
-  type ReferredByRow = { [K in typeof schema.users.referredBy.name]: string | null };
-  const { rows: tier1Rows } = await db.query<ReferredByRow>(
-    `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [buyerId]
-  );
-  const tier1Id = tier1Rows[0]?.referred_by ?? null;
+  const tier1Id = await getReferredBy(db, buyerId);
   if (!tier1Id || tier1Id === buyerId) return result;
   result.tier1ReferrerId = tier1Id;
 
@@ -303,21 +312,24 @@ export async function awardMerchDigitalReferralCommission(
       db
     );
     result.tier1Coins = tier1Coins;
-    await db.query(
-      `INSERT INTO referral_commissions
-         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, source_type, reference_order_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, '1', 'credited', 'merch_digital', $7, NOW())
-       ON CONFLICT (trigger_event_id) DO NOTHING`,
-      [tier1Id, buyerId, `merch:${orderId}:t1`, priceKobo, tier1Kobo, tier1Coins, orderId]
-    );
+    await db
+      .insert(schema.referralCommissions)
+      .values({
+        referrerId: tier1Id,
+        referredUserId: buyerId,
+        triggerEventId: `merch:${orderId}:t1`,
+        purchaseAmountKobo: BigInt(priceKobo),
+        commissionKobo: BigInt(tier1Kobo),
+        commissionCoins: BigInt(tier1Coins),
+        tier: 1,
+        status: "credited",
+        sourceType: "merch_digital",
+        referenceOrderId: orderId,
+      })
+      .onConflictDoNothing({ target: schema.referralCommissions.triggerEventId });
   }
 
-  type ReferredByRow2 = ReferredByRow;
-  const { rows: tier2Rows } = await db.query<ReferredByRow2>(
-    `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [tier1Id]
-  );
-  const tier2Id = tier2Rows[0]?.referred_by ?? null;
+  const tier2Id = await getReferredBy(db, tier1Id);
   if (!tier2Id || tier2Id === buyerId || tier2Id === tier1Id) return result;
   result.tier2ReferrerId = tier2Id;
 
@@ -334,13 +346,21 @@ export async function awardMerchDigitalReferralCommission(
       db
     );
     result.tier2Coins = tier2Coins;
-    await db.query(
-      `INSERT INTO referral_commissions
-         (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, source_type, reference_order_id, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, '2', 'credited', 'merch_digital', $7, NOW())
-       ON CONFLICT (trigger_event_id) DO NOTHING`,
-      [tier2Id, buyerId, `merch:${orderId}:t2`, priceKobo, tier2Kobo, tier2Coins, orderId]
-    );
+    await db
+      .insert(schema.referralCommissions)
+      .values({
+        referrerId: tier2Id,
+        referredUserId: buyerId,
+        triggerEventId: `merch:${orderId}:t2`,
+        purchaseAmountKobo: BigInt(priceKobo),
+        commissionKobo: BigInt(tier2Kobo),
+        commissionCoins: BigInt(tier2Coins),
+        tier: 2,
+        status: "credited",
+        sourceType: "merch_digital",
+        referenceOrderId: orderId,
+      })
+      .onConflictDoNothing({ target: schema.referralCommissions.triggerEventId });
   }
 
   return result;
@@ -362,7 +382,7 @@ export async function awardMerchDigitalReferralCommission(
  * physical order can still be refunded/disputed before then.
  */
 export async function awardMerchPhysicalReferralCommission(
-  db: DatabaseClient,
+  db: DbOrTx,
   buyerId: string,
   priceKobo: number,
   commissionPct: number,
@@ -371,15 +391,14 @@ export async function awardMerchPhysicalReferralCommission(
   const empty = { referrerId: null, referrerCoins: 0 };
   if (priceKobo <= 0 || commissionPct <= 0) return empty;
 
-  type ReferredByRow = { [K in typeof schema.users.referredBy.name]: string | null };
-  const { rows: buyerRows } = await db.query<ReferredByRow>(
-    `SELECT referred_by FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [buyerId]
-  );
-  const referrerId = buyerRows[0]?.referred_by ?? null;
+  const referrerId = await getReferredBy(db, buyerId);
   if (!referrerId || referrerId === buyerId) return empty;
 
-  const platformFeePctStr = await getManifestValue("market_referral_platform_fee_pct", db);
+  // getManifestValue hasn't been migrated off the raw adapter type yet; its
+  // DB fallback (cache-miss only) always uses the shared raw `db` connection
+  // here rather than the caller's Drizzle tx, since Drizzle's DbOrTx doesn't
+  // implement the raw adapter's .query() interface it expects.
+  const platformFeePctStr = await getManifestValue("market_referral_platform_fee_pct", globalRawDb);
   const platformFeePct = platformFeePctStr ? parseFloat(platformFeePctStr) : 20;
 
   const poolKobo = new Decimal(priceKobo).mul(commissionPct).div(100).toDecimalPlaces(0, Decimal.ROUND_DOWN);
@@ -397,13 +416,21 @@ export async function awardMerchPhysicalReferralCommission(
     { buyerId, orderId, commissionPct, platformFeePct },
     db
   );
-  await db.query(
-    `INSERT INTO referral_commissions
-       (referrer_id, referred_user_id, trigger_event_id, purchase_amount_kobo, commission_kobo, commission_coins, tier, status, source_type, reference_order_id, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, '1', 'credited', 'merch_physical', $7, NOW())
-     ON CONFLICT (trigger_event_id) DO NOTHING`,
-    [referrerId, buyerId, `merch:${orderId}:physical`, priceKobo, referrerKobo, referrerCoins, orderId]
-  );
+  await db
+    .insert(schema.referralCommissions)
+    .values({
+      referrerId,
+      referredUserId: buyerId,
+      triggerEventId: `merch:${orderId}:physical`,
+      purchaseAmountKobo: BigInt(priceKobo),
+      commissionKobo: BigInt(referrerKobo),
+      commissionCoins: BigInt(referrerCoins),
+      tier: 1,
+      status: "credited",
+      sourceType: "merch_physical",
+      referenceOrderId: orderId,
+    })
+    .onConflictDoNothing({ target: schema.referralCommissions.triggerEventId });
 
   return { referrerId, referrerCoins };
 }
@@ -425,13 +452,18 @@ export async function recordFailedCommission(
   errorMessage: string
 ): Promise<void> {
   try {
-    await globalDb.query(
-      `INSERT INTO failed_commissions
-         (payment_id, user_id, coin_amount, amount_kobo, source, error_message, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, NOW())
-       ON CONFLICT (payment_id) DO NOTHING`,
-      [paymentId, userId, coinAmount, amountKobo, source, errorMessage]
-    );
+    const orm = await getDb();
+    await orm
+      .insert(failedCommissions)
+      .values({
+        paymentId,
+        userId,
+        coinAmount: BigInt(coinAmount),
+        amountKobo: BigInt(amountKobo),
+        source,
+        errorMessage,
+      })
+      .onConflictDoNothing({ target: failedCommissions.paymentId });
   } catch (err) {
     logger.error({ err, paymentId, userId }, "[commissions] Failed to write commission to DLQ");
   }
@@ -445,17 +477,18 @@ const MAX_COMMISSION_RETRIES = 5;
  * concurrent CRON instances process disjoint sets of rows.
  *
  * BUG-001 FIX: wrap the SELECT … FOR UPDATE SKIP LOCKED and all processing
- * inside a single globalDb.transaction() so the row-level lock is held for
- * the full batch-processing duration, preventing concurrent CRON instances
- * from picking up and double-processing the same rows.
+ * inside a single transaction so the row-level lock is held for the full
+ * batch-processing duration, preventing concurrent CRON instances from
+ * picking up and double-processing the same rows.
  */
 export async function retryFailedCommissions(): Promise<{ retried: number; resolved: number; permanentFailed: number }> {
   let retried = 0;
   let resolved = 0;
   let permanentFailed = 0;
 
-  await globalDb.transaction(async (tx) => {
-    const { rows: pending } = await tx.query<{
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const pending = await tx.execute<{
       id: string;
       payment_id: string;
       user_id: string;
@@ -463,44 +496,41 @@ export async function retryFailedCommissions(): Promise<{ retried: number; resol
       amount_kobo: number;
       source: string;
       retry_count: number;
-    }>(
-      `SELECT id, payment_id, user_id, coin_amount, amount_kobo, source, retry_count
-       FROM failed_commissions
-       WHERE resolved_at IS NULL
-         AND retry_count < $1
-         AND (last_retried_at IS NULL
-              OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
-       LIMIT 50
-       FOR UPDATE SKIP LOCKED`,
-      [MAX_COMMISSION_RETRIES]
-    );
+    }>(sql`
+      SELECT id, payment_id, user_id, coin_amount, amount_kobo, source, retry_count
+      FROM failed_commissions
+      WHERE resolved_at IS NULL
+        AND retry_count < ${MAX_COMMISSION_RETRIES}
+        AND (last_retried_at IS NULL
+             OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
+      LIMIT 50
+      FOR UPDATE SKIP LOCKED
+    `);
 
-    for (const row of pending) {
+    for (const row of pending.rows) {
       retried++;
       try {
         await awardReferralCommissions(
-          tx as DatabaseClient,
+          tx,
           row.user_id,
           row.coin_amount,
           row.payment_id,
           row.amount_kobo
         );
 
-        await tx.query(
-          `UPDATE failed_commissions
-           SET resolved_at = NOW(), last_retried_at = NOW(), retry_count = retry_count + 1
-           WHERE id = $1`,
-          [row.id]
-        );
+        await tx.execute(sql`
+          UPDATE failed_commissions
+          SET resolved_at = NOW(), last_retried_at = NOW(), retry_count = retry_count + 1
+          WHERE id = ${row.id}
+        `);
         resolved++;
       } catch (err) {
         const newCount = row.retry_count + 1;
-        await tx.query(
-          `UPDATE failed_commissions
-           SET retry_count = $1, last_retried_at = NOW(), error_message = $2
-           WHERE id = $3`,
-          [newCount, err instanceof Error ? err.message : String(err), row.id]
-        );
+        await tx.execute(sql`
+          UPDATE failed_commissions
+          SET retry_count = ${newCount}, last_retried_at = NOW(), error_message = ${err instanceof Error ? err.message : String(err)}
+          WHERE id = ${row.id}
+        `);
 
         if (newCount >= MAX_COMMISSION_RETRIES) {
           permanentFailed++;
@@ -530,7 +560,6 @@ export async function retryFailedCommissions(): Promise<{ retried: number; resol
  * Get commission stats for a referrer.
  */
 export async function getCommissionStats(
-  db: DatabaseClient,
   referrerId: string
 ): Promise<{
   totalTier1Coins: number;
@@ -538,24 +567,32 @@ export async function getCommissionStats(
   tier1Count: number;
   tier2Count: number;
 }> {
-  const { rows } = await db.query<{
-    tier: string;
-    total_coins: string;
-    count: string;
-  }>(
-    `SELECT tier, SUM(commission_coins)::text AS total_coins, COUNT(*)::text AS count
-     FROM referral_commissions
-     WHERE referrer_id = $1
-     GROUP BY tier`,
-    [referrerId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      tier: schema.referralCommissions.tier,
+      totalCoins: sql<string>`SUM(${schema.referralCommissions.commissionCoins})::text`,
+      count: sql<string>`COUNT(*)::text`,
+    })
+    .from(schema.referralCommissions)
+    .where(eq(schema.referralCommissions.referrerId, referrerId))
+    .groupBy(schema.referralCommissions.tier);
 
-  const t1 = rows.find((r) => r.tier === '1');
-  const t2 = rows.find((r) => r.tier === '2');
+  // NOTE: `referral_commissions.tier` is `integer` (schema.ts), not text, and
+  // the raw-SQL version's `SELECT tier` never cast it to text either — so
+  // `r.tier` was always a JS number there too, meaning the original
+  // `r.tier === '1'` string comparison always evaluated false (a
+  // pre-existing bug: this function always returned all-zero commission
+  // stats). Drizzle's stricter typing surfaced this at compile time; fixed
+  // to compare against the actual numeric tier values rather than silently
+  // reproducing the dead comparison — flagging this as an intentional
+  // behavior change (a bug fix) in the migration report.
+  const t1 = rows.find((r) => r.tier === 1);
+  const t2 = rows.find((r) => r.tier === 2);
 
   return {
-    totalTier1Coins: t1 ? parseInt(t1.total_coins) : 0,
-    totalTier2Coins: t2 ? parseInt(t2.total_coins) : 0,
+    totalTier1Coins: t1 ? parseInt(t1.totalCoins) : 0,
+    totalTier2Coins: t2 ? parseInt(t2.totalCoins) : 0,
     tier1Count: t1 ? parseInt(t1.count) : 0,
     tier2Count: t2 ? parseInt(t2.count) : 0,
   };

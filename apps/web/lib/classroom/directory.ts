@@ -12,8 +12,8 @@
  * Date" and enrolment state was never shown.
  */
 
-import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db/interface";
+import { and, desc, eq, ilike, isNull, or, sql, SQL } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { notFound } from "@/lib/api/errors";
 import { parseModules } from "@/lib/classroom/curriculum";
 
@@ -43,73 +43,93 @@ export interface ClassroomCard {
   createdAt: string;
 }
 
-interface CardRow {
+function cardSelection(viewerId: string | null) {
+  const enrolledExpr = viewerId
+    ? sql<boolean>`EXISTS (
+        SELECT 1 FROM classroom_enrolments ce
+        WHERE ce.room_id = ${schema.rooms.id} AND ce.user_id = ${viewerId}
+      )`
+    : sql<boolean>`FALSE`;
+  return {
+    id: schema.rooms.id,
+    slug: schema.rooms.slug,
+    name: schema.rooms.name,
+    description: schema.rooms.description,
+    category: schema.rooms.category,
+    coverEmoji: schema.rooms.coverEmoji,
+    coverImageUrl: schema.rooms.coverImageUrl,
+    creatorId: schema.rooms.creatorId,
+    creatorUsername: schema.users.username,
+    creatorDisplayName: schema.users.displayName,
+    creatorAvatarEmoji: schema.users.avatarEmoji,
+    enrolmentFeeNgn: schema.rooms.enrolmentFeeNgn,
+    memberCount: schema.rooms.memberCount,
+    curriculum: schema.rooms.curriculum,
+    classStartDate: schema.rooms.classStartDate,
+    classEndDate: schema.rooms.classEndDate,
+    isActive: schema.rooms.isActive,
+    isPublic: schema.rooms.isPublic,
+    showInCreatorListing: schema.rooms.showInCreatorListing,
+    createdAt: schema.rooms.createdAt,
+    isEnrolled: enrolledExpr,
+    isPromoted: sql<boolean>`EXISTS (
+      SELECT 1 FROM ad_campaigns ac
+      WHERE ac.boosted_content_type = 'classroom' AND ac.boosted_content_id = ${schema.rooms.id}
+        AND ac.status = 'active'
+    )`,
+  };
+}
+
+type CardSelectionRow = {
   id: string;
   slug: string | null;
   name: string;
   description: string | null;
   category: string | null;
-  cover_emoji: string;
-  cover_image_url: string | null;
-  creator_id: string;
-  creator_username: string;
-  creator_display_name: string | null;
-  creator_avatar_emoji: string;
-  enrolment_fee_ngn: string | number | null;
-  member_count: number;
+  coverEmoji: string;
+  coverImageUrl: string | null;
+  creatorId: string;
+  creatorUsername: string;
+  creatorDisplayName: string | null;
+  creatorAvatarEmoji: string;
+  enrolmentFeeNgn: bigint | null;
+  memberCount: number;
   curriculum: unknown;
-  class_start_date: string | null;
-  class_end_date: string | null;
-  is_active: boolean | null;
-  is_public: boolean | null;
-  show_in_creator_listing: boolean;
-  is_enrolled: boolean;
-  is_promoted: boolean;
-  created_at: string;
-}
+  classStartDate: string | null;
+  classEndDate: string | null;
+  isActive: boolean | null;
+  isPublic: boolean | null;
+  showInCreatorListing: boolean;
+  createdAt: Date | null;
+  isEnrolled: boolean;
+  isPromoted: boolean;
+};
 
-const CARD_SELECT = `
-  SELECT r.id, r.slug, r.name, r.description, r.category, r.cover_emoji, r.cover_image_url,
-         r.creator_id, u.username AS creator_username, u.display_name AS creator_display_name,
-         u.avatar_emoji AS creator_avatar_emoji, r.enrolment_fee_ngn, r.member_count, r.curriculum,
-         r.class_start_date::text AS class_start_date, r.class_end_date::text AS class_end_date,
-         r.is_active, r.is_public, r.show_in_creator_listing, r.created_at,
-         (ce.id IS NOT NULL) AS is_enrolled,
-         EXISTS (
-           SELECT 1 FROM ad_campaigns ac
-            WHERE ac.boosted_content_type = 'classroom' AND ac.boosted_content_id = r.id
-              AND ac.status = 'active'
-         ) AS is_promoted
-    FROM rooms r
-    JOIN users u ON u.id = r.creator_id
-    LEFT JOIN classroom_enrolments ce ON ce.room_id = r.id AND ce.user_id = $1
-`;
-
-function toCard(r: CardRow, viewerId: string | null): ClassroomCard {
+function toCard(r: CardSelectionRow, viewerId: string | null): ClassroomCard {
   return {
     id: r.id,
     slug: r.slug,
     name: r.name,
     description: r.description,
     category: r.category,
-    coverEmoji: r.cover_emoji,
-    coverImageUrl: r.cover_image_url,
-    creatorId: r.creator_id,
-    creatorUsername: r.creator_username,
-    creatorDisplayName: r.creator_display_name ?? r.creator_username,
-    creatorAvatarEmoji: r.creator_avatar_emoji,
-    enrolmentFeeNgn: Number(r.enrolment_fee_ngn ?? 0),
-    memberCount: r.member_count,
+    coverEmoji: r.coverEmoji,
+    coverImageUrl: r.coverImageUrl,
+    creatorId: r.creatorId,
+    creatorUsername: r.creatorUsername,
+    creatorDisplayName: r.creatorDisplayName ?? r.creatorUsername,
+    creatorAvatarEmoji: r.creatorAvatarEmoji,
+    enrolmentFeeNgn: Number(r.enrolmentFeeNgn ?? 0),
+    memberCount: r.memberCount,
     lessonCount: parseModules(r.curriculum).length,
-    classStartDate: r.class_start_date,
-    classEndDate: r.class_end_date,
-    isActive: r.is_active !== false,
-    isPublic: r.is_public !== false,
-    showInCreatorListing: r.show_in_creator_listing,
-    isEnrolled: r.is_enrolled,
-    isOwner: viewerId !== null && viewerId === r.creator_id,
-    isPromoted: r.is_promoted,
-    createdAt: new Date(r.created_at).toISOString(),
+    classStartDate: r.classStartDate,
+    classEndDate: r.classEndDate,
+    isActive: r.isActive !== false,
+    isPublic: r.isPublic !== false,
+    showInCreatorListing: r.showInCreatorListing,
+    isEnrolled: r.isEnrolled,
+    isOwner: viewerId !== null && viewerId === r.creatorId,
+    isPromoted: r.isPromoted,
+    createdAt: (r.createdAt ?? new Date()).toISOString(),
   };
 }
 
@@ -122,51 +142,78 @@ export interface DirectoryQuery {
   offset?: number;
 }
 
-function escapeLike(v: string): string {
-  return v.replace(/[%_\\]/g, (m) => `\\${m}`);
-}
-
 /** Public, active classrooms — searchable by name/description/creator. */
 export async function searchDirectory(viewerId: string | null, query: DirectoryQuery): Promise<{ classrooms: ClassroomCard[]; hasMore: boolean }> {
-  const params: SqlParam[] = [viewerId];
-  const where = ["r.type = 'classroom'", "r.deleted_at IS NULL", "r.is_active = TRUE", "r.is_public = TRUE", "u.deleted_at IS NULL"];
+  const orm = await getDb();
+
+  const conditions: SQL[] = [
+    eq(schema.rooms.type, "classroom"),
+    isNull(schema.rooms.deletedAt),
+    eq(schema.rooms.isActive, true),
+    eq(schema.rooms.isPublic, true),
+    isNull(schema.users.deletedAt),
+  ];
   if (query.q && query.q.trim()) {
-    params.push(`%${escapeLike(query.q.trim())}%`);
-    const p = `$${params.length}`;
-    where.push(`(r.name ILIKE ${p} OR r.description ILIKE ${p} OR r.category ILIKE ${p} OR u.username ILIKE ${p})`);
+    const term = `%${query.q.trim()}%`;
+    conditions.push(
+      or(
+        ilike(schema.rooms.name, term),
+        ilike(schema.rooms.description, term),
+        ilike(schema.rooms.category, term),
+        ilike(schema.users.username, term)
+      )!
+    );
   }
   if (query.category && query.category.trim()) {
-    params.push(query.category.trim());
-    where.push(`r.category ILIKE $${params.length}`);
+    conditions.push(ilike(schema.rooms.category, query.category.trim()));
   }
-  if (query.price === "free") where.push("COALESCE(r.enrolment_fee_ngn, 0) = 0");
-  if (query.price === "paid") where.push("COALESCE(r.enrolment_fee_ngn, 0) > 0");
+  if (query.price === "free") conditions.push(sql`COALESCE(${schema.rooms.enrolmentFeeNgn}, 0) = 0`);
+  if (query.price === "paid") conditions.push(sql`COALESCE(${schema.rooms.enrolmentFeeNgn}, 0) > 0`);
 
   const limit = Math.min(Math.max(Math.floor(query.limit ?? 20), 1), 50);
   const offset = Math.max(Math.floor(query.offset ?? 0), 0);
-  params.push(limit + 1, offset);
 
   // Boosted classrooms (an active boost_content ad campaign) lead, then the chosen sort.
-  const order = query.sort === "new" ? "r.created_at DESC" : "r.member_count DESC, r.created_at DESC";
-  const { rows } = await db.query<CardRow>(
-    `${CARD_SELECT}
-     WHERE ${where.join(" AND ")}
-     ORDER BY is_promoted DESC, ${order}
-     LIMIT $${params.length - 1} OFFSET $${params.length}`,
-    params
-  );
+  const rows = (await orm
+    .select(cardSelection(viewerId))
+    .from(schema.rooms)
+    .innerJoin(schema.users, eq(schema.users.id, schema.rooms.creatorId))
+    .where(and(...conditions))
+    .orderBy(
+      desc(sql`EXISTS (
+        SELECT 1 FROM ad_campaigns ac
+        WHERE ac.boosted_content_type = 'classroom' AND ac.boosted_content_id = ${schema.rooms.id}
+          AND ac.status = 'active'
+      )`),
+      ...(query.sort === "new"
+        ? [desc(schema.rooms.createdAt)]
+        : [desc(schema.rooms.memberCount), desc(schema.rooms.createdAt)])
+    )
+    .limit(limit + 1)
+    .offset(offset)) as unknown as CardSelectionRow[];
+
   return { classrooms: rows.slice(0, limit).map((r) => toCard(r, viewerId)), hasMore: rows.length > limit };
 }
 
 /** Distinct categories in use by public classrooms (directory filter chips). */
 export async function directoryCategories(): Promise<string[]> {
-  const { rows } = await db.query<{ category: string }>(
-    `SELECT category FROM rooms
-      WHERE type = 'classroom' AND deleted_at IS NULL AND is_active = TRUE AND is_public = TRUE
-        AND category IS NOT NULL AND category <> ''
-      GROUP BY category ORDER BY COUNT(*) DESC LIMIT 20`
-  );
-  return rows.map((r) => r.category);
+  const orm = await getDb();
+  const rows = await orm
+    .select({ category: schema.rooms.category })
+    .from(schema.rooms)
+    .where(
+      and(
+        eq(schema.rooms.type, "classroom"),
+        isNull(schema.rooms.deletedAt),
+        eq(schema.rooms.isActive, true),
+        eq(schema.rooms.isPublic, true),
+        sql`${schema.rooms.category} IS NOT NULL AND ${schema.rooms.category} <> ''`
+      )
+    )
+    .groupBy(schema.rooms.category)
+    .orderBy(desc(sql`COUNT(*)`))
+    .limit(20);
+  return rows.map((r) => r.category as string);
 }
 
 /**
@@ -178,30 +225,40 @@ export async function listCreatorClassrooms(
   username: string,
   viewerId: string | null
 ): Promise<{ creator: { id: string; username: string; displayName: string; avatarEmoji: string }; classrooms: ClassroomCard[]; isOwner: boolean }> {
-  const { rows: userRows } = await db.query<{ id: string; username: string; display_name: string | null; avatar_emoji: string }>(
-    `SELECT id, username, display_name, avatar_emoji FROM users WHERE LOWER(username) = LOWER($1) AND deleted_at IS NULL LIMIT 1`,
-    [username]
-  );
-  const creator = userRows[0];
+  const orm = await getDb();
+
+  const [creator] = await orm
+    .select({
+      id: schema.users.id,
+      username: schema.users.username,
+      displayName: schema.users.displayName,
+      avatarEmoji: schema.users.avatarEmoji,
+    })
+    .from(schema.users)
+    .where(and(sql`LOWER(${schema.users.username}) = LOWER(${username})`, isNull(schema.users.deletedAt)))
+    .limit(1);
   if (!creator) throw notFound("Creator not found");
   const isOwner = viewerId === creator.id;
 
-  const visibility = isOwner
-    ? ""
-    : "AND r.is_active = TRUE AND r.is_public = TRUE AND r.show_in_creator_listing = TRUE";
-  const { rows } = await db.query<CardRow>(
-    `${CARD_SELECT}
-     WHERE r.creator_id = $2 AND r.type = 'classroom' AND r.deleted_at IS NULL ${visibility}
-     ORDER BY r.is_active DESC, r.member_count DESC, r.created_at DESC
-     LIMIT 200`,
-    [viewerId, creator.id]
-  );
+  const conditions: SQL[] = [eq(schema.rooms.creatorId, creator.id), eq(schema.rooms.type, "classroom"), isNull(schema.rooms.deletedAt)];
+  if (!isOwner) {
+    conditions.push(eq(schema.rooms.isActive, true), eq(schema.rooms.isPublic, true), eq(schema.rooms.showInCreatorListing, true));
+  }
+
+  const rows = (await orm
+    .select(cardSelection(viewerId))
+    .from(schema.rooms)
+    .innerJoin(schema.users, eq(schema.users.id, schema.rooms.creatorId))
+    .where(and(...conditions))
+    .orderBy(desc(schema.rooms.isActive), desc(schema.rooms.memberCount), desc(schema.rooms.createdAt))
+    .limit(200)) as unknown as CardSelectionRow[];
+
   return {
     creator: {
       id: creator.id,
       username: creator.username,
-      displayName: creator.display_name ?? creator.username,
-      avatarEmoji: creator.avatar_emoji,
+      displayName: creator.displayName ?? creator.username,
+      avatarEmoji: creator.avatarEmoji,
     },
     classrooms: rows.map((r) => toCard(r, viewerId)),
     isOwner,

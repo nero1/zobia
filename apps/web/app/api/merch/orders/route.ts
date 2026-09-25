@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { desc, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -39,37 +40,47 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
     await enforceRateLimit(userId, "user", RATE_LIMITS.apiRead);
 
-    const { rows } = await db.query<OrderRow>(
-      `SELECT
-         mo.id,
-         mo.product_id,
-         mp.name AS product_name,
-         mo.creator_id,
-         u.username AS creator_username,
-         mo.amount_kobo,
-         mo.status,
-         mo.fulfillment_method,
-         mo.seller_notes,
-         mo.shipped_at,
-         mo.delivered_at,
-         mo.confirmed_at,
-         mo.tracking_updates,
-         mo.shipping_name,
-         mo.shipping_address,
-         mo.shipping_city,
-         mo.shipping_country,
-         mo.created_at
-       FROM merch_orders mo
-       JOIN merch_products mp ON mp.id = mo.product_id
-       JOIN users u ON u.id = mo.creator_id
-       WHERE mo.buyer_id = $1
-       ORDER BY mo.created_at DESC`,
-      [userId]
-    );
+    const orm = await getDb();
+    const dbRows = await orm
+      .select({
+        id: schema.merchOrders.id,
+        product_id: schema.merchOrders.productId,
+        product_name: schema.merchProducts.name,
+        creator_id: schema.merchOrders.creatorId,
+        creator_username: schema.users.username,
+        amount_kobo: schema.merchOrders.amountKobo,
+        status: schema.merchOrders.status,
+        fulfillment_method: schema.merchOrders.fulfillmentMethod,
+        seller_notes: schema.merchOrders.sellerNotes,
+        shipped_at: schema.merchOrders.shippedAt,
+        delivered_at: schema.merchOrders.deliveredAt,
+        confirmed_at: schema.merchOrders.confirmedAt,
+        tracking_updates: schema.merchOrders.trackingUpdates,
+        shipping_name: schema.merchOrders.shippingName,
+        shipping_address: schema.merchOrders.shippingAddress,
+        shipping_city: schema.merchOrders.shippingCity,
+        shipping_country: schema.merchOrders.shippingCountry,
+        created_at: schema.merchOrders.createdAt,
+      })
+      .from(schema.merchOrders)
+      .innerJoin(schema.merchProducts, eq(schema.merchProducts.id, schema.merchOrders.productId))
+      .innerJoin(schema.users, eq(schema.users.id, schema.merchOrders.creatorId))
+      .where(eq(schema.merchOrders.buyerId, userId))
+      .orderBy(desc(schema.merchOrders.createdAt));
+
+    const orders: OrderRow[] = dbRows.map((row) => ({
+      ...row,
+      creator_id: row.creator_id as string,
+      amount_kobo: Number(row.amount_kobo ?? 0),
+      shipped_at: row.shipped_at ? row.shipped_at.toISOString() : null,
+      delivered_at: row.delivered_at ? row.delivered_at.toISOString() : null,
+      confirmed_at: row.confirmed_at ? row.confirmed_at.toISOString() : null,
+      created_at: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+    }));
 
     return NextResponse.json({
       success: true,
-      data: { orders: rows },
+      data: { orders },
       error: null,
     });
   } catch (err) {

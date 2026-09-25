@@ -15,9 +15,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq, sql } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { contributeToCreatorFund } from "@/lib/creator/fundContribution";
 
 // ---------------------------------------------------------------------------
@@ -84,27 +85,38 @@ function formatBrandedRoom(row: BrandedRoomRow) {
  */
 export const GET = withAdminAuth(async (_req: NextRequest) => {
   try {
-    const { rows } = await db.query<BrandedRoomRow>(
-      `SELECT
-         br.id,
-         br.room_id,
-         br.brand_name,
-         br.brand_logo_url,
-         br.sponsor_budget_coins,
-         br.join_bonus_coins,
-         br.is_active,
-         br.starts_at,
-         br.ends_at,
-         br.created_by,
-         br.created_at,
-         r.name  AS room_name,
-         r.type  AS room_type
-       FROM branded_rooms br
-       LEFT JOIN rooms r ON r.id = br.room_id
-       ORDER BY br.created_at DESC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.brandedRooms.id,
+        room_id: schema.brandedRooms.roomId,
+        brand_name: schema.brandedRooms.brandName,
+        brand_logo_url: schema.brandedRooms.brandLogoUrl,
+        sponsor_budget_coins: schema.brandedRooms.sponsorBudgetCoins,
+        join_bonus_coins: schema.brandedRooms.joinBonusCoins,
+        is_active: schema.brandedRooms.isActive,
+        starts_at: schema.brandedRooms.startsAt,
+        ends_at: schema.brandedRooms.endsAt,
+        created_by: schema.brandedRooms.createdBy,
+        created_at: schema.brandedRooms.createdAt,
+        room_name: schema.rooms.name,
+        room_type: schema.rooms.type,
+      })
+      .from(schema.brandedRooms)
+      .leftJoin(schema.rooms, eq(schema.rooms.id, schema.brandedRooms.roomId))
+      .orderBy(sql`${schema.brandedRooms.createdAt} DESC`);
 
-    return NextResponse.json({ brandedRooms: rows.map(formatBrandedRoom) });
+    return NextResponse.json({
+      brandedRooms: rows.map((r) =>
+        formatBrandedRoom({
+          ...r,
+          sponsor_budget_coins: Number(r.sponsor_budget_coins),
+          created_at: r.created_at ? r.created_at.toISOString() : "",
+          starts_at: r.starts_at ? r.starts_at.toISOString() : null,
+          ends_at: r.ends_at ? r.ends_at.toISOString() : null,
+        } as unknown as BrandedRoomRow)
+      ),
+    });
   } catch (err) {
     return handleApiError(err);
   }
@@ -137,37 +149,47 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
       endsAt,
     } = parsed.data;
 
-    let created: BrandedRoomRow;
+    const orm = await getDb();
+    const [newRow] = await orm
+      .insert(schema.brandedRooms)
+      .values({
+        roomId: roomId ?? null,
+        brandName,
+        brandLogoUrl: brandLogoUrl ?? null,
+        sponsorBudgetCoins: BigInt(sponsorBudgetCoins),
+        joinBonusCoins,
+        isActive: true,
+        startsAt: startsAt ? new Date(startsAt) : null,
+        endsAt: endsAt ? new Date(endsAt) : null,
+        createdBy: auth.user.sub,
+      })
+      .returning();
 
-    await db.transaction(async (tx) => {
-      const { rows } = await tx.query<BrandedRoomRow>(
-        `INSERT INTO branded_rooms
-           (room_id, brand_name, brand_logo_url, sponsor_budget_coins,
-            join_bonus_coins, is_active, starts_at, ends_at, created_by, created_at)
-         VALUES ($1, $2, $3, $4, $5, true, $6, $7, $8, NOW())
-         RETURNING
-           id, room_id, brand_name, brand_logo_url, sponsor_budget_coins,
-           join_bonus_coins, is_active, starts_at, ends_at, created_by, created_at,
-           NULL AS room_name, NULL AS room_type`,
-        [
-          roomId ?? null,
-          brandName,
-          brandLogoUrl ?? null,
-          sponsorBudgetCoins,
-          joinBonusCoins,
-          startsAt ?? null,
-          endsAt ?? null,
-          auth.user.sub,
-        ]
-      );
+    // Seed the Creator Fund from sponsor budget (PRD §14; percent is
+    // admin-configurable). lib/creator/fundContribution.ts is not yet
+    // migrated to Drizzle (see its own header note — it must stay atomic
+    // with several still-legacy modules in the payments webhook path), so
+    // it is called here with its default (legacy pooled) client rather than
+    // inside a shared transaction with the insert above.
+    await contributeToCreatorFund(sponsorBudgetCoins, "sponsor_budget");
 
-      created = rows[0];
+    const created: BrandedRoomRow = {
+      id: newRow.id,
+      room_id: newRow.roomId,
+      brand_name: newRow.brandName,
+      brand_logo_url: newRow.brandLogoUrl,
+      sponsor_budget_coins: Number(newRow.sponsorBudgetCoins),
+      join_bonus_coins: newRow.joinBonusCoins,
+      is_active: newRow.isActive ?? true,
+      starts_at: newRow.startsAt ? newRow.startsAt.toISOString() : null,
+      ends_at: newRow.endsAt ? newRow.endsAt.toISOString() : null,
+      created_by: newRow.createdBy,
+      created_at: newRow.createdAt ? newRow.createdAt.toISOString() : "",
+      room_name: null,
+      room_type: null,
+    };
 
-      // Seed the Creator Fund from sponsor budget (PRD §14; percent is admin-configurable)
-      await contributeToCreatorFund(sponsorBudgetCoins, "sponsor_budget", tx);
-    });
-
-    return NextResponse.json(formatBrandedRoom(created!), { status: 201 });
+    return NextResponse.json(formatBrandedRoom(created), { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

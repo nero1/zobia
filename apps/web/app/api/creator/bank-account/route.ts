@@ -28,9 +28,10 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import { eq, and, isNull, inArray, sql } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, forbidden, notFound, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { encryptField, decryptField } from "@/lib/security/fieldEncryption";
 import { verifyTotp } from "@/lib/auth/totp";
@@ -43,23 +44,6 @@ import { loadManifest } from "@/lib/manifest";
 // DB row types
 // ---------------------------------------------------------------------------
 
-interface BankAccountRow {
-  id: string;
-  bank_name: string;
-  bank_code: string;
-  account_name: string;
-  account_number_last4: string;
-  recipient_code: string | null;
-  xp_awarded: boolean;
-  created_at: string;
-}
-
-interface UserPinRow {
-  pin_hash: string | null;
-  password_hash: string | null;
-  totp_secret: string | null;
-  totp_enabled: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -98,22 +82,23 @@ async function verifySecurityGate(
   pinOrCode: string | undefined,
   isExistingAccount: boolean
 ): Promise<boolean> {
-  const { rows } = await db.query<UserPinRow>(
-    `SELECT
-       up.pin_hash,
-       u.password_hash,
-       up.totp_secret,
-       COALESCE(up.totp_enabled, false) AS totp_enabled
-     FROM users u
-     LEFT JOIN user_pins up ON up.user_id = u.id
-     WHERE u.id = $1 LIMIT 1`,
-    [userId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      pinHash: schema.userPins.pinHash,
+      passwordHash: schema.users.passwordHash,
+      totpSecret: schema.users.totpSecret,
+      totpEnabled: schema.users.totpEnabled,
+    })
+    .from(schema.users)
+    .leftJoin(schema.userPins, eq(schema.userPins.userId, schema.users.id))
+    .where(eq(schema.users.id, userId))
+    .limit(1);
 
   const row = rows[0];
-  const hasPinHash = !!row?.pin_hash;
-  const hasPassword = !!row?.password_hash;
-  const hasTotp = !!row?.totp_enabled && !!row?.totp_secret;
+  const hasPinHash = !!row?.pinHash;
+  const hasPassword = !!row?.passwordHash;
+  const hasTotp = !!row?.totpEnabled && !!row?.totpSecret;
   const hasAnyAuth = hasPinHash || hasPassword || hasTotp;
 
   // Only gate if the user is editing/deleting an existing account
@@ -131,12 +116,12 @@ async function verifySecurityGate(
     let verified = false;
 
     if (hasPinHash && /^\d{4}$/.test(pinOrCode)) {
-      verified = await bcrypt.compare(pinOrCode, row!.pin_hash!);
+      verified = await bcrypt.compare(pinOrCode, row!.pinHash!);
     }
 
     if (!verified && hasTotp && /^\d{6}$/.test(pinOrCode)) {
       // Decrypt the stored AES-256-GCM secret before TOTP verification (B-02)
-      const plainSecret = decryptField(row!.totp_secret!);
+      const plainSecret = decryptField(row!.totpSecret!);
       if (plainSecret && verifyTotp(plainSecret, pinOrCode)) {
         // Anti-replay: atomically mark this TOTP code as used for 90 seconds (BUG-AUTH-03)
         const replayKey = `totp:used:${userId}:${pinOrCode}`;
@@ -149,7 +134,7 @@ async function verifySecurityGate(
     }
 
     if (!verified && hasPassword) {
-      verified = await bcrypt.compare(pinOrCode, row!.password_hash!);
+      verified = await bcrypt.compare(pinOrCode, row!.passwordHash!);
     }
 
     if (!verified) {
@@ -168,13 +153,21 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<BankAccountRow>(
-      `SELECT id, bank_name, bank_code, account_name, account_number_last4,
-              recipient_code, xp_awarded, created_at
-       FROM creator_bank_accounts
-       WHERE creator_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.creatorBankAccounts.id,
+        bankName: schema.creatorBankAccounts.bankName,
+        bankCode: schema.creatorBankAccounts.bankCode,
+        accountName: schema.creatorBankAccounts.accountName,
+        accountNumberLast4: schema.creatorBankAccounts.accountNumberLast4,
+        recipientCode: schema.creatorBankAccounts.recipientCode,
+        xpAwarded: schema.creatorBankAccounts.xpAwarded,
+        createdAt: schema.creatorBankAccounts.createdAt,
+      })
+      .from(schema.creatorBankAccounts)
+      .where(eq(schema.creatorBankAccounts.creatorId, userId))
+      .limit(1);
 
     if (!rows[0]) {
       return NextResponse.json({ hasAccount: false });
@@ -183,11 +176,11 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const acc = rows[0];
     return NextResponse.json({
       hasAccount: true,
-      bankName: acc.bank_name,
-      bankCode: acc.bank_code,
-      accountName: acc.account_name,
-      accountNumberLast4: acc.account_number_last4,
-      createdAt: acc.created_at,
+      bankName: acc.bankName,
+      bankCode: acc.bankCode,
+      accountName: acc.accountName,
+      accountNumberLast4: acc.accountNumberLast4,
+      createdAt: acc.createdAt,
     });
   } catch (err) {
     return handleApiError(err);
@@ -203,13 +196,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // Must be a creator
-    const { rows: creatorRows } = await db.query<{ is_creator: boolean }>(
-      `SELECT is_creator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    if (!creatorRows[0]?.is_creator) {
+    const creatorRows = await orm
+      .select({ isCreator: schema.users.isCreator })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    if (!creatorRows[0]?.isCreator) {
       throw forbidden("Creator access required");
     }
 
@@ -222,10 +217,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Check if user already has a bank account (determines auth gate)
-    const { rows: existingRows } = await db.query<{ id: string; xp_awarded: boolean }>(
-      `SELECT id, xp_awarded FROM creator_bank_accounts WHERE creator_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const existingRows = await orm
+      .select({ id: schema.creatorBankAccounts.id, xpAwarded: schema.creatorBankAccounts.xpAwarded })
+      .from(schema.creatorBankAccounts)
+      .where(eq(schema.creatorBankAccounts.creatorId, userId))
+      .limit(1);
     const isExistingAccount = !!existingRows[0];
 
     // ── Phase 1: Resolve account (no auth gate yet) ──────────────────────────
@@ -276,52 +272,65 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const last4 = body.accountNumber.slice(-4);
     const isFirstAdd = !isExistingAccount;
 
-    await db.query(
-      `INSERT INTO creator_bank_accounts
-         (creator_id, bank_name, bank_code, account_number, is_encrypted, account_name,
-          account_number_last4, recipient_code, xp_awarded)
-       VALUES ($1, $2, $3, $4, TRUE, $5, $6, $7, FALSE)
-       ON CONFLICT (creator_id) DO UPDATE
-         SET bank_name = EXCLUDED.bank_name,
-             bank_code = EXCLUDED.bank_code,
-             account_number = EXCLUDED.account_number,
-             is_encrypted = TRUE,
-             account_name = EXCLUDED.account_name,
-             account_number_last4 = EXCLUDED.account_number_last4,
-             recipient_code = EXCLUDED.recipient_code,
-             updated_at = NOW()`,
-      [userId, body.bankName, body.bankCode, encryptedAccountNumber, body.accountName, last4, recipientCode]
-    );
+    // NOTE (schema mismatch): `is_encrypted` exists on the real
+    // creator_bank_accounts table (db/migrations/0001_consolidated_schema.sql)
+    // but is missing from the Drizzle table definition in lib/db/schema.ts —
+    // it is written here via a raw `sql` template until that's added
+    // upstream. Also: the original `ON CONFLICT (creator_id) DO UPDATE` here
+    // referenced a unique constraint that no longer exists on this table
+    // (SCHEMA-BANK-01 replaced it with a *partial* unique index on
+    // (creator_id) WHERE is_primary = TRUE AND deleted_at IS NULL) — that
+    // statement would raise "no unique or exclusion constraint matching the
+    // ON CONFLICT specification" at runtime. Replaced with an explicit
+    // check-then-write (using the `existingRows` lookup above) instead.
+    if (isExistingAccount) {
+      await orm.execute(sql`
+        UPDATE creator_bank_accounts
+        SET bank_name = ${body.bankName},
+            bank_code = ${body.bankCode},
+            account_number = ${encryptedAccountNumber},
+            is_encrypted = TRUE,
+            account_name = ${body.accountName},
+            account_number_last4 = ${last4},
+            recipient_code = ${recipientCode},
+            updated_at = NOW()
+        WHERE creator_id = ${userId}
+      `);
+    } else {
+      await orm.execute(sql`
+        INSERT INTO creator_bank_accounts
+          (creator_id, bank_name, bank_code, account_number, is_encrypted, account_name,
+           account_number_last4, recipient_code, xp_awarded)
+        VALUES (${userId}, ${body.bankName}, ${body.bankCode}, ${encryptedAccountNumber}, TRUE,
+                ${body.accountName}, ${last4}, ${recipientCode}, FALSE)
+      `);
+    }
 
     // Award XP on first bank account addition
     if (isFirstAdd) {
       const manifest = await loadManifest();
       const mainXp = manifest.payouts.bankAccountFirstAddXp;
       const creatorXp = manifest.payouts.bankAccountFirstAddCreatorXp;
+      const xpReferenceId = `bank_account:${userId}`;
 
-      await db
-        .query(
-          `INSERT INTO xp_ledger
-             (user_id, amount, track, source, reference_id, created_at)
-           VALUES ($1, $2, 'main', 'bank_account_added', $3, NOW()),
-                  ($1, $4, 'creator', 'bank_account_added', $3, NOW())`,
-          [userId, mainXp, `bank_account:${userId}`, creatorXp]
-        )
+      await orm
+        .insert(schema.xpLedger)
+        .values([
+          { userId, amount: mainXp, baseAmount: mainXp, track: "main", source: "bank_account_added", referenceId: xpReferenceId },
+          { userId, amount: creatorXp, baseAmount: creatorXp, track: "creator", source: "bank_account_added", referenceId: xpReferenceId },
+        ])
         .catch(() => {});
 
-      await db
-        .query(
-          `UPDATE users
-           SET xp_total = xp_total + $1, updated_at = NOW()
-           WHERE id = $2`,
-          [mainXp, userId]
-        )
+      await orm
+        .update(schema.users)
+        .set({ xpTotal: sql`${schema.users.xpTotal} + ${mainXp}`, updatedAt: new Date() })
+        .where(eq(schema.users.id, userId))
         .catch(() => {});
 
-      await db.query(
-        `UPDATE creator_bank_accounts SET xp_awarded = TRUE WHERE creator_id = $1`,
-        [userId]
-      );
+      await orm
+        .update(schema.creatorBankAccounts)
+        .set({ xpAwarded: true })
+        .where(eq(schema.creatorBankAccounts.creatorId, userId));
     }
 
     return NextResponse.json({
@@ -346,12 +355,14 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const userId = auth.user.sub;
     const body = await req.json().catch(() => ({})) as { pinOrCode?: string };
+    const orm = await getDb();
 
     // Auth gate always required for delete
-    const { rows: existingRows } = await db.query<{ id: string }>(
-      `SELECT id FROM creator_bank_accounts WHERE creator_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const existingRows = await orm
+      .select({ id: schema.creatorBankAccounts.id })
+      .from(schema.creatorBankAccounts)
+      .where(eq(schema.creatorBankAccounts.creatorId, userId))
+      .limit(1);
     if (!existingRows[0]) {
       throw notFound("No bank account configured");
     }
@@ -359,13 +370,16 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
     await verifySecurityGate(userId, body.pinOrCode, true);
 
     // Block if a payout is in-flight using this account
-    const { rows: pendingRows } = await db.query<{ id: string }>(
-      `SELECT id FROM creator_payouts
-       WHERE creator_id = $1
-         AND status IN ('pending', 'awaiting_approval', 'processing')
-       LIMIT 1`,
-      [userId]
-    );
+    const pendingRows = await orm
+      .select({ id: schema.creatorPayouts.id })
+      .from(schema.creatorPayouts)
+      .where(
+        and(
+          eq(schema.creatorPayouts.creatorId, userId),
+          inArray(schema.creatorPayouts.status, ["pending", "awaiting_approval", "processing"])
+        )
+      )
+      .limit(1);
     if (pendingRows[0]) {
       throw badRequest(
         "You cannot remove your bank account while a payout is in progress. Wait for it to complete first.",
@@ -373,10 +387,7 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    await db.query(
-      `DELETE FROM creator_bank_accounts WHERE creator_id = $1`,
-      [userId]
-    );
+    await orm.delete(schema.creatorBankAccounts).where(eq(schema.creatorBankAccounts.creatorId, userId));
 
     return NextResponse.json({ success: true });
   } catch (err) {

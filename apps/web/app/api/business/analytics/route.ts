@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, gt, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 
@@ -27,12 +28,15 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
+    const orm = await getDb();
+
     // Verify account exists
-    const { rows: bizRows } = await db.query<{ id: string }>(
-      `SELECT id FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
-    if (!bizRows[0]) throw notFound("Business account not found");
+    const [bizRow] = await orm
+      .select({ id: schema.businessAccounts.id })
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.userId, userId))
+      .limit(1);
+    if (!bizRow) throw notFound("Business account not found");
 
     // Run all analytic queries in parallel
     const [
@@ -43,52 +47,56 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       vipSubResult,
     ] = await Promise.all([
       // Followers (users who follow this user)
-      db.query<{ count: string }>(
-        `SELECT COUNT(*) AS count FROM follows WHERE following_id = $1`,
-        [userId]
-      ),
+      orm
+        .select({ count: sql<string>`COUNT(*)` })
+        .from(schema.follows)
+        .where(eq(schema.follows.followingId, userId)),
       // Rooms summary
-      db.query<{ total_rooms: string; total_members: string }>(
-        `SELECT
-           COUNT(DISTINCT r.id)::TEXT AS total_rooms,
-           COALESCE(SUM(rm.member_count), 0)::TEXT AS total_members
-         FROM rooms r
-         LEFT JOIN (
-           SELECT room_id, COUNT(*) AS member_count
-           FROM room_members
-           GROUP BY room_id
-         ) rm ON rm.room_id = r.id
-         WHERE r.creator_id = $1 AND r.deleted_at IS NULL`,
-        [userId]
-      ),
+      orm
+        .execute<{ total_rooms: string; total_members: string }>(
+          sql`SELECT
+                COUNT(DISTINCT r.id)::TEXT AS total_rooms,
+                COALESCE(SUM(rm.member_count), 0)::TEXT AS total_members
+              FROM ${schema.rooms} r
+              LEFT JOIN (
+                SELECT room_id, COUNT(*) AS member_count
+                FROM ${schema.roomMembers}
+                GROUP BY room_id
+              ) rm ON rm.room_id = r.id
+              WHERE r.creator_id = ${userId} AND r.deleted_at IS NULL`
+        )
+        .then((r) => r.rows),
       // Lifetime creator earnings
-      db.query<{ total_kobo: string }>(
-        `SELECT COALESCE(SUM(net_amount_kobo), 0)::TEXT AS total_kobo
-         FROM creator_earnings WHERE creator_id = $1`,
-        [userId]
-      ),
+      orm
+        .select({ total_kobo: sql<string>`COALESCE(SUM(${schema.creatorEarnings.netAmountKobo}), 0)::TEXT` })
+        .from(schema.creatorEarnings)
+        .where(eq(schema.creatorEarnings.creatorId, userId)),
       // Broadcasts sent
-      db.query<{ count: string }>(
-        `SELECT COUNT(*)::TEXT AS count FROM creator_broadcasts WHERE creator_id = $1`,
-        [userId]
-      ),
+      orm
+        .select({ count: sql<string>`COUNT(*)::TEXT` })
+        .from(schema.creatorBroadcasts)
+        .where(eq(schema.creatorBroadcasts.creatorId, userId)),
       // Active VIP room subscribers
-      db.query<{ count: string }>(
-        `SELECT COUNT(DISTINCT rs.user_id)::TEXT AS count
-         FROM room_subscriptions rs
-         JOIN rooms r ON r.id = rs.room_id
-         WHERE r.creator_id = $1 AND rs.status = 'active' AND rs.expires_at > NOW()`,
-        [userId]
-      ),
+      orm
+        .select({ count: sql<string>`COUNT(DISTINCT ${schema.roomSubscriptions.userId})::TEXT` })
+        .from(schema.roomSubscriptions)
+        .innerJoin(schema.rooms, eq(schema.rooms.id, schema.roomSubscriptions.roomId))
+        .where(
+          and(
+            eq(schema.rooms.creatorId, userId),
+            eq(schema.roomSubscriptions.status, "active"),
+            gt(schema.roomSubscriptions.expiresAt, sql`NOW()`)
+          )
+        ),
     ]);
 
     const analytics = {
-      follower_count: parseInt(followerResult.rows[0]?.count ?? "0", 10),
-      total_rooms: parseInt(roomsResult.rows[0]?.total_rooms ?? "0", 10),
-      total_room_members: parseInt(roomsResult.rows[0]?.total_members ?? "0", 10),
-      total_earnings_kobo: parseInt(earningsResult.rows[0]?.total_kobo ?? "0", 10),
-      broadcasts_sent: parseInt(broadcastResult.rows[0]?.count ?? "0", 10),
-      active_subscribers: parseInt(vipSubResult.rows[0]?.count ?? "0", 10),
+      follower_count: parseInt(followerResult[0]?.count ?? "0", 10),
+      total_rooms: parseInt(roomsResult[0]?.total_rooms ?? "0", 10),
+      total_room_members: parseInt(roomsResult[0]?.total_members ?? "0", 10),
+      total_earnings_kobo: parseInt(earningsResult[0]?.total_kobo ?? "0", 10),
+      broadcasts_sent: parseInt(broadcastResult[0]?.count ?? "0", 10),
+      active_subscribers: parseInt(vipSubResult[0]?.count ?? "0", 10),
     };
 
     return NextResponse.json({

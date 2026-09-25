@@ -16,7 +16,8 @@
  *  - OPPONENT_XP_TOLERANCE  = 0.15 (±15% XP band for matchmaking)
  */
 
-import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+import { sql } from "drizzle-orm";
+import { getDb, type DbOrTx } from "@/lib/db/drizzle";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
 import { creditCoins } from "@/lib/economy/coins";
 import { logger } from "@/lib/logger";
@@ -149,19 +150,18 @@ export function calculateWarPoints(activity: WarActivity, isFinalHour: boolean):
  *  5. Prefers same city (if available)
  *
  * @param guildId - The UUID of the guild declaring war.
- * @param db      - Active database adapter.
+ * @param orm     - Active database adapter.
  * @returns The UUID of a suitable opponent guild, or null if none found.
  */
 export async function findWarOpponent(
   guildId: string,
-  db: DatabaseAdapter
+  orm: DbOrTx
 ): Promise<string | null> {
   // Step 1: Load own guild stats.
-  const { rows: selfRows } = await db.query<{ id: string; guild_xp: string | number; city: string | null }>(
-    `SELECT id, guild_xp, city FROM guilds WHERE id = $1 AND is_active = TRUE`,
-    [guildId]
+  const selfResult = await orm.execute<{ id: string; guild_xp: string | number; city: string | null }>(
+    sql`SELECT id, guild_xp, city FROM guilds WHERE id = ${guildId} AND is_active = TRUE`
   );
-  const self = selfRows[0];
+  const self = selfResult.rows[0];
   if (!self) return null;
 
   const selfXP = Number(self.guild_xp);
@@ -187,32 +187,25 @@ export async function findWarOpponent(
   // eliminating the TOCTOU race between the old 2-step fetch-then-filter approach.
   // Prefer same city first, then fall back to any eligible guild.
   for (const cityFilter of [true, false]) {
-    const cityClause = cityFilter && self.city ? `AND g.city = $4` : '';
-    const params: (number | string)[] = [
-      minXP,
-      maxXP,
-      effectiveCooldownHours,
-      ...(cityFilter && self.city ? [self.city] : []),
-    ];
+    const cityClause = cityFilter && self.city ? sql`AND g.city = ${self.city}` : sql``;
 
-    const selfXPParam = cityFilter && self.city ? 5 : 4;
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT g.id FROM guilds g
-       WHERE g.is_active = TRUE
-         AND g.id != $${selfXPParam + 1}
-         AND g.guild_xp BETWEEN $1 AND $2
-         AND (g.last_war_ended_at IS NULL
-              OR g.last_war_ended_at < NOW() - ($3 * INTERVAL '1 hour'))
-         AND NOT EXISTS (
-           SELECT 1 FROM guild_wars gw
-           WHERE (gw.challenger_guild_id = g.id OR gw.defender_guild_id = g.id)
-             AND gw.status IN ('active', 'final_hour')
-         )
-         ${cityClause}
-       ORDER BY ABS(g.guild_xp - $${selfXPParam}) ASC
-       LIMIT 5`,
-      [...params, selfXP, guildId]
-    );
+    const result = await orm.execute<{ id: string }>(sql`
+      SELECT g.id FROM guilds g
+      WHERE g.is_active = TRUE
+        AND g.id != ${guildId}
+        AND g.guild_xp BETWEEN ${minXP} AND ${maxXP}
+        AND (g.last_war_ended_at IS NULL
+             OR g.last_war_ended_at < NOW() - (${effectiveCooldownHours} * INTERVAL '1 hour'))
+        AND NOT EXISTS (
+          SELECT 1 FROM guild_wars gw
+          WHERE (gw.challenger_guild_id = g.id OR gw.defender_guild_id = g.id)
+            AND gw.status IN ('active', 'final_hour')
+        )
+        ${cityClause}
+      ORDER BY ABS(g.guild_xp - ${selfXP}) ASC
+      LIMIT 5
+    `);
+    const rows = result.rows;
 
     // BUG-011 FIX: pick a random candidate from the pool instead of always
     // returning the closest XP match. Always selecting rows[0] made matchmaking
@@ -240,7 +233,7 @@ export async function findWarOpponent(
  *
  * @param warId          - UUID of the resolved war.
  * @param winnerGuildId  - UUID of the winning guild.
- * @param db             - Active database adapter.
+ * @param orm            - Active database adapter.
  * @param txClient       - Optional transaction client; when provided the work
  *                         runs inside the caller's transaction instead of a new one.
  */
@@ -255,19 +248,18 @@ interface PendingXPAward {
 export async function distributeWarRewards(
   warId: string,
   winnerGuildId: string,
-  db: DatabaseAdapter,
-  txClient?: TransactionClient,
+  orm: DbOrTx,
+  txClient?: DbOrTx,
   pendingXPAwards: PendingXPAward[] = []
 ): Promise<void> {
-  const run = async (client: TransactionClient) => {
-    const contribResult = await client.query<MemberContributionRow>(
-      `SELECT wc.user_id, wc.guild_id, wc.war_points, u.username
-       FROM war_contributions wc
-       JOIN users u ON u.id = wc.user_id AND u.deleted_at IS NULL
-       WHERE wc.war_id = $1 AND wc.guild_id = $2
-       ORDER BY wc.war_points DESC`,
-      [warId, winnerGuildId]
-    );
+  const run = async (client: DbOrTx) => {
+    const contribResult = await client.execute<MemberContributionRow & Record<string, unknown>>(sql`
+      SELECT wc.user_id, wc.guild_id, wc.war_points, u.username
+      FROM war_contributions wc
+      JOIN users u ON u.id = wc.user_id AND u.deleted_at IS NULL
+      WHERE wc.war_id = ${warId} AND wc.guild_id = ${winnerGuildId}
+      ORDER BY wc.war_points DESC
+    `);
 
     const members = contribResult.rows;
     if (members.length === 0) return;
@@ -326,7 +318,7 @@ export async function distributeWarRewards(
   if (txClient) {
     await run(txClient);
   } else {
-    await db.transaction(run);
+    await orm.transaction(run);
   }
 }
 
@@ -346,12 +338,12 @@ export async function distributeWarRewards(
  *  6. Sets guild_wars.status = 'completed'.
  *
  * @param warId - UUID of the war to resolve.
- * @param db    - Active database adapter.
+ * @param orm   - Active database adapter.
  * @returns Object with the winner and loser guild IDs.
  */
 export async function resolveWar(
   warId: string,
-  db: DatabaseAdapter
+  orm: DbOrTx
 ): Promise<{ winnerGuildId: string | null; loserGuildId: string | null; outcome: "win" | "draw" }> {
   let winnerGuildId: string | null = null;
   let loserGuildId: string | null = null;
@@ -367,23 +359,21 @@ export async function resolveWar(
   // Only the instance that successfully sets resolved_at (WHERE resolved_at IS NULL)
   // will get rows back; all concurrent callers receive 0 rows and exit early.
   // This eliminates the TOCTOU window between the old SELECT-then-check pattern.
-  await db.transaction(async (client) => {
-    const claimResult = await client.query<GuildWarRow>(
-      `UPDATE guild_wars
-       SET resolved_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND resolved_at IS NULL
-       RETURNING *`,
-      [warId]
-    );
+  await orm.transaction(async (client) => {
+    const claimResult = await client.execute<GuildWarRow & Record<string, unknown>>(sql`
+      UPDATE guild_wars
+      SET resolved_at = NOW(), updated_at = NOW()
+      WHERE id = ${warId} AND resolved_at IS NULL
+      RETURNING *
+    `);
 
     // Another instance already claimed resolution — exit without double-distributing rewards.
     if (claimResult.rows.length === 0) {
       // Check if the war exists at all (vs. already resolved)
-      const { rows: existRows } = await client.query<{ id: string; status: string }>(
-        `SELECT id, status FROM guild_wars WHERE id = $1`,
-        [warId]
+      const existResult = await client.execute<{ id: string; status: string }>(
+        sql`SELECT id, status FROM guild_wars WHERE id = ${warId}`
       );
-      if (!existRows[0]) throw new Error(`[warEngine] War not found: ${warId}`);
+      if (!existResult.rows[0]) throw new Error(`[warEngine] War not found: ${warId}`);
       // Already resolved by another concurrent instance — return early (idempotent)
       logger.warn({ warId }, '[resolveWar] War already claimed for resolution by another instance — skipping');
       return;
@@ -403,32 +393,30 @@ export async function resolveWar(
       winnerGuildId = null;
       loserGuildId = null;
 
-      await client.query(
-        `UPDATE guild_wars
-         SET status = 'completed', winner_guild_id = NULL, updated_at = NOW()
-         WHERE id = $1`,
-        [warId]
-      );
+      await client.execute(sql`
+        UPDATE guild_wars
+        SET status = 'completed', winner_guild_id = NULL, updated_at = NOW()
+        WHERE id = ${warId}
+      `);
 
-      await client.query(
-        `UPDATE guilds SET wars_drawn = wars_drawn + 1, last_war_ended_at = NOW(), updated_at = NOW()
-         WHERE id = $1 OR id = $2`,
-        [war.challenger_guild_id, war.defender_guild_id]
-      );
+      await client.execute(sql`
+        UPDATE guilds SET wars_drawn = wars_drawn + 1, last_war_ended_at = NOW(), updated_at = NOW()
+        WHERE id = ${war.challenger_guild_id} OR id = ${war.defender_guild_id}
+      `);
 
       // Collect draw XP awards (100–250) for post-commit issuance
       for (const guildId of [war.challenger_guild_id, war.defender_guild_id]) {
-        const drawMembers = await client.query<{ user_id: string; war_points: number }>(
-          `SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
-           FROM guild_members gm
-           LEFT JOIN war_contributions wc ON wc.user_id = gm.user_id AND wc.war_id = $2
-           WHERE gm.guild_id = $1 AND gm.left_at IS NULL
-           ORDER BY war_points DESC`,
-          [guildId, warId]
-        );
-        const drawCount = drawMembers.rows.length;
+        const drawMembersResult = await client.execute<{ user_id: string; war_points: number }>(sql`
+          SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
+          FROM guild_members gm
+          LEFT JOIN war_contributions wc ON wc.user_id = gm.user_id AND wc.war_id = ${warId}
+          WHERE gm.guild_id = ${guildId} AND gm.left_at IS NULL
+          ORDER BY war_points DESC
+        `);
+        const drawMembers = drawMembersResult.rows;
+        const drawCount = drawMembers.length;
         for (let i = 0; i < drawCount; i++) {
-          const { user_id } = drawMembers.rows[i];
+          const { user_id } = drawMembers[i];
           const scale = drawCount > 1 ? 1 - i / (drawCount - 1) : 1;
           const memberXP = Math.round(WAR_DRAW_XP_MIN + scale * (WAR_DRAW_XP_MAX - WAR_DRAW_XP_MIN));
           pendingXPAwards.push({ userId: user_id, amount: memberXP, track: "competitor", source: "draw_guild_war", ref: `war:${warId}:${user_id}:draw` });
@@ -445,38 +433,35 @@ export async function resolveWar(
           : war.challenger_guild_id;
 
       // Mark war as completed
-      await client.query(
-        `UPDATE guild_wars
-         SET status = 'completed', winner_guild_id = $1, updated_at = NOW()
-         WHERE id = $2`,
-        [winnerGuildId, warId]
-      );
+      await client.execute(sql`
+        UPDATE guild_wars
+        SET status = 'completed', winner_guild_id = ${winnerGuildId}, updated_at = NOW()
+        WHERE id = ${warId}
+      `);
 
       // Update guild stats
-      await client.query(
-        `UPDATE guilds SET wars_won = wars_won + 1, last_war_ended_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [winnerGuildId]
-      );
-      await client.query(
-        `UPDATE guilds SET wars_lost = wars_lost + 1, last_war_ended_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [loserGuildId]
-      );
+      await client.execute(sql`
+        UPDATE guilds SET wars_won = wars_won + 1, last_war_ended_at = NOW(), updated_at = NOW()
+        WHERE id = ${winnerGuildId}
+      `);
+      await client.execute(sql`
+        UPDATE guilds SET wars_lost = wars_lost + 1, last_war_ended_at = NOW(), updated_at = NOW()
+        WHERE id = ${loserGuildId}
+      `);
 
       // Collect win XP awards (200–500) for post-commit issuance
-      const winnerMembers = await client.query<{ user_id: string; war_points: number }>(
-        `SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
-         FROM guild_members gm
-         LEFT JOIN war_contributions wc ON wc.user_id = gm.user_id AND wc.war_id = $2
-         WHERE gm.guild_id = $1 AND gm.left_at IS NULL
-         ORDER BY war_points DESC`,
-        [winnerGuildId, warId]
-      );
+      const winnerMembersResult = await client.execute<{ user_id: string; war_points: number }>(sql`
+        SELECT gm.user_id, COALESCE(wc.war_points, 0) AS war_points
+        FROM guild_members gm
+        LEFT JOIN war_contributions wc ON wc.user_id = gm.user_id AND wc.war_id = ${warId}
+        WHERE gm.guild_id = ${winnerGuildId} AND gm.left_at IS NULL
+        ORDER BY war_points DESC
+      `);
+      const winnerMembers = winnerMembersResult.rows;
 
-      const memberCount = winnerMembers.rows.length;
+      const memberCount = winnerMembers.length;
       for (let i = 0; i < memberCount; i++) {
-        const { user_id } = winnerMembers.rows[i];
+        const { user_id } = winnerMembers[i];
         const scale = memberCount > 1 ? 1 - i / (memberCount - 1) : 1;
         const memberXP = Math.round(WAR_WIN_XP_MIN + scale * (WAR_WIN_XP_MAX - WAR_WIN_XP_MIN));
         pendingXPAwards.push({ userId: user_id, amount: memberXP, track: "competitor", source: "win_guild_war", ref: `war:${warId}:${user_id}:win` });
@@ -490,26 +475,23 @@ export async function resolveWar(
 
       // Capture pre-war tier BEFORE updating guild_xp so from_tier reflects
       // the tier at the start of the war, not the (possibly recalculated) post-war tier.
-      const { rows: preTierRows } = await client.query<{ tier: string }>(
-        `SELECT tier FROM guilds WHERE id = $1`,
-        [winnerGuildId]
+      const preTierResult = await client.execute<{ tier: string }>(
+        sql`SELECT tier FROM guilds WHERE id = ${winnerGuildId}`
       );
-      const fromTier = preTierRows[0]?.tier ?? null;
+      const fromTier = preTierResult.rows[0]?.tier ?? null;
 
-      await client.query(
-        `UPDATE guilds SET guild_xp = guild_xp + $1, updated_at = NOW() WHERE id = $2`,
-        [guildXPReward, winnerGuildId]
-      );
+      await client.execute(sql`
+        UPDATE guilds SET guild_xp = guild_xp + ${guildXPReward}, updated_at = NOW() WHERE id = ${winnerGuildId}
+      `);
       // Include war_id so each war produces at most one tier history entry per guild.
-      await client.query(
-        `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, war_id)
-         SELECT $1, $3, tier, guild_xp, $2::uuid FROM guilds WHERE id = $1
-         ON CONFLICT (guild_id, war_id) WHERE war_id IS NOT NULL DO NOTHING`,
-        [winnerGuildId, warId, fromTier]
-      ).catch((err) => logger.error({ warId, err }, "[resolveWar] Failed to write guild tier history"));
+      await client.execute(sql`
+        INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, war_id)
+        SELECT ${winnerGuildId}, ${fromTier}, tier, guild_xp, ${warId}::uuid FROM guilds WHERE id = ${winnerGuildId}
+        ON CONFLICT (guild_id, war_id) WHERE war_id IS NOT NULL DO NOTHING
+      `).catch((err) => logger.error({ warId, err }, "[resolveWar] Failed to write guild tier history"));
 
       // Distribute coin rewards and collect top-contributor XP within the same transaction (ZB-03)
-      await distributeWarRewards(warId, winnerGuildId!, db, client, pendingXPAwards);
+      await distributeWarRewards(warId, winnerGuildId!, orm, client, pendingXPAwards);
     }
   });
 
@@ -531,16 +513,15 @@ export async function resolveWar(
  */
 export async function getRematchDiscount(
   guildId: string,
-  db: DatabaseAdapter
+  orm: DbOrTx
 ): Promise<number> {
-  const { rows } = await db.query<{ id: string; discount_percent: number }>(
-    `SELECT id, discount_percent FROM guild_war_rematch_tokens
-     WHERE guild_id = $1 AND is_used = false AND expires_at > NOW()
-     ORDER BY created_at ASC
-     LIMIT 1`,
-    [guildId]
-  );
-  return rows[0]?.discount_percent ?? 0;
+  const result = await orm.execute<{ id: string; discount_percent: number }>(sql`
+    SELECT id, discount_percent FROM guild_war_rematch_tokens
+    WHERE guild_id = ${guildId} AND is_used = false AND expires_at > NOW()
+    ORDER BY created_at ASC
+    LIMIT 1
+  `);
+  return result.rows[0]?.discount_percent ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -555,23 +536,22 @@ export async function getRematchDiscount(
  */
 export async function consumeRematchToken(
   guildId: string,
-  db: DatabaseAdapter
+  orm: DbOrTx
 ): Promise<boolean> {
-  const { rows } = await db.query<{ id: string }>(
-    `WITH consumed AS (
-       UPDATE guild_war_rematch_tokens
-         SET is_used = true
-       WHERE id = (
-         SELECT id FROM guild_war_rematch_tokens
-         WHERE guild_id = $1 AND is_used = false AND expires_at > NOW()
-         ORDER BY created_at ASC
-         LIMIT 1
-         FOR UPDATE SKIP LOCKED
-       )
-       RETURNING id
-     )
-     SELECT id FROM consumed`,
-    [guildId]
-  );
-  return rows.length > 0;
+  const result = await orm.execute<{ id: string }>(sql`
+    WITH consumed AS (
+      UPDATE guild_war_rematch_tokens
+        SET is_used = true
+      WHERE id = (
+        SELECT id FROM guild_war_rematch_tokens
+        WHERE guild_id = ${guildId} AND is_used = false AND expires_at > NOW()
+        ORDER BY created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      )
+      RETURNING id
+    )
+    SELECT id FROM consumed
+  `);
+  return result.rows.length > 0;
 }

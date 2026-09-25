@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -41,31 +42,44 @@ export const POST = withAdminAuth(
         throw badRequest("category is required when flagging a quest");
       }
 
-      const { rows } = await db.query<{ id: string }>(
-        `SELECT id FROM sponsored_quests WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [questId]
-      );
+      const orm = await getDb();
+
+      const rows = await orm
+        .select({ id: schema.sponsoredQuests.id })
+        .from(schema.sponsoredQuests)
+        .where(and(eq(schema.sponsoredQuests.id, questId), isNull(schema.sponsoredQuests.deletedAt)))
+        .limit(1);
       if (!rows[0]) throw notFound("Sponsored quest not found");
 
+      // NOTE: sponsored_quests has no updated_at column in the Drizzle schema
+      // (lib/db/schema.ts) even though the previous raw-SQL version of this
+      // route set `updated_at = NOW()` — a pre-existing schema/route mismatch,
+      // left unset here rather than silently added to the shared schema.
       if (body.action === "flag") {
-        await db.query(
-          `UPDATE sponsored_quests
-           SET flag_status = 'flagged', flag_category = $1, flag_reason = $2,
-               flagged_by = $3, flagged_at = NOW(), updated_at = NOW()
-           WHERE id = $4`,
-          [body.category ?? null, body.reason ?? null, auth.user.sub, questId]
-        );
+        await orm
+          .update(schema.sponsoredQuests)
+          .set({
+            flagStatus: "flagged",
+            flagCategory: body.category ?? null,
+            flagReason: body.reason ?? null,
+            flaggedBy: auth.user.sub,
+            flaggedAt: new Date(),
+          })
+          .where(eq(schema.sponsoredQuests.id, questId));
       } else {
-        await db.query(
-          `UPDATE sponsored_quests
-           SET flag_status = 'none', flag_category = NULL, flag_reason = NULL,
-               flagged_by = NULL, flagged_at = NULL, updated_at = NOW()
-           WHERE id = $1`,
-          [questId]
-        );
+        await orm
+          .update(schema.sponsoredQuests)
+          .set({
+            flagStatus: "none",
+            flagCategory: null,
+            flagReason: null,
+            flaggedBy: null,
+            flaggedAt: null,
+          })
+          .where(eq(schema.sponsoredQuests.id, questId));
       }
 
-      await syncSponsoredQuestTemplate(db, questId);
+      await syncSponsoredQuestTemplate(orm, questId);
 
       return NextResponse.json({ success: true, data: { questId, action: body.action }, error: null });
     } catch (err) {

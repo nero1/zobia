@@ -13,7 +13,13 @@
  * many times that visitor reloads the page.
  */
 
-import { db } from "@/lib/db";
+import { and, desc, eq, gte, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
+// `referralVisits` is not included in the aggregate `schema` object exported
+// from lib/db/schema.ts (schema/DB mismatch — reported upstream), even
+// though the table itself is defined and exported there — imported directly
+// to work around that gap.
+import { referralVisits } from "@/lib/db/schema";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -46,19 +52,26 @@ export interface VisitStats {
  * for this (referrer, visitor, day) — both are expected, not errors.
  */
 export async function recordReferralVisit(input: RecordVisitInput): Promise<void> {
-  const referrerResult = await db.query<{ id: string }>(
-    `SELECT id FROM users WHERE referral_code = $1 AND deleted_at IS NULL LIMIT 1`,
-    [input.code]
-  );
-  const referrerId = referrerResult.rows[0]?.id;
+  const orm = await getDb();
+  const referrerRows = await orm
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(and(eq(schema.users.referralCode, input.code), isNull(schema.users.deletedAt)))
+    .limit(1);
+  const referrerId = referrerRows[0]?.id;
   if (!referrerId) return;
 
-  await db.query(
-    `INSERT INTO referral_visits (referrer_id, code, path, visitor_key)
-     VALUES ($1, $2, $3, $4)
-     ON CONFLICT (referrer_id, visitor_key, visited_date) DO NOTHING`,
-    [referrerId, input.code, input.path.slice(0, 500), input.visitorKey.slice(0, 200)]
-  );
+  await orm
+    .insert(referralVisits)
+    .values({
+      referrerId,
+      code: input.code,
+      path: input.path.slice(0, 500),
+      visitorKey: input.visitorKey.slice(0, 200),
+    })
+    .onConflictDoNothing({
+      target: [referralVisits.referrerId, referralVisits.visitorKey, referralVisits.visitedDate],
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -67,39 +80,42 @@ export async function recordReferralVisit(input: RecordVisitInput): Promise<void
 
 /** Basic stat available to every plan: just the all-time total. */
 export async function getBasicVisitCount(referrerId: string): Promise<number> {
-  const result = await db.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM referral_visits WHERE referrer_id = $1`,
-    [referrerId]
-  );
-  return Number(result.rows[0]?.count ?? 0);
+  const orm = await getDb();
+  const rows = await orm
+    .select({ count: sql<string>`COUNT(*)::text` })
+    .from(referralVisits)
+    .where(eq(referralVisits.referrerId, referrerId));
+  return Number(rows[0]?.count ?? 0);
 }
 
 /** Full detail (daily breakdown, top paths, conversion rate) — gated by plan, see visitStatsTier(). */
 export async function getFullVisitStats(referrerId: string, tier1SignupCount: number): Promise<VisitStats> {
+  const orm = await getDb();
   const [totalResult, dailyResult, pathsResult] = await Promise.all([
-    db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM referral_visits WHERE referrer_id = $1`,
-      [referrerId]
-    ),
-    db.query<{ day: string; count: string }>(
-      `SELECT visited_date::text AS day, COUNT(*)::text AS count
-       FROM referral_visits
-       WHERE referrer_id = $1 AND visited_date >= CURRENT_DATE - INTERVAL '29 days'
-       GROUP BY visited_date`,
-      [referrerId]
-    ),
-    db.query<{ path: string; count: string }>(
-      `SELECT path, COUNT(*)::text AS count
-       FROM referral_visits
-       WHERE referrer_id = $1
-       GROUP BY path
-       ORDER BY COUNT(*) DESC
-       LIMIT 5`,
-      [referrerId]
-    ),
+    orm
+      .select({ count: sql<string>`COUNT(*)::text` })
+      .from(referralVisits)
+      .where(eq(referralVisits.referrerId, referrerId)),
+    orm
+      .select({ day: sql<string>`${referralVisits.visitedDate}::text`, count: sql<string>`COUNT(*)::text` })
+      .from(referralVisits)
+      .where(
+        and(
+          eq(referralVisits.referrerId, referrerId),
+          gte(referralVisits.visitedDate, sql`CURRENT_DATE - INTERVAL '29 days'`)
+        )
+      )
+      .groupBy(referralVisits.visitedDate),
+    orm
+      .select({ path: referralVisits.path, count: sql<string>`COUNT(*)::text` })
+      .from(referralVisits)
+      .where(eq(referralVisits.referrerId, referrerId))
+      .groupBy(referralVisits.path)
+      .orderBy(desc(sql`COUNT(*)`))
+      .limit(5),
   ]);
 
-  const byDay = new Map(dailyResult.rows.map((r) => [r.day, Number(r.count)]));
+  const byDay = new Map(dailyResult.map((r) => [r.day, Number(r.count)]));
   const last30Days: { date: string; visits: number }[] = [];
   for (let i = 29; i >= 0; i--) {
     const d = new Date();
@@ -108,12 +124,12 @@ export async function getFullVisitStats(referrerId: string, tier1SignupCount: nu
     last30Days.push({ date: key, visits: byDay.get(key) ?? 0 });
   }
 
-  const totalVisits = Number(totalResult.rows[0]?.count ?? 0);
+  const totalVisits = Number(totalResult[0]?.count ?? 0);
 
   return {
     totalVisits,
     last30Days,
-    topPaths: pathsResult.rows.map((r) => ({ path: r.path, visits: Number(r.count) })),
+    topPaths: pathsResult.map((r) => ({ path: r.path, visits: Number(r.count) })),
     conversionRate: totalVisits > 0 ? Math.round((tier1SignupCount / totalVisits) * 10000) / 100 : null,
   };
 }

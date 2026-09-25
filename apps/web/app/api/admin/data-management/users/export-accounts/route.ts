@@ -24,7 +24,7 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -54,6 +54,8 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const filters = body.filters ?? {};
     const { clauses, params, nextParamIdx } = buildFilterConditions(filters, 1);
     const whereClauses = ["u.deleted_at IS NULL", ...clauses];
+    const orm = await getDb();
+    const pool = orm.$client;
 
     writeAuditLog({
       actorId: auth.user.sub,
@@ -80,7 +82,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
           idx += 2;
         }
 
-        const { rows } = await db.query<{ row: Record<string, unknown>; created_at: string; id: string }>(
+        const { rows } = await pool.query<{ row: Record<string, unknown>; created_at: string; id: string }>(
           `SELECT row_to_json(u) AS row, u.created_at, u.id
            FROM users u
            WHERE ${idxClauses.join(" AND ")}

@@ -18,10 +18,20 @@ export const dynamic = 'force-dynamic';
  *  - ai_provider_failure: Both AI providers (DeepSeek + Gemini) failing
  *  - cron_failure: A scheduled CRON job failed or did not run
  *  - moderation_queue_spike: Pending report count exceeded threshold
+ *
+ * NOTE: `lib/db/schema.ts`'s `systemAlerts` table only defines
+ * id/type/severity/message/metadata/resolved/resolvedAt/resolvedBy/
+ * resolutionNote/createdAt/updatedAt — it is missing title, priority_level,
+ * category, notify_admin, notify_mods, escalation_stage, escalation_phase,
+ * escalation_complete, next_escalation_at, first_notified_at,
+ * last_notified_at, sms_sent_count, channels_sent, all of which this route
+ * reads. This is a genuine schema gap. Kept as a raw SQL statement executed
+ * via `orm.execute(sql...)` (getDb()'s pg pool) rather than `db.query`.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
@@ -94,20 +104,21 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx: { params: Record
     const { searchParams } = new URL(req.url);
     const includeResolved = searchParams.get("include_resolved") === "true";
 
-    const whereClause = includeResolved ? "" : "WHERE resolved = false";
+    const orm = await getDb();
+    const whereClause = includeResolved ? sql`` : sql`WHERE resolved = false`;
 
-    const result = await db.query<AlertRow>(
-      `SELECT id, type, severity, title, message, metadata, priority_level, category,
-              notify_admin, notify_mods, escalation_stage, escalation_phase, escalation_complete,
-              next_escalation_at, first_notified_at, last_notified_at, sms_sent_count, channels_sent,
-              resolved, resolved_at, resolved_by, resolution_note, created_at
-       FROM system_alerts
-       ${whereClause}
-       ORDER BY priority_level ASC, created_at DESC
-       LIMIT 200`
-    );
+    const result = await orm.execute(sql`
+      SELECT id, type, severity, title, message, metadata, priority_level, category,
+             notify_admin, notify_mods, escalation_stage, escalation_phase, escalation_complete,
+             next_escalation_at, first_notified_at, last_notified_at, sms_sent_count, channels_sent,
+             resolved, resolved_at, resolved_by, resolution_note, created_at
+      FROM system_alerts
+      ${whereClause}
+      ORDER BY priority_level ASC, created_at DESC
+      LIMIT 200
+    `);
 
-    const alerts: Alert[] = result.rows.map((row) => ({
+    const alerts: Alert[] = (result.rows as unknown as AlertRow[]).map((row) => ({
       id: row.id,
       type: row.type,
       severity: row.severity as Alert["severity"],

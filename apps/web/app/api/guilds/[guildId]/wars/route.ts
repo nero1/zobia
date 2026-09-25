@@ -17,7 +17,9 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, desc, eq, or, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { withAuth } from "@/lib/api/middleware";
 import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
@@ -79,40 +81,57 @@ export const GET = withAuth(
       const limit = Math.min(parseInt(searchParams.get("limit") ?? "20"), 50);
       const offset = parseInt(searchParams.get("offset") ?? "0");
 
-      const guildExists = await db.query<{ id: string }>(
-        `SELECT id FROM guilds WHERE id = $1 AND is_active = TRUE`,
-        [guildId]
-      );
-      if (!guildExists.rows[0]) throw notFound("Guild not found");
+      const orm = await getDb();
 
-      const { rows } = await db.query<WarRow>(
-        `SELECT
-           gw.id, gw.challenger_guild_id, gw.defender_guild_id, gw.status,
-           gw.challenger_points, gw.defender_points, gw.winner_guild_id,
-           gw.starts_at, gw.ends_at, gw.final_hour_starts_at, gw.created_at,
-           cg.name AS challenger_name, cg.crest_emoji AS challenger_crest,
-           dg.name AS defender_name, dg.crest_emoji AS defender_crest
-         FROM guild_wars gw
-         JOIN guilds cg ON cg.id = gw.challenger_guild_id
-         JOIN guilds dg ON dg.id = gw.defender_guild_id
-         WHERE gw.challenger_guild_id = $1 OR gw.defender_guild_id = $1
-         ORDER BY gw.created_at DESC
-         LIMIT $2 OFFSET $3`,
-        [guildId, limit, offset]
-      );
+      const [guildExists] = await orm
+        .select({ id: schema.guilds.id })
+        .from(schema.guilds)
+        .where(and(eq(schema.guilds.id, guildId), eq(schema.guilds.isActive, true)))
+        .limit(1);
+      if (!guildExists) throw notFound("Guild not found");
 
-      const countResult = await db.query<{ count: string }>(
-        `SELECT COUNT(*) AS count FROM guild_wars
-         WHERE challenger_guild_id = $1 OR defender_guild_id = $1`,
-        [guildId]
-      );
+      const challengerGuild = alias(schema.guilds, "cg");
+      const defenderGuild = alias(schema.guilds, "dg");
+
+      const rows = await orm
+        .select({
+          id: schema.guildWars.id,
+          challenger_guild_id: schema.guildWars.challengerGuildId,
+          defender_guild_id: schema.guildWars.defenderGuildId,
+          status: schema.guildWars.status,
+          challenger_points: schema.guildWars.challengerPoints,
+          defender_points: schema.guildWars.defenderPoints,
+          winner_guild_id: schema.guildWars.winnerGuildId,
+          starts_at: schema.guildWars.startsAt,
+          ends_at: schema.guildWars.endsAt,
+          final_hour_starts_at: schema.guildWars.finalHourStartsAt,
+          created_at: schema.guildWars.createdAt,
+          challenger_name: challengerGuild.name,
+          challenger_crest: challengerGuild.crestEmoji,
+          defender_name: defenderGuild.name,
+          defender_crest: defenderGuild.crestEmoji,
+        })
+        .from(schema.guildWars)
+        .innerJoin(challengerGuild, eq(challengerGuild.id, schema.guildWars.challengerGuildId))
+        .innerJoin(defenderGuild, eq(defenderGuild.id, schema.guildWars.defenderGuildId))
+        .where(or(eq(schema.guildWars.challengerGuildId, guildId), eq(schema.guildWars.defenderGuildId, guildId)))
+        .orderBy(desc(schema.guildWars.createdAt))
+        .limit(limit)
+        .offset(offset);
+
+      const [countResult] = await orm
+        .select({ count: sql<string>`COUNT(*)` })
+        .from(schema.guildWars)
+        .where(or(eq(schema.guildWars.challengerGuildId, guildId), eq(schema.guildWars.defenderGuildId, guildId)));
+
+      const total = parseInt(countResult?.count ?? "0");
 
       return NextResponse.json({
         success: true,
         data: {
           wars: rows,
-          total: parseInt(countResult.rows[0]?.count ?? "0"),
-          hasMore: offset + limit < parseInt(countResult.rows[0]?.count ?? "0"),
+          total,
+          hasMore: offset + limit < total,
         },
         error: null,
       });
@@ -150,18 +169,19 @@ export const POST = withAuth(
 
       // Check for an active rematch token before entering the transaction
       // (read-only; token is consumed atomically inside the transaction)
-      const rematchDiscountPercent = await getRematchDiscount(guildId, db);
+      const orm = await getDb();
+      const rematchDiscountPercent = await getRematchDiscount(guildId, orm);
       const effectiveFee = Math.floor(
         WAR_ENTRY_FEE_COINS * (1 - rematchDiscountPercent / 100)
       );
 
-      // Find opponent BEFORE the outer transaction. findWarOpponent opens its
-      // own db.transaction() on a separate connection; nesting it inside the
-      // outer transaction would put the FOR UPDATE SKIP LOCKED lock on a
-      // different connection than the war INSERT, breaking lock atomicity.
+      // Find opponent BEFORE the outer transaction, using its own queries on
+      // the shared pool rather than nesting inside the outer transaction,
+      // which would put the FOR UPDATE SKIP LOCKED lock on a different
+      // connection than the war INSERT, breaking lock atomicity.
       // The Redis opponent lock (acquired immediately below) covers the window
       // between the SELECT and the war INSERT.
-      const opponentId = await findWarOpponent(guildId, db);
+      const opponentId = await findWarOpponent(guildId, orm);
       if (!opponentId) {
         throw badRequest(
           "No suitable opponent found. Try again later.",
@@ -192,17 +212,16 @@ export const POST = withAuth(
         rematchDiscountApplied: boolean;
       };
       try {
-        result = await db.transaction(async (client) => {
+        result = await orm.transaction(async (client) => {
           // BUG-012 FIX: acquire a PostgreSQL advisory transaction lock on the
           // declaring guild before any DML so only one concurrent war declaration
           // per guild can proceed at a time. pg_try_advisory_xact_lock uses an
           // integer key — we hash the UUID to a stable bigint.
-          const lockResult = await client.query<{ acquired: boolean }>(
-            `SELECT pg_try_advisory_xact_lock(
-               ('x' || substr(md5($1), 1, 16))::bit(64)::bigint
-             ) AS acquired`,
-            [guildId]
-          );
+          const lockResult = await client.execute<{ acquired: boolean }>(sql`
+            SELECT pg_try_advisory_xact_lock(
+              ('x' || substr(md5(${guildId}), 1, 16))::bit(64)::bigint
+            ) AS acquired
+          `);
           if (!lockResult.rows[0]?.acquired) {
             throw conflict(
               "Another war declaration is already in progress for this guild. Please try again.",
@@ -211,16 +230,15 @@ export const POST = withAuth(
           }
 
           // 1. Verify caller is captain and lock guild row
-          const guildRow = await client.query<{
+          const guildRow = await client.execute<{
             captain_id: string;
             last_war_ended_at: string | null;
             guild_xp: number;
             treasury_balance: number;
-          }>(
-            `SELECT captain_id, last_war_ended_at, guild_xp, treasury_balance
-             FROM guilds WHERE id = $1 AND is_active = TRUE FOR UPDATE`,
-            [guildId]
-          );
+          }>(sql`
+            SELECT captain_id, last_war_ended_at, guild_xp, treasury_balance
+            FROM guilds WHERE id = ${guildId} AND is_active = TRUE FOR UPDATE
+          `);
           if (!guildRow.rows[0]) throw notFound("Guild not found");
           if (guildRow.rows[0].captain_id !== userId) {
             throw forbidden("Only the guild captain can declare war");
@@ -235,13 +253,12 @@ export const POST = withAuth(
           }
 
           // 3. Check existing active war
-          const activeWar = await client.query<{ id: string }>(
-            `SELECT id FROM guild_wars
-             WHERE (challenger_guild_id = $1 OR defender_guild_id = $1)
-               AND status IN ('active', 'final_hour')
-             LIMIT 1`,
-            [guildId]
-          );
+          const activeWar = await client.execute<{ id: string }>(sql`
+            SELECT id FROM guild_wars
+            WHERE (challenger_guild_id = ${guildId} OR defender_guild_id = ${guildId})
+              AND status IN ('active', 'final_hour')
+            LIMIT 1
+          `);
           if (activeWar.rows.length > 0) {
             throw conflict("Guild is already in an active war", "WAR_ALREADY_ACTIVE");
           }
@@ -251,18 +268,17 @@ export const POST = withAuth(
           // targeting the same opponent cannot both succeed — the second caller will
           // get no rows back and throw OPPONENT_UNAVAILABLE rather than inserting a
           // duplicate war record that would violate the defender unique partial index.
-          const opponentAvailable = await client.query<{ id: string }>(
-            `SELECT g.id FROM guilds g
-             WHERE g.id = $1
-               AND g.is_active = TRUE
-               AND NOT EXISTS (
-                 SELECT 1 FROM guild_wars gw
-                 WHERE (gw.challenger_guild_id = $1 OR gw.defender_guild_id = $1)
-                   AND gw.status IN ('active', 'final_hour')
-               )
-             FOR UPDATE SKIP LOCKED`,
-            [opponentId]
-          );
+          const opponentAvailable = await client.execute<{ id: string }>(sql`
+            SELECT g.id FROM guilds g
+            WHERE g.id = ${opponentId}
+              AND g.is_active = TRUE
+              AND NOT EXISTS (
+                SELECT 1 FROM guild_wars gw
+                WHERE (gw.challenger_guild_id = ${opponentId} OR gw.defender_guild_id = ${opponentId})
+                  AND gw.status IN ('active', 'final_hour')
+              )
+            FOR UPDATE SKIP LOCKED
+          `);
           if (!opponentAvailable.rows[0]) {
             throw conflict(
               "Opponent guild is no longer available for war. Please try again.",
@@ -286,26 +302,24 @@ export const POST = withAuth(
 
           // 5. Deduct entry fee from guild treasury
           if (effectiveFee > 0) {
-            await client.query(
-              `UPDATE guilds SET treasury_balance = treasury_balance - $1, updated_at = NOW()
-               WHERE id = $2`,
-              [effectiveFee, guildId]
-            );
+            await client
+              .update(schema.guilds)
+              .set({ treasuryBalance: sql`${schema.guilds.treasuryBalance} - ${effectiveFee}`, updatedAt: new Date() })
+              .where(eq(schema.guilds.id, guildId));
           }
 
           // 6. Consume rematch token if one was used (atomic, inside same transaction)
           if (rematchDiscountPercent > 0) {
-            await client.query(
-              `UPDATE guild_war_rematch_tokens
-               SET is_used = true
-               WHERE id = (
-                 SELECT id FROM guild_war_rematch_tokens
-                 WHERE guild_id = $1 AND is_used = false AND expires_at > NOW()
-                 ORDER BY created_at ASC
-                 LIMIT 1
-               )`,
-              [guildId]
-            );
+            await client.execute(sql`
+              UPDATE guild_war_rematch_tokens
+              SET is_used = true
+              WHERE id = (
+                SELECT id FROM guild_war_rematch_tokens
+                WHERE guild_id = ${guildId} AND is_used = false AND expires_at > NOW()
+                ORDER BY created_at ASC
+                LIMIT 1
+              )
+            `);
           }
 
           // 7. Create war record
@@ -317,17 +331,22 @@ export const POST = withAuth(
             endsAt.getTime() - FINAL_HOUR_OFFSET_MINUTES * 60 * 1000
           );
 
-          const warResult = await client.query<{ id: string }>(
-            `INSERT INTO guild_wars
-               (challenger_guild_id, defender_guild_id, status,
-                challenger_points, defender_points, winner_guild_id,
-                starts_at, ends_at, final_hour_starts_at, created_at, updated_at)
-             VALUES ($1, $2, 'active', 0, 0, NULL, $3, $4, $5, NOW(), NOW())
-             RETURNING id`,
-            [guildId, opponentId, startsAt.toISOString(), endsAt.toISOString(), finalHourStartsAt.toISOString()]
-          );
+          const [warResult] = await client
+            .insert(schema.guildWars)
+            .values({
+              challengerGuildId: guildId,
+              defenderGuildId: opponentId,
+              status: "active",
+              challengerPoints: BigInt(0),
+              defenderPoints: BigInt(0),
+              winnerGuildId: null,
+              startsAt,
+              endsAt,
+              finalHourStartsAt,
+            })
+            .returning({ id: schema.guildWars.id });
 
-          const warId = warResult.rows[0].id;
+          const warId = warResult.id;
 
           return {
             warId,

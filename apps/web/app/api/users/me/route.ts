@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -204,26 +205,28 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
+    const db = await getDb();
     const [profileResult, pinResult] = await Promise.all([
-      db.query<UserFullProfile>(
-        `SELECT ${SELECT_COLUMNS}
+      db.execute(sql`
+        SELECT ${sql.raw(SELECT_COLUMNS)}
          FROM users
-         WHERE id = $1 AND deleted_at IS NULL
-         LIMIT 1`,
-        [auth.user.sub]
-      ),
-      db.query<{ exists: boolean }>(
-        `SELECT EXISTS(SELECT 1 FROM user_pins WHERE user_id = $1) AS exists`,
-        [auth.user.sub]
-      ),
+         WHERE id = ${auth.user.sub} AND deleted_at IS NULL
+         LIMIT 1
+      `),
+      db.execute(sql`
+        SELECT EXISTS(SELECT 1 FROM user_pins WHERE user_id = ${auth.user.sub}) AS exists
+      `),
     ]);
 
-    if (!profileResult.rows[0]) throw notFound("User profile not found");
+    const profileRows = profileResult.rows as unknown as UserFullProfile[];
+    const pinRows = pinResult.rows as unknown as Array<{ exists: boolean }>;
 
-    const hasPIN = pinResult.rows[0]?.exists ?? false;
+    if (!profileRows[0]) throw notFound("User profile not found");
+
+    const hasPIN = pinRows[0]?.exists ?? false;
 
     return NextResponse.json(
-      { user: { ...profileResult.rows[0], hasPIN } },
+      { user: { ...profileRows[0], hasPIN } },
       { status: 200 }
     );
   } catch (err) {
@@ -262,70 +265,59 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Build SET clause dynamically from the remaining provided fields
-    const updates: string[] = [];
-    const params: SqlParam[] = [auth.user.sub];
-    let paramIdx = 2;
+    const db = await getDb();
+    const updates: ReturnType<typeof sql>[] = [];
 
     if (body.display_name !== undefined) {
-      updates.push(`display_name = $${paramIdx++}`);
-      params.push(body.display_name);
+      updates.push(sql`display_name = ${body.display_name}`);
     }
     if (body.bio !== undefined) {
-      updates.push(`bio = $${paramIdx++}`);
-      params.push(body.bio);
+      updates.push(sql`bio = ${body.bio}`);
     }
     if (body.locale !== undefined) {
-      updates.push(`locale = $${paramIdx++}`);
-      params.push(body.locale);
+      updates.push(sql`locale = ${body.locale}`);
     }
     if (body.push_token !== undefined) {
-      updates.push(`push_token = $${paramIdx++}`);
-      params.push(body.push_token);
+      updates.push(sql`push_token = ${body.push_token}`);
     }
     if (body.dm_notifications !== undefined) {
-      updates.push(`dm_notifications = $${paramIdx++}`);
-      params.push(body.dm_notifications);
+      updates.push(sql`dm_notifications = ${body.dm_notifications}`);
     }
     if (body.guild_notifications !== undefined) {
-      updates.push(`guild_notifications = $${paramIdx++}`);
-      params.push(body.guild_notifications);
+      updates.push(sql`guild_notifications = ${body.guild_notifications}`);
     }
     if (body.streak_notifications !== undefined) {
-      updates.push(`streak_notifications = $${paramIdx++}`);
-      params.push(body.streak_notifications);
+      updates.push(sql`streak_notifications = ${body.streak_notifications}`);
     }
     if (body.dm_privacy !== undefined) {
-      updates.push(`dm_privacy = $${paramIdx++}`);
-      params.push(body.dm_privacy);
+      updates.push(sql`dm_privacy = ${body.dm_privacy}`);
     }
     if (body.gender !== undefined) {
-      updates.push(`gender = $${paramIdx++}`);
-      params.push(body.gender);
+      updates.push(sql`gender = ${body.gender}`);
     }
     if (body.date_of_birth !== undefined) {
-      updates.push(`date_of_birth = $${paramIdx++}`);
-      params.push(body.date_of_birth);
+      updates.push(sql`date_of_birth = ${body.date_of_birth}`);
     }
 
     if (updates.length === 0) {
       // Nothing to update – return current profile
-      const { rows } = await db.query<UserFullProfile>(
-        `SELECT ${SELECT_COLUMNS} FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [auth.user.sub]
-      );
+      const result = await db.execute(sql`
+        SELECT ${sql.raw(SELECT_COLUMNS)} FROM users WHERE id = ${auth.user.sub} AND deleted_at IS NULL LIMIT 1
+      `);
+      const rows = result.rows as unknown as UserFullProfile[];
       if (!rows[0]) throw notFound("User profile not found");
       return NextResponse.json({ user: rows[0] }, { status: 200 });
     }
 
-    updates.push("updated_at = NOW()");
+    updates.push(sql`updated_at = NOW()`);
 
-    const { rows } = await db.query<UserFullProfile>(
-      `UPDATE users
-       SET ${updates.join(", ")}
-       WHERE id = $1 AND deleted_at IS NULL
-       RETURNING ${SELECT_COLUMNS}`,
-      params
-    );
+    const updateResult = await db.execute(sql`
+      UPDATE users
+       SET ${sql.join(updates, sql`, `)}
+       WHERE id = ${auth.user.sub} AND deleted_at IS NULL
+       RETURNING ${sql.raw(SELECT_COLUMNS)}
+    `);
+    const rows = updateResult.rows as unknown as UserFullProfile[];
 
     if (!rows[0]) throw notFound("User profile not found");
 

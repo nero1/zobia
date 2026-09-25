@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 
@@ -25,10 +26,12 @@ export const PATCH = withAdminAuth(
       const { itemId } = await params;
       const body = await validateBody(req, updateSchema);
 
-      const { rows } = await db.query(
-        `UPDATE store_items SET is_featured = $1 WHERE id = $2 RETURNING id`,
-        [body.isFeatured, itemId]
-      );
+      const orm = await getDb();
+      const rows = await orm
+        .update(schema.storeItems)
+        .set({ isFeatured: body.isFeatured })
+        .where(eq(schema.storeItems.id, itemId))
+        .returning({ id: schema.storeItems.id });
       if (!rows[0]) throw notFound("Store item not found");
 
       return NextResponse.json({ success: true, data: { id: itemId }, error: null });

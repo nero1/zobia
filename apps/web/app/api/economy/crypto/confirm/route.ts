@@ -16,7 +16,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { submitTransactionHash, verifyPayment } from "@/lib/payments/crypto";
 import { getChainAdapter } from "@/lib/payments/crypto/chains";
@@ -34,12 +35,18 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const body = await validateBody(req, ConfirmSchema);
 
-    const { rows } = await db.query<{ chain: string | null; amount_kobo: string; metadata: Record<string, unknown> }>(
-      `SELECT chain, amount_kobo, metadata FROM payments
-       WHERE idempotency_key = $1 AND user_id = $2 AND provider = 'crypto' LIMIT 1`,
-      [body.idempotencyKey, auth.user.sub]
-    );
-    const payment = rows[0];
+    const orm = await getDb();
+    const [payment] = await orm
+      .select({ chain: schema.payments.chain, amount_kobo: schema.payments.amountKobo, metadata: schema.payments.metadata })
+      .from(schema.payments)
+      .where(
+        and(
+          eq(schema.payments.idempotencyKey, body.idempotencyKey),
+          eq(schema.payments.userId, auth.user.sub),
+          eq(schema.payments.provider, "crypto")
+        )
+      )
+      .limit(1);
     if (!payment || !payment.chain) {
       throw badRequest("No pending crypto payment found for this reference", "PAYMENT_NOT_FOUND");
     }

@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, isNull, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 
@@ -34,20 +35,24 @@ export const PUT = withAdminAuth(
       const { userId } = (await params) as { userId: string };
       const body = await validateBody(req, updateContactSchema);
 
-      const { rows: userRows } = await db.query<{ id: string; is_admin: boolean; is_moderator: boolean }>(
-        `SELECT id, is_admin, is_moderator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      if (userRows.length === 0 || (!userRows[0].is_admin && !userRows[0].is_moderator)) {
+      const orm = await getDb();
+      const [userRow] = await orm
+        .select({ id: schema.users.id, isAdmin: schema.users.isAdmin, isModerator: schema.users.isModerator })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .limit(1);
+      if (!userRow || (!userRow.isAdmin && !userRow.isModerator)) {
         throw badRequest("User is not an admin or moderator.", "NOT_STAFF");
       }
 
-      await db.query(
-        `INSERT INTO staff_alert_contacts (user_id, phone_number, sms_enabled, updated_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (user_id) DO UPDATE SET phone_number = $2, sms_enabled = $3, updated_at = NOW()`,
-        [userId, body.phoneNumber, body.smsEnabled]
-      );
+      // NOTE: `staff_alert_contacts` is not present in lib/db/schema.ts
+      // (schema/DB mismatch — reported upstream), so this uses Drizzle's
+      // `sql` tag directly rather than the query builder.
+      await orm.execute(sql`
+        INSERT INTO staff_alert_contacts (user_id, phone_number, sms_enabled, updated_at)
+        VALUES (${userId}, ${body.phoneNumber}, ${body.smsEnabled}, NOW())
+        ON CONFLICT (user_id) DO UPDATE SET phone_number = ${body.phoneNumber}, sms_enabled = ${body.smsEnabled}, updated_at = NOW()
+      `);
 
       return NextResponse.json({ success: true, data: { userId }, error: null });
     } catch (err) {

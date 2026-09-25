@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -25,11 +26,12 @@ export const GET = withAuth<{ id: string }>(
       const userId = auth.user.sub;
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiRead);
 
-      const { rows } = await db.query<{ user_id: string; storage_key: string }>(
-        `SELECT user_id, storage_key FROM kyc_documents WHERE id = $1`,
-        [params.id]
-      );
-      const doc = rows[0];
+      const orm = await getDb();
+      const [doc] = await orm
+        .select({ user_id: schema.kycDocuments.userId, storage_key: schema.kycDocuments.storageKey })
+        .from(schema.kycDocuments)
+        .where(eq(schema.kycDocuments.id, params.id))
+        .limit(1);
       if (!doc) throw notFound("Document not found");
 
       if (doc.user_id !== userId && !(await isAdminOrModerator(userId))) {
@@ -50,15 +52,16 @@ export const DELETE = withAuth<{ id: string }>(
       const userId = auth.user.sub;
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
 
-      const { rows } = await db.query<{ user_id: string; storage_key: string; submission_id: string | null }>(
-        `SELECT user_id, storage_key, submission_id FROM kyc_documents WHERE id = $1`,
-        [params.id]
-      );
-      const doc = rows[0];
+      const orm = await getDb();
+      const [doc] = await orm
+        .select({ user_id: schema.kycDocuments.userId, storage_key: schema.kycDocuments.storageKey, submission_id: schema.kycDocuments.submissionId })
+        .from(schema.kycDocuments)
+        .where(eq(schema.kycDocuments.id, params.id))
+        .limit(1);
       if (!doc || doc.user_id !== userId) throw notFound("Document not found");
       if (doc.submission_id !== null) throw badRequest("This document is already part of a submission and cannot be deleted.", "DOC_ATTACHED");
 
-      await db.query(`DELETE FROM kyc_documents WHERE id = $1`, [params.id]);
+      await orm.delete(schema.kycDocuments).where(eq(schema.kycDocuments.id, params.id));
       await storage.delete(doc.storage_key, { ignoreNotFound: true }).catch(() => {});
 
       return NextResponse.json({ success: true, data: { deleted: true }, error: null });

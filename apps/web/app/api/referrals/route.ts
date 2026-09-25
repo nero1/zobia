@@ -27,7 +27,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { getCommissionStats } from "@/lib/referrals/commissions";
@@ -87,20 +88,23 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Fetch user's referral code, plan and eligibility context (used both for
     // the referral URL and the stats-detail plan gate below).
-    const userResult = await db.query<UserRow>(
-      `SELECT u.referral_code,
-              COALESCE(u.plan, 'free') AS plan,
-              COALESCE(u.prestige_count, 0) AS prestige_count,
-              COALESCE(u.is_admin, false) AS is_admin,
-              COALESCE(u.is_moderator, false) AS is_moderator,
-              ba.tier AS business_tier
-       FROM users u
-       LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
-       WHERE u.id = $1 AND u.deleted_at IS NULL
-       LIMIT 1`,
-      [userId]
-    );
-    const userRow = userResult.rows[0];
+    const orm = await getDb();
+    const [userRow] = await orm
+      .select({
+        referral_code: schema.users.referralCode,
+        plan: schema.users.plan,
+        prestige_count: schema.users.prestigeCount,
+        is_admin: schema.users.isAdmin,
+        is_moderator: schema.users.isModerator,
+        business_tier: schema.businessAccounts.tier,
+      })
+      .from(schema.users)
+      .leftJoin(
+        schema.businessAccounts,
+        and(eq(schema.businessAccounts.userId, schema.users.id), eq(schema.businessAccounts.status, "active"))
+      )
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     const referralCode = userRow?.referral_code ?? null;
 
     // Stats-detail tier: admin-configurable via x_manifest key
@@ -133,25 +137,25 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       : null;
 
     // Fetch all referrals where this user is the referrer
-    const referralsResult = await db.query<ReferralRow>(
-      `SELECT r.id,
-              r.tier,
-              r.qualified,
-              r.coin_reward,
-              r.xp_reward,
-              r.created_at,
-              r.rewarded_at,
-              u.username   AS referred_username,
-              u.display_name AS referred_display_name,
-              u.avatar_emoji AS referred_avatar_emoji
-       FROM referrals r
-       LEFT JOIN users u ON u.id = r.referred_id AND u.deleted_at IS NULL
-       WHERE r.referrer_id = $1
-       ORDER BY r.created_at DESC`,
-      [userId]
-    );
+    const referralsRows = await orm
+      .select({
+        id: schema.referrals.id,
+        tier: schema.referrals.tier,
+        qualified: schema.referrals.qualified,
+        coin_reward: schema.referrals.coinReward,
+        xp_reward: schema.referrals.xpReward,
+        created_at: schema.referrals.createdAt,
+        rewarded_at: schema.referrals.rewardedAt,
+        referred_username: schema.users.username,
+        referred_display_name: schema.users.displayName,
+        referred_avatar_emoji: schema.users.avatarEmoji,
+      })
+      .from(schema.referrals)
+      .leftJoin(schema.users, and(eq(schema.users.id, schema.referrals.referredId), isNull(schema.users.deletedAt)))
+      .where(eq(schema.referrals.referrerId, userId))
+      .orderBy(desc(schema.referrals.createdAt));
 
-    const referrals: ReferralRecord[] = referralsResult.rows.map((row) => ({
+    const referrals: ReferralRecord[] = referralsRows.map((row) => ({
       id: row.id,
       tier: row.tier as 1 | 2,
       qualified: row.qualified,
@@ -160,8 +164,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       referredUsername: row.referred_username,
       referredDisplayName: row.referred_display_name,
       referredAvatarEmoji: row.referred_avatar_emoji,
-      createdAt: row.created_at,
-      rewardedAt: row.rewarded_at,
+      createdAt: row.created_at ? row.created_at.toISOString() : "",
+      rewardedAt: row.rewarded_at ? row.rewarded_at.toISOString() : null,
     }));
 
     // Aggregate stats
@@ -177,7 +181,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     );
 
     // Fetch commission stats from purchase-based commission tracking
-    const commissionStats = await getCommissionStats(db, userId).catch(() => ({
+    const commissionStats = await getCommissionStats(userId).catch(() => ({
       totalTier1Coins: 0,
       totalTier2Coins: 0,
       tier1Count: 0,

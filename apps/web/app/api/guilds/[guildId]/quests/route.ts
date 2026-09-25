@@ -16,36 +16,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, gte, inArray, lte, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface QuestRow {
-  id: string;
-  guild_id: string;
-  title: string;
-  description: string;
-  quest_type: string;
-  target_count: number;
-  current_count: number;
-  reward_guild_xp: number;
-  reward_coins: number;
-  week_start: string;
-  week_end: string;
-  is_completed: boolean;
-  completed_at: string | null;
-  created_at: string;
-}
-
-interface ContributionCountRow {
-  quest_id: string;
-  user_contribution: number;
-}
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -70,22 +45,25 @@ const createQuestSchema = z.object({
  * Throws 403 if not a member, 404 if guild not found.
  */
 async function verifyGuildMember(
+  orm: DbOrTx,
   userId: string,
   guildId: string
 ): Promise<{ role: string }> {
-  const guildCheck = await db.query<{ id: string }>(
-    `SELECT id FROM guilds WHERE id = $1 AND is_active = TRUE`,
-    [guildId]
-  );
-  if (!guildCheck.rows[0]) throw notFound("Guild not found");
+  const guildCheck = await orm
+    .select({ id: schema.guilds.id })
+    .from(schema.guilds)
+    .where(and(eq(schema.guilds.id, guildId), eq(schema.guilds.isActive, true)))
+    .limit(1);
+  if (!guildCheck[0]) throw notFound("Guild not found");
 
-  const memberCheck = await db.query<{ role: string }>(
-    `SELECT role FROM guild_members WHERE guild_id = $1 AND user_id = $2`,
-    [guildId, userId]
-  );
-  if (!memberCheck.rows[0]) throw forbidden("You are not a member of this guild");
+  const memberCheck = await orm
+    .select({ role: schema.guildMembers.role })
+    .from(schema.guildMembers)
+    .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, userId)))
+    .limit(1);
+  if (!memberCheck[0]) throw forbidden("You are not a member of this guild");
 
-  return memberCheck.rows[0];
+  return memberCheck[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -105,23 +83,37 @@ export const GET = withAuth(
       const userId = auth.user.sub;
 
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiRead);
+      const orm = await getDb();
 
-      await verifyGuildMember(userId, guildId);
+      await verifyGuildMember(orm, userId, guildId);
 
       // Fetch current week's quests
-      const questsResult = await db.query<QuestRow>(
-        `SELECT id, guild_id, title, description, quest_type, target_count,
-                current_count, reward_guild_xp, reward_coins, week_start, week_end,
-                is_completed, completed_at, created_at
-         FROM guild_quests
-         WHERE guild_id = $1
-           AND week_start <= NOW()
-           AND week_end >= NOW()
-         ORDER BY created_at ASC`,
-        [guildId]
-      );
-
-      const quests = questsResult.rows;
+      const quests = await orm
+        .select({
+          id: schema.guildQuests.id,
+          guildId: schema.guildQuests.guildId,
+          title: schema.guildQuests.title,
+          description: schema.guildQuests.description,
+          questType: schema.guildQuests.questType,
+          targetCount: schema.guildQuests.targetCount,
+          currentCount: schema.guildQuests.currentCount,
+          rewardGuildXp: schema.guildQuests.rewardGuildXp,
+          rewardCoins: schema.guildQuests.rewardCoins,
+          weekStart: schema.guildQuests.weekStart,
+          weekEnd: schema.guildQuests.weekEnd,
+          isCompleted: schema.guildQuests.isCompleted,
+          completedAt: schema.guildQuests.completedAt,
+          createdAt: schema.guildQuests.createdAt,
+        })
+        .from(schema.guildQuests)
+        .where(
+          and(
+            eq(schema.guildQuests.guildId, guildId),
+            lte(schema.guildQuests.weekStart, sql`NOW()`),
+            gte(schema.guildQuests.weekEnd, sql`NOW()`)
+          )
+        )
+        .orderBy(schema.guildQuests.createdAt);
 
       if (quests.length === 0) {
         return NextResponse.json({
@@ -133,17 +125,23 @@ export const GET = withAuth(
 
       // Fetch caller's contribution counts for all quests in one query
       const questIds = quests.map((q) => q.id);
-      const contribResult = await db.query<ContributionCountRow>(
-        `SELECT quest_id, SUM(amount)::int AS user_contribution
-         FROM guild_quest_contributions
-         WHERE quest_id = ANY($1) AND user_id = $2
-         GROUP BY quest_id`,
-        [questIds, userId]
-      );
+      const contribResult = await orm
+        .select({
+          questId: schema.guildQuestContributions.questId,
+          userContribution: sql<number>`SUM(${schema.guildQuestContributions.amount})::int`,
+        })
+        .from(schema.guildQuestContributions)
+        .where(
+          and(
+            inArray(schema.guildQuestContributions.questId, questIds),
+            eq(schema.guildQuestContributions.userId, userId)
+          )
+        )
+        .groupBy(schema.guildQuestContributions.questId);
 
       const contribMap = new Map<string, number>();
-      for (const row of contribResult.rows) {
-        contribMap.set(row.quest_id, row.user_contribution);
+      for (const row of contribResult) {
+        contribMap.set(row.questId, row.userContribution);
       }
 
       const questsWithContrib = quests.map((q) => ({
@@ -179,16 +177,18 @@ export const POST = withAuth(
       const userId = auth.user.sub;
 
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
+      const orm = await getDb();
 
       // Check membership and role
-      const member = await verifyGuildMember(userId, guildId);
+      const member = await verifyGuildMember(orm, userId, guildId);
 
       // Check if caller is admin
-      const adminCheck = await db.query<{ is_admin: boolean }>(
-        `SELECT is_admin FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      const isAdmin = adminCheck.rows[0]?.is_admin ?? false;
+      const adminCheck = await orm
+        .select({ isAdmin: schema.users.isAdmin })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), sql`${schema.users.deletedAt} IS NULL`))
+        .limit(1);
+      const isAdmin = adminCheck[0]?.isAdmin ?? false;
 
       if (member.role !== "leader" && !isAdmin) {
         throw forbidden("Only the guild captain or an admin can create quests");
@@ -206,25 +206,21 @@ export const POST = withAuth(
         throw badRequest("weekEnd must be after weekStart");
       }
 
-      const insertResult = await db.query<{ id: string }>(
-        `INSERT INTO guild_quests
-           (guild_id, title, description, target_count, reward_guild_xp, reward_coins,
-            week_start, week_end, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
-         RETURNING id`,
-        [
+      const insertResult = await orm
+        .insert(schema.guildQuests)
+        .values({
           guildId,
-          body.title,
-          body.description,
-          body.targetCount,
-          body.rewardGuildXP,
-          body.rewardCoins,
-          body.weekStart,
-          body.weekEnd,
-        ]
-      );
+          title: body.title,
+          description: body.description,
+          targetCount: body.targetCount,
+          rewardGuildXp: body.rewardGuildXP,
+          rewardCoins: body.rewardCoins,
+          weekStart,
+          weekEnd,
+        })
+        .returning({ id: schema.guildQuests.id });
 
-      const quest = insertResult.rows[0];
+      const quest = insertResult[0];
 
       return NextResponse.json(
         { success: true, data: { questId: quest.id, guildId }, error: null },

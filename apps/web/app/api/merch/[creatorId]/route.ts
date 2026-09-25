@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -36,34 +37,6 @@ const storeSettingsSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface MerchStoreRow {
-  id: string;
-  creator_id: string;
-  name: string;
-  description: string | null;
-  is_active: boolean;
-  created_at: string;
-}
-
-interface MerchProductRow {
-  id: string;
-  store_id: string;
-  name: string;
-  description: string | null;
-  product_type: string;
-  price_kobo: string;
-  image_url: string | null;
-  is_active: boolean;
-  stock: number | null;
-  referral_enabled: boolean;
-  referral_commission_pct: string | null;
-  created_at: string;
-}
-
-// ---------------------------------------------------------------------------
 // GET /api/merch/:creatorId
 // ---------------------------------------------------------------------------
 
@@ -73,37 +46,77 @@ export async function GET(
 ): Promise<NextResponse> {
   try {
     const { creatorId } = await params;
+    const orm = await getDb();
 
-    const { rows: storeRows } = await db.query<MerchStoreRow>(
-      `SELECT id, creator_id, name, description, is_active, created_at
-       FROM merch_stores
-       WHERE creator_id = $1 LIMIT 1`,
-      [creatorId]
-    );
+    const storeRows = await orm
+      .select({
+        id: schema.merchStores.id,
+        creatorId: schema.merchStores.creatorId,
+        name: schema.merchStores.name,
+        description: schema.merchStores.description,
+        isActive: schema.merchStores.isActive,
+        createdAt: schema.merchStores.createdAt,
+      })
+      .from(schema.merchStores)
+      .where(eq(schema.merchStores.creatorId, creatorId))
+      .limit(1);
 
     if (!storeRows[0]) throw notFound("Merch store not found");
 
     const store = storeRows[0];
 
-    const { rows: productRows } = await db.query<MerchProductRow>(
-      `SELECT id, store_id, name, description, product_type,
-              price_kobo::TEXT AS price_kobo, image_url, is_active, stock,
-              referral_enabled, referral_commission_pct::TEXT AS referral_commission_pct, created_at
-       FROM merch_products
-       WHERE store_id = $1 AND is_active = TRUE
-       ORDER BY created_at DESC`,
-      [store.id]
-    );
+    const productRows = await orm
+      .select({
+        id: schema.merchProducts.id,
+        storeId: schema.merchProducts.storeId,
+        name: schema.merchProducts.name,
+        description: schema.merchProducts.description,
+        productType: schema.merchProducts.productType,
+        priceKobo: schema.merchProducts.priceKobo,
+        imageUrl: schema.merchProducts.imageUrl,
+        isActive: schema.merchProducts.isActive,
+        stock: schema.merchProducts.stock,
+        referralEnabled: schema.merchProducts.referralEnabled,
+        referralCommissionPct: schema.merchProducts.referralCommissionPct,
+        createdAt: schema.merchProducts.createdAt,
+      })
+      .from(schema.merchProducts)
+      .where(and(eq(schema.merchProducts.storeId, store.id), eq(schema.merchProducts.isActive, true)))
+      .orderBy(desc(schema.merchProducts.createdAt));
 
+    // NOTE: response field names are snake_case to match the existing API
+    // contract consumed by app/(app)/merch/[creatorId]/page.tsx — do not
+    // switch to camelCase here without updating that client.
     const products = productRows.map((p) => ({
-      ...p,
-      priceKobo: parseInt(p.price_kobo, 10),
-      referralCommissionPct: p.referral_commission_pct ? parseFloat(p.referral_commission_pct) : null,
+      id: p.id,
+      store_id: p.storeId,
+      name: p.name,
+      description: p.description,
+      product_type: p.productType,
+      price_kobo: p.priceKobo.toString(),
+      priceKobo: Number(p.priceKobo),
+      image_url: p.imageUrl,
+      is_active: p.isActive,
+      stock: p.stock,
+      referral_enabled: p.referralEnabled,
+      referral_commission_pct: p.referralCommissionPct,
+      referralCommissionPct: p.referralCommissionPct ? parseFloat(p.referralCommissionPct) : null,
+      created_at: p.createdAt,
     }));
 
     return NextResponse.json({
       success: true,
-      data: { store, products },
+      data: {
+        store: {
+          id: store.id,
+          creator_id: store.creatorId,
+          name: store.name,
+          description: store.description,
+          is_active: store.isActive,
+          created_at: store.createdAt,
+        },
+        products,
+      },
       error: null,
     });
   } catch (err) {
@@ -134,25 +147,48 @@ export const POST = withAuth(
 
       // Verify caller is an Elite+ creator or a verified Business account
       // (per PRD §14: Merch Store is Elite tier+, extended to Business accounts).
-      const eligibility = await getMerchSellerEligibility(userId, db);
+      const eligibility = await getMerchSellerEligibility(userId);
       if (!eligibility.qualified) {
         throw forbidden(MERCH_SELLER_INELIGIBLE_MESSAGE);
       }
 
       const body = await validateBody(req, upsertStoreSchema);
+      const orm = await getDb();
 
-      const { rows } = await db.query<MerchStoreRow>(
-        `INSERT INTO merch_stores (creator_id, name, description, is_active, created_at)
-         VALUES ($1, $2, $3, TRUE, NOW())
-         ON CONFLICT (creator_id) DO UPDATE
-           SET name = EXCLUDED.name,
-               description = EXCLUDED.description
-         RETURNING id, creator_id, name, description, is_active, created_at`,
-        [userId, body.name, body.description ?? null]
-      );
+      const rows = await orm
+        .insert(schema.merchStores)
+        .values({
+          creatorId: userId,
+          name: body.name,
+          description: body.description ?? null,
+          isActive: true,
+        })
+        .onConflictDoUpdate({
+          target: schema.merchStores.creatorId,
+          set: { name: body.name, description: body.description ?? null },
+        })
+        .returning({
+          id: schema.merchStores.id,
+          creatorId: schema.merchStores.creatorId,
+          name: schema.merchStores.name,
+          description: schema.merchStores.description,
+          isActive: schema.merchStores.isActive,
+          createdAt: schema.merchStores.createdAt,
+        });
+
+      const store = rows[0]
+        ? {
+            id: rows[0].id,
+            creator_id: rows[0].creatorId,
+            name: rows[0].name,
+            description: rows[0].description,
+            is_active: rows[0].isActive,
+            created_at: rows[0].createdAt,
+          }
+        : null;
 
       return NextResponse.json(
-        { success: true, data: { store: rows[0] }, error: null },
+        { success: true, data: { store }, error: null },
         { status: 200 }
       );
     } catch (err) {
@@ -185,6 +221,7 @@ export const PATCH = withAuth(
       const manifest = await loadManifest();
 
       const body = await validateBody(req, storeSettingsSchema);
+      const orm = await getDb();
 
       if (body.physicalGoodsEnabled === true && !manifest.features.physicalGoodsEnabled) {
         throw forbidden("Physical goods sales are not enabled on this platform");
@@ -197,24 +234,21 @@ export const PATCH = withAuth(
         );
       }
 
-      const { rows: storeRows } = await db.query<{ id: string }>(
-        `SELECT id FROM merch_stores WHERE creator_id = $1 LIMIT 1`,
-        [userId]
-      );
+      const storeRows = await orm
+        .select({ id: schema.merchStores.id })
+        .from(schema.merchStores)
+        .where(eq(schema.merchStores.creatorId, userId))
+        .limit(1);
       if (!storeRows[0]) throw notFound("Merch store not found. Create a store first.");
 
-      await db.query(
-        `UPDATE merch_stores
-         SET physical_goods_enabled   = COALESCE($1, physical_goods_enabled),
-             default_fulfillment_method = COALESCE($2, default_fulfillment_method),
-             updated_at = NOW()
-         WHERE creator_id = $3`,
-        [
-          body.physicalGoodsEnabled ?? null,
-          body.defaultFulfillmentMethod ?? null,
-          userId,
-        ]
-      );
+      await orm
+        .update(schema.merchStores)
+        .set({
+          physicalGoodsEnabled: body.physicalGoodsEnabled ?? undefined,
+          defaultFulfillmentMethod: body.defaultFulfillmentMethod ?? undefined,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.merchStores.creatorId, userId));
 
       return NextResponse.json({
         success: true,

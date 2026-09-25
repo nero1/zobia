@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 
@@ -71,56 +72,53 @@ export const GET = withAuth(
         }
       }
 
+      const db = await getDb();
+
       // Verify season exists
-      const seasonResult = await db.query<{ id: string }>(
-        `SELECT id FROM seasons WHERE id = $1`,
-        [seasonId]
-      );
-      if (!seasonResult.rows[0]) throw notFound("Season not found");
+      const [seasonRow] = await db
+        .select({ id: schema.seasons.id })
+        .from(schema.seasons)
+        .where(eq(schema.seasons.id, seasonId));
+      if (!seasonRow) throw notFound("Season not found");
 
       // Build scope condition
-      const conditions: string[] = [`usp.season_id = $1`, `u.deleted_at IS NULL`];
-      const params2: (string | null)[] = [seasonId];
-      let paramIdx = 2;
+      const conditions: ReturnType<typeof sql>[] = [
+        sql`usp.season_id = ${seasonId}`,
+        sql`u.deleted_at IS NULL`,
+      ];
 
       if (scope === "city") {
         // Scope to the calling user's city
-        const userCityResult = await db.query<{ city: string | null }>(
-          `SELECT city FROM users WHERE id = $1`,
-          [auth.user.sub]
-        );
-        const city = userCityResult.rows[0]?.city ?? null;
+        const [userCityRow] = await db
+          .select({ city: schema.users.city })
+          .from(schema.users)
+          .where(eq(schema.users.id, auth.user.sub));
+        const city = userCityRow?.city ?? null;
         if (city) {
-          conditions.push(`u.city = $${paramIdx++}`);
-          params2.push(city);
+          conditions.push(sql`u.city = ${city}`);
         }
       } else if (scope === "guild") {
         // Scope to the calling user's guild
-        const userGuildResult = await db.query<{ guild_id: string | null }>(
-          `SELECT guild_id FROM users WHERE id = $1`,
-          [auth.user.sub]
-        );
-        const guildId = userGuildResult.rows[0]?.guild_id ?? null;
+        const [userGuildRow] = await db
+          .select({ guildId: schema.users.guildId })
+          .from(schema.users)
+          .where(eq(schema.users.id, auth.user.sub));
+        const guildId = userGuildRow?.guildId ?? null;
         if (guildId) {
-          conditions.push(`u.guild_id = $${paramIdx++}`);
-          params2.push(guildId);
+          conditions.push(sql`u.guild_id = ${guildId}`);
         }
       }
 
-      const where = `WHERE ${conditions.join(" AND ")}`;
+      const where = sql.join(conditions, sql` AND `);
 
       // Use a CTE so the cursor condition can reference the computed rank.
       // Ranks are sorted ASC (rank 1 = top). Cursor pages forward: (rank, user_id) > cursor.
-      let cursorCondition = "";
-      if (cursorData) {
-        cursorCondition = `AND (ranked.rank, ranked.user_id) > ($${paramIdx++}, $${paramIdx++})`;
-        params2.push(String(cursorData.rank), cursorData.user_id);
-      }
+      const cursorCondition = cursorData
+        ? sql`AND (ranked.rank, ranked.user_id) > (${String(cursorData.rank)}, ${cursorData.user_id})`
+        : sql``;
 
-      const limitParamIdx = paramIdx++;
-
-      const { rows } = await db.query<SeasonLeaderboardRow>(
-        `WITH ranked AS (
+      const result = await db.execute(sql`
+        WITH ranked AS (
            SELECT
              ROW_NUMBER() OVER (ORDER BY usp.season_xp DESC, usp.user_id ASC) AS rank,
              usp.user_id,
@@ -133,27 +131,27 @@ export const GET = withAuth(
              u.guild_id
            FROM user_season_passes usp
            JOIN users u ON u.id = usp.user_id
-           ${where}
+           WHERE ${where}
          )
          SELECT ranked.*, NULL::bigint AS total_count
          FROM ranked
          WHERE TRUE ${cursorCondition}
          ORDER BY ranked.rank ASC, ranked.user_id ASC
-         LIMIT $${limitParamIdx}`,
-        [...params2, limit]
-      );
+         LIMIT ${limit}
+      `);
+      const rows = result.rows as unknown as SeasonLeaderboardRow[];
 
       // Get calling user's rank
-      const userRankResult = await db.query<{ rank: string }>(
-        `SELECT COUNT(*) + 1 AS rank
+      const userRankResult = await db.execute(sql`
+        SELECT COUNT(*) + 1 AS rank
          FROM user_season_passes usp
          JOIN users u ON u.id = usp.user_id
-         WHERE usp.season_id = $1
+         WHERE usp.season_id = ${seasonId}
            AND usp.season_xp > COALESCE(
-             (SELECT season_xp FROM user_season_passes WHERE user_id = $2 AND season_id = $1 LIMIT 1), 0
-           )`,
-        [seasonId, auth.user.sub]
-      );
+             (SELECT season_xp FROM user_season_passes WHERE user_id = ${auth.user.sub} AND season_id = ${seasonId} LIMIT 1), 0
+           )
+      `);
+      const userRankRows = userRankResult.rows as unknown as Array<{ rank: string }>;
 
       // Produce the next cursor from the last item returned, if the page is full.
       const lastItem = rows[rows.length - 1];
@@ -178,7 +176,7 @@ export const GET = withAuth(
             city: r.city,
             guildId: r.guild_id,
           })),
-          userRank: parseInt(userRankResult.rows[0]?.rank ?? "0") || null,
+          userRank: parseInt(userRankRows[0]?.rank ?? "0") || null,
           hasMore: nextCursor !== null,
           nextCursor,
         },

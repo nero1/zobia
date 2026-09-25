@@ -16,10 +16,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getStaffRoles } from "@/lib/auth/roles";
 import { canGuildModPerform } from "@/lib/moderation/capabilities";
 import { applyReportRewards, applyMaliciousReportPenalty } from "@/lib/moderation/rewards";
@@ -33,15 +34,6 @@ const ActionBodySchema = z.object({
   mark_malicious: z.boolean().optional(),
 });
 
-interface ReportRow {
-  id: string;
-  status: string;
-  reporter_id: string | null;
-  reported_user_id: string | null;
-  reported_guild_id: string | null;
-  reported_guild_message_id: string | null;
-}
-
 export const POST = withAuth<{ reportId: string }>(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
@@ -52,46 +44,64 @@ export const POST = withAuth<{ reportId: string }>(async (req: NextRequest, { pa
     if (!parsed.success) throw badRequest("Invalid action payload", parsed.error.flatten());
     const { action, note, duration_hours, mark_malicious } = parsed.data;
 
-    const { rows: reportRows } = await db.query<ReportRow>(
-      `SELECT r.id, r.status, r.reporter_id, r.reported_user_id, r.reported_guild_id, r.reported_guild_message_id
-       FROM moderation_reports r
-       WHERE r.id = $1 AND deleted_at IS NULL
-         AND (r.reported_guild_id IS NOT NULL OR r.reported_guild_message_id IS NOT NULL)`,
-      [reportId]
-    );
-    const report = reportRows[0];
+    const orm = await getDb();
+
+    const [report] = await orm
+      .select({
+        id: schema.moderationReports.id,
+        status: schema.moderationReports.status,
+        reporter_id: schema.moderationReports.reporterId,
+        reported_user_id: schema.moderationReports.reportedUserId,
+        reported_guild_id: schema.moderationReports.reportedGuildId,
+        reported_guild_message_id: schema.moderationReports.reportedGuildMessageId,
+      })
+      .from(schema.moderationReports)
+      .where(
+        and(
+          eq(schema.moderationReports.id, reportId),
+          isNull(schema.moderationReports.deletedAt),
+          or(
+            sql`${schema.moderationReports.reportedGuildId} IS NOT NULL`,
+            sql`${schema.moderationReports.reportedGuildMessageId} IS NOT NULL`
+          )
+        )
+      )
+      .limit(1);
     if (!report) throw notFound("Report not found");
     if (report.status !== "pending") throw badRequest(`Report is already ${report.status}`);
 
     // Resolve which guild this report belongs to and the target user (the
     // reported user directly, or the sender of the reported guild message).
-    const { rows: resolvedRows } = await db.query<{ guild_id: string; sender_id: string | null }>(
-      `SELECT COALESCE($2::uuid, gmsg.guild_id) AS guild_id, gmsg.sender_id
-       FROM moderation_reports r
-       LEFT JOIN guild_messages gmsg ON gmsg.id = r.reported_guild_message_id
-       WHERE r.id = $1`,
-      [reportId, report.reported_guild_id]
-    );
-    const guildId = resolvedRows[0]?.guild_id;
+    const [resolved] = await orm
+      .select({
+        guild_id: sql<string | null>`COALESCE(${report.reported_guild_id}, ${schema.guildMessages.guildId})`,
+        sender_id: schema.guildMessages.senderId,
+      })
+      .from(schema.moderationReports)
+      .leftJoin(schema.guildMessages, eq(schema.guildMessages.id, schema.moderationReports.reportedGuildMessageId))
+      .where(eq(schema.moderationReports.id, reportId))
+      .limit(1);
+    const guildId = resolved?.guild_id;
     if (!guildId) throw notFound("Guild not found for this report");
-    const targetUserId = report.reported_user_id ?? resolvedRows[0]?.sender_id ?? null;
+    const targetUserId = report.reported_user_id ?? resolved?.sender_id ?? null;
 
-    const { rows: guildRows } = await db.query<{ captain_id: string }>(
-      `SELECT captain_id FROM guilds WHERE id = $1 AND is_active = TRUE`,
-      [guildId]
-    );
-    const guild = guildRows[0];
+    const [guild] = await orm
+      .select({ captain_id: schema.guilds.captainId })
+      .from(schema.guilds)
+      .where(and(eq(schema.guilds.id, guildId), eq(schema.guilds.isActive, true)))
+      .limit(1);
     if (!guild) throw notFound("Guild not found");
 
     const roles = await getStaffRoles(auth.user.sub);
     const isCaptain = guild.captain_id === auth.user.sub;
 
     if (!roles.isAdmin && !isCaptain) {
-      const { rows: memberRows } = await db.query<{ is_moderator: boolean }>(
-        `SELECT is_moderator FROM guild_members WHERE guild_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
-        [guildId, auth.user.sub]
-      );
-      if (!memberRows[0]?.is_moderator) {
+      const [member] = await orm
+        .select({ is_moderator: schema.guildMembers.isModerator })
+        .from(schema.guildMembers)
+        .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, auth.user.sub), isNull(schema.guildMembers.leftAt)))
+        .limit(1);
+      if (!member?.is_moderator) {
         throw forbidden("You are not a Forum Mod of this guild.", "NOT_A_FORUM_MOD");
       }
       if (!(await canGuildModPerform(action))) {
@@ -106,39 +116,65 @@ export const POST = withAuth<{ reportId: string }>(async (req: NextRequest, { pa
       throw badRequest(`${action} requires a target user, but this report has none.`);
     }
 
-    await db.transaction(async (tx) => {
-      await tx.query(
-        `INSERT INTO moderation_actions (report_id, target_user_id, action_type, reason, duration_hours, moderator_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-        [reportId, targetUserId, action, note ?? null, duration_hours ?? null, auth.user.sub]
-      );
+    // NOTE: schema.moderationActions.reportId has its FK declared against
+    // the legacy `reports` table, not `moderation_reports` (see schema.ts
+    // ~L4481 vs ~L4381) — the raw SQL this replaced had no compile-time FK
+    // check either way, but this looks like a genuine schema.ts mismatch
+    // worth flagging rather than fixing silently here.
+    await orm.transaction(async (tx) => {
+      await tx.insert(schema.moderationActions).values({
+        reportId,
+        targetUserId,
+        actionType: action,
+        reason: note ?? null,
+        durationHours: duration_hours ?? null,
+        moderatorId: auth.user.sub,
+      });
 
       const resolvedStatus = action === "dismiss" ? "dismissed" : "resolved";
-      await tx.query(
-        `UPDATE moderation_reports SET status = $1, resolved_at = NOW(), resolved_by = $2, resolution_note = $3 WHERE id = $4`,
-        [resolvedStatus, auth.user.sub, note ?? null, reportId]
-      );
+      await tx
+        .update(schema.moderationReports)
+        .set({ status: resolvedStatus, resolvedAt: new Date(), resolvedBy: auth.user.sub, resolutionNote: note ?? null })
+        .where(eq(schema.moderationReports.id, reportId));
 
       if (action === "warn" && targetUserId) {
-        await tx.query(`UPDATE users SET warning_count = COALESCE(warning_count, 0) + 1 WHERE id = $1`, [targetUserId]);
+        await tx
+          .update(schema.users)
+          .set({ warningCount: sql`COALESCE(${schema.users.warningCount}, 0) + 1` })
+          .where(eq(schema.users.id, targetUserId));
       } else if (action === "remove_content" && report.reported_guild_message_id) {
-        await tx.query(`UPDATE guild_messages SET is_deleted = true, deleted_by = $1 WHERE id = $2`, [auth.user.sub, report.reported_guild_message_id]);
+        await tx
+          .update(schema.guildMessages)
+          .set({ isDeleted: true, deletedBy: auth.user.sub })
+          .where(eq(schema.guildMessages.id, report.reported_guild_message_id));
       } else if (action === "mute_member" && targetUserId && duration_hours) {
-        const mutedUntil = new Date(Date.now() + duration_hours * 60 * 60 * 1000).toISOString();
-        await tx.query(
-          `UPDATE guild_members SET is_muted = true, muted_until = $1 WHERE guild_id = $2 AND user_id = $3`,
-          [mutedUntil, guildId, targetUserId]
-        );
+        const mutedUntil = new Date(Date.now() + duration_hours * 60 * 60 * 1000);
+        await tx
+          .update(schema.guildMembers)
+          .set({ isMuted: true, mutedUntil })
+          .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, targetUserId)));
       } else if (action === "kick_member" && targetUserId) {
-        const kicked = await tx.query(`DELETE FROM guild_members WHERE guild_id = $1 AND user_id = $2`, [guildId, targetUserId]);
-        if (kicked.rowCount > 0) {
-          await tx.query(`UPDATE guilds SET member_count = GREATEST(member_count - 1, 0), updated_at = NOW() WHERE id = $1`, [guildId]);
-          await tx.query(`UPDATE users SET guild_id = NULL, updated_at = NOW() WHERE id = $1`, [targetUserId]);
+        const kicked = await tx
+          .delete(schema.guildMembers)
+          .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, targetUserId)))
+          .returning({ id: schema.guildMembers.id });
+        if (kicked.length > 0) {
+          await tx
+            .update(schema.guilds)
+            .set({ memberCount: sql`GREATEST(${schema.guilds.memberCount} - 1, 0)`, updatedAt: new Date() })
+            .where(eq(schema.guilds.id, guildId));
+          await tx
+            .update(schema.users)
+            .set({ guildId: null, updatedAt: new Date() })
+            .where(eq(schema.users.id, targetUserId));
         }
       }
 
       if (action === "dismiss" && mark_malicious) {
-        await tx.query(`UPDATE moderation_reports SET is_malicious = true WHERE id = $1`, [reportId]);
+        await tx
+          .update(schema.moderationReports)
+          .set({ isMalicious: true })
+          .where(eq(schema.moderationReports.id, reportId));
       }
     });
 
@@ -149,10 +185,15 @@ export const POST = withAuth<{ reportId: string }>(async (req: NextRequest, { pa
     }
 
     if (report.reporter_id) {
-      await db.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, created_at) VALUES ($1, 'report_resolved', $2, false, NOW())`,
-        [report.reporter_id, JSON.stringify({ reportId, outcome: action === "dismiss" ? "dismissed" : "resolved" })]
-      ).catch(() => {});
+      await orm
+        .insert(schema.notifications)
+        .values({
+          userId: report.reporter_id,
+          type: "report_resolved",
+          payload: { reportId, outcome: action === "dismiss" ? "dismissed" : "resolved" },
+          isRead: false,
+        })
+        .catch(() => {});
     }
 
     return NextResponse.json({ ok: true, reportId, action, applied_at: new Date().toISOString() });

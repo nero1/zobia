@@ -25,7 +25,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { randomBytes, createHash } from "crypto";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -99,20 +100,19 @@ export const POST = async (req: NextRequest) => {
       if (!captchaOk) throw badRequest("CAPTCHA verification failed", "CAPTCHA_FAILED");
     }
 
-    const { rows } = await db.query<{
-      id: string;
-      display_name: string;
-      email: string;
-    }>(
-      `SELECT id, display_name, email
-       FROM users
-       WHERE LOWER(email) = LOWER($1) AND deleted_at IS NULL
-       LIMIT 1`,
-      [body.email]
-    );
+    const orm = await getDb();
+    const [user] = await orm
+      .select({
+        id: schema.users.id,
+        displayName: schema.users.displayName,
+        email: schema.users.email,
+      })
+      .from(schema.users)
+      .where(and(sql`LOWER(${schema.users.email}) = LOWER(${body.email})`, isNull(schema.users.deletedAt)))
+      .limit(1);
 
     // Always return 200 to prevent email enumeration
-    if (!rows[0]) {
+    if (!user) {
       return NextResponse.json({
         success: true,
         data: { message: "If that email is registered, a reset link has been sent." },
@@ -120,27 +120,25 @@ export const POST = async (req: NextRequest) => {
       });
     }
 
-    const user = rows[0];
-
     // Invalidate any existing unused tokens for this user
-    await db.query(
-      `DELETE FROM password_reset_tokens WHERE user_id = $1 AND used_at IS NULL`,
-      [user.id]
-    );
+    await orm
+      .delete(schema.passwordResetTokens)
+      .where(and(eq(schema.passwordResetTokens.userId, user.id), isNull(schema.passwordResetTokens.usedAt)));
 
     // Generate a new token
     const rawToken = randomBytes(32).toString("hex");
     const tokenHash = hashToken(rawToken);
     const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-    await db.query(
-      `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at)
-       VALUES ($1, $2, $3)`,
-      [user.id, tokenHash, expiresAt.toISOString()]
-    );
+    await orm.insert(schema.passwordResetTokens).values({
+      userId: user.id,
+      tokenHash,
+      expiresAt,
+    });
 
-    // Send reset email (non-blocking)
-    sendResetEmail(user.email, user.display_name, rawToken).catch((err) => {
+    // Send reset email (non-blocking). user.email is guaranteed non-null here
+    // since the lookup above matched on LOWER(email) = LOWER(body.email).
+    sendResetEmail(user.email as string, user.displayName, rawToken).catch((err) => {
       logger.error({ err, userId: user.id }, "[password-reset] Failed to send email");
     });
 
@@ -164,23 +162,21 @@ export const PATCH = async (req: NextRequest) => {
     const tokenHash = hashToken(body.token);
 
     // Look up the token
-    const { rows } = await db.query<{
-      id: string;
-      user_id: string;
-      expires_at: string;
-      used_at: string | null;
-    }>(
-      `SELECT id, user_id, expires_at, used_at
-       FROM password_reset_tokens
-       WHERE token_hash = $1
-       LIMIT 1`,
-      [tokenHash]
-    );
+    const orm = await getDb();
+    const [tokenRow] = await orm
+      .select({
+        id: schema.passwordResetTokens.id,
+        userId: schema.passwordResetTokens.userId,
+        expiresAt: schema.passwordResetTokens.expiresAt,
+        usedAt: schema.passwordResetTokens.usedAt,
+      })
+      .from(schema.passwordResetTokens)
+      .where(eq(schema.passwordResetTokens.tokenHash, tokenHash))
+      .limit(1);
 
-    const tokenRow = rows[0];
     if (!tokenRow) throw badRequest("Invalid or expired reset token", "INVALID_TOKEN");
-    if (tokenRow.used_at) throw badRequest("This reset link has already been used", "TOKEN_USED");
-    if (new Date(tokenRow.expires_at) < new Date()) {
+    if (tokenRow.usedAt) throw badRequest("This reset link has already been used", "TOKEN_USED");
+    if (new Date(tokenRow.expiresAt) < new Date()) {
       throw badRequest("This reset link has expired. Please request a new one.", "TOKEN_EXPIRED");
     }
 
@@ -189,21 +185,21 @@ export const PATCH = async (req: NextRequest) => {
     const passwordHash = await hash(body.newPassword, 12);
 
     // Update password and mark token as used atomically
-    await db.transaction(async (tx) => {
-      await tx.query(
-        `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
-        [passwordHash, tokenRow.user_id]
-      );
-      await tx.query(
-        `UPDATE password_reset_tokens SET used_at = NOW() WHERE id = $1`,
-        [tokenRow.id]
-      );
+    await orm.transaction(async (tx) => {
+      await tx
+        .update(schema.users)
+        .set({ passwordHash, updatedAt: new Date() })
+        .where(eq(schema.users.id, tokenRow.userId));
+      await tx
+        .update(schema.passwordResetTokens)
+        .set({ usedAt: new Date() })
+        .where(eq(schema.passwordResetTokens.id, tokenRow.id));
     });
 
     // Revoke all existing sessions so a compromised old session cannot survive the reset
     const { invalidateAllSessions } = await import("@/lib/auth/session");
-    await invalidateAllSessions(tokenRow.user_id).catch((err) => {
-      logger.error({ err, userId: tokenRow.user_id }, "[password-reset] Failed to invalidate sessions");
+    await invalidateAllSessions(tokenRow.userId).catch((err) => {
+      logger.error({ err, userId: tokenRow.userId }, "[password-reset] Failed to invalidate sessions");
     });
 
     return NextResponse.json({

@@ -17,10 +17,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { sql } from "drizzle-orm";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 
 const topUpSchema = z.object({
@@ -33,33 +34,42 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const body = await validateBody(req, topUpSchema);
 
-    const { rows } = await db.transaction(async (tx) => {
-      const { rows: beforeRows } = await tx.query<{ value: string }>(
-        `SELECT value FROM x_manifest WHERE key = 'creator_fund_balance_kobo' LIMIT 1 FOR UPDATE`
-      );
+    const orm = await getDb();
+    const rows = await orm.transaction(async (tx) => {
+      const beforeRows = await tx
+        .select({ value: schema.xManifest.value })
+        .from(schema.xManifest)
+        .where(sql`${schema.xManifest.key} = 'creator_fund_balance_kobo'`)
+        .limit(1)
+        .for("update");
       const balanceBeforeKobo = parseInt(beforeRows[0]?.value ?? "0", 10);
 
-      const { rows: afterRows } = await tx.query<{ value: string }>(
-        `INSERT INTO x_manifest (key, value, updated_at)
-         VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
-         ON CONFLICT (key) DO UPDATE
-           SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1)::TEXT,
-               updated_at = NOW()
-         RETURNING value`,
-        [body.amountKobo]
-      );
+      const afterRows = await tx
+        .insert(schema.xManifest)
+        .values({ key: "creator_fund_balance_kobo", value: String(body.amountKobo) })
+        .onConflictDoUpdate({
+          target: schema.xManifest.key,
+          set: {
+            value: sql`(COALESCE(${schema.xManifest.value}::NUMERIC, 0) + ${body.amountKobo})::TEXT`,
+            updatedAt: sql`NOW()`,
+          },
+        })
+        .returning({ value: schema.xManifest.value });
 
-      await tx.query(
-        `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, before_val, after_val, created_at)
-         VALUES ($1, 'creator_fund_topup', 'creator_fund', 'creator_fund_balance_kobo', $2::jsonb, $3::jsonb, NOW())`,
-        [
-          auth.user.sub,
-          JSON.stringify({ balanceKobo: balanceBeforeKobo }),
-          JSON.stringify({ balanceKobo: parseInt(afterRows[0]?.value ?? "0", 10), addedKobo: body.amountKobo, note: body.note ?? null }),
-        ]
-      );
+      await tx.insert(schema.adminAuditLog).values({
+        adminId: auth.user.sub,
+        action: "creator_fund_topup",
+        resource: "creator_fund",
+        resourceId: "creator_fund_balance_kobo",
+        beforeVal: { balanceKobo: balanceBeforeKobo },
+        afterVal: {
+          balanceKobo: parseInt(afterRows[0]?.value ?? "0", 10),
+          addedKobo: body.amountKobo,
+          note: body.note ?? null,
+        },
+      });
 
-      return { rows: afterRows };
+      return afterRows;
     });
 
     const balanceKobo = parseInt(rows[0]?.value ?? "0", 10);

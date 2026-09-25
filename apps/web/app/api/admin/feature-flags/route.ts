@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, like, ne } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -36,12 +37,14 @@ const toggleSchema = z.object({
 const MOD_VISIBLE_KEY = "feature_flags_mod_visible";
 
 async function readModVisibleSet(): Promise<Set<string>> {
-  const { rows } = await db.query<{ value: string }>(
-    `SELECT value FROM x_manifest WHERE key = $1 LIMIT 1`,
-    [MOD_VISIBLE_KEY]
-  );
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ value: schema.xManifest.value })
+    .from(schema.xManifest)
+    .where(eq(schema.xManifest.key, MOD_VISIBLE_KEY))
+    .limit(1);
   try {
-    const parsed = JSON.parse(rows[0]?.value ?? "[]");
+    const parsed = JSON.parse(row?.value ?? "[]");
     return new Set(Array.isArray(parsed) ? parsed.filter((v) => typeof v === "string") : []);
   } catch {
     return new Set();
@@ -49,12 +52,14 @@ async function readModVisibleSet(): Promise<Set<string>> {
 }
 
 async function writeModVisibleSet(set: Set<string>): Promise<void> {
-  await db.query(
-    `INSERT INTO x_manifest (key, value, updated_at)
-     VALUES ($1, $2, NOW())
-     ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
-    [MOD_VISIBLE_KEY, JSON.stringify(Array.from(set))]
-  );
+  const orm = await getDb();
+  await orm
+    .insert(schema.xManifest)
+    .values({ key: MOD_VISIBLE_KEY, value: JSON.stringify(Array.from(set)) })
+    .onConflictDoUpdate({
+      target: schema.xManifest.key,
+      set: { value: JSON.stringify(Array.from(set)), updatedAt: new Date() },
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -113,44 +118,47 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-    const { rows } = await db.query<FeatureFlagRow>(
-      `SELECT
-         m.key,
-         m.value,
-         m.description,
-         m.updated_at,
-         NULL::timestamptz AS available_from,
-         NULL::text[]      AS early_access_plans
-       FROM x_manifest m
-       WHERE m.key LIKE 'feature_%' AND m.key != '${MOD_VISIBLE_KEY}'
-       ORDER BY m.key ASC`,
-      []
-    ).catch(async () => {
-      // Fallback if query fails for any reason
-      const fallback = await db.query<FeatureFlagRow>(
-        `SELECT key, value, description, updated_at,
-                NULL::timestamptz AS available_from, NULL::text[] AS early_access_plans
-         FROM x_manifest WHERE key LIKE 'feature_%' AND key != '${MOD_VISIBLE_KEY}' ORDER BY key ASC`
-      );
-      return fallback;
-    }).then(async (base) => {
-      // Enrich with feature_flags table data if it exists
-      try {
-        const { rows: ffRows } = await db.query<{ key: string; available_from: string | null; early_access_plans: string[] | null }>(
-          `SELECT key, available_from, early_access_plans FROM feature_flags`
-        );
-        const ffMap = new Map(ffRows.map((r) => [r.key, r]));
-        return {
-          rows: base.rows.map((r) => ({
-            ...r,
-            available_from: ffMap.get(r.key)?.available_from ?? null,
-            early_access_plans: ffMap.get(r.key)?.early_access_plans ?? null,
-          })),
-        };
-      } catch {
-        return base;
-      }
-    });
+    const orm = await getDb();
+
+    const rawBaseRows = await orm
+      .select({
+        key: schema.xManifest.key,
+        value: schema.xManifest.value,
+        description: schema.xManifest.description,
+        updated_at: schema.xManifest.updatedAt,
+      })
+      .from(schema.xManifest)
+      .where(and(like(schema.xManifest.key, "feature_%"), ne(schema.xManifest.key, MOD_VISIBLE_KEY)))
+      .orderBy(schema.xManifest.key);
+
+    const baseRows = rawBaseRows.map((r) => ({
+      ...r,
+      updated_at: r.updated_at ? r.updated_at.toISOString() : new Date().toISOString(),
+    }));
+
+    // Enrich with feature_flags table data if it exists
+    let rows: FeatureFlagRow[] = baseRows.map((r) => ({
+      ...r,
+      available_from: null,
+      early_access_plans: null,
+    }));
+    try {
+      const ffRows = await orm
+        .select({
+          key: schema.featureFlags.key,
+          available_from: schema.featureFlags.availableFrom,
+          early_access_plans: schema.featureFlags.earlyAccessPlans,
+        })
+        .from(schema.featureFlags);
+      const ffMap = new Map(ffRows.map((r) => [r.key, r]));
+      rows = baseRows.map((r) => ({
+        ...r,
+        available_from: ffMap.get(r.key)?.available_from?.toISOString() ?? null,
+        early_access_plans: ffMap.get(r.key)?.early_access_plans ?? null,
+      }));
+    } catch {
+      // feature_flags table/columns not present — keep base rows as-is
+    }
 
     const modVisibleSet = await readModVisibleSet().catch(() => new Set<string>());
 
@@ -175,36 +183,42 @@ export const PUT = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, toggleSchema);
     const newValue = body.enabled ? "true" : "false";
 
+    const orm = await getDb();
+
     // Capture the before value for the audit log
-    const { rows: beforeRows } = await db.query<{ value: string }>(
-      `SELECT value FROM x_manifest WHERE key = $1 LIMIT 1`,
-      [body.key]
-    );
-    const beforeVal = beforeRows[0]?.value ?? null;
+    const [beforeRow] = await orm
+      .select({ value: schema.xManifest.value })
+      .from(schema.xManifest)
+      .where(eq(schema.xManifest.key, body.key))
+      .limit(1);
+    const beforeVal = beforeRow?.value ?? null;
 
     // Upsert the feature flag toggle in x_manifest
-    await db.query(
-      `INSERT INTO x_manifest (key, value, updated_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (key) DO UPDATE
-         SET value = $2, updated_at = NOW()`,
-      [body.key, newValue]
-    );
+    await orm
+      .insert(schema.xManifest)
+      .values({ key: body.key, value: newValue })
+      .onConflictDoUpdate({
+        target: schema.xManifest.key,
+        set: { value: newValue, updatedAt: new Date() },
+      });
 
     // Upsert early access settings into feature_flags when provided
     if (body.available_from !== undefined || body.early_access_plans !== undefined) {
-      await db.query(
-        `INSERT INTO feature_flags (key, available_from, early_access_plans)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (key) DO UPDATE
-           SET available_from    = EXCLUDED.available_from,
-               early_access_plans = EXCLUDED.early_access_plans`,
-        [
-          body.key,
-          body.available_from ?? null,
-          body.early_access_plans ?? null,
-        ]
-      ).catch(() => {}); // Non-fatal if feature_flags table doesn't yet have these columns
+      await orm
+        .insert(schema.featureFlags)
+        .values({
+          key: body.key,
+          availableFrom: body.available_from ? new Date(body.available_from) : null,
+          earlyAccessPlans: body.early_access_plans ?? null,
+        })
+        .onConflictDoUpdate({
+          target: schema.featureFlags.key,
+          set: {
+            availableFrom: body.available_from ? new Date(body.available_from) : null,
+            earlyAccessPlans: body.early_access_plans ?? null,
+          },
+        })
+        .catch(() => {}); // Non-fatal if feature_flags table doesn't yet have these columns
     }
 
     // Update the mods-visible allow-list when provided
@@ -219,17 +233,17 @@ export const PUT = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Audit log — use canonical column names from admin_audit_log schema
-    await db.query(
-      `INSERT INTO admin_audit_log
-         (admin_id, action, resource, resource_id, before_val, after_val, created_at)
-       VALUES ($1, 'feature_flag_toggle', 'x_manifest', $2, $3::jsonb, $4::jsonb, NOW())`,
-      [
-        auth.user.sub,
-        body.key,
-        JSON.stringify(beforeVal),
-        JSON.stringify(newValue),
-      ]
-    ).catch(() => {}); // Non-fatal if audit log table doesn't exist
+    await orm
+      .insert(schema.adminAuditLog)
+      .values({
+        adminId: auth.user.sub,
+        action: "feature_flag_toggle",
+        resource: "x_manifest",
+        resourceId: body.key,
+        beforeVal,
+        afterVal: newValue,
+      })
+      .catch(() => {}); // Non-fatal if audit log table doesn't exist
 
     return NextResponse.json({
       success: true,

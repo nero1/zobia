@@ -22,7 +22,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -114,11 +115,13 @@ async function getCallerRole(
   roomId: string,
   userId: string
 ): Promise<string | null> {
-  const { rows } = await db.query<{ role: string }>(
-    `SELECT role FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
-    [roomId, userId]
-  );
-  return rows[0]?.role ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ role: schema.roomMembers.role })
+    .from(schema.roomMembers)
+    .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, userId)))
+    .limit(1);
+  return row?.role ?? null;
 }
 
 /**
@@ -133,12 +136,11 @@ async function decrementHealthScore(
   penalty = 1
 ): Promise<void> {
   try {
-    await db.query(
-      `UPDATE rooms
-       SET health_score = GREATEST(health_score - $2, 0), updated_at = NOW()
-       WHERE id = $1`,
-      [roomId, penalty]
-    );
+    const orm = await getDb();
+    await orm
+      .update(schema.rooms)
+      .set({ healthScore: sql`GREATEST(${schema.rooms.healthScore} - ${penalty}, 0)`, updatedAt: sql`NOW()` })
+      .where(eq(schema.rooms.id, roomId));
   } catch (err) {
     logger.error({ err: err }, "[rooms/moderation] Health score update failed:");
   }
@@ -161,12 +163,14 @@ async function logModerationAction(
   metadata: Record<string, unknown>
 ): Promise<void> {
   try {
-    await db.query(
-      `INSERT INTO room_moderation_log
-         (room_id, moderator_id, action, target_user_id, metadata)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [roomId, moderatorId, action, targetUserId ?? null, JSON.stringify(metadata)]
-    );
+    const orm = await getDb();
+    await orm.insert(schema.roomModerationLog).values({
+      roomId,
+      moderatorId,
+      action,
+      targetUserId: targetUserId ?? null,
+      metadata,
+    });
   } catch (err) {
     logger.error({ err: err }, "[rooms/moderation] Audit log write failed:");
   }
@@ -189,20 +193,21 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const { roomId } = await params as { roomId: string };
     const callerId = auth.user.sub;
+    const orm = await getDb();
 
     // Fetch room
-    const { rows: roomRows } = await db.query<{
-      creator_id: string;
-      is_active: boolean;
-      moderation_rules: unknown;
-    }>(
-      `SELECT creator_id, is_active, moderation_rules FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-    const room = roomRows[0];
-    if (!room || !room.is_active) throw notFound("Room not found");
+    const [room] = await orm
+      .select({
+        creatorId: schema.rooms.creatorId,
+        isActive: schema.rooms.isActive,
+        moderationRules: schema.rooms.moderationRules,
+      })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
+    if (!room || !room.isActive) throw notFound("Room not found");
 
-    const isCreator = room.creator_id === callerId;
+    const isCreator = room.creatorId === callerId;
     const callerRole = await getCallerRole(roomId, callerId);
 
     // Must be creator or co-mod to perform any moderation
@@ -218,20 +223,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       case "mute": {
         const { targetUserId, durationMinutes, reason } = body;
 
-        if (targetUserId === room.creator_id) {
+        if (targetUserId === room.creatorId) {
           throw forbidden("The room creator cannot be muted");
         }
 
-        const mutedUntil = durationMinutes
-          ? new Date(Date.now() + durationMinutes * 60 * 1000).toISOString()
+        const mutedUntilDate = durationMinutes
+          ? new Date(Date.now() + durationMinutes * 60 * 1000)
           : null;
+        const mutedUntil = mutedUntilDate ? mutedUntilDate.toISOString() : null;
 
-        await db.query(
-          `UPDATE room_members
-           SET is_muted = TRUE, muted_until = $3, updated_at = NOW()
-           WHERE room_id = $1 AND user_id = $2`,
-          [roomId, targetUserId, mutedUntil]
-        );
+        await orm
+          .update(schema.roomMembers)
+          .set({ isMuted: true, mutedUntil: mutedUntilDate, updatedAt: sql`NOW()` })
+          .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, targetUserId)));
 
         await decrementHealthScore(roomId, 2);
         await logModerationAction(roomId, callerId, "mute", targetUserId, {
@@ -250,12 +254,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       case "unmute": {
         const { targetUserId } = body;
 
-        await db.query(
-          `UPDATE room_members
-           SET is_muted = FALSE, muted_until = NULL, updated_at = NOW()
-           WHERE room_id = $1 AND user_id = $2`,
-          [roomId, targetUserId]
-        );
+        await orm
+          .update(schema.roomMembers)
+          .set({ isMuted: false, mutedUntil: null, updatedAt: sql`NOW()` })
+          .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, targetUserId)));
 
         await logModerationAction(roomId, callerId, "unmute", targetUserId, {});
 
@@ -272,17 +274,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         const { targetUserId } = body;
 
         // Verify target is a member
-        const { rows: memberRows } = await db.query<{ id: string }>(
-          `SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
-          [roomId, targetUserId]
-        );
-        if (memberRows.length === 0) throw notFound("Target user is not a room member");
+        const [targetMember] = await orm
+          .select({ id: schema.roomMembers.id })
+          .from(schema.roomMembers)
+          .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, targetUserId)))
+          .limit(1);
+        if (!targetMember) throw notFound("Target user is not a room member");
 
-        await db.query(
-          `UPDATE room_members SET role = 'co_moderator', updated_at = NOW()
-           WHERE room_id = $1 AND user_id = $2`,
-          [roomId, targetUserId]
-        );
+        await orm
+          .update(schema.roomMembers)
+          .set({ role: "co_moderator", updatedAt: sql`NOW()` })
+          .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, targetUserId)));
 
         await logModerationAction(roomId, callerId, "co_mod", targetUserId, {});
 
@@ -300,11 +302,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
         const { targetUserId } = body;
 
-        await db.query(
-          `UPDATE room_members SET role = 'member', updated_at = NOW()
-           WHERE room_id = $1 AND user_id = $2 AND role = 'co_moderator'`,
-          [roomId, targetUserId]
-        );
+        await orm
+          .update(schema.roomMembers)
+          .set({ role: "member", updatedAt: sql`NOW()` })
+          .where(and(
+            eq(schema.roomMembers.roomId, roomId),
+            eq(schema.roomMembers.userId, targetUserId),
+            eq(schema.roomMembers.role, "co_moderator"),
+          ));
 
         await logModerationAction(roomId, callerId, "remove_co_mod", targetUserId, {});
 
@@ -322,16 +327,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         }
 
         const existingRules =
-          (room.moderation_rules as Record<string, unknown>) ?? {};
+          (room.moderationRules as Record<string, unknown>) ?? {};
 
         const updatedRules = { ...existingRules, ...body.rules };
 
-        await db.query(
-          `UPDATE rooms
-           SET moderation_rules = $2, updated_at = NOW()
-           WHERE id = $1`,
-          [roomId, JSON.stringify(updatedRules)]
-        );
+        await orm
+          .update(schema.rooms)
+          .set({ moderationRules: updatedRules, updatedAt: sql`NOW()` })
+          .where(eq(schema.rooms.id, roomId));
 
         await logModerationAction(roomId, callerId, "update_rules", null, {
           rules: body.rules,
@@ -347,33 +350,41 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       case "kick": {
         const { targetUserId, reason } = body;
 
-        if (targetUserId === room.creator_id) {
+        if (targetUserId === room.creatorId) {
           throw forbidden("The room creator cannot be kicked");
         }
         if (targetUserId === callerId) {
           throw forbidden("Cannot kick yourself");
         }
 
-        const { rowCount } = await db.query(
-          `UPDATE room_members
-           SET left_at = NOW(), updated_at = NOW()
-           WHERE room_id = $1 AND user_id = $2 AND left_at IS NULL`,
-          [roomId, targetUserId]
-        );
-        if (!rowCount) throw notFound("Target user is not an active member of this room");
+        const kicked = await orm
+          .update(schema.roomMembers)
+          .set({ leftAt: sql`NOW()`, updatedAt: sql`NOW()` })
+          .where(and(
+            eq(schema.roomMembers.roomId, roomId),
+            eq(schema.roomMembers.userId, targetUserId),
+            sql`${schema.roomMembers.leftAt} IS NULL`,
+          ))
+          .returning({ userId: schema.roomMembers.userId });
+        if (kicked.length === 0) throw notFound("Target user is not an active member of this room");
 
         // Decrement member_count (guarded to never go below 0)
-        await db.query(
-          `UPDATE rooms SET member_count = GREATEST(member_count - 1, 0), updated_at = NOW() WHERE id = $1`,
-          [roomId]
-        ).catch(() => {});
+        await orm
+          .update(schema.rooms)
+          .set({ memberCount: sql`GREATEST(${schema.rooms.memberCount} - 1, 0)`, updatedAt: sql`NOW()` })
+          .where(eq(schema.rooms.id, roomId))
+          .catch(() => {});
 
         // Notify kicked user
-        await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'room_kicked', $2, false, NOW())`,
-          [targetUserId, JSON.stringify({ roomId, reason: reason ?? null })]
-        ).catch(() => {});
+        await orm
+          .insert(schema.notifications)
+          .values({
+            userId: targetUserId,
+            type: "room_kicked",
+            payload: { roomId, reason: reason ?? null },
+            isRead: false,
+          })
+          .catch(() => {});
 
         await decrementHealthScore(roomId, 3);
         await logModerationAction(roomId, callerId, "kick", targetUserId, { reason });
@@ -385,63 +396,61 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       case "approve": {
         const { messageId } = body;
 
-        const { rows: msgRows } = await db.query<{
-          id: string;
-          sender_id: string;
-          content: string;
-          is_pending_approval: boolean;
-        }>(
-          `SELECT id, sender_id, content, is_pending_approval
-           FROM room_messages
-           WHERE id = $1 AND room_id = $2 LIMIT 1`,
-          [messageId, roomId]
-        );
-        const msg = msgRows[0];
+        const [msg] = await orm
+          .select({
+            id: schema.roomMessages.id,
+            senderId: schema.roomMessages.senderId,
+            content: schema.roomMessages.content,
+            isPendingApproval: schema.roomMessages.isPendingApproval,
+          })
+          .from(schema.roomMessages)
+          .where(and(eq(schema.roomMessages.id, messageId), eq(schema.roomMessages.roomId, roomId)))
+          .limit(1);
         if (!msg) throw notFound("Message not found in this room");
-        if (!msg.is_pending_approval) {
+        if (!msg.isPendingApproval) {
           return NextResponse.json({ action: "approve", messageId, alreadyApproved: true }, { status: 200 });
         }
 
-        await db.transaction(async (tx) => {
-          await tx.query(
-            `UPDATE room_messages
-             SET is_pending_approval = FALSE, updated_at = NOW()
-             WHERE id = $1`,
-            [messageId]
-          );
-          await tx.query(
-            `UPDATE rooms SET total_messages = total_messages + 1, updated_at = NOW() WHERE id = $1`,
-            [roomId]
-          );
+        await orm.transaction(async (tx) => {
+          await tx
+            .update(schema.roomMessages)
+            .set({ isPendingApproval: false, updatedAt: sql`NOW()` })
+            .where(eq(schema.roomMessages.id, messageId));
+          await tx
+            .update(schema.rooms)
+            .set({ totalMessages: sql`${schema.rooms.totalMessages} + 1`, updatedAt: sql`NOW()` })
+            .where(eq(schema.rooms.id, roomId));
         });
 
         // Award XP to the original sender now that the message is approved
-        const { rows: senderRows } = await db.query<{ plan: string }>(
-          `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 LIMIT 1`,
-          [msg.sender_id]
-        );
-        const senderPlan = (senderRows[0]?.plan ?? 'free') as Plan;
+        const [senderRow] = await orm
+          .select({ plan: schema.users.plan })
+          .from(schema.users)
+          .where(eq(schema.users.id, msg.senderId))
+          .limit(1);
+        const senderPlan = (senderRow?.plan ?? 'free') as Plan;
 
-        const { rows: countRows } = await db.query<{ cnt: string }>(
-          `SELECT COUNT(*) AS cnt
-           FROM room_messages
-           WHERE room_id = $1 AND sender_id = $2
-             AND is_pending_approval = FALSE
-             AND created_at::date = CURRENT_DATE`,
-          [roomId, msg.sender_id]
-        );
-        const todayMsgCount = parseInt(countRows[0]?.cnt ?? '0', 10);
+        const [{ count }] = await orm
+          .select({ count: sql<string>`COUNT(*)` })
+          .from(schema.roomMessages)
+          .where(and(
+            eq(schema.roomMessages.roomId, roomId),
+            eq(schema.roomMessages.senderId, msg.senderId),
+            eq(schema.roomMessages.isPendingApproval, false),
+            sql`${schema.roomMessages.createdAt}::date = CURRENT_DATE`,
+          ));
+        const todayMsgCount = parseInt(count ?? '0', 10);
 
         if (todayMsgCount <= ROOM_MESSAGE_XP_DAILY_CAP) {
           const { finalXp } = calculateFinalXP('send_room_message', { plan: senderPlan, isMessagingAction: true });
-          safeAwardXP(msg.sender_id, finalXp, "social", "send_message", `msg_${messageId}`)
+          safeAwardXP(msg.senderId, finalXp, "social", "send_message", `msg_${messageId}`)
             .then(() =>
-              publishRealtimeEvent(`user:${msg.sender_id}`, "reward_earned", { type: "xp", amount: finalXp })
+              publishRealtimeEvent(`user:${msg.senderId}`, "reward_earned", { type: "xp", amount: finalXp })
             )
             .catch(() => {});
         }
 
-        await logModerationAction(roomId, callerId, "approve", msg.sender_id, { messageId });
+        await logModerationAction(roomId, callerId, "approve", msg.senderId, { messageId });
 
         return NextResponse.json({ action: "approve", messageId }, { status: 200 });
       }

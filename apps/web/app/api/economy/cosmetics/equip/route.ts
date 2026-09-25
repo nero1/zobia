@@ -26,7 +26,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 
@@ -55,79 +56,77 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
 
     // 1. Verify the user owns this item
-    const { rows: ownedRows } = await db.query<OwnedCosmeticRow>(
-      `SELECT uc.id, uc.cosmetic_type, uc.store_item_id
-       FROM user_cosmetics uc
-       WHERE uc.user_id = $1 AND uc.store_item_id = $2
-       LIMIT 1`,
-      [userId, body.itemId]
-    );
+    const orm = await getDb();
+    const [owned] = await orm
+      .select({
+        id: schema.userCosmetics.id,
+        cosmetic_type: schema.userCosmetics.cosmeticType,
+        store_item_id: schema.userCosmetics.storeItemId,
+      })
+      .from(schema.userCosmetics)
+      .where(and(eq(schema.userCosmetics.userId, userId), eq(schema.userCosmetics.storeItemId, body.itemId)))
+      .limit(1);
 
-    if (!ownedRows[0]) {
+    if (!owned) {
       throw forbidden("You do not own this cosmetic item");
     }
 
-    const owned = ownedRows[0];
-
     // 2. Get item details for updating user profile fields
-    const { rows: itemRows } = await db.query<StoreItemRow>(
-      `SELECT id, name, cosmetic_type FROM store_items WHERE id = $1 LIMIT 1`,
-      [body.itemId]
-    );
-    const item = itemRows[0];
+    const [item] = await orm
+      .select({ id: schema.storeItems.id, name: schema.storeItems.name, cosmetic_type: schema.storeItems.cosmeticType })
+      .from(schema.storeItems)
+      .where(eq(schema.storeItems.id, body.itemId))
+      .limit(1);
     if (!item) throw badRequest("Cosmetic item no longer exists");
 
-    await db.transaction(async (tx) => {
+    await orm.transaction(async (tx) => {
       // Deactivate all cosmetics of the same type for this user
-      await tx.query(
-        `UPDATE user_cosmetics
-         SET is_active = FALSE
-         WHERE user_id = $1 AND cosmetic_type = $2`,
-        [userId, owned.cosmetic_type]
-      );
+      await tx
+        .update(schema.userCosmetics)
+        .set({ isActive: false })
+        .where(and(eq(schema.userCosmetics.userId, userId), eq(schema.userCosmetics.cosmeticType, owned.cosmetic_type)));
 
       if (!body.unequip) {
         // Activate the selected cosmetic
-        await tx.query(
-          `UPDATE user_cosmetics SET is_active = TRUE
-           WHERE user_id = $1 AND store_item_id = $2`,
-          [userId, body.itemId]
-        );
+        await tx
+          .update(schema.userCosmetics)
+          .set({ isActive: true })
+          .where(and(eq(schema.userCosmetics.userId, userId), eq(schema.userCosmetics.storeItemId, body.itemId)));
 
         // Sync quick-read columns on the users table
         if (item.cosmetic_type === "profile_frame") {
-          await tx.query(
-            `UPDATE users SET active_cosmetic_frame_id = $1, updated_at = NOW() WHERE id = $2`,
-            [body.itemId, userId]
-          );
+          await tx
+            .update(schema.users)
+            .set({ activeCosmeticFrameId: body.itemId, updatedAt: new Date() })
+            .where(eq(schema.users.id, userId));
         } else if (item.cosmetic_type === "title") {
-          await tx.query(
-            `UPDATE users SET active_cosmetic_title = $1, updated_at = NOW() WHERE id = $2`,
-            [item.name, userId]
-          );
+          await tx
+            .update(schema.users)
+            .set({ activeCosmeticTitle: item.name, updatedAt: new Date() })
+            .where(eq(schema.users.id, userId));
         } else if (item.cosmetic_type === "blog_theme") {
-          await tx.query(
-            `UPDATE blogs SET theme_store_item_id = $1, updated_at = NOW() WHERE owner_id = $2`,
-            [body.itemId, userId]
-          );
+          await tx
+            .update(schema.blogs)
+            .set({ themeStoreItemId: body.itemId, updatedAt: new Date() })
+            .where(eq(schema.blogs.ownerId, userId));
         }
       } else {
         // Unequip — clear the quick-read column
         if (item.cosmetic_type === "profile_frame") {
-          await tx.query(
-            `UPDATE users SET active_cosmetic_frame_id = NULL, updated_at = NOW() WHERE id = $1`,
-            [userId]
-          );
+          await tx
+            .update(schema.users)
+            .set({ activeCosmeticFrameId: null, updatedAt: new Date() })
+            .where(eq(schema.users.id, userId));
         } else if (item.cosmetic_type === "title") {
-          await tx.query(
-            `UPDATE users SET active_cosmetic_title = NULL, updated_at = NOW() WHERE id = $1`,
-            [userId]
-          );
+          await tx
+            .update(schema.users)
+            .set({ activeCosmeticTitle: null, updatedAt: new Date() })
+            .where(eq(schema.users.id, userId));
         } else if (item.cosmetic_type === "blog_theme") {
-          await tx.query(
-            `UPDATE blogs SET theme_store_item_id = NULL, updated_at = NOW() WHERE owner_id = $1`,
-            [userId]
-          );
+          await tx
+            .update(schema.blogs)
+            .set({ themeStoreItemId: null, updatedAt: new Date() })
+            .where(eq(schema.blogs.ownerId, userId));
         }
       }
     });

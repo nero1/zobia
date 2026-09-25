@@ -6,9 +6,19 @@
  * Handles season lifecycle: detecting the active season, computing the current
  * phase, resetting competitive rankings at season end, archiving per-user
  * season history, and distributing top-performer rewards.
+ *
+ * NOTE ON ATOMICITY: lib/economy/coins.ts (creditCoins) and
+ * lib/alerts/dispatch.ts (raiseAlert) are out of scope for this Drizzle
+ * migration and still take a raw transaction-client type, incompatible with a
+ * Drizzle transaction handle. Coin credits below are therefore issued as
+ * standalone calls after the surrounding Drizzle transaction commits
+ * (mirroring the deferred-XP pattern already used elsewhere in this
+ * codebase), and raiseAlert is called against the raw `@/lib/db` adapter
+ * outside the transaction. See migration report for detail.
  */
 
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import { and, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { creditCoins } from "@/lib/economy/coins";
 import { upsertLeaderboardSnapshot } from "@/lib/leaderboards/engine";
 import { logger } from "@/lib/logger";
@@ -40,20 +50,44 @@ export type SeasonPhase = "opening" | "mid" | "push" | "final_day";
 /**
  * Returns the currently active season row, or null if no season is live.
  *
- * @param db - Active database adapter.
+ * @param db - Drizzle db instance or an active transaction handle.
  * @returns The active Season or null.
  */
-export async function getCurrentSeason(db: DatabaseAdapter): Promise<Season | null> {
-  const { rows } = await db.query<Season>(
-    `SELECT id, name, theme, starts_at, ends_at, is_active,
-            pass_price_coins, reward_pool_coins, created_at
-     FROM seasons
-     WHERE is_active = TRUE AND starts_at <= NOW() AND ends_at > NOW()
-     ORDER BY starts_at DESC
-     LIMIT 1`,
-    []
-  );
-  return rows[0] ?? null;
+export async function getCurrentSeason(db: DbOrTx): Promise<Season | null> {
+  const [row] = await db
+    .select({
+      id: schema.seasons.id,
+      name: schema.seasons.name,
+      theme: schema.seasons.theme,
+      startsAt: schema.seasons.startsAt,
+      endsAt: schema.seasons.endsAt,
+      isActive: schema.seasons.isActive,
+      passPriceCoins: schema.seasons.passPriceCoins,
+      rewardPoolCoins: schema.seasons.rewardPoolCoins,
+      createdAt: schema.seasons.createdAt,
+    })
+    .from(schema.seasons)
+    .where(
+      and(
+        eq(schema.seasons.isActive, true),
+        lte(schema.seasons.startsAt, sql`NOW()`),
+        gte(schema.seasons.endsAt, sql`NOW()`)
+      )
+    )
+    .orderBy(desc(schema.seasons.startsAt))
+    .limit(1);
+  if (!row) return null;
+  return {
+    id: row.id,
+    name: row.name,
+    theme: row.theme ?? "",
+    starts_at: new Date(row.startsAt).toISOString(),
+    ends_at: new Date(row.endsAt).toISOString(),
+    is_active: Boolean(row.isActive),
+    pass_price_coins: row.passPriceCoins,
+    reward_pool_coins: row.rewardPoolCoins,
+    created_at: row.createdAt ? new Date(row.createdAt).toISOString() : new Date().toISOString(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -117,63 +151,60 @@ export function getSeasonPhase(season: Season): SeasonPhase {
  * Main XP, coins, items, guild membership, and track XP are all preserved.
  *
  * @param seasonId - UUID of the season that just ended.
- * @param db       - Active database adapter.
+ * @param db       - Drizzle db instance or an active transaction handle.
  */
 export async function resetSeasonRankings(
   seasonId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<void> {
-  await db.transaction(async (client) => {
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
     // Archive leaderboard positions before clearing.
     // season_rank is never written during the season (always NULL), so compute
     // rank on-the-fly from season_xp using RANK() OVER before archiving.
-    await client.query(
-      `INSERT INTO season_rank_archives (season_id, user_id, final_rank, final_season_xp, archived_at)
-       SELECT $1, user_id,
-              RANK() OVER (ORDER BY season_xp DESC) AS final_rank,
-              season_xp, NOW()
-       FROM user_season_passes
-       WHERE season_id = $1
-       ON CONFLICT (season_id, user_id) DO NOTHING`,
-      [seasonId]
-    );
+    await tx.execute(sql`
+      INSERT INTO season_rank_archives (season_id, user_id, final_rank, final_season_xp, archived_at)
+      SELECT ${seasonId}, user_id,
+             RANK() OVER (ORDER BY season_xp DESC) AS final_rank,
+             season_xp, NOW()
+      FROM user_season_passes
+      WHERE season_id = ${seasonId}
+      ON CONFLICT (season_id, user_id) DO NOTHING
+    `);
 
     // Reset per-season XP and rank
-    await client.query(
-      `UPDATE user_season_passes
-       SET season_xp = 0, season_rank = NULL
-       WHERE season_id = $1`,
-      [seasonId]
-    );
+    await tx
+      .update(schema.userSeasonPasses)
+      .set({ seasonXp: BigInt(0), seasonRank: null })
+      .where(eq(schema.userSeasonPasses.seasonId, seasonId));
 
     // Mark season as inactive first so the subsequent users.season_xp sync can
     // correctly identify any remaining active seasons for concurrent participants.
     // BUG-023: Also set status = 'ended' so distributeSeasonRewards can use an
     // atomic UPDATE ... WHERE status = 'ended' RETURNING id as its idempotency guard.
-    await client.query(
-      `UPDATE seasons SET is_active = FALSE, status = 'ended', rankings_reset_at = NOW(), updated_at = NOW() WHERE id = $1`,
-      [seasonId]
-    );
+    await tx
+      .update(schema.seasons)
+      .set({ isActive: false, status: "ended", rankingsResetAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.seasons.id, seasonId));
 
     // Sync users.season_xp to reflect the user's current active season (if any),
     // or 0 if they are not participating in any other season.
     // This prevents zeroing XP for users enrolled in a concurrent active season.
-    await client.query(
-      `UPDATE users u
-       SET season_xp = COALESCE((
-         SELECT usp.season_xp
-         FROM user_season_passes usp
-         JOIN seasons s ON s.id = usp.season_id
-         WHERE usp.user_id = u.id AND s.is_active = TRUE
-         ORDER BY s.starts_at DESC
-         LIMIT 1
-       ), 0),
-       updated_at = NOW()
-       WHERE u.id IN (
-         SELECT user_id FROM user_season_passes WHERE season_id = $1
-       )`,
-      [seasonId]
-    );
+    await tx.execute(sql`
+      UPDATE users u
+      SET season_xp = COALESCE((
+        SELECT usp.season_xp
+        FROM user_season_passes usp
+        JOIN seasons s ON s.id = usp.season_id
+        WHERE usp.user_id = u.id AND s.is_active = TRUE
+        ORDER BY s.starts_at DESC
+        LIMIT 1
+      ), 0),
+      updated_at = NOW()
+      WHERE u.id IN (
+        SELECT user_id FROM user_season_passes WHERE season_id = ${seasonId}
+      )
+    `);
   });
 }
 
@@ -188,24 +219,23 @@ export async function resetSeasonRankings(
  * @param userId     - UUID of the user.
  * @param seasonId   - UUID of the season.
  * @param finalRank  - The user's final leaderboard rank number.
- * @param db         - Active database adapter.
+ * @param db         - Drizzle db instance or an active transaction handle.
  */
 export async function archiveSeasonForUser(
   userId: string,
   seasonId: string,
   finalRank: number,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<void> {
-  await db.query(
-    `INSERT INTO season_rank_archives (season_id, user_id, final_rank, final_season_xp, archived_at)
-     SELECT $1, $2, $3, COALESCE(usp.season_xp, 0), NOW()
-     FROM user_season_passes usp
-     WHERE usp.season_id = $1 AND usp.user_id = $2
-     ON CONFLICT (season_id, user_id) DO UPDATE
-       SET final_rank = EXCLUDED.final_rank,
-           archived_at = EXCLUDED.archived_at`,
-    [seasonId, userId, finalRank]
-  );
+  await db.execute(sql`
+    INSERT INTO season_rank_archives (season_id, user_id, final_rank, final_season_xp, archived_at)
+    SELECT ${seasonId}, ${userId}, ${finalRank}, COALESCE(usp.season_xp, 0), NOW()
+    FROM user_season_passes usp
+    WHERE usp.season_id = ${seasonId} AND usp.user_id = ${userId}
+    ON CONFLICT (season_id, user_id) DO UPDATE
+      SET final_rank = EXCLUDED.final_rank,
+          archived_at = EXCLUDED.archived_at
+  `);
 }
 
 // ---------------------------------------------------------------------------
@@ -223,56 +253,51 @@ export async function archiveSeasonForUser(
  *  - All top-10 receive an exclusive season badge recorded in user_badges
  *
  * @param seasonId - UUID of the ended season.
- * @param db       - Active database adapter.
+ * @param db       - Drizzle db instance or an active transaction handle.
  */
 export async function distributeSeasonRewards(
   seasonId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<void> {
   // BUG-023: Atomic status claim to prevent concurrent CRON instances from
   // double-distributing rewards. The UPDATE only succeeds (returns a row) when
   // status = 'ended' — the first caller transitions to 'distributing' and proceeds;
   // all subsequent concurrent callers get 0 rows and exit early.
-  const claimResult = await db.query<{ id: string; reward_pool_coins: number }>(
-    `UPDATE seasons
-     SET status = 'distributing', updated_at = NOW()
-     WHERE id = $1 AND status = 'ended'
-     RETURNING id, reward_pool_coins`,
-    [seasonId]
-  );
+  const claimResult = await db
+    .update(schema.seasons)
+    .set({ status: "distributing", updatedAt: new Date() })
+    .where(and(eq(schema.seasons.id, seasonId), eq(schema.seasons.status, "ended")))
+    .returning({ id: schema.seasons.id, rewardPoolCoins: schema.seasons.rewardPoolCoins });
 
-  if (claimResult.rows.length === 0) {
+  if (claimResult.length === 0) {
     // Either the season doesn't exist, wasn't in 'ended' state, or another CRON
     // instance already claimed distribution. Check which case we're in:
-    const checkResult = await db.query<{ id: string; status: string }>(
-      `SELECT id, status FROM seasons WHERE id = $1`,
-      [seasonId]
-    );
-    if (!checkResult.rows[0]) {
+    const [existing] = await db
+      .select({ id: schema.seasons.id, status: schema.seasons.status })
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId))
+      .limit(1);
+    if (!existing) {
       throw new Error(`[seasonEngine] Season not found: ${seasonId}`);
     }
     logger.warn(
-      { seasonId, status: checkResult.rows[0].status },
+      { seasonId, status: existing.status },
       '[seasonEngine] distributeSeasonRewards skipped — season not in ended state (already distributing or completed, or another instance claimed it)'
     );
     return;
   }
 
-  const season = claimResult.rows[0];
-
-  const pool = season.reward_pool_coins;
+  const season = claimResult[0];
+  const pool = season.rewardPoolCoins;
 
   // Top 10 by final_rank
-  const rankResult = await db.query<{ user_id: string; final_rank: number }>(
-    `SELECT user_id, final_rank
-     FROM season_rank_archives
-     WHERE season_id = $1 AND final_rank IS NOT NULL
-     ORDER BY final_rank ASC
-     LIMIT 10`,
-    [seasonId]
-  );
+  const topUsers = await db
+    .select({ userId: schema.seasonRankArchives.userId, finalRank: schema.seasonRankArchives.finalRank })
+    .from(schema.seasonRankArchives)
+    .where(and(eq(schema.seasonRankArchives.seasonId, seasonId), sql`${schema.seasonRankArchives.finalRank} IS NOT NULL`))
+    .orderBy(sql`${schema.seasonRankArchives.finalRank} ASC`)
+    .limit(10);
 
-  const topUsers = rankResult.rows;
   const rewardShares = [0.25, 0.15, 0.1];
 
   // BUG-46: When fewer than 4 users placed, the 50% allocated to ranks 4-10 was
@@ -324,52 +349,68 @@ export async function distributeSeasonRewards(
     }
   }
 
-  await db.transaction(async (client) => {
+  // Coin awards are deferred to post-commit (see file-level atomicity note).
+  const pendingCoinAwards: { userId: string; coins: number; rank: number }[] = [];
+
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
     for (let i = 0; i < topUsers.length; i++) {
-      const { user_id } = topUsers[i];
+      const { userId } = topUsers[i];
       const coins = userCoins[i];
 
       // ZB-04: Use creditCoins with a per-user reference so the unique partial
       // index on coin_ledger is not violated when multiple users receive rewards.
       if (coins > 0) {
-        await creditCoins(
-          user_id,
-          coins,
-          "season_reward",
-          `season:${seasonId}:${user_id}`,
-          "Season end reward",
-          { seasonId, rank: i + 1 },
-          client
-        );
+        pendingCoinAwards.push({ userId, coins, rank: i + 1 });
       }
 
       // Award season badge with a season-specific key so each season's badge is unique (BUG-12)
-      await client.query(
-        `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, awarded_at)
-         VALUES ($1, 'season_top10', 'season_top10:' || $2::text, $2, NOW())
-         ON CONFLICT (user_id, badge_key) WHERE badge_key IS NOT NULL DO NOTHING`,
-        [user_id, seasonId]
-      );
+      await tx
+        .insert(schema.userBadges)
+        .values({
+          userId,
+          badgeType: "season_top10",
+          badgeKey: `season_top10:${seasonId}`,
+          referenceId: seasonId,
+        })
+        .onConflictDoNothing({
+          target: [schema.userBadges.userId, schema.userBadges.badgeKey],
+          where: sql`badge_key IS NOT NULL`,
+        });
     }
 
     // Retire all limited-edition gifts that belonged to this season.
     // Once a season ends, these items are no longer purchasable or giftable.
-    await client.query(
-      `UPDATE gift_items
-       SET is_retired = TRUE
-       WHERE season_id = $1
-         AND is_limited_edition = TRUE
-         AND is_retired = FALSE`,
-      [seasonId]
-    );
+    await tx
+      .update(schema.giftItems)
+      .set({ isRetired: true })
+      .where(
+        and(
+          eq(schema.giftItems.seasonId, seasonId),
+          eq(schema.giftItems.isLimitedEdition, true),
+          eq(schema.giftItems.isRetired, false)
+        )
+      );
 
     // BUG-023: Mark distribution as completed so the status reflects the final
     // state and any future health-check queries can confirm completion.
-    await client.query(
-      `UPDATE seasons SET status = 'completed', updated_at = NOW() WHERE id = $1`,
-      [seasonId]
-    );
+    await tx.update(schema.seasons).set({ status: "completed", updatedAt: new Date() }).where(eq(schema.seasons.id, seasonId));
   });
+
+  for (const award of pendingCoinAwards) {
+    try {
+      await creditCoins(
+        award.userId,
+        award.coins,
+        "season_reward",
+        `season:${seasonId}:${award.userId}`,
+        "Season end reward",
+        { seasonId, rank: award.rank }
+      );
+    } catch (err) {
+      logger.error({ err, seasonId, userId: award.userId }, "[seasonEngine] Failed to credit season reward coins (non-fatal)");
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -385,63 +426,61 @@ export async function distributeSeasonRewards(
  *
  * @param seasonId   - UUID of the ended season.
  * @param seasonName - Display name of the ended season.
- * @param db         - Active database adapter.
+ * @param db         - Drizzle db instance or an active transaction handle.
  */
 export async function createSeasonCeremonyRoom(
   seasonId: string,
   seasonName: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<string | null> {
   try {
     // Fetch the first admin user to be the room creator
-    const { rows: adminRows } = await db.query<{ id: string }>(
-      `SELECT id FROM users WHERE is_admin = TRUE AND deleted_at IS NULL ORDER BY created_at ASC LIMIT 1`
-    );
-    const adminId = adminRows[0]?.id;
+    const [admin] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(eq(schema.users.isAdmin, true), isNull(schema.users.deletedAt)))
+      .orderBy(schema.users.createdAt)
+      .limit(1);
+    const adminId = admin?.id;
     if (!adminId) return null;
 
-    const closesAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    const closesAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
     const slug = `season-${seasonId.slice(0, 8)}-ceremony`;
+    const metadata = { season_ceremony_id: seasonId, is_platform_room: true };
 
     // BUG-RACE-01: move the existence check inside the transaction and use
     // ON CONFLICT DO NOTHING so concurrent CRON invocations cannot both pass
     // the guard and insert two ceremony rooms for the same season.
-    const roomId = await db.transaction(async (tx) => {
-      const { rows: roomRows } = await tx.query<{ id: string }>(
-        `INSERT INTO rooms
-           (creator_id, name, description, type, slug, is_active, ends_at, metadata)
-         VALUES ($1, $2, $3, 'free_open', $4, TRUE, $5, $6)
-         ON CONFLICT ((metadata->>'season_ceremony_id')) DO NOTHING
-         RETURNING id`,
-        [
-          adminId,
-          `🏆 ${seasonName} Closing Ceremony`,
-          `The official closing ceremony for ${seasonName}. Celebrate, reflect, and look ahead to the next season!`,
-          slug,
-          closesAt,
-          JSON.stringify({ season_ceremony_id: seasonId, is_platform_room: true }),
-        ]
-      );
+    const orm = await getDb();
+    const roomId = await orm.transaction(async (tx) => {
+      const insertResult = await tx.execute<{ id: string }>(sql`
+        INSERT INTO rooms
+          (creator_id, name, description, type, slug, is_active, ends_at, metadata)
+        VALUES (${adminId}, ${`🏆 ${seasonName} Closing Ceremony`},
+                ${`The official closing ceremony for ${seasonName}. Celebrate, reflect, and look ahead to the next season!`},
+                'free_open', ${slug}, TRUE, ${closesAt}, ${JSON.stringify(metadata)}::jsonb)
+        ON CONFLICT ((metadata->>'season_ceremony_id')) DO NOTHING
+        RETURNING id
+      `);
+      const roomRow = (insertResult.rows as { id: string }[])[0];
 
-      if (!roomRows[0]) {
+      let id: string | null;
+      if (!roomRow) {
         // Another concurrent invocation already inserted this room — return its id
-        const { rows: existingRows } = await tx.query<{ id: string }>(
-          `SELECT id FROM rooms WHERE metadata->>'season_ceremony_id' = $1 LIMIT 1`,
-          [seasonId]
+        const existingResult = await tx.execute<{ id: string }>(
+          sql`SELECT id FROM rooms WHERE metadata->>'season_ceremony_id' = ${seasonId} LIMIT 1`
         );
-        return existingRows[0]?.id ?? null;
+        id = (existingResult.rows as { id: string }[])[0]?.id ?? null;
+      } else {
+        id = roomRow.id;
+        // Add the admin as the initial room member so the room is not empty on creation.
+        await tx
+          .insert(schema.roomMembers)
+          .values({ roomId: id, userId: adminId, role: "admin" })
+          .onConflictDoNothing({
+            target: [schema.roomMembers.roomId, schema.roomMembers.userId],
+          });
       }
-
-      const id = roomRows[0].id;
-
-      // Add the admin as the initial room member so the room is not empty on creation.
-      await tx.query(
-        `INSERT INTO room_members (room_id, user_id, role, joined_at)
-         VALUES ($1, $2, 'admin', NOW())
-         ON CONFLICT (room_id, user_id) DO NOTHING`,
-        [id, adminId]
-      );
-
       return id;
     });
 
@@ -462,7 +501,7 @@ export async function createSeasonCeremonyRoom(
  */
 export async function seedSeasonPassMilestones(
   seasonId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<void> {
   const freeMilestones = [
     { xp: 500,   type: 'coins',        value: { amount: 50 },    name: '50 Coins',              order: 1 },
@@ -488,13 +527,20 @@ export async function seedSeasonPassMilestones(
   // FIX-H04: ON CONFLICT now targets (season_id, tier, sort_order) so free and
   // paid milestones with the same sort_order do not conflict with each other.
   for (const m of allMilestones) {
-    await db.query(
-      `INSERT INTO season_pass_milestones
-         (season_id, milestone_xp, tier, reward_type, reward_value, display_name, sort_order)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       ON CONFLICT (season_id, tier, sort_order) DO NOTHING`,
-      [seasonId, m.xp, m.tier, m.type, JSON.stringify(m.value), m.name, m.order]
-    );
+    await db
+      .insert(schema.seasonPassMilestones)
+      .values({
+        seasonId,
+        milestoneXp: m.xp,
+        tier: m.tier,
+        rewardType: m.type,
+        rewardValue: m.value,
+        displayName: m.name,
+        sortOrder: m.order,
+      })
+      .onConflictDoNothing({
+        target: [schema.seasonPassMilestones.seasonId, schema.seasonPassMilestones.tier, schema.seasonPassMilestones.sortOrder],
+      });
   }
 }
 
@@ -508,7 +554,7 @@ export async function seedSeasonPassMilestones(
 export async function getPassMilestones(
   seasonId: string,
   userId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<Array<{
   id: string;
   milestoneXp: number;
@@ -519,29 +565,38 @@ export async function getPassMilestones(
   sortOrder: number;
   isClaimed: boolean;
 }>> {
-  const { rows } = await db.query<{
-    id: string; milestone_xp: number; tier: string; reward_type: string;
-    reward_value: unknown; display_name: string; sort_order: number; claimed_at: string | null;
-  }>(
-    `SELECT spm.id, spm.milestone_xp, spm.tier, spm.reward_type, spm.reward_value,
-            spm.display_name, spm.sort_order,
-            usmc.claimed_at
-     FROM season_pass_milestones spm
-     LEFT JOIN user_season_milestone_claims usmc
-       ON usmc.milestone_id = spm.id AND usmc.user_id = $2 AND usmc.season_id = $1
-     WHERE spm.season_id = $1
-     ORDER BY spm.sort_order ASC, spm.milestone_xp ASC`,
-    [seasonId, userId]
-  );
+  const rows = await db
+    .select({
+      id: schema.seasonPassMilestones.id,
+      milestoneXp: schema.seasonPassMilestones.milestoneXp,
+      tier: schema.seasonPassMilestones.tier,
+      rewardType: schema.seasonPassMilestones.rewardType,
+      rewardValue: schema.seasonPassMilestones.rewardValue,
+      displayName: schema.seasonPassMilestones.displayName,
+      sortOrder: schema.seasonPassMilestones.sortOrder,
+      claimedAt: schema.userSeasonMilestoneClaims.claimedAt,
+    })
+    .from(schema.seasonPassMilestones)
+    .leftJoin(
+      schema.userSeasonMilestoneClaims,
+      and(
+        eq(schema.userSeasonMilestoneClaims.milestoneId, schema.seasonPassMilestones.id),
+        eq(schema.userSeasonMilestoneClaims.userId, userId),
+        eq(schema.userSeasonMilestoneClaims.seasonId, seasonId)
+      )
+    )
+    .where(eq(schema.seasonPassMilestones.seasonId, seasonId))
+    .orderBy(sql`${schema.seasonPassMilestones.sortOrder} ASC, ${schema.seasonPassMilestones.milestoneXp} ASC`);
+
   return rows.map(r => ({
     id: r.id,
-    milestoneXp: r.milestone_xp,
+    milestoneXp: r.milestoneXp,
     tier: r.tier,
-    rewardType: r.reward_type,
-    rewardValue: r.reward_value,
-    displayName: r.display_name,
-    sortOrder: r.sort_order,
-    isClaimed: r.claimed_at !== null,
+    rewardType: r.rewardType,
+    rewardValue: r.rewardValue,
+    displayName: r.displayName,
+    sortOrder: r.sortOrder,
+    isClaimed: r.claimedAt !== null,
   }));
 }
 
@@ -558,150 +613,153 @@ export async function getPassMilestones(
  * pass the "not yet claimed" check and each apply the reward.
  * The RETURNING clause tells us whether the INSERT actually ran, preventing
  * the reward from being applied when ON CONFLICT DO NOTHING silently skips it.
+ *
+ * NOTE: the 'coins' reward branch defers the actual creditCoins() call to
+ * post-commit — see file-level atomicity note.
  */
 export async function claimPassMilestone(
   userId: string,
   seasonId: string,
   milestoneId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<{ success: boolean; rewardType: string; rewardValue: unknown }> {
   let claimed: { rewardType: string; rewardValue: unknown } | null = null;
+  // Held in an object (not a bare `let`) because TS's control-flow narrowing
+  // does not widen a variable reassigned only inside the transaction closure
+  // back from its `null` initializer — reading through a property sidesteps it.
+  const coinAwardState: { pendingCoinAward: { amount: number } | null } = { pendingCoinAward: null };
 
-  await db.transaction(async (client) => {
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
     // BUG-SEASON-01: reject claims for seasons that are no longer active
-    const { rows: seasonRows } = await client.query<{ is_active: boolean; ends_at: string }>(
-      `SELECT is_active, ends_at FROM seasons WHERE id = $1 LIMIT 1`,
-      [seasonId]
-    );
-    const season = seasonRows[0];
-    if (!season || !season.is_active || new Date(season.ends_at) <= new Date()) {
+    const [season] = await tx
+      .select({ isActive: schema.seasons.isActive, endsAt: schema.seasons.endsAt })
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId))
+      .limit(1);
+    if (!season || !season.isActive || new Date(season.endsAt) <= new Date()) {
       throw new Error('Season is not active — milestone claims are closed');
     }
 
     // Lock the pass row so concurrent claims for the same user/season are serialised
-    const { rows: passRows } = await client.query<{
-      season_xp: number; has_paid_pass: boolean;
-    }>(
-      `SELECT sp.season_xp, sp.is_paid AS has_paid_pass
-       FROM user_season_passes sp
-       WHERE sp.user_id = $1 AND sp.season_id = $2
-       FOR UPDATE`,
-      [userId, seasonId]
-    );
-    const pass = passRows[0];
+    const [pass] = await tx
+      .select({ seasonXp: schema.userSeasonPasses.seasonXp, hasPaidPass: schema.userSeasonPasses.isPaid })
+      .from(schema.userSeasonPasses)
+      .where(and(eq(schema.userSeasonPasses.userId, userId), eq(schema.userSeasonPasses.seasonId, seasonId)))
+      .for("update");
     if (!pass) throw new Error('User has no season pass');
 
-    const { rows: milRows } = await client.query<{
-      milestone_xp: number; tier: string; reward_type: string; reward_value: unknown;
-    }>(
-      `SELECT milestone_xp, tier, reward_type, reward_value
-       FROM season_pass_milestones WHERE id = $1 AND season_id = $2`,
-      [milestoneId, seasonId]
-    );
-    const milestone = milRows[0];
+    const [milestone] = await tx
+      .select({
+        milestoneXp: schema.seasonPassMilestones.milestoneXp,
+        tier: schema.seasonPassMilestones.tier,
+        rewardType: schema.seasonPassMilestones.rewardType,
+        rewardValue: schema.seasonPassMilestones.rewardValue,
+      })
+      .from(schema.seasonPassMilestones)
+      .where(and(eq(schema.seasonPassMilestones.id, milestoneId), eq(schema.seasonPassMilestones.seasonId, seasonId)));
     if (!milestone) throw new Error('Milestone not found');
 
-    if (milestone.tier === 'paid' && !pass.has_paid_pass) {
+    if (milestone.tier === 'paid' && !pass.hasPaidPass) {
       throw new Error('Paid pass required for this milestone');
     }
-    if (pass.season_xp < milestone.milestone_xp) {
+    if (Number(pass.seasonXp) < milestone.milestoneXp) {
       throw new Error('Insufficient season XP');
     }
 
-    // Attempt claim; RETURNING lets us detect whether the row was actually inserted
-    const { rows: claimRows } = await client.query<{ user_id: string }>(
-      `INSERT INTO user_season_milestone_claims (user_id, season_id, milestone_id, claimed_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (user_id, season_id, milestone_id) DO NOTHING
-       RETURNING user_id`,
-      [userId, seasonId, milestoneId]
-    );
+    // Attempt claim; a returned row lets us detect whether the row was actually inserted
+    const claimRows = await tx
+      .insert(schema.userSeasonMilestoneClaims)
+      .values({ userId, seasonId, milestoneId })
+      .onConflictDoNothing({
+        target: [
+          schema.userSeasonMilestoneClaims.userId,
+          schema.userSeasonMilestoneClaims.seasonId,
+          schema.userSeasonMilestoneClaims.milestoneId,
+        ],
+      })
+      .returning({ userId: schema.userSeasonMilestoneClaims.userId });
 
     // Already claimed — skip reward, return success: false
-    if (!claimRows[0]) return;
+    if (claimRows.length === 0) return;
 
     // Apply reward only when the insert actually happened
-    if (milestone.reward_type === 'coins') {
-      const val = milestone.reward_value as { amount: number };
-      await creditCoins(
-        userId,
-        val.amount,
-        "season_milestone",
-        `milestone:${milestoneId}`,
-        "Season pass milestone reward",
-        { milestoneId, seasonId },
-        client
-      );
-    } else if (milestone.reward_type === 'badge' || milestone.reward_type === 'title') {
-      const val = milestone.reward_value as { badgeType?: string; title?: string };
+    if (milestone.rewardType === 'coins') {
+      const val = milestone.rewardValue as { amount: number };
+      coinAwardState.pendingCoinAward = { amount: val.amount };
+    } else if (milestone.rewardType === 'badge' || milestone.rewardType === 'title') {
+      const val = milestone.rewardValue as { badgeType?: string; title?: string };
       const badgeType = val.badgeType ?? val.title ?? 'season_reward';
       // Include season discriminator in badge_key to prevent cross-season deduplication collisions
       const badgeKey = `${badgeType}:s${seasonId}`;
-      await client.query(
-        `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, awarded_at)
-         VALUES ($1, $2, $3, $4, NOW()) ON CONFLICT (user_id, badge_key) DO NOTHING`,
-        [userId, badgeType, badgeKey, milestoneId]
-      );
-    } else if (milestone.reward_type === 'xp_bonus') {
-      const val = milestone.reward_value as { bonusXP: number };
+      await tx
+        .insert(schema.userBadges)
+        .values({ userId, badgeType, badgeKey, referenceId: milestoneId })
+        .onConflictDoNothing({
+          target: [schema.userBadges.userId, schema.userBadges.badgeKey],
+        });
+    } else if (milestone.rewardType === 'xp_bonus') {
+      const val = milestone.rewardValue as { bonusXP: number };
       const referenceId = `season:${seasonId}:milestone:${milestoneId}:user:${userId}`;
       // BUG-H04: Use a single CTE that gates the user_season_passes UPDATE on the
       // users UPDATE succeeding. If the user is soft-deleted, the users UPDATE
       // returns 0 rows, so the pass UPDATE is skipped — preventing XP discrepancies.
-      const { rows: xpRows } = await client.query<{ xp_total: number; season_xp: number }>(
-        `WITH ins AS (
-           INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-           VALUES ($1, $2, 'main', 'season_milestone_bonus', $3, $2, NOW())
-           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-           RETURNING id
-         ),
-         user_updated AS (
-           UPDATE users
-             SET xp_total  = xp_total  + $2,
-                 season_xp = season_xp + $2,
-                 updated_at = NOW()
-           WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
-           RETURNING id, xp_total, season_xp
-         )
-         UPDATE user_season_passes
-           SET season_xp = season_xp + $2
-         WHERE user_id = $1 AND season_id = $4
-           AND EXISTS (SELECT 1 FROM user_updated)
-         RETURNING (SELECT xp_total FROM user_updated) AS xp_total,
-                   (SELECT season_xp FROM user_updated) AS season_xp`,
-        [userId, val.bonusXP, referenceId, seasonId]
-      );
+      const xpResult = await tx.execute<{ xp_total: number; season_xp: number }>(sql`
+        WITH ins AS (
+          INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+          VALUES (${userId}, ${val.bonusXP}, 'main', 'season_milestone_bonus', ${referenceId}, ${val.bonusXP}, NOW())
+          ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+          RETURNING id
+        ),
+        user_updated AS (
+          UPDATE users
+            SET xp_total  = xp_total  + ${val.bonusXP},
+                season_xp = season_xp + ${val.bonusXP},
+                updated_at = NOW()
+          WHERE id = ${userId} AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
+          RETURNING id, xp_total, season_xp
+        )
+        UPDATE user_season_passes
+          SET season_xp = season_xp + ${val.bonusXP}
+        WHERE user_id = ${userId} AND season_id = ${seasonId}
+          AND EXISTS (SELECT 1 FROM user_updated)
+        RETURNING (SELECT xp_total FROM user_updated) AS xp_total,
+                  (SELECT season_xp FROM user_updated) AS season_xp
+      `);
+      const xpRow = (xpResult.rows as { xp_total: number; season_xp: number }[])[0];
       // Sync leaderboard snapshot so rank reflects the new XP immediately
-      if (xpRows[0]) {
-        const newXpTotal = Number(xpRows[0].xp_total);
+      if (xpRow) {
+        const newXpTotal = Number(xpRow.xp_total);
         // BUG-M01: log snapshot failures rather than silently swallowing them
-        await upsertLeaderboardSnapshot(userId, "main", newXpTotal, client).catch((err) => {
+        await upsertLeaderboardSnapshot(userId, "main", newXpTotal, tx).catch((err) => {
           logger.warn({ err, userId, track: "main" }, "[leaderboard] snapshot upsert failed after season XP bonus");
         });
-        await upsertLeaderboardSnapshot(userId, "main", Number(xpRows[0].season_xp), client, {
+        await upsertLeaderboardSnapshot(userId, "main", Number(xpRow.season_xp), tx, {
           scope: "season",
           seasonId,
         }).catch((err) => {
           logger.warn({ err, userId, seasonId }, "[leaderboard] season snapshot upsert failed after season XP bonus");
         });
       }
-    } else if (milestone.reward_type === 'sticker_pack') {
-      const val = milestone.reward_value as { packId: string };
+    } else if (milestone.rewardType === 'sticker_pack') {
+      const val = milestone.rewardValue as { packId: string };
       // Prefer slug (canonical), fall back to name to avoid ambiguous OR match
-      let packResult = await client.query<{ id: string }>(
-        `SELECT id FROM sticker_packs WHERE slug = $1 LIMIT 1`,
-        [val.packId]
-      );
-      if (!packResult.rows[0]) {
-        packResult = await client.query<{ id: string }>(
-          `SELECT id FROM sticker_packs WHERE name = $1 LIMIT 1`,
-          [val.packId]
-        );
+      let [pack] = await tx
+        .select({ id: schema.stickerPacks.id })
+        .from(schema.stickerPacks)
+        .where(eq(schema.stickerPacks.slug, val.packId))
+        .limit(1);
+      if (!pack) {
+        [pack] = await tx
+          .select({ id: schema.stickerPacks.id })
+          .from(schema.stickerPacks)
+          .where(eq(schema.stickerPacks.name, val.packId))
+          .limit(1);
       }
-      const packUuid = packResult.rows[0]?.id;
+      const packUuid = pack?.id;
       if (!packUuid) {
         logger.error({ milestoneId, userId }, '[seasonEngine] Sticker pack not found for milestone reward — skipping grant');
-        await raiseAlert(client, {
+        await raiseAlert(tx, {
           type: "missing_sticker_pack",
           category: "other",
           priorityLevel: 4,
@@ -711,32 +769,49 @@ export async function claimPassMilestone(
           dedupeKey: `missing_sticker_pack:${milestoneId}`,
         }).catch(() => {});
         // fall through — milestone is still marked claimed
-        claimed = { rewardType: milestone.reward_type, rewardValue: milestone.reward_value };
+        claimed = { rewardType: milestone.rewardType, rewardValue: milestone.rewardValue };
         return;
       }
-      await client.query(
-        `INSERT INTO user_sticker_packs (user_id, pack_id, unlocked_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (user_id, pack_id) DO NOTHING`,
-        [userId, packUuid]
-      );
+      await tx
+        .insert(schema.userStickerPacks)
+        .values({ userId, packId: packUuid, unlockedAt: new Date() })
+        .onConflictDoNothing({
+          target: [schema.userStickerPacks.userId, schema.userStickerPacks.packId],
+        });
     } else {
-      throw new Error(`[claimPassMilestone] Unhandled reward_type '${milestone.reward_type}' for milestone ${milestoneId} — add handler before season goes live`);
+      throw new Error(`[claimPassMilestone] Unhandled reward_type '${milestone.rewardType}' for milestone ${milestoneId} — add handler before season goes live`);
     }
 
-    claimed = { rewardType: milestone.reward_type, rewardValue: milestone.reward_value };
+    claimed = { rewardType: milestone.rewardType, rewardValue: milestone.rewardValue };
   });
+
+  if (coinAwardState.pendingCoinAward) {
+    try {
+      await creditCoins(
+        userId,
+        coinAwardState.pendingCoinAward.amount,
+        "season_milestone",
+        `milestone:${milestoneId}`,
+        "Season pass milestone reward",
+        { milestoneId, seasonId }
+      );
+    } catch (err) {
+      logger.error({ err, userId, milestoneId }, "[seasonEngine] Failed to credit season milestone coins (non-fatal)");
+    }
+  }
 
   if (!claimed) {
     // Fetch reward metadata to return a well-typed response for already-claimed milestones
-    const { rows } = await db.query<{ reward_type: string; reward_value: unknown }>(
-      `SELECT reward_type, reward_value FROM season_pass_milestones WHERE id = $1`,
-      [milestoneId]
-    );
+    const db2 = await getDb();
+    const [row] = await db2
+      .select({ rewardType: schema.seasonPassMilestones.rewardType, rewardValue: schema.seasonPassMilestones.rewardValue })
+      .from(schema.seasonPassMilestones)
+      .where(eq(schema.seasonPassMilestones.id, milestoneId))
+      .limit(1);
     return {
       success: false,
-      rewardType: rows[0]?.reward_type ?? 'unknown',
-      rewardValue: rows[0]?.reward_value ?? {},
+      rewardType: row?.rewardType ?? 'unknown',
+      rewardValue: row?.rewardValue ?? {},
     };
   }
 

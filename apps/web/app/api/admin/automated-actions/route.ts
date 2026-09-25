@@ -26,7 +26,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db, SqlParam } from "@/lib/db";
+import { and, desc, eq, lt } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -37,23 +38,6 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
-
-// ---------------------------------------------------------------------------
-// DB row type
-// ---------------------------------------------------------------------------
-
-interface AutomatedActionRow {
-  id: string;
-  action_type: string;
-  target_type: string | null;
-  target_id: string | null;
-  target_user_id: string | null;
-  metadata: Record<string, unknown> | null;
-  reversed_at: string | null;
-  reversed_by: string | null;
-  reverse_note: string | null;
-  created_at: string;
-}
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/automated-actions
@@ -99,52 +83,32 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     const actionTypeFilter = searchParams.get("action_type") ?? null;
 
     // -----------------------------------------------------------------------
-    // Build query dynamically
+    // Build query
     // -----------------------------------------------------------------------
 
-    const queryParams: SqlParam[] = [];
-    let paramIndex = 1;
+    const orm = await getDb();
+    const aal = schema.automatedActionsLog;
+    const conditions = [];
+    if (actionTypeFilter) conditions.push(eq(aal.actionType, actionTypeFilter));
+    if (cursor) conditions.push(lt(aal.id, cursor));
 
-    let whereClause = `WHERE 1=1`;
-
-    if (actionTypeFilter) {
-      whereClause += ` AND action_type = $${paramIndex}`;
-      queryParams.push(actionTypeFilter);
-      paramIndex++;
-    }
-
-    if (cursor) {
-      // Cursor pagination: fetch rows with id < cursor (UUID ordering by
-      // created_at DESC is handled by the ORDER BY clause — we use the
-      // created_at of the cursor row to keep ordering stable)
-      whereClause += ` AND id < $${paramIndex}`;
-      queryParams.push(cursor);
-      paramIndex++;
-    }
-
-    // Fetch limit + 1 to detect whether there are more pages
-    queryParams.push(limit + 1);
-    const limitParam = paramIndex;
-
-    const sql = `
-      SELECT
-        id,
-        action_type,
-        target_type,
-        target_id,
-        target_user_id,
-        metadata,
-        reversed_at,
-        reversed_by,
-        reverse_note,
-        created_at
-      FROM automated_actions_log
-      ${whereClause}
-      ORDER BY created_at DESC
-      LIMIT $${limitParam}
-    `;
-
-    const { rows } = await db.query<AutomatedActionRow>(sql, queryParams);
+    const rows = await orm
+      .select({
+        id: aal.id,
+        action_type: aal.actionType,
+        target_type: aal.targetType,
+        target_id: aal.targetId,
+        target_user_id: aal.targetUserId,
+        metadata: aal.metadata,
+        reversed_at: aal.reversedAt,
+        reversed_by: aal.reversedBy,
+        reverse_note: aal.reverseNote,
+        created_at: aal.createdAt,
+      })
+      .from(aal)
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(aal.createdAt))
+      .limit(limit + 1);
 
     // -----------------------------------------------------------------------
     // Pagination

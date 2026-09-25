@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -27,7 +28,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 // DB row types
 // ---------------------------------------------------------------------------
 
-interface HealthMetricsRow {
+type HealthMetricsRow = Record<string, unknown> & {
   total_messages_7d: number;
   reports_7d: number;
   churn_7d: number;
@@ -36,7 +37,7 @@ interface HealthMetricsRow {
   active_members_7d: number;
   messages_last_hour: number;
   health_score: number;
-}
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -113,89 +114,89 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const { roomId } = await params as { roomId: string };
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // Fetch room
-    const { rows: roomRows } = await db.query<{
-      creator_id: string;
-      is_active: boolean;
-      health_score: number;
-      member_count: number;
-    }>(
-      `SELECT creator_id, is_active, health_score, member_count
-       FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-    const room = roomRows[0];
-    if (!room || !room.is_active) throw notFound("Room not found");
+    const [room] = await orm
+      .select({
+        creatorId: schema.rooms.creatorId,
+        isActive: schema.rooms.isActive,
+        healthScore: schema.rooms.healthScore,
+        memberCount: schema.rooms.memberCount,
+      })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
+    if (!room || !room.isActive) throw notFound("Room not found");
 
     // Access check: creator or platform admin
-    const { rows: adminRows } = await db.query<{ is_admin: boolean }>(
-      `SELECT is_admin FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    const isAdmin = adminRows[0]?.is_admin ?? false;
-    const isCreator = room.creator_id === userId;
+    const [adminRow] = await orm
+      .select({ isAdmin: schema.users.isAdmin })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), sql`${schema.users.deletedAt} IS NULL`))
+      .limit(1);
+    const isAdmin = adminRow?.isAdmin ?? false;
+    const isCreator = room.creatorId === userId;
 
     if (!isCreator && !isAdmin) {
       throw forbidden("Health data is only accessible to the room creator or platform admins");
     }
 
     // Gather rolling metrics
-    const { rows: metricRows } = await db.query<HealthMetricsRow>(
-      `SELECT
-         -- Messages in last 7 days
-         (SELECT COUNT(*)::int FROM room_messages
-          WHERE room_id = $1 AND created_at > NOW() - INTERVAL '7 days'
-            AND is_deleted = FALSE)
-         AS total_messages_7d,
+    const result = await orm.execute<HealthMetricsRow>(sql`
+      SELECT
+        -- Messages in last 7 days
+        (SELECT COUNT(*)::int FROM room_messages
+         WHERE room_id = ${roomId} AND created_at > NOW() - INTERVAL '7 days'
+           AND is_deleted = FALSE)
+        AS total_messages_7d,
 
-         -- Reports in last 7 days targeting this room's messages
-         (SELECT COUNT(*)::int FROM reports
-          WHERE reported_room_id = $1
-            AND created_at > NOW() - INTERVAL '7 days')
-         AS reports_7d,
+        -- Reports in last 7 days targeting this room's messages
+        (SELECT COUNT(*)::int FROM reports
+         WHERE reported_room_id = ${roomId}
+           AND created_at > NOW() - INTERVAL '7 days')
+        AS reports_7d,
 
-         -- Members who left (were removed) in last 7 days
-         (SELECT COUNT(*)::int FROM room_moderation_log
-          WHERE room_id = $1
-            AND action IN ('remove', 'kick')
-            AND created_at > NOW() - INTERVAL '7 days')
-         AS churn_7d,
+        -- Members who left (were removed) in last 7 days
+        (SELECT COUNT(*)::int FROM room_moderation_log
+         WHERE room_id = ${roomId}
+           AND action IN ('remove', 'kick')
+           AND created_at > NOW() - INTERVAL '7 days')
+        AS churn_7d,
 
-         -- Moderation actions in last 7 days (mute, remove)
-         (SELECT COUNT(*)::int FROM room_moderation_log
-          WHERE room_id = $1
-            AND created_at > NOW() - INTERVAL '7 days')
-         AS mod_actions_7d,
+        -- Moderation actions in last 7 days (mute, remove)
+        (SELECT COUNT(*)::int FROM room_moderation_log
+         WHERE room_id = ${roomId}
+           AND created_at > NOW() - INTERVAL '7 days')
+        AS mod_actions_7d,
 
-         -- Current member count
-         $2::int AS member_count,
+        -- Current member count
+        ${room.memberCount}::int AS member_count,
 
-         -- Distinct active members (sent ≥1 msg in 7 days)
-         (SELECT COUNT(DISTINCT sender_id)::int FROM room_messages
-          WHERE room_id = $1 AND created_at > NOW() - INTERVAL '7 days'
-            AND is_deleted = FALSE)
-         AS active_members_7d,
+        -- Distinct active members (sent ≥1 msg in 7 days)
+        (SELECT COUNT(DISTINCT sender_id)::int FROM room_messages
+         WHERE room_id = ${roomId} AND created_at > NOW() - INTERVAL '7 days'
+           AND is_deleted = FALSE)
+        AS active_members_7d,
 
-         -- Messages in last hour
-         (SELECT COUNT(*)::int FROM room_messages
-          WHERE room_id = $1 AND created_at > NOW() - INTERVAL '1 hour'
-            AND is_deleted = FALSE)
-         AS messages_last_hour,
+        -- Messages in last hour
+        (SELECT COUNT(*)::int FROM room_messages
+         WHERE room_id = ${roomId} AND created_at > NOW() - INTERVAL '1 hour'
+           AND is_deleted = FALSE)
+        AS messages_last_hour,
 
-         -- Stored health score (last written value)
-         $3::int AS health_score`,
-      [roomId, room.member_count, room.health_score]
-    );
+        -- Stored health score (last written value)
+        ${room.healthScore}::int AS health_score
+    `);
 
-    const metrics = metricRows[0];
+    const metrics = result.rows[0];
     const computedScore = computeHealthScore(metrics);
 
     // Persist the computed score
-    await db.query(
-      `UPDATE rooms SET health_score = $1, updated_at = NOW() WHERE id = $2`,
-      [computedScore, roomId]
-    );
+    await orm
+      .update(schema.rooms)
+      .set({ healthScore: computedScore, updatedAt: sql`NOW()` })
+      .where(eq(schema.rooms.id, roomId));
 
     return NextResponse.json(
       {

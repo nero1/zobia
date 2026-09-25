@@ -16,8 +16,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -75,74 +75,73 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { params, auth }: Qu
       throw badRequest("deadline must be in the future");
     }
 
+    const orm = await getDb();
+
     // Verify quest exists
-    const { rows: questRows } = await db.query<{ id: string; creator_share_percent: number; platform_share_percent: number }>(
-      `SELECT id, creator_share_percent, platform_share_percent
-       FROM sponsored_quests WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [questId]
-    );
+    const questRows = await orm
+      .select({
+        id: schema.sponsoredQuests.id,
+        creator_share_percent: schema.sponsoredQuests.creatorSharePercent,
+        platform_share_percent: schema.sponsoredQuests.platformSharePercent,
+      })
+      .from(schema.sponsoredQuests)
+      .where(and(eq(schema.sponsoredQuests.id, questId), isNull(schema.sponsoredQuests.deletedAt)))
+      .limit(1);
     if (!questRows[0]) throw notFound("Sponsored quest not found");
 
-    // Build SET clause dynamically
-    const setParts: string[] = ["updated_at = NOW()"];
-    const values: SqlParam[] = [questId];
-    let idx = 2;
-
-    const fieldMap: Record<string, string> = {
-      brandName:            "brand_name",
-      brandLogoUrl:         "brand_logo_url",
-      title:                "title",
-      description:          "description",
-      requirements:         "requirements",
-      rewardCoins:          "reward_coins",
-      creatorSharePercent:  "creator_share_percent",
-      platformSharePercent: "platform_share_percent",
-      maxApplications:      "max_applications",
-      deadline:             "deadline",
-      minCreatorTier:       "min_creator_tier",
-      isActive:             "is_active",
-      isDailyQuestEligible: "is_daily_quest_eligible",
-      startsAt:             "starts_at",
-      endsAt:               "ends_at",
-      totalBudgetCredits:   "total_budget_credits",
-      dailyBudgetCredits:   "daily_budget_credits",
-      cpmCredits:           "cpm_credits",
-      targetAction:         "target_action",
-      targetValue:          "target_value",
-    };
+    // Build the update payload dynamically — field names already match the
+    // Drizzle schema's camelCase columns 1:1.
+    // NOTE: sponsored_quests has no updated_at column in the Drizzle schema —
+    // see the same note in the sibling flag/pause/moderate routes.
+    const setValues: Record<string, unknown> = {};
 
     if (body.ownerUsername !== undefined) {
       if (body.ownerUsername === null) {
-        setParts.push(`owner_user_id = NULL`);
+        setValues.ownerUserId = null;
       } else {
-        const { rows: ownerRows } = await db.query<{ id: string }>(
-          `SELECT id FROM users WHERE username = $1 AND deleted_at IS NULL LIMIT 1`,
-          [body.ownerUsername]
-        );
+        const ownerRows = await orm
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(and(eq(schema.users.username, body.ownerUsername), isNull(schema.users.deletedAt)))
+          .limit(1);
         if (!ownerRows[0]) throw badRequest(`No user found with username '${body.ownerUsername}'`);
-        setParts.push(`owner_user_id = $${idx++}`);
-        values.push(ownerRows[0].id);
+        setValues.ownerUserId = ownerRows[0].id;
       }
     }
 
-    for (const [jsKey, dbCol] of Object.entries(fieldMap)) {
+    const numericStringFields = new Set(["totalBudgetCredits", "dailyBudgetCredits", "cpmCredits"]);
+    const dateFields = new Set(["deadline", "startsAt", "endsAt"]);
+    const fieldKeys = [
+      "brandName", "brandLogoUrl", "title", "description", "requirements", "rewardCoins",
+      "creatorSharePercent", "platformSharePercent", "maxApplications", "deadline",
+      "minCreatorTier", "isActive", "isDailyQuestEligible", "startsAt", "endsAt",
+      "totalBudgetCredits", "dailyBudgetCredits", "cpmCredits", "targetAction", "targetValue",
+    ] as const;
+
+    for (const jsKey of fieldKeys) {
       const val = (body as Record<string, unknown>)[jsKey];
-      if (val !== undefined) {
-        setParts.push(`${dbCol} = $${idx++}`);
-        values.push(val as SqlParam);
+      if (val === undefined) continue;
+      if (val === null) {
+        setValues[jsKey] = null;
+      } else if (dateFields.has(jsKey)) {
+        setValues[jsKey] = new Date(val as string);
+      } else if (numericStringFields.has(jsKey)) {
+        setValues[jsKey] = String(val);
+      } else {
+        setValues[jsKey] = val;
       }
     }
 
-    if (setParts.length === 1) {
+    if (Object.keys(setValues).length === 0) {
       throw badRequest("No fields to update");
     }
 
-    await db.query(
-      `UPDATE sponsored_quests SET ${setParts.join(", ")} WHERE id = $1`,
-      values
-    );
+    await orm
+      .update(schema.sponsoredQuests)
+      .set(setValues as typeof schema.sponsoredQuests.$inferInsert)
+      .where(eq(schema.sponsoredQuests.id, questId));
 
-    await syncSponsoredQuestTemplate(db, questId);
+    await syncSponsoredQuestTemplate(orm, questId);
 
     return NextResponse.json({ success: true, data: { questId } });
   } catch (err) {
@@ -157,19 +156,20 @@ export const DELETE = withAdminAuth(async (req: NextRequest, { params, auth }: Q
     const { questId } = await params;
     if (!UUID_RE.test(questId)) throw badRequest("questId must be a valid UUID");
 
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM sponsored_quests WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [questId]
-    );
+    const orm = await getDb();
+
+    const rows = await orm
+      .select({ id: schema.sponsoredQuests.id })
+      .from(schema.sponsoredQuests)
+      .where(and(eq(schema.sponsoredQuests.id, questId), isNull(schema.sponsoredQuests.deletedAt)))
+      .limit(1);
     if (!rows[0]) throw notFound("Sponsored quest not found");
 
-    await db.query(
-      `UPDATE sponsored_quests
-       SET deleted_at = NOW(), is_active = FALSE, updated_at = NOW()
-       WHERE id = $1`,
-      [questId]
-    );
-    await syncSponsoredQuestTemplate(db, questId);
+    await orm
+      .update(schema.sponsoredQuests)
+      .set({ deletedAt: new Date(), isActive: false })
+      .where(eq(schema.sponsoredQuests.id, questId));
+    await syncSponsoredQuestTemplate(orm, questId);
 
     return NextResponse.json({ success: true, data: { questId, deleted: true } });
   } catch (err) {

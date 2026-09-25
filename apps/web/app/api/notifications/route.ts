@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, lt, count as drizzleCount } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -86,51 +87,61 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       listNotificationsQuerySchema
     );
 
-    const conditions = ["user_id = $1"];
-    const queryParams: (string | number | boolean)[] = [userId];
+    const db = await getDb();
 
+    const conditions = [eq(schema.notifications.userId, userId)];
     if (type) {
-      queryParams.push(type);
-      conditions.push(`type = $${queryParams.length}`);
+      conditions.push(eq(schema.notifications.type, type));
     }
     if (unread) {
-      conditions.push("is_read = false");
+      conditions.push(eq(schema.notifications.isRead, false));
     }
     if (after) {
-      queryParams.push(after);
-      conditions.push(`created_at < $${queryParams.length}`);
+      conditions.push(lt(schema.notifications.createdAt, new Date(after)));
     }
-    queryParams.push(limit);
-    const limitPlaceholder = `$${queryParams.length}`;
 
-    const [result, countResult] = await Promise.all([
-      db.query<NotificationRow>(
-        `SELECT id, type, payload, title, body, metadata, is_read, created_at
-         FROM notifications
-         WHERE ${conditions.join(" AND ")}
-         ORDER BY created_at DESC
-         LIMIT ${limitPlaceholder}`,
-        queryParams
-      ),
-      db.query<{ count: string }>(
-        `SELECT COUNT(*) AS count FROM notifications WHERE user_id = $1 AND is_read = false`,
-        [userId]
-      ),
+    const [rows, countResult] = await Promise.all([
+      db
+        .select({
+          id: schema.notifications.id,
+          type: schema.notifications.type,
+          payload: schema.notifications.payload,
+          title: schema.notifications.title,
+          body: schema.notifications.body,
+          metadata: schema.notifications.metadata,
+          isRead: schema.notifications.isRead,
+          createdAt: schema.notifications.createdAt,
+        })
+        .from(schema.notifications)
+        .where(and(...conditions))
+        .orderBy(desc(schema.notifications.createdAt))
+        .limit(limit),
+      db
+        .select({ count: drizzleCount() })
+        .from(schema.notifications)
+        .where(
+          and(
+            eq(schema.notifications.userId, userId),
+            eq(schema.notifications.isRead, false)
+          )
+        ),
     ]);
 
-    const notifications: Notification[] = result.rows.map((row) => ({
+    const notifications: Notification[] = rows.map((row) => ({
       id: row.id,
       type: row.type,
-      payload: row.payload,
+      payload: row.payload as Record<string, unknown> | null,
       title: row.title,
       body: row.body,
-      metadata: row.metadata,
-      isRead: row.is_read,
-      createdAt: row.created_at,
-      actionUrl: deriveNotificationActionUrl(row.type, row.metadata),
+      metadata: row.metadata as Record<string, unknown> | null,
+      isRead: row.isRead,
+      createdAt: (row.createdAt as unknown as Date).toISOString
+        ? (row.createdAt as unknown as Date).toISOString()
+        : (row.createdAt as unknown as string),
+      actionUrl: deriveNotificationActionUrl(row.type, row.metadata as Record<string, unknown> | null),
     }));
 
-    const unreadCount = parseInt(countResult.rows[0]?.count ?? "0", 10);
+    const unreadCount = countResult[0]?.count ?? 0;
     const nextCursor =
       notifications.length === limit
         ? notifications[notifications.length - 1]?.createdAt ?? null

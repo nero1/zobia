@@ -16,7 +16,7 @@ import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBoardBySlug, listThreadsInBoard } from "@/lib/bbforum/repo";
 import { createThread } from "@/lib/bbforum/service";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const createSchema = z.object({
@@ -63,7 +63,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }: { params
       potPerClaimCredits: body.potPerClaimCredits,
       potMaxClaims: body.potMaxClaims,
     });
-    void triggerActivityQuestProgress(auth.user.sub, "forum_create_thread", db);
+    const orm = await getDb();
+    void triggerActivityQuestProgress(auth.user.sub, "forum_create_thread", orm);
     return NextResponse.json({ success: true, data: { thread }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

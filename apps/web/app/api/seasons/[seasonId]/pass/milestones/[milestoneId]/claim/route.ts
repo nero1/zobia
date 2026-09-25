@@ -22,7 +22,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -32,41 +33,6 @@ import {
   forbidden,
 } from "@/lib/api/errors";
 import { creditCoins } from "@/lib/economy/coins";
-
-// ---------------------------------------------------------------------------
-// Row types
-// ---------------------------------------------------------------------------
-
-interface SeasonRow {
-  id: string;
-  name: string;
-  is_active: boolean;
-  ends_at: string;
-}
-
-interface SeasonMilestoneRow {
-  id: string;
-  season_id: string;
-  xp_required: number;
-  is_paid_only: boolean;
-  required_plan: string | null;  // NULL = all paid holders; 'pro' = Pro+; 'max' = Max only
-  reward_type: string;           // 'coins' | 'xp' | 'badge' | 'sticker_pack' | 'title'
-  reward_value: string | null;   // JSON blob e.g. {"coins":500} or {"badge_id":"..."}
-  label: string | null;
-  sort_order: number;
-}
-
-interface UserSeasonPassRow {
-  id: string;
-  user_id: string;
-  season_id: string;
-  is_paid: boolean;
-  season_xp: number;
-}
-
-interface ClaimedMilestoneRow {
-  id: string;
-}
 
 // ---------------------------------------------------------------------------
 // Reward helpers
@@ -81,15 +47,12 @@ interface MilestoneRewardPayload {
 }
 
 /**
- * Parse the reward JSON stored in the milestone row.
+ * Normalise the reward JSON stored in the milestone row (jsonb column, so it
+ * arrives already parsed — this just narrows/defaults the shape).
  */
-function parseRewardValue(raw: string | null): MilestoneRewardPayload {
-  if (!raw) return {};
-  try {
-    return JSON.parse(raw) as MilestoneRewardPayload;
-  } catch {
-    return {};
-  }
+function parseRewardValue(raw: unknown): MilestoneRewardPayload {
+  if (!raw || typeof raw !== "object") return {};
+  return raw as MilestoneRewardPayload;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,39 +74,51 @@ export const POST = withAuth(
       const { seasonId, milestoneId } = params;
       const userId = auth.user.sub;
 
-      const result = await db.transaction(async (client) => {
+      const orm = await getDb();
+
+      const result = await orm.transaction(async (tx) => {
         // 1. Verify the season exists
-        const { rows: seasonRows } = await client.query<SeasonRow>(
-          `SELECT id, name, is_active, ends_at FROM seasons WHERE id = $1`,
-          [seasonId]
-        );
-        const season = seasonRows[0];
+        const [season] = await tx
+          .select({ id: schema.seasons.id, name: schema.seasons.name, isActive: schema.seasons.isActive, endsAt: schema.seasons.endsAt })
+          .from(schema.seasons)
+          .where(eq(schema.seasons.id, seasonId))
+          .limit(1);
         if (!season) throw notFound("Season not found");
 
         // 2. Load the milestone definition
-        const { rows: milestoneRows } = await client.query<SeasonMilestoneRow>(
-          `SELECT id, season_id, milestone_xp AS xp_required, (tier = 'paid') AS is_paid_only,
-                  required_plan, reward_type, reward_value, display_name AS label, sort_order
-           FROM season_pass_milestones
-           WHERE id = $1 AND season_id = $2`,
-          [milestoneId, seasonId]
-        );
-        const milestone = milestoneRows[0];
+        const [milestone] = await tx
+          .select({
+            id: schema.seasonPassMilestones.id,
+            seasonId: schema.seasonPassMilestones.seasonId,
+            xpRequired: schema.seasonPassMilestones.milestoneXp,
+            tier: schema.seasonPassMilestones.tier,
+            requiredPlan: schema.seasonPassMilestones.requiredPlan,
+            rewardType: schema.seasonPassMilestones.rewardType,
+            rewardValue: schema.seasonPassMilestones.rewardValue,
+            label: schema.seasonPassMilestones.displayName,
+            sortOrder: schema.seasonPassMilestones.sortOrder,
+          })
+          .from(schema.seasonPassMilestones)
+          .where(and(eq(schema.seasonPassMilestones.id, milestoneId), eq(schema.seasonPassMilestones.seasonId, seasonId)));
         if (!milestone) throw notFound("Milestone not found");
+        const isPaidOnly = milestone.tier === "paid";
 
         // 3. Lock the user's season pass row (SELECT FOR UPDATE prevents races)
-        const { rows: passRows } = await client.query<UserSeasonPassRow>(
-          `SELECT id, user_id, season_id, is_paid, season_xp
-           FROM user_season_passes
-           WHERE user_id = $1 AND season_id = $2
-           FOR UPDATE`,
-          [userId, seasonId]
-        );
-        const pass = passRows[0];
+        const [pass] = await tx
+          .select({
+            id: schema.userSeasonPasses.id,
+            userId: schema.userSeasonPasses.userId,
+            seasonId: schema.userSeasonPasses.seasonId,
+            isPaid: schema.userSeasonPasses.isPaid,
+            seasonXp: schema.userSeasonPasses.seasonXp,
+          })
+          .from(schema.userSeasonPasses)
+          .where(and(eq(schema.userSeasonPasses.userId, userId), eq(schema.userSeasonPasses.seasonId, seasonId)))
+          .for("update");
         if (!pass) throw notFound("Season pass not found — purchase or unlock a pass first");
 
         // 4. Check pass tier eligibility
-        if (milestone.is_paid_only && !pass.is_paid) {
+        if (isPaidOnly && !pass.isPaid) {
           throw forbidden(
             "This milestone requires the paid season pass",
             "PAID_PASS_REQUIRED"
@@ -151,14 +126,15 @@ export const POST = withAuth(
         }
 
         // 4b. Check Pro/Max plan requirement for extended season pass rewards (PRD §3)
-        if (milestone.required_plan) {
-          const { rows: userPlanRows } = await client.query<{ plan: string }>(
-            `SELECT plan FROM users WHERE id = $1 LIMIT 1`,
-            [userId]
-          );
-          const userPlan = userPlanRows[0]?.plan ?? "free";
+        if (milestone.requiredPlan) {
+          const [userPlanRow] = await tx
+            .select({ plan: schema.users.plan })
+            .from(schema.users)
+            .where(eq(schema.users.id, userId))
+            .limit(1);
+          const userPlan = userPlanRow?.plan ?? "free";
           const planRank: Record<string, number> = { free: 0, plus: 1, pro: 2, max: 3 };
-          const requiredRank = planRank[milestone.required_plan] ?? 0;
+          const requiredRank = planRank[milestone.requiredPlan] ?? 0;
           const userRank = planRank[userPlan] ?? 0;
           if (userRank < requiredRank) {
             throw forbidden("This milestone requires the Pro or Max plan");
@@ -166,40 +142,35 @@ export const POST = withAuth(
         }
 
         // 5. Check XP requirement
-        if (pass.season_xp < milestone.xp_required) {
+        const seasonXp = Number(pass.seasonXp);
+        if (seasonXp < milestone.xpRequired) {
           throw badRequest(
-            `Not enough season XP. Need ${milestone.xp_required} XP, you have ${pass.season_xp}.`,
+            `Not enough season XP. Need ${milestone.xpRequired} XP, you have ${seasonXp}.`,
             "INSUFFICIENT_SEASON_XP"
           );
         }
 
         // 6. Idempotency — check if already claimed
-        const { rows: existingClaimRows } = await client.query<ClaimedMilestoneRow>(
-          `SELECT id FROM user_season_milestone_claims
-           WHERE user_id = $1 AND milestone_id = $2
-           LIMIT 1`,
-          [userId, milestoneId]
-        );
-        if (existingClaimRows.length > 0) {
+        const [existingClaim] = await tx
+          .select({ id: schema.userSeasonMilestoneClaims.id })
+          .from(schema.userSeasonMilestoneClaims)
+          .where(and(eq(schema.userSeasonMilestoneClaims.userId, userId), eq(schema.userSeasonMilestoneClaims.milestoneId, milestoneId)))
+          .limit(1);
+        if (existingClaim) {
           throw conflict("Milestone reward already claimed", "MILESTONE_ALREADY_CLAIMED");
         }
 
         // 7. Record the claim
-        await client.query(
-          `INSERT INTO user_season_milestone_claims
-             (user_id, season_id, milestone_id, claimed_at)
-           VALUES ($1, $2, $3, NOW())`,
-          [userId, seasonId, milestoneId]
-        );
+        await tx.insert(schema.userSeasonMilestoneClaims).values({ userId, seasonId, milestoneId });
 
         // 8. Award the reward atomically
-        const reward = parseRewardValue(milestone.reward_value);
+        const reward = parseRewardValue(milestone.rewardValue);
         const awardsGiven: Record<string, unknown> = {};
 
         // Coins reward.
-        // SYS-CL-08: reference omitted userId, so every user claiming the same
-        // milestone collided on the coin_ledger unique index.
-        if (milestone.reward_type === "coins" && reward.coins && reward.coins > 0) {
+        // SYS-CL-08: reference includes userId, so every user claiming the same
+        // milestone doesn't collide on the coin_ledger unique index.
+        if (milestone.rewardType === "coins" && reward.coins && reward.coins > 0) {
           await creditCoins(
             userId,
             reward.coins,
@@ -207,81 +178,82 @@ export const POST = withAuth(
             `season_milestone:${milestoneId}:${userId}`,
             `Season pass milestone: ${milestone.label ?? milestoneId}`,
             { seasonId, milestoneId },
-            client
+            tx
           );
           awardsGiven.coins = reward.coins;
         }
 
         // XP reward
-        if (milestone.reward_type === "xp" && reward.xp && reward.xp > 0) {
-          // xp_ledger has no `description` column and base_amount is NOT NULL —
-          // the old INSERT failed and rolled back every XP-milestone claim.
-          await client.query(
-            `INSERT INTO xp_ledger
-               (user_id, amount, track, source, reference_id, base_amount, created_at)
-             VALUES ($1, $2, 'main', 'season_milestone', $3, $2, NOW())`,
-            [userId, reward.xp, `season_milestone:${milestoneId}`]
-          );
-          await client.query(
-            `UPDATE users SET xp_total = COALESCE(xp_total, 0) + $1, updated_at = NOW()
-             WHERE id = $2`,
-            [reward.xp, userId]
-          );
+        if (milestone.rewardType === "xp" && reward.xp && reward.xp > 0) {
+          await tx.insert(schema.xpLedger).values({
+            userId,
+            amount: reward.xp,
+            track: "main",
+            source: "season_milestone",
+            referenceId: `season_milestone:${milestoneId}`,
+            baseAmount: reward.xp,
+          });
+          await tx
+            .update(schema.users)
+            .set({ xpTotal: sql`COALESCE(${schema.users.xpTotal}, 0) + ${reward.xp}`, updatedAt: new Date() })
+            .where(eq(schema.users.id, userId));
           awardsGiven.xp = reward.xp;
         }
 
         // Badge reward
-        if (milestone.reward_type === "badge" && reward.badgeId) {
-          await client.query(
-            `INSERT INTO user_badges (user_id, badge_type, badge_key, awarded_at)
-             VALUES ($1, $2, $2, NOW())
-             ON CONFLICT (user_id, badge_key) WHERE badge_key IS NOT NULL DO NOTHING`,
-            [userId, reward.badgeId]
-          );
+        if (milestone.rewardType === "badge" && reward.badgeId) {
+          await tx
+            .insert(schema.userBadges)
+            .values({ userId, badgeType: reward.badgeId, badgeKey: reward.badgeId })
+            .onConflictDoNothing({
+              target: [schema.userBadges.userId, schema.userBadges.badgeKey],
+              where: sql`badge_key IS NOT NULL`,
+            });
           awardsGiven.badgeId = reward.badgeId;
         }
 
         // Sticker pack reward
         // BUG-062: reward_value may store a pack name instead of a UUID.
         // Resolve to UUID by looking up by id first, then by name as fallback.
-        if (milestone.reward_type === "sticker_pack" && reward.stickerPackId) {
+        if (milestone.rewardType === "sticker_pack" && reward.stickerPackId) {
           const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
           let resolvedPackId: string | null = UUID_RE.test(reward.stickerPackId)
             ? reward.stickerPackId
             : null;
           if (!resolvedPackId) {
-            const { rows: packRows } = await client.query<{ id: string }>(
-              `SELECT id FROM sticker_packs WHERE name = $1 AND is_active = TRUE LIMIT 1`,
-              [reward.stickerPackId]
-            );
-            resolvedPackId = packRows[0]?.id ?? null;
+            const [pack] = await tx
+              .select({ id: schema.stickerPacks.id })
+              .from(schema.stickerPacks)
+              .where(and(eq(schema.stickerPacks.name, reward.stickerPackId), eq(schema.stickerPacks.isActive, true)))
+              .limit(1);
+            resolvedPackId = pack?.id ?? null;
           }
           if (resolvedPackId) {
-            await client.query(
-              `INSERT INTO user_sticker_packs (user_id, pack_id, acquired_at)
-               VALUES ($1, $2, NOW())
-               ON CONFLICT (user_id, pack_id) DO NOTHING`,
-              [userId, resolvedPackId]
-            );
+            await tx
+              .insert(schema.userStickerPacks)
+              .values({ userId, packId: resolvedPackId })
+              .onConflictDoNothing({
+                target: [schema.userStickerPacks.userId, schema.userStickerPacks.packId],
+              });
             awardsGiven.stickerPackId = resolvedPackId;
           }
         }
 
         // Title reward
-        if (milestone.reward_type === "title" && reward.title) {
-          await client.query(
-            `INSERT INTO user_titles (user_id, title, awarded_at)
-             VALUES ($1, $2, NOW())
-             ON CONFLICT (user_id, title) DO NOTHING`,
-            [userId, reward.title]
-          );
+        if (milestone.rewardType === "title" && reward.title) {
+          await tx
+            .insert(schema.userTitles)
+            .values({ userId, title: reward.title })
+            .onConflictDoNothing({
+              target: [schema.userTitles.userId, schema.userTitles.title],
+            });
           awardsGiven.title = reward.title;
         }
 
         return {
           milestoneId,
-          rewardType: milestone.reward_type,
-          requiredPlan: milestone.required_plan,
+          rewardType: milestone.rewardType,
+          requiredPlan: milestone.requiredPlan,
           awardsGiven,
         };
       });
@@ -323,40 +295,47 @@ export const GET = withAuth(
       const { seasonId, milestoneId } = params;
       const userId = auth.user.sub;
 
+      const orm = await getDb();
+
       // Load milestone definition
-      const { rows: milestoneRows } = await db.query<SeasonMilestoneRow>(
-        `SELECT id, season_id, milestone_xp AS xp_required, (tier = 'paid') AS is_paid_only,
-                required_plan, reward_type, reward_value, display_name AS label, sort_order
-         FROM season_pass_milestones
-         WHERE id = $1 AND season_id = $2`,
-        [milestoneId, seasonId]
-      );
-      const milestone = milestoneRows[0];
+      const [milestone] = await orm
+        .select({
+          id: schema.seasonPassMilestones.id,
+          seasonId: schema.seasonPassMilestones.seasonId,
+          xpRequired: schema.seasonPassMilestones.milestoneXp,
+          tier: schema.seasonPassMilestones.tier,
+          requiredPlan: schema.seasonPassMilestones.requiredPlan,
+          rewardType: schema.seasonPassMilestones.rewardType,
+          rewardValue: schema.seasonPassMilestones.rewardValue,
+          label: schema.seasonPassMilestones.displayName,
+          sortOrder: schema.seasonPassMilestones.sortOrder,
+        })
+        .from(schema.seasonPassMilestones)
+        .where(and(eq(schema.seasonPassMilestones.id, milestoneId), eq(schema.seasonPassMilestones.seasonId, seasonId)));
       if (!milestone) throw notFound("Milestone not found");
 
       // Check if the user has already claimed this milestone
-      const { rows: claimRows } = await db.query<{ id: string }>(
-        `SELECT id FROM user_season_milestone_claims
-         WHERE user_id = $1 AND milestone_id = $2
-         LIMIT 1`,
-        [userId, milestoneId]
-      );
+      const [claim] = await orm
+        .select({ id: schema.userSeasonMilestoneClaims.id })
+        .from(schema.userSeasonMilestoneClaims)
+        .where(and(eq(schema.userSeasonMilestoneClaims.userId, userId), eq(schema.userSeasonMilestoneClaims.milestoneId, milestoneId)))
+        .limit(1);
 
       return NextResponse.json({
         success: true,
         data: {
           milestone: {
             id: milestone.id,
-            seasonId: milestone.season_id,
-            xpRequired: milestone.xp_required,
-            isPaidOnly: milestone.is_paid_only,
-            required_plan: milestone.required_plan,
-            rewardType: milestone.reward_type,
-            rewardValue: milestone.reward_value ? parseRewardValue(milestone.reward_value) : null,
+            seasonId: milestone.seasonId,
+            xpRequired: milestone.xpRequired,
+            isPaidOnly: milestone.tier === "paid",
+            required_plan: milestone.requiredPlan,
+            rewardType: milestone.rewardType,
+            rewardValue: milestone.rewardValue ? parseRewardValue(milestone.rewardValue) : null,
             label: milestone.label,
-            sortOrder: milestone.sort_order,
+            sortOrder: milestone.sortOrder,
           },
-          claimed: claimRows.length > 0,
+          claimed: Boolean(claim),
         },
         error: null,
       });

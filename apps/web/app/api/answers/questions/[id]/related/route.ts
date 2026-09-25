@@ -10,20 +10,23 @@ export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull } from "drizzle-orm";
 import { listRelatedQuestions, listNewQuestions, listRecentlyAnsweredQuestions } from "@/lib/forum/repo";
 
 export const GET = withAuth(async (_req, { params }: { params: Promise<{ id: string }> }) => {
   try {
     const { id } = await params;
-    const { rows } = await db.query<{ category_id: string | null }>(
-      `SELECT category_id FROM forum_questions WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [id]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ categoryId: schema.forumQuestions.categoryId })
+      .from(schema.forumQuestions)
+      .where(and(eq(schema.forumQuestions.id, id), isNull(schema.forumQuestions.deletedAt)))
+      .limit(1);
     if (!rows[0]) throw notFound("Question not found");
 
     const [related, newPosts, recentlyAnswered] = await Promise.all([
-      listRelatedQuestions(rows[0].category_id, id, 5),
+      listRelatedQuestions(rows[0].categoryId, id, 5),
       listNewQuestions(3, id),
       listRecentlyAnsweredQuestions(3, id),
     ]);

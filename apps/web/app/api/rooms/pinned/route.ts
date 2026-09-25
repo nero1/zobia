@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, type SqlParam } from "@/lib/db";
+import { and, desc, eq, lt, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import type { Plan } from "@zobia/types";
@@ -43,12 +44,18 @@ async function getEffectivePinLimit(userId: string, plan: Plan): Promise<number>
   const base = PLAN_PIN_LIMITS[plan] ?? 3;
 
   // Check Explorer L10 milestone unlock
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM track_milestone_unlocks
-     WHERE user_id = $1 AND track = 'explorer' AND milestone_level >= 10
-     LIMIT 1`,
-    [userId]
-  );
+  const db = await getDb();
+  const rows = await db
+    .select({ id: schema.trackMilestoneUnlocks.id })
+    .from(schema.trackMilestoneUnlocks)
+    .where(
+      and(
+        eq(schema.trackMilestoneUnlocks.userId, userId),
+        eq(schema.trackMilestoneUnlocks.track, "explorer"),
+        sql`${schema.trackMilestoneUnlocks.milestoneLevel} >= 10`
+      )
+    )
+    .limit(1);
 
   const hasWanderer = rows.length > 0;
   return hasWanderer ? Math.max(base, EXPLORER_L10_MIN_PINS) : base;
@@ -78,37 +85,85 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const query = validateSearchParams(req.nextUrl.searchParams, listPinnedQuerySchema);
 
-    const queryParams: SqlParam[] = [auth.user.sub];
-    let cursorClause = "";
+    const db = await getDb();
+    const conditions = [eq(schema.roomPins.userId, auth.user.sub)];
     if (query.cursor) {
-      queryParams.push(query.cursor);
-      cursorClause = `AND rp.created_at < $${queryParams.length}`;
+      conditions.push(lt(schema.roomPins.createdAt, new Date(query.cursor)));
     }
-    queryParams.push(query.limit);
-    const limitParam = queryParams.length;
 
     // Faves tab / pinned-rooms strip: this is the room-favoriting mechanism
     // (PRD §3 "Room Pins" — tiered by plan). Rows come back in the same shape
     // as GET /api/rooms so the same RoomCard renders it directly.
-    const { rows } = await db.query<RoomCardSourceRow & { pinned_at: string }>(
-      `SELECT
-         r.id, r.name, r.description, r.type, r.category, r.city,
-         r.cover_emoji, r.cover_image_url, r.slug,
-         r.creator_id, u.username AS creator_username, u.display_name AS creator_display_name,
-         u.avatar_emoji AS creator_avatar_emoji, u.creator_tier,
-         r.member_count, r.max_members, r.is_active, r.is_featured, r.is_sponsored,
-         r.subscription_price_ngn, r.entry_fee_ngn, r.drop_starts_at, r.drop_ends_at,
-         r.enrolment_fee_ngn, r.total_messages, COALESCE(r.health_score, 100) AS health_score,
-         r.created_at, r.updated_at,
-         rp.created_at AS pinned_at
-       FROM room_pins rp
-       JOIN rooms r ON r.id = rp.room_id
-       JOIN users u ON u.id = r.creator_id
-       WHERE rp.user_id = $1 ${cursorClause}
-       ORDER BY rp.created_at DESC
-       LIMIT $${limitParam}`,
-      queryParams
-    );
+    const rawRows = await db
+      .select({
+        id: schema.rooms.id,
+        name: schema.rooms.name,
+        description: schema.rooms.description,
+        type: schema.rooms.type,
+        category: schema.rooms.category,
+        city: schema.rooms.city,
+        coverEmoji: schema.rooms.coverEmoji,
+        coverImageUrl: schema.rooms.coverImageUrl,
+        slug: schema.rooms.slug,
+        creatorId: schema.rooms.creatorId,
+        creatorUsername: schema.users.username,
+        creatorDisplayName: schema.users.displayName,
+        creatorAvatarEmoji: schema.users.avatarEmoji,
+        creatorTier: schema.users.creatorTier,
+        memberCount: schema.rooms.memberCount,
+        maxMembers: schema.rooms.maxMembers,
+        isActive: schema.rooms.isActive,
+        isFeatured: schema.rooms.isFeatured,
+        isSponsored: schema.rooms.isSponsored,
+        subscriptionPriceNgn: schema.rooms.subscriptionPriceNgn,
+        entryFeeNgn: schema.rooms.entryFeeNgn,
+        dropStartsAt: schema.rooms.dropStartsAt,
+        dropEndsAt: schema.rooms.dropEndsAt,
+        enrolmentFeeNgn: schema.rooms.enrolmentFeeNgn,
+        totalMessages: schema.rooms.totalMessages,
+        healthScore: schema.rooms.healthScore,
+        createdAt: schema.rooms.createdAt,
+        updatedAt: schema.rooms.updatedAt,
+        pinnedAt: schema.roomPins.createdAt,
+      })
+      .from(schema.roomPins)
+      .innerJoin(schema.rooms, eq(schema.rooms.id, schema.roomPins.roomId))
+      .innerJoin(schema.users, eq(schema.users.id, schema.rooms.creatorId))
+      .where(and(...conditions))
+      .orderBy(desc(schema.roomPins.createdAt))
+      .limit(query.limit);
+
+    const rows: Array<RoomCardSourceRow & { pinned_at: string }> = rawRows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      description: r.description,
+      type: r.type,
+      category: r.category,
+      city: r.city,
+      cover_emoji: r.coverEmoji,
+      cover_image_url: r.coverImageUrl,
+      slug: r.slug,
+      creator_id: r.creatorId,
+      creator_username: r.creatorUsername,
+      creator_display_name: r.creatorDisplayName,
+      creator_avatar_emoji: r.creatorAvatarEmoji,
+      creator_tier: r.creatorTier,
+      member_count: r.memberCount,
+      max_members: r.maxMembers,
+      is_active: r.isActive ?? true,
+      is_featured: r.isFeatured,
+      is_sponsored: r.isSponsored,
+      subscription_price_ngn: r.subscriptionPriceNgn === null ? null : Number(r.subscriptionPriceNgn),
+      entry_fee_ngn: r.entryFeeNgn === null ? null : Number(r.entryFeeNgn),
+      drop_starts_at: r.dropStartsAt ? r.dropStartsAt.toISOString() : null,
+      drop_ends_at: r.dropEndsAt ? r.dropEndsAt.toISOString() : null,
+      enrolment_fee_ngn: r.enrolmentFeeNgn === null ? null : Number(r.enrolmentFeeNgn),
+      total_messages: r.totalMessages,
+      health_score: r.healthScore ?? 100,
+      created_at: r.createdAt ? r.createdAt.toISOString() : "",
+      updated_at: r.updatedAt ? r.updatedAt.toISOString() : "",
+      pinned_at: r.pinnedAt ? r.pinnedAt.toISOString() : "",
+    }));
 
     const nextCursor =
       rows.length === query.limit ? rows[rows.length - 1]?.pinned_at ?? null : null;
@@ -136,26 +191,30 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, pinSchema);
 
+    const db = await getDb();
+
     // Verify room exists
-    const { rows: roomRows } = await db.query<{ id: string }>(
-      "SELECT id FROM rooms WHERE id = $1 LIMIT 1",
-      [body.roomId]
-    );
-    if (roomRows.length === 0) throw notFound("Room not found");
+    const [roomRow] = await db
+      .select({ id: schema.rooms.id })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, body.roomId))
+      .limit(1);
+    if (!roomRow) throw notFound("Room not found");
 
     // Get user plan
-    const { rows: userRows } = await db.query<{ plan: Plan }>(
-      "SELECT plan FROM users WHERE id = $1 LIMIT 1",
-      [auth.user.sub]
-    );
-    const plan = (userRows[0]?.plan as Plan) ?? "free";
+    const [userRow] = await db
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
+    const plan = (userRow?.plan as Plan) ?? "free";
 
     // Count current pins
-    const { rows: countRows } = await db.query<{ count: string }>(
-      "SELECT COUNT(*) AS count FROM room_pins WHERE user_id = $1",
-      [auth.user.sub]
-    );
-    const currentCount = parseInt(countRows[0]?.count ?? "0", 10);
+    const [countRow] = await db
+      .select({ count: sql<string>`COUNT(*)` })
+      .from(schema.roomPins)
+      .where(eq(schema.roomPins.userId, auth.user.sub));
+    const currentCount = parseInt(countRow?.count ?? "0", 10);
     const limit = await getEffectivePinLimit(auth.user.sub, plan);
 
     if (currentCount >= limit) {
@@ -165,27 +224,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Check not already pinned
-    const { rows: existsRows } = await db.query<{ id: string }>(
-      "SELECT id FROM room_pins WHERE user_id = $1 AND room_id = $2 LIMIT 1",
-      [auth.user.sub, body.roomId]
-    );
-    if (existsRows.length > 0) {
+    const [existsRow] = await db
+      .select({ id: schema.roomPins.id })
+      .from(schema.roomPins)
+      .where(and(eq(schema.roomPins.userId, auth.user.sub), eq(schema.roomPins.roomId, body.roomId)))
+      .limit(1);
+    if (existsRow) {
       throw badRequest("Room is already pinned");
     }
 
     // Insert pin
-    const { rows: insertRows } = await db.query<{ id: string; created_at: string }>(
-      `INSERT INTO room_pins (user_id, room_id) VALUES ($1, $2)
-       RETURNING id, created_at`,
-      [auth.user.sub, body.roomId]
-    );
+    const [insertRow] = await db
+      .insert(schema.roomPins)
+      .values({ userId: auth.user.sub, roomId: body.roomId })
+      .returning({ id: schema.roomPins.id, createdAt: schema.roomPins.createdAt });
 
     return NextResponse.json(
       {
         success: true,
         data: {
-          pinId: insertRows[0].id,
-          pinnedAt: insertRows[0].created_at,
+          pinId: insertRow.id,
+          pinnedAt: insertRow.createdAt ? insertRow.createdAt.toISOString() : null,
           roomId: body.roomId,
           pinsUsed: currentCount + 1,
           pinsLimit: limit,
@@ -207,10 +266,11 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, pinSchema);
 
-    const { rows } = await db.query<{ id: string }>(
-      "DELETE FROM room_pins WHERE user_id = $1 AND room_id = $2 RETURNING id",
-      [auth.user.sub, body.roomId]
-    );
+    const db = await getDb();
+    const rows = await db
+      .delete(schema.roomPins)
+      .where(and(eq(schema.roomPins.userId, auth.user.sub), eq(schema.roomPins.roomId, body.roomId)))
+      .returning({ id: schema.roomPins.id });
 
     if (rows.length === 0) throw notFound("Pin not found");
 

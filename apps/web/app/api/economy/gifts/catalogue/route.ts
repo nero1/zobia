@@ -16,9 +16,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, asc, eq } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { GIFT_TIER_LABELS } from "@zobia/shared/utils";
 
 // ---------------------------------------------------------------------------
@@ -78,13 +79,30 @@ interface GiftCatalogue {
  */
 export const GET = withAuth(async (_req: NextRequest, _ctx) => {
   try {
-    const { rows } = await db.query<GiftItemRow>(
-      `SELECT id, name, emoji, coin_cost, tier,
-              animation_url, spectacle_threshold_coins, is_active, is_rewarded, reward_config
-       FROM gift_items
-       WHERE is_active = TRUE AND is_retired = FALSE
-       ORDER BY tier ASC, coin_cost ASC`
-    );
+    const orm = await getDb();
+    const dbRows = await orm
+      .select({
+        id: schema.giftItems.id,
+        name: schema.giftItems.name,
+        emoji: schema.giftItems.emoji,
+        coin_cost: schema.giftItems.coinCost,
+        tier: schema.giftItems.tier,
+        animation_url: schema.giftItems.animationUrl,
+        spectacle_threshold_coins: schema.giftItems.spectacleThresholdCoins,
+        is_active: schema.giftItems.isActive,
+        is_rewarded: schema.giftItems.isRewarded,
+        reward_config: schema.giftItems.rewardConfig,
+      })
+      .from(schema.giftItems)
+      .where(and(eq(schema.giftItems.isActive, true), eq(schema.giftItems.isRetired, false)))
+      .orderBy(asc(schema.giftItems.tier), asc(schema.giftItems.coinCost));
+
+    const rows: GiftItemRow[] = dbRows.map((r) => ({
+      ...r,
+      coin_cost: Number(r.coin_cost),
+      is_active: r.is_active ?? false,
+      reward_config: r.reward_config as GiftItemRow["reward_config"],
+    }));
 
     // Group by tier
     const tierMap = new Map<number, GiftItem[]>();

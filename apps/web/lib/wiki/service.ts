@@ -8,11 +8,19 @@
  *
  * Reward pot funding/claims reuse lib/contentTreasury.ts (shared with
  * Polls/Quizzes) rather than a bespoke wiki_treasuries table.
+ *
+ * DRIZZLE MIGRATION NOTES:
+ *  - `lib/slug.ts` (generateUniqueSlug, generateUniqueWikiPageSlug,
+ *    recordSlugRedirect) is out of this migration's file list and still
+ *    takes the legacy raw `db` adapter for its own internal fallback
+ *    queries — `db` is kept in scope solely to pass into it, never for
+ *    direct raw-adapter calls here.
  */
 
 import { randomUUID } from "crypto";
 import { db } from "@/lib/db";
-import type { SqlParam, TransactionClient } from "@/lib/db/interface";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
 import { creditCoins } from "@/lib/economy/coins";
@@ -51,6 +59,10 @@ import {
   getInviteByToken,
 } from "@/lib/wiki/repo";
 
+// insertNotificationBatch/insertNotification below have been left using
+// `void insertNotificationBatch;` avoidance — unused import guard removed
+// since insertNotificationBatch is not called in this file post-conversion.
+
 export type WikiContentFormat = "markdown" | "plaintext";
 
 function renderContentHtml(markdown: string, format: WikiContentFormat): string {
@@ -64,13 +76,18 @@ function renderContentHtml(markdown: string, format: WikiContentFormat): string 
 async function awardCreditsCapped(userId: string, amount: number, referenceId: string, description: string, dailyCapCredits: number): Promise<void> {
   if (amount <= 0) return;
   try {
-    const { rows } = await db.query<{ earned: string }>(
-      `SELECT COALESCE(SUM(amount), 0)::text AS earned
-       FROM coin_ledger
-       WHERE user_id = $1 AND transaction_type LIKE 'wiki_%' AND amount > 0
-         AND created_at >= NOW() - INTERVAL '24 hours'`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ earned: sql<string>`COALESCE(SUM(${schema.coinLedger.amount}), 0)::text` })
+      .from(schema.coinLedger)
+      .where(
+        and(
+          eq(schema.coinLedger.userId, userId),
+          sql`${schema.coinLedger.transactionType} LIKE 'wiki_%'`,
+          sql`${schema.coinLedger.amount} > 0`,
+          sql`${schema.coinLedger.createdAt} >= NOW() - INTERVAL '24 hours'`
+        )
+      );
     const earnedToday = parseInt(rows[0]?.earned ?? "0", 10);
     const headroom = dailyCapCredits - earnedToday;
     if (headroom <= 0) return;
@@ -124,23 +141,29 @@ export async function createWiki(input: CreateWikiInput): Promise<CreateWikiResu
   const slug = await generateUniqueSlug("wiki", input.name, wikiId);
   const policy = input.contributePolicy ?? "everyone";
 
-  await db.transaction(async (tx: TransactionClient) => {
-    await tx.query(`SELECT id FROM users WHERE id = $1 FOR UPDATE`, [input.userId]);
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    await tx.select({ id: schema.users.id }).from(schema.users).where(eq(schema.users.id, input.userId)).for("update");
     const used = await countOwnedWikis(input.userId, tx);
     if (used >= maxOwned) {
       throw forbidden(`Your plan allows a maximum of ${maxOwned} wikis. Upgrade your plan to create more.`, "WIKI_OWNED_LIMIT_REACHED", { maxOwned });
     }
 
-    await tx.query(
-      `INSERT INTO wikis (id, owner_id, slug, name, description, contribute_policy, status)
-       VALUES ($1, $2, $3, $4, $5, $6, 'active')`,
-      [wikiId, input.userId, slug, input.name.trim(), input.description?.trim() || null, policy]
-    );
-    await tx.query(
-      `INSERT INTO wiki_collaborators (wiki_id, user_id, role, status)
-       VALUES ($1, $2, 'owner', 'active')`,
-      [wikiId, input.userId]
-    );
+    await tx.insert(schema.wikis).values({
+      id: wikiId,
+      ownerId: input.userId,
+      slug,
+      name: input.name.trim(),
+      description: input.description?.trim() || null,
+      contributePolicy: policy,
+      status: "active",
+    });
+    await tx.insert(schema.wikiCollaborators).values({
+      wikiId,
+      userId: input.userId,
+      role: "owner",
+      status: "active",
+    });
   });
 
   const reward = await getWikiCreateReward();
@@ -159,38 +182,37 @@ export interface UpdateWikiSettingsInput {
 }
 
 export async function updateWikiSettings(wikiId: string, callerId: string, input: UpdateWikiSettingsInput): Promise<void> {
-  const { rows } = await db.query<{ owner_id: string; name: string; slug: string }>(
-    `SELECT owner_id, name, slug FROM wikis WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [wikiId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ ownerId: schema.wikis.ownerId, name: schema.wikis.name, slug: schema.wikis.slug })
+    .from(schema.wikis)
+    .where(and(eq(schema.wikis.id, wikiId), isNull(schema.wikis.deletedAt)))
+    .limit(1);
   const wiki = rows[0];
   if (!wiki) throw notFound("Wiki not found");
-  if (wiki.owner_id !== callerId) throw forbidden("Only the wiki owner can update these settings.");
+  if (wiki.ownerId !== callerId) throw forbidden("Only the wiki owner can update these settings.");
 
-  const fields: string[] = [];
-  const params: SqlParam[] = [wikiId];
-  const push = (col: string, value: SqlParam) => {
-    params.push(value);
-    fields.push(`${col} = $${params.length}`);
-  };
+  const patch: Partial<typeof schema.wikis.$inferInsert> = {};
 
   let newSlug: string | null = null;
   if (input.name !== undefined) {
     const trimmedName = input.name.trim();
-    push("name", trimmedName);
+    patch.name = trimmedName;
     if (trimmedName && trimmedName !== wiki.name) {
+      // `db` (the legacy adapter) is passed through because generateUniqueSlug
+      // (lib/slug.ts) is out of this migration's scope and still expects it.
       newSlug = await generateUniqueSlug("wiki", trimmedName, wikiId, db, wikiId);
-      if (newSlug !== wiki.slug) push("slug", newSlug);
+      if (newSlug !== wiki.slug) patch.slug = newSlug;
       else newSlug = null;
     }
   }
-  if (input.description !== undefined) push("description", input.description?.trim() || null);
-  if (input.avatarUrl !== undefined) push("avatar_url", input.avatarUrl || null);
-  if (input.coverImageUrl !== undefined) push("cover_image_url", input.coverImageUrl || null);
-  if (input.contributePolicy !== undefined) push("contribute_policy", input.contributePolicy);
+  if (input.description !== undefined) patch.description = input.description?.trim() || null;
+  if (input.avatarUrl !== undefined) patch.avatarUrl = input.avatarUrl || null;
+  if (input.coverImageUrl !== undefined) patch.coverImageUrl = input.coverImageUrl || null;
+  if (input.contributePolicy !== undefined) patch.contributePolicy = input.contributePolicy;
 
-  if (fields.length === 0) return;
-  await db.query(`UPDATE wikis SET ${fields.join(", ")}, updated_at = NOW() WHERE id = $1`, params);
+  if (Object.keys(patch).length === 0) return;
+  await orm.update(schema.wikis).set({ ...patch, updatedAt: sql`NOW()` }).where(eq(schema.wikis.id, wikiId));
   if (newSlug) await recordSlugRedirect("wiki", wiki.slug, wikiId, newSlug).catch(() => {});
 }
 
@@ -214,14 +236,17 @@ async function requireContributorAccess(wikiId: string, userId: string): Promise
 }
 
 /** Ensures the contributor has an active wiki_collaborators row (creates one on first contribution). */
-async function ensureCollaboratorRow(tx: TransactionClient, wikiId: string, userId: string): Promise<boolean> {
-  const { rowCount } = await tx.query(
-    `INSERT INTO wiki_collaborators (wiki_id, user_id, role, status)
-     VALUES ($1, $2, 'contributor', 'active')
-     ON CONFLICT (wiki_id, user_id) DO UPDATE SET status = 'active' WHERE wiki_collaborators.status != 'active'`,
-    [wikiId, userId]
-  );
-  return !!rowCount && rowCount > 0;
+async function ensureCollaboratorRow(tx: DbOrTx, wikiId: string, userId: string): Promise<boolean> {
+  const inserted = await tx
+    .insert(schema.wikiCollaborators)
+    .values({ wikiId, userId, role: "contributor", status: "active" })
+    .onConflictDoUpdate({
+      target: [schema.wikiCollaborators.wikiId, schema.wikiCollaborators.userId],
+      set: { status: "active" },
+      setWhere: sql`${schema.wikiCollaborators.status} != 'active'`,
+    })
+    .returning({ userId: schema.wikiCollaborators.userId });
+  return inserted.length > 0;
 }
 
 export interface CreatePageInput {
@@ -247,25 +272,43 @@ export async function createPage(input: CreatePageInput): Promise<{ id: string; 
   const contentFormat: WikiContentFormat = input.contentFormat === "plaintext" ? "plaintext" : "markdown";
   const contentHtml = renderContentHtml(input.contentMarkdown, contentFormat);
 
+  const orm = await getDb();
   let becameContributor = false;
-  await db.transaction(async (tx: TransactionClient) => {
-    await tx.query(
-      `INSERT INTO wiki_pages (id, wiki_id, slug, title, content_markdown, content_html, content_format, status, created_by, last_edited_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,'published',$8,$8)`,
-      [pageId, input.wikiId, slug, input.title.trim(), input.contentMarkdown, contentHtml, contentFormat, input.authorId]
-    );
-    await tx.query(
-      `INSERT INTO wiki_page_revisions (page_id, revision_number, title, content_markdown, content_format, edit_summary, edited_by)
-       VALUES ($1, 1, $2, $3, $4, 'Created the page', $5)`,
-      [pageId, input.title.trim(), input.contentMarkdown, contentFormat, input.authorId]
-    );
-    await tx.query(`UPDATE wikis SET page_count = page_count + 1, edit_count = edit_count + 1, updated_at = NOW() WHERE id = $1`, [input.wikiId]);
+  await orm.transaction(async (tx) => {
+    await tx.insert(schema.wikiPages).values({
+      id: pageId,
+      wikiId: input.wikiId,
+      slug,
+      title: input.title.trim(),
+      contentMarkdown: input.contentMarkdown,
+      contentHtml,
+      contentFormat,
+      status: "published",
+      createdBy: input.authorId,
+      lastEditedBy: input.authorId,
+    });
+    await tx.insert(schema.wikiPageRevisions).values({
+      pageId,
+      revisionNumber: 1,
+      title: input.title.trim(),
+      contentMarkdown: input.contentMarkdown,
+      contentFormat,
+      editSummary: "Created the page",
+      editedBy: input.authorId,
+    });
+    await tx
+      .update(schema.wikis)
+      .set({ pageCount: sql`${schema.wikis.pageCount} + 1`, editCount: sql`${schema.wikis.editCount} + 1`, updatedAt: sql`NOW()` })
+      .where(eq(schema.wikis.id, input.wikiId));
     becameContributor = await ensureCollaboratorRow(tx, input.wikiId, input.authorId);
-    await tx.query(`UPDATE wiki_collaborators SET page_edit_count = page_edit_count + 1, updated_at = NOW() WHERE wiki_id = $1 AND user_id = $2`, [input.wikiId, input.authorId]);
+    await tx
+      .update(schema.wikiCollaborators)
+      .set({ pageEditCount: sql`${schema.wikiCollaborators.pageEditCount} + 1`, updatedAt: sql`NOW()` })
+      .where(and(eq(schema.wikiCollaborators.wikiId, input.wikiId), eq(schema.wikiCollaborators.userId, input.authorId)));
   });
 
   if (becameContributor) {
-    await db.query(`UPDATE wikis SET contributor_count = contributor_count + 1 WHERE id = $1`, [input.wikiId]).catch(() => {});
+    await orm.update(schema.wikis).set({ contributorCount: sql`${schema.wikis.contributorCount} + 1` }).where(eq(schema.wikis.id, input.wikiId)).catch(() => {});
   }
 
   await afterContribution(input.wikiId, input.authorId, pageId);
@@ -293,33 +336,46 @@ export async function updatePage(pageId: string, callerId: string, input: Update
   if (!contentMarkdown.trim()) throw badRequest("Page content cannot be empty.", "WIKI_PAGE_EMPTY_CONTENT");
   const contentHtml = renderContentHtml(contentMarkdown, contentFormat);
 
+  const orm = await getDb();
   let becameContributor = false;
-  await db.transaction(async (tx: TransactionClient) => {
-    const { rows: nextRevRows } = await tx.query<{ next: number }>(
-      `SELECT COALESCE(MAX(revision_number), 0) + 1 AS next FROM wiki_page_revisions WHERE page_id = $1`,
-      [pageId]
-    );
+  await orm.transaction(async (tx) => {
+    const nextRevRows = await tx
+      .select({ next: sql<number>`COALESCE(MAX(${schema.wikiPageRevisions.revisionNumber}), 0) + 1` })
+      .from(schema.wikiPageRevisions)
+      .where(eq(schema.wikiPageRevisions.pageId, pageId));
     const nextRevision = nextRevRows[0]?.next ?? 2;
 
-    await tx.query(
-      `UPDATE wiki_pages
-       SET title = $2, content_markdown = $3, content_html = $4, content_format = $5,
-           revision_count = $6, last_edited_by = $7, updated_at = NOW()
-       WHERE id = $1`,
-      [pageId, title, contentMarkdown, contentHtml, contentFormat, nextRevision, callerId]
-    );
-    await tx.query(
-      `INSERT INTO wiki_page_revisions (page_id, revision_number, title, content_markdown, content_format, edit_summary, edited_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [pageId, nextRevision, title, contentMarkdown, contentFormat, input.editSummary?.trim() || null, callerId]
-    );
-    await tx.query(`UPDATE wikis SET edit_count = edit_count + 1, updated_at = NOW() WHERE id = $1`, [page.wiki_id]);
+    await tx
+      .update(schema.wikiPages)
+      .set({
+        title,
+        contentMarkdown,
+        contentHtml,
+        contentFormat,
+        revisionCount: nextRevision,
+        lastEditedBy: callerId,
+        updatedAt: sql`NOW()`,
+      })
+      .where(eq(schema.wikiPages.id, pageId));
+    await tx.insert(schema.wikiPageRevisions).values({
+      pageId,
+      revisionNumber: nextRevision,
+      title,
+      contentMarkdown,
+      contentFormat,
+      editSummary: input.editSummary?.trim() || null,
+      editedBy: callerId,
+    });
+    await tx.update(schema.wikis).set({ editCount: sql`${schema.wikis.editCount} + 1`, updatedAt: sql`NOW()` }).where(eq(schema.wikis.id, page.wiki_id));
     becameContributor = await ensureCollaboratorRow(tx, page.wiki_id, callerId);
-    await tx.query(`UPDATE wiki_collaborators SET page_edit_count = page_edit_count + 1, updated_at = NOW() WHERE wiki_id = $1 AND user_id = $2`, [page.wiki_id, callerId]);
+    await tx
+      .update(schema.wikiCollaborators)
+      .set({ pageEditCount: sql`${schema.wikiCollaborators.pageEditCount} + 1`, updatedAt: sql`NOW()` })
+      .where(and(eq(schema.wikiCollaborators.wikiId, page.wiki_id), eq(schema.wikiCollaborators.userId, callerId)));
   });
 
   if (becameContributor) {
-    await db.query(`UPDATE wikis SET contributor_count = contributor_count + 1 WHERE id = $1`, [page.wiki_id]).catch(() => {});
+    await orm.update(schema.wikis).set({ contributorCount: sql`${schema.wikis.contributorCount} + 1` }).where(eq(schema.wikis.id, page.wiki_id)).catch(() => {});
   }
 
   await afterContribution(page.wiki_id, callerId, pageId);
@@ -349,9 +405,13 @@ export async function deletePage(pageId: string, callerId: string): Promise<void
   const allowed = await canManageWiki(wiki, callerId);
   if (!allowed) throw forbidden("You can't delete this page.");
 
-  await db.transaction(async (tx: TransactionClient) => {
-    await tx.query(`UPDATE wiki_pages SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [pageId]);
-    await tx.query(`UPDATE wikis SET page_count = GREATEST(page_count - 1, 0), updated_at = NOW() WHERE id = $1`, [page.wiki_id]);
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    await tx.update(schema.wikiPages).set({ deletedAt: sql`NOW()`, updatedAt: sql`NOW()` }).where(eq(schema.wikiPages.id, pageId));
+    await tx
+      .update(schema.wikis)
+      .set({ pageCount: sql`GREATEST(${schema.wikis.pageCount} - 1, 0)`, updatedAt: sql`NOW()` })
+      .where(eq(schema.wikis.id, page.wiki_id));
   });
 }
 
@@ -363,17 +423,19 @@ export async function restorePageRevision(pageId: string, callerId: string, revi
   const allowed = await canContributeToWiki(wiki, callerId);
   if (!allowed) throw forbidden("You don't have permission to edit this page.");
 
-  const { rows } = await db.query<{ title: string; content_markdown: string; content_format: string }>(
-    `SELECT title, content_markdown, content_format FROM wiki_page_revisions WHERE page_id = $1 AND revision_number = $2 LIMIT 1`,
-    [pageId, revisionNumber]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ title: schema.wikiPageRevisions.title, contentMarkdown: schema.wikiPageRevisions.contentMarkdown, contentFormat: schema.wikiPageRevisions.contentFormat })
+    .from(schema.wikiPageRevisions)
+    .where(and(eq(schema.wikiPageRevisions.pageId, pageId), eq(schema.wikiPageRevisions.revisionNumber, revisionNumber)))
+    .limit(1);
   const revision = rows[0];
   if (!revision) throw notFound("Revision not found");
 
   await updatePage(pageId, callerId, {
     title: revision.title,
-    contentMarkdown: revision.content_markdown,
-    contentFormat: revision.content_format as WikiContentFormat,
+    contentMarkdown: revision.contentMarkdown,
+    contentFormat: revision.contentFormat as WikiContentFormat,
     editSummary: `Restored revision #${revisionNumber}`,
   });
 }
@@ -383,11 +445,13 @@ export async function restorePageRevision(pageId: string, callerId: string, revi
 // ---------------------------------------------------------------------------
 
 export async function recordWikiView(wikiId: string): Promise<void> {
-  await db.query(`UPDATE wikis SET view_count = view_count + 1 WHERE id = $1 AND deleted_at IS NULL`, [wikiId]);
+  const orm = await getDb();
+  await orm.update(schema.wikis).set({ viewCount: sql`${schema.wikis.viewCount} + 1` }).where(and(eq(schema.wikis.id, wikiId), isNull(schema.wikis.deletedAt)));
 }
 
 export async function recordPageView(pageId: string): Promise<void> {
-  await db.query(`UPDATE wiki_pages SET view_count = view_count + 1 WHERE id = $1 AND deleted_at IS NULL`, [pageId]);
+  const orm = await getDb();
+  await orm.update(schema.wikiPages).set({ viewCount: sql`${schema.wikiPages.viewCount} + 1` }).where(and(eq(schema.wikiPages.id, pageId), isNull(schema.wikiPages.deletedAt)));
 }
 
 // ---------------------------------------------------------------------------
@@ -403,15 +467,16 @@ export async function grantModerator(wikiId: string, callerId: string, targetUse
   }
   if (targetUserId === wiki.owner_id) throw badRequest("The wiki owner is already a full manager.", "WIKI_OWNER_ALREADY_MANAGES");
 
-  await db.query(
-    `INSERT INTO wiki_collaborators (wiki_id, user_id, role, is_moderator, moderator_granted_by, moderator_granted_at, status)
-     VALUES ($1, $2, 'moderator', true, $3, NOW(), 'active')
-     ON CONFLICT (wiki_id, user_id) DO UPDATE SET
-       role = 'moderator', is_moderator = true, moderator_granted_by = $3, moderator_granted_at = NOW(), status = 'active', updated_at = NOW()`,
-    [wikiId, targetUserId, callerId]
-  );
+  const orm = await getDb();
+  await orm
+    .insert(schema.wikiCollaborators)
+    .values({ wikiId, userId: targetUserId, role: "moderator", isModerator: true, moderatorGrantedBy: callerId, moderatorGrantedAt: sql`NOW()`, status: "active" })
+    .onConflictDoUpdate({
+      target: [schema.wikiCollaborators.wikiId, schema.wikiCollaborators.userId],
+      set: { role: "moderator", isModerator: true, moderatorGrantedBy: callerId, moderatorGrantedAt: sql`NOW()`, status: "active", updatedAt: sql`NOW()` },
+    });
 
-  await insertNotification(db, targetUserId, "wiki_moderator_granted", "You're now a wiki moderator", "You were made a moderator of a wiki.", { wikiId }).catch(() => {});
+  await insertNotification(orm, targetUserId, "wiki_moderator_granted", "You're now a wiki moderator", "You were made a moderator of a wiki.", { wikiId }).catch(() => {});
 }
 
 export async function revokeModerator(wikiId: string, callerId: string, targetUserId: string): Promise<void> {
@@ -422,11 +487,11 @@ export async function revokeModerator(wikiId: string, callerId: string, targetUs
     if (!staff.isAdmin) throw forbidden("Only the wiki owner (or an admin) can remove moderators.");
   }
 
-  await db.query(
-    `UPDATE wiki_collaborators SET is_moderator = false, role = 'contributor', updated_at = NOW()
-     WHERE wiki_id = $1 AND user_id = $2`,
-    [wikiId, targetUserId]
-  );
+  const orm = await getDb();
+  await orm
+    .update(schema.wikiCollaborators)
+    .set({ isModerator: false, role: "contributor", updatedAt: sql`NOW()` })
+    .where(and(eq(schema.wikiCollaborators.wikiId, wikiId), eq(schema.wikiCollaborators.userId, targetUserId)));
 }
 
 // ---------------------------------------------------------------------------
@@ -445,12 +510,14 @@ export async function addSelectedCollaborator(wikiId: string, callerId: string, 
     throw forbidden(`This wiki allows a maximum of ${maxCollaborators} collaborators.`, "WIKI_COLLABORATOR_LIMIT_REACHED", { maxCollaborators });
   }
 
-  await db.query(
-    `INSERT INTO wiki_collaborators (wiki_id, user_id, role, status, invited_by)
-     VALUES ($1, $2, 'contributor', 'active', $3)
-     ON CONFLICT (wiki_id, user_id) DO UPDATE SET status = 'active', updated_at = NOW()`,
-    [wikiId, targetUserId, callerId]
-  );
+  const orm = await getDb();
+  await orm
+    .insert(schema.wikiCollaborators)
+    .values({ wikiId, userId: targetUserId, role: "contributor", status: "active", invitedBy: callerId })
+    .onConflictDoUpdate({
+      target: [schema.wikiCollaborators.wikiId, schema.wikiCollaborators.userId],
+      set: { status: "active", updatedAt: sql`NOW()` },
+    });
 }
 
 export async function removeCollaborator(wikiId: string, callerId: string, targetUserId: string): Promise<void> {
@@ -460,7 +527,11 @@ export async function removeCollaborator(wikiId: string, callerId: string, targe
   if (!allowed) throw forbidden("Only the wiki owner or a moderator can remove collaborators.");
   if (targetUserId === wiki.owner_id) throw badRequest("Can't remove the wiki owner.", "WIKI_CANNOT_REMOVE_OWNER");
 
-  await db.query(`UPDATE wiki_collaborators SET status = 'removed', is_moderator = false, updated_at = NOW() WHERE wiki_id = $1 AND user_id = $2`, [wikiId, targetUserId]);
+  const orm = await getDb();
+  await orm
+    .update(schema.wikiCollaborators)
+    .set({ status: "removed", isModerator: false, updatedAt: sql`NOW()` })
+    .where(and(eq(schema.wikiCollaborators.wikiId, wikiId), eq(schema.wikiCollaborators.userId, targetUserId)));
 }
 
 // ---------------------------------------------------------------------------
@@ -479,28 +550,31 @@ export async function createInvite(input: CreateInviteInput): Promise<{ token: s
   const allowed = await canManageWiki(wiki, input.callerId);
   if (!allowed) throw forbidden("Only the wiki owner or a moderator can invite collaborators.");
 
+  const orm = await getDb();
   let invitedUserId: string | null = null;
   if (input.invitedUsername) {
-    const { rows } = await db.query<{ id: string }>(`SELECT id FROM users WHERE username = $1 AND deleted_at IS NULL LIMIT 1`, [input.invitedUsername.trim()]);
+    const rows = await orm.select({ id: schema.users.id }).from(schema.users).where(and(eq(schema.users.username, input.invitedUsername.trim()), isNull(schema.users.deletedAt))).limit(1);
     if (!rows[0]) throw notFound("User not found");
     invitedUserId = rows[0].id;
   }
 
   const expiryHours = await getWikiInviteExpiryHours();
   const token = randomUUID().replace(/-/g, "");
-  const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000).toISOString();
+  const expiresAt = new Date(Date.now() + expiryHours * 60 * 60 * 1000);
 
-  await db.query(
-    `INSERT INTO wiki_invites (wiki_id, token, invited_user_id, created_by, expires_at)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [input.wikiId, token, invitedUserId, input.callerId, expiresAt]
-  );
+  await orm.insert(schema.wikiInvites).values({
+    wikiId: input.wikiId,
+    token,
+    invitedUserId,
+    createdBy: input.callerId,
+    expiresAt,
+  });
 
   if (invitedUserId) {
-    const { rows: nameRows } = await db.query<{ name: string }>(`SELECT name FROM wikis WHERE id = $1 LIMIT 1`, [input.wikiId]);
+    const nameRows = await orm.select({ name: schema.wikis.name }).from(schema.wikis).where(eq(schema.wikis.id, input.wikiId)).limit(1);
     const wikiName = nameRows[0]?.name ?? "a wiki";
     await insertNotification(
-      db,
+      orm,
       invitedUserId,
       "wiki_invite_received",
       "You've been invited to collaborate on a wiki",
@@ -509,7 +583,7 @@ export async function createInvite(input: CreateInviteInput): Promise<{ token: s
     ).catch(() => {});
   }
 
-  return { token, expiresAt };
+  return { token, expiresAt: expiresAt.toISOString() };
 }
 
 export async function acceptInvite(token: string, userId: string): Promise<{ wikiId: string; wikiSlug: string }> {
@@ -524,16 +598,20 @@ export async function acceptInvite(token: string, userId: string): Promise<{ wik
   const wiki = await getWikiById(invite.wiki_id);
   if (!wiki) throw notFound("Wiki not found");
 
-  await db.transaction(async (tx: TransactionClient) => {
-    await tx.query(`UPDATE wiki_invites SET used_at = NOW(), used_by_user_id = $2 WHERE id = $1`, [invite.id, userId]);
-    const { rowCount } = await tx.query(
-      `INSERT INTO wiki_collaborators (wiki_id, user_id, role, status, invited_by)
-       VALUES ($1, $2, 'contributor', 'active', $3)
-       ON CONFLICT (wiki_id, user_id) DO UPDATE SET status = 'active', updated_at = NOW() WHERE wiki_collaborators.status != 'active'`,
-      [invite.wiki_id, userId, invite.created_by]
-    );
-    if (rowCount && rowCount > 0) {
-      await tx.query(`UPDATE wikis SET contributor_count = contributor_count + 1, updated_at = NOW() WHERE id = $1`, [invite.wiki_id]);
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    await tx.update(schema.wikiInvites).set({ usedAt: sql`NOW()`, usedByUserId: userId }).where(eq(schema.wikiInvites.id, invite.id));
+    const inserted = await tx
+      .insert(schema.wikiCollaborators)
+      .values({ wikiId: invite.wiki_id, userId, role: "contributor", status: "active", invitedBy: invite.created_by })
+      .onConflictDoUpdate({
+        target: [schema.wikiCollaborators.wikiId, schema.wikiCollaborators.userId],
+        set: { status: "active", updatedAt: sql`NOW()` },
+        setWhere: sql`${schema.wikiCollaborators.status} != 'active'`,
+      })
+      .returning({ userId: schema.wikiCollaborators.userId });
+    if (inserted.length > 0) {
+      await tx.update(schema.wikis).set({ contributorCount: sql`${schema.wikis.contributorCount} + 1`, updatedAt: sql`NOW()` }).where(eq(schema.wikis.id, invite.wiki_id));
     }
   });
 
@@ -553,10 +631,11 @@ export async function shareWiki(wikiId: string, userId: string): Promise<{ rewar
 export async function fundWikiTreasury(wikiId: string, callerId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
   await requireFeatureEnabled("wiki");
   await requireFeatureEnabled("wikiMonetization");
-  const { rows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM wikis WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [wikiId]);
+  const orm = await getDb();
+  const rows = await orm.select({ ownerId: schema.wikis.ownerId }).from(schema.wikis).where(and(eq(schema.wikis.id, wikiId), isNull(schema.wikis.deletedAt))).limit(1);
   const wiki = rows[0];
   if (!wiki) throw notFound("Wiki not found");
-  if (wiki.owner_id !== callerId) throw forbidden("Only the wiki owner can fund its reward pot.");
+  if (wiki.ownerId !== callerId) throw forbidden("Only the wiki owner can fund its reward pot.");
 
   return fundContentTreasury(callerId, "wiki", wikiId, amount, maxClaimants, "wiki_treasury_fund");
 }
@@ -565,20 +644,22 @@ export async function fundWikiTreasury(wikiId: string, callerId: string, amount:
 export async function editWikiTreasury(wikiId: string, callerId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
   await requireFeatureEnabled("wiki");
   await requireFeatureEnabled("wikiMonetization");
-  const { rows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM wikis WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [wikiId]);
+  const orm = await getDb();
+  const rows = await orm.select({ ownerId: schema.wikis.ownerId }).from(schema.wikis).where(and(eq(schema.wikis.id, wikiId), isNull(schema.wikis.deletedAt))).limit(1);
   const wiki = rows[0];
   if (!wiki) throw notFound("Wiki not found");
-  if (wiki.owner_id !== callerId) throw forbidden("Only the wiki owner can edit its reward pot.");
+  if (wiki.ownerId !== callerId) throw forbidden("Only the wiki owner can edit its reward pot.");
   return editContentTreasury(callerId, "wiki", wikiId, amount, maxClaimants, "wiki_treasury_fund", "wiki_treasury_refund");
 }
 
 /** Turn off a wiki's reward pot, refunding unclaimed funds to the owner. */
 export async function closeWikiTreasury(wikiId: string, callerId: string): Promise<TreasuryState> {
   await requireFeatureEnabled("wiki");
-  const { rows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM wikis WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [wikiId]);
+  const orm = await getDb();
+  const rows = await orm.select({ ownerId: schema.wikis.ownerId }).from(schema.wikis).where(and(eq(schema.wikis.id, wikiId), isNull(schema.wikis.deletedAt))).limit(1);
   const wiki = rows[0];
   if (!wiki) throw notFound("Wiki not found");
-  if (wiki.owner_id !== callerId) throw forbidden("Only the wiki owner can turn off its reward pot.");
+  if (wiki.ownerId !== callerId) throw forbidden("Only the wiki owner can turn off its reward pot.");
   return closeContentTreasury(callerId, "wiki", wikiId, "wiki_treasury_refund");
 }
 
@@ -593,11 +674,16 @@ export async function getWikiTreasury(wikiId: string): Promise<TreasuryState | n
 export type WikiAdminAction = "suspend" | "ban" | "deactivate" | "pause" | "restore" | "delete" | "transfer_ownership";
 
 export async function logWikiModeration(moderatorId: string, wikiId: string | null, pageId: string | null, targetUserId: string | null, action: string, reason?: string | null, metadata?: Record<string, unknown>): Promise<void> {
-  await db.query(
-    `INSERT INTO wiki_moderation_log (moderator_id, wiki_id, page_id, target_user_id, action, reason, metadata)
-     VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb)`,
-    [moderatorId, wikiId, pageId, targetUserId, action, reason ?? null, JSON.stringify(metadata ?? {})]
-  );
+  const orm = await getDb();
+  await orm.insert(schema.wikiModerationLog).values({
+    moderatorId,
+    wikiId,
+    pageId,
+    targetUserId,
+    action,
+    reason: reason ?? null,
+    metadata: metadata ?? {},
+  });
 }
 
 const STATUS_FOR_ACTION: Partial<Record<WikiAdminAction, string>> = {
@@ -609,41 +695,46 @@ const STATUS_FOR_ACTION: Partial<Record<WikiAdminAction, string>> = {
 };
 
 export async function setWikiStatus(wikiId: string, moderatorId: string, action: WikiAdminAction, reason?: string | null): Promise<void> {
+  const orm = await getDb();
   if (action === "delete") {
-    const { rows } = await db.query<{ owner_id: string }>(`SELECT owner_id FROM wikis WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [wikiId]);
+    const rows = await orm.select({ ownerId: schema.wikis.ownerId }).from(schema.wikis).where(and(eq(schema.wikis.id, wikiId), isNull(schema.wikis.deletedAt))).limit(1);
     if (!rows[0]) throw notFound("Wiki not found");
-    await db.query(`UPDATE wikis SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [wikiId]);
-    await logWikiModeration(moderatorId, wikiId, null, rows[0].owner_id, "delete", reason);
+    await orm.update(schema.wikis).set({ deletedAt: sql`NOW()`, updatedAt: sql`NOW()` }).where(eq(schema.wikis.id, wikiId));
+    await logWikiModeration(moderatorId, wikiId, null, rows[0].ownerId, "delete", reason);
     return;
   }
 
   const status = STATUS_FOR_ACTION[action];
   if (!status) throw new ApiError(400, "WIKI_INVALID_ACTION", `Unsupported action: ${action}`);
 
-  const { rows } = await db.query<{ owner_id: string }>(
-    `UPDATE wikis SET status = $2, status_reason = $3, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING owner_id`,
-    [wikiId, status, reason ?? null]
-  );
+  const rows = await orm
+    .update(schema.wikis)
+    .set({ status, statusReason: reason ?? null, updatedAt: sql`NOW()` })
+    .where(and(eq(schema.wikis.id, wikiId), isNull(schema.wikis.deletedAt)))
+    .returning({ ownerId: schema.wikis.ownerId });
   if (!rows[0]) throw notFound("Wiki not found");
-  await logWikiModeration(moderatorId, wikiId, null, rows[0].owner_id, action, reason);
+  await logWikiModeration(moderatorId, wikiId, null, rows[0].ownerId, action, reason);
 }
 
 export async function transferWikiOwnership(wikiId: string, moderatorId: string, newOwnerId: string): Promise<void> {
-  const { rows: userRows } = await db.query<{ id: string }>(`SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [newOwnerId]);
+  const orm = await getDb();
+  const userRows = await orm.select({ id: schema.users.id }).from(schema.users).where(and(eq(schema.users.id, newOwnerId), isNull(schema.users.deletedAt))).limit(1);
   if (!userRows[0]) throw notFound("Target user not found");
 
-  const { rows } = await db.query<{ owner_id: string }>(
-    `UPDATE wikis SET owner_id = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING owner_id`,
-    [wikiId, newOwnerId]
-  );
+  const rows = await orm
+    .update(schema.wikis)
+    .set({ ownerId: newOwnerId, updatedAt: sql`NOW()` })
+    .where(and(eq(schema.wikis.id, wikiId), isNull(schema.wikis.deletedAt)))
+    .returning({ ownerId: schema.wikis.ownerId });
   if (!rows[0]) throw notFound("Wiki not found");
 
-  await db.query(
-    `INSERT INTO wiki_collaborators (wiki_id, user_id, role, status)
-     VALUES ($1, $2, 'owner', 'active')
-     ON CONFLICT (wiki_id, user_id) DO UPDATE SET role = 'owner', status = 'active', updated_at = NOW()`,
-    [wikiId, newOwnerId]
-  );
+  await orm
+    .insert(schema.wikiCollaborators)
+    .values({ wikiId, userId: newOwnerId, role: "owner", status: "active" })
+    .onConflictDoUpdate({
+      target: [schema.wikiCollaborators.wikiId, schema.wikiCollaborators.userId],
+      set: { role: "owner", status: "active", updatedAt: sql`NOW()` },
+    });
   await logWikiModeration(moderatorId, wikiId, null, newOwnerId, "transfer_ownership", null, { newOwnerId });
 }
 
@@ -652,9 +743,12 @@ export async function transferWikiOwnership(wikiId: string, moderatorId: string,
 // ---------------------------------------------------------------------------
 
 async function getOwnerPlan(wikiId: string): Promise<string> {
-  const { rows } = await db.query<{ plan: string }>(
-    `SELECT u.plan FROM wikis w JOIN users u ON u.id = w.owner_id WHERE w.id = $1 LIMIT 1`,
-    [wikiId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ plan: schema.users.plan })
+    .from(schema.wikis)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikis.ownerId))
+    .where(eq(schema.wikis.id, wikiId))
+    .limit(1);
   return rows[0]?.plan ?? "free";
 }

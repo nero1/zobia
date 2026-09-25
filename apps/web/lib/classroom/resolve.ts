@@ -12,7 +12,8 @@
  */
 
 import { looksLikeUuid } from "@zobia/shared/utils";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { lookupSlugRedirect } from "@/lib/slug";
 
 export interface ResolvedClassroomId {
@@ -23,19 +24,23 @@ export interface ResolvedClassroomId {
 }
 
 async function bySlug(slug: string): Promise<{ id: string; slug: string | null } | null> {
-  const { rows } = await db.query<{ id: string; slug: string | null }>(
-    `SELECT id, slug FROM rooms WHERE slug = $1 AND type = 'classroom' AND deleted_at IS NULL LIMIT 1`,
-    [slug]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ id: schema.rooms.id, slug: schema.rooms.slug })
+    .from(schema.rooms)
+    .where(and(eq(schema.rooms.slug, slug), eq(schema.rooms.type, "classroom"), isNull(schema.rooms.deletedAt)))
+    .limit(1);
+  return row ?? null;
 }
 
 async function byId(id: string): Promise<{ id: string; slug: string | null } | null> {
-  const { rows } = await db.query<{ id: string; slug: string | null }>(
-    `SELECT id, slug FROM rooms WHERE id = $1 AND type = 'classroom' AND deleted_at IS NULL LIMIT 1`,
-    [id]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ id: schema.rooms.id, slug: schema.rooms.slug })
+    .from(schema.rooms)
+    .where(and(eq(schema.rooms.id, id), eq(schema.rooms.type, "classroom"), isNull(schema.rooms.deletedAt)))
+    .limit(1);
+  return row ?? null;
 }
 
 export async function resolveClassroomIdentifier(identifier: string): Promise<ResolvedClassroomId | null> {

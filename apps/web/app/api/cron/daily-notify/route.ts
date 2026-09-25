@@ -15,6 +15,8 @@ export const maxDuration = 10;
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { db } from "@/lib/db";
 import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
 import { logger } from "@/lib/logger";
@@ -41,7 +43,8 @@ export const GET = async (req: NextRequest) => {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const didClaim = await checkCronIdempotency("cron_daily_notify_last_run", db);
+  const orm = await getDb();
+  const didClaim = await checkCronIdempotency("cron_daily_notify_last_run", orm);
   if (!didClaim) {
     return NextResponse.json({ skipped: true, reason: "Already ran today" });
   }
@@ -51,22 +54,22 @@ export const GET = async (req: NextRequest) => {
 
   // 1. Re-engagement notification dispatch
   try {
-    const { rows: inactiveUsers } = await db.query<{
+    const { rows: inactiveUsers } = await orm.execute<{
       user_id: string;
       days_inactive: number;
       email: string | null;
       last_streak_before_break: number;
-    }>(
-      `SELECT DISTINCT ON (uie.user_id)
-         uie.user_id, uie.inactive_days AS days_inactive,
-         u.email,
-         COALESCE(u.last_streak_before_break, 0) AS last_streak_before_break
-       FROM user_inactivity_events uie
-       JOIN users u ON u.id = uie.user_id
-       WHERE uie.push_email_notified = false
-         AND uie.created_at >= NOW() - INTERVAL '25 hours'
-       ORDER BY uie.user_id, uie.inactive_days DESC`
-    );
+    }>(sql`
+      SELECT DISTINCT ON (uie.user_id)
+        uie.user_id, uie.inactive_days AS days_inactive,
+        u.email,
+        COALESCE(u.last_streak_before_break, 0) AS last_streak_before_break
+      FROM user_inactivity_events uie
+      JOIN users u ON u.id = uie.user_id
+      WHERE uie.push_email_notified = false
+        AND uie.created_at >= NOW() - INTERVAL '25 hours'
+      ORDER BY uie.user_id, uie.inactive_days DESC
+    `);
 
     const { getReengagementPayload } = await import('@/lib/notifications/reengagement');
     const { sendPushNotification } = await import('@/lib/notifications/push');
@@ -80,24 +83,22 @@ export const GET = async (req: NextRequest) => {
       try {
         if (user.days_inactive >= 7 && user.days_inactive < 14) {
           const [gwRows, nemesisRows] = await Promise.all([
-            db.query<{ is_win: boolean; guild_name: string }>(
-              `SELECT gw.winner_guild_id = gm.guild_id AS is_win, g.name AS guild_name
-               FROM guild_wars gw
-               JOIN guild_members gm ON gm.guild_id IN (gw.challenger_guild_id, gw.defender_guild_id)
-                 AND gm.user_id = $1
-               JOIN guilds g ON g.id = gm.guild_id
-               WHERE gw.status = 'completed' AND gw.ends_at >= NOW() - INTERVAL '30 days'
-               ORDER BY gw.ends_at DESC LIMIT 1`,
-              [user.user_id]
-            ),
-            db.query<{ xp_delta: number }>(
-              `SELECT (nu.xp_total - u.xp_total) AS xp_delta
-               FROM nemesis_assignments na
-               JOIN users u  ON u.id  = na.user_id
-               JOIN users nu ON nu.id = na.nemesis_user_id
-               WHERE na.user_id = $1 LIMIT 1`,
-              [user.user_id]
-            ),
+            orm.execute<{ is_win: boolean; guild_name: string }>(sql`
+              SELECT gw.winner_guild_id = gm.guild_id AS is_win, g.name AS guild_name
+              FROM guild_wars gw
+              JOIN guild_members gm ON gm.guild_id IN (gw.challenger_guild_id, gw.defender_guild_id)
+                AND gm.user_id = ${user.user_id}
+              JOIN guilds g ON g.id = gm.guild_id
+              WHERE gw.status = 'completed' AND gw.ends_at >= NOW() - INTERVAL '30 days'
+              ORDER BY gw.ends_at DESC LIMIT 1
+            `),
+            orm.execute<{ xp_delta: number }>(sql`
+              SELECT (nu.xp_total - u.xp_total) AS xp_delta
+              FROM nemesis_assignments na
+              JOIN users u  ON u.id  = na.user_id
+              JOIN users nu ON nu.id = na.nemesis_user_id
+              WHERE na.user_id = ${user.user_id} LIMIT 1
+            `),
           ]);
           if (gwRows.rows[0]) {
             const { is_win, guild_name } = gwRows.rows[0];
@@ -109,9 +110,9 @@ export const GET = async (req: NextRequest) => {
             ctx.nemesisContext = `Your nemesis gained ${nemesisRows.rows[0].xp_delta.toLocaleString()} XP while you were away.`;
           }
         } else if (user.days_inactive >= 14) {
-          const { rows: seasonRows } = await db.query<{ name: string; starts_at: string; ends_at: string }>(
-            `SELECT name, starts_at, ends_at FROM seasons WHERE is_active = TRUE LIMIT 1`
-          );
+          const { rows: seasonRows } = await orm.execute<{ name: string; starts_at: string; ends_at: string }>(sql`
+            SELECT name, starts_at, ends_at FROM seasons WHERE is_active = TRUE LIMIT 1
+          `);
           if (seasonRows[0]) {
             const { name: seasonName, starts_at, ends_at } = seasonRows[0];
             const ratio = (Date.now() - new Date(starts_at).getTime()) / (new Date(ends_at).getTime() - new Date(starts_at).getTime());
@@ -130,9 +131,9 @@ export const GET = async (req: NextRequest) => {
       inactiveUsers.filter(u => u.days_inactive === 90),
       5,
       async (user) => {
-        await db.transaction(async (tx) => {
-          await creditCoins(user.user_id, 200, "comeback_bonus_reserved", `comeback:${user.user_id}:${comebackMonthKey}`, "Comeback bonus — expires in 7 days if unused", {}, tx);
-        });
+        // creditCoins manages its own transaction when no client is passed —
+        // it doesn't need to be wrapped here for a single call.
+        await creditCoins(user.user_id, 200, "comeback_bonus_reserved", `comeback:${user.user_id}:${comebackMonthKey}`, "Comeback bonus — expires in 7 days if unused", {});
       }
     );
 
@@ -157,13 +158,12 @@ export const GET = async (req: NextRequest) => {
 
     // Batch-mark notified
     if (notifiedIds.length > 0) {
-      await db.query(
-        `UPDATE user_inactivity_events
-         SET push_email_notified = true
-         FROM (SELECT unnest($1::uuid[]) AS uid, unnest($2::int[]) AS days) upd
-         WHERE user_id = upd.uid AND inactive_days = upd.days AND push_email_notified = false`,
-        [notifiedIds, notifiedDays]
-      ).catch((err) => {
+      await orm.execute(sql`
+        UPDATE user_inactivity_events
+        SET push_email_notified = true
+        FROM (SELECT unnest(${notifiedIds}::uuid[]) AS uid, unnest(${notifiedDays}::int[]) AS days) upd
+        WHERE user_id = upd.uid AND inactive_days = upd.days AND push_email_notified = false
+      `).catch((err) => {
         logger.error({ err }, '[daily-notify] Failed to mark notifications as sent');
       });
     }
@@ -175,24 +175,24 @@ export const GET = async (req: NextRequest) => {
 
   // 2. Telegram re-engagement — concurrent delivery
   try {
-    const { rows: telegramUsers } = await db.query<{
+    const { rows: telegramUsers } = await orm.execute<{
       user_id: string;
       telegram_id: string;
       days_inactive: number;
       last_streak_before_break: number;
-    }>(
-      `SELECT DISTINCT ON (uie.user_id)
-         uie.user_id, u.telegram_id,
-         uie.inactive_days AS days_inactive,
-         COALESCE(u.last_streak_before_break, 0) AS last_streak_before_break
-       FROM user_inactivity_events uie
-       JOIN users u ON u.id = uie.user_id
-       WHERE uie.telegram_notified = false
-         AND uie.created_at >= NOW() - INTERVAL '25 hours'
-         AND u.telegram_id IS NOT NULL
-         AND u.deleted_at IS NULL
-       ORDER BY uie.user_id, uie.inactive_days DESC`
-    );
+    }>(sql`
+      SELECT DISTINCT ON (uie.user_id)
+        uie.user_id, u.telegram_id,
+        uie.inactive_days AS days_inactive,
+        COALESCE(u.last_streak_before_break, 0) AS last_streak_before_break
+      FROM user_inactivity_events uie
+      JOIN users u ON u.id = uie.user_id
+      WHERE uie.telegram_notified = false
+        AND uie.created_at >= NOW() - INTERVAL '25 hours'
+        AND u.telegram_id IS NOT NULL
+        AND u.deleted_at IS NULL
+      ORDER BY uie.user_id, uie.inactive_days DESC
+    `);
 
     const { getReengagementPayload } = await import('@/lib/notifications/reengagement');
     const { sendTelegramMessage } = await import('@/lib/notifications/telegram');
@@ -206,11 +206,10 @@ export const GET = async (req: NextRequest) => {
     });
 
     if (successIds.length > 0) {
-      await db.query(
-        `UPDATE user_inactivity_events SET telegram_notified = true
-         WHERE user_id = ANY($1::uuid[]) AND telegram_notified = false`,
-        [successIds]
-      ).catch(() => {});
+      await orm.execute(sql`
+        UPDATE user_inactivity_events SET telegram_notified = true
+        WHERE user_id = ANY(${successIds}::uuid[]) AND telegram_notified = false
+      `).catch(() => {});
     }
     results.telegramReengagement = { sent: successIds.length };
   } catch (err) {
@@ -225,31 +224,30 @@ export const GET = async (req: NextRequest) => {
       const councilRefId = `council_invite:${now.toISOString().slice(0, 7)}`;
       const { sendPushNotification } = await import('@/lib/notifications/push');
 
-      const { rows: invited } = await db.query<{ user_id: string; legacy_score: number }>(
-        `WITH candidates AS (
-           INSERT INTO notifications (user_id, type, title, body, metadata, reference_id, created_at)
-           SELECT u.id, 'council_invitation',
-                  'Platform Council Invitation',
-                  'You are among the top contributors on Zobia. You have been invited to join the Platform Council.',
-                  jsonb_build_object('legacyScore', u.legacy_score),
-                  $1, NOW()
-           FROM users u
-           LEFT JOIN platform_council_members pcm ON pcm.user_id = u.id
-           WHERE pcm.user_id IS NULL
-             AND u.deleted_at IS NULL
-             AND NOT COALESCE(u.is_banned, false)
-             AND u.login_streak_days > 0
-             AND u.prestige_count >= 5
-           ORDER BY u.legacy_score DESC
-           LIMIT 50
-           ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-           RETURNING user_id
-         )
-         SELECT c.user_id, u.legacy_score
-         FROM candidates c
-         JOIN users u ON u.id = c.user_id`,
-        [councilRefId]
-      );
+      const { rows: invited } = await orm.execute<{ user_id: string; legacy_score: number }>(sql`
+        WITH candidates AS (
+          INSERT INTO notifications (user_id, type, title, body, metadata, reference_id, created_at)
+          SELECT u.id, 'council_invitation',
+                 'Platform Council Invitation',
+                 'You are among the top contributors on Zobia. You have been invited to join the Platform Council.',
+                 jsonb_build_object('legacyScore', u.legacy_score),
+                 ${councilRefId}, NOW()
+          FROM users u
+          LEFT JOIN platform_council_members pcm ON pcm.user_id = u.id
+          WHERE pcm.user_id IS NULL
+            AND u.deleted_at IS NULL
+            AND NOT COALESCE(u.is_banned, false)
+            AND u.login_streak_days > 0
+            AND u.prestige_count >= 5
+          ORDER BY u.legacy_score DESC
+          LIMIT 50
+          ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+          RETURNING user_id
+        )
+        SELECT c.user_id, u.legacy_score
+        FROM candidates c
+        JOIN users u ON u.id = c.user_id
+      `);
 
       // Batch push fire-and-forget
       await withConcurrency(invited, CONCURRENCY, async (row) => {
@@ -278,36 +276,36 @@ export const GET = async (req: NextRequest) => {
     if (now.getUTCDate() === 1) {
       const cycleMonth = now.toISOString().slice(0, 7);
       const { sendPushNotification } = await import('@/lib/notifications/push');
+      const refPrefix = `council_removed:${cycleMonth}`;
 
-      const { rows: dropped } = await db.query<{ user_id: string }>(
-        `WITH ranked AS (
-           SELECT id, ROW_NUMBER() OVER (ORDER BY legacy_score DESC) AS rnk
-           FROM users
-           WHERE deleted_at IS NULL AND NOT COALESCE(is_banned, false)
-         ),
-         removed AS (
-           UPDATE platform_council_members pcm
-           SET left_at = NOW()
-           WHERE pcm.left_at IS NULL
-             AND NOT EXISTS (SELECT 1 FROM ranked r WHERE r.id = pcm.user_id AND r.rnk <= 50)
-           RETURNING pcm.user_id
-         ),
-         notified AS (
-           INSERT INTO notifications (user_id, type, title, body, metadata, reference_id, is_read, created_at)
-           SELECT user_id, 'council_removed',
-                  'Platform Council Membership Ended',
-                  'You have dropped out of the top 50 Legacy Score and are no longer a Platform Council member.',
-                  '{}'::jsonb, $1, false, NOW()
-           FROM removed
-           ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-           RETURNING user_id
-         )
-         -- LEFT JOIN (rather than selecting from "removed" alone) forces Postgres
-         -- to actually evaluate the "notified" CTE — an unreferenced data-modifying
-         -- CTE is not guaranteed to run.
-         SELECT r.user_id FROM removed r LEFT JOIN notified n ON n.user_id = r.user_id`,
-        [`council_removed:${cycleMonth}`]
-      );
+      const { rows: dropped } = await orm.execute<{ user_id: string }>(sql`
+        WITH ranked AS (
+          SELECT id, ROW_NUMBER() OVER (ORDER BY legacy_score DESC) AS rnk
+          FROM users
+          WHERE deleted_at IS NULL AND NOT COALESCE(is_banned, false)
+        ),
+        removed AS (
+          UPDATE platform_council_members pcm
+          SET left_at = NOW()
+          WHERE pcm.left_at IS NULL
+            AND NOT EXISTS (SELECT 1 FROM ranked r WHERE r.id = pcm.user_id AND r.rnk <= 50)
+          RETURNING pcm.user_id
+        ),
+        notified AS (
+          INSERT INTO notifications (user_id, type, title, body, metadata, reference_id, is_read, created_at)
+          SELECT user_id, 'council_removed',
+                 'Platform Council Membership Ended',
+                 'You have dropped out of the top 50 Legacy Score and are no longer a Platform Council member.',
+                 '{}'::jsonb, ${refPrefix}, false, NOW()
+          FROM removed
+          ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+          RETURNING user_id
+        )
+        -- LEFT JOIN (rather than selecting from "removed" alone) forces Postgres
+        -- to actually evaluate the "notified" CTE — an unreferenced data-modifying
+        -- CTE is not guaranteed to run.
+        SELECT r.user_id FROM removed r LEFT JOIN notified n ON n.user_id = r.user_id
+      `);
 
       await withConcurrency(dropped, CONCURRENCY, async (row) => {
         await sendPushNotification(

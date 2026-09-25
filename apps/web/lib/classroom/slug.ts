@@ -19,16 +19,14 @@
  */
 
 import { randomUUID } from "crypto";
+import { and, eq, sql } from "drizzle-orm";
 import { isValidSlug, looksLikeUuid, slugify, MAX_SLUG_LENGTH } from "@zobia/shared/utils";
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { conflict, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 import { debitCoins } from "@/lib/economy/coins";
-import { generateUniqueSlug, recordSlugRedirect } from "@/lib/slug";
+import { generateUniqueSlug } from "@/lib/slug";
 import { parseClassroomSettings, type SlugPolicy } from "@/lib/classroom/settings";
-
-type Queryable = Pick<TransactionClient, "query">;
 
 export const MIN_SLUG_LENGTH = 3;
 
@@ -68,20 +66,20 @@ export function validateSlugShape(slug: string): SlugUnavailableReason | null {
 export async function checkSlugAvailability(
   rawSlug: string,
   roomId: string | null,
-  client: Queryable = db
+  client?: DbOrTx
 ): Promise<SlugAvailability> {
   const slug = normaliseSlugInput(rawSlug);
   const shape = validateSlugShape(slug);
   if (shape) return { slug, available: false, reason: shape };
 
-  const { rows } = await client.query<{ taken: boolean; retired_for_other: boolean }>(
-    `SELECT
-       EXISTS (SELECT 1 FROM rooms WHERE slug = $1 AND deleted_at IS NULL
-                 AND ($2::uuid IS NULL OR id <> $2::uuid)) AS taken,
-       EXISTS (SELECT 1 FROM slug_redirects WHERE entity_type = 'room' AND old_slug = $1
-                 AND ($2::uuid IS NULL OR entity_id <> $2::uuid)) AS retired_for_other`,
-    [slug, roomId]
-  );
+  const orm = client ?? (await getDb());
+  const { rows } = await orm.execute<{ taken: boolean; retired_for_other: boolean }>(sql`
+    SELECT
+       EXISTS (SELECT 1 FROM rooms WHERE slug = ${slug} AND deleted_at IS NULL
+                 AND (${roomId}::uuid IS NULL OR id <> ${roomId}::uuid)) AS taken,
+       EXISTS (SELECT 1 FROM slug_redirects WHERE entity_type = 'room' AND old_slug = ${slug}
+                 AND (${roomId}::uuid IS NULL OR entity_id <> ${roomId}::uuid)) AS retired_for_other
+  `);
   if (rows[0]?.taken) return { slug, available: false, reason: "taken" };
   if (rows[0]?.retired_for_other) return { slug, available: false, reason: "retired" };
   return { slug, available: true, reason: null };
@@ -149,11 +147,10 @@ export function evaluateSlugPolicy(
   };
 }
 
-async function readHistory(roomId: string, client: Queryable): Promise<{ changesMade: number; lastChangedAt: Date | null }> {
-  const { rows } = await client.query<{ n: string; last: string | null }>(
-    `SELECT COUNT(*)::text AS n, MAX(changed_at) AS last FROM classroom_slug_history WHERE room_id = $1`,
-    [roomId]
-  );
+async function readHistory(roomId: string, client: DbOrTx): Promise<{ changesMade: number; lastChangedAt: Date | null }> {
+  const { rows } = await client.execute<{ n: string; last: string | null }>(sql`
+    SELECT COUNT(*)::text AS n, MAX(changed_at) AS last FROM classroom_slug_history WHERE room_id = ${roomId}
+  `);
   return {
     changesMade: Number(rows[0]?.n ?? 0),
     lastChangedAt: rows[0]?.last ? new Date(rows[0].last) : null,
@@ -162,7 +159,8 @@ async function readHistory(roomId: string, client: Queryable): Promise<{ changes
 
 export async function getSlugChangeQuote(roomId: string, rawSettings: unknown): Promise<SlugChangeQuote> {
   const policy = parseClassroomSettings(rawSettings).slugPolicy;
-  return evaluateSlugPolicy(policy, await readHistory(roomId, db));
+  const orm = await getDb();
+  return evaluateSlugPolicy(policy, await readHistory(roomId, orm));
 }
 
 export interface SlugHistoryEntry {
@@ -173,16 +171,23 @@ export interface SlugHistoryEntry {
 }
 
 export async function getSlugHistory(roomId: string): Promise<SlugHistoryEntry[]> {
-  const { rows } = await db.query<{ old_slug: string | null; new_slug: string; cost_credits: number; changed_at: string }>(
-    `SELECT old_slug, new_slug, cost_credits, changed_at FROM classroom_slug_history
-      WHERE room_id = $1 ORDER BY changed_at DESC LIMIT 50`,
-    [roomId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      oldSlug: schema.classroomSlugHistory.oldSlug,
+      newSlug: schema.classroomSlugHistory.newSlug,
+      costCredits: schema.classroomSlugHistory.costCredits,
+      changedAt: schema.classroomSlugHistory.changedAt,
+    })
+    .from(schema.classroomSlugHistory)
+    .where(eq(schema.classroomSlugHistory.roomId, roomId))
+    .orderBy(sql`${schema.classroomSlugHistory.changedAt} DESC`)
+    .limit(50);
   return rows.map((r) => ({
-    oldSlug: r.old_slug,
-    newSlug: r.new_slug,
-    costCredits: r.cost_credits,
-    changedAt: new Date(r.changed_at).toISOString(),
+    oldSlug: r.oldSlug,
+    newSlug: r.newSlug,
+    costCredits: r.costCredits,
+    changedAt: (r.changedAt as Date).toISOString(),
   }));
 }
 
@@ -209,13 +214,13 @@ export interface ChangeSlugResult {
 }
 
 export async function changeClassroomSlug(input: ChangeSlugInput): Promise<ChangeSlugResult> {
-  return db.transaction(async (tx) => {
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
     // 1. Lock + ownership + policy re-check inside the transaction.
-    const { rows: roomRows } = await tx.query<{ id: string; slug: string | null; creator_id: string; type: string; classroom_settings: unknown }>(
-      `SELECT id, slug, creator_id, type, classroom_settings FROM rooms
-        WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-      [input.roomId]
-    );
+    const { rows: roomRows } = await tx.execute<{ id: string; slug: string | null; creator_id: string; type: string; classroom_settings: unknown }>(sql`
+      SELECT id, slug, creator_id, type, classroom_settings FROM rooms
+        WHERE id = ${input.roomId} AND deleted_at IS NULL FOR UPDATE
+    `);
     const room = roomRows[0];
     if (!room || room.type !== "classroom") throw notFound("Classroom not found");
     if (room.creator_id !== input.actorId) throw forbidden("Only the classroom creator can change its URL.", "CLASSROOM_FORBIDDEN");
@@ -255,20 +260,34 @@ export async function changeClassroomSlug(input: ChangeSlugInput): Promise<Chang
     }
 
     // 4. Update. The partial unique index on rooms.slug is the final race backstop.
-    await tx.query(`UPDATE rooms SET slug = $1, updated_at = NOW() WHERE id = $2`, [newSlug, room.id]);
+    await tx.update(schema.rooms).set({ slug: newSlug, updatedAt: new Date() }).where(eq(schema.rooms.id, room.id));
 
     // 5. History + 301 from the old slug. If this room is reclaiming one of
     // its own retired slugs, drop that redirect so it doesn't loop.
-    await tx.query(`DELETE FROM slug_redirects WHERE entity_type = 'room' AND old_slug = $1 AND entity_id = $2`, [
+    await tx
+      .delete(schema.slugRedirects)
+      .where(and(eq(schema.slugRedirects.entityType, "room"), eq(schema.slugRedirects.oldSlug, newSlug), eq(schema.slugRedirects.entityId, room.id)));
+
+    // Inlined equivalent of lib/slug.ts recordSlugRedirect() — that helper
+    // still takes the legacy raw-adapter Queryable type, so its upsert is
+    // reproduced here directly against this transaction's Drizzle tx.
+    if (room.slug && room.slug !== newSlug) {
+      await tx
+        .insert(schema.slugRedirects)
+        .values({ entityType: "room", oldSlug: room.slug, entityId: room.id })
+        .onConflictDoUpdate({
+          target: [schema.slugRedirects.entityType, schema.slugRedirects.oldSlug],
+          set: { entityId: room.id, createdAt: new Date() },
+        });
+    }
+
+    await tx.insert(schema.classroomSlugHistory).values({
+      roomId: room.id,
+      oldSlug: room.slug,
       newSlug,
-      room.id,
-    ]);
-    await recordSlugRedirect("room", room.slug, room.id, newSlug, tx);
-    await tx.query(
-      `INSERT INTO classroom_slug_history (room_id, old_slug, new_slug, changed_by, cost_credits, changed_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())`,
-      [room.id, room.slug, newSlug, input.actorId, quote.costCredits]
-    );
+      changedBy: input.actorId,
+      costCredits: quote.costCredits,
+    });
 
     logger.info(
       { roomId: room.id, actorId: input.actorId, oldSlug: room.slug, newSlug, costCredits: quote.costCredits },

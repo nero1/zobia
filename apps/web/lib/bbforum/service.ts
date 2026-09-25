@@ -14,8 +14,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { getDb, type DbOrTx } from "@/lib/db/drizzle";
+import { sql } from "drizzle-orm";
 import { loadManifest, requireFeatureEnabled, type ZobiaManifest } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
@@ -31,9 +31,9 @@ import { logger } from "@/lib/logger";
 // ---------------------------------------------------------------------------
 
 export async function isUserModeratorOrAdmin(userId: string): Promise<boolean> {
-  const { rows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-    `SELECT is_admin, is_moderator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [userId]
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ is_admin: boolean; is_moderator: boolean }>(
+    sql`SELECT is_admin, is_moderator FROM users WHERE id = ${userId} AND deleted_at IS NULL LIMIT 1`
   );
   const row = rows[0];
   return !!(row?.is_admin || row?.is_moderator);
@@ -51,13 +51,13 @@ export interface BbforumEligibility {
 }
 
 export async function getBbforumEligibility(userId: string): Promise<BbforumEligibility> {
+  const orm = await getDb();
   const [manifest, userRows] = await Promise.all([
     loadManifest(),
-    db.query<{ xp_total: number; coin_balance: number; star_balance: number }>(
-      `SELECT COALESCE(xp_total, 0) AS xp_total, COALESCE(coin_balance, 0) AS coin_balance, COALESCE(star_balance, 0) AS star_balance
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    ),
+    orm.execute<{ xp_total: number; coin_balance: number; star_balance: number }>(sql`
+      SELECT COALESCE(xp_total, 0) AS xp_total, COALESCE(coin_balance, 0) AS coin_balance, COALESCE(star_balance, 0) AS star_balance
+      FROM users WHERE id = ${userId} AND deleted_at IS NULL LIMIT 1
+    `),
   ]);
   const row = userRows.rows[0];
   if (!row) throw forbidden("User account not found");
@@ -91,7 +91,7 @@ function assertCanAffordImage(eligibility: BbforumEligibility): void {
   }
 }
 
-async function chargeImageCost(userId: string, config: ZobiaManifest["bbforum"], referenceId: string, tx: TransactionClient): Promise<void> {
+async function chargeImageCost(userId: string, config: ZobiaManifest["bbforum"], referenceId: string, tx: DbOrTx): Promise<void> {
   if (config.imageCostCredits > 0) {
     await debitCoins(userId, config.imageCostCredits, "bbforum_image_upload", referenceId, "Attached an image to a forum post", undefined, tx);
   }
@@ -114,13 +114,13 @@ async function awardBbforumCreditsCapped(
 ): Promise<void> {
   if (amount <= 0) return;
   try {
-    const { rows } = await db.query<{ earned: string }>(
-      `SELECT COALESCE(SUM(amount), 0)::text AS earned
-       FROM coin_ledger
-       WHERE user_id = $1 AND transaction_type LIKE 'bbforum_%' AND amount > 0
-         AND created_at >= NOW() - INTERVAL '24 hours'`,
-      [userId]
-    );
+    const orm = await getDb();
+    const { rows } = await orm.execute<{ earned: string }>(sql`
+      SELECT COALESCE(SUM(amount), 0)::text AS earned
+      FROM coin_ledger
+      WHERE user_id = ${userId} AND transaction_type LIKE 'bbforum_%' AND amount > 0
+        AND created_at >= NOW() - INTERVAL '24 hours'
+    `);
     const earnedToday = parseInt(rows[0]?.earned ?? "0", 10);
     const headroom = dailyCapCredits - earnedToday;
     if (headroom <= 0) return;
@@ -185,7 +185,7 @@ export async function createThread(input: CreateThreadInput): Promise<{ thread: 
   }
 
   const mod = eligibility.config.autoModerationEnabled
-    ? await applyBbforumAutoModeration({ title: input.title, body: input.body, authorId: input.userId, targetType: "bb_thread" }, db)
+    ? await applyBbforumAutoModeration({ title: input.title, body: input.body, authorId: input.userId, targetType: "bb_thread" }, await getDb())
     : { blocked: false, filteredTitle: input.title, filteredBody: input.body };
 
   if (mod.blocked) {
@@ -194,7 +194,8 @@ export async function createThread(input: CreateThreadInput): Promise<{ thread: 
 
   const chargeReference = `bbforum_charge:${input.userId}:${randomUUID()}`;
 
-  const thread = await db.transaction(async (tx: TransactionClient) => {
+  const orm = await getDb();
+  const thread = await orm.transaction(async (tx) => {
     if (potTotal > 0) {
       await debitCoins(input.userId, potTotal, "bbforum_pot_fund", chargeReference, `Funded a reply pot (${potPerClaim} Credits x ${potMaxClaims})`, undefined, tx);
     }
@@ -254,7 +255,7 @@ export async function createReply(input: CreateReplyInput): Promise<{ post: repo
   if (input.imageUrl) assertCanAffordImage(eligibility);
 
   const mod = eligibility.config.autoModerationEnabled
-    ? await applyBbforumAutoModeration({ body: input.body, authorId: input.userId, targetType: "bb_post" }, db)
+    ? await applyBbforumAutoModeration({ body: input.body, authorId: input.userId, targetType: "bb_post" }, await getDb())
     : { blocked: false, filteredBody: input.body };
 
   if (mod.blocked) {
@@ -263,7 +264,8 @@ export async function createReply(input: CreateReplyInput): Promise<{ post: repo
 
   if (input.imageUrl) {
     const chargeReference = `bbforum_charge:${input.userId}:${randomUUID()}`;
-    await db.transaction((tx) => chargeImageCost(input.userId, eligibility.config, chargeReference, tx));
+    const orm = await getDb();
+    await orm.transaction((tx) => chargeImageCost(input.userId, eligibility.config, chargeReference, tx));
   }
 
   const { post, potClaimedCredits } = await repo.createReply({

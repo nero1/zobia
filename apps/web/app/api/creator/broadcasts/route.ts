@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -83,14 +84,17 @@ interface CreatorRow {
  * @param creatorId - Creator UUID
  */
 async function countMonthlyBroadcasts(creatorId: string): Promise<number> {
-  const { rows } = await db.query<{ cnt: string }>(
-    `SELECT COUNT(*)::text AS cnt
-     FROM creator_broadcasts
-     WHERE creator_id = $1
-       AND created_at >= DATE_TRUNC('month', NOW())`,
-    [creatorId]
-  );
-  return parseInt(rows[0]?.cnt ?? "0", 10);
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ cnt: sql<string>`COUNT(*)::text` })
+    .from(schema.creatorBroadcasts)
+    .where(
+      and(
+        eq(schema.creatorBroadcasts.creatorId, creatorId),
+        sql`${schema.creatorBroadcasts.createdAt} >= DATE_TRUNC('month', NOW())`
+      )
+    );
+  return parseInt(row?.cnt ?? "0", 10);
 }
 
 /**
@@ -102,14 +106,12 @@ async function countMonthlyBroadcasts(creatorId: string): Promise<number> {
 async function fetchFollowers(
   creatorId: string
 ): Promise<Array<{ user_id: string; telegram_id: string | null }>> {
-  const { rows } = await db.query<{ user_id: string; telegram_id: string | null }>(
-    `SELECT uf.follower_id AS user_id, u.telegram_id
-     FROM follows uf
-     JOIN users u ON u.id = uf.follower_id
-     WHERE uf.following_id = $1
-       AND u.deleted_at IS NULL`,
-    [creatorId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ user_id: schema.follows.followerId, telegram_id: schema.users.telegramId })
+    .from(schema.follows)
+    .innerJoin(schema.users, eq(schema.users.id, schema.follows.followerId))
+    .where(and(eq(schema.follows.followingId, creatorId), isNull(schema.users.deletedAt)));
   return rows;
 }
 
@@ -132,12 +134,15 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const creatorId = auth.user.sub;
 
-    const { rows: creatorRows } = await db.query<CreatorRow>(
-      `SELECT is_creator, creator_tier, coin_balance
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [creatorId]
-    );
-    const creator = creatorRows[0];
+    const orm = await getDb();
+    const [creatorRow] = await orm
+      .select({ is_creator: schema.users.isCreator, creator_tier: schema.users.creatorTier, coin_balance: schema.users.coinBalance })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, creatorId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    const creator: CreatorRow | undefined = creatorRow
+      ? { is_creator: creatorRow.is_creator, creator_tier: creatorRow.creator_tier, coin_balance: Number(creatorRow.coin_balance) }
+      : undefined;
 
     if (!creator?.is_creator) {
       return NextResponse.json(
@@ -194,14 +199,18 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       reason,
     };
 
-    const { rows: historyRows } = await db.query<BroadcastRow>(
-      `SELECT id, subject, content, created_at, recipient_count
-       FROM creator_broadcasts
-       WHERE creator_id = $1
-       ORDER BY created_at DESC
-       LIMIT 50`,
-      [creatorId]
-    );
+    const historyRows = await orm
+      .select({
+        id: schema.creatorBroadcasts.id,
+        subject: schema.creatorBroadcasts.subject,
+        content: schema.creatorBroadcasts.content,
+        created_at: schema.creatorBroadcasts.createdAt,
+        recipient_count: schema.creatorBroadcasts.recipientCount,
+      })
+      .from(schema.creatorBroadcasts)
+      .where(eq(schema.creatorBroadcasts.creatorId, creatorId))
+      .orderBy(desc(schema.creatorBroadcasts.createdAt))
+      .limit(50);
 
     const broadcasts = historyRows.map((r) => ({
       id: r.id,
@@ -235,12 +244,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, broadcastSchema);
 
     // Fetch creator data
-    const { rows: creatorRows } = await db.query<CreatorRow>(
-      `SELECT is_creator, creator_tier, coin_balance
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [creatorId]
-    );
-    const creator = creatorRows[0];
+    const orm = await getDb();
+    const [creatorRow] = await orm
+      .select({ is_creator: schema.users.isCreator, creator_tier: schema.users.creatorTier, coin_balance: schema.users.coinBalance })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, creatorId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    const creator: CreatorRow | undefined = creatorRow
+      ? { is_creator: creatorRow.is_creator, creator_tier: creatorRow.creator_tier, coin_balance: Number(creatorRow.coin_balance) }
+      : undefined;
 
     if (!creator?.is_creator) {
       throw forbidden("Creator account required to send broadcasts");
@@ -316,64 +328,58 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Execute in transaction
-    const broadcast = await db.transaction(async (tx) => {
+    const broadcast = await orm.transaction(async (tx) => {
       // Deduct coins if applicable
       if (costCoins > 0) {
-        const { rows: balRows } = await tx.query<{ coin_balance: number }>(
-          `SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE`,
-          [creatorId]
-        );
-        const balanceBefore = balRows[0]?.coin_balance ?? 0;
+        const [balRow] = await tx
+          .select({ coin_balance: schema.users.coinBalance })
+          .from(schema.users)
+          .where(eq(schema.users.id, creatorId))
+          .for("update");
+        const balanceBefore = Number(balRow?.coin_balance ?? 0);
 
-        await tx.query(
-          `UPDATE users
-           SET coin_balance = coin_balance - $1, updated_at = NOW()
-           WHERE id = $2`,
-          [costCoins, creatorId]
-        );
+        await tx
+          .update(schema.users)
+          .set({ coinBalance: sql`${schema.users.coinBalance} - ${costCoins}`, updatedAt: new Date() })
+          .where(eq(schema.users.id, creatorId));
 
-        await tx.query(
-          `INSERT INTO coin_ledger
-             (user_id, amount, balance_before, balance_after, transaction_type, description)
-           VALUES ($1, $2, $3, $4, 'subscription', 'Broadcast message fee')`,
-          [
-            creatorId,
-            -costCoins,
-            balanceBefore,
-            balanceBefore - costCoins,
-          ]
-        );
+        await tx.insert(schema.coinLedger).values({
+          userId: creatorId,
+          amount: BigInt(-costCoins),
+          balanceBefore: BigInt(balanceBefore),
+          balanceAfter: BigInt(balanceBefore - costCoins),
+          transactionType: "subscription",
+          description: "Broadcast message fee",
+        });
       }
 
       // Create broadcast record
-      const { rows: broadcastRows } = await tx.query<{ id: string }>(
-        `INSERT INTO creator_broadcasts
-           (creator_id, subject, content, recipient_count, cost_coins)
-         VALUES ($1, $2, $3, $4, $5)
-         RETURNING *`,
-        [
+      const [broadcastRecord] = await tx
+        .insert(schema.creatorBroadcasts)
+        .values({
           creatorId,
-          body.subject ?? null,
-          body.content,
+          subject: body.subject ?? null,
+          content: body.content,
           recipientCount,
           costCoins,
-        ]
-      );
+        })
+        .returning();
 
-      const broadcastRecord = broadcastRows[0];
       if (!broadcastRecord) throw new Error("Broadcast creation failed");
 
       // Bulk insert creator_broadcasts for each follower
-      // Using unnest for performance on large follower lists
       const userIds = followers.map((f) => f.user_id);
-
-      await tx.query(
-        `INSERT INTO creator_broadcasts
-           (sender_id, recipient_id, content, message_type, reference_id)
-         SELECT $1, u, $2, 'broadcast', $3
-         FROM UNNEST($4::uuid[]) AS u`,
-        [creatorId, body.content, broadcastRecord.id, userIds]
-      );
+      if (userIds.length > 0) {
+        await tx.insert(schema.creatorBroadcasts).values(
+          userIds.map((userId) => ({
+            senderId: creatorId,
+            recipientId: userId,
+            content: body.content,
+            messageType: "broadcast",
+            referenceId: broadcastRecord.id,
+          }))
+        );
+      }
 
       return broadcastRecord;
     });
@@ -382,16 +388,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const telegramFollowers = followers.filter((f) => f.telegram_id);
     if (telegramFollowers.length > 0) {
       // Enqueue Telegram delivery — the cron/queue worker picks this up
-      void db
-        .query(
-          `INSERT INTO telegram_delivery_queue
-             (broadcast_id, telegram_ids)
-           VALUES ($1, $2)`,
-          [
-            broadcast.id,
-            JSON.stringify(telegramFollowers.map((f) => f.telegram_id)),
-          ]
-        )
+      void orm
+        .insert(schema.telegramDeliveryQueue)
+        .values({
+          broadcastId: broadcast.id,
+          telegramIds: telegramFollowers.map((f) => f.telegram_id),
+        })
         .catch((err) => {
           logger.error({ err: err }, "[broadcasts] Telegram queue enqueue failed:");
           });

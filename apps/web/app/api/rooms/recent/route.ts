@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, type SqlParam } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -32,19 +33,15 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 
     const query = validateSearchParams(req.nextUrl.searchParams, listRecentQuerySchema);
 
-    const queryParams: SqlParam[] = [auth.user.sub];
-    let cursorClause = "";
-    if (query.cursor) {
-      queryParams.push(query.cursor);
-      cursorClause = `AND rv.last_visited_at < $${queryParams.length}`;
-    }
-    queryParams.push(query.limit);
-    const limitParam = queryParams.length;
+    const cursorClause = query.cursor
+      ? sql`AND rv.last_visited_at < ${query.cursor}`
+      : sql``;
 
-    const { rows } = await db.query<
-      RoomCardSourceRow & { last_visited_at: string; is_joined: boolean; is_favorited: boolean }
-    >(
-      `SELECT
+    const orm = await getDb();
+    const result = await orm.execute<
+      RoomCardSourceRow & { last_visited_at: string; is_joined: boolean; is_favorited: boolean } & Record<string, unknown>
+    >(sql`
+      SELECT
          r.id, r.name, r.description, r.type, r.category, r.city,
          r.cover_emoji, r.cover_image_url, r.slug,
          r.creator_id, u.username AS creator_username, u.display_name AS creator_display_name,
@@ -59,13 +56,13 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
        FROM room_visits rv
        JOIN rooms r ON r.id = rv.room_id AND r.is_active = TRUE
        JOIN users u ON u.id = r.creator_id
-       LEFT JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = $1
-       LEFT JOIN room_pins rp ON rp.room_id = r.id AND rp.user_id = $1
-       WHERE rv.user_id = $1 ${cursorClause}
+       LEFT JOIN room_members rm ON rm.room_id = r.id AND rm.user_id = ${auth.user.sub}
+       LEFT JOIN room_pins rp ON rp.room_id = r.id AND rp.user_id = ${auth.user.sub}
+       WHERE rv.user_id = ${auth.user.sub} ${cursorClause}
        ORDER BY rv.last_visited_at DESC
-       LIMIT $${limitParam}`,
-      queryParams
-    );
+       LIMIT ${query.limit}
+    `);
+    const rows = result.rows;
 
     const nextCursor =
       rows.length === query.limit ? rows[rows.length - 1]?.last_visited_at ?? null : null;

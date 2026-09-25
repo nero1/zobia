@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -32,17 +33,29 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const body = await validateBody(req, dismissSchema);
 
-    const { rows } = await db.query(
-      `INSERT INTO new_member_quest_dismissals (user_id, dismiss_count, last_dismissed_at, dont_remind_again)
-       VALUES ($1, $2, NOW(), $3)
-       ON CONFLICT (user_id) DO UPDATE
-         SET dismiss_count = GREATEST(new_member_quest_dismissals.dismiss_count, EXCLUDED.dismiss_count),
-             last_dismissed_at = NOW(),
-             dont_remind_again = new_member_quest_dismissals.dont_remind_again OR EXCLUDED.dont_remind_again,
-             updated_at = NOW()
-       RETURNING dismiss_count, dont_remind_again, last_dismissed_at`,
-      [auth.user.sub, body.dismissCount, body.dontRemindAgain]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .insert(schema.newMemberQuestDismissals)
+      .values({
+        userId: auth.user.sub,
+        dismissCount: body.dismissCount,
+        lastDismissedAt: sql`NOW()`,
+        dontRemindAgain: body.dontRemindAgain,
+      })
+      .onConflictDoUpdate({
+        target: schema.newMemberQuestDismissals.userId,
+        set: {
+          dismissCount: sql`GREATEST(${schema.newMemberQuestDismissals.dismissCount}, ${body.dismissCount})`,
+          lastDismissedAt: sql`NOW()`,
+          dontRemindAgain: sql`${schema.newMemberQuestDismissals.dontRemindAgain} OR ${body.dontRemindAgain}`,
+          updatedAt: sql`NOW()`,
+        },
+      })
+      .returning({
+        dismiss_count: schema.newMemberQuestDismissals.dismissCount,
+        dont_remind_again: schema.newMemberQuestDismissals.dontRemindAgain,
+        last_dismissed_at: schema.newMemberQuestDismissals.lastDismissedAt,
+      });
 
     return NextResponse.json({ success: true, data: rows[0], error: null });
   } catch (err) {
@@ -53,10 +66,16 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 /** GET — lets a fresh device/session pick up an existing "don't remind again" choice made elsewhere. */
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
-    const { rows } = await db.query(
-      `SELECT dismiss_count, dont_remind_again, last_dismissed_at FROM new_member_quest_dismissals WHERE user_id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        dismiss_count: schema.newMemberQuestDismissals.dismissCount,
+        dont_remind_again: schema.newMemberQuestDismissals.dontRemindAgain,
+        last_dismissed_at: schema.newMemberQuestDismissals.lastDismissedAt,
+      })
+      .from(schema.newMemberQuestDismissals)
+      .where(eq(schema.newMemberQuestDismissals.userId, auth.user.sub))
+      .limit(1);
     return NextResponse.json({
       success: true,
       data: rows[0] ?? { dismiss_count: 0, dont_remind_again: false, last_dismissed_at: null },

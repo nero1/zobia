@@ -20,7 +20,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, count, countDistinct, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -49,13 +50,13 @@ const ALL_TRACKS: LeaderboardTrack[] = [
 ];
 
 const TRACK_META: Array<{ track: LeaderboardTrack; label: string; emoji: string; xpKey: string; levelKey: string }> = [
-  { track: "social",      label: "Social",     emoji: "💬", xpKey: "xp_social",     levelKey: "level_social" },
-  { track: "creator",     label: "Creator",    emoji: "🎨", xpKey: "xp_creator",    levelKey: "level_creator" },
-  { track: "competitor",  label: "Competitor", emoji: "⚔️", xpKey: "xp_competitor", levelKey: "level_competitor" },
-  { track: "generosity",  label: "Generosity", emoji: "🎁", xpKey: "xp_generosity", levelKey: "level_generosity" },
-  { track: "gaming",      label: "Gaming",     emoji: "🎮", xpKey: "xp_gaming",     levelKey: "level_gaming" },
-  { track: "knowledge",   label: "Knowledge",  emoji: "📚", xpKey: "xp_knowledge",  levelKey: "level_knowledge" },
-  { track: "explorer",    label: "Explorer",   emoji: "🧭", xpKey: "xp_explorer",   levelKey: "level_explorer" },
+  { track: "social",      label: "Social",     emoji: "💬", xpKey: "xpSocial",     levelKey: "levelSocial" },
+  { track: "creator",     label: "Creator",    emoji: "🎨", xpKey: "xpCreator",    levelKey: "levelCreator" },
+  { track: "competitor",  label: "Competitor", emoji: "⚔️", xpKey: "xpCompetitor", levelKey: "levelCompetitor" },
+  { track: "generosity",  label: "Generosity", emoji: "🎁", xpKey: "xpGenerosity", levelKey: "levelGenerosity" },
+  { track: "gaming",      label: "Gaming",     emoji: "🎮", xpKey: "xpGaming",     levelKey: "levelGaming" },
+  { track: "knowledge",   label: "Knowledge",  emoji: "📚", xpKey: "xpKnowledge",  levelKey: "levelKnowledge" },
+  { track: "explorer",    label: "Explorer",   emoji: "🧭", xpKey: "xpExplorer",   levelKey: "levelExplorer" },
 ];
 
 // ---------------------------------------------------------------------------
@@ -98,55 +99,58 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       throw forbidden("You do not have permission to view this user's stats.");
     }
 
-    const { rows: userRows } = await db.query<{
-      id: string;
-      username: string | null;
-      display_name: string | null;
-      avatar_emoji: string | null;
-      city: string | null;
-      plan: string;
-      prestige_count: number;
-      is_admin: boolean;
-      is_moderator: boolean;
-      business_tier: string | null;
-      xp_total: number;
-      legacy_score: number;
-      is_creator: boolean;
-      created_at: string;
-      guild_id: string | null;
-      xp_social: number; xp_creator: number; xp_competitor: number; xp_generosity: number;
-      xp_gaming: number; xp_knowledge: number; xp_explorer: number;
-      level_social: number; level_creator: number; level_competitor: number; level_generosity: number;
-      level_gaming: number; level_knowledge: number; level_explorer: number;
-    }>(
-      `SELECT u.id, u.username, u.display_name, u.avatar_emoji, u.city,
-              COALESCE(u.plan, 'free') AS plan,
-              COALESCE(u.prestige_count, 0) AS prestige_count,
-              COALESCE(u.is_admin, false) AS is_admin,
-              COALESCE(u.is_moderator, false) AS is_moderator,
-              ba.tier AS business_tier,
-              u.xp_total, COALESCE(u.legacy_score, 0) AS legacy_score,
-              COALESCE(u.is_creator, false) AS is_creator,
-              u.created_at, u.guild_id,
-              u.xp_social, u.xp_creator, u.xp_competitor, u.xp_generosity, u.xp_gaming, u.xp_knowledge, u.xp_explorer,
-              u.level_social, u.level_creator, u.level_competitor, u.level_generosity, u.level_gaming, u.level_knowledge, u.level_explorer
-       FROM users u
-       LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
-       WHERE u.id = $1 AND u.deleted_at IS NULL
-       LIMIT 1`,
-      [userId]
-    );
-    const user = userRows[0];
+    const orm = await getDb();
+
+    const [userRow] = await orm
+      .select({
+        id: schema.users.id,
+        username: schema.users.username,
+        displayName: schema.users.displayName,
+        avatarEmoji: schema.users.avatarEmoji,
+        city: schema.users.city,
+        plan: schema.users.plan,
+        prestigeCount: schema.users.prestigeCount,
+        isAdmin: schema.users.isAdmin,
+        isModerator: schema.users.isModerator,
+        businessTier: schema.businessAccounts.tier,
+        xpTotal: schema.users.xpTotal,
+        legacyScore: schema.users.legacyScore,
+        isCreator: schema.users.isCreator,
+        createdAt: schema.users.createdAt,
+        guildId: schema.users.guildId,
+        xpSocial: schema.users.xpSocial,
+        xpCreator: schema.users.xpCreator,
+        xpCompetitor: schema.users.xpCompetitor,
+        xpGenerosity: schema.users.xpGenerosity,
+        xpGaming: schema.users.xpGaming,
+        xpKnowledge: schema.users.xpKnowledge,
+        xpExplorer: schema.users.xpExplorer,
+        levelSocial: schema.users.levelSocial,
+        levelCreator: schema.users.levelCreator,
+        levelCompetitor: schema.users.levelCompetitor,
+        levelGenerosity: schema.users.levelGenerosity,
+        levelGaming: schema.users.levelGaming,
+        levelKnowledge: schema.users.levelKnowledge,
+        levelExplorer: schema.users.levelExplorer,
+      })
+      .from(schema.users)
+      .leftJoin(
+        schema.businessAccounts,
+        and(eq(schema.businessAccounts.userId, schema.users.id), eq(schema.businessAccounts.status, "active"))
+      )
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    const user = userRow;
     if (!user) throw notFound("User not found");
 
     const fullPlans = await getAllowedPlans("profile_stats_full_plans", allEligibilityOptionsExcept(["free"]));
-    const tier: "basic" | "full" = isPlanEligible(user.plan, user.prestige_count, fullPlans, {
-      businessTier: user.business_tier,
-      isAdmin: user.is_admin,
-      isModerator: user.is_moderator,
+    const tier: "basic" | "full" = isPlanEligible(user.plan, user.prestigeCount, fullPlans, {
+      businessTier: user.businessTier,
+      isAdmin: user.isAdmin,
+      isModerator: user.isModerator,
     }) ? "full" : "basic";
 
-    const rankInfo = getRankForXP(user.xp_total);
+    const rankInfo = getRankForXP(Number(user.xpTotal));
 
     const [
       badgeRows,
@@ -157,33 +161,61 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       referralsRow,
       roomsRows,
     ] = await Promise.all([
-      db.query<{ badge_key: string; badge_type: string; awarded_at: string; metadata: Record<string, unknown> | null }>(
-        `SELECT badge_key, badge_type, awarded_at, metadata FROM user_badges WHERE user_id = $1 ORDER BY awarded_at DESC LIMIT 100`,
-        [userId]
-      ).catch(() => ({ rows: [] as Array<{ badge_key: string; badge_type: string; awarded_at: string; metadata: Record<string, unknown> | null }> })),
-      user.guild_id
-        ? db.query<{ name: string; crest_emoji: string | null; tier: string }>(
-            `SELECT name, crest_emoji, tier FROM guilds WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-            [user.guild_id]
-          ).catch(() => ({ rows: [] as Array<{ name: string; crest_emoji: string | null; tier: string }> }))
+      orm
+        .select({
+          badge_key: schema.userBadges.badgeKey,
+          badge_type: schema.userBadges.badgeType,
+          awarded_at: schema.userBadges.awardedAt,
+          metadata: schema.userBadges.metadata,
+        })
+        .from(schema.userBadges)
+        .where(eq(schema.userBadges.userId, userId))
+        .orderBy(desc(schema.userBadges.awardedAt))
+        .limit(100)
+        .then((rows) => ({ rows }))
+        .catch(() => ({ rows: [] as Array<{ badge_key: string | null; badge_type: string; awarded_at: Date | null; metadata: unknown }> })),
+      user.guildId
+        ? orm
+            .select({ name: schema.guilds.name, crest_emoji: schema.guilds.crestEmoji, tier: schema.guilds.tier })
+            .from(schema.guilds)
+            .where(and(eq(schema.guilds.id, user.guildId), isNull(schema.guilds.deletedAt)))
+            .limit(1)
+            .then((rows) => ({ rows }))
+            .catch(() => ({ rows: [] as Array<{ name: string; crest_emoji: string | null; tier: string }> }))
         : Promise.resolve({ rows: [] as Array<{ name: string; crest_emoji: string | null; tier: string }> }),
-      db.query<{ count: string }>(
-        `SELECT COUNT(*) AS count FROM friendships WHERE (requester_id = $1 OR addressee_id = $1) AND status = 'accepted'`,
-        [userId]
-      ),
-      db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM follows WHERE following_id = $1`, [userId]),
-      db.query<{ count: string }>(`SELECT COUNT(*) AS count FROM follows WHERE follower_id = $1`, [userId]),
-      db.query<{ total: string; qualified: string }>(
-        `SELECT COUNT(*) AS total, COUNT(*) FILTER (WHERE qualified) AS qualified FROM referrals WHERE referrer_id = $1`,
-        [userId]
-      ).catch(() => ({ rows: [{ total: "0", qualified: "0" }] })),
-      user.is_creator
-        ? db.query<{ id: string; name: string; cover_emoji: string; member_count: number }>(
-            `SELECT id, name, cover_emoji, member_count FROM rooms
-             WHERE creator_id = $1 AND is_active = TRUE
-             ORDER BY member_count DESC LIMIT 50`,
-            [userId]
-          ).catch(() => ({ rows: [] as Array<{ id: string; name: string; cover_emoji: string; member_count: number }> }))
+      orm
+        .select({ count: count() })
+        .from(schema.friendships)
+        .where(
+          and(
+            or(eq(schema.friendships.requesterId, userId), eq(schema.friendships.addresseeId, userId)),
+            eq(schema.friendships.status, "accepted")
+          )
+        ),
+      orm.select({ count: count() }).from(schema.follows).where(eq(schema.follows.followingId, userId)),
+      orm.select({ count: count() }).from(schema.follows).where(eq(schema.follows.followerId, userId)),
+      orm
+        .select({
+          total: count(),
+          qualified: sql<number>`COUNT(*) FILTER (WHERE ${schema.referrals.qualified})`,
+        })
+        .from(schema.referrals)
+        .where(eq(schema.referrals.referrerId, userId))
+        .catch(() => [{ total: 0, qualified: 0 }]),
+      user.isCreator
+        ? orm
+            .select({
+              id: schema.rooms.id,
+              name: schema.rooms.name,
+              cover_emoji: schema.rooms.coverEmoji,
+              member_count: schema.rooms.memberCount,
+            })
+            .from(schema.rooms)
+            .where(and(eq(schema.rooms.creatorId, userId), eq(schema.rooms.isActive, true)))
+            .orderBy(desc(schema.rooms.memberCount))
+            .limit(50)
+            .then((rows) => ({ rows }))
+            .catch(() => ({ rows: [] as Array<{ id: string; name: string; cover_emoji: string; member_count: number }> }))
         : Promise.resolve({ rows: [] as Array<{ id: string; name: string; cover_emoji: string; member_count: number }> }),
     ]);
 
@@ -193,33 +225,44 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     let seasonHistory: Array<{ id: string; name: string; themeEmoji: string; year: number; finalRank: number | null }> = [];
 
     if (tier === "full") {
-      const seasonRow = await db.query<{ id: string }>(
-        `SELECT id FROM seasons WHERE is_active = TRUE AND ends_at > NOW() LIMIT 1`
-      );
-      const seasonId = seasonRow.rows[0]?.id ?? null;
+      const [seasonRow] = await orm
+        .select({ id: schema.seasons.id })
+        .from(schema.seasons)
+        .where(and(eq(schema.seasons.isActive, true), gt(schema.seasons.endsAt, sql`NOW()`)))
+        .limit(1);
+      const seasonId = seasonRow?.id ?? null;
 
       leaderboard = await Promise.all(
         ALL_TRACKS.map(async (track) => {
           const [globalRank, cityRank, guildRank, seasonRank] = await Promise.all([
-            getUserRank(userId, track, "global", db),
-            user.city ? getUserRank(userId, track, "city", db, { city: user.city }) : Promise.resolve(null),
-            user.guild_id ? getUserRank(userId, track, "guild", db, { guildId: user.guild_id }) : Promise.resolve(null),
-            seasonId ? getUserRank(userId, track, "season", db, { seasonId }) : Promise.resolve(null),
+            getUserRank(userId, track, "global", orm),
+            user.city ? getUserRank(userId, track, "city", orm, { city: user.city }) : Promise.resolve(null),
+            user.guildId ? getUserRank(userId, track, "guild", orm, { guildId: user.guildId }) : Promise.resolve(null),
+            seasonId ? getUserRank(userId, track, "season", orm, { seasonId }) : Promise.resolve(null),
           ]);
           return { track, globalRank, cityRank, guildRank, seasonRank };
         })
       );
 
-      const { rows: seasonRows } = await db.query<{
-        id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null;
-      }>(
-        `SELECT s.id, s.name, s.theme_emoji, s.ended_at, sra.final_rank
-         FROM season_rank_archives sra
-         JOIN seasons s ON s.id = sra.season_id
-         WHERE sra.user_id = $1 AND s.ended_at IS NOT NULL
-         ORDER BY s.ended_at DESC LIMIT 24`,
-        [userId]
-      ).catch(() => ({ rows: [] as Array<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }> }));
+      // NOTE (schema gap): this joins on `seasons.theme_emoji` and
+      // `seasons.ended_at`, neither of which exists on the Drizzle `seasons`
+      // schema (it has `theme` and `startsAt`/`endsAt` instead). The original
+      // raw-SQL version referenced the same non-existent columns and relied
+      // on the surrounding `.catch()` to swallow the resulting DB error,
+      // always yielding an empty `seasonHistory`. Preserved verbatim via a
+      // raw `sql` escape rather than silently "fixing" behavior that may be
+      // depended on elsewhere — flagging as a real schema gap to resolve
+      // separately.
+      const seasonRows = await orm
+        .execute<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }>(
+          sql`SELECT s.id, s.name, s.theme_emoji, s.ended_at, sra.final_rank
+              FROM season_rank_archives sra
+              JOIN seasons s ON s.id = sra.season_id
+              WHERE sra.user_id = ${userId} AND s.ended_at IS NOT NULL
+              ORDER BY s.ended_at DESC LIMIT 24`
+        )
+        .then((r) => r.rows)
+        .catch(() => [] as Array<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }>);
 
       seasonHistory = seasonRows.map((s) => ({
         id: s.id,
@@ -229,7 +272,7 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
         finalRank: s.final_rank ?? null,
       }));
     } else {
-      const globalRank = await getUserRank(userId, "main", "global", db);
+      const globalRank = await getUserRank(userId, "main", "global", orm);
       leaderboard = [{ track: "main", globalRank, cityRank: null, guildRank: null, seasonRank: null }];
     }
 
@@ -237,12 +280,12 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       track: t.track,
       label: t.label,
       emoji: t.emoji,
-      xp: (user as unknown as Record<string, number>)[t.xpKey] ?? 0,
+      xp: Number((user as unknown as Record<string, bigint>)[t.xpKey] ?? 0),
       level: (user as unknown as Record<string, number>)[t.levelKey] ?? 1,
     }));
 
     const guild = guildRow.rows[0]
-      ? { id: user.guild_id, name: guildRow.rows[0].name, crestEmoji: guildRow.rows[0].crest_emoji ?? "🛡️", tier: guildRow.rows[0].tier }
+      ? { id: user.guildId, name: guildRow.rows[0].name, crestEmoji: guildRow.rows[0].crest_emoji ?? "🛡️", tier: guildRow.rows[0].tier }
       : null;
 
     return NextResponse.json({
@@ -251,33 +294,33 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
       profile: {
         id: user.id,
         username: user.username,
-        displayName: user.display_name ?? user.username ?? "Zobia User",
-        avatarEmoji: user.avatar_emoji ?? "😊",
+        displayName: user.displayName ?? user.username ?? "Zobia User",
+        avatarEmoji: user.avatarEmoji ?? "😊",
         city: user.city,
-        joinedAt: user.created_at,
+        joinedAt: user.createdAt,
         plan: user.plan,
-        isCreator: user.is_creator,
+        isCreator: user.isCreator,
         rankName: rankInfo.rankName,
         rankSublevel: rankInfo.sublevel,
-        xpTotal: user.xp_total,
+        xpTotal: Number(user.xpTotal),
         xpForNextRank: rankInfo.nextRankXp ?? 0,
-        legacyScore: user.legacy_score,
-        prestigeCount: user.prestige_count,
+        legacyScore: Number(user.legacyScore),
+        prestigeCount: user.prestigeCount,
       },
       tracks,
       badges: badgeRows.rows.map((b) => ({
         key: b.badge_key,
         type: b.badge_type,
         grantedAt: b.awarded_at,
-        label: (b.metadata as Record<string, string> | null)?.title ?? b.badge_key.replace(/_/g, " "),
+        label: (b.metadata as Record<string, string> | null)?.title ?? (b.badge_key ?? "").replace(/_/g, " "),
       })),
       guild,
       social: {
-        friendsCount: parseInt(friendsCountRow.rows[0]?.count ?? "0", 10),
-        followersCount: parseInt(followersCountRow.rows[0]?.count ?? "0", 10),
-        followingCount: parseInt(followingCountRow.rows[0]?.count ?? "0", 10),
-        referralsCount: parseInt(referralsRow.rows[0]?.total ?? "0", 10),
-        qualifiedReferralsCount: parseInt(referralsRow.rows[0]?.qualified ?? "0", 10),
+        friendsCount: friendsCountRow[0]?.count ?? 0,
+        followersCount: followersCountRow[0]?.count ?? 0,
+        followingCount: followingCountRow[0]?.count ?? 0,
+        referralsCount: Number(referralsRow[0]?.total ?? 0),
+        qualifiedReferralsCount: Number(referralsRow[0]?.qualified ?? 0),
       },
       createdRooms: roomsRows.rows.map((r) => ({ id: r.id, name: r.name, coverEmoji: r.cover_emoji, memberCount: r.member_count })),
       leaderboard,

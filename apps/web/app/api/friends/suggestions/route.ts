@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { handleApiError } from '@/lib/api/errors';
-import { db } from '@/lib/db';
+import { sql } from 'drizzle-orm';
+import { getDb } from '@/lib/db/drizzle';
 import { enforceRateLimit, RATE_LIMITS } from '@/lib/security/rateLimit';
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
@@ -20,16 +21,19 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, 'user', RATE_LIMITS.apiRead);
     const userId = auth.user.sub;
 
-    const { rows } = await db.query(
-      `WITH my_friends AS (
-         SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END AS fid
+    const orm = await getDb();
+    // Complex multi-CTE query (friends-of-friends ranking) expressed via the
+    // `sql` template rather than the query builder.
+    const { rows } = await orm.execute(sql`
+      WITH my_friends AS (
+         SELECT CASE WHEN requester_id = ${userId} THEN addressee_id ELSE requester_id END AS fid
          FROM friendships
-         WHERE (requester_id = $1 OR addressee_id = $1) AND status = 'accepted'
+         WHERE (requester_id = ${userId} OR addressee_id = ${userId}) AND status = 'accepted'
        ),
        excluded AS (
-         SELECT CASE WHEN requester_id = $1 THEN addressee_id ELSE requester_id END AS uid
+         SELECT CASE WHEN requester_id = ${userId} THEN addressee_id ELSE requester_id END AS uid
          FROM friendships
-         WHERE requester_id = $1 OR addressee_id = $1
+         WHERE requester_id = ${userId} OR addressee_id = ${userId}
        ),
        fof AS (
          SELECT
@@ -38,7 +42,7 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
          FROM my_friends mf
          JOIN friendships f ON (f.requester_id = mf.fid OR f.addressee_id = mf.fid)
            AND f.status = 'accepted'
-         WHERE CASE WHEN f.requester_id = mf.fid THEN f.addressee_id ELSE f.requester_id END != $1
+         WHERE CASE WHEN f.requester_id = mf.fid THEN f.addressee_id ELSE f.requester_id END != ${userId}
            AND CASE WHEN f.requester_id = mf.fid THEN f.addressee_id ELSE f.requester_id END NOT IN (SELECT fid FROM my_friends)
          GROUP BY 1
        )
@@ -47,13 +51,12 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
          COALESCE(fof.mutual_count, 0) AS mutual_friend_count
        FROM users u
        LEFT JOIN fof ON fof.uid = u.id
-       WHERE u.id != $1
+       WHERE u.id != ${userId}
          AND u.deleted_at IS NULL
          AND u.id NOT IN (SELECT uid FROM excluded)
        ORDER BY u.id, mutual_friend_count DESC, u.xp_total DESC
-       LIMIT 20`,
-      [userId]
-    );
+       LIMIT 20
+    `);
 
     return NextResponse.json({
       suggestions: rows.map((r) => ({

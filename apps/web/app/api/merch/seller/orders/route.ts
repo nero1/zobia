@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { asc, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -42,33 +43,35 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
     await enforceRateLimit(userId, "user", RATE_LIMITS.apiRead);
 
-    const { rows } = await db.query<SellerOrderRow>(
-      `SELECT
-         mo.id,
-         mo.product_id,
-         mp.name AS product_name,
-         mo.buyer_id,
-         u.username AS buyer_username,
-         mo.amount_kobo,
-         mo.creator_share_kobo,
-         mo.status,
-         mo.fulfillment_method,
-         mo.seller_notes,
-         mo.shipped_at,
-         mo.delivered_at,
-         mo.confirmed_at,
-         mo.tracking_updates,
-         mo.shipping_name,
-         mo.shipping_address,
-         mo.shipping_city,
-         mo.shipping_country,
-         mo.created_at
-       FROM merch_orders mo
-       JOIN merch_products mp ON mp.id = mo.product_id
-       JOIN users u ON u.id = mo.buyer_id
-       WHERE mo.creator_id = $1
-       ORDER BY
-         CASE mo.status
+    const orm = await getDb();
+    const dbRows = await orm
+      .select({
+        id: schema.merchOrders.id,
+        product_id: schema.merchOrders.productId,
+        product_name: schema.merchProducts.name,
+        buyer_id: schema.merchOrders.buyerId,
+        buyer_username: schema.users.username,
+        amount_kobo: schema.merchOrders.amountKobo,
+        creator_share_kobo: schema.merchOrders.creatorShareKobo,
+        status: schema.merchOrders.status,
+        fulfillment_method: schema.merchOrders.fulfillmentMethod,
+        seller_notes: schema.merchOrders.sellerNotes,
+        shipped_at: schema.merchOrders.shippedAt,
+        delivered_at: schema.merchOrders.deliveredAt,
+        confirmed_at: schema.merchOrders.confirmedAt,
+        tracking_updates: schema.merchOrders.trackingUpdates,
+        shipping_name: schema.merchOrders.shippingName,
+        shipping_address: schema.merchOrders.shippingAddress,
+        shipping_city: schema.merchOrders.shippingCity,
+        shipping_country: schema.merchOrders.shippingCountry,
+        created_at: schema.merchOrders.createdAt,
+      })
+      .from(schema.merchOrders)
+      .innerJoin(schema.merchProducts, eq(schema.merchProducts.id, schema.merchOrders.productId))
+      .innerJoin(schema.users, eq(schema.users.id, schema.merchOrders.buyerId))
+      .where(eq(schema.merchOrders.creatorId, userId))
+      .orderBy(
+        asc(sql`CASE ${schema.merchOrders.status}
            WHEN 'pending'    THEN 0
            WHEN 'shipped'    THEN 1
            WHEN 'in_transit' THEN 2
@@ -76,10 +79,20 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
            WHEN 'completed'  THEN 4
            WHEN 'refunded'   THEN 5
            ELSE 6
-         END ASC,
-         mo.created_at DESC`,
-      [userId]
-    );
+         END`),
+        sql`${schema.merchOrders.createdAt} DESC`
+      );
+
+    const rows: SellerOrderRow[] = dbRows.map((row) => ({
+      ...row,
+      buyer_id: row.buyer_id,
+      amount_kobo: Number(row.amount_kobo ?? 0),
+      creator_share_kobo: Number(row.creator_share_kobo ?? 0),
+      shipped_at: row.shipped_at ? row.shipped_at.toISOString() : null,
+      delivered_at: row.delivered_at ? row.delivered_at.toISOString() : null,
+      confirmed_at: row.confirmed_at ? row.confirmed_at.toISOString() : null,
+      created_at: row.created_at ? row.created_at.toISOString() : new Date().toISOString(),
+    }));
 
     // Group by status
     const grouped: Record<string, SellerOrderRow[]> = {};

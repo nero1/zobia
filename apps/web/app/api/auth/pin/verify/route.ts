@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { eq } from "drizzle-orm";
 import { redis } from "@/lib/redis";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, ApiError } from "@/lib/api/errors";
@@ -29,14 +30,6 @@ const verifyPinSchema = z.object({
     .string()
     .regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits"),
 });
-
-// ---------------------------------------------------------------------------
-// DB row type
-// ---------------------------------------------------------------------------
-
-interface UserPinRow {
-  pin_hash: string;
-}
 
 // ---------------------------------------------------------------------------
 // POST /api/auth/pin/verify
@@ -87,10 +80,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Fetch the user's stored PIN hash
-    const { rows } = await db.query<UserPinRow>(
-      `SELECT pin_hash FROM user_pins WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ pinHash: schema.userPins.pinHash })
+      .from(schema.userPins)
+      .where(eq(schema.userPins.userId, userId))
+      .limit(1);
 
     if (!rows[0]) {
       // No PIN configured — return 422 Unprocessable Entity
@@ -99,7 +94,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw new ApiError(422, "NO_PIN_CONFIGURED", "No PIN configured for this account");
     }
 
-    const verified = await bcrypt.compare(body.pin, rows[0].pin_hash);
+    const verified = await bcrypt.compare(body.pin, rows[0].pinHash);
 
     if (!verified) {
       // Wrong PIN — TTL already set above before the early-return guards.

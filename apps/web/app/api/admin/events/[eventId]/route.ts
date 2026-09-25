@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -50,15 +51,15 @@ interface PlatformEventRow {
   name: string;
   description: string | null;
   event_type: string;
-  xp_multiplier: string;
-  coin_bonus_pct: number;
-  starts_at: string;
-  ends_at: string;
-  is_active: boolean;
+  xp_multiplier: string | null;
+  coin_bonus_pct: number | null;
+  starts_at: Date | string;
+  ends_at: Date | string;
+  is_active: boolean | null;
   recurrence_interval: string;
   target_cities: string[] | null;
-  created_at: string;
-  updated_at: string;
+  created_at: Date | string | null;
+  updated_at: Date | string | null;
 }
 
 function toApiEvent(row: PlatformEventRow) {
@@ -67,7 +68,7 @@ function toApiEvent(row: PlatformEventRow) {
     name: row.name,
     description: row.description,
     type: row.event_type ?? "platform",
-    xpMultiplier: parseFloat(row.xp_multiplier),
+    xpMultiplier: parseFloat(row.xp_multiplier ?? "1.0"),
     coinBonusPct: row.coin_bonus_pct,
     startsAt: row.starts_at,
     endsAt: row.ends_at,
@@ -79,10 +80,21 @@ function toApiEvent(row: PlatformEventRow) {
   };
 }
 
-const SELECT_COLUMNS = `id, name, description, event_type,
-                  xp_multiplier::TEXT AS xp_multiplier,
-                  coin_bonus_pct, starts_at, ends_at,
-                  is_active, recurrence_interval, target_cities, created_at, updated_at`;
+const SELECT_SHAPE = {
+  id: schema.platformEvents.id,
+  name: schema.platformEvents.name,
+  description: schema.platformEvents.description,
+  event_type: schema.platformEvents.eventType,
+  xp_multiplier: sql<string>`${schema.platformEvents.xpMultiplier}::TEXT`,
+  coin_bonus_pct: schema.platformEvents.coinBonusPct,
+  starts_at: schema.platformEvents.startsAt,
+  ends_at: schema.platformEvents.endsAt,
+  is_active: schema.platformEvents.isActive,
+  recurrence_interval: schema.platformEvents.recurrenceInterval,
+  target_cities: schema.platformEvents.targetCities,
+  created_at: schema.platformEvents.createdAt,
+  updated_at: schema.platformEvents.updatedAt,
+};
 
 // ---------------------------------------------------------------------------
 // PATCH /api/admin/events/:eventId
@@ -101,54 +113,41 @@ export const PATCH = withAdminAuth(
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
       const body = await validateBody(req, updateEventSchema);
+      const orm = await getDb();
+      const pe = schema.platformEvents;
 
-      const updates: string[] = [];
-      const params2: (string | number | boolean | null)[] = [];
-      let idx = 1;
+      const updates: Partial<typeof pe.$inferInsert> = {};
+      if (body.is_active !== undefined) updates.isActive = body.is_active;
+      if (body.starts_at !== undefined) updates.startsAt = new Date(body.starts_at);
+      if (body.ends_at !== undefined) updates.endsAt = new Date(body.ends_at);
+      if (body.name !== undefined) updates.name = body.name;
+      if (body.description !== undefined) updates.description = body.description;
+      if (body.event_type !== undefined) updates.eventType = body.event_type;
+      if (body.xp_multiplier !== undefined) updates.xpMultiplier = String(body.xp_multiplier);
+      if (body.coin_bonus_pct !== undefined) updates.coinBonusPct = body.coin_bonus_pct;
+      if (body.recurrence_interval !== undefined) updates.recurrenceInterval = body.recurrence_interval;
 
-      const fieldMap: [keyof typeof body, string][] = [
-        ["is_active", "is_active"],
-        ["starts_at", "starts_at"],
-        ["ends_at", "ends_at"],
-        ["name", "name"],
-        ["description", "description"],
-        ["event_type", "event_type"],
-        ["xp_multiplier", "xp_multiplier"],
-        ["coin_bonus_pct", "coin_bonus_pct"],
-        ["recurrence_interval", "recurrence_interval"],
-      ];
-
-      for (const [key, column] of fieldMap) {
-        const value = body[key];
-        if (value !== undefined) {
-          updates.push(`${column} = $${idx++}`);
-          params2.push(value as string | number | boolean);
-        }
+      if (Object.keys(updates).length === 0) {
+        const [row] = await orm
+          .select(SELECT_SHAPE)
+          .from(pe)
+          .where(eq(pe.id, eventId))
+          .limit(1);
+        if (!row) throw notFound("Platform event not found");
+        return NextResponse.json({ success: true, data: { event: toApiEvent(row as unknown as PlatformEventRow) }, error: null });
       }
 
-      if (updates.length === 0) {
-        const { rows } = await db.query<PlatformEventRow>(
-          `SELECT ${SELECT_COLUMNS} FROM platform_events WHERE id = $1 LIMIT 1`,
-          [eventId]
-        );
-        if (!rows[0]) throw notFound("Platform event not found");
-        return NextResponse.json({ success: true, data: { event: toApiEvent(rows[0]) }, error: null });
-      }
+      updates.updatedAt = new Date();
 
-      updates.push(`updated_at = NOW()`);
-      params2.push(eventId);
+      const [updated] = await orm
+        .update(pe)
+        .set(updates)
+        .where(eq(pe.id, eventId))
+        .returning(SELECT_SHAPE);
 
-      const { rows } = await db.query<PlatformEventRow>(
-        `UPDATE platform_events
-         SET ${updates.join(", ")}
-         WHERE id = $${idx}
-         RETURNING ${SELECT_COLUMNS}`,
-        params2
-      );
+      if (!updated) throw notFound("Platform event not found");
 
-      if (!rows[0]) throw notFound("Platform event not found");
-
-      return NextResponse.json({ success: true, data: { event: toApiEvent(rows[0]) }, error: null });
+      return NextResponse.json({ success: true, data: { event: toApiEvent(updated as unknown as PlatformEventRow) }, error: null });
     } catch (err) {
       return handleApiError(err);
     }
@@ -171,15 +170,14 @@ export const DELETE = withAdminAuth(
       const { eventId } = await params;
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-      const { rows } = await db.query<{ id: string }>(
-        `UPDATE platform_events
-         SET is_active = FALSE, updated_at = NOW()
-         WHERE id = $1
-         RETURNING id`,
-        [eventId]
-      );
+      const orm = await getDb();
+      const [updated] = await orm
+        .update(schema.platformEvents)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(schema.platformEvents.id, eventId))
+        .returning({ id: schema.platformEvents.id });
 
-      if (!rows[0]) throw notFound("Platform event not found");
+      if (!updated) throw notFound("Platform event not found");
 
       return NextResponse.json({
         success: true,

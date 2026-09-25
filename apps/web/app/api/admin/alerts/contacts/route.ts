@@ -10,31 +10,34 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, asc, desc, eq, isNull, or } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
-interface StaffContactRow {
-  id: string;
-  username: string;
-  is_admin: boolean;
-  is_moderator: boolean;
-  phone_number: string | null;
-  sms_enabled: boolean | null;
-}
-
 export const GET = withAdminAuth(async () => {
   try {
-    const { rows } = await db.query<StaffContactRow>(
-      `SELECT u.id, u.username, u.is_admin, u.is_moderator,
-              sac.phone_number, sac.sms_enabled
-       FROM users u
-       LEFT JOIN staff_alert_contacts sac ON sac.user_id = u.id
-       WHERE (u.is_admin = true OR u.is_moderator = true)
-         AND COALESCE(u.is_banned, false) = false
-         AND u.deleted_at IS NULL
-       ORDER BY u.is_admin DESC, u.username ASC`
-    );
+    const orm = await getDb();
+
+    const rows = await orm
+      .select({
+        id: schema.users.id,
+        username: schema.users.username,
+        is_admin: schema.users.isAdmin,
+        is_moderator: schema.users.isModerator,
+        phone_number: schema.staffAlertContacts.phoneNumber,
+        sms_enabled: schema.staffAlertContacts.smsEnabled,
+      })
+      .from(schema.users)
+      .leftJoin(schema.staffAlertContacts, eq(schema.staffAlertContacts.userId, schema.users.id))
+      .where(
+        and(
+          or(eq(schema.users.isAdmin, true), eq(schema.users.isModerator, true)),
+          eq(schema.users.isBanned, false),
+          isNull(schema.users.deletedAt)
+        )
+      )
+      .orderBy(desc(schema.users.isAdmin), asc(schema.users.username));
 
     return NextResponse.json({
       success: true,

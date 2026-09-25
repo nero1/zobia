@@ -12,10 +12,16 @@ export const dynamic = 'force-dynamic';
  * pending human-review escalations across the platform (report AI
  * escalations, ad image escalations, KYC AI escalations) so an admin has
  * one place to see AI activity and jump to the right queue.
+ *
+ * NOTE: `ad_ai_escalations` has no Drizzle schema entry (only the unrelated
+ * `moderation_ai_escalations` table exists) — a genuine schema gap. The
+ * combined pending-escalations count is executed as a raw SQL statement via
+ * `orm.execute(sql...)` (getDb()'s pg pool) rather than `db.query`.
  */
 
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -38,16 +44,18 @@ export const GET = withAdminAuth(async (req, { auth }: { auth: AdminContext }) =
     const feature = searchParams.get("feature") ?? undefined;
     const limit = Math.min(500, parseInt(searchParams.get("limit") ?? "150", 10) || 150);
 
+    const orm = await getDb();
+
     const [calls, usageStats, circuitEntries, pendingCounts] = await Promise.all([
       getRecentAiCalls(limit, feature),
       getAiUsageStats(),
       Promise.all(PROVIDERS.map(async (p) => [p, await getProviderCircuitState(p)] as const)),
-      db.query<{ report_escalations: string; ad_escalations: string; kyc_escalations: string }>(
-        `SELECT
-           (SELECT COUNT(*) FROM moderation_reports WHERE pipeline_status = 'manual_queue' AND ai_confidence IS NOT NULL) AS report_escalations,
-           (SELECT COUNT(*) FROM ad_ai_escalations WHERE status = 'pending') AS ad_escalations,
-           (SELECT COUNT(*) FROM kyc_submissions WHERE ai_escalated = true AND status = 'manual_review') AS kyc_escalations`
-      ),
+      orm.execute<{ report_escalations: string; ad_escalations: string; kyc_escalations: string }>(sql`
+        SELECT
+          (SELECT COUNT(*) FROM moderation_reports WHERE pipeline_status = 'manual_queue' AND ai_confidence IS NOT NULL) AS report_escalations,
+          (SELECT COUNT(*) FROM ad_ai_escalations WHERE status = 'pending') AS ad_escalations,
+          (SELECT COUNT(*) FROM kyc_submissions WHERE ai_escalated = true AND status = 'manual_review') AS kyc_escalations
+      `),
     ]);
 
     const circuits = Object.fromEntries(

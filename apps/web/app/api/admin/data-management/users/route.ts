@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { db } from "@/lib/db";
+import { eq, or, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -42,31 +43,36 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
 
     const body = await validateBody(req, createUserSchema);
 
-    const { rows: existing } = await db.query<{ id: string }>(
-      `SELECT id FROM users WHERE username = $1 OR ($2::text IS NOT NULL AND email = $2) LIMIT 1`,
-      [body.username, body.email ?? null]
-    );
-    if (existing[0]) throw conflict("A user with that username or email already exists.");
+    const orm = await getDb();
+    const u = schema.users;
+
+    const [existing] = await orm
+      .select({ id: u.id })
+      .from(u)
+      .where(
+        or(
+          eq(u.username, body.username),
+          body.email ? eq(u.email, body.email) : sql`false`
+        )
+      )
+      .limit(1);
+    if (existing) throw conflict("A user with that username or email already exists.");
 
     const passwordHash = body.password ? await bcrypt.hash(body.password, BCRYPT_ROUNDS) : null;
 
-    const { rows } = await db.query<{ id: string; username: string; email: string | null }>(
-      `INSERT INTO users
-         (username, email, display_name, password_hash, plan, is_email_verified,
-          onboarding_completed, is_admin, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, false, false, NOW(), NOW())
-       RETURNING id, username, email`,
-      [
-        body.username,
-        body.email ?? null,
-        body.displayName ?? body.username,
+    const [created] = await orm
+      .insert(u)
+      .values({
+        username: body.username,
+        email: body.email ?? null,
+        displayName: body.displayName ?? body.username,
         passwordHash,
-        body.plan ?? "free",
-        body.isEmailVerified ?? false,
-      ]
-    );
-
-    const created = rows[0];
+        plan: body.plan ?? "free",
+        isEmailVerified: body.isEmailVerified ?? false,
+        onboardingCompleted: false,
+        isAdmin: false,
+      })
+      .returning({ id: u.id, username: u.username, email: u.email });
 
     writeAuditLog({
       actorId: auth.user.sub,

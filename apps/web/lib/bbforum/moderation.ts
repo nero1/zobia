@@ -11,7 +11,7 @@
  * @module lib/bbforum/moderation
  */
 
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import type { DbOrTx } from "@/lib/db/drizzle";
 import { filterProfanity, detectDuplicateMessage, type AutoModerationReason } from "@/lib/moderation/contentFilter";
 import { logger } from "@/lib/logger";
 
@@ -40,7 +40,7 @@ export interface BbforumAutoModerationResult {
  */
 export async function applyBbforumAutoModeration(
   input: BbforumAutoModerationInput,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<BbforumAutoModerationResult> {
   const { title, body, authorId, targetType } = input;
 

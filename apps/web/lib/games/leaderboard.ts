@@ -8,8 +8,8 @@
  * leaderboard engine via leaderboard_snapshots, not this module.
  */
 
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { sql } from "drizzle-orm";
+import { getDb, type DbOrTx } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import type { GameLeaderboardRow } from "@zobia/types";
 import { logger } from "@/lib/logger";
@@ -30,19 +30,23 @@ export async function updateBestScore(
   userId: string,
   score: number,
   won: boolean,
-  client?: TransactionClient
+  client?: DbOrTx
 ): Promise<void> {
-  const runner = client ?? db;
-  await runner.query(
-    `INSERT INTO game_best_scores (game_id, user_id, best_score, plays, wins, updated_at)
-     VALUES ($1, $2, $3, 1, $4, NOW())
-     ON CONFLICT (game_id, user_id) DO UPDATE SET
-       best_score = GREATEST(game_best_scores.best_score, EXCLUDED.best_score),
-       plays      = game_best_scores.plays + 1,
-       wins       = game_best_scores.wins + $4,
-       updated_at = NOW()`,
-    [gameId, userId, score, won ? 1 : 0]
-  );
+  const runner = client ?? (await getDb());
+  const winInc = won ? 1 : 0;
+  // Kept as a raw parameterized `sql` template (ON CONFLICT with GREATEST +
+  // atomic increments isn't cleanly expressible via the Drizzle query
+  // builder's onConflictDoUpdate) rather than db.query — still goes through
+  // the Drizzle client/pool.
+  await runner.execute(sql`
+    INSERT INTO game_best_scores (game_id, user_id, best_score, plays, wins, updated_at)
+    VALUES (${gameId}, ${userId}, ${score}, 1, ${winInc}, NOW())
+    ON CONFLICT (game_id, user_id) DO UPDATE SET
+      best_score = GREATEST(game_best_scores.best_score, EXCLUDED.best_score),
+      plays      = game_best_scores.plays + 1,
+      wins       = game_best_scores.wins + ${winInc},
+      updated_at = NOW()
+  `);
   // Best-effort cache bust for the first page (the page that changes most).
   redis.getdel(cacheKey(gameId, 1)).catch(() => {});
 }
@@ -67,7 +71,8 @@ export async function getGameLeaderboard(
   }
 
   const offset = (safePage - 1) * PAGE_SIZE;
-  const { rows } = await db.query<{
+  const db = await getDb();
+  const result0 = await db.execute<{
     user_id: string;
     username: string;
     display_name: string;
@@ -76,17 +81,17 @@ export async function getGameLeaderboard(
     plays: number;
     wins: number;
     rank: number;
-  }>(
-    `SELECT b.user_id, u.username, u.display_name, u.avatar_emoji,
-            b.best_score, b.plays, b.wins,
-            RANK() OVER (ORDER BY b.best_score DESC)::int AS rank
-     FROM game_best_scores b
-     JOIN users u ON u.id = b.user_id AND u.deleted_at IS NULL
-     WHERE b.game_id = $1
-     ORDER BY b.best_score DESC
-     LIMIT $2 OFFSET $3`,
-    [gameId, PAGE_SIZE, offset]
-  );
+  }>(sql`
+    SELECT b.user_id, u.username, u.display_name, u.avatar_emoji,
+           b.best_score, b.plays, b.wins,
+           RANK() OVER (ORDER BY b.best_score DESC)::int AS rank
+    FROM game_best_scores b
+    JOIN users u ON u.id = b.user_id AND u.deleted_at IS NULL
+    WHERE b.game_id = ${gameId}
+    ORDER BY b.best_score DESC
+    LIMIT ${PAGE_SIZE} OFFSET ${offset}
+  `);
+  const rows = result0.rows;
 
   const result: GameLeaderboardRow[] = rows.map((r) => ({
     rank: r.rank,

@@ -15,7 +15,7 @@ import { withModeratorOrAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { scheduleTier3PhysicalCheck } from "@/lib/kyc/service";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 
 const bodySchema = z.object({
@@ -33,11 +33,17 @@ export const PATCH = withModeratorOrAdminAuth<{ id: string }>(
 
       await scheduleTier3PhysicalCheck(params.id, scheduledAt, notes);
 
-      await db.query(
-        `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, after_val, created_at)
-         VALUES ($1, 'kyc_schedule_physical_check', 'kyc_submissions', $2, $3::jsonb, NOW())`,
-        [adminId, params.id, JSON.stringify({ scheduledAt, notes })]
-      ).catch((err) => logger.error({ err }, "[admin:kyc] audit log write failed"));
+      const orm = await getDb();
+      await orm
+        .insert(schema.adminAuditLog)
+        .values({
+          adminId,
+          action: "kyc_schedule_physical_check",
+          resource: "kyc_submissions",
+          resourceId: params.id,
+          afterVal: { scheduledAt, notes },
+        })
+        .catch((err) => logger.error({ err }, "[admin:kyc] audit log write failed"));
 
       return NextResponse.json({ success: true, data: { scheduledAt, notes }, error: null });
     } catch (err) {

@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -44,13 +45,15 @@ export const GET = withAuth(async (req, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
-    const { rows: planRows } = await db.query<{ plan: Plan | null }>(
-      `SELECT plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [auth.user.sub]
-    );
-    const plan: Plan = planRows[0]?.plan ?? "free";
+    const orm = await getDb();
+    const [planRow] = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)))
+      .limit(1);
+    const plan: Plan = (planRow?.plan as Plan | undefined) ?? "free";
 
-    const quests = await generateDailyDeck(auth.user.sub, plan, db);
+    const quests = await generateDailyDeck(auth.user.sub, plan, orm);
     const today = new Date().toISOString().slice(0, 10);
 
     const completedCount = quests.filter((q) => q.completed).length;

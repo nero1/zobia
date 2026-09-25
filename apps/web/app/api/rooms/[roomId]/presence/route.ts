@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -45,22 +46,33 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<RoomRow>(
-      `SELECT creator_id, type, max_members, is_active FROM rooms WHERE id = $1`,
-      [roomId],
-    );
-    const room = rows[0];
+    const orm = await getDb();
+    const [room] = await orm
+      .select({
+        creator_id: schema.rooms.creatorId,
+        type: schema.rooms.type,
+        max_members: schema.rooms.maxMembers,
+        is_active: schema.rooms.isActive,
+      })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
     if (!room || !room.is_active) throw notFound("Room not found");
 
     // Privileged = creator or a (co-)moderator — these always bypass the cap.
     let privileged = room.creator_id === userId;
     if (!privileged) {
-      const { rows: memberRows } = await db.query<{ role: string }>(
-        `SELECT role FROM room_members
-         WHERE room_id = $1 AND user_id = $2 AND left_at IS NULL
-         LIMIT 1`,
-        [roomId, userId],
-      );
+      const memberRows = await orm
+        .select({ role: schema.roomMembers.role })
+        .from(schema.roomMembers)
+        .where(
+          and(
+            eq(schema.roomMembers.roomId, roomId),
+            eq(schema.roomMembers.userId, userId),
+            isNull(schema.roomMembers.leftAt)
+          )
+        )
+        .limit(1);
       privileged = memberRows.length > 0 && PRIVILEGED_ROLES.has(memberRows[0].role);
     }
 

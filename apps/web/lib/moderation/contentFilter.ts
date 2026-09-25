@@ -10,7 +10,9 @@
  * @module lib/moderation/contentFilter
  */
 
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import { sql } from "drizzle-orm";
+import type { DbOrTx } from "@/lib/db/drizzle";
+import { schema } from "@/lib/db/schema";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -143,7 +145,7 @@ export function filterProfanity(text: string): { filtered: string; found: boolea
  * @param userId         - Sender's user ID
  * @param content        - Raw message content
  * @param windowMs       - Rolling window in milliseconds (default: 60_000)
- * @param db             - Database adapter
+ * @param db             - Drizzle instance or transaction handle
  * @param messageContext - Whether this is a 'room' or 'dm' message (DM-DEDUP-01)
  * @returns true if this looks like a duplicate
  */
@@ -166,7 +168,7 @@ export async function detectDuplicateMessage(
   userId: string,
   content: string,
   windowMs: number = 60_000,
-  db: DatabaseAdapter,
+  db: DbOrTx,
   messageContext: "room" | "dm" | "forum_question" | "forum_answer" | "bb_thread" | "bb_post" = "room"
 ): Promise<boolean> {
   const normalise = (s: string) =>
@@ -193,18 +195,21 @@ export async function detectDuplicateMessage(
   const authorColumn = CONTENT_TABLE_AUTHOR_COLUMN[table] ?? "sender_id";
   const bodyColumn = table === "forum_questions" || table === "forum_answers" || table === "bb_posts" ? "body" : "content";
   const deletedClause = CONTENT_TABLE_HAS_IS_DELETED.has(table)
-    ? "AND is_deleted = FALSE"
-    : "AND status = 'visible'";
+    ? sql`AND is_deleted = FALSE`
+    : sql`AND status = 'visible'`;
 
-  const { rows } = await db.query<{ content: string }>(
-    `SELECT ${bodyColumn} AS content
-     FROM ${table}
-     WHERE ${authorColumn} = $1
-       AND created_at >= NOW() - ($2 * INTERVAL '1 second')
+  // NOTE: `bb_threads`/`bb_posts` aren't modelled in lib/db/schema.ts (Drizzle
+  // schema gap — flagged separately), so this stays a `sql` identifier-built
+  // query executed through the shared Drizzle/pg.Pool connection rather than
+  // the query builder.
+  const { rows } = await db.execute<{ content: string }>(sql`
+    SELECT ${sql.raw(bodyColumn)} AS content
+     FROM ${sql.raw(table)}
+     WHERE ${sql.raw(authorColumn)} = ${userId}
+       AND created_at >= NOW() - (${windowSeconds} * INTERVAL '1 second')
        ${deletedClause}
-     LIMIT 20`,
-    [userId, windowSeconds]
-  );
+     LIMIT 20
+  `);
 
   return rows.some((row) => normalise(row.content ?? "") === normContent);
 }
@@ -225,46 +230,41 @@ export async function detectDuplicateMessage(
  *  - Verified users:  60 messages / 60 seconds
  *
  * @param userId - User to check
- * @param db     - Database adapter
+ * @param db     - Drizzle instance or transaction handle
  * @returns true if behavior patterns match a bot
  */
 export async function detectBotBehavior(
   userId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<boolean> {
   // Check if the user is verified for a relaxed limit
-  const { rows: userRows } = await db.query<{
-    is_verified: boolean;
-    trust_score: number | null;
-  }>(
-    `SELECT is_verified, trust_score FROM users WHERE id = $1 AND deleted_at IS NULL`,
-    [userId]
-  );
+  const [user] = await db
+    .select({ isVerified: schema.users.isVerified, trustScore: schema.users.trustScore })
+    .from(schema.users)
+    .where(sql`${schema.users.id} = ${userId} AND ${schema.users.deletedAt} IS NULL`);
 
-  const user = userRows[0];
-  const isVerified = user?.is_verified ?? false;
-  const trustScore = user?.trust_score ?? 0;
+  const isVerified = user?.isVerified ?? false;
+  const trustScore = user?.trustScore ?? 0;
   const relaxed = isVerified || trustScore >= 80;
 
   const messageLimit = relaxed ? 60 : 30;
   const windowSeconds = 60;
 
   // Count messages across both rooms AND DMs so DM flooding is detected too
-  const { rows } = await db.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count
+  const { rows } = await db.execute<{ count: string }>(sql`
+     SELECT COUNT(*)::text AS count
      FROM (
        SELECT id FROM room_messages
-       WHERE sender_id = $1
-         AND created_at >= NOW() - ($2 * INTERVAL '1 second')
+       WHERE sender_id = ${userId}
+         AND created_at >= NOW() - (${windowSeconds} * INTERVAL '1 second')
          AND is_deleted = FALSE
        UNION ALL
        SELECT id FROM messages
-       WHERE sender_id = $1
-         AND created_at >= NOW() - ($2 * INTERVAL '1 second')
+       WHERE sender_id = ${userId}
+         AND created_at >= NOW() - (${windowSeconds} * INTERVAL '1 second')
          AND is_deleted = FALSE
-     ) combined`,
-    [userId, windowSeconds]
-  );
+     ) combined
+  `);
 
   const messageCount = parseInt(rows[0]?.count ?? "0", 10);
   return messageCount >= messageLimit;
@@ -289,14 +289,14 @@ export async function detectBotBehavior(
  * @param message - The message being sent
  * @param room    - Room context (used for adult content flag)
  * @param sender  - Sender context (used for trust adjustments)
- * @param db      - Database adapter
+ * @param db      - Drizzle instance or transaction handle
  * @returns AutoModerationResult
  */
 export async function applyAutoModeration(
   message: MessageInput,
   room: RoomContext,
   sender: SenderContext,
-  db: DatabaseAdapter,
+  db: DbOrTx,
   messageContext: "room" | "dm" = "room"
 ): Promise<AutoModerationResult> {
   const defaultResult: AutoModerationResult = {
@@ -312,23 +312,26 @@ export async function applyAutoModeration(
     if (isBot) {
       // BUG-MOD-01: increment strike counter and create moderation report on bot detection
       try {
-        await db.query(
-          `UPDATE users
+        // NOTE: moderation_strike_count isn't modelled in lib/db/schema.ts
+        // (Drizzle schema gap — flagged separately), so it's updated via a
+        // `sql` identifier fragment rather than the query builder's `.set()`.
+        await db.execute(sql`
+          UPDATE users
            SET moderation_strike_count = COALESCE(moderation_strike_count, 0) + 1,
                updated_at = NOW()
-           WHERE id = $1`,
-          [sender.id]
-        );
-        await db.query(
-          `INSERT INTO moderation_reports
+           WHERE id = ${sender.id}
+        `);
+        // NOTE: this insert targets `reason` and `auto_generated` columns
+        // that are NOT present on schema.ts's `moderationReports` pgTable
+        // (schema/reality mismatch — flagged separately), so it stays a raw
+        // `sql` statement (still run through the shared Drizzle/pg.Pool
+        // connection) instead of the typed query builder.
+        await db.execute(sql`
+          INSERT INTO moderation_reports
              (reported_user_id, reason, auto_generated, metadata, created_at)
-           VALUES ($1, 'bot_behavior', TRUE, $2, NOW())
-           ON CONFLICT DO NOTHING`,
-          [
-            sender.id,
-            JSON.stringify({ roomId: message.roomId ?? null, contentPreview: message.content.slice(0, 100) }),
-          ]
-        );
+           VALUES (${sender.id}, 'bot_behavior', TRUE, ${JSON.stringify({ roomId: message.roomId ?? null, contentPreview: message.content.slice(0, 100) })}::jsonb, NOW())
+           ON CONFLICT DO NOTHING
+        `);
       } catch (reportErr) {
         logger.error({ err: reportErr, userId: sender.id }, "[contentFilter] failed to write bot moderation report");
       }

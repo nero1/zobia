@@ -11,9 +11,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { desc } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -66,16 +67,26 @@ function formatBanner(row: BannerRow) {
 
 export const GET = withAdminAuth(async (_req: NextRequest) => {
   try {
-    const { rows } = await db.query<BannerRow>(
-      `SELECT id, sponsor_name, sponsor_logo_url, cta_text, cta_url,
-              starts_at, ends_at, is_active, impressions, created_at
-       FROM sponsored_leaderboard_banners
-       ORDER BY created_at DESC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.sponsoredLeaderboardBanners.id,
+        sponsor_name: schema.sponsoredLeaderboardBanners.sponsorName,
+        sponsor_logo_url: schema.sponsoredLeaderboardBanners.sponsorLogoUrl,
+        cta_text: schema.sponsoredLeaderboardBanners.ctaText,
+        cta_url: schema.sponsoredLeaderboardBanners.ctaUrl,
+        starts_at: schema.sponsoredLeaderboardBanners.startsAt,
+        ends_at: schema.sponsoredLeaderboardBanners.endsAt,
+        is_active: schema.sponsoredLeaderboardBanners.isActive,
+        impressions: schema.sponsoredLeaderboardBanners.impressions,
+        created_at: schema.sponsoredLeaderboardBanners.createdAt,
+      })
+      .from(schema.sponsoredLeaderboardBanners)
+      .orderBy(desc(schema.sponsoredLeaderboardBanners.createdAt));
 
     return NextResponse.json({
       success: true,
-      data: { banners: rows.map(formatBanner) },
+      data: { banners: (rows as unknown as BannerRow[]).map(formatBanner) },
       error: null,
     });
   } catch (err) {
@@ -108,19 +119,36 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
       throw badRequest("ends_at must be after starts_at");
     }
 
-    const { rows } = await db.query<BannerRow>(
-      `INSERT INTO sponsored_leaderboard_banners
-         (sponsor_name, sponsor_logo_url, cta_text, cta_url, starts_at, ends_at, is_active, impressions)
-       VALUES ($1, $2, $3, $4, $5, $6, false, 0)
-       RETURNING id, sponsor_name, sponsor_logo_url, cta_text, cta_url,
-                 starts_at, ends_at, is_active, impressions, created_at`,
-      [sponsorName, sponsorLogoUrl ?? null, ctaText, ctaUrl, startsAt, endsAt]
-    );
+    const orm = await getDb();
+    const [row] = await orm
+      .insert(schema.sponsoredLeaderboardBanners)
+      .values({
+        sponsorName,
+        sponsorLogoUrl: sponsorLogoUrl ?? null,
+        ctaText,
+        ctaUrl,
+        startsAt: new Date(startsAt),
+        endsAt: new Date(endsAt),
+        isActive: false,
+        impressions: 0,
+      })
+      .returning({
+        id: schema.sponsoredLeaderboardBanners.id,
+        sponsor_name: schema.sponsoredLeaderboardBanners.sponsorName,
+        sponsor_logo_url: schema.sponsoredLeaderboardBanners.sponsorLogoUrl,
+        cta_text: schema.sponsoredLeaderboardBanners.ctaText,
+        cta_url: schema.sponsoredLeaderboardBanners.ctaUrl,
+        starts_at: schema.sponsoredLeaderboardBanners.startsAt,
+        ends_at: schema.sponsoredLeaderboardBanners.endsAt,
+        is_active: schema.sponsoredLeaderboardBanners.isActive,
+        impressions: schema.sponsoredLeaderboardBanners.impressions,
+        created_at: schema.sponsoredLeaderboardBanners.createdAt,
+      });
 
     return NextResponse.json(
       {
         success: true,
-        data: { banner: formatBanner(rows[0]) },
+        data: { banner: formatBanner(row as unknown as BannerRow) },
         error: null,
       },
       { status: 201 }

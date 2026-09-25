@@ -12,9 +12,15 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+// NOTE: schema.subscriptionCancellationFeedback is not included in the
+// aggregated `schema` object exported from lib/db/schema.ts (a genuine gap
+// there — flagged, not silently fixed since schema.ts is out of scope), so
+// import the table directly instead.
+import { subscriptionCancellationFeedback } from "@/lib/db/schema";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { logger } from "@/lib/logger";
 
@@ -30,23 +36,21 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const body = await validateBody(req, BodySchema);
+    const orm = await getDb();
 
-    const { rows } = await db.query<{ plan: string }>(
-      `SELECT plan FROM users WHERE id = $1`,
-      [auth.user.sub]
-    );
+    const rows = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
 
-    await db.query(
-      `INSERT INTO subscription_cancellation_feedback (user_id, plan, reasons, follow_ups, general_feedback, created_at)
-       VALUES ($1, $2, $3, $4::jsonb, $5, NOW())`,
-      [
-        auth.user.sub,
-        rows[0]?.plan ?? null,
-        body.reasons,
-        JSON.stringify(body.followUps),
-        body.generalFeedback,
-      ]
-    );
+    await orm.insert(subscriptionCancellationFeedback).values({
+      userId: auth.user.sub,
+      plan: rows[0]?.plan ?? null,
+      reasons: body.reasons,
+      followUps: body.followUps,
+      generalFeedback: body.generalFeedback,
+    });
 
     logger.info({ userId: auth.user.sub, reasons: body.reasons }, "[subscriptions] cancellation feedback submitted");
     return NextResponse.json({ success: true, data: null, error: null });

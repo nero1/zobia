@@ -16,11 +16,13 @@
  *   After 3 attempts → dead-letter queue + failure notifications
  */
 
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { initiateTransfer, verifyTransfer } from "@/lib/payments/paystack";
 import { logger } from "@/lib/logger";
 import { redis } from "@/lib/redis";
 import { raiseAlert } from "@/lib/alerts/dispatch";
+import { insertNotification } from "@/lib/notifications/insert";
 
 // ---------------------------------------------------------------------------
 // Circuit breaker keys and helpers
@@ -59,11 +61,11 @@ async function recordCircuitFailure(): Promise<void> {
 // Types
 // ---------------------------------------------------------------------------
 
-interface PendingPayoutRow {
+type PendingPayoutRow = {
   id: string;
   creator_id: string;
-  net_kobo: number;
-  gross_kobo: number;
+  net_kobo: bigint | null;
+  gross_kobo: bigint | null;
   idempotency_key: string;
   provider_reference: string | null;
   retry_count: number;
@@ -73,7 +75,7 @@ interface PendingPayoutRow {
     account_name: string;
     last4: string;
   } | null;
-}
+};
 
 export interface BatchResult {
   processed: number;
@@ -115,22 +117,26 @@ export async function processPendingPayouts(
   maxRetries: number
 ): Promise<BatchResult> {
   const result: BatchResult = { processed: 0, retried: 0, failed: 0, dlq: 0 };
+  const orm = await getDb();
 
   // ── Phase 1: Process freshly queued pending payouts ──────────────────────
-  const { rows: pendingRows } = await db.query<PendingPayoutRow>(
-    `UPDATE creator_payouts
-     SET status = 'processing', updated_at = NOW()
-     WHERE id IN (
-       SELECT id FROM creator_payouts
-       WHERE status = 'pending' AND payout_method = 'bank_transfer'
-       ORDER BY created_at ASC
-       LIMIT $1
-       FOR UPDATE SKIP LOCKED
-     )
-     RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, provider_reference, retry_count,
-               bank_account_snapshot`,
-    [batchSize]
-  );
+  // Expressed via `sql` (not the query builder): an UPDATE ... WHERE id IN
+  // (SELECT ... FOR UPDATE SKIP LOCKED LIMIT n) RETURNING pattern that
+  // Drizzle's builder cannot express directly.
+  const pendingResult = await orm.execute<PendingPayoutRow>(sql`
+    UPDATE creator_payouts
+    SET status = 'processing', updated_at = NOW()
+    WHERE id IN (
+      SELECT id FROM creator_payouts
+      WHERE status = 'pending' AND payout_method = 'bank_transfer'
+      ORDER BY created_at ASC
+      LIMIT ${batchSize}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, provider_reference, retry_count,
+              bank_account_snapshot
+  `);
+  const pendingRows = pendingResult.rows;
 
   for (const payout of pendingRows) {
     const { success, dlq } = await attemptTransfer(payout, maxRetries, false);
@@ -144,24 +150,25 @@ export async function processPendingPayouts(
   }
 
   // ── Phase 2: Retry failed payouts whose retry window has elapsed ─────────
-  const { rows: retryRows } = await db.query<PendingPayoutRow>(
-    `UPDATE creator_payouts
-     SET status = 'processing', updated_at = NOW()
-     WHERE id IN (
-       SELECT id FROM creator_payouts
-       WHERE status = 'failed'
-         AND payout_method = 'bank_transfer'
-         AND next_retry_at IS NOT NULL
-         AND next_retry_at <= NOW()
-         AND retry_count < $1
-       ORDER BY next_retry_at ASC
-       LIMIT $2
-       FOR UPDATE SKIP LOCKED
-     )
-     RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, provider_reference, retry_count,
-               bank_account_snapshot`,
-    [maxRetries, Math.max(1, Math.floor(batchSize / 4))]
-  );
+  const retryLimit = Math.max(1, Math.floor(batchSize / 4));
+  const retryResult = await orm.execute<PendingPayoutRow>(sql`
+    UPDATE creator_payouts
+    SET status = 'processing', updated_at = NOW()
+    WHERE id IN (
+      SELECT id FROM creator_payouts
+      WHERE status = 'failed'
+        AND payout_method = 'bank_transfer'
+        AND next_retry_at IS NOT NULL
+        AND next_retry_at <= NOW()
+        AND retry_count < ${maxRetries}
+      ORDER BY next_retry_at ASC
+      LIMIT ${retryLimit}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, creator_id, net_kobo, gross_kobo, idempotency_key, provider_reference, retry_count,
+              bank_account_snapshot
+  `);
+  const retryRows = retryResult.rows;
 
   for (const payout of retryRows) {
     const { success, dlq } = await attemptTransfer(payout, maxRetries, true);
@@ -212,10 +219,11 @@ async function attemptTransfer(
         const prior = await verifyTransfer(payout.provider_reference);
         if (prior.status === "success") {
           await recordCircuitSuccess();
-          await db.query(
-            `UPDATE creator_payouts SET status = 'completed', updated_at = NOW() WHERE id = $1`,
-            [payout.id]
-          );
+          const orm = await getDb();
+          await orm
+            .update(schema.creatorPayouts)
+            .set({ status: "completed", updatedAt: sql`NOW()` })
+            .where(eq(schema.creatorPayouts.id, payout.id));
           return { success: true, dlq: false };
         }
       } catch (verifyErr) {
@@ -230,7 +238,7 @@ async function attemptTransfer(
     }
 
     const transfer = await initiateTransfer(
-      payout.net_kobo,
+      Number(payout.net_kobo ?? 0),
       snapshot.recipient_code,
       reference,
       "Creator payout"
@@ -239,15 +247,16 @@ async function attemptTransfer(
     // BUG-073: Successful Paystack call — reset the failure counter.
     await recordCircuitSuccess();
 
-    await db.query(
-      `UPDATE creator_payouts
-       SET provider_reference = $1,
-           last_retry_at = NOW(),
-           next_retry_at = NULL,
-           updated_at = NOW()
-       WHERE id = $2`,
-      [transfer.transfer_code, payout.id]
-    );
+    const orm = await getDb();
+    await orm
+      .update(schema.creatorPayouts)
+      .set({
+        providerReference: transfer.transfer_code,
+        lastRetryAt: sql`NOW()`,
+        nextRetryAt: null,
+        updatedAt: sql`NOW()`,
+      })
+      .where(eq(schema.creatorPayouts.id, payout.id));
 
     return { success: true, dlq: false };
   } catch (err) {
@@ -271,16 +280,17 @@ async function attemptTransfer(
 
     // Schedule next retry
     const offsetMinutes = nextRetryOffsetMinutes(newRetryCount - 1);
-    await db.query(
-      `UPDATE creator_payouts
-       SET status = 'failed',
-           retry_count = $1,
-           last_retry_at = NOW(),
-           next_retry_at = NOW() + ($2 || ' minutes')::INTERVAL,
-           updated_at = NOW()
-       WHERE id = $3`,
-      [newRetryCount, String(offsetMinutes), payout.id]
-    );
+    const orm = await getDb();
+    await orm
+      .update(schema.creatorPayouts)
+      .set({
+        status: "failed",
+        retryCount: newRetryCount,
+        lastRetryAt: sql`NOW()`,
+        nextRetryAt: sql`NOW() + (${String(offsetMinutes)} || ' minutes')::INTERVAL`,
+        updatedAt: sql`NOW()`,
+      })
+      .where(eq(schema.creatorPayouts.id, payout.id));
 
     return { success: false, dlq: false };
   }
@@ -310,19 +320,21 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
   // invocations cannot both pick up the same stuck payout. The lock is released
   // immediately after the SELECT, before the external API call, to avoid holding
   // it for the duration of the Paystack round-trip.
-  const { rows: candidateIds } = await db.query<{ id: string; provider_reference: string }>(
-    `WITH candidates AS (
-       SELECT id, provider_reference
-       FROM creator_payouts
-       WHERE status = 'processing'
-         AND updated_at < NOW() - INTERVAL '30 minutes'
-         AND provider_reference IS NOT NULL
-       ORDER BY updated_at ASC
-       LIMIT 50
-       FOR UPDATE SKIP LOCKED
-     )
-     SELECT id, provider_reference FROM candidates`
-  );
+  const orm = await getDb();
+  const candidatesResult = await orm.execute<{ id: string; provider_reference: string }>(sql`
+    WITH candidates AS (
+      SELECT id, provider_reference
+      FROM creator_payouts
+      WHERE status = 'processing'
+        AND updated_at < NOW() - INTERVAL '30 minutes'
+        AND provider_reference IS NOT NULL
+      ORDER BY updated_at ASC
+      LIMIT 50
+      FOR UPDATE SKIP LOCKED
+    )
+    SELECT id, provider_reference FROM candidates
+  `);
+  const candidateIds = candidatesResult.rows;
 
   for (const candidate of candidateIds) {
     try {
@@ -338,48 +350,59 @@ export async function reconcileStuckPayouts(): Promise<{ reconciled: number; fai
       if (transfer.status === "success") {
         // Wrap in transaction with FOR UPDATE so concurrent webhook handlers
         // cannot race with this reconciliation step.
-        await db.transaction(async (tx) => {
-          const { rows: cur } = await tx.query<{ status: string; creator_id: string; net_kobo: number; gross_kobo: number }>(
-            `SELECT status, creator_id, net_kobo, gross_kobo
-             FROM creator_payouts WHERE id = $1 FOR UPDATE SKIP LOCKED`,
-            [candidate.id]
-          );
+        await orm.transaction(async (tx) => {
+          const cur = await tx
+            .select({
+              status: schema.creatorPayouts.status,
+              creatorId: schema.creatorPayouts.creatorId,
+              netKobo: schema.creatorPayouts.netKobo,
+              grossKobo: schema.creatorPayouts.grossKobo,
+            })
+            .from(schema.creatorPayouts)
+            .where(eq(schema.creatorPayouts.id, candidate.id))
+            .for("update", { skipLocked: true });
           if (!cur[0] || cur[0].status === "completed") return; // already handled
-          await tx.query(
-            `UPDATE creator_payouts SET status = 'completed', updated_at = NOW() WHERE id = $1`,
-            [candidate.id]
-          );
+          await tx
+            .update(schema.creatorPayouts)
+            .set({ status: "completed", updatedAt: sql`NOW()` })
+            .where(eq(schema.creatorPayouts.id, candidate.id));
         });
         reconciled++;
       } else if (transfer.status === "failed" || transfer.status === "reversed") {
         // Restore creator earnings idempotently (guard with earnings_restored flag)
-        await db.transaction(async (tx) => {
-          const { rows: cur } = await tx.query<{ status: string; earnings_restored: boolean; creator_id: string; net_kobo: number; gross_kobo: number }>(
-            `SELECT status, earnings_restored, creator_id, net_kobo, gross_kobo
-             FROM creator_payouts WHERE id = $1 FOR UPDATE SKIP LOCKED`,
-            [candidate.id]
-          );
+        await orm.transaction(async (tx) => {
+          const cur = await tx
+            .select({
+              status: schema.creatorPayouts.status,
+              earningsRestored: schema.creatorPayouts.earningsRestored,
+              creatorId: schema.creatorPayouts.creatorId,
+              netKobo: schema.creatorPayouts.netKobo,
+              grossKobo: schema.creatorPayouts.grossKobo,
+            })
+            .from(schema.creatorPayouts)
+            .where(eq(schema.creatorPayouts.id, candidate.id))
+            .for("update", { skipLocked: true });
           if (!cur[0] || cur[0].status === "failed") return; // already handled
-          await tx.query(
-            `UPDATE creator_payouts SET status = 'failed', updated_at = NOW() WHERE id = $1`,
-            [candidate.id]
-          );
-          if (!cur[0].earnings_restored) {
-            if (cur[0].net_kobo == null) {
+          await tx
+            .update(schema.creatorPayouts)
+            .set({ status: "failed", updatedAt: sql`NOW()` })
+            .where(eq(schema.creatorPayouts.id, candidate.id));
+          if (!cur[0].earningsRestored) {
+            if (cur[0].netKobo == null) {
               throw new Error(`[payouts] Cannot restore payout ${candidate.id}: net_kobo is null. Manual ops review required.`);
             }
-            const restoreAmount = cur[0].net_kobo;
-            await tx.query(
-              `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
-              [candidate.id]
-            );
-            await tx.query(
-              `UPDATE users
-               SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
-                   updated_at = NOW()
-               WHERE id = $2`,
-              [restoreAmount, cur[0].creator_id]
-            );
+            const restoreAmount = cur[0].netKobo;
+            await tx
+              .update(schema.creatorPayouts)
+              .set({ earningsRestored: true })
+              .where(eq(schema.creatorPayouts.id, candidate.id));
+            await tx
+              .update(schema.users)
+              .set({
+                availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${restoreAmount}`,
+                updatedAt: sql`NOW()`,
+              })
+              .where(eq(schema.users.id, cur[0].creatorId));
           }
         });
         failed++;
@@ -409,64 +432,85 @@ export async function moveToDeadLetterQueue(
   retryCount: number,
   reason: string
 ): Promise<void> {
-  await db.transaction(async (tx) => {
+  const orm = await getDb();
+  let nullNetKobo: { grossKobo: bigint | null } | null = null;
+
+  await orm.transaction(async (tx) => {
     // Lock the payout row so concurrent callers (cron + webhook) don't both restore earnings (#7)
-    const { rows: current } = await tx.query<{ net_kobo: number; gross_kobo: number; earnings_restored: boolean; status: string }>(
-      `SELECT net_kobo, gross_kobo, earnings_restored, status FROM creator_payouts WHERE id = $1 FOR UPDATE`,
-      [payoutId]
-    );
+    const current = await tx
+      .select({
+        netKobo: schema.creatorPayouts.netKobo,
+        grossKobo: schema.creatorPayouts.grossKobo,
+        earningsRestored: schema.creatorPayouts.earningsRestored,
+        status: schema.creatorPayouts.status,
+      })
+      .from(schema.creatorPayouts)
+      .where(eq(schema.creatorPayouts.id, payoutId))
+      .for("update");
     if (!current[0]) return;
 
     // Mark payout as permanently failed
-    await tx.query(
-      `UPDATE creator_payouts
-       SET status = 'failed',
-           retry_count = $1,
-           next_retry_at = NULL,
-           updated_at = NOW()
-       WHERE id = $2`,
-      [retryCount, payoutId]
-    );
+    await tx
+      .update(schema.creatorPayouts)
+      .set({ status: "failed", retryCount, nextRetryAt: null, updatedAt: sql`NOW()` })
+      .where(eq(schema.creatorPayouts.id, payoutId));
 
     // Restore creator's earnings only once using net_kobo (the actual amount sent to creator).
     // earnings_restored guards against double-credit when both the DLQ cron and the
     // transfer.failed webhook fire.
-    if (!current[0].earnings_restored) {
-      const restoreAmount = current[0].net_kobo;
+    if (!current[0].earningsRestored) {
+      const restoreAmount = current[0].netKobo;
       if (restoreAmount == null) {
         logger.error({ payoutId, creatorId }, "[payout/dlq] net_kobo is null — cannot restore earnings safely; requires manual review");
-        await raiseAlert(tx, {
-          type: "payout_dlq_null_net_kobo",
-          category: "financial",
-          priorityLevel: 2,
-          title: "Payout stuck — earnings not restored",
-          message: `Payout ${payoutId} moved to DLQ but net_kobo is null — earnings not restored`,
-          metadata: { payoutId, creatorId, grossKobo: current[0].gross_kobo },
-          dedupeKey: `payout_dlq_null:${payoutId}`,
-        }).catch(() => {});
+        // raiseAlert (lib/alerts/dispatch.ts, out of scope for this migration)
+        // still expects the legacy adapter type, so it cannot participate in
+        // this Drizzle transaction directly — recorded here and fired with
+        // the raw adapter right after the transaction settles (best-effort,
+        // same as before).
+        nullNetKobo = { grossKobo: current[0].grossKobo };
       } else {
-        await tx.query(
-          `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
-          [payoutId]
-        );
-        await tx.query(
-          `UPDATE users
-           SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
-           WHERE id = $2`,
-          [restoreAmount, creatorId]
-        );
+        await tx
+          .update(schema.creatorPayouts)
+          .set({ earningsRestored: true })
+          .where(eq(schema.creatorPayouts.id, payoutId));
+        await tx
+          .update(schema.users)
+          .set({
+            availableEarningsKobo: sql`${schema.users.availableEarningsKobo} + ${restoreAmount}`,
+            updatedAt: sql`NOW()`,
+          })
+          .where(eq(schema.users.id, creatorId));
       }
     }
 
     // Insert dead-letter record (ON CONFLICT to tolerate duplicate calls)
-    await tx.query(
-      `INSERT INTO payout_dead_letter_queue
-         (payout_id, creator_id, failure_reason, retry_count, last_attempted_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (payout_id) DO NOTHING`,
-      [payoutId, creatorId, reason, retryCount]
-    );
+    await tx
+      .insert(schema.payoutDeadLetterQueue)
+      .values({
+        payoutId,
+        creatorId,
+        failureReason: reason,
+        retryCount,
+        lastAttemptedAt: sql`NOW()`,
+      })
+      .onConflictDoNothing({ target: schema.payoutDeadLetterQueue.payoutId });
   });
+
+  // Type assertion needed because TS narrows the `let` var (assigned inside
+  // the async transaction callback) to `null` after the await; the runtime
+  // value is correct.
+  const capturedNullNetKobo = nullNetKobo as { grossKobo: bigint | null } | null;
+  if (capturedNullNetKobo) {
+    await raiseAlert(await getDb(), {
+      type: "payout_dlq_null_net_kobo",
+      category: "financial",
+      priorityLevel: 2,
+      title: "Payout stuck — earnings not restored",
+      message: `Payout ${payoutId} moved to DLQ but net_kobo is null — earnings not restored`,
+      metadata: { payoutId, creatorId, grossKobo: capturedNullNetKobo.grossKobo },
+      dedupeKey: `payout_dlq_null:${payoutId}`,
+    }).catch(() => {});
+  }
 
   // Notifications — best-effort, non-blocking
   await notifyPayoutFailure(payoutId, creatorId, reason).catch(() => {});
@@ -483,19 +527,17 @@ export async function notifyPayoutFailure(
 ): Promise<void> {
   await Promise.all([
     // In-app notification to creator
-    db
-      .query(
-        `INSERT INTO notifications
-           (user_id, type, title, body, metadata, created_at)
-         VALUES ($1, 'payout_failed', 'Payout Failed',
-           'Your payout could not be processed after multiple attempts. Your earnings have been restored to your balance.',
-           $2::jsonb, NOW())`,
-        [creatorId, JSON.stringify({ payoutId, reason })]
-      )
-      .catch(() => {}),
+    insertNotification(
+      await getDb(),
+      creatorId,
+      "payout_failed",
+      "Payout Failed",
+      "Your payout could not be processed after multiple attempts. Your earnings have been restored to your balance.",
+      { payoutId, reason }
+    ).catch(() => {}),
 
     // System alert for admin
-    raiseAlert(db, {
+    raiseAlert(await getDb(), {
       type: "payout_failed",
       category: "financial",
       priorityLevel: 2,

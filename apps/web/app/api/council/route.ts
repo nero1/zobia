@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { handleApiError } from "@/lib/api/errors";
 import { requireFeatureEnabled } from "@/lib/manifest";
 
@@ -47,9 +48,10 @@ interface CouncilIdeaRow {
 export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
     await requireFeatureEnabled("platformCouncil");
+    const orm = await getDb();
     const [membersResult, ideasResult] = await Promise.all([
-      db.query<CouncilMemberRow>(
-        `SELECT
+      orm.execute<CouncilMemberRow & Record<string, unknown>>(sql`
+         SELECT
            pcm.id AS membership_id,
            pcm.user_id,
            u.username,
@@ -64,15 +66,15 @@ export async function GET(_req: NextRequest): Promise<NextResponse> {
          WHERE pcm.left_at IS NULL
            AND u.deleted_at IS NULL
          ORDER BY pcm.legacy_score DESC
-         LIMIT 50`
-      ),
-      db.query<CouncilIdeaRow>(
-        `SELECT id, author_id, title, description, votes, status, created_at
+         LIMIT 50
+      `),
+      orm.execute<CouncilIdeaRow & Record<string, unknown>>(sql`
+         SELECT id, author_id, title, description, votes, status, created_at
          FROM platform_council_ideas
          WHERE status != 'rejected'
          ORDER BY votes DESC, created_at DESC
-         LIMIT 10`
-      ),
+         LIMIT 10
+      `),
     ]);
 
     return NextResponse.json({

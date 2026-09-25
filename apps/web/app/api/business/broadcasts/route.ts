@@ -20,7 +20,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -48,27 +49,36 @@ const broadcastSchema = z.object({
 // Helpers
 // ---------------------------------------------------------------------------
 
+// NOTE: `creator_broadcasts.business_account_id` exists in the real table
+// (db/migrations/0001_consolidated_schema.sql) but is missing from the
+// Drizzle schema (lib/db/schema.ts) — a genuine schema gap. Using
+// orm.execute(sql`...`) here instead of the query builder until that
+// column is added to schema.ts.
 async function countMonthlyBusinessBroadcasts(businessAccountId: string): Promise<number> {
-  const { rows } = await db.query<{ cnt: string }>(
-    `SELECT COUNT(*)::text AS cnt
-     FROM creator_broadcasts
-     WHERE business_account_id = $1
-       AND sender_id IS NULL
-       AND created_at >= DATE_TRUNC('month', NOW())`,
-    [businessAccountId]
-  );
-  return parseInt(rows[0]?.cnt ?? "0", 10);
+  const orm = await getDb();
+  const result = await orm.execute(sql`
+    SELECT COUNT(*)::text AS cnt
+    FROM creator_broadcasts
+    WHERE business_account_id = ${businessAccountId}
+      AND sender_id IS NULL
+      AND created_at >= DATE_TRUNC('month', NOW())
+  `);
+  const row = result.rows[0] as { cnt: string } | undefined;
+  return parseInt(row?.cnt ?? "0", 10);
 }
 
 async function fetchFollowers(ownerId: string): Promise<Array<{ user_id: string; telegram_id: string | null }>> {
-  const { rows } = await db.query<{ user_id: string; telegram_id: string | null }>(
-    `SELECT uf.follower_id AS user_id, u.telegram_id
-     FROM follows uf
-     JOIN users u ON u.id = uf.follower_id
-     WHERE uf.following_id = $1
-       AND u.deleted_at IS NULL`,
-    [ownerId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      user_id: schema.follows.followerId,
+      telegram_id: schema.users.telegramId,
+    })
+    .from(schema.follows)
+    .innerJoin(schema.users, eq(schema.users.id, schema.follows.followerId))
+    .where(
+      and(eq(schema.follows.followingId, ownerId), isNull(schema.users.deletedAt))
+    );
   return rows;
 }
 
@@ -80,12 +90,19 @@ interface BusinessRow {
 }
 
 async function loadBusinessAccount(userId: string): Promise<BusinessRow> {
-  const { rows } = await db.query<BusinessRow>(
-    `SELECT id, user_id, tier, status FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  if (!rows[0]) throw notFound("Business account not found");
-  return rows[0];
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      id: schema.businessAccounts.id,
+      user_id: schema.businessAccounts.userId,
+      tier: schema.businessAccounts.tier,
+      status: schema.businessAccounts.status,
+    })
+    .from(schema.businessAccounts)
+    .where(eq(schema.businessAccounts.userId, userId))
+    .limit(1);
+  if (!row) throw notFound("Business account not found");
+  return row;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,14 +125,15 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const sentThisMonth = await countMonthlyBusinessBroadcasts(business.id);
     const unlimited = !Number.isFinite(quota);
 
-    const { rows: historyRows } = await db.query<BroadcastHistoryRow>(
-      `SELECT id, subject, content, created_at, recipient_count
-       FROM creator_broadcasts
-       WHERE business_account_id = $1 AND sender_id IS NULL
-       ORDER BY created_at DESC
-       LIMIT 50`,
-      [business.id]
-    );
+    const orm = await getDb();
+    const historyResult = await orm.execute(sql`
+      SELECT id, subject, content, created_at, recipient_count
+      FROM creator_broadcasts
+      WHERE business_account_id = ${business.id} AND sender_id IS NULL
+      ORDER BY created_at DESC
+      LIMIT 50
+    `);
+    const historyRows = historyResult.rows as unknown as BroadcastHistoryRow[];
 
     return NextResponse.json({
       success: true,
@@ -178,36 +196,38 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       throw badRequest("You have no followers to broadcast to yet");
     }
 
-    const broadcast = await db.transaction(async (tx) => {
-      const { rows: broadcastRows } = await tx.query<{ id: string; created_at: string }>(
-        `INSERT INTO creator_broadcasts
-           (business_account_id, subject, content, recipient_count, cost_coins)
-         VALUES ($1, $2, $3, $4, 0)
-         RETURNING id, created_at`,
-        [business.id, body.subject ?? null, body.content, recipientCount]
-      );
-      const broadcastRecord = broadcastRows[0];
+    const orm = await getDb();
+    const broadcast = await orm.transaction(async (tx) => {
+      const insertResult = await tx.execute(sql`
+        INSERT INTO creator_broadcasts
+          (business_account_id, subject, content, recipient_count, cost_coins)
+        VALUES (${business.id}, ${body.subject ?? null}, ${body.content}, ${recipientCount}, 0)
+        RETURNING id, created_at
+      `);
+      const broadcastRecord = insertResult.rows[0] as
+        | { id: string; created_at: string }
+        | undefined;
       if (!broadcastRecord) throw new Error("Broadcast creation failed");
 
       const userIds = followers.map((f) => f.user_id);
-      await tx.query(
-        `INSERT INTO creator_broadcasts
-           (sender_id, recipient_id, content, message_type, reference_id, business_account_id)
-         SELECT $1, u, $2, 'business_broadcast', $3, $4
-         FROM UNNEST($5::uuid[]) AS u`,
-        [business.user_id, body.content, broadcastRecord.id, business.id, userIds]
-      );
+      await tx.execute(sql`
+        INSERT INTO creator_broadcasts
+          (sender_id, recipient_id, content, message_type, reference_id, business_account_id)
+        SELECT ${business.user_id}, u, ${body.content}, 'business_broadcast', ${broadcastRecord.id}, ${business.id}
+        FROM UNNEST(${userIds}::uuid[]) AS u
+      `);
 
       return broadcastRecord;
     });
 
     const telegramFollowers = followers.filter((f) => f.telegram_id);
     if (telegramFollowers.length > 0) {
-      void db
-        .query(
-          `INSERT INTO telegram_delivery_queue (broadcast_id, telegram_ids) VALUES ($1, $2)`,
-          [broadcast.id, JSON.stringify(telegramFollowers.map((f) => f.telegram_id))]
-        )
+      void orm
+        .insert(schema.telegramDeliveryQueue)
+        .values({
+          broadcastId: broadcast.id,
+          telegramIds: telegramFollowers.map((f) => f.telegram_id),
+        })
         .catch((err) => {
           logger.error({ err }, "[business/broadcasts] Telegram queue enqueue failed:");
         });

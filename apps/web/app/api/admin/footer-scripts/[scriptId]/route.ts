@@ -18,9 +18,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
-import { db, SqlParam } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { normalizeFooterScriptContent } from "@/lib/admin/footerScriptNormalize";
 
 // ---------------------------------------------------------------------------
@@ -64,6 +65,19 @@ function formatScript(row: FooterScriptRow) {
   };
 }
 
+/** Adapts a Drizzle `footerScripts` select row to the legacy snake_case shape. */
+function toFooterScriptRow(row: typeof schema.footerScripts.$inferSelect): FooterScriptRow {
+  return {
+    id: row.id,
+    name: row.name,
+    content: row.content,
+    is_active: row.isActive ?? false,
+    position: row.position ?? 0,
+    created_at: row.createdAt ? row.createdAt.toISOString() : new Date().toISOString(),
+    updated_at: row.updatedAt ? row.updatedAt.toISOString() : new Date().toISOString(),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/admin/footer-scripts/[scriptId]
 // ---------------------------------------------------------------------------
@@ -73,18 +87,17 @@ export const GET = withAdminAuth<RouteParams>(
     try {
       const { scriptId } = params;
 
-      const { rows } = await db.query<FooterScriptRow>(
-        `SELECT id, name, content, is_active, position, created_at, updated_at
-         FROM footer_scripts
-         WHERE id = $1`,
-        [scriptId]
-      );
+      const orm = await getDb();
+      const [row] = await orm
+        .select()
+        .from(schema.footerScripts)
+        .where(eq(schema.footerScripts.id, scriptId));
 
-      if (!rows[0]) throw notFound("Footer script not found");
+      if (!row) throw notFound("Footer script not found");
 
       return NextResponse.json({
         success: true,
-        data: { script: formatScript(rows[0]) },
+        data: { script: formatScript(toFooterScriptRow(row)) },
         error: null,
       });
     } catch (err) {
@@ -114,41 +127,36 @@ export const PATCH = withAdminAuth<RouteParams>(
         throw badRequest(parsed.error.errors.map((e) => e.message).join(", "));
       }
 
-      const updates: string[] = [];
-      const values: SqlParam[] = [scriptId];
-      let idx = 2;
-
       const { name, content, isActive, position } = parsed.data;
 
-      if (name !== undefined) { updates.push(`name = $${idx++}`); values.push(name); }
+      const updates: Partial<typeof schema.footerScripts.$inferInsert> = {};
+      if (name !== undefined) updates.name = name;
       if (content !== undefined) {
         const normalizedContent = normalizeFooterScriptContent(content);
         if (!normalizedContent) throw badRequest("Script content is empty after normalization.");
-        updates.push(`content = $${idx++}`);
-        values.push(normalizedContent);
+        updates.content = normalizedContent;
       }
-      if (isActive !== undefined) { updates.push(`is_active = $${idx++}`); values.push(isActive); }
-      if (position !== undefined) { updates.push(`position = $${idx++}`); values.push(position); }
+      if (isActive !== undefined) updates.isActive = isActive;
+      if (position !== undefined) updates.position = position;
 
-      if (updates.length === 0) {
+      if (Object.keys(updates).length === 0) {
         throw badRequest("No fields provided to update");
       }
 
-      updates.push(`updated_at = NOW()`);
+      updates.updatedAt = new Date();
 
-      const { rows } = await db.query<FooterScriptRow>(
-        `UPDATE footer_scripts
-         SET ${updates.join(", ")}
-         WHERE id = $1
-         RETURNING id, name, content, is_active, position, created_at, updated_at`,
-        values
-      );
+      const orm = await getDb();
+      const [row] = await orm
+        .update(schema.footerScripts)
+        .set(updates)
+        .where(eq(schema.footerScripts.id, scriptId))
+        .returning();
 
-      if (!rows[0]) throw notFound("Footer script not found");
+      if (!row) throw notFound("Footer script not found");
 
       return NextResponse.json({
         success: true,
-        data: { script: formatScript(rows[0]) },
+        data: { script: formatScript(toFooterScriptRow(row)) },
         error: null,
       });
     } catch (err) {
@@ -166,12 +174,13 @@ export const DELETE = withAdminAuth<RouteParams>(
     try {
       const { scriptId } = params;
 
-      const { rowCount } = await db.query(
-        `DELETE FROM footer_scripts WHERE id = $1`,
-        [scriptId]
-      );
+      const orm = await getDb();
+      const deleted = await orm
+        .delete(schema.footerScripts)
+        .where(eq(schema.footerScripts.id, scriptId))
+        .returning({ id: schema.footerScripts.id });
 
-      if (!rowCount) throw notFound("Footer script not found");
+      if (deleted.length === 0) throw notFound("Footer script not found");
 
       return NextResponse.json({
         success: true,

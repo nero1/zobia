@@ -12,8 +12,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { loadManifest, requireFeatureEnabled } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
 import { debitCoins } from "@/lib/economy/coins";
@@ -201,47 +201,49 @@ export interface TweetsEligibility {
 }
 
 export async function getTweetsEligibility(userId: string): Promise<TweetsEligibility> {
+  const orm = await getDb();
   const [manifest, userRows] = await Promise.all([
     loadManifest(),
-    db.query<{
-      xp_total: number;
-      coin_balance: number;
-      plan: string;
-      prestige_count: number | null;
-      is_admin: boolean | null;
-      is_moderator: boolean | null;
-      tweet_max_length: number | null;
-    }>(
-      `SELECT COALESCE(xp_total, 0) AS xp_total, COALESCE(coin_balance, 0) AS coin_balance,
-              plan, prestige_count, is_admin, is_moderator, tweet_max_length
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    ),
+    orm
+      .select({
+        xpTotal: schema.users.xpTotal,
+        coinBalance: schema.users.coinBalance,
+        plan: schema.users.plan,
+        prestigeCount: schema.users.prestigeCount,
+        isAdmin: schema.users.isAdmin,
+        isModerator: schema.users.isModerator,
+        tweetMaxLength: schema.users.tweetMaxLength,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1),
   ]);
-  const row = userRows.rows[0];
+  const row = userRows[0];
   if (!row) throw forbidden("User account not found");
-  const rankNumber = getRankForXP(row.xp_total).rankNumber;
+  const xpTotal = Number(row.xpTotal ?? 0);
+  const coinBalance = Number(row.coinBalance ?? 0);
+  const rankNumber = getRankForXP(xpTotal).rankNumber;
 
   const { defaultMaxLength, longMinLevel, longMinRoles, longMaxLengthWords, imageCostCredits, longTweetCostCredits, minLevel } =
     manifest.tweets;
 
   const isLongFormExempt =
     rankNumber >= longMinLevel ||
-    isPlanEligible(row.plan ?? "free", row.prestige_count ?? 0, longMinRoles, {
-      isAdmin: Boolean(row.is_admin),
-      isModerator: Boolean(row.is_moderator),
+    isPlanEligible(row.plan ?? "free", row.prestigeCount ?? 0, longMinRoles, {
+      isAdmin: Boolean(row.isAdmin),
+      isModerator: Boolean(row.isModerator),
     });
 
   const longMaxLengthChars = Math.min(longMaxLengthWords * WORDS_TO_CHARS_FACTOR, TWEETS_HARD_CHAR_CAP);
   const personalMaxLength = Math.min(
-    Math.max(row.tweet_max_length ?? defaultMaxLength, defaultMaxLength),
+    Math.max(row.tweetMaxLength ?? defaultMaxLength, defaultMaxLength),
     longMaxLengthChars
   );
 
   return {
     rankNumber,
-    xpTotal: row.xp_total,
-    creditBalance: row.coin_balance,
+    xpTotal,
+    creditBalance: coinBalance,
     minLevel,
     imageCostCredits,
     defaultMaxLength,
@@ -379,7 +381,8 @@ export async function createTweet(input: CreateTweetInput): Promise<CreateTweetR
   const mentionedUsernames = parseTweetMentions(input.content);
   const referenceId = `tweet_create:${input.userId}:${randomUUID()}`;
 
-  const created = await db.transaction(async (tx: TransactionClient) => {
+  const orm = await getDb();
+  const created = await orm.transaction(async (tx) => {
     if (willChargeImage) {
       await debitCoins(
         input.userId,
@@ -403,39 +406,38 @@ export async function createTweet(input: CreateTweetInput): Promise<CreateTweetR
       );
     }
 
-    const { rows } = await tx.query<{ id: string; created_at: string }>(
-      `INSERT INTO tweets (user_id, parent_tweet_id, content, image_url, video_provider, video_url, video_embed_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
-       RETURNING id, created_at`,
-      [
-        input.userId,
-        input.parentTweetId ?? null,
-        input.content?.trim() || null,
-        input.imageUrl ?? null,
-        input.video?.videoProvider ?? null,
-        input.video?.videoUrl ?? null,
-        input.video?.videoEmbedId ?? null,
-      ]
-    );
-    const tweet = rows[0];
+    const [tweet] = await tx
+      .insert(schema.tweets)
+      .values({
+        userId: input.userId,
+        parentTweetId: input.parentTweetId ?? null,
+        content: input.content?.trim() || null,
+        imageUrl: input.imageUrl ?? null,
+        videoProvider: input.video?.videoProvider ?? null,
+        videoUrl: input.video?.videoUrl ?? null,
+        videoEmbedId: input.video?.videoEmbedId ?? null,
+      })
+      .returning({ id: schema.tweets.id, createdAt: schema.tweets.createdAt });
 
     if (input.parentTweetId) {
-      await tx.query(`UPDATE tweets SET replies_count = replies_count + 1 WHERE id = $1`, [input.parentTweetId]);
+      await tx
+        .update(schema.tweets)
+        .set({ repliesCount: sql`${schema.tweets.repliesCount} + 1` })
+        .where(eq(schema.tweets.id, input.parentTweetId));
     }
 
     let mentionedUserIds: { id: string; username: string }[] = [];
     if (mentionedUsernames.length > 0) {
-      const { rows: mentionRows } = await tx.query<{ id: string; username: string }>(
-        `SELECT id, username FROM users WHERE LOWER(username) = ANY($1) AND deleted_at IS NULL`,
-        [mentionedUsernames]
-      );
+      const mentionRows = await tx
+        .select({ id: schema.users.id, username: schema.users.username })
+        .from(schema.users)
+        .where(and(sql`LOWER(${schema.users.username}) = ANY(${mentionedUsernames})`, isNull(schema.users.deletedAt)));
       mentionedUserIds = mentionRows.filter((r) => r.id !== input.userId);
       for (const m of mentionedUserIds) {
-        await tx.query(
-          `INSERT INTO tweet_mentions (tweet_id, mentioned_user_id) VALUES ($1, $2)
-           ON CONFLICT (tweet_id, mentioned_user_id) DO NOTHING`,
-          [tweet.id, m.id]
-        );
+        await tx
+          .insert(schema.tweetMentions)
+          .values({ tweetId: tweet.id, mentionedUserId: m.id })
+          .onConflictDoNothing({ target: [schema.tweetMentions.tweetId, schema.tweetMentions.mentionedUserId] });
       }
     }
 
@@ -445,15 +447,12 @@ export async function createTweet(input: CreateTweetInput): Promise<CreateTweetR
   // Fire mention notifications through the existing notifications pipeline,
   // best-effort — a notification failure must never undo a posted Tweet.
   if (created.mentionedUserIds.length > 0) {
-    const { rows: authorRows } = await db.query<{ username: string }>(
-      `SELECT username FROM users WHERE id = $1 LIMIT 1`,
-      [input.userId]
-    );
+    const authorRows = await orm.select({ username: schema.users.username }).from(schema.users).where(eq(schema.users.id, input.userId)).limit(1);
     const authorUsername = authorRows[0]?.username ?? "Someone";
     await Promise.all(
       created.mentionedUserIds.map((m) =>
         insertNotification(
-          db,
+          orm,
           m.id,
           "tweet_mention",
           "You were mentioned in a Tweet",
@@ -466,7 +465,7 @@ export async function createTweet(input: CreateTweetInput): Promise<CreateTweetR
 
   return {
     id: created.tweet.id,
-    createdAt: created.tweet.created_at,
+    createdAt: created.tweet.createdAt.toISOString(),
     imageCostCredits: eligibility.imageCostCredits,
     imageCharged: willChargeImage,
     longTweetCostCredits: eligibility.longTweetCostCredits,
@@ -479,11 +478,14 @@ export async function createTweet(input: CreateTweetInput): Promise<CreateTweetR
 // ---------------------------------------------------------------------------
 
 async function getTweet(tweetId: string): Promise<{ id: string; user_id: string } | null> {
-  const { rows } = await db.query<{ id: string; user_id: string }>(
-    `SELECT id, user_id FROM tweets WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [tweetId]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const rows = await orm
+    .select({ id: schema.tweets.id, userId: schema.tweets.userId })
+    .from(schema.tweets)
+    .where(and(eq(schema.tweets.id, tweetId), isNull(schema.tweets.deletedAt)))
+    .limit(1);
+  const row = rows[0];
+  return row ? { id: row.id, user_id: row.userId } : null;
 }
 
 /** Toggle-style like: liking an already-liked Tweet or unliking an unliked one is a no-op. */
@@ -492,19 +494,17 @@ export async function likeTweet(tweetId: string, userId: string): Promise<{ like
   const tweet = await getTweet(tweetId);
   if (!tweet) throw notFound("Tweet not found");
 
-  await db.transaction(async (tx) => {
-    await tx.query(
-      `INSERT INTO tweet_likes (tweet_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [tweetId, userId]
-    );
-    await tx.query(
-      `UPDATE tweets SET likes_count = (SELECT COUNT(*) FROM tweet_likes WHERE tweet_id = $1) WHERE id = $1`,
-      [tweetId]
-    );
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    await tx.insert(schema.tweetLikes).values({ tweetId, userId }).onConflictDoNothing({ target: [schema.tweetLikes.tweetId, schema.tweetLikes.userId] });
+    await tx
+      .update(schema.tweets)
+      .set({ likesCount: sql`(SELECT COUNT(*) FROM tweet_likes WHERE tweet_id = ${tweetId})` })
+      .where(eq(schema.tweets.id, tweetId));
   });
 
-  const { rows } = await db.query<{ likes_count: number }>(`SELECT likes_count FROM tweets WHERE id = $1`, [tweetId]);
-  return { likesCount: rows[0]?.likes_count ?? 0, liked: true };
+  const rows = await orm.select({ likesCount: schema.tweets.likesCount }).from(schema.tweets).where(eq(schema.tweets.id, tweetId)).limit(1);
+  return { likesCount: rows[0]?.likesCount ?? 0, liked: true };
 }
 
 export async function unlikeTweet(tweetId: string, userId: string): Promise<{ likesCount: number; liked: boolean }> {
@@ -512,16 +512,17 @@ export async function unlikeTweet(tweetId: string, userId: string): Promise<{ li
   const tweet = await getTweet(tweetId);
   if (!tweet) throw notFound("Tweet not found");
 
-  await db.transaction(async (tx) => {
-    await tx.query(`DELETE FROM tweet_likes WHERE tweet_id = $1 AND user_id = $2`, [tweetId, userId]);
-    await tx.query(
-      `UPDATE tweets SET likes_count = (SELECT COUNT(*) FROM tweet_likes WHERE tweet_id = $1) WHERE id = $1`,
-      [tweetId]
-    );
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    await tx.delete(schema.tweetLikes).where(and(eq(schema.tweetLikes.tweetId, tweetId), eq(schema.tweetLikes.userId, userId)));
+    await tx
+      .update(schema.tweets)
+      .set({ likesCount: sql`(SELECT COUNT(*) FROM tweet_likes WHERE tweet_id = ${tweetId})` })
+      .where(eq(schema.tweets.id, tweetId));
   });
 
-  const { rows } = await db.query<{ likes_count: number }>(`SELECT likes_count FROM tweets WHERE id = $1`, [tweetId]);
-  return { likesCount: rows[0]?.likes_count ?? 0, liked: false };
+  const rows = await orm.select({ likesCount: schema.tweets.likesCount }).from(schema.tweets).where(eq(schema.tweets.id, tweetId)).limit(1);
+  return { likesCount: rows[0]?.likesCount ?? 0, liked: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -534,9 +535,10 @@ export async function pinTweet(tweetId: string, userId: string): Promise<void> {
   if (!tweet) throw notFound("Tweet not found");
   if (tweet.user_id !== userId) throw forbidden("Cannot pin another user's Tweet");
 
-  await db.transaction(async (tx) => {
-    await tx.query(`UPDATE tweets SET is_pinned = false WHERE user_id = $1 AND is_pinned = true`, [userId]);
-    await tx.query(`UPDATE tweets SET is_pinned = true WHERE id = $1`, [tweetId]);
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    await tx.update(schema.tweets).set({ isPinned: false }).where(and(eq(schema.tweets.userId, userId), eq(schema.tweets.isPinned, true)));
+    await tx.update(schema.tweets).set({ isPinned: true }).where(eq(schema.tweets.id, tweetId));
   });
 }
 
@@ -544,14 +546,16 @@ export async function unpinTweet(tweetId: string, userId: string): Promise<void>
   const tweet = await getTweet(tweetId);
   if (!tweet) throw notFound("Tweet not found");
   if (tweet.user_id !== userId) throw forbidden("Cannot unpin another user's Tweet");
-  await db.query(`UPDATE tweets SET is_pinned = false WHERE id = $1`, [tweetId]);
+  const orm = await getDb();
+  await orm.update(schema.tweets).set({ isPinned: false }).where(eq(schema.tweets.id, tweetId));
 }
 
 export async function deleteTweet(tweetId: string, userId: string): Promise<void> {
   const tweet = await getTweet(tweetId);
   if (!tweet) throw notFound("Tweet not found");
   if (tweet.user_id !== userId) throw forbidden("Cannot delete another user's Tweet");
-  await db.query(`UPDATE tweets SET deleted_at = NOW(), is_pinned = false WHERE id = $1`, [tweetId]);
+  const orm = await getDb();
+  await orm.update(schema.tweets).set({ deletedAt: sql`NOW()`, isPinned: false }).where(eq(schema.tweets.id, tweetId));
 }
 
 // ---------------------------------------------------------------------------
@@ -584,24 +588,23 @@ export async function retweetTweet(tweetId: string, userId: string, quoteContent
     throw badRequest(`Quote text cannot exceed ${TWEETS_HARD_CHAR_CAP} characters.`, "TWEET_TOO_LONG");
   }
 
-  await db.transaction(async (tx) => {
-    const { rows: existing } = await tx.query<{ id: string }>(
-      `SELECT id FROM tweet_retweets WHERE tweet_id = $1 AND user_id = $2`,
-      [tweetId, userId]
-    );
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const existing = await tx
+      .select({ id: schema.tweetRetweets.id })
+      .from(schema.tweetRetweets)
+      .where(and(eq(schema.tweetRetweets.tweetId, tweetId), eq(schema.tweetRetweets.userId, userId)));
     if (existing[0]) {
-      await tx.query(`UPDATE tweet_retweets SET quote_content = $3 WHERE tweet_id = $1 AND user_id = $2`, [
-        tweetId,
-        userId,
-        trimmedQuote,
-      ]);
+      await tx
+        .update(schema.tweetRetweets)
+        .set({ quoteContent: trimmedQuote })
+        .where(and(eq(schema.tweetRetweets.tweetId, tweetId), eq(schema.tweetRetweets.userId, userId)));
     } else {
-      await tx.query(`INSERT INTO tweet_retweets (tweet_id, user_id, quote_content) VALUES ($1, $2, $3)`, [
-        tweetId,
-        userId,
-        trimmedQuote,
-      ]);
-      await tx.query(`UPDATE tweets SET retweets_count = retweets_count + 1 WHERE id = $1`, [tweetId]);
+      await tx.insert(schema.tweetRetweets).values({ tweetId, userId, quoteContent: trimmedQuote });
+      await tx
+        .update(schema.tweets)
+        .set({ retweetsCount: sql`${schema.tweets.retweetsCount} + 1` })
+        .where(eq(schema.tweets.id, tweetId));
     }
   });
 
@@ -610,16 +613,16 @@ export async function retweetTweet(tweetId: string, userId: string, quoteContent
     // but quotes don't get their own tweet_mentions rows (there's no separate
     // "quote tweet" row — the mention lives on the retweet, not a tweet).
     const usernames = mentionedInQuote(trimmedQuote);
-    const { rows: mentionRows } = await db.query<{ id: string; username: string }>(
-      `SELECT id, username FROM users WHERE LOWER(username) = ANY($1) AND deleted_at IS NULL AND id != $2`,
-      [usernames, userId]
-    );
-    const { rows: authorRows } = await db.query<{ username: string }>(`SELECT username FROM users WHERE id = $1`, [userId]);
+    const mentionRows = await orm
+      .select({ id: schema.users.id, username: schema.users.username })
+      .from(schema.users)
+      .where(and(sql`LOWER(${schema.users.username}) = ANY(${usernames})`, isNull(schema.users.deletedAt), sql`${schema.users.id} != ${userId}`));
+    const authorRows = await orm.select({ username: schema.users.username }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
     const authorUsername = authorRows[0]?.username ?? "Someone";
     await Promise.all(
       mentionRows.map((m) =>
         insertNotification(
-          db,
+          orm,
           m.id,
           "tweet_mention",
           "You were mentioned in a Retweet",
@@ -630,8 +633,8 @@ export async function retweetTweet(tweetId: string, userId: string, quoteContent
     ).catch((err) => logger.error({ err }, "[tweets] retweet mention notification insert failed"));
   }
 
-  const { rows } = await db.query<{ retweets_count: number }>(`SELECT retweets_count FROM tweets WHERE id = $1`, [tweetId]);
-  return { retweetsCount: rows[0]?.retweets_count ?? 0, retweeted: true };
+  const rows = await orm.select({ retweetsCount: schema.tweets.retweetsCount }).from(schema.tweets).where(eq(schema.tweets.id, tweetId)).limit(1);
+  return { retweetsCount: rows[0]?.retweetsCount ?? 0, retweeted: true };
 }
 
 function mentionedInQuote(quote: string | null): string[] {
@@ -643,13 +646,20 @@ export async function unretweetTweet(tweetId: string, userId: string): Promise<R
   const tweet = await getTweet(tweetId);
   if (!tweet) throw notFound("Tweet not found");
 
-  await db.transaction(async (tx) => {
-    const { rowCount } = await tx.query(`DELETE FROM tweet_retweets WHERE tweet_id = $1 AND user_id = $2`, [tweetId, userId]);
-    if (rowCount) {
-      await tx.query(`UPDATE tweets SET retweets_count = GREATEST(retweets_count - 1, 0) WHERE id = $1`, [tweetId]);
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const deleted = await tx
+      .delete(schema.tweetRetweets)
+      .where(and(eq(schema.tweetRetweets.tweetId, tweetId), eq(schema.tweetRetweets.userId, userId)))
+      .returning({ id: schema.tweetRetweets.id });
+    if (deleted.length > 0) {
+      await tx
+        .update(schema.tweets)
+        .set({ retweetsCount: sql`GREATEST(${schema.tweets.retweetsCount} - 1, 0)` })
+        .where(eq(schema.tweets.id, tweetId));
     }
   });
 
-  const { rows } = await db.query<{ retweets_count: number }>(`SELECT retweets_count FROM tweets WHERE id = $1`, [tweetId]);
-  return { retweetsCount: rows[0]?.retweets_count ?? 0, retweeted: false };
+  const rows = await orm.select({ retweetsCount: schema.tweets.retweetsCount }).from(schema.tweets).where(eq(schema.tweets.id, tweetId)).limit(1);
+  return { retweetsCount: rows[0]?.retweetsCount ?? 0, retweeted: false };
 }

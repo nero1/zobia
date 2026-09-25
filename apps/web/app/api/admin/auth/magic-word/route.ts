@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { compare, hash } from "bcryptjs";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, unauthorized } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -27,13 +28,15 @@ const setMagicWordSchema = z.object({
 
 export const GET = withAdminAuth(async (_req, { auth }) => {
   try {
-    const { rows } = await db.query<{ admin_magic_word_hash: string | null }>(
-      `SELECT admin_magic_word_hash FROM users WHERE id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
+    const orm = await getDb();
+    const [row] = await orm
+      .select({ adminMagicWordHash: schema.users.adminMagicWordHash })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
     return NextResponse.json({
       success: true,
-      data: { isSet: !!rows[0]?.admin_magic_word_hash },
+      data: { isSet: !!row?.adminMagicWordHash },
       error: null,
     });
   } catch (err) {
@@ -47,22 +50,24 @@ export const POST = withAdminAuth(async (req, { auth }) => {
 
     const body = await validateBody(req, setMagicWordSchema);
 
-    const { rows } = await db.query<{ password_hash: string }>(
-      `SELECT password_hash FROM users WHERE id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
-    const passwordValid = rows[0]?.password_hash
-      ? await compare(body.password, rows[0].password_hash)
+    const orm = await getDb();
+    const [row] = await orm
+      .select({ passwordHash: schema.users.passwordHash })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
+    const passwordValid = row?.passwordHash
+      ? await compare(body.password, row.passwordHash)
       : false;
     if (!passwordValid) {
       throw unauthorized("Current password is incorrect.");
     }
 
     const magicWordHash = await hash(body.magicWord, 12);
-    await db.query(
-      `UPDATE users SET admin_magic_word_hash = $1 WHERE id = $2`,
-      [magicWordHash, auth.user.sub]
-    );
+    await orm
+      .update(schema.users)
+      .set({ adminMagicWordHash: magicWordHash })
+      .where(eq(schema.users.id, auth.user.sub));
 
     return NextResponse.json({ success: true, data: { isSet: true }, error: null });
   } catch (err) {

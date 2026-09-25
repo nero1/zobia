@@ -22,7 +22,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { forbidden, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 // ---------------------------------------------------------------------------
 // DB row types
@@ -60,12 +61,14 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
 
     // Verify creator status
-    const { rows: creatorRows } = await db.query<CreatorRow>(
-      `SELECT is_creator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const [creatorRow] = await orm
+      .select({ is_creator: schema.users.isCreator })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
 
-    if (!creatorRows[0]?.is_creator) {
+    if (!creatorRow?.is_creator) {
       const emptyPeriod = { grossKobo: 0, netKobo: 0, platformFeeKobo: 0, byStream: {}, byStreamNet: {} };
       return NextResponse.json({
         isCreator: false,
@@ -81,18 +84,17 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     }
 
     // Earnings by period — use a single query with conditional aggregation
-    const { rows } = await db.query<EarningsRow>(
-      `SELECT
+    const { rows } = await orm.execute<EarningsRow & Record<string, unknown>>(sql`
+       SELECT
          source_type AS stream,
          SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE)::BIGINT AS today_gross,
          SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days')::BIGINT AS week_gross,
          SUM(gross_amount_kobo) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '30 days')::BIGINT AS month_gross,
          SUM(gross_amount_kobo)::BIGINT AS all_time_gross
        FROM creator_earnings
-       WHERE creator_id = $1
-       GROUP BY source_type`,
-      [userId]
-    );
+       WHERE creator_id = ${userId}
+       GROUP BY source_type
+    `);
 
     // Standard streams: platform 20%, creator 80%.
     // Sponsored quest stream: platform 30%, creator 70% (PRD §Sponsored Quests).

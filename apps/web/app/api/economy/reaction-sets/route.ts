@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -28,28 +29,6 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 const purchaseSchema = z.object({
   setId: z.string().uuid("setId must be a valid UUID"),
 });
-
-// ---------------------------------------------------------------------------
-// DB row types
-// ---------------------------------------------------------------------------
-
-interface ReactionSetRow {
-  id: string;
-  name: string;
-  description: string | null;
-  coin_price: number;
-  preview_emoji: string;
-  is_active: boolean;
-  created_at: string;
-}
-
-interface ReactionSetItemRow {
-  id: string;
-  set_id: string;
-  emoji: string;
-  name: string;
-  sort_order: number;
-}
 
 // ---------------------------------------------------------------------------
 // GET /api/economy/reaction-sets
@@ -66,15 +45,22 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // Fetch all active sets
-    const { rows: sets } = await db.query<ReactionSetRow>(
-      `SELECT id, name, description, coin_price, preview_emoji, is_active, created_at
-       FROM reaction_sets
-       WHERE is_active = TRUE
-       ORDER BY coin_price ASC`,
-      []
-    );
+    const sets = await orm
+      .select({
+        id: schema.reactionSets.id,
+        name: schema.reactionSets.name,
+        description: schema.reactionSets.description,
+        coinPrice: schema.reactionSets.coinPrice,
+        previewEmoji: schema.reactionSets.previewEmoji,
+        isActive: schema.reactionSets.isActive,
+        createdAt: schema.reactionSets.createdAt,
+      })
+      .from(schema.reactionSets)
+      .where(eq(schema.reactionSets.isActive, true))
+      .orderBy(asc(schema.reactionSets.coinPrice));
 
     if (sets.length === 0) {
       return NextResponse.json({ reactionSets: [] });
@@ -83,43 +69,47 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const setIds = sets.map((s) => s.id);
 
     // Fetch all items for these sets
-    const { rows: items } = await db.query<ReactionSetItemRow>(
-      `SELECT id, set_id, emoji, name, sort_order
-       FROM reaction_set_items
-       WHERE set_id = ANY($1)
-       ORDER BY set_id, sort_order ASC`,
-      [setIds]
-    );
+    const items = await orm
+      .select({
+        id: schema.reactionSetItems.id,
+        setId: schema.reactionSetItems.setId,
+        emoji: schema.reactionSetItems.emoji,
+        name: schema.reactionSetItems.name,
+        sortOrder: schema.reactionSetItems.sortOrder,
+      })
+      .from(schema.reactionSetItems)
+      .where(inArray(schema.reactionSetItems.setId, setIds))
+      .orderBy(asc(schema.reactionSetItems.setId), asc(schema.reactionSetItems.sortOrder));
 
     // Fetch which sets the caller already owns
-    const { rows: owned } = await db.query<{ set_id: string }>(
-      `SELECT set_id FROM user_reaction_sets WHERE user_id = $1`,
-      [userId]
-    );
-    const ownedSetIds = new Set(owned.map((r) => r.set_id));
+    const owned = await orm
+      .select({ setId: schema.userReactionSets.setId })
+      .from(schema.userReactionSets)
+      .where(eq(schema.userReactionSets.userId, userId));
+    const ownedSetIds = new Set(owned.map((r) => r.setId));
 
     // Build indexed items map
-    const itemsBySetId = new Map<string, ReactionSetItemRow[]>();
+    const itemsBySetId = new Map<string, typeof items>();
     for (const item of items) {
-      const list = itemsBySetId.get(item.set_id) ?? [];
+      const list = itemsBySetId.get(item.setId) ?? [];
       list.push(item);
-      itemsBySetId.set(item.set_id, list);
+      itemsBySetId.set(item.setId, list);
     }
 
     const reactionSets = sets.map((set) => ({
       id: set.id,
       name: set.name,
       description: set.description,
-      coinPrice: set.coin_price,
-      previewEmoji: set.preview_emoji,
+      coinPrice: set.coinPrice,
+      previewEmoji: set.previewEmoji,
       owned: ownedSetIds.has(set.id),
       reactions: (itemsBySetId.get(set.id) ?? []).map((item) => ({
         id: item.id,
         emoji: item.emoji,
         name: item.name,
-        sortOrder: item.sort_order,
+        sortOrder: item.sortOrder,
       })),
-      createdAt: set.created_at,
+      createdAt: set.createdAt,
     }));
 
     return NextResponse.json({ reactionSets });
@@ -150,74 +140,83 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const userId = auth.user.sub;
     const { setId } = await validateBody(req, purchaseSchema);
+    const orm = await getDb();
 
     // Fetch set
-    const { rows: setRows } = await db.query<ReactionSetRow>(
-      `SELECT id, name, description, coin_price, preview_emoji, is_active
-       FROM reaction_sets
-       WHERE id = $1`,
-      [setId]
-    );
-    const set = setRows[0];
+    const [set] = await orm
+      .select({
+        id: schema.reactionSets.id,
+        name: schema.reactionSets.name,
+        description: schema.reactionSets.description,
+        coinPrice: schema.reactionSets.coinPrice,
+        previewEmoji: schema.reactionSets.previewEmoji,
+        isActive: schema.reactionSets.isActive,
+      })
+      .from(schema.reactionSets)
+      .where(eq(schema.reactionSets.id, setId))
+      .limit(1);
     if (!set) throw notFound("Reaction set not found");
-    if (!set.is_active) throw badRequest("This reaction set is no longer available");
+    if (!set.isActive) throw badRequest("This reaction set is no longer available");
 
     // Check if already owned
-    const { rows: existingRows } = await db.query<{ set_id: string }>(
-      `SELECT set_id FROM user_reaction_sets WHERE user_id = $1 AND set_id = $2`,
-      [userId, setId]
-    );
-    if (existingRows.length > 0) {
+    const [existing] = await orm
+      .select({ setId: schema.userReactionSets.setId })
+      .from(schema.userReactionSets)
+      .where(
+        and(
+          eq(schema.userReactionSets.userId, userId),
+          eq(schema.userReactionSets.setId, setId)
+        )
+      )
+      .limit(1);
+    if (existing) {
       throw badRequest("You already own this reaction set");
     }
 
     // Fetch user balance
-    const { rows: userRows } = await db.query<{
-      coin_balance: number;
-    }>(
-      `SELECT coin_balance FROM users WHERE id = $1`,
-      [userId]
-    );
-    const user = userRows[0];
+    const [user] = await orm
+      .select({ coinBalance: schema.users.coinBalance })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
     if (!user) throw notFound("User not found");
 
-    const price = set.coin_price;
-    if (user.coin_balance < price) {
+    const price = BigInt(set.coinPrice);
+    if (user.coinBalance < price) {
       throw badRequest(
-        `Insufficient coins. You need ${price.toLocaleString()} coins but have ${user.coin_balance.toLocaleString()}.`
+        `Insufficient coins. You need ${price.toLocaleString()} coins but have ${user.coinBalance.toLocaleString()}.`
       );
     }
 
     // Atomic purchase transaction
-    const newBalance = await db.transaction(async (tx) => {
+    const newBalance = await orm.transaction(async (tx) => {
       // Deduct coins
-      const { rows: updatedUser } = await tx.query<{ coin_balance: number }>(
-        `UPDATE users
-         SET coin_balance = coin_balance - $1, updated_at = NOW()
-         WHERE id = $2 AND coin_balance >= $1
-         RETURNING coin_balance`,
-        [price, userId]
-      );
-      if (!updatedUser[0]) {
+      const [updatedUser] = await tx
+        .update(schema.users)
+        .set({ coinBalance: sql`${schema.users.coinBalance} - ${price}`, updatedAt: new Date() })
+        .where(and(eq(schema.users.id, userId), sql`${schema.users.coinBalance} >= ${price}`))
+        .returning({ coinBalance: schema.users.coinBalance });
+      if (!updatedUser) {
         throw badRequest("Insufficient coins (concurrent update)");
       }
-      const balanceAfter = updatedUser[0].coin_balance;
+      const balanceAfter = updatedUser.coinBalance;
 
       // Append to coin ledger
-      await tx.query(
-        `INSERT INTO coin_ledger
-           (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description)
-         VALUES ($1, $2, $3, $4, 'booster_pack', $5, 'Reaction set purchase')`,
-        [userId, -price, user.coin_balance, balanceAfter, setId]
-      );
+      await tx.insert(schema.coinLedger).values({
+        userId,
+        amount: -price,
+        balanceBefore: user.coinBalance,
+        balanceAfter,
+        transactionType: "booster_pack",
+        referenceId: setId,
+        description: "Reaction set purchase",
+      });
 
       // Grant ownership
-      await tx.query(
-        `INSERT INTO user_reaction_sets (user_id, set_id, purchased_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (user_id, set_id) DO NOTHING`,
-        [userId, setId]
-      );
+      await tx
+        .insert(schema.userReactionSets)
+        .values({ userId, setId })
+        .onConflictDoNothing();
 
       return balanceAfter;
     });
@@ -228,10 +227,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           id: set.id,
           name: set.name,
           description: set.description,
-          coinPrice: set.coin_price,
-          previewEmoji: set.preview_emoji,
+          coinPrice: set.coinPrice,
+          previewEmoji: set.previewEmoji,
         },
-        newBalance,
+        newBalance: Number(newBalance),
       },
       { status: 201 }
     );

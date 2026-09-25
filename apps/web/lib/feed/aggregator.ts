@@ -17,7 +17,8 @@
  * parity later.
  */
 
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
+import { sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 import type { FeedContentType, FeedItem, FeedPage, FeedTab, FeedTier } from "./types";
 import { computeFinalScore, interestMatchScore, mergeTiers, normalizeScores, velocityScore, businessTierScore } from "./ranking";
@@ -157,8 +158,15 @@ function trendingSourceFor(popularSql: string): string {
 }
 
 async function fetchRawCandidates(sources: { sql: string }[], limitPerType: number): Promise<RawCandidateRow[]> {
+  const orm = await getDb();
+  // limitPerType is always an internal constant (PER_TYPE_LIMIT), never
+  // user input, so splicing it into the query text via sql.raw is safe —
+  // the source SQL text itself is a hardcoded literal, never built from
+  // request input either.
   const results = await Promise.allSettled(
-    sources.map((s) => db.query<RawCandidateRow>(s.sql, [limitPerType]))
+    sources.map((s) =>
+      orm.execute<RawCandidateRow & Record<string, unknown>>(sql.raw(s.sql.replace("$1", String(limitPerType))))
+    )
   );
   const rows: RawCandidateRow[] = [];
   for (const r of results) {
@@ -207,8 +215,9 @@ interface ActiveBoostRow {
 }
 
 async function fetchBoostedTiers(): Promise<{ boosted: FeedItem[]; inHouse: FeedItem[] }> {
-  const { rows } = await db.query<ActiveBoostRow>(
-    `SELECT c.id AS campaign_id, c.boosted_content_type, c.boosted_content_id,
+  const orm = await getDb();
+  const { rows } = await orm.execute<ActiveBoostRow & Record<string, unknown>>(sql`
+    SELECT c.id AS campaign_id, c.boosted_content_type, c.boosted_content_id,
             cr.title, cr.body, cr.image_url, c.created_at
      FROM ad_campaigns c
      JOIN ad_creatives cr ON cr.campaign_id = c.id
@@ -221,8 +230,8 @@ async function fetchBoostedTiers(): Promise<{ boosted: FeedItem[]; inHouse: Feed
        AND (c.start_at IS NULL OR c.start_at <= NOW())
        AND (c.end_at IS NULL OR c.end_at >= NOW())
      ORDER BY c.created_at DESC
-     LIMIT 200`
-  );
+     LIMIT 200
+  `);
 
   const boosted: FeedItem[] = [];
   const inHouse: FeedItem[] = [];
@@ -233,9 +242,8 @@ async function fetchBoostedTiers(): Promise<{ boosted: FeedItem[]; inHouse: Feed
 
     let isStaffAuthor = false;
     if (content.ownerId) {
-      const { rows: authorRows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-        `SELECT is_admin, is_moderator FROM users WHERE id = $1 LIMIT 1`,
-        [content.ownerId]
+      const { rows: authorRows } = await orm.execute<{ is_admin: boolean; is_moderator: boolean }>(
+        sql`SELECT is_admin, is_moderator FROM users WHERE id = ${content.ownerId} LIMIT 1`
       );
       isStaffAuthor = !!(authorRows[0]?.is_admin || authorRows[0]?.is_moderator);
     }
@@ -289,8 +297,9 @@ interface BusinessPostRow {
 }
 
 async function fetchBusinessTier(limit: number): Promise<FeedItem[]> {
-  const { rows } = await db.query<BusinessPostRow>(
-    `SELECT p.id::text AS content_id, ba.user_id::text AS author_id, p.title, p.body AS excerpt,
+  const orm = await getDb();
+  const { rows } = await orm.execute<BusinessPostRow & Record<string, unknown>>(sql`
+    SELECT p.id::text AS content_id, ba.user_id::text AS author_id, p.title, p.body AS excerpt,
             p.image_url, p.created_at, ba.tier AS business_tier
      FROM business_page_posts p
      JOIN business_pages bp ON bp.id = p.page_id
@@ -302,9 +311,8 @@ async function fetchBusinessTier(limit: number): Promise<FeedItem[]> {
            AND c.status = 'active' AND c.moderation_status = 'approved' AND c.deleted_at IS NULL
        )
      ORDER BY p.created_at DESC
-     LIMIT $1`,
-    [limit]
-  );
+     LIMIT ${limit}
+  `);
 
   const scores = normalizeScores(rows.map((r) => businessTierScore(r.business_tier)));
   return rows.map((row, idx) => ({
@@ -412,9 +420,9 @@ function toPublicItem(item: FeedItem): FeedPage["items"][number] {
 
 /** Small, single-table read — a user's own interest weights, keyed by lowercased tag. */
 async function loadUserInterestWeights(userId: string): Promise<Map<string, number>> {
-  const { rows } = await db.query<{ interest_tag: string; weight: string }>(
-    `SELECT interest_tag, weight FROM user_interests WHERE user_id = $1 ORDER BY weight DESC LIMIT 100`,
-    [userId]
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ interest_tag: string; weight: string }>(
+    sql`SELECT interest_tag, weight FROM user_interests WHERE user_id = ${userId} ORDER BY weight DESC LIMIT 100`
   );
   const map = new Map<string, number>();
   for (const r of rows) map.set(r.interest_tag.toLowerCase(), (map.get(r.interest_tag.toLowerCase()) ?? 0) + Number(r.weight));
@@ -467,7 +475,8 @@ async function fetchNewPage(cursor: string | null, limit: number): Promise<FeedP
     }
   }
 
-  const { rows } = await db.query<RawCandidateRow>(
+  const orm = await getDb();
+  const { rows } = await orm.execute<RawCandidateRow & Record<string, unknown>>(
     // The whole UNION is wrapped in an outer subquery so the cursor WHERE,
     // ORDER BY and LIMIT apply to the COMBINED result. Written inline after
     // the last branch they would bind to that branch alone, where the
@@ -475,7 +484,7 @@ async function fetchNewPage(cursor: string | null, limit: number): Promise<FeedP
     // `column "content_id" does not exist` ("...there is a column named
     // content_id in table "*SELECT* 1", but it cannot be referenced from
     // this part of the query"), 500ing the whole tab.
-    `SELECT * FROM (
+    sql`SELECT * FROM (
        SELECT * FROM (
          SELECT 'moment' AS content_type, id::text AS content_id, user_id::text AS author_id,
                 NULL::text AS title, content AS excerpt, media_url AS image_url, created_at,
@@ -528,10 +537,10 @@ async function fetchNewPage(cursor: string | null, limit: number): Promise<FeedP
          FROM quizzes WHERE deleted_at IS NULL AND status = 'active' ORDER BY created_at DESC LIMIT 50
        ) x
      ) feed
-     WHERE $1::timestamptz IS NULL OR created_at < $1::timestamptz OR (created_at = $1::timestamptz AND content_id < $2)
+     WHERE ${cursorCreatedAt}::timestamptz IS NULL OR created_at < ${cursorCreatedAt}::timestamptz OR (created_at = ${cursorCreatedAt}::timestamptz AND content_id < ${cursorId})
      ORDER BY created_at DESC, content_id DESC
-     LIMIT $3`,
-    [cursorCreatedAt, cursorId, limit]
+     LIMIT ${limit}
+  `
   );
 
   const items = rows.map((r) => toFeedItem(r, "recency", 0.5));
@@ -562,15 +571,16 @@ async function fetchFriendsPage(userId: string, cursor: string | null, limit: nu
   // friendships/follows' uuid columns raised
   // `operator does not exist: uuid = text` and 500'd the tab. Filtering on the
   // uuid column directly also keeps the friendships/follows indexes usable.
-  const connectedTo = (col: string) => `(
-    EXISTS (SELECT 1 FROM friendships f WHERE f.status = 'accepted' AND ((f.requester_id = $1 AND f.addressee_id = ${col}) OR (f.addressee_id = $1 AND f.requester_id = ${col})))
-    OR EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = $1 AND fo.following_id = ${col})
+  const connectedTo = (col: string) => sql`(
+    EXISTS (SELECT 1 FROM friendships f WHERE f.status = 'accepted' AND ((f.requester_id = ${userId} AND f.addressee_id = ${sql.raw(col)}) OR (f.addressee_id = ${userId} AND f.requester_id = ${sql.raw(col)})))
+    OR EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = ${userId} AND fo.following_id = ${sql.raw(col)})
   )`;
 
   // As in fetchNewPage, the cursor WHERE/ORDER BY/LIMIT must sit on an outer
   // subquery wrapping the entire UNION, not trail the final branch.
-  const { rows } = await db.query<RawCandidateRow>(
-    `SELECT * FROM (
+  const orm = await getDb();
+  const { rows } = await orm.execute<RawCandidateRow & Record<string, unknown>>(
+    sql`SELECT * FROM (
        SELECT * FROM (
          SELECT 'moment' AS content_type, id::text AS content_id, user_id::text AS author_id,
                 NULL::text AS title, content AS excerpt, media_url AS image_url, created_at,
@@ -615,10 +625,10 @@ async function fetchFriendsPage(userId: string, cursor: string | null, limit: nu
          ORDER BY created_at DESC LIMIT 30
        ) g
      ) feed
-     WHERE $2::timestamptz IS NULL OR created_at < $2::timestamptz OR (created_at = $2::timestamptz AND content_id < $3)
+     WHERE ${cursorCreatedAt}::timestamptz IS NULL OR created_at < ${cursorCreatedAt}::timestamptz OR (created_at = ${cursorCreatedAt}::timestamptz AND content_id < ${cursorId})
      ORDER BY created_at DESC, content_id DESC
-     LIMIT $4`,
-    [userId, cursorCreatedAt, cursorId, limit]
+     LIMIT ${limit}
+  `
   );
 
   const items = rows.map((r) => toFeedItem(r, "recency", 0.5));

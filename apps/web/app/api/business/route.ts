@@ -24,7 +24,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, and, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, conflict, badRequest } from "@/lib/api/errors";
@@ -90,10 +91,69 @@ interface BusinessAccountRow {
   updated_at: string;
 }
 
-const BUSINESS_SELECT_COLUMNS = `id, user_id, business_name, business_type, tier, verified, status,
-              verification_status, verification_requested_at, verification_reviewed_at,
-              verification_reject_reason, subscription_id, downgrade_to_tier, downgrade_effective_at,
-              current_period_ends_at, created_at, updated_at`;
+// NOTE (schema mismatch): `current_period_ends_at` exists on the real
+// business_accounts table (db/migrations/0001_consolidated_schema.sql) but
+// is missing from the Drizzle table definition in lib/db/schema.ts — it is
+// selected here via a raw `sql` template until that's added upstream.
+const businessAccountSelection = {
+  id: schema.businessAccounts.id,
+  userId: schema.businessAccounts.userId,
+  businessName: schema.businessAccounts.businessName,
+  businessType: schema.businessAccounts.businessType,
+  tier: schema.businessAccounts.tier,
+  verified: schema.businessAccounts.verified,
+  status: schema.businessAccounts.status,
+  verificationStatus: schema.businessAccounts.verificationStatus,
+  verificationRequestedAt: schema.businessAccounts.verificationRequestedAt,
+  verificationReviewedAt: schema.businessAccounts.verificationReviewedAt,
+  verificationRejectReason: schema.businessAccounts.verificationRejectReason,
+  subscriptionId: schema.businessAccounts.subscriptionId,
+  downgradeToTier: schema.businessAccounts.downgradeToTier,
+  downgradeEffectiveAt: schema.businessAccounts.downgradeEffectiveAt,
+  currentPeriodEndsAt: sql<string | null>`current_period_ends_at`.as("current_period_ends_at"),
+  createdAt: schema.businessAccounts.createdAt,
+  updatedAt: schema.businessAccounts.updatedAt,
+};
+
+function toBusinessAccountRow(row: {
+  id: string;
+  userId: string;
+  businessName: string;
+  businessType: string | null;
+  tier: string;
+  verified: boolean | null;
+  status: string;
+  verificationStatus: string;
+  verificationRequestedAt: Date | null;
+  verificationReviewedAt: Date | null;
+  verificationRejectReason: string | null;
+  subscriptionId: string | null;
+  downgradeToTier: string | null;
+  downgradeEffectiveAt: Date | null;
+  currentPeriodEndsAt: string | null;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+}): BusinessAccountRow {
+  return {
+    id: row.id,
+    user_id: row.userId,
+    business_name: row.businessName,
+    business_type: row.businessType,
+    tier: row.tier,
+    verified: !!row.verified,
+    status: row.status,
+    verification_status: row.verificationStatus,
+    verification_requested_at: row.verificationRequestedAt ? row.verificationRequestedAt.toISOString() : null,
+    verification_reviewed_at: row.verificationReviewedAt ? row.verificationReviewedAt.toISOString() : null,
+    verification_reject_reason: row.verificationRejectReason,
+    subscription_id: row.subscriptionId,
+    downgrade_to_tier: row.downgradeToTier,
+    downgrade_effective_at: row.downgradeEffectiveAt ? row.downgradeEffectiveAt.toISOString() : null,
+    current_period_ends_at: row.currentPeriodEndsAt,
+    created_at: row.createdAt ? row.createdAt.toISOString() : "",
+    updated_at: row.updatedAt ? row.updatedAt.toISOString() : "",
+  };
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/business
@@ -103,18 +163,18 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<BusinessAccountRow>(
-      `SELECT ${BUSINESS_SELECT_COLUMNS}
-       FROM business_accounts
-       WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select(businessAccountSelection)
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.userId, userId))
+      .limit(1);
 
     if (!rows[0]) throw notFound("Business account not found");
 
     return NextResponse.json({
       success: true,
-      data: { business: rows[0] },
+      data: { business: toBusinessAccountRow(rows[0]) },
       error: null,
     });
   } catch (err) {
@@ -134,20 +194,24 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     const body = await validateBody(req, createBusinessSchema);
 
+    const orm = await getDb();
+
     // Check for existing business account
-    const { rows: existing } = await db.query<{ id: string }>(
-      `SELECT id FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const existing = await orm
+      .select({ id: schema.businessAccounts.id })
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.userId, userId))
+      .limit(1);
     if (existing.length > 0) {
       throw conflict("You already have a business account");
     }
 
     // Load user record for the payment provider's email requirement
-    const { rows: userRows } = await db.query<{ email: string | null; username: string }>(
-      `SELECT email, username FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const userRows = await orm
+      .select({ email: schema.users.email, username: schema.users.username })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!userRows[0]) throw notFound("User not found");
     const userEmail = userRows[0].email ?? `${userRows[0].username}@zobia.placeholder`;
 
@@ -174,15 +238,21 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     };
 
     if (decision.isFree) {
-      const { rows: freeRows } = await db.query<{ id: string }>(
-        `INSERT INTO payments
-           (user_id, payment_type, amount_kobo, currency, provider,
-            status, idempotency_key, provider_reference, metadata)
-         VALUES ($1, 'business_upgrade', $2, 'NGN', 'free', 'pending', $3, $3, $4::jsonb)
-         ON CONFLICT (idempotency_key) DO NOTHING
-         RETURNING id`,
-        [userId, priceKobo, reference, JSON.stringify(metadata)]
-      );
+      const freeRows = await orm
+        .insert(schema.payments)
+        .values({
+          userId,
+          paymentType: "business_upgrade",
+          amountKobo: BigInt(priceKobo),
+          currency: "NGN",
+          provider: "free",
+          status: "pending",
+          idempotencyKey: reference,
+          providerReference: reference,
+          metadata,
+        })
+        .onConflictDoNothing({ target: schema.payments.idempotencyKey })
+        .returning({ id: schema.payments.id });
       if (freeRows[0]) {
         await processChargeSuccess({
           reference,
@@ -211,31 +281,34 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     // (single atomic INSERT ... WHERE NOT EXISTS) closes that window: only
     // one concurrent request can win the reservation, so only one payment
     // provider session is ever created per pending-payment window.
-    const { rows: reservedRows } = await db.query<{ id: string }>(
-      `INSERT INTO payments
-         (user_id, payment_type, amount_kobo, currency, provider,
-          status, idempotency_key, provider_reference, metadata)
-       SELECT $1, 'business_upgrade', $2, 'NGN', $3, 'pending', $4, $4, $5::jsonb
-       WHERE NOT EXISTS (
-         SELECT 1 FROM payments
-         WHERE user_id = $1
-           AND payment_type = 'business_upgrade'
-           AND status = 'pending'
-           AND metadata->>'itemType' = 'business_signup'
-           AND created_at > NOW() - INTERVAL '${PENDING_PAYMENT_TTL_MINUTES} minutes'
-       )
-       RETURNING id`,
-      [userId, priceKobo, provider, reference, JSON.stringify(metadata)]
-    );
+    // Expressed via Drizzle's `sql` tag (still parameterized) rather than
+    // the query builder — the atomic "INSERT ... WHERE NOT EXISTS" race
+    // guard (BIZ-SIGNUP-RACE) has no direct query-builder equivalent.
+    const reservedResult = await orm.execute<{ id: string }>(sql`
+      INSERT INTO payments
+        (user_id, payment_type, amount_kobo, currency, provider,
+         status, idempotency_key, provider_reference, metadata)
+      SELECT ${userId}, 'business_upgrade', ${priceKobo}, 'NGN', ${provider}, 'pending', ${reference}, ${reference}, ${JSON.stringify(metadata)}::jsonb
+      WHERE NOT EXISTS (
+        SELECT 1 FROM payments
+        WHERE user_id = ${userId}
+          AND payment_type = 'business_upgrade'
+          AND status = 'pending'
+          AND metadata->>'itemType' = 'business_signup'
+          AND created_at > NOW() - INTERVAL '${sql.raw(String(PENDING_PAYMENT_TTL_MINUTES))} minutes'
+      )
+      RETURNING id
+    `);
+    const reservedRows = reservedResult.rows;
     if (!reservedRows[0]) {
-      const { rows: pendingRows } = await db.query<{ created_at: string }>(
-        `SELECT created_at FROM payments
-         WHERE user_id = $1 AND payment_type = 'business_upgrade' AND status = 'pending'
-           AND metadata->>'itemType' = 'business_signup'
-           AND created_at > NOW() - INTERVAL '${PENDING_PAYMENT_TTL_MINUTES} minutes'
-         ORDER BY created_at DESC LIMIT 1`,
-        [userId]
-      );
+      const pendingResult = await orm.execute<{ created_at: string }>(sql`
+        SELECT created_at FROM payments
+        WHERE user_id = ${userId} AND payment_type = 'business_upgrade' AND status = 'pending'
+          AND metadata->>'itemType' = 'business_signup'
+          AND created_at > NOW() - INTERVAL '${sql.raw(String(PENDING_PAYMENT_TTL_MINUTES))} minutes'
+        ORDER BY created_at DESC LIMIT 1
+      `);
+      const pendingRows = pendingResult.rows;
       const expiresAt = pendingRows[0]
         ? new Date(new Date(pendingRows[0].created_at).getTime() + PENDING_PAYMENT_TTL_MINUTES * 60_000).toISOString()
         : null;
@@ -257,10 +330,10 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     // Record the provider's own reference against the reserved row (used by
     // the webhook handler to look up this payment by provider_reference).
     if (providerReference !== reference) {
-      await db.query(
-        `UPDATE payments SET provider_reference = $1 WHERE id = $2`,
-        [providerReference, reservedRows[0].id]
-      );
+      await orm
+        .update(schema.payments)
+        .set({ providerReference })
+        .where(eq(schema.payments.id, reservedRows[0].id));
     }
     if (computed) {
       await applyCryptoComputedAmount(reservedRows[0].id, computed);
@@ -297,39 +370,33 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
 
     const body = await validateBody(req, updateBusinessSchema);
 
-    const updates: string[] = [];
-    const params: (string | null)[] = [];
-    let idx = 1;
+    const updates: Partial<typeof schema.businessAccounts.$inferInsert> = {};
+    if (body.business_name !== undefined) updates.businessName = body.business_name;
+    if (body.business_type !== undefined) updates.businessType = body.business_type;
 
-    if (body.business_name !== undefined) {
-      updates.push(`business_name = $${idx++}`);
-      params.push(body.business_name);
-    }
-    if (body.business_type !== undefined) {
-      updates.push(`business_type = $${idx++}`);
-      params.push(body.business_type);
-    }
-
-    if (updates.length === 0) {
+    if (Object.keys(updates).length === 0) {
       throw { status: 400, code: "BAD_REQUEST", message: "No fields to update" };
     }
+    updates.updatedAt = new Date();
 
-    updates.push(`updated_at = NOW()`);
-    params.push(userId);
+    const orm = await getDb();
+    const updated = await orm
+      .update(schema.businessAccounts)
+      .set(updates)
+      .where(eq(schema.businessAccounts.userId, userId))
+      .returning({ id: schema.businessAccounts.id });
 
-    const { rows } = await db.query<BusinessAccountRow>(
-      `UPDATE business_accounts
-       SET ${updates.join(", ")}
-       WHERE user_id = $${idx}
-       RETURNING ${BUSINESS_SELECT_COLUMNS}`,
-      params
-    );
+    if (!updated[0]) throw notFound("Business account not found");
 
-    if (!rows[0]) throw notFound("Business account not found");
+    const rows = await orm
+      .select(businessAccountSelection)
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.userId, userId))
+      .limit(1);
 
     return NextResponse.json({
       success: true,
-      data: { business: rows[0] },
+      data: { business: toBusinessAccountRow(rows[0]) },
       error: null,
     });
   } catch (err) {

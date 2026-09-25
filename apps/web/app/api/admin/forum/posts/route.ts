@@ -8,10 +8,11 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 
 export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) => {
   try {
@@ -22,29 +23,28 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
     const cursor = url.searchParams.get("cursor");
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 100);
 
-    const params: (string | number)[] = [limit + 1];
-    let whereClause = "1=1";
+    const conditions = [sql`1=1`];
     if (status !== "all") {
-      params.push(status);
-      whereClause += ` AND t.status = $${params.length}`;
+      conditions.push(sql`t.status = ${status}`);
     }
     if (cursor) {
-      params.push(cursor);
-      whereClause += ` AND t.created_at < $${params.length}`;
+      conditions.push(sql`t.created_at < ${cursor}`);
     }
+    const whereClause = sql.join(conditions, sql` AND `);
+
+    const orm = await getDb();
 
     if (type === "question") {
-      const { rows } = await db.query(
-        `SELECT t.id, t.title, t.body, t.slug, t.status, t.vote_score, t.answer_count,
-                t.favorite_count, t.is_locked, t.created_at,
-                u.id AS author_id, u.username AS author_username
-         FROM forum_questions t
-         JOIN users u ON u.id = t.author_id
-         WHERE ${whereClause}
-         ORDER BY t.created_at DESC
-         LIMIT $1`,
-        params
-      );
+      const { rows } = await orm.execute(sql`
+        SELECT t.id, t.title, t.body, t.slug, t.status, t.vote_score, t.answer_count,
+               t.favorite_count, t.is_locked, t.created_at,
+               u.id AS author_id, u.username AS author_username
+        FROM forum_questions t
+        JOIN users u ON u.id = t.author_id
+        WHERE ${whereClause}
+        ORDER BY t.created_at DESC
+        LIMIT ${limit + 1}
+      `);
       const hasMore = rows.length > limit;
       const items = hasMore ? rows.slice(0, limit) : rows;
       return NextResponse.json({
@@ -54,17 +54,16 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
       });
     }
 
-    const { rows } = await db.query(
-      `SELECT t.id, t.question_id, t.body, t.status, t.vote_score, t.depth, t.created_at,
-              u.id AS author_id, u.username AS author_username, q.slug AS question_slug
-       FROM forum_answers t
-       JOIN forum_questions q ON q.id = t.question_id
-       JOIN users u ON u.id = t.author_id
-       WHERE ${whereClause}
-       ORDER BY t.created_at DESC
-       LIMIT $1`,
-      params
-    );
+    const { rows } = await orm.execute(sql`
+      SELECT t.id, t.question_id, t.body, t.status, t.vote_score, t.depth, t.created_at,
+             u.id AS author_id, u.username AS author_username, q.slug AS question_slug
+      FROM forum_answers t
+      JOIN forum_questions q ON q.id = t.question_id
+      JOIN users u ON u.id = t.author_id
+      WHERE ${whereClause}
+      ORDER BY t.created_at DESC
+      LIMIT ${limit + 1}
+    `);
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;
     return NextResponse.json({

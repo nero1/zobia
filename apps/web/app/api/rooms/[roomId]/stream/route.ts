@@ -39,7 +39,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import {
   verifyAccessToken,
   extractBearerToken,
@@ -129,8 +130,9 @@ async function fetchNewMessages(
   afterCreatedAt: string | null,
   afterId: string | null
 ): Promise<MessageRow[]> {
-  const query = afterCreatedAt
-    ? `SELECT
+  const orm = await getDb();
+  const baseSelect = sql`
+       SELECT
          m.id,
          m.room_id,
          m.sender_id,
@@ -145,35 +147,19 @@ async function fetchNewMessages(
          m.created_at
        FROM room_messages m
        JOIN users u ON u.id = m.sender_id
-       WHERE m.room_id = $1
-         AND m.is_deleted = FALSE
-         AND (m.created_at, m.id) > ($2, $3)
+       WHERE m.room_id = ${roomId}
+         AND m.is_deleted = FALSE`;
+
+  const query = afterCreatedAt
+    ? sql`${baseSelect}
+         AND (m.created_at, m.id) > (${afterCreatedAt}, ${afterId ?? ""})
        ORDER BY m.created_at ASC, m.id ASC
        LIMIT 50`
-    : `SELECT
-         m.id,
-         m.room_id,
-         m.sender_id,
-         u.username        AS sender_username,
-         u.display_name    AS sender_display_name,
-         u.avatar_emoji    AS sender_avatar_emoji,
-         u.is_creator      AS sender_is_creator,
-         m.content,
-         m.message_type,
-         m.metadata,
-         m.reply_to_message_id,
-         m.created_at
-       FROM room_messages m
-       JOIN users u ON u.id = m.sender_id
-       WHERE m.room_id = $1
-         AND m.is_deleted = FALSE
+    : sql`${baseSelect}
        ORDER BY m.created_at DESC, m.id DESC
        LIMIT 20`;
 
-  const { rows } = await db.query<MessageRow>(
-    query,
-    afterCreatedAt ? [roomId, afterCreatedAt, afterId ?? ""] : [roomId]
-  );
+  const { rows } = await orm.execute<MessageRow & Record<string, unknown>>(query);
 
   // For the initial load (no cursor), reverse to chronological order
   return afterCreatedAt ? rows : rows.reverse();
@@ -213,32 +199,28 @@ export async function GET(
   }
 
   const { roomId } = await params;
+  const orm = await getDb();
 
   // ---- Room access check ---------------------------------------------------
   // BUG-SSE-01: also filter out soft-deleted rooms
-  const { rows: roomRows } = await db.query<{
-    type: string;
-    creator_id: string;
-    is_active: boolean;
-  }>(
-    `SELECT type, creator_id, is_active FROM rooms WHERE id = $1 AND deleted_at IS NULL`,
-    [roomId]
-  );
-  const room = roomRows[0];
-  if (!room || !room.is_active) {
+  const [room] = await orm
+    .select({ type: schema.rooms.type, creatorId: schema.rooms.creatorId, isActive: schema.rooms.isActive })
+    .from(schema.rooms)
+    .where(and(eq(schema.rooms.id, roomId), isNull(schema.rooms.deletedAt)));
+  if (!room || !room.isActive) {
     return new Response("Room not found", { status: 404 });
   }
 
-  const isCreator = room.creator_id === userId;
+  const isCreator = room.creatorId === userId;
 
   // Check membership; BUG-SSE-03: also fetch muted_until to block muted members
-  const { rows: memberRows } = await db.query<{ role: string; muted_until: string | null }>(
-    `SELECT role, muted_until FROM room_members WHERE room_id = $1 AND user_id = $2`,
-    [roomId, userId]
-  );
+  const memberRows = await orm
+    .select({ role: schema.roomMembers.role, mutedUntil: schema.roomMembers.mutedUntil })
+    .from(schema.roomMembers)
+    .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, userId)));
   const isMember = memberRows.length > 0;
-  const mutedUntil = memberRows[0]?.muted_until ?? null;
-  if (isMember && mutedUntil && new Date(mutedUntil) > new Date()) {
+  const mutedUntil = memberRows[0]?.mutedUntil ?? null;
+  if (isMember && mutedUntil && mutedUntil > new Date()) {
     return new Response("You are muted in this room", { status: 403 });
   }
 
@@ -261,13 +243,13 @@ export async function GET(
   let afterCreatedAt: string | null = null;
   let afterId: string | null = null;
   if (lastMessageId) {
-    const { rows: anchorRows } = await db.query<{ created_at: string; id: string }>(
-      `SELECT created_at, id FROM room_messages WHERE id = $1 AND room_id = $2`,
-      [lastMessageId, roomId]
-    );
-    if (anchorRows[0]) {
-      afterCreatedAt = anchorRows[0].created_at;
-      afterId = anchorRows[0].id;
+    const [anchor] = await orm
+      .select({ createdAt: schema.roomMessages.createdAt, id: schema.roomMessages.id })
+      .from(schema.roomMessages)
+      .where(and(eq(schema.roomMessages.id, lastMessageId), eq(schema.roomMessages.roomId, roomId)));
+    if (anchor) {
+      afterCreatedAt = anchor.createdAt ? anchor.createdAt.toISOString() : null;
+      afterId = anchor.id;
     }
   }
 

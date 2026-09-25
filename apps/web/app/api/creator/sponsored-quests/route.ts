@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -75,8 +76,9 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     await enforceRateLimit(userId, "user", RATE_LIMITS.apiRead);
 
-    const { rows } = await db.query<SponsoredQuestRow>(
-      `SELECT
+    const orm = await getDb();
+    const { rows } = await orm.execute<SponsoredQuestRow & Record<string, unknown>>(sql`
+       SELECT
          sq.id,
          sq.brand_name,
          sq.title,
@@ -91,16 +93,15 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          sq.created_at,
          COUNT(sqa.id)::int AS application_count,
          COALESCE(
-           BOOL_OR(sqa.creator_id = $1), FALSE
+           BOOL_OR(sqa.creator_id = ${userId}), FALSE
          ) AS user_has_applied
        FROM sponsored_quests sq
        LEFT JOIN sponsored_quest_applications sqa ON sqa.quest_id = sq.id
        WHERE sq.is_active = TRUE
          AND sq.deadline > NOW()
        GROUP BY sq.id
-       ORDER BY sq.created_at DESC`,
-      [userId]
-    );
+       ORDER BY sq.created_at DESC
+    `);
 
     return NextResponse.json({
       success: true,
@@ -125,27 +126,22 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
 
     const body = await validateBody(req, createSponsoredQuestSchema);
 
-    const insertResult = await db.query<{ id: string }>(
-      `INSERT INTO sponsored_quests
-         (brand_name, title, description, requirements, reward_coins,
-          creator_share_percent, platform_share_percent, max_applications,
-          deadline, is_active, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, TRUE, NOW())
-       RETURNING id`,
-      [
-        body.brandName,
-        body.title,
-        body.description,
-        body.requirements,
-        body.rewardCoins,
-        body.creatorSharePercent,
-        body.platformSharePercent,
-        body.maxApplications,
-        body.deadline,
-      ]
-    );
-
-    const quest = insertResult.rows[0];
+    const orm = await getDb();
+    const [quest] = await orm
+      .insert(schema.sponsoredQuests)
+      .values({
+        brandName: body.brandName,
+        title: body.title,
+        description: body.description,
+        requirements: body.requirements,
+        rewardCoins: body.rewardCoins,
+        creatorSharePercent: body.creatorSharePercent,
+        platformSharePercent: body.platformSharePercent,
+        maxApplications: body.maxApplications,
+        deadline: new Date(body.deadline),
+        isActive: true,
+      })
+      .returning({ id: schema.sponsoredQuests.id });
 
     return NextResponse.json(
       { success: true, data: { questId: quest.id }, error: null },

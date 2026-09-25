@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -155,23 +156,20 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
     const { q, cursor, limit, gender } = validateSearchParams(searchParams, searchSchema);
 
     // Build dynamic WHERE clause
-    const conditions: string[] = ["u.deleted_at IS NULL"];
-    const queryParams: (string | number | string[])[] = [];
-    let paramIdx = 1;
+    const conditions = [sql`u.deleted_at IS NULL`];
 
     if (gender.length > 0) {
       const wantsUnset = gender.includes("unset");
       const enumValues = gender.filter((g) => g !== "unset");
-      const genderConditions: string[] = [];
+      const genderConditions = [];
       if (enumValues.length > 0) {
-        genderConditions.push(`u.gender = ANY($${paramIdx++})`);
-        queryParams.push(enumValues);
+        genderConditions.push(sql`u.gender = ANY(${enumValues})`);
       }
       if (wantsUnset) {
-        genderConditions.push("u.gender IS NULL");
+        genderConditions.push(sql`u.gender IS NULL`);
       }
       if (genderConditions.length > 0) {
-        conditions.push(`(${genderConditions.join(" OR ")})`);
+        conditions.push(sql`(${sql.join(genderConditions, sql` OR `)})`);
       }
     }
 
@@ -180,16 +178,13 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
         /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
       if (UUID_RE.test(q)) {
         // Exact UUID lookup
-        conditions.push(`u.id = $${paramIdx++}`);
-        queryParams.push(q);
+        conditions.push(sql`u.id = ${q}`);
       } else if (q.includes("@")) {
         // Email search (case-insensitive)
-        conditions.push(`LOWER(u.email) LIKE $${paramIdx++}`);
-        queryParams.push(`%${q.toLowerCase()}%`);
+        conditions.push(sql`LOWER(u.email) LIKE ${`%${q.toLowerCase()}%`}`);
       } else {
         // Username prefix search
-        conditions.push(`LOWER(u.username) LIKE $${paramIdx++}`);
-        queryParams.push(`${q.toLowerCase()}%`);
+        conditions.push(sql`LOWER(u.username) LIKE ${`${q.toLowerCase()}%`}`);
       }
     }
 
@@ -206,12 +201,10 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
     }
 
     if (cursorCreatedAt && cursorId) {
-      conditions.push(`(u.created_at, u.id) < ($${paramIdx}, $${paramIdx + 1})`);
-      queryParams.push(cursorCreatedAt, cursorId);
-      paramIdx += 2;
+      conditions.push(sql`(u.created_at, u.id) < (${cursorCreatedAt}, ${cursorId})`);
     }
 
-    const where = conditions.join(" AND ");
+    const whereClause = sql.join(conditions, sql` AND `);
 
     // ADMIN-01: no COUNT(*) query needed with keyset pagination (it would scan the full table).
     // The response omits `total` in favour of `hasMore` + `nextCursor`.
@@ -219,8 +212,9 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
     // ADMIN-03: correlated subqueries instead of full-table GROUP BY derived tables.
     // Each subquery scans only the rows for the current page's users (index lookups).
     // ADMIN-02: count ALL-TIME reports, not just pending ones.
-    const { rows: rawUsers } = await db.query<AdminUserRow>(
-      `SELECT
+    const orm = await getDb();
+    const { rows: rawUsers } = await orm.execute<AdminUserRow & Record<string, unknown>>(sql`
+      SELECT
          u.id, u.email, u.username, u.display_name, u.avatar_url,
          u.avatar_emoji, u.plan, u.trust_score, u.is_admin, u.is_moderator,
          COALESCE(u.is_support, false) AS is_support, COALESCE(u.is_senior_support, false) AS is_senior_support,
@@ -232,11 +226,10 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
          (SELECT COUNT(*)::int FROM room_messages WHERE sender_id = u.id)         AS message_count,
          (SELECT COUNT(*)::int FROM rooms         WHERE creator_id = u.id)        AS rooms_created
        FROM users u
-       WHERE ${where}
+       WHERE ${whereClause}
        ORDER BY u.created_at DESC, u.id DESC
-       LIMIT $${paramIdx}`,
-      [...queryParams, limit + 1]
-    );
+       LIMIT ${limit + 1}
+    `);
 
     // Detect if there is a next page by fetching limit+1 rows
     const hasMore = rawUsers.length > limit;

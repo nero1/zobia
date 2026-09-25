@@ -16,7 +16,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getWikiBySlug, getWikiPageBySlug } from "@/lib/wiki/repo";
 import { updatePage, deletePage, recordPageView } from "@/lib/wiki/service";
 import { canManageWiki, canContributeToWiki } from "@/lib/wiki/permissions";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const updatePageSchema = z.object({
@@ -56,7 +56,8 @@ export const PATCH = withAuth<{ slug: string; pageSlug: string }>(async (req: Ne
     if (!page) throw notFound("Page not found");
     const body = await validateBody(req, updatePageSchema);
     await updatePage(page.id, auth.user.sub, body);
-    void triggerActivityQuestProgress(auth.user.sub, "wiki_edit", db);
+    const orm = await getDb();
+    void triggerActivityQuestProgress(auth.user.sub, "wiki_edit", orm);
     return NextResponse.json({ success: true, data: { updated: true }, error: null });
   } catch (err) {
     return handleApiError(err);

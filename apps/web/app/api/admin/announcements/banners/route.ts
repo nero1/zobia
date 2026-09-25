@@ -15,7 +15,8 @@ import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { sanitizeAnnouncementContent } from "@/lib/security/htmlSanitizer";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, asc, count, desc, isNull } from "drizzle-orm";
 
 const MAX_BANNERS = 5;
 
@@ -48,15 +49,26 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-    const { rows } = await db.query(
-      `SELECT
-         id, title, content, content_type, link_url, is_active,
-         target_plans, target_roles, display_order,
-         starts_at, ends_at, created_at, updated_at
-       FROM announcement_banners
-       WHERE deleted_at IS NULL
-       ORDER BY display_order ASC, created_at DESC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.announcementBanners.id,
+        title: schema.announcementBanners.title,
+        content: schema.announcementBanners.content,
+        content_type: schema.announcementBanners.contentType,
+        link_url: schema.announcementBanners.linkUrl,
+        is_active: schema.announcementBanners.isActive,
+        target_plans: schema.announcementBanners.targetPlans,
+        target_roles: schema.announcementBanners.targetRoles,
+        display_order: schema.announcementBanners.displayOrder,
+        starts_at: schema.announcementBanners.startsAt,
+        ends_at: schema.announcementBanners.endsAt,
+        created_at: schema.announcementBanners.createdAt,
+        updated_at: schema.announcementBanners.updatedAt,
+      })
+      .from(schema.announcementBanners)
+      .where(isNull(schema.announcementBanners.deletedAt))
+      .orderBy(asc(schema.announcementBanners.displayOrder), desc(schema.announcementBanners.createdAt));
 
     return NextResponse.json({ items: rows, count: rows.length });
   } catch (err) {
@@ -99,36 +111,35 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
 
     const content = sanitizeAnnouncementContent(rawContent, contentType);
 
+    const orm = await getDb();
+
     // Enforce maximum banner cap
-    const { rows: countRows } = await db.query<{ count: string }>(
-      `SELECT COUNT(*) AS count FROM announcement_banners WHERE deleted_at IS NULL`
-    );
-    if (parseInt(countRows[0].count, 10) >= MAX_BANNERS) {
+    const [countRow] = await orm
+      .select({ count: count() })
+      .from(schema.announcementBanners)
+      .where(isNull(schema.announcementBanners.deletedAt));
+    if ((countRow?.count ?? 0) >= MAX_BANNERS) {
       throw badRequest(`Cannot create banner: already at maximum of ${MAX_BANNERS} banners. Delete one first.`);
     }
 
-    const { rows } = await db.query(
-      `INSERT INTO announcement_banners
-         (title, content, content_type, link_url, is_active,
-          target_plans, target_roles, display_order,
-          starts_at, ends_at, created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, false, $5, $6, $7, $8, $9, $10, NOW(), NOW())
-       RETURNING *`,
-      [
+    const [row] = await orm
+      .insert(schema.announcementBanners)
+      .values({
         title,
         content,
         contentType,
-        linkUrl ?? null,
-        JSON.stringify(targetPlans),
-        JSON.stringify(targetRoles),
+        linkUrl: linkUrl ?? null,
+        isActive: false,
+        targetPlans,
+        targetRoles,
         displayOrder,
-        startsAt ?? null,
-        endsAt ?? null,
-        auth.user.sub,
-      ]
-    );
+        startsAt: startsAt ? new Date(startsAt) : null,
+        endsAt: endsAt ? new Date(endsAt) : null,
+        createdBy: auth.user.sub,
+      })
+      .returning();
 
-    return NextResponse.json(rows[0], { status: 201 });
+    return NextResponse.json(row, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

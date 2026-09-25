@@ -33,7 +33,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, gt, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -46,8 +47,6 @@ import { initializePayment } from "@/lib/payments";
 import { serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
-import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
-import type { TransactionClient } from "@/lib/db/interface";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -64,30 +63,6 @@ const purchaseSchema = z.object({
   /** Required when paymentMethod === "crypto". */
   cryptoCurrency: z.enum(["JAGA", "BNB", "SOL"]).optional(),
 });
-
-// ---------------------------------------------------------------------------
-// DB row types
-// ---------------------------------------------------------------------------
-
-interface MerchProductRow {
-  id: string;
-  store_id: string;
-  name: string;
-  price_kobo: number;
-  stock: number | null;
-  is_active: boolean;
-}
-
-interface MerchStoreRow {
-  id: string;
-  creator_id: string;
-  name: string;
-}
-
-interface MerchOrderRow {
-  id: string;
-  status: string;
-}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -123,25 +98,32 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, purchaseSchema);
     const buyerId = auth.user.sub;
+    const orm = await getDb();
 
     // -----------------------------------------------------------------------
     // 1. Load the product
     // -----------------------------------------------------------------------
 
-    const { rows: productRows } = await db.query<MerchProductRow>(
-      `SELECT id, store_id, name, price_kobo, stock, is_active
-       FROM merch_products
-       WHERE id = $1 AND store_id = $2
-       LIMIT 1`,
-      [body.productId, body.storeId]
-    );
+    const productRows = await orm
+      .select({
+        id: schema.merchProducts.id,
+        storeId: schema.merchProducts.storeId,
+        name: schema.merchProducts.name,
+        priceKobo: schema.merchProducts.priceKobo,
+        stock: schema.merchProducts.stock,
+        isActive: schema.merchProducts.isActive,
+      })
+      .from(schema.merchProducts)
+      .where(and(eq(schema.merchProducts.id, body.productId), eq(schema.merchProducts.storeId, body.storeId)))
+      .limit(1);
 
-    const product = productRows[0];
-    if (!product) {
+    const productRow = productRows[0];
+    if (!productRow) {
       throw notFound("Product not found in the specified store");
     }
+    const product = { ...productRow, priceKobo: Number(productRow.priceKobo) };
 
-    if (!product.is_active) {
+    if (!product.isActive) {
       throw badRequest("This product is no longer available", "PRODUCT_INACTIVE");
     }
 
@@ -154,21 +136,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // 2. Load the store (to get creator_id)
     // -----------------------------------------------------------------------
 
-    const { rows: storeRows } = await db.query<MerchStoreRow>(
-      `SELECT id, creator_id, name
-       FROM merch_stores
-       WHERE id = $1
-       LIMIT 1`,
-      [body.storeId]
-    );
+    const storeRows = await orm
+      .select({ id: schema.merchStores.id, creatorId: schema.merchStores.creatorId, name: schema.merchStores.name })
+      .from(schema.merchStores)
+      .where(eq(schema.merchStores.id, body.storeId))
+      .limit(1);
 
     const store = storeRows[0];
     if (!store) {
       throw notFound("Merch store not found");
     }
 
-    const creatorId = store.creator_id;
-    const priceKobo = product.price_kobo;
+    const creatorId = store.creatorId;
+    const priceKobo = product.priceKobo;
 
     // -----------------------------------------------------------------------
     // 3. Compute fees
@@ -186,25 +166,23 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     if (body.paymentMethod === "coins") {
       let orderId: string;
 
-      await db.transaction(async (tx: TransactionClient) => {
+      await orm.transaction(async (tx) => {
         // a. Insert order record first so we have a fresh, per-purchase order ID to
         // use as the debit reference (SYS-CL-09: the bare productId collided across
         // repeat purchases of the same product, including by different buyers).
-        const { rows: orderRows } = await tx.query<MerchOrderRow>(
-          `INSERT INTO merch_orders
-             (store_id, product_id, buyer_id, price_kobo, platform_fee_kobo,
-              creator_net_kobo, status, payment_method)
-           VALUES ($1, $2, $3, $4, $5, $6, 'processing', 'coins')
-           RETURNING id, status`,
-          [
-            body.storeId,
-            body.productId,
+        const orderRows = await tx
+          .insert(schema.merchOrders)
+          .values({
+            storeId: body.storeId,
+            productId: body.productId,
             buyerId,
-            priceKobo,
-            platformFeeKobo,
-            creatorNetKobo,
-          ]
-        );
+            priceKobo: BigInt(priceKobo),
+            platformFeeKobo: BigInt(platformFeeKobo),
+            creatorNetKobo: BigInt(creatorNetKobo),
+            status: "processing",
+            paymentMethod: "coins",
+          })
+          .returning({ id: schema.merchOrders.id, status: schema.merchOrders.status });
 
         orderId = orderRows[0].id;
 
@@ -222,19 +200,16 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             platformFeeKobo,
             creatorNetKobo,
           },
-          tx
+          tx as never
         );
 
         // c. Decrement stock if finite
         if (product.stock !== null) {
-          const { rows: stockRows } = await tx.query<{ id: string }>(
-            `UPDATE merch_products
-             SET stock      = stock - 1,
-                 updated_at = NOW()
-             WHERE id = $1 AND stock > 0
-             RETURNING id`,
-            [body.productId]
-          );
+          const stockRows = await tx
+            .update(schema.merchProducts)
+            .set({ stock: sql`${schema.merchProducts.stock} - 1`, updatedAt: sql`NOW()` })
+            .where(and(eq(schema.merchProducts.id, body.productId), gt(schema.merchProducts.stock, 0)))
+            .returning({ id: schema.merchProducts.id });
 
           if (stockRows.length === 0) {
             // Race condition — stock ran out between our initial check and now
@@ -243,17 +218,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         }
 
         // d. Insert creator_earnings record
-        await tx.query(
-          `INSERT INTO creator_earnings
-             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo)
-           VALUES ($1, 'merch_sale', $2, $3, $4)`,
-          [creatorId, priceKobo, platformFeeKobo, creatorNetKobo]
-        );
-        await tx.query(
-          `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
-                            updated_at = NOW() WHERE id = $2`,
-          [creatorNetKobo, creatorId]
-        );
+        await tx.insert(schema.creatorEarnings).values({
+          creatorId,
+          sourceType: "merch_sale",
+          grossAmountKobo: BigInt(priceKobo),
+          platformFeeKobo: BigInt(platformFeeKobo),
+          netAmountKobo: BigInt(creatorNetKobo),
+        });
+        await tx
+          .update(schema.users)
+          .set({
+            availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${creatorNetKobo}`,
+            updatedAt: sql`NOW()`,
+          })
+          .where(eq(schema.users.id, creatorId));
 
         // e. Credit creator's coins
         await creditCoins(
@@ -271,7 +249,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             platformFeeKobo,
             creatorNetKobo,
           },
-          tx
+          tx as never
         );
       });
 
@@ -296,35 +274,49 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     if (decision.isFree) {
       let orderId: string;
-      await db.transaction(async (tx: TransactionClient) => {
-        const { rows: orderRows } = await tx.query<MerchOrderRow>(
-          `INSERT INTO merch_orders
-             (store_id, product_id, buyer_id, price_kobo, platform_fee_kobo,
-              creator_net_kobo, status, payment_method)
-           VALUES ($1, $2, $3, $4, $5, $6, 'processing', 'free')
-           RETURNING id, status`,
-          [body.storeId, body.productId, buyerId, priceKobo, platformFeeKobo, creatorNetKobo]
-        );
+      await orm.transaction(async (tx) => {
+        const orderRows = await tx
+          .insert(schema.merchOrders)
+          .values({
+            storeId: body.storeId,
+            productId: body.productId,
+            buyerId,
+            priceKobo: BigInt(priceKobo),
+            platformFeeKobo: BigInt(platformFeeKobo),
+            creatorNetKobo: BigInt(creatorNetKobo),
+            status: "processing",
+            paymentMethod: "free",
+          })
+          .returning({ id: schema.merchOrders.id, status: schema.merchOrders.status });
         orderId = orderRows[0].id;
 
         if (product.stock !== null) {
-          const { rows: stockRows } = await tx.query<{ id: string }>(
-            `UPDATE merch_products SET stock = stock - 1, updated_at = NOW() WHERE id = $1 AND stock > 0 RETURNING id`,
-            [body.productId]
-          );
+          const stockRows = await tx
+            .update(schema.merchProducts)
+            .set({ stock: sql`${schema.merchProducts.stock} - 1`, updatedAt: sql`NOW()` })
+            .where(and(eq(schema.merchProducts.id, body.productId), gt(schema.merchProducts.stock, 0)))
+            .returning({ id: schema.merchProducts.id });
           if (stockRows.length === 0) throw badRequest("This product is out of stock", "OUT_OF_STOCK");
         }
 
-        await tx.query(
-          `INSERT INTO creator_earnings (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo)
-           VALUES ($1, 'merch_sale', $2, $3, $4)`,
-          [creatorId, priceKobo, platformFeeKobo, creatorNetKobo]
-        );
-        await tx.query(
-          `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1, updated_at = NOW() WHERE id = $2`,
-          [creatorNetKobo, creatorId]
-        );
-        await tx.query(`UPDATE merch_orders SET status = 'completed', updated_at = NOW() WHERE id = $1`, [orderId!]);
+        await tx.insert(schema.creatorEarnings).values({
+          creatorId,
+          sourceType: "merch_sale",
+          grossAmountKobo: BigInt(priceKobo),
+          platformFeeKobo: BigInt(platformFeeKobo),
+          netAmountKobo: BigInt(creatorNetKobo),
+        });
+        await tx
+          .update(schema.users)
+          .set({
+            availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${creatorNetKobo}`,
+            updatedAt: sql`NOW()`,
+          })
+          .where(eq(schema.users.id, creatorId));
+        await tx
+          .update(schema.merchOrders)
+          .set({ status: "completed", updatedAt: sql`NOW()` })
+          .where(eq(schema.merchOrders.id, orderId!));
       });
 
       logger.info({ orderId: orderId!, buyerId, productId: body.productId }, "[merch/purchase] Granted free merch order (admin is_free toggle)");
@@ -340,31 +332,29 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Create a pending order first so we have a reference ID
-    const { rows: pendingOrderRows } = await db.query<MerchOrderRow>(
-      `INSERT INTO merch_orders
-         (store_id, product_id, buyer_id, price_kobo, platform_fee_kobo,
-          creator_net_kobo, status, payment_method)
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending', $7)
-       RETURNING id, status`,
-      [
-        body.storeId,
-        body.productId,
+    const pendingOrderRows = await orm
+      .insert(schema.merchOrders)
+      .values({
+        storeId: body.storeId,
+        productId: body.productId,
         buyerId,
-        priceKobo,
-        platformFeeKobo,
-        creatorNetKobo,
-        body.paymentMethod,
-      ]
-    );
+        priceKobo: BigInt(priceKobo),
+        platformFeeKobo: BigInt(platformFeeKobo),
+        creatorNetKobo: BigInt(creatorNetKobo),
+        status: "pending",
+        paymentMethod: body.paymentMethod,
+      })
+      .returning({ id: schema.merchOrders.id, status: schema.merchOrders.status });
 
     const pendingOrder = pendingOrderRows[0];
 
     try {
       // Retrieve the buyer's email for the payment provider
-      const { rows: userRows } = await db.query<{ email: string | null }>(
-        `SELECT email FROM users WHERE id = $1 LIMIT 1`,
-        [buyerId]
-      );
+      const userRows = await orm
+        .select({ email: schema.users.email })
+        .from(schema.users)
+        .where(eq(schema.users.id, buyerId))
+        .limit(1);
 
       const buyerEmail = userRows[0]?.email ?? "noreply@zobia.app";
       const returnUrl = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.app"}/merch/order/${pendingOrder.id}`;
@@ -386,12 +376,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
 
       // Persist the provider reference so the webhook can match it
-      await db.query(
-        `UPDATE merch_orders
-         SET provider_reference = $1, updated_at = NOW()
-         WHERE id = $2`,
-        [paymentResult.providerReference, pendingOrder.id]
-      );
+      await orm
+        .update(schema.merchOrders)
+        .set({ providerReference: paymentResult.providerReference, updatedAt: sql`NOW()` })
+        .where(eq(schema.merchOrders.id, pendingOrder.id));
 
       return NextResponse.json(
         {
@@ -406,10 +394,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     } catch (paymentErr) {
       // Mark the pending order as failed so it can be retried or investigated.
-      await db.query(
-        `UPDATE merch_orders SET status = 'failed', updated_at = NOW() WHERE id = $1`,
-        [pendingOrder.id]
-      ).catch(() => {});
+      await orm
+        .update(schema.merchOrders)
+        .set({ status: "failed", updatedAt: sql`NOW()` })
+        .where(eq(schema.merchOrders.id, pendingOrder.id))
+        .catch(() => {});
 
       // Log for monitoring/alerting and surface a clean error to the client.
       logger.error({ err: paymentErr }, "[merch/purchase] Payment initialisation failed:");

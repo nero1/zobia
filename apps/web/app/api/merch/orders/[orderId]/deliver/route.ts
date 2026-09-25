@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
 import { sendPushNotification } from "@/lib/notifications/push";
@@ -24,42 +25,43 @@ export const PATCH = withAuth(
     try {
       const { orderId } = await params;
       const userId = auth.user.sub;
+      const orm = await getDb();
 
-      const { rows: orderRows } = await db.query<{
-        id: string;
-        creator_id: string;
-        buyer_id: string;
-        status: string;
-      }>(
-        `SELECT id, creator_id, buyer_id, status
-         FROM merch_orders WHERE id = $1 LIMIT 1`,
-        [orderId]
-      );
+      const orderRows = await orm
+        .select({
+          id: schema.merchOrders.id,
+          creatorId: schema.merchOrders.creatorId,
+          buyerId: schema.merchOrders.buyerId,
+          status: schema.merchOrders.status,
+        })
+        .from(schema.merchOrders)
+        .where(eq(schema.merchOrders.id, orderId))
+        .limit(1);
       const order = orderRows[0];
       if (!order) throw notFound("Order not found");
-      if (order.creator_id !== userId) throw forbidden("Only the seller can update this order");
+      if (order.creatorId !== userId) throw forbidden("Only the seller can update this order");
       if (!["shipped", "in_transit"].includes(order.status)) {
         throw conflict(`Cannot mark as delivered from status '${order.status}'`);
       }
 
-      await db.query(
-        `UPDATE merch_orders
-         SET status = 'delivered', delivered_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [orderId]
-      );
+      await orm
+        .update(schema.merchOrders)
+        .set({ status: "delivered", deliveredAt: sql`NOW()`, updatedAt: sql`NOW()` })
+        .where(eq(schema.merchOrders.id, orderId));
 
       // Notify buyer to confirm receipt
       void (async () => {
         try {
-          await db.query(
-            `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
-             VALUES ($1, 'order_delivered', 'Your order has been delivered!',
-                     'Your order has arrived. Please confirm receipt in the app.', $2, NOW())`,
-            [order.buyer_id, JSON.stringify({ orderId })]
-          );
+          await orm.insert(schema.notifications).values({
+            userId: order.buyerId,
+            type: "order_delivered",
+            title: "Your order has been delivered!",
+            body: "Your order has arrived. Please confirm receipt in the app.",
+            metadata: { orderId },
+            isRead: false,
+          });
           await sendPushNotification(
-            order.buyer_id,
+            order.buyerId,
             "Your order has arrived!",
             "Please confirm receipt of your order.",
             { action: `/merch/order/${orderId}`, priority: "high" }

@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { handleApiError } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
@@ -43,10 +44,11 @@ interface BannerRow {
 export const GET = async () => {
   try {
     // Fetch and atomically increment the impression counter in one query.
-    const { rows } = await db.query<BannerRow>(
-      `UPDATE sponsored_leaderboard_banners
-       SET impressions = impressions + 1
-       WHERE id = (
+    const orm = await getDb();
+    const rows = await orm
+      .update(schema.sponsoredLeaderboardBanners)
+      .set({ impressions: sql`${schema.sponsoredLeaderboardBanners.impressions} + 1` })
+      .where(sql`${schema.sponsoredLeaderboardBanners.id} = (
          SELECT id
          FROM sponsored_leaderboard_banners
          WHERE is_active = true
@@ -54,10 +56,17 @@ export const GET = async () => {
            AND ends_at   >= NOW()
          ORDER BY starts_at DESC
          LIMIT 1
-       )
-       RETURNING id, sponsor_name, sponsor_logo_url, cta_text, cta_url,
-                 starts_at, ends_at, impressions`
-    );
+       )`)
+      .returning({
+        id: schema.sponsoredLeaderboardBanners.id,
+        sponsor_name: schema.sponsoredLeaderboardBanners.sponsorName,
+        sponsor_logo_url: schema.sponsoredLeaderboardBanners.sponsorLogoUrl,
+        cta_text: schema.sponsoredLeaderboardBanners.ctaText,
+        cta_url: schema.sponsoredLeaderboardBanners.ctaUrl,
+        starts_at: schema.sponsoredLeaderboardBanners.startsAt,
+        ends_at: schema.sponsoredLeaderboardBanners.endsAt,
+        impressions: schema.sponsoredLeaderboardBanners.impressions,
+      });
 
     if (!rows[0]) {
       return NextResponse.json({

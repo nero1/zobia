@@ -11,10 +11,11 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/moderation/[reportId]
@@ -38,7 +39,8 @@ export const GET = withModeratorOrAdminAuth<{ reportId: string }>(
 
       const { reportId } = await params;
 
-      const { rows } = await db.query<{
+      const orm = await getDb();
+      const { rows } = await orm.execute<{
         id: string;
         reporter_id: string;
         reporter_username: string;
@@ -62,8 +64,8 @@ export const GET = withModeratorOrAdminAuth<{ reportId: string }>(
         resolved_at: string | null;
         resolved_by: string | null;
         resolution_note: string | null;
-      }>(
-        `SELECT
+      }>(sql`
+        SELECT
            r.id,
            r.reporter_id,
            reporter.username                    AS reporter_username,
@@ -96,10 +98,9 @@ export const GET = withModeratorOrAdminAuth<{ reportId: string }>(
          LEFT JOIN users reporter  ON reporter.id = r.reporter_id
          LEFT JOIN users reported  ON reported.id = r.reported_user_id
          LEFT JOIN messages msg    ON msg.id      = r.reported_message_id
-         WHERE r.id = $1
-           AND r.deleted_at IS NULL`,
-        [reportId]
-      );
+         WHERE r.id = ${reportId}
+           AND r.deleted_at IS NULL
+      `);
 
       const report = rows[0];
       if (!report) {
@@ -107,15 +108,15 @@ export const GET = withModeratorOrAdminAuth<{ reportId: string }>(
       }
 
       // Fetch prior moderation actions against the reported user
-      const { rows: priorActions } = await db.query<{
+      const { rows: priorActions } = await orm.execute<{
         id: string;
         action_type: string;
         reason: string | null;
         moderator_id: string;
         moderator_username: string;
         created_at: string;
-      }>(
-        `SELECT
+      }>(sql`
+        SELECT
            ma.id,
            ma.action_type,
            ma.reason,
@@ -124,11 +125,10 @@ export const GET = withModeratorOrAdminAuth<{ reportId: string }>(
            ma.created_at
          FROM moderation_actions ma
          LEFT JOIN users actor ON actor.id = ma.moderator_id
-         WHERE ma.target_user_id = $1
+         WHERE ma.target_user_id = ${report.reported_user_id ?? "00000000-0000-0000-0000-000000000000"}
          ORDER BY ma.created_at DESC
-         LIMIT 20`,
-        [report.reported_user_id ?? "00000000-0000-0000-0000-000000000000"]
-      );
+         LIMIT 20
+      `);
 
       return NextResponse.json({ report, prior_actions: priorActions });
     } catch (err) {

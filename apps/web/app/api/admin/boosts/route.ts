@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { asc, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, conflict } from "@/lib/api/errors";
 
@@ -34,29 +35,27 @@ const createBoostSchema = z.object({
   sortOrder: z.number().int().default(0),
 });
 
-interface BoostTypeRow {
-  id: string;
-  key: string;
-  label: string;
-  description: string | null;
-  multiplier_bp: number;
-  duration_hours: number;
-  coins_cost: number | null;
-  stars_cost: number | null;
-  iap_product_id: string | null;
-  stackable: boolean;
-  is_active: boolean;
-  sort_order: number;
-  created_at: string;
-}
-
 export const GET = withAdminAuth(async () => {
   try {
-    const { rows } = await db.query<BoostTypeRow>(
-      `SELECT id, key, label, description, multiplier_bp, duration_hours,
-              coins_cost, stars_cost, iap_product_id, stackable, is_active, sort_order, created_at
-       FROM boost_types ORDER BY sort_order ASC, created_at ASC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.boostTypes.id,
+        key: schema.boostTypes.key,
+        label: schema.boostTypes.label,
+        description: schema.boostTypes.description,
+        multiplier_bp: schema.boostTypes.multiplierBp,
+        duration_hours: schema.boostTypes.durationHours,
+        coins_cost: schema.boostTypes.coinsCost,
+        stars_cost: schema.boostTypes.starsCost,
+        iap_product_id: schema.boostTypes.iapProductId,
+        stackable: schema.boostTypes.stackable,
+        is_active: schema.boostTypes.isActive,
+        sort_order: schema.boostTypes.sortOrder,
+        created_at: schema.boostTypes.createdAt,
+      })
+      .from(schema.boostTypes)
+      .orderBy(asc(schema.boostTypes.sortOrder), asc(schema.boostTypes.createdAt));
     return NextResponse.json({ success: true, data: { boosts: rows }, error: null });
   } catch (err) {
     return handleApiError(err);
@@ -67,37 +66,48 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
   try {
     const body = await validateBody(req, createBoostSchema);
 
-    const { rows: existing } = await db.query<{ id: string }>(
-      `SELECT id FROM boost_types WHERE key = $1 LIMIT 1`,
-      [body.key]
-    );
-    if (existing[0]) {
+    const orm = await getDb();
+    const [existing] = await orm
+      .select({ id: schema.boostTypes.id })
+      .from(schema.boostTypes)
+      .where(eq(schema.boostTypes.key, body.key))
+      .limit(1);
+    if (existing) {
       throw conflict(`A boost type with key "${body.key}" already exists`);
     }
 
-    const { rows } = await db.query<BoostTypeRow>(
-      `INSERT INTO boost_types
-         (key, label, description, multiplier_bp, duration_hours, coins_cost, stars_cost,
-          iap_product_id, stackable, sort_order, created_by, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
-       RETURNING id, key, label, description, multiplier_bp, duration_hours,
-                 coins_cost, stars_cost, iap_product_id, stackable, is_active, sort_order, created_at`,
-      [
-        body.key,
-        body.label,
-        body.description ?? null,
-        body.multiplierBp,
-        body.durationHours,
-        body.coinsCost ?? null,
-        body.starsCost ?? null,
-        body.iapProductId ?? null,
-        body.stackable,
-        body.sortOrder,
-        auth.user.sub,
-      ]
-    );
+    const [boost] = await orm
+      .insert(schema.boostTypes)
+      .values({
+        key: body.key,
+        label: body.label,
+        description: body.description ?? null,
+        multiplierBp: body.multiplierBp,
+        durationHours: body.durationHours,
+        coinsCost: body.coinsCost ?? null,
+        starsCost: body.starsCost ?? null,
+        iapProductId: body.iapProductId ?? null,
+        stackable: body.stackable,
+        sortOrder: body.sortOrder,
+        createdBy: auth.user.sub,
+      })
+      .returning({
+        id: schema.boostTypes.id,
+        key: schema.boostTypes.key,
+        label: schema.boostTypes.label,
+        description: schema.boostTypes.description,
+        multiplier_bp: schema.boostTypes.multiplierBp,
+        duration_hours: schema.boostTypes.durationHours,
+        coins_cost: schema.boostTypes.coinsCost,
+        stars_cost: schema.boostTypes.starsCost,
+        iap_product_id: schema.boostTypes.iapProductId,
+        stackable: schema.boostTypes.stackable,
+        is_active: schema.boostTypes.isActive,
+        sort_order: schema.boostTypes.sortOrder,
+        created_at: schema.boostTypes.createdAt,
+      });
 
-    return NextResponse.json({ success: true, data: { boost: rows[0] }, error: null }, { status: 201 });
+    return NextResponse.json({ success: true, data: { boost }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

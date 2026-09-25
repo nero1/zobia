@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -30,34 +31,24 @@ const querySchema = z.object({
 // Users tab
 // ---------------------------------------------------------------------------
 
-interface UsersStatsRow {
-  total_users: string;
-  verified_count: string;
-  banned_count: string;
-  suspended_count: string;
-  admin_or_mod_count: string;
-  new_today: string;
-  new_this_week: string;
-  avg_trust_score: string | null;
-  avg_xp_total: string | null;
-}
-
 async function computeUsersStats() {
-  const { rows } = await db.query<UsersStatsRow>(
-    `SELECT
-       COUNT(*)::TEXT AS total_users,
-       COUNT(*) FILTER (WHERE is_verified)::TEXT AS verified_count,
-       COUNT(*) FILTER (WHERE is_banned)::TEXT AS banned_count,
-       COUNT(*) FILTER (WHERE is_suspended)::TEXT AS suspended_count,
-       COUNT(*) FILTER (WHERE is_admin OR is_moderator)::TEXT AS admin_or_mod_count,
-       COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE)::TEXT AS new_today,
-       COUNT(*) FILTER (WHERE created_at >= CURRENT_DATE - INTERVAL '7 days')::TEXT AS new_this_week,
-       AVG(trust_score)::TEXT AS avg_trust_score,
-       AVG(xp_total)::TEXT AS avg_xp_total
-     FROM users
-     WHERE deleted_at IS NULL`
-  );
-  const row = rows[0];
+  const orm = await getDb();
+  const u = schema.users;
+  const [row] = await orm
+    .select({
+      total_users: sql<string>`COUNT(*)::TEXT`,
+      verified_count: sql<string>`COUNT(*) FILTER (WHERE ${u.isVerified})::TEXT`,
+      banned_count: sql<string>`COUNT(*) FILTER (WHERE ${u.isBanned})::TEXT`,
+      suspended_count: sql<string>`COUNT(*) FILTER (WHERE ${u.isSuspended})::TEXT`,
+      admin_or_mod_count: sql<string>`COUNT(*) FILTER (WHERE ${u.isAdmin} OR ${u.isModerator})::TEXT`,
+      new_today: sql<string>`COUNT(*) FILTER (WHERE ${u.createdAt} >= CURRENT_DATE)::TEXT`,
+      new_this_week: sql<string>`COUNT(*) FILTER (WHERE ${u.createdAt} >= CURRENT_DATE - INTERVAL '7 days')::TEXT`,
+      avg_trust_score: sql<string | null>`AVG(${u.trustScore})::TEXT`,
+      avg_xp_total: sql<string | null>`AVG(${u.xpTotal})::TEXT`,
+    })
+    .from(u)
+    .where(isNull(u.deletedAt));
+
   const num = (s: string | null | undefined) => Number(s ?? "0");
   return {
     totalUsers: num(row?.total_users),
@@ -90,10 +81,11 @@ async function computeFinancialStats() {
 // ---------------------------------------------------------------------------
 
 /** Best-effort COUNT(*) against a table that may not exist in every deployment. */
-async function safeCount(sql: string): Promise<number> {
+async function safeCount(table: ReturnType<typeof sql>): Promise<number> {
   try {
-    const { rows } = await db.query<{ count: string }>(sql);
-    return Number(rows[0]?.count ?? "0");
+    const orm = await getDb();
+    const result = await orm.execute<{ count: string }>(sql`SELECT COUNT(*)::TEXT AS count FROM ${table}`);
+    return Number(result.rows[0]?.count ?? "0");
   } catch {
     return 0;
   }
@@ -112,16 +104,16 @@ async function computeStatisticalStats() {
     totalQuizzes,
     totalTweets,
   ] = await Promise.all([
-    safeCount(`SELECT COUNT(*)::TEXT AS count FROM rooms`),
-    safeCount(`SELECT COUNT(*)::TEXT AS count FROM room_messages`),
-    safeCount(`SELECT COUNT(*)::TEXT AS count FROM guilds`),
-    safeCount(`SELECT COUNT(*)::TEXT AS count FROM forum_questions`),
-    safeCount(`SELECT COUNT(*)::TEXT AS count FROM forum_answers`),
-    safeCount(`SELECT COUNT(*)::TEXT AS count FROM bb_threads`),
-    safeCount(`SELECT COUNT(*)::TEXT AS count FROM bb_posts`),
-    safeCount(`SELECT COUNT(*)::TEXT AS count FROM polls`),
-    safeCount(`SELECT COUNT(*)::TEXT AS count FROM quizzes`),
-    safeCount(`SELECT COUNT(*)::TEXT AS count FROM tweets`),
+    safeCount(sql`rooms`),
+    safeCount(sql`room_messages`),
+    safeCount(sql`guilds`),
+    safeCount(sql`forum_questions`),
+    safeCount(sql`forum_answers`),
+    safeCount(sql`bb_threads`),
+    safeCount(sql`bb_posts`),
+    safeCount(sql`polls`),
+    safeCount(sql`quizzes`),
+    safeCount(sql`tweets`),
   ]);
 
   return {

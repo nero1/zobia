@@ -11,7 +11,9 @@
  *
  * Usage:
  *   const [uid1, uid2] = canonicalDmPair(senderId, recipientId);
- *   db.query(`... WHERE user_id_1 = $1 AND user_id_2 = $2`, [uid1, uid2]);
+ *   const orm = await getDb();
+ *   await orm.select().from(schema.dmConversations)
+ *     .where(and(eq(schema.dmConversations.userId1, uid1), eq(schema.dmConversations.userId2, uid2)));
  */
 
 /**

@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -24,12 +25,11 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
-    await db.query(
-      `UPDATE users
-       SET nudge_email_dismissed_at = NOW(), updated_at = NOW()
-       WHERE id = $1 AND deleted_at IS NULL`,
-      [auth.user.sub]
-    );
+    const db = await getDb();
+    await db
+      .update(schema.users)
+      .set({ nudgeEmailDismissedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)));
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {

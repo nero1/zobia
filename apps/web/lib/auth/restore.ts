@@ -6,7 +6,8 @@
  * Upon token validation, the account is reactivated.
  */
 
-import { db } from "@/lib/db";
+import { eq, and, isNotNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { env } from "@/lib/env";
 import { logger } from "@/lib/logger";
 import { createSession } from "@/lib/auth/session";
@@ -68,16 +69,16 @@ export async function verifyRestoreToken(token: string): Promise<{ userId: strin
  * @returns true if the email was found and restore email sent; false otherwise
  */
 export async function initiateAccountRestore(email: string): Promise<boolean> {
-  const { rows } = await db.query<{ id: string; email: string; display_name: string | null }>(
-    `SELECT id, email, display_name
-     FROM users
-     WHERE LOWER(email) = LOWER($1) AND deleted_at IS NOT NULL
-     LIMIT 1`,
-    [email]
-  );
+  const db = await getDb();
+  const rows = await db
+    .select({ id: schema.users.id, email: schema.users.email, displayName: schema.users.displayName })
+    .from(schema.users)
+    .where(and(sql`LOWER(${schema.users.email}) = LOWER(${email})`, isNotNull(schema.users.deletedAt)))
+    .limit(1);
 
-  const user = rows[0];
-  if (!user) return false;
+  const row = rows[0];
+  if (!row) return false;
+  const user = { id: row.id, email: row.email ?? "", display_name: row.displayName };
 
   const rawToken = await signRestoreToken(user.id);
   // BUG-AUTH-01 FIX: use a URL fragment (#token=) so the token is never sent in
@@ -143,35 +144,49 @@ export async function completeAccountRestore(
     return { success: false, error: "Restore link has already been used. Please request a new one." };
   }
 
-  const { rows } = await db.query<{
-    id: string;
-    email: string | null;
-    username: string;
-    is_admin: boolean;
-    is_moderator: boolean;
-    is_creator: boolean;
-    display_name: string | null;
-    deleted_at: string | null;
-  }>(
-    `UPDATE users
-     SET deleted_at = NULL, updated_at = NOW()
-     WHERE id = $1 AND deleted_at IS NOT NULL
-     RETURNING id, email, username, is_admin, is_moderator, is_creator, display_name, deleted_at`,
-    [userId]
-  );
+  const db = await getDb();
+  const rows = await db
+    .update(schema.users)
+    .set({ deletedAt: null, updatedAt: sql`NOW()` })
+    .where(and(eq(schema.users.id, userId), isNotNull(schema.users.deletedAt)))
+    .returning({
+      id: schema.users.id,
+      email: schema.users.email,
+      username: schema.users.username,
+      isAdmin: schema.users.isAdmin,
+      isModerator: schema.users.isModerator,
+      isCreator: schema.users.isCreator,
+      displayName: schema.users.displayName,
+      deletedAt: schema.users.deletedAt,
+    });
 
   if (!rows[0]) {
     return { success: false, error: "Account not found or is already active" };
   }
 
-  const user = rows[0];
+  const row = rows[0];
+  const user = {
+    id: row.id,
+    email: row.email,
+    username: row.username,
+    is_admin: row.isAdmin,
+    is_moderator: row.isModerator,
+    is_creator: row.isCreator,
+    display_name: row.displayName,
+    deleted_at: row.deletedAt,
+  };
 
   // Audit log
-  await db.query(
-    `INSERT INTO admin_audit_log (admin_id, action, target_type, target_id, metadata, created_at)
-     VALUES ($1, 'account_restore', 'user', $2, $3::jsonb, NOW())`,
-    [userId, userId, JSON.stringify({ method: "self_restore_token" })]
-  ).catch(() => {});
+  await db
+    .insert(schema.adminAuditLog)
+    .values({
+      adminId: userId,
+      action: "account_restore",
+      targetType: "user",
+      targetId: userId,
+      metadata: { method: "self_restore_token" },
+    })
+    .catch(() => {});
 
   // (Token already marked consumed atomically via SET NX above)
 

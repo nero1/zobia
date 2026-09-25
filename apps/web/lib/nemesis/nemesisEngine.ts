@@ -12,7 +12,8 @@
  *  - A user cannot be their own nemesis
  */
 
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import { and, eq, sql, type SQL } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { getManifestValue } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
@@ -73,79 +74,76 @@ interface UserRow {
  *  5. Same city preferred (tried first)
  *
  * @param userId - UUID of the user needing a nemesis assignment.
- * @param db     - Active database adapter.
+ * @param db     - Drizzle db instance or an active transaction handle.
  * @returns The nemesis_assignments row created, or null if no candidate found.
  */
 export async function assignNemesis(
   userId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<NemesisAssignment | null> {
-  const userResult = await db.query<UserRow>(
-    `SELECT id, xp_total, city, COALESCE(nemesis_opt_out, false) AS nemesis_opt_out
-     FROM users WHERE id = $1 AND deleted_at IS NULL`,
-    [userId]
-  );
-  const user = userResult.rows[0];
+  // NOTE: `nemesis_opt_out` is not modelled in lib/db/schema.ts's `users`
+  // table (a genuine schema/DB mismatch — flagged in the migration report),
+  // so it is referenced via raw `sql` fragments rather than a typed column.
+  const userResult = await db.execute<UserRow & Record<string, unknown>>(sql`
+    SELECT id, xp_total, city, COALESCE(nemesis_opt_out, false) AS nemesis_opt_out
+    FROM users WHERE id = ${userId} AND deleted_at IS NULL
+  `);
+  const user = (userResult.rows as UserRow[])[0];
   if (!user) return null;
   // Users who opted out (Profile Settings) never get a nemesis assigned.
   if (user.nemesis_opt_out) return null;
 
-  const minXP = Math.floor(user.xp_total * (1 - NEMESIS_XP_TOLERANCE));
-  const maxXP = Math.ceil(user.xp_total * (1 + NEMESIS_XP_TOLERANCE));
+  const xpTotal = Number(user.xp_total);
+  const minXP = Math.floor(xpTotal * (1 - NEMESIS_XP_TOLERANCE));
+  const maxXP = Math.ceil(xpTotal * (1 + NEMESIS_XP_TOLERANCE));
 
   // Mutual friends (bidirectional friendship using the friendships table)
-  const friendResult = await db.query<{ friend_id: string }>(
-    `SELECT addressee_id AS friend_id
-     FROM friendships
-     WHERE requester_id = $1 AND status = 'accepted'
-     UNION
-     SELECT requester_id AS friend_id
-     FROM friendships
-     WHERE addressee_id = $1 AND status = 'accepted'`,
-    [userId]
-  );
-  const mutualFriendIds = new Set(friendResult.rows.map((r) => r.friend_id));
+  const friendRowsA = await db
+    .select({ friendId: schema.friendships.addresseeId })
+    .from(schema.friendships)
+    .where(sql`${schema.friendships.requesterId} = ${userId} AND ${schema.friendships.status} = 'accepted'`);
+  const friendRowsB = await db
+    .select({ friendId: schema.friendships.requesterId })
+    .from(schema.friendships)
+    .where(sql`${schema.friendships.addresseeId} = ${userId} AND ${schema.friendships.status} = 'accepted'`);
+  const mutualFriendIds = new Set([...friendRowsA, ...friendRowsB].map((r) => r.friendId));
 
   // Current nemesis (to avoid re-assigning immediately after dismiss) — BUG-11: use is_active
-  const currentNemesisResult = await db.query<{ nemesis_id: string }>(
-    `SELECT nemesis_user_id AS nemesis_id FROM nemesis_assignments
-     WHERE user_id = $1 AND is_active = true
-     ORDER BY assigned_at DESC LIMIT 1`,
-    [userId]
-  );
-  const currentNemesisId = currentNemesisResult.rows[0]?.nemesis_id;
+  const [currentNemesisRow] = await db
+    .select({ nemesisId: schema.nemesisAssignments.nemesisUserId })
+    .from(schema.nemesisAssignments)
+    .where(sql`${schema.nemesisAssignments.userId} = ${userId} AND ${schema.nemesisAssignments.isActive} = true`)
+    .orderBy(sql`${schema.nemesisAssignments.assignedAt} DESC`)
+    .limit(1);
+  const currentNemesisId = currentNemesisRow?.nemesisId;
 
   // Try same-city first, then any city
   for (const useCityFilter of [true, false]) {
-    const conditions = [
-      `u.id != $1`,
-      `u.deleted_at IS NULL`,
-      `COALESCE(u.nemesis_opt_out, false) = false`,
-      `u.xp_total BETWEEN $2 AND $3`,
+    const conditions: SQL[] = [
+      sql`u.id != ${userId}`,
+      sql`u.deleted_at IS NULL`,
+      sql`COALESCE(u.nemesis_opt_out, false) = false`,
+      sql`u.xp_total BETWEEN ${minXP} AND ${maxXP}`,
       // Exclude users in any block relationship with the target (mutual-block safety)
-      `u.id NOT IN (
-         SELECT blocked_id FROM user_blocks WHERE blocker_id = $1
+      sql`u.id NOT IN (
+         SELECT blocked_id FROM user_blocks WHERE blocker_id = ${userId}
          UNION
-         SELECT blocker_id FROM user_blocks WHERE blocked_id = $1
+         SELECT blocker_id FROM user_blocks WHERE blocked_id = ${userId}
        )`,
     ];
-    const params: (string | number)[] = [userId, minXP, maxXP];
-    let paramIdx = 4;
 
     if (useCityFilter && user.city) {
-      conditions.push(`u.city = $${paramIdx++}`);
-      params.push(user.city);
+      conditions.push(sql`u.city = ${user.city}`);
     }
 
-    const candidateResult = await db.query<{ id: string }>(
-      `SELECT u.id FROM users u
-       WHERE ${conditions.join(" AND ")}
-       ORDER BY ABS(u.xp_total - $${paramIdx}) ASC
-       LIMIT 50`,
-      [...params, user.xp_total]
-    );
+    const candidateResult = await db.execute<{ id: string }>(sql`
+      SELECT u.id FROM users u
+      WHERE ${sql.join(conditions, sql` AND `)}
+      ORDER BY ABS(u.xp_total - ${xpTotal}) ASC
+      LIMIT 50
+    `);
 
-    const candidates = candidateResult.rows.filter(
+    const candidates = (candidateResult.rows as { id: string }[]).filter(
       (r) => !mutualFriendIds.has(r.id) && r.id !== currentNemesisId
     );
 
@@ -154,26 +152,41 @@ export async function assignNemesis(
     const chosenId = candidates[0].id;
 
     // expires_at = 7 days from now (weekly refresh cycle)
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     // Wrap deactivation + insert atomically — if the insert fails, the old
     // nemesis must not be deactivated (guards against inconsistent state).
-    const insertResult = await db.transaction(async (tx) => {
-      await tx.query(
-        `UPDATE nemesis_assignments SET is_active = false
-         WHERE user_id = $1 AND is_active = true`,
-        [userId]
-      );
+    const orm = await getDb();
+    const insertResult = await orm.transaction(async (tx) => {
+      await tx
+        .update(schema.nemesisAssignments)
+        .set({ isActive: false })
+        .where(and(eq(schema.nemesisAssignments.userId, userId), eq(schema.nemesisAssignments.isActive, true)));
 
-      return tx.query<NemesisAssignment>(
-        `INSERT INTO nemesis_assignments (user_id, nemesis_user_id, assigned_at, expires_at, is_active)
-         VALUES ($1, $2, NOW(), $3, true)
-         RETURNING user_id, nemesis_user_id AS nemesis_id, assigned_at, NULL::timestamptz AS dismissed_at`,
-        [userId, chosenId, expiresAt]
-      );
+      return tx
+        .insert(schema.nemesisAssignments)
+        .values({
+          userId,
+          nemesisUserId: chosenId,
+          expiresAt,
+          isActive: true,
+        })
+        .returning({
+          userId: schema.nemesisAssignments.userId,
+          nemesisId: schema.nemesisAssignments.nemesisUserId,
+          assignedAt: schema.nemesisAssignments.assignedAt,
+        });
     });
 
-    return insertResult.rows[0] ?? null;
+    const inserted = insertResult[0];
+    return inserted
+      ? {
+          user_id: inserted.userId,
+          nemesis_id: inserted.nemesisId,
+          assigned_at: inserted.assignedAt ? new Date(inserted.assignedAt).toISOString() : new Date().toISOString(),
+          dismissed_at: null,
+        }
+      : null;
   }
 
   return null;
@@ -192,29 +205,31 @@ export async function assignNemesis(
  *
  * Intended to be called on Sundays by the daily CRON handler.
  *
- * @param db - Active database adapter.
+ * @param db - Drizzle db instance or an active transaction handle.
  */
 export async function refreshNemesisAssignments(
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<{ updated: number; failed: number }> {
   // BUG: deactivate assignments for users who opted out (Profile Settings)
   // since their last refresh — assignNemesis() alone won't touch an existing
   // row for them, it just declines to create a new one.
-  await db.query(
-    `UPDATE nemesis_assignments SET is_active = false
-     WHERE is_active = true
-       AND user_id IN (SELECT id FROM users WHERE nemesis_opt_out = true)`
-  ).catch(() => {});
+  await db
+    .execute(sql`
+      UPDATE nemesis_assignments SET is_active = false
+      WHERE is_active = true
+        AND user_id IN (SELECT id FROM users WHERE nemesis_opt_out = true)
+    `)
+    .catch(() => {});
 
-  const usersResult = await db.query<{ user_id: string }>(
-    `SELECT DISTINCT user_id FROM nemesis_assignments WHERE is_active = true`,
-    []
-  );
+  const usersResult = await db
+    .selectDistinct({ userId: schema.nemesisAssignments.userId })
+    .from(schema.nemesisAssignments)
+    .where(eq(schema.nemesisAssignments.isActive, true));
 
   let updated = 0;
   let failed = 0;
 
-  const userIds1 = usersResult.rows.map(r => r.user_id);
+  const userIds1 = usersResult.map((r) => r.userId);
   await withConcurrency(userIds1, async (user_id) => {
     try {
       const result = await assignNemesis(user_id, db);
@@ -225,19 +240,18 @@ export async function refreshNemesisAssignments(
   }, 10);
 
   // Also assign nemeses to active users who don't have one — BUG-11: filter by is_active, not dismissed_at
-  const unassignedResult = await db.query<{ id: string }>(
-    `SELECT u.id FROM users u
-     WHERE u.deleted_at IS NULL
-       AND u.xp_total > 0
-       AND COALESCE(u.nemesis_opt_out, false) = false
-       AND u.id NOT IN (
-         SELECT user_id FROM nemesis_assignments WHERE is_active = true
-       )
-     LIMIT 1000`,
-    []
-  );
+  const unassignedResult = await db.execute<{ id: string }>(sql`
+    SELECT u.id FROM users u
+    WHERE u.deleted_at IS NULL
+      AND u.xp_total > 0
+      AND COALESCE(u.nemesis_opt_out, false) = false
+      AND u.id NOT IN (
+        SELECT user_id FROM nemesis_assignments WHERE is_active = true
+      )
+    LIMIT 1000
+  `);
 
-  const userIds2 = unassignedResult.rows.map(r => r.id);
+  const userIds2 = (unassignedResult.rows as { id: string }[]).map((r) => r.id);
   await withConcurrency(userIds2, async (id) => {
     try {
       const result = await assignNemesis(id, db);
@@ -260,14 +274,14 @@ export async function refreshNemesisAssignments(
  * @param userId    - UUID of the requesting user.
  * @param nemesisId - UUID of the nemesis to compare against.
  * @param track     - Which XP track to compare ('main' | 'social' | 'creator' | etc.)
- * @param db        - Active database adapter.
+ * @param db        - Drizzle db instance or an active transaction handle.
  * @returns Comparison result with XP values and who is currently ahead.
  */
 export async function compareNemesisProgress(
   userId: string,
   nemesisId: string,
   track: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<{
   userXP: number;
   nemesisXP: number;
@@ -275,9 +289,6 @@ export async function compareNemesisProgress(
   userIsAhead: boolean;
 }> {
   type XPRow = { user_id: string; xp_value: number };
-
-  let query: string;
-  let params: string[];
 
   const trackColumnMap: Record<string, string> = {
     main: "xp_total",
@@ -293,16 +304,17 @@ export async function compareNemesisProgress(
   if (!col || !new Set(Object.values(trackColumnMap)).has(col)) {
     throw new Error(`compareNemesisProgress: unknown XP track '${track}'`);
   }
-  query = `SELECT id AS user_id, ${col} AS xp_value FROM users WHERE id = ANY(ARRAY[$1::uuid, $2::uuid])`;
-  params = [userId, nemesisId];
 
-  const result = await db.query<XPRow>(query, params);
+  const result = await db.execute<XPRow>(
+    sql`SELECT id AS user_id, ${sql.raw(col)} AS xp_value FROM users WHERE id = ANY(ARRAY[${userId}::uuid, ${nemesisId}::uuid])`
+  );
+  const rows = result.rows as XPRow[];
 
-  const userRow = result.rows.find((r) => r.user_id === userId);
-  const nemesisRow = result.rows.find((r) => r.user_id === nemesisId);
+  const userRow = rows.find((r) => r.user_id === userId);
+  const nemesisRow = rows.find((r) => r.user_id === nemesisId);
 
-  const userXP = userRow?.xp_value ?? 0;
-  const nemesisXP = nemesisRow?.xp_value ?? 0;
+  const userXP = Number(userRow?.xp_value ?? 0);
+  const nemesisXP = Number(nemesisRow?.xp_value ?? 0);
 
   return {
     userXP,
@@ -331,20 +343,20 @@ const DEFAULT_CHALLENGE_ACCEPT_DAYS = 3;
  * Intended to run once a day (any pending challenge older than the window
  * qualifies, independent of the weekly nemesis-refresh cadence).
  *
- * @param db - Active database adapter.
+ * @param db - Drizzle db instance or an active transaction handle.
  */
 export async function expireUnacceptedNemesisChallenges(
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<{ expired: number; reassigned: number; failed: number }> {
   const acceptDaysRaw = await getManifestValue("nemesis_challenge_accept_days");
   const acceptDays = Math.max(1, parseInt(acceptDaysRaw ?? "", 10) || DEFAULT_CHALLENGE_ACCEPT_DAYS);
 
-  const { rows: staleChallenges } = await db.query<{ id: string; challenger_id: string }>(
-    `SELECT id, challenger_id FROM nemesis_challenges
-     WHERE status = 'pending'
-       AND created_at < NOW() - ($1 || ' days')::interval`,
-    [acceptDays]
-  );
+  const staleResult = await db.execute<{ id: string; challenger_id: string }>(sql`
+    SELECT id, challenger_id FROM nemesis_challenges
+    WHERE status = 'pending'
+      AND created_at < NOW() - (${acceptDays} || ' days')::interval
+  `);
+  const staleChallenges = staleResult.rows as { id: string; challenger_id: string }[];
 
   if (staleChallenges.length === 0) return { expired: 0, reassigned: 0, failed: 0 };
 
@@ -353,21 +365,23 @@ export async function expireUnacceptedNemesisChallenges(
 
   await withConcurrency(staleChallenges, async (challenge) => {
     try {
-      await db.query(
-        `UPDATE nemesis_challenges SET status = 'expired' WHERE id = $1 AND status = 'pending'`,
-        [challenge.id]
-      );
+      await db
+        .update(schema.nemesisChallenges)
+        .set({ status: "expired" })
+        .where(and(eq(schema.nemesisChallenges.id, challenge.id), eq(schema.nemesisChallenges.status, "pending")));
+
       const newAssignment = await assignNemesis(challenge.challenger_id, db);
       if (newAssignment) {
         reassigned++;
-        await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'nemesis_challenge_expired', $2, false, NOW())`,
-          [
-            challenge.challenger_id,
-            JSON.stringify({ newNemesisId: newAssignment.nemesis_id }),
-          ]
-        ).catch(() => {});
+        await db
+          .insert(schema.notifications)
+          .values({
+            userId: challenge.challenger_id,
+            type: "nemesis_challenge_expired",
+            payload: { newNemesisId: newAssignment.nemesis_id },
+            isRead: false,
+          })
+          .catch(() => {});
       }
     } catch {
       failed++;

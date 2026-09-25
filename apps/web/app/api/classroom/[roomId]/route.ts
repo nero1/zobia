@@ -12,8 +12,9 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest } from "next/server";
 import { z } from "zod";
+import { and, count, eq, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db/interface";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, conflict, forbidden, handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -74,7 +75,7 @@ export const PATCH = withAuth<{ roomId: string }>(async (req: NextRequest, { par
     // Going from free to paid (or raising a paid fee) re-runs the PRD §19 trust
     // gate that POST /api/rooms applies at creation. Staff bypass, as there.
     if (body.enrolmentFeeNgn !== undefined && body.enrolmentFeeNgn > 0 && !viewer.isStaff) {
-      const eligible = await meetsMinimumTrust(auth.user.sub, "classroom_creation", db);
+      const eligible = await meetsMinimumTrust(auth.user.sub, "classroom_creation", await getDb());
       if (!eligible) {
         throw forbidden(
           "Paid ClassRooms require a 30-day account history and a minimum trust score.",
@@ -83,49 +84,48 @@ export const PATCH = withAuth<{ roomId: string }>(async (req: NextRequest, { par
       }
     }
 
-    const sets: string[] = [];
-    const args: SqlParam[] = [classroom.id];
-    const set = (col: string, value: SqlParam) => {
-      args.push(value);
-      sets.push(`${col} = $${args.length}`);
-    };
-    if (body.name !== undefined) set("name", body.name);
-    if (body.description !== undefined) set("description", body.description || null);
-    if (body.category !== undefined) set("category", body.category);
-    if (body.coverEmoji !== undefined) set("cover_emoji", body.coverEmoji || "📚");
-    if (body.coverImageUrl !== undefined) set("cover_image_url", body.coverImageUrl);
+    const orm = await getDb();
+    const updates: Partial<typeof schema.rooms.$inferInsert> = {};
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.description !== undefined) updates.description = body.description || null;
+    if (body.category !== undefined) updates.category = body.category;
+    if (body.coverEmoji !== undefined) updates.coverEmoji = body.coverEmoji || "📚";
+    if (body.coverImageUrl !== undefined) updates.coverImageUrl = body.coverImageUrl;
     if (body.isPublic !== undefined) {
       if (body.isPublic && !classroom.slug) throw badRequest("Set a URL for this classroom before making it public.");
-      set("is_public", body.isPublic);
-      if (body.isPublic && !classroom.publishedAt) set("published_at", new Date().toISOString());
+      updates.isPublic = body.isPublic;
+      if (body.isPublic && !classroom.publishedAt) updates.publishedAt = new Date();
     }
-    if (body.isActive !== undefined) set("is_active", body.isActive);
-    if (body.enrolmentFeeNgn !== undefined) set("enrolment_fee_ngn", body.enrolmentFeeNgn);
-    if (body.classStartDate !== undefined) set("class_start_date", body.classStartDate);
-    if (body.classEndDate !== undefined) set("class_end_date", body.classEndDate);
-    if (body.showInCreatorListing !== undefined) set("show_in_creator_listing", body.showInCreatorListing);
+    if (body.isActive !== undefined) updates.isActive = body.isActive;
+    if (body.enrolmentFeeNgn !== undefined) updates.enrolmentFeeNgn = BigInt(body.enrolmentFeeNgn);
+    if (body.classStartDate !== undefined) updates.classStartDate = body.classStartDate;
+    if (body.classEndDate !== undefined) updates.classEndDate = body.classEndDate;
+    if (body.showInCreatorListing !== undefined) updates.showInCreatorListing = body.showInCreatorListing;
     if (body.settings !== undefined) {
       if (body.settings.chatRoomEnabled === true && !classroom.settings.chatRoomEnabled) {
-        const { rows: planRows } = await db.query<{ plan: string; has_business: boolean }>(
-          `SELECT u.plan, EXISTS(
-             SELECT 1 FROM business_accounts ba WHERE ba.user_id = u.id AND ba.status = 'active'
-           ) AS has_business
-           FROM users u WHERE u.id = $1`,
-          [classroom.creatorId]
-        );
+        const [planRow] = await orm
+          .select({
+            plan: schema.users.plan,
+            has_business: sql<boolean>`EXISTS(
+             SELECT 1 FROM business_accounts ba WHERE ba.user_id = ${schema.users.id} AND ba.status = 'active'
+           )`,
+          })
+          .from(schema.users)
+          .where(eq(schema.users.id, classroom.creatorId))
+          .limit(1);
         const { eligible, reason } = canEnableClassroomChatRoom(
-          planRows[0]?.plan ?? "free",
-          planRows[0]?.has_business ?? false
+          planRow?.plan ?? "free",
+          planRow?.has_business ?? false
         );
         if (!eligible) throw forbidden(reason ?? "Not eligible for the chat Room", "CHAT_ROOM_NOT_ELIGIBLE");
-        set("max_members", await getChatRoomMaxTotal());
+        updates.maxMembers = await getChatRoomMaxTotal();
       }
-      set("classroom_settings", JSON.stringify(mergeClassroomSettings(classroom.settings, body.settings)));
-      sets[sets.length - 1] += "::jsonb";
+      updates.classroomSettings = mergeClassroomSettings(classroom.settings, body.settings);
     }
-    if (sets.length === 0) throw badRequest("Nothing to update");
+    if (Object.keys(updates).length === 0) throw badRequest("Nothing to update");
 
-    await db.query(`UPDATE rooms SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $1`, args);
+    updates.updatedAt = new Date();
+    await orm.update(schema.rooms).set(updates).where(eq(schema.rooms.id, classroom.id));
     memDelPrefix(`classroom:stats:${classroom.id}:`);
     logger.info({ roomId: classroom.id, actorId: auth.user.sub, fields: Object.keys(body) }, "[classroom] classroom updated");
 
@@ -142,21 +142,22 @@ export const DELETE = withAuth<{ roomId: string }>(async (_req: NextRequest, { p
     const { classroom, viewer } = await classroomContextFromParams(params, auth.user.sub);
     requireCapability(viewer, "manageClassroom");
 
-    await db.transaction(async (tx) => {
-      const { rows } = await tx.query<{ n: string }>(
-        `SELECT COUNT(*)::text AS n FROM classroom_enrolments WHERE room_id = $1 AND paid = TRUE`,
-        [classroom.id]
-      );
-      if (Number(rows[0]?.n ?? 0) > 0) {
+    const orm = await getDb();
+    await orm.transaction(async (tx) => {
+      const [{ n }] = await tx
+        .select({ n: count() })
+        .from(schema.classroomEnrolments)
+        .where(and(eq(schema.classroomEnrolments.roomId, classroom.id), eq(schema.classroomEnrolments.paid, true)));
+      if (Number(n ?? 0) > 0) {
         throw conflict(
           "This classroom has paying members, so it can't be deleted. Archive it instead to stop new enrolments.",
           "CLASSROOM_HAS_PAID_MEMBERS"
         );
       }
-      await tx.query(
-        `UPDATE rooms SET deleted_at = NOW(), is_active = FALSE, updated_at = NOW() WHERE id = $1`,
-        [classroom.id]
-      );
+      await tx
+        .update(schema.rooms)
+        .set({ deletedAt: new Date(), isActive: false, updatedAt: new Date() })
+        .where(eq(schema.rooms.id, classroom.id));
     });
     logger.info({ roomId: classroom.id, actorId: auth.user.sub }, "[classroom] classroom deleted");
     return ok({ deleted: true });

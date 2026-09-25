@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -31,19 +32,22 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { params, auth }: Ct
     const { key } = await params;
     const body = await validateBody(req, patchSchema);
 
-    const { rows } = await db.query(
-      `UPDATE ad_placements
-       SET is_active = COALESCE($1, is_active),
-           base_cpm_credits = COALESCE($2, base_cpm_credits),
-           label = COALESCE($3, label),
-           updated_at = NOW()
-       WHERE key = $4
-       RETURNING *`,
-      [body.isActive ?? null, body.baseCpmCredits ?? null, body.label ?? null, key]
-    );
-    if (!rows[0]) throw notFound("Placement not found");
+    // NOTE: `ad_placements` is not present in lib/db/schema.ts (schema/DB
+    // mismatch — reported upstream), so this uses Drizzle's `sql` tag
+    // directly rather than the query builder.
+    const orm = await getDb();
+    const result = await orm.execute(sql`
+      UPDATE ad_placements
+      SET is_active = COALESCE(${body.isActive ?? null}, is_active),
+          base_cpm_credits = COALESCE(${body.baseCpmCredits ?? null}, base_cpm_credits),
+          label = COALESCE(${body.label ?? null}, label),
+          updated_at = NOW()
+      WHERE key = ${key}
+      RETURNING *
+    `);
+    if (!result.rows[0]) throw notFound("Placement not found");
 
-    return NextResponse.json({ success: true, data: { placement: rows[0] }, error: null });
+    return NextResponse.json({ success: true, data: { placement: result.rows[0] }, error: null });
   } catch (err) {
     return handleApiError(err);
   }

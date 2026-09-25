@@ -15,7 +15,8 @@ import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug } from "@/lib/blogs/repo";
 import { getMaxBlogPosts } from "@/lib/blogs/limits";
-import { db } from "@/lib/db";
+import { eq, and, isNull, count } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 export const GET = withAuth<{ slug: string }>(async (_req: NextRequest, { params, auth }) => {
   try {
@@ -24,14 +25,19 @@ export const GET = withAuth<{ slug: string }>(async (_req: NextRequest, { params
     if (!blog) throw notFound("Blog not found");
     if (blog.owner_id !== auth.user.sub) throw forbidden("Only the blog owner can view this.");
 
-    const { rows: userRows } = await db.query<{ plan: string }>(`SELECT plan FROM users WHERE id = $1 LIMIT 1`, [auth.user.sub]);
-    const plan = userRows[0]?.plan ?? "free";
+    const orm = await getDb();
+    const [userRow] = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
+    const plan = userRow?.plan ?? "free";
 
-    const { rows: countRows } = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM blog_posts WHERE blog_id = $1 AND deleted_at IS NULL`,
-      [blog.id]
-    );
-    const used = parseInt(countRows[0]?.count ?? "0", 10);
+    const [countRow] = await orm
+      .select({ count: count() })
+      .from(schema.blogPosts)
+      .where(and(eq(schema.blogPosts.blogId, blog.id), isNull(schema.blogPosts.deletedAt)));
+    const used = countRow?.count ?? 0;
     const [maxPosts, plusMax, proMax, maxMax] = await Promise.all([
       getMaxBlogPosts(plan),
       getMaxBlogPosts("plus"),

@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, ne, or, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -37,44 +38,45 @@ export const PATCH = withAdminAuth<{ id: string }>(async (req: NextRequest, { pa
     const { id } = paramsSchema.parse(params);
     const body = await validateBody(req, patchSchema);
 
+    const orm = await getDb();
+    const u = schema.users;
+
     if (body.email || body.username) {
-      const { rows: dupes } = await db.query<{ id: string }>(
-        `SELECT id FROM users
-         WHERE id != $1 AND (
-           ($2::text IS NOT NULL AND email = $2) OR
-           ($3::text IS NOT NULL AND username = $3)
-         ) LIMIT 1`,
-        [id, body.email ?? null, body.username ?? null]
-      );
-      if (dupes[0]) throw conflict("Another user already has that email or username.");
+      const [dupe] = await orm
+        .select({ id: u.id })
+        .from(u)
+        .where(
+          and(
+            ne(u.id, id),
+            or(
+              body.email ? eq(u.email, body.email) : sql`false`,
+              body.username ? eq(u.username, body.username) : sql`false`
+            )
+          )
+        )
+        .limit(1);
+      if (dupe) throw conflict("Another user already has that email or username.");
     }
 
-    const updates: string[] = [];
-    const values: (string | boolean | null)[] = [id];
-    let idx = 2;
-    const set = (col: string, val: string | boolean | null | undefined) => {
-      if (val === undefined) return;
-      updates.push(`${col} = $${idx++}`);
-      values.push(val);
-    };
-    set("display_name", body.displayName);
-    set("bio", body.bio);
-    set("city", body.city);
-    set("country", body.country);
-    set("plan", body.plan);
-    set("is_verified", body.isVerified);
-    set("email", body.email);
-    set("username", body.username);
+    const updates: Partial<typeof schema.users.$inferInsert> = {};
+    if (body.displayName !== undefined) updates.displayName = body.displayName;
+    if (body.bio !== undefined) updates.bio = body.bio;
+    if (body.city !== undefined) updates.city = body.city;
+    if (body.country !== undefined) updates.country = body.country;
+    if (body.plan !== undefined) updates.plan = body.plan;
+    if (body.isVerified !== undefined) updates.isVerified = body.isVerified;
+    if (body.email !== undefined) updates.email = body.email;
+    if (body.username !== undefined) updates.username = body.username;
 
-    if (updates.length === 0) throw badRequest("No fields to update.");
-    updates.push("updated_at = NOW()");
+    if (Object.keys(updates).length === 0) throw badRequest("No fields to update.");
+    updates.updatedAt = new Date();
 
-    const { rows } = await db.query<{ id: string; username: string; email: string | null; display_name: string | null }>(
-      `UPDATE users SET ${updates.join(", ")} WHERE id = $1 AND deleted_at IS NULL
-       RETURNING id, username, email, display_name`,
-      values
-    );
-    if (!rows[0]) throw notFound("User not found");
+    const [updated] = await orm
+      .update(u)
+      .set(updates)
+      .where(and(eq(u.id, id), isNull(u.deletedAt)))
+      .returning({ id: u.id, username: u.username, email: u.email, display_name: u.displayName });
+    if (!updated) throw notFound("User not found");
 
     writeAuditLog({
       actorId: auth.user.sub,
@@ -83,7 +85,7 @@ export const PATCH = withAdminAuth<{ id: string }>(async (req: NextRequest, { pa
       metadata: { fields: Object.keys(body) },
     });
 
-    return NextResponse.json({ user: rows[0] }, { status: 200 });
+    return NextResponse.json({ user: updated }, { status: 200 });
   } catch (err) {
     if (err instanceof z.ZodError) return handleApiError(badRequest("Invalid request", { issues: err.issues }));
     const pgErr = err as { code?: string };
@@ -97,11 +99,14 @@ export const DELETE = withAdminAuth<{ id: string }>(async (_req: NextRequest, { 
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const { id } = paramsSchema.parse(params);
 
-    const { rows } = await db.query<{ id: string; username: string; is_admin: boolean }>(
-      `SELECT id, username, is_admin FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [id]
-    );
-    const target = rows[0];
+    const orm = await getDb();
+    const u = schema.users;
+
+    const [target] = await orm
+      .select({ id: u.id, username: u.username, is_admin: u.isAdmin })
+      .from(u)
+      .where(and(eq(u.id, id), isNull(u.deletedAt)))
+      .limit(1);
     if (!target) throw notFound("User not found");
     // Privilege-escalation / lockout guard, mirrors
     // app/api/admin/users/[userId]/impersonate/route.ts.

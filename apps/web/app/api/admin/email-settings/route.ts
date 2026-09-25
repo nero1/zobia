@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { inArray } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 
@@ -36,10 +37,11 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     if (!auth.user.is_admin) throw forbidden("Admin access required");
 
-    const { rows } = await db.query<{ key: string; value: string }>(
-      `SELECT key, value FROM x_manifest
-       WHERE key IN ('email_all_enabled', 'email_non_critical_enabled')`,
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ key: schema.xManifest.key, value: schema.xManifest.value })
+      .from(schema.xManifest)
+      .where(inArray(schema.xManifest.key, ["email_all_enabled", "email_non_critical_enabled"]));
 
     const settings: Record<string, boolean> = {
       email_all_enabled: true,
@@ -78,13 +80,15 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
       updates.push({ key: "email_non_critical_enabled", value: String(body.email_non_critical_enabled) });
     }
 
+    const orm = await getDb();
     for (const update of updates) {
-      await db.query(
-        `INSERT INTO x_manifest (key, value, updated_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
-        [update.key, update.value]
-      );
+      await orm
+        .insert(schema.xManifest)
+        .values({ key: update.key, value: update.value })
+        .onConflictDoUpdate({
+          target: schema.xManifest.key,
+          set: { value: update.value, updatedAt: new Date() },
+        });
     }
 
     return NextResponse.json({

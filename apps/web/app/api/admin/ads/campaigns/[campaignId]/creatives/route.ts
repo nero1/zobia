@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -39,31 +40,22 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }: Ctx
     const { campaignId } = await params;
     const body = await validateBody(req, createSchema);
 
-    const { rows: campaignRows } = await db.query<{ id: string }>(
-      `SELECT id FROM ad_campaigns WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [campaignId]
-    );
-    if (!campaignRows[0]) throw notFound("Campaign not found");
+    // NOTE: `ad_campaigns` / `ad_creatives` are not present in
+    // lib/db/schema.ts (schema/DB mismatch — reported upstream), so this
+    // uses Drizzle's `sql` tag directly rather than the query builder.
+    const orm = await getDb();
+    const campaignResult = await orm.execute<{ id: string }>(sql`
+      SELECT id FROM ad_campaigns WHERE id = ${campaignId} AND deleted_at IS NULL LIMIT 1
+    `);
+    if (!campaignResult.rows[0]) throw notFound("Campaign not found");
 
-    const { rows } = await db.query(
-      `INSERT INTO ad_creatives (campaign_id, placement_key, format, size, title, body, image_url, click_url, third_party_tag, cta_label)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       RETURNING *`,
-      [
-        campaignId,
-        body.placementKey,
-        body.format,
-        body.size,
-        body.title ?? null,
-        body.body ?? null,
-        body.imageUrl ?? null,
-        body.clickUrl ?? null,
-        body.thirdPartyTag ?? null,
-        body.ctaLabel ?? null,
-      ]
-    );
+    const result = await orm.execute(sql`
+      INSERT INTO ad_creatives (campaign_id, placement_key, format, size, title, body, image_url, click_url, third_party_tag, cta_label)
+      VALUES (${campaignId}, ${body.placementKey}, ${body.format}, ${body.size}, ${body.title ?? null}, ${body.body ?? null}, ${body.imageUrl ?? null}, ${body.clickUrl ?? null}, ${body.thirdPartyTag ?? null}, ${body.ctaLabel ?? null})
+      RETURNING *
+    `);
 
-    return NextResponse.json({ success: true, data: { creative: rows[0] }, error: null }, { status: 201 });
+    return NextResponse.json({ success: true, data: { creative: result.rows[0] }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

@@ -19,27 +19,14 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, desc, eq, inArray, isNull, ne, notInArray, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface GuildDiscoveryRow {
-  id: string;
-  name: string;
-  crest_emoji: string;
-  description: string | null;
-  city: string | null;
-  member_count: number;
-  guild_xp: number;
-  tier: string;
-  wars_won: number;
-  is_recruiting: boolean;
-  same_city: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // GET /api/guilds/discovery
@@ -61,20 +48,18 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
 
     // PRD §4 Step 5: Guild Discovery is shown only after the user's first 24 hours
-    const { rows: userWithAge } = await db.query<{
-      city: string | null;
-      guild_id: string | null;
-      created_at: string;
-      guild_emphasis: string | null;
-    }>(
-      `SELECT u.city, u.guild_id, u.created_at,
-              u.onboarding_personalization->>'guild_emphasis' AS guild_emphasis
-       FROM users u
-       WHERE u.id = $1 AND u.deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    const user = userWithAge[0];
-    const accountAgeHours = user ? (Date.now() - new Date(user.created_at).getTime()) / 3_600_000 : 999;
+    const orm = await getDb();
+    const [user] = await orm
+      .select({
+        city: schema.users.city,
+        guildId: schema.users.guildId,
+        createdAt: schema.users.createdAt,
+        guildEmphasis: sql<string | null>`${schema.users.onboardingPersonalization}->>'guild_emphasis'`,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    const accountAgeHours = user?.createdAt ? (Date.now() - user.createdAt.getTime()) / 3_600_000 : 999;
 
     if (accountAgeHours < 24) {
       return NextResponse.json({
@@ -85,56 +70,52 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     const userCity = user?.city ?? null;
-    const guildEmphasis = (user?.guild_emphasis as 'guild' | 'solo' | null) ?? null;
+    const guildEmphasis = (user?.guildEmphasis as 'guild' | 'solo' | null) ?? null;
     const soloNote =
       guildEmphasis === 'solo'
         ? "You can explore Zobia solo — but crew members earn up to 50% more XP on the same actions."
         : null;
 
     // 1. Find guilds the user is already a member of (covers multi-guild edge case)
-    const { rows: membershipRows } = await db.query<{ guild_id: string }>(
-      `SELECT guild_id FROM guild_members WHERE user_id = $1`,
-      [userId]
-    );
-    const memberGuildIds = membershipRows.map((r) => r.guild_id);
+    const membershipRows = await orm
+      .select({ guildId: schema.guildMembers.guildId })
+      .from(schema.guildMembers)
+      .where(eq(schema.guildMembers.userId, userId));
+    const memberGuildIds = membershipRows.map((r) => r.guildId);
 
     // Always exclude the user's primary guild_id if set
-    if (user?.guild_id && !memberGuildIds.includes(user.guild_id)) {
-      memberGuildIds.push(user.guild_id);
+    if (user?.guildId && !memberGuildIds.includes(user.guildId)) {
+      memberGuildIds.push(user.guildId);
     }
 
     // 2. Query recommended guilds
     //    Excludes invite_only and guilds the user is already in.
     //    Orders: same city first, then member_count DESC, then guild_xp DESC.
-    const { rows: guilds } = await db.query<GuildDiscoveryRow>(
-      `SELECT
-         g.id,
-         g.name,
-         g.crest_emoji,
-         g.description,
-         g.city,
-         g.member_count,
-         g.guild_xp,
-         g.tier,
-         g.wars_won,
-         (g.recruitment_type != 'invite_only') AS is_recruiting,
-         CASE
-           WHEN $1::text IS NOT NULL AND g.city ILIKE $1 THEN TRUE
-           ELSE FALSE
-         END AS same_city
-       FROM guilds g
-       WHERE g.is_active = TRUE
-         AND g.recruitment_type IN ('open', 'approval')
-         ${memberGuildIds.length > 0 ? `AND g.id != ALL($2::uuid[])` : ""}
-       ORDER BY
-         same_city DESC,
-         g.member_count DESC,
-         g.guild_xp DESC
-       LIMIT 3`,
-      memberGuildIds.length > 0
-        ? [userCity, memberGuildIds]
-        : [userCity]
-    );
+    const sameCityExpr = sql<boolean>`(${userCity !== null} AND ${schema.guilds.city} ILIKE ${userCity})`;
+    const guilds = await orm
+      .select({
+        id: schema.guilds.id,
+        name: schema.guilds.name,
+        crestEmoji: schema.guilds.crestEmoji,
+        description: schema.guilds.description,
+        city: schema.guilds.city,
+        memberCount: schema.guilds.memberCount,
+        guildXp: schema.guilds.guildXp,
+        tier: schema.guilds.tier,
+        warsWon: schema.guilds.warsWon,
+        isRecruiting: sql<boolean>`(${schema.guilds.recruitmentType} != 'invite_only')`,
+        sameCity: sameCityExpr,
+      })
+      .from(schema.guilds)
+      .where(
+        and(
+          eq(schema.guilds.isActive, true),
+          inArray(schema.guilds.recruitmentType, ["open", "approval"]),
+          memberGuildIds.length > 0 ? notInArray(schema.guilds.id, memberGuildIds) : undefined
+        )
+      )
+      .orderBy(desc(sameCityExpr), desc(schema.guilds.memberCount), desc(schema.guilds.guildXp))
+      .limit(3);
 
     return NextResponse.json(
       {
@@ -143,15 +124,15 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
           guilds: guilds.map((g) => ({
             id: g.id,
             name: g.name,
-            crestEmoji: g.crest_emoji,
+            crestEmoji: g.crestEmoji,
             description: g.description,
             city: g.city,
-            memberCount: g.member_count,
-            guildXp: g.guild_xp,
+            memberCount: g.memberCount,
+            guildXp: g.guildXp,
             tier: g.tier,
-            warWins: g.wars_won,
-            isRecruiting: g.is_recruiting,
-            sameCity: g.same_city,
+            warWins: g.warsWon,
+            isRecruiting: g.isRecruiting,
+            sameCity: g.sameCity,
           })),
           userCity,
           guildEmphasis,

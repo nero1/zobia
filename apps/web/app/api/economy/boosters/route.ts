@@ -32,7 +32,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, asc, eq, gt, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, conflict, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -73,21 +74,42 @@ interface ActiveBoosterRow {
 
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
-    const [{ rows }, { rows: activeRows }] = await Promise.all([
-      db.query<BoostTypeRow>(
-        `SELECT id, key, label, description, multiplier_bp, duration_hours,
-                coins_cost, stackable
-         FROM boost_types WHERE is_active = TRUE ORDER BY sort_order ASC`
-      ),
-      db.query<ActiveBoosterRow>(
-        `SELECT b.id, b.booster_type, b.multiplier, b.expires_at,
-                t.label, t.description
-         FROM user_xp_boosters b
-         LEFT JOIN boost_types t ON t.key = b.booster_type
-         WHERE b.user_id = $1 AND b.is_active = TRUE AND b.expires_at > NOW()
-         ORDER BY b.expires_at ASC`,
-        [auth.user.sub]
-      ),
+    const orm = await getDb();
+    const now = new Date();
+    const [rows, activeRows] = await Promise.all([
+      orm
+        .select({
+          id: schema.boostTypes.id,
+          key: schema.boostTypes.key,
+          label: schema.boostTypes.label,
+          description: schema.boostTypes.description,
+          multiplier_bp: schema.boostTypes.multiplierBp,
+          duration_hours: schema.boostTypes.durationHours,
+          coins_cost: schema.boostTypes.coinsCost,
+          stackable: schema.boostTypes.stackable,
+        })
+        .from(schema.boostTypes)
+        .where(eq(schema.boostTypes.isActive, true))
+        .orderBy(asc(schema.boostTypes.sortOrder)),
+      orm
+        .select({
+          id: schema.userXpBoosters.id,
+          booster_type: schema.userXpBoosters.boosterType,
+          multiplier: schema.userXpBoosters.multiplier,
+          expires_at: schema.userXpBoosters.expiresAt,
+          label: schema.boostTypes.label,
+          description: schema.boostTypes.description,
+        })
+        .from(schema.userXpBoosters)
+        .leftJoin(schema.boostTypes, eq(schema.boostTypes.key, schema.userXpBoosters.boosterType))
+        .where(
+          and(
+            eq(schema.userXpBoosters.userId, auth.user.sub),
+            eq(schema.userXpBoosters.isActive, true),
+            gt(schema.userXpBoosters.expiresAt, now)
+          )
+        )
+        .orderBy(asc(schema.userXpBoosters.expiresAt)),
     ]);
     return NextResponse.json({
       success: true,
@@ -118,29 +140,38 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
     const boosterType = body.boosterType;
 
-    const { rows: configRows } = await db.query<BoostTypeRow>(
-      `SELECT id, key, label, description, multiplier_bp, duration_hours,
-              coins_cost, stackable
-       FROM boost_types WHERE key = $1 AND is_active = TRUE LIMIT 1`,
-      [boosterType]
-    );
-    const config = configRows[0];
+    const orm = await getDb();
+    const [config] = await orm
+      .select({
+        id: schema.boostTypes.id,
+        key: schema.boostTypes.key,
+        label: schema.boostTypes.label,
+        description: schema.boostTypes.description,
+        multiplier_bp: schema.boostTypes.multiplierBp,
+        duration_hours: schema.boostTypes.durationHours,
+        coins_cost: schema.boostTypes.coinsCost,
+        stackable: schema.boostTypes.stackable,
+      })
+      .from(schema.boostTypes)
+      .where(and(eq(schema.boostTypes.key, boosterType), eq(schema.boostTypes.isActive, true)))
+      .limit(1);
     if (!config) {
       throw notFound(`Unknown or inactive boost type: ${boosterType}`);
     }
     const cost = config.coins_cost ?? 0;
 
     // Check that the user can afford the booster
-    const { rows: userRows } = await db.query<{ coin_balance: number }>(
-      `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const [userRow] = await orm
+      .select({ coin_balance: schema.users.coinBalance })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
 
-    if (!userRows[0]) {
+    if (!userRow) {
       throw badRequest("User not found", "USER_NOT_FOUND");
     }
 
-    if (userRows[0].coin_balance < cost) {
+    if (Number(userRow.coin_balance) < cost) {
       throw badRequest(
         `Insufficient coins. This booster costs ${cost} coins.`,
         "INSUFFICIENT_BALANCE"
@@ -149,14 +180,20 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     // Non-stackable boosters (most of them) block duplicates while active.
     if (!config.stackable) {
-      const { rows: existingRows } = await db.query<{ id: string }>(
-        `SELECT id FROM user_xp_boosters
-         WHERE user_id = $1 AND booster_type = $2 AND is_active = TRUE AND expires_at > NOW()
-         LIMIT 1`,
-        [userId, boosterType]
-      );
+      const [existingRow] = await orm
+        .select({ id: schema.userXpBoosters.id })
+        .from(schema.userXpBoosters)
+        .where(
+          and(
+            eq(schema.userXpBoosters.userId, userId),
+            eq(schema.userXpBoosters.boosterType, boosterType),
+            eq(schema.userXpBoosters.isActive, true),
+            gt(schema.userXpBoosters.expiresAt, new Date())
+          )
+        )
+        .limit(1);
 
-      if (existingRows.length > 0) {
+      if (existingRow) {
         throw conflict(
           `You already have an active ${boosterType} booster. Wait for it to expire before purchasing another.`,
           "BOOSTER_ALREADY_ACTIVE"
@@ -168,7 +205,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const expiresAt = new Date(Date.now() + config.duration_hours * 60 * 60 * 1000);
 
     // Atomically debit coins and insert booster record
-    const booster = await db.transaction(async (tx) => {
+    const booster = await orm.transaction(async (tx) => {
       // Debit coins using the economy module (handles ledger + balance update atomically)
       await debitCoins(
         userId,
@@ -181,26 +218,29 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       );
 
       // Insert the booster record
-      const { rows: boosterRows } = await tx.query<{
-        id: string;
-        user_id: string;
-        booster_type: string;
-        multiplier: number;
-        expires_at: string;
-        is_active: boolean;
-        created_at: string;
-      }>(
-        `INSERT INTO user_xp_boosters
-           (user_id, booster_type, multiplier, expires_at, is_active, created_at)
-         VALUES ($1, $2, $3, $4, TRUE, NOW())
-         RETURNING id, user_id, booster_type, multiplier, expires_at, is_active, created_at`,
-        [userId, boosterType, config.multiplier_bp, expiresAt.toISOString()]
-      );
+      const [boosterRow] = await tx
+        .insert(schema.userXpBoosters)
+        .values({
+          userId,
+          boosterType,
+          multiplier: config.multiplier_bp,
+          expiresAt,
+          isActive: true,
+        })
+        .returning({
+          id: schema.userXpBoosters.id,
+          user_id: schema.userXpBoosters.userId,
+          booster_type: schema.userXpBoosters.boosterType,
+          multiplier: schema.userXpBoosters.multiplier,
+          expires_at: schema.userXpBoosters.expiresAt,
+          is_active: schema.userXpBoosters.isActive,
+          created_at: schema.userXpBoosters.createdAt,
+        });
 
-      return boosterRows[0];
+      return boosterRow;
     });
 
-    void triggerActivityQuestProgress(userId, "market_purchase", db);
+    void triggerActivityQuestProgress(userId, "market_purchase", orm);
 
     return NextResponse.json(
       {

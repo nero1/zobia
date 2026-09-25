@@ -12,12 +12,13 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { and, eq, isNull } from "drizzle-orm";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { listWikis } from "@/lib/wiki/repo";
 import { createWiki } from "@/lib/wiki/service";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 const listQuerySchema = z.object({
   tab: z.enum(["popular", "trending", "new", "random"]).default("popular"),
@@ -48,18 +49,25 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.wikiWrite);
     const body = await validateBody(req, createWikiSchema);
 
-    const { rows } = await db.query<{ plan: string; level_creator: number; is_admin: boolean; is_moderator: boolean }>(
-      `SELECT plan, level_creator, is_admin, COALESCE(is_moderator, false) AS is_moderator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [auth.user.sub]
-    );
+    const db = await getDb();
+    const rows = await db
+      .select({
+        plan: schema.users.plan,
+        levelCreator: schema.users.levelCreator,
+        isAdmin: schema.users.isAdmin,
+        isModerator: schema.users.isModerator,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)))
+      .limit(1);
     const user = rows[0];
 
     const result = await createWiki({
       userId: auth.user.sub,
       userPlan: user?.plan ?? "free",
-      userLevelCreator: user?.level_creator ?? 0,
-      isAdmin: !!user?.is_admin,
-      isModerator: !!user?.is_moderator,
+      userLevelCreator: user?.levelCreator ?? 0,
+      isAdmin: !!user?.isAdmin,
+      isModerator: !!user?.isModerator,
       name: body.name,
       description: body.description,
       contributePolicy: body.contributePolicy,

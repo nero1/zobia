@@ -10,23 +10,29 @@ export const dynamic = 'force-dynamic';
  *
  * Blocking a group does not remove existing membership — mirrors
  * app/api/users/[userId]/block/route.ts's "silent, idempotent" behavior.
+ *
+ * NOTE: `group_chat_blocks` is not present in lib/db/schema.ts (schema/DB
+ * mismatch — reported upstream; see lib/plans/groupChatSweep.ts for the same
+ * pattern with group_chats.is_deactivated), so this uses Drizzle's `sql` tag
+ * directly rather than the query builder.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { sql } from 'drizzle-orm';
 import { withAuth } from '@/lib/api/middleware';
-import { db } from '@/lib/db';
+import { getDb } from '@/lib/db/drizzle';
 
 export const POST = withAuth(async (
   req: NextRequest,
   { params, auth }: { params: { groupId: string }; auth: { user: { sub: string } } },
 ) => {
   const { groupId } = await params;
-  await db.query(
-    `INSERT INTO group_chat_blocks (group_chat_id, user_id)
-     VALUES ($1, $2)
-     ON CONFLICT (group_chat_id, user_id) DO NOTHING`,
-    [groupId, auth.user.sub],
-  );
+  const orm = await getDb();
+  await orm.execute(sql`
+    INSERT INTO group_chat_blocks (group_chat_id, user_id)
+    VALUES (${groupId}, ${auth.user.sub})
+    ON CONFLICT (group_chat_id, user_id) DO NOTHING
+  `);
   return NextResponse.json({ success: true });
 });
 
@@ -35,9 +41,9 @@ export const DELETE = withAuth(async (
   { params, auth }: { params: { groupId: string }; auth: { user: { sub: string } } },
 ) => {
   const { groupId } = await params;
-  await db.query(
-    `DELETE FROM group_chat_blocks WHERE group_chat_id = $1 AND user_id = $2`,
-    [groupId, auth.user.sub],
-  );
+  const orm = await getDb();
+  await orm.execute(sql`
+    DELETE FROM group_chat_blocks WHERE group_chat_id = ${groupId} AND user_id = ${auth.user.sub}
+  `);
   return NextResponse.json({ success: true });
 });

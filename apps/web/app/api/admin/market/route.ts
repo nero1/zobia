@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
@@ -29,18 +30,18 @@ interface AdminMarketProductRow {
 export const GET = withAdminAuth(async (req: NextRequest) => {
   try {
     const q = req.nextUrl.searchParams.get("q")?.trim() ?? "";
-    const { rows } = await db.query<AdminMarketProductRow>(
-      `SELECT mp.id, mp.name, mp.product_type, mp.price_kobo::TEXT AS price_kobo,
-              mp.is_active, mp.is_sponsored, mp.is_admin_featured, mp.sponsored_until,
-              u.username AS creator_username
-       FROM merch_products mp
-       JOIN merch_stores ms ON ms.id = mp.store_id
-       JOIN users u ON u.id = ms.creator_id
-       WHERE ($1 = '' OR mp.name ILIKE '%' || $1 || '%' OR u.username ILIKE '%' || $1 || '%')
-       ORDER BY mp.created_at DESC
-       LIMIT 50`,
-      [q]
-    );
+    const orm = await getDb();
+    const { rows } = await orm.execute<AdminMarketProductRow & Record<string, unknown>>(sql`
+      SELECT mp.id, mp.name, mp.product_type, mp.price_kobo::TEXT AS price_kobo,
+             mp.is_active, mp.is_sponsored, mp.is_admin_featured, mp.sponsored_until,
+             u.username AS creator_username
+      FROM merch_products mp
+      JOIN merch_stores ms ON ms.id = mp.store_id
+      JOIN users u ON u.id = ms.creator_id
+      WHERE (${q} = '' OR mp.name ILIKE '%' || ${q} || '%' OR u.username ILIKE '%' || ${q} || '%')
+      ORDER BY mp.created_at DESC
+      LIMIT 50
+    `);
     return NextResponse.json({ success: true, data: { products: rows }, error: null });
   } catch (err) {
     return handleApiError(err);

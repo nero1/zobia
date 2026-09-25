@@ -8,10 +8,15 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, desc, eq, ilike, isNull, lt, or } from "drizzle-orm";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+// NOTE: `quizzes` is defined in lib/db/schema.ts but omitted from the
+// `schema` bundle object exported from there (a pre-existing gap, reported
+// rather than silently added to the shared schema) — imported directly.
+import { quizzes } from "@/lib/db/schema";
 
 export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) => {
   try {
@@ -22,38 +27,48 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
     const cursor = url.searchParams.get("cursor");
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 100);
 
-    const params: (string | number)[] = [];
-    let where = "q.deleted_at IS NULL";
+    const orm = await getDb();
+    const whereClauses = [isNull(quizzes.deletedAt)];
     if (status !== "all") {
-      params.push(status);
-      where += ` AND q.status = $${params.length}`;
+      whereClauses.push(eq(quizzes.status, status));
     }
     if (q) {
-      params.push(`%${q}%`);
-      where += ` AND (q.title ILIKE $${params.length} OR q.slug ILIKE $${params.length} OR u.username ILIKE $${params.length})`;
+      const pattern = `%${q}%`;
+      whereClauses.push(
+        or(
+          ilike(quizzes.title, pattern),
+          ilike(quizzes.slug, pattern),
+          ilike(schema.users.username, pattern)
+        )!
+      );
     }
     if (cursor) {
-      params.push(cursor);
-      where += ` AND q.created_at < $${params.length}`;
+      whereClauses.push(lt(quizzes.createdAt, new Date(cursor)));
     }
 
-    params.push(limit + 1);
-    const { rows } = await db.query(
-      `SELECT q.id, q.slug, q.title, q.status, q.attempt_count, q.share_count, q.created_at,
-              u.id AS creator_id, u.username AS creator_username
-       FROM quizzes q
-       JOIN users u ON u.id = q.creator_id
-       WHERE ${where}
-       ORDER BY q.created_at DESC
-       LIMIT $${params.length}`,
-      params
-    );
+    const rows = await orm
+      .select({
+        id: quizzes.id,
+        slug: quizzes.slug,
+        title: quizzes.title,
+        status: quizzes.status,
+        attempt_count: quizzes.attemptCount,
+        share_count: quizzes.shareCount,
+        created_at: quizzes.createdAt,
+        creator_id: schema.users.id,
+        creator_username: schema.users.username,
+      })
+      .from(quizzes)
+      .innerJoin(schema.users, eq(schema.users.id, quizzes.creatorId))
+      .where(and(...whereClauses))
+      .orderBy(desc(quizzes.createdAt))
+      .limit(limit + 1);
 
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;
     return NextResponse.json({
       success: true,
-      data: { items, hasMore, nextCursor: hasMore ? (items[items.length - 1] as { created_at: string }).created_at : null },
+      data: { items, hasMore, nextCursor: hasMore ? (items[items.length - 1] as { created_at: Date }).created_at : null },
       error: null,
     });
   } catch (err) {

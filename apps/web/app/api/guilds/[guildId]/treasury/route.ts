@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 
@@ -38,30 +39,6 @@ const spendSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Row types
-// ---------------------------------------------------------------------------
-
-interface TreasuryRow {
-  id: string;
-  treasury_balance: number;
-  treasury_cap: number;
-  captain_id: string;
-}
-
-interface TreasuryTxRow {
-  id: string;
-  guild_id: string;
-  user_id: string | null;
-  amount: number;
-  balance_before: number;
-  balance_after: number;
-  transaction_type: string;
-  description: string | null;
-  created_at: string;
-  username: string | null;
-}
-
-// ---------------------------------------------------------------------------
 // GET /api/guilds/[guildId]/treasury
 // ---------------------------------------------------------------------------
 
@@ -75,40 +52,54 @@ export const GET = withAuth(
   ) => {
     try {
       const { guildId } = params;
+      const orm = await getDb();
 
       // Verify member access
-      const memberCheck = await db.query<{ id: string }>(
-        `SELECT id FROM guild_members WHERE guild_id = $1 AND user_id = $2`,
-        [guildId, auth.user.sub]
-      );
-      if (!memberCheck.rows[0]) throw forbidden("You are not a member of this guild");
+      const memberCheck = await orm
+        .select({ id: schema.guildMembers.id })
+        .from(schema.guildMembers)
+        .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, auth.user.sub)))
+        .limit(1);
+      if (!memberCheck[0]) throw forbidden("You are not a member of this guild");
 
-      const guildResult = await db.query<TreasuryRow>(
-        `SELECT id, treasury_balance, treasury_cap, captain_id
-         FROM guilds WHERE id = $1 AND is_active = TRUE`,
-        [guildId]
-      );
-      if (!guildResult.rows[0]) throw notFound("Guild not found");
-      const guild = guildResult.rows[0];
+      const guildResult = await orm
+        .select({
+          id: schema.guilds.id,
+          treasuryBalance: schema.guilds.treasuryBalance,
+          treasuryCap: schema.guilds.treasuryCap,
+          captainId: schema.guilds.captainId,
+        })
+        .from(schema.guilds)
+        .where(and(eq(schema.guilds.id, guildId), eq(schema.guilds.isActive, true)))
+        .limit(1);
+      if (!guildResult[0]) throw notFound("Guild not found");
+      const guild = guildResult[0];
 
-      const txResult = await db.query<TreasuryTxRow>(
-        `SELECT gt.id, gt.guild_id, gt.user_id, gt.amount, gt.balance_before,
-                gt.balance_after, gt.transaction_type, gt.description, gt.created_at,
-                u.username
-         FROM guild_treasury_ledger gt
-         LEFT JOIN users u ON u.id = gt.user_id
-         WHERE gt.guild_id = $1
-         ORDER BY gt.created_at DESC
-         LIMIT 50`,
-        [guildId]
-      );
+      const txResult = await orm
+        .select({
+          id: schema.guildTreasuryLedger.id,
+          guildId: schema.guildTreasuryLedger.guildId,
+          userId: schema.guildTreasuryLedger.userId,
+          amount: schema.guildTreasuryLedger.amount,
+          balanceBefore: schema.guildTreasuryLedger.balanceBefore,
+          balanceAfter: schema.guildTreasuryLedger.balanceAfter,
+          transactionType: schema.guildTreasuryLedger.transactionType,
+          description: schema.guildTreasuryLedger.description,
+          createdAt: schema.guildTreasuryLedger.createdAt,
+          username: schema.users.username,
+        })
+        .from(schema.guildTreasuryLedger)
+        .leftJoin(schema.users, eq(schema.users.id, schema.guildTreasuryLedger.userId))
+        .where(eq(schema.guildTreasuryLedger.guildId, guildId))
+        .orderBy(desc(schema.guildTreasuryLedger.createdAt))
+        .limit(50);
 
       return NextResponse.json({
         success: true,
         data: {
-          balance: guild.treasury_balance,
-          cap: guild.treasury_cap,
-          transactions: txResult.rows,
+          balance: Number(guild.treasuryBalance),
+          cap: Number(guild.treasuryCap),
+          transactions: txResult,
         },
         error: null,
       });
@@ -138,38 +129,46 @@ export const POST = withAuth(
       // Check route action via URL segment
       const url = new URL(req.url);
       const action = url.pathname.split("/").at(-1); // 'donate' or 'spend'
+      const orm = await getDb();
 
       if (action === "donate") {
         const body = await validateBody(req, donateSchema);
 
-        const result = await db.transaction(async (client) => {
+        const result = await orm.transaction(async (tx) => {
           // Lock user and guild
-          const userRow = await client.query<{
-            coin_balance: number;
-            guild_id: string | null;
-          }>(
-            `SELECT coin_balance, guild_id FROM users WHERE id = $1 FOR UPDATE`,
-            [userId]
-          );
-          if (!userRow.rows[0]) throw notFound("User not found");
-          if (userRow.rows[0].guild_id !== guildId) {
+          const userRows = await tx
+            .select({ coinBalance: schema.users.coinBalance, guildId: schema.users.guildId })
+            .from(schema.users)
+            .where(eq(schema.users.id, userId))
+            .for("update");
+          const userRow = userRows[0];
+          if (!userRow) throw notFound("User not found");
+          if (userRow.guildId !== guildId) {
             throw forbidden("You are not a member of this guild");
           }
-          if (userRow.rows[0].coin_balance < body.amount) {
+          const coinBalanceBefore = Number(userRow.coinBalance);
+          if (coinBalanceBefore < body.amount) {
             throw badRequest("Insufficient coins", "INSUFFICIENT_BALANCE");
           }
 
-          const guildRow = await client.query<TreasuryRow>(
-            `SELECT id, treasury_balance, treasury_cap FROM guilds WHERE id = $1 FOR UPDATE`,
-            [guildId]
-          );
-          const guild = guildRow.rows[0];
+          const guildRows = await tx
+            .select({
+              id: schema.guilds.id,
+              treasuryBalance: schema.guilds.treasuryBalance,
+              treasuryCap: schema.guilds.treasuryCap,
+            })
+            .from(schema.guilds)
+            .where(eq(schema.guilds.id, guildId))
+            .for("update");
+          const guild = guildRows[0];
           if (!guild) throw notFound("Guild not found");
 
-          const newBalance = guild.treasury_balance + body.amount;
-          if (newBalance > guild.treasury_cap) {
+          const treasuryBalanceBefore = Number(guild.treasuryBalance);
+          const treasuryCap = Number(guild.treasuryCap);
+          const newBalance = treasuryBalanceBefore + body.amount;
+          if (newBalance > treasuryCap) {
             throw badRequest(
-              `Donation would exceed treasury cap of ${guild.treasury_cap}`,
+              `Donation would exceed treasury cap of ${treasuryCap}`,
               "TREASURY_CAP_EXCEEDED"
             );
           }
@@ -179,53 +178,53 @@ export const POST = withAuth(
           // bare guildId), so repeat donations to the same guild don't collide on the
           // coin_ledger unique index. ON CONFLICT DO NOTHING mirrors writeLedgerEntry's
           // idempotent-retry behavior in lib/economy/coins.ts.
-          await client.query(
-            `UPDATE users SET coin_balance = coin_balance - $1, updated_at = NOW() WHERE id = $2`,
-            [body.amount, userId]
-          );
-          await client.query(
-            `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-             VALUES ($1, $2, $3, $4, 'guild_donation', $5, $6, NOW())
-             ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-            [
+          await tx
+            .update(schema.users)
+            .set({
+              coinBalance: sql`${schema.users.coinBalance} - ${body.amount}`,
+              updatedAt: sql`NOW()`,
+            })
+            .where(eq(schema.users.id, userId));
+          await tx
+            .insert(schema.coinLedger)
+            .values({
               userId,
-              -body.amount,
-              userRow.rows[0].coin_balance,
-              userRow.rows[0].coin_balance - body.amount,
-              `guild_donation:${guildId}:${userId}:${randomUUID()}`,
-              body.note ?? "Guild treasury donation",
-            ]
-          );
+              amount: BigInt(-body.amount),
+              balanceBefore: BigInt(coinBalanceBefore),
+              balanceAfter: BigInt(coinBalanceBefore - body.amount),
+              transactionType: "guild_donation",
+              referenceId: `guild_donation:${guildId}:${userId}:${randomUUID()}`,
+              description: body.note ?? "Guild treasury donation",
+            })
+            .onConflictDoNothing({
+              target: [schema.coinLedger.userId, schema.coinLedger.transactionType, schema.coinLedger.referenceId],
+            });
 
           // Add to treasury — LEAST clamp as a DB-level guard in case of races (#24)
-          await client.query(
-            `UPDATE guilds
-             SET treasury_balance = LEAST(treasury_cap, treasury_balance + $1),
-                 updated_at = NOW()
-             WHERE id = $2`,
-            [body.amount, guildId]
-          );
+          await tx
+            .update(schema.guilds)
+            .set({
+              treasuryBalance: sql`LEAST(${schema.guilds.treasuryCap}, ${schema.guilds.treasuryBalance} + ${body.amount})`,
+              updatedAt: sql`NOW()`,
+            })
+            .where(eq(schema.guilds.id, guildId));
 
           // Record treasury ledger entry
-          await client.query(
-            `INSERT INTO guild_treasury_ledger (guild_id, user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
-             VALUES ($1, $2, $3, $4, $5, 'donation', $6, NOW())`,
-            [
-              guildId,
-              userId,
-              body.amount,
-              guild.treasury_balance,
-              newBalance,
-              body.note ?? null,
-            ]
-          );
+          await tx.insert(schema.guildTreasuryLedger).values({
+            guildId,
+            userId,
+            amount: BigInt(body.amount),
+            balanceBefore: BigInt(treasuryBalanceBefore),
+            balanceAfter: BigInt(newBalance),
+            transactionType: "donation",
+            description: body.note ?? null,
+          });
 
           // Update member contribution score
-          await client.query(
-            `UPDATE guild_members SET contribution_score = contribution_score + $1
-             WHERE guild_id = $2 AND user_id = $3`,
-            [Math.floor(body.amount / 10), guildId, userId]
-          );
+          await tx
+            .update(schema.guildMembers)
+            .set({ contributionScore: sql`${schema.guildMembers.contributionScore} + ${Math.floor(body.amount / 10)}` })
+            .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, userId)));
 
           return { donated: body.amount, newTreasuryBalance: newBalance };
         });
@@ -236,44 +235,44 @@ export const POST = withAuth(
       if (action === "spend") {
         const body = await validateBody(req, spendSchema);
 
-        const captainCheck = await db.query<{ captain_id: string; treasury_balance: number }>(
-          `SELECT captain_id, treasury_balance FROM guilds WHERE id = $1 AND is_active = TRUE`,
-          [guildId]
-        );
-        if (!captainCheck.rows[0]) throw notFound("Guild not found");
-        if (captainCheck.rows[0].captain_id !== userId) {
+        const captainCheck = await orm
+          .select({ captainId: schema.guilds.captainId, treasuryBalance: schema.guilds.treasuryBalance })
+          .from(schema.guilds)
+          .where(and(eq(schema.guilds.id, guildId), eq(schema.guilds.isActive, true)))
+          .limit(1);
+        if (!captainCheck[0]) throw notFound("Guild not found");
+        if (captainCheck[0].captainId !== userId) {
           throw forbidden("Only the guild captain can spend treasury coins");
         }
 
-        const { treasury_balance } = captainCheck.rows[0];
-        if (treasury_balance < body.amount) {
+        const treasuryBalance = Number(captainCheck[0].treasuryBalance);
+        if (treasuryBalance < body.amount) {
           throw badRequest("Insufficient treasury balance", "INSUFFICIENT_TREASURY");
         }
 
-        await db.transaction(async (client) => {
-          await client.query(
-            `UPDATE guilds SET treasury_balance = treasury_balance - $1, updated_at = NOW()
-             WHERE id = $2`,
-            [body.amount, guildId]
-          );
+        await orm.transaction(async (tx) => {
+          await tx
+            .update(schema.guilds)
+            .set({
+              treasuryBalance: sql`${schema.guilds.treasuryBalance} - ${body.amount}`,
+              updatedAt: sql`NOW()`,
+            })
+            .where(eq(schema.guilds.id, guildId));
 
-          await client.query(
-            `INSERT INTO guild_treasury_ledger (guild_id, user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
-             VALUES ($1, $2, $3, $4, $5, 'spend', $6, NOW())`,
-            [
-              guildId,
-              userId,
-              -body.amount,
-              treasury_balance,
-              treasury_balance - body.amount,
-              body.reason,
-            ]
-          );
+          await tx.insert(schema.guildTreasuryLedger).values({
+            guildId,
+            userId,
+            amount: BigInt(-body.amount),
+            balanceBefore: BigInt(treasuryBalance),
+            balanceAfter: BigInt(treasuryBalance - body.amount),
+            transactionType: "spend",
+            description: body.reason,
+          });
         });
 
         return NextResponse.json({
           success: true,
-          data: { spent: body.amount, newTreasuryBalance: treasury_balance - body.amount },
+          data: { spent: body.amount, newTreasuryBalance: treasuryBalance - body.amount },
           error: null,
         });
       }

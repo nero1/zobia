@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { timingSafeEqual } from "node:crypto";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { createSession } from "@/lib/auth/session";
 import { logger } from "@/lib/logger";
 
@@ -73,22 +74,46 @@ function verifyBotSecret(req: NextRequest): boolean {
 // ---------------------------------------------------------------------------
 
 async function upsertUser(tgUser: TelegramUser): Promise<UserRow> {
-  const existing = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, onboarding_completed
-     FROM users WHERE telegram_id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [String(tgUser.id)]
-  );
-  if (existing.rows[0]) return existing.rows[0];
+  const orm = await getDb();
+  const selectCols = {
+    id: schema.users.id,
+    email: schema.users.email,
+    username: schema.users.username,
+    is_admin: schema.users.isAdmin,
+    onboarding_completed: schema.users.onboardingCompleted,
+  };
+
+  const [existing] = await orm
+    .select(selectCols)
+    .from(schema.users)
+    .where(and(eq(schema.users.telegramId, String(tgUser.id)), isNull(schema.users.deletedAt)))
+    .limit(1);
+  if (existing) {
+    return {
+      ...existing,
+      onboarding_completed: existing.onboarding_completed ?? false,
+    };
+  }
 
   const displayName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ");
-  const inserted = await db.query<UserRow>(
-    `INSERT INTO users (telegram_id, display_name, onboarding_completed, is_admin, created_at, updated_at)
-     VALUES ($1, $2, false, false, NOW(), NOW())
-     RETURNING id, email, username, is_admin, onboarding_completed`,
-    [String(tgUser.id), displayName]
-  );
-  if (!inserted.rows[0]) throw new Error("Failed to create user");
-  return inserted.rows[0];
+  // `username` is NOT NULL/unique on `users` — derive a stable, unique
+  // default from the Telegram username (or numeric id as a fallback).
+  const username = tgUser.username ? `tg_${tgUser.username}` : `tg_${tgUser.id}`;
+  const [inserted] = await orm
+    .insert(schema.users)
+    .values({
+      telegramId: String(tgUser.id),
+      username,
+      displayName,
+      onboardingCompleted: false,
+      isAdmin: false,
+    })
+    .returning(selectCols);
+  if (!inserted) throw new Error("Failed to create user");
+  return {
+    ...inserted,
+    onboarding_completed: inserted.onboarding_completed ?? false,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -123,22 +148,25 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   const state = startMatch[1];
 
   try {
-    // Verify state exists and is still pending
-    const { rows: stateRows } = await db.query<{ status: string; created_at: string }>(
-      `SELECT status, created_at FROM telegram_login_states WHERE state = $1 LIMIT 1`,
-      [state]
-    );
+    const orm = await getDb();
 
-    if (!stateRows[0] || stateRows[0].status !== "pending") {
+    // Verify state exists and is still pending
+    const [stateRow] = await orm
+      .select({ status: schema.telegramLoginStates.status, createdAt: schema.telegramLoginStates.createdAt })
+      .from(schema.telegramLoginStates)
+      .where(eq(schema.telegramLoginStates.state, state))
+      .limit(1);
+
+    if (!stateRow || stateRow.status !== "pending") {
       return NextResponse.json({ ok: true });
     }
 
-    const age = Date.now() - new Date(stateRows[0].created_at).getTime();
+    const age = Date.now() - new Date(stateRow.createdAt).getTime();
     if (age > 5 * 60 * 1000) {
-      await db.query(
-        `UPDATE telegram_login_states SET status = 'expired', updated_at = NOW() WHERE state = $1`,
-        [state]
-      );
+      await orm
+        .update(schema.telegramLoginStates)
+        .set({ status: "expired", updatedAt: new Date() })
+        .where(eq(schema.telegramLoginStates.state, state));
       return NextResponse.json({ ok: true });
     }
 
@@ -163,12 +191,10 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     });
 
     // Mark state as approved with token
-    await db.query(
-      `UPDATE telegram_login_states
-       SET status = 'approved', token = $2, user_payload = $3, updated_at = NOW()
-       WHERE state = $1`,
-      [state, session.accessToken, userPayload]
-    );
+    await orm
+      .update(schema.telegramLoginStates)
+      .set({ status: "approved", token: session.accessToken, userPayload, updatedAt: new Date() })
+      .where(eq(schema.telegramLoginStates.state, state));
   } catch (err) {
     logger.error({ err: err }, "[telegram:bot] Error processing start command:");
   }

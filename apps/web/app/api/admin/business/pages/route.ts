@@ -13,25 +13,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db";
+import { and, count, desc, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-
-interface AdminBusinessPageRow {
-  id: string;
-  business_account_id: string;
-  slug: string;
-  name: string;
-  status: string;
-  status_reason: string | null;
-  view_count: number;
-  post_count: number;
-  created_at: string;
-  business_name: string;
-  owner_username: string;
-}
 
 export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
   try {
@@ -43,35 +29,44 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
     const limit = 50;
     const offset = (page - 1) * limit;
 
-    const conditions: string[] = ["bp.deleted_at IS NULL"];
-    const params: SqlParam[] = [];
+    const filters = [isNull(schema.businessPages.deletedAt)];
     if (status && ["active", "deactivated", "suspended", "banned"].includes(status)) {
-      params.push(status);
-      conditions.push(`bp.status = $${params.length}`);
+      filters.push(eq(schema.businessPages.status, status));
     }
+    const whereClause = and(...filters);
 
-    const { rows: total } = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM business_pages bp WHERE ${conditions.join(" AND ")}`,
-      params
-    );
+    const orm = await getDb();
 
-    params.push(limit, offset);
-    const { rows } = await db.query<AdminBusinessPageRow>(
-      `SELECT bp.id, bp.business_account_id, bp.slug, bp.name, bp.status, bp.status_reason,
-              bp.view_count, bp.post_count, bp.created_at,
-              ba.business_name, u.username AS owner_username
-       FROM business_pages bp
-       JOIN business_accounts ba ON ba.id = bp.business_account_id
-       JOIN users u ON u.id = ba.user_id
-       WHERE ${conditions.join(" AND ")}
-       ORDER BY bp.created_at DESC
-       LIMIT $${params.length - 1} OFFSET $${params.length}`,
-      params
-    );
+    const [totalRow] = await orm
+      .select({ count: count() })
+      .from(schema.businessPages)
+      .where(whereClause);
+
+    const rows = await orm
+      .select({
+        id: schema.businessPages.id,
+        business_account_id: schema.businessPages.businessAccountId,
+        slug: schema.businessPages.slug,
+        name: schema.businessPages.name,
+        status: schema.businessPages.status,
+        status_reason: schema.businessPages.statusReason,
+        view_count: schema.businessPages.viewCount,
+        post_count: schema.businessPages.postCount,
+        created_at: schema.businessPages.createdAt,
+        business_name: schema.businessAccounts.businessName,
+        owner_username: schema.users.username,
+      })
+      .from(schema.businessPages)
+      .innerJoin(schema.businessAccounts, eq(schema.businessAccounts.id, schema.businessPages.businessAccountId))
+      .innerJoin(schema.users, eq(schema.users.id, schema.businessAccounts.userId))
+      .where(whereClause)
+      .orderBy(desc(schema.businessPages.createdAt))
+      .limit(limit)
+      .offset(offset);
 
     return NextResponse.json({
       success: true,
-      data: { pages: rows, total: parseInt(total[0]?.count ?? "0", 10) },
+      data: { pages: rows, total: totalRow?.count ?? 0 },
       error: null,
     });
   } catch (err) {
@@ -90,17 +85,26 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const body = await validateBody(req, actionSchema);
 
-    const { rows } = await db.query<{ id: string; owner_user_id: string; name: string; status: string }>(
-      `SELECT bp.id, ba.user_id AS owner_user_id, bp.name, bp.status
-       FROM business_pages bp JOIN business_accounts ba ON ba.id = bp.business_account_id
-       WHERE bp.id = $1 AND bp.deleted_at IS NULL LIMIT 1`,
-      [body.id]
-    );
-    const page = rows[0];
+    const orm = await getDb();
+
+    const [page] = await orm
+      .select({
+        id: schema.businessPages.id,
+        owner_user_id: schema.businessAccounts.userId,
+        name: schema.businessPages.name,
+        status: schema.businessPages.status,
+      })
+      .from(schema.businessPages)
+      .innerJoin(schema.businessAccounts, eq(schema.businessAccounts.id, schema.businessPages.businessAccountId))
+      .where(and(eq(schema.businessPages.id, body.id), isNull(schema.businessPages.deletedAt)))
+      .limit(1);
     if (!page) throw notFound("Business page not found");
 
     if (body.action === "delete") {
-      await db.query(`UPDATE business_pages SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [body.id]);
+      await orm
+        .update(schema.businessPages)
+        .set({ deletedAt: new Date(), updatedAt: new Date() })
+        .where(eq(schema.businessPages.id, body.id));
     } else {
       const nextStatus: Record<typeof body.action, string> = {
         suspend: "suspended",
@@ -111,31 +115,33 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
       if (body.action === "restore" && page.status !== "deactivated" && page.status !== "suspended" && page.status !== "banned") {
         throw badRequest("Page is not in a state that can be restored.");
       }
-      await db.query(
-        `UPDATE business_pages SET status = $1, status_reason = $2, updated_at = NOW() WHERE id = $3`,
-        [nextStatus[body.action], body.reason ?? null, body.id]
-      );
+      await orm
+        .update(schema.businessPages)
+        .set({ status: nextStatus[body.action], statusReason: body.reason ?? null, updatedAt: new Date() })
+        .where(eq(schema.businessPages.id, body.id));
     }
 
-    await db
-      .query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-         VALUES ($1, 'business_page_moderated', $2, $3, $4::jsonb, false, NOW())`,
-        [
-          page.owner_user_id,
-          `Business Page ${body.action === "delete" ? "removed" : body.action + "d"}`,
-          `Your Business Page "${page.name}" was ${body.action === "delete" ? "removed" : body.action + "d"} by an admin.${body.reason ? ` Reason: ${body.reason}` : ""}`,
-          JSON.stringify({ businessPageId: body.id, action: body.action }),
-        ]
-      )
+    await orm
+      .insert(schema.notifications)
+      .values({
+        userId: page.owner_user_id,
+        type: "business_page_moderated",
+        title: `Business Page ${body.action === "delete" ? "removed" : body.action + "d"}`,
+        body: `Your Business Page "${page.name}" was ${body.action === "delete" ? "removed" : body.action + "d"} by an admin.${body.reason ? ` Reason: ${body.reason}` : ""}`,
+        metadata: { businessPageId: body.id, action: body.action },
+        isRead: false,
+      })
       .catch(() => {});
 
-    await db
-      .query(
-        `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, after_val, created_at)
-         VALUES ($1, $2, 'business_page', $3, $4::jsonb, NOW())`,
-        [auth.user.sub, `business_page_${body.action}`, body.id, JSON.stringify({ reason: body.reason ?? null })]
-      )
+    await orm
+      .insert(schema.adminAuditLog)
+      .values({
+        adminId: auth.user.sub,
+        action: `business_page_${body.action}`,
+        resource: "business_page",
+        resourceId: body.id,
+        afterVal: { reason: body.reason ?? null },
+      })
       .catch(() => {});
 
     return NextResponse.json({ success: true, data: { id: body.id, action: body.action }, error: null });

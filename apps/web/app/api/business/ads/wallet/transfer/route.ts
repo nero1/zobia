@@ -17,8 +17,7 @@ import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { getDb, type DbOrTx } from "@/lib/db/drizzle";
 import { debitCoins } from "@/lib/economy/coins";
 import { creditAdWallet } from "@/lib/economy/adWallet";
 
@@ -36,7 +35,8 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { auth: AuthCont
     const ref = body.idempotencyKey ?? `${userId}:adwallet-transfer:${randomUUID()}`;
 
     try {
-      const result = await db.transaction(async (tx: TransactionClient) => {
+      const orm = await getDb();
+      const result = await orm.transaction(async (tx: DbOrTx) => {
         await debitCoins(userId, body.amountCredits, "ad_wallet_transfer", `${ref}:debit`, "Transfer to Ad Wallet", null, tx);
         const credit = await creditAdWallet(userId, body.amountCredits, "transfer_in", `${ref}:credit`, "Transfer from main wallet", null, tx);
         return credit;

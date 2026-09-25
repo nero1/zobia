@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -58,15 +58,23 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       metadata: { userId, docType },
     });
 
-    await db.query(
-      `INSERT INTO kyc_documents (id, submission_id, user_id, doc_type, storage_key, content_type, size_bytes, created_at)
-       VALUES ($1, NULL, $2, $3, $4, $5, $6, NOW())`,
-      [docId, userId, docType, result.key, file.type, file.size]
-    ).catch(async (err) => {
-      // Roll back the upload if the DB insert fails, so we don't leak orphaned objects.
-      await storage.delete(result.key, { ignoreNotFound: true }).catch(() => {});
-      throw err;
-    });
+    const orm = await getDb();
+    await orm
+      .insert(schema.kycDocuments)
+      .values({
+        id: docId,
+        submissionId: null,
+        userId,
+        docType,
+        storageKey: result.key,
+        contentType: file.type,
+        sizeBytes: file.size,
+      })
+      .catch(async (err) => {
+        // Roll back the upload if the DB insert fails, so we don't leak orphaned objects.
+        await storage.delete(result.key, { ignoreNotFound: true }).catch(() => {});
+        throw err;
+      });
 
     return NextResponse.json({ success: true, data: { id: docId, docType }, error: null }, { status: 201 });
   } catch (err) {

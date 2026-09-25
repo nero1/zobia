@@ -26,7 +26,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, asc, eq, exists, gt, isNull, or, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, forbidden } from "@/lib/api/errors";
 import { debitCoins } from "@/lib/economy/coins";
@@ -82,32 +83,42 @@ interface ActiveSeasonRow {
  */
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
-    const { rows } = await db.query<
-      CosmeticItemRow & { owned: boolean }
-    >(
-      `SELECT
-         si.id,
-         si.name,
-         si.description,
-         si.cosmetic_type,
-         si.stars_cost,
-         si.coins_cost,
-         si.is_exclusive,
-         si.is_featured,
-         si.season_id,
-         si.prestige_required,
-         si.sort_order,
-         EXISTS (
-           SELECT 1 FROM user_cosmetics uc
-           WHERE uc.user_id = $1 AND uc.store_item_id = si.id
-         ) AS owned
-       FROM store_items si
-       WHERE si.item_type = 'cosmetic'
-         AND si.is_active = TRUE
-         AND (si.valid_until IS NULL OR si.valid_until > NOW())
-       ORDER BY si.sort_order ASC, si.name ASC`,
-      [auth.user.sub]
-    );
+    const orm = await getDb();
+    const userId = auth.user.sub;
+    const rows = await orm
+      .select({
+        id: schema.storeItems.id,
+        name: schema.storeItems.name,
+        description: schema.storeItems.description,
+        cosmetic_type: schema.storeItems.cosmeticType,
+        stars_cost: schema.storeItems.starsCost,
+        coins_cost: schema.storeItems.coinsCost,
+        is_exclusive: schema.storeItems.isExclusive,
+        is_featured: schema.storeItems.isFeatured,
+        season_id: schema.storeItems.seasonId,
+        prestige_required: schema.storeItems.prestigeRequired,
+        sort_order: schema.storeItems.sortOrder,
+        owned: exists(
+          orm
+            .select({ one: sql`1` })
+            .from(schema.userCosmetics)
+            .where(
+              and(
+                eq(schema.userCosmetics.userId, userId),
+                eq(schema.userCosmetics.storeItemId, schema.storeItems.id)
+              )
+            )
+        ),
+      })
+      .from(schema.storeItems)
+      .where(
+        and(
+          eq(schema.storeItems.itemType, "cosmetic"),
+          eq(schema.storeItems.isActive, true),
+          or(isNull(schema.storeItems.validUntil), gt(schema.storeItems.validUntil, new Date()))
+        )
+      )
+      .orderBy(asc(schema.storeItems.sortOrder), asc(schema.storeItems.name));
 
     return NextResponse.json({ cosmetics: rows });
   } catch (err) {
@@ -134,16 +145,24 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
 
     // 1. Load item
-    const { rows: itemRows } = await db.query<CosmeticItemRow>(
-      `SELECT id, name, cosmetic_type, stars_cost, coins_cost, is_exclusive,
-              season_id, prestige_required, is_active, valid_until
-       FROM store_items
-       WHERE id = $1 AND item_type = 'cosmetic'
-       LIMIT 1`,
-      [body.itemId]
-    );
+    const orm = await getDb();
+    const [item] = await orm
+      .select({
+        id: schema.storeItems.id,
+        name: schema.storeItems.name,
+        cosmetic_type: schema.storeItems.cosmeticType,
+        stars_cost: schema.storeItems.starsCost,
+        coins_cost: sql<number | null>`${schema.storeItems.coinsCost}::int`,
+        is_exclusive: schema.storeItems.isExclusive,
+        season_id: schema.storeItems.seasonId,
+        prestige_required: schema.storeItems.prestigeRequired,
+        is_active: schema.storeItems.isActive,
+        valid_until: schema.storeItems.validUntil,
+      })
+      .from(schema.storeItems)
+      .where(and(eq(schema.storeItems.id, body.itemId), eq(schema.storeItems.itemType, "cosmetic")))
+      .limit(1);
 
-    const item = itemRows[0];
     if (!item) throw notFound("Cosmetic item not found");
     if (!item.is_active) throw badRequest("This item is no longer available", "ITEM_INACTIVE");
     if (item.valid_until && new Date(item.valid_until) <= new Date()) {
@@ -152,11 +171,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // 2. Season gate: if item is season-limited, verify the season is active
     if (item.season_id) {
-      const { rows: seasonRows } = await db.query<ActiveSeasonRow>(
-        `SELECT id FROM seasons WHERE id = $1 AND is_active = TRUE AND ends_at > NOW() LIMIT 1`,
-        [item.season_id]
-      );
-      if (!seasonRows[0]) {
+      const [seasonRow] = await orm
+        .select({ id: schema.seasons.id })
+        .from(schema.seasons)
+        .where(and(eq(schema.seasons.id, item.season_id), eq(schema.seasons.isActive, true), gt(schema.seasons.endsAt, new Date())))
+        .limit(1);
+      if (!seasonRow) {
         throw badRequest("This seasonal item is only available during its Season", "SEASON_ENDED");
       }
     }
@@ -167,18 +187,22 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // 4. Load user balance and prestige count
-    const { rows: userRows } = await db.query<UserRow>(
-      `SELECT COALESCE(star_balance, 0) AS star_balance,
-              COALESCE(coin_balance, 0) AS coin_balance,
-              COALESCE(prestige_count, 0) AS prestige_count
-       FROM users
-       WHERE id = $1 AND deleted_at IS NULL
-       LIMIT 1`,
-      [userId]
-    );
+    const [userRow] = await orm
+      .select({
+        star_balance: schema.users.starBalance,
+        coin_balance: schema.users.coinBalance,
+        prestige_count: schema.users.prestigeCount,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
 
-    const user = userRows[0];
-    if (!user) throw forbidden("User account not found");
+    if (!userRow) throw forbidden("User account not found");
+    const user = {
+      star_balance: Number(userRow.star_balance ?? 0),
+      coin_balance: Number(userRow.coin_balance ?? 0),
+      prestige_count: userRow.prestige_count ?? 0,
+    };
 
     // 5. Prestige gate
     if (item.prestige_required && user.prestige_count < item.prestige_required) {
@@ -188,12 +212,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // 6. Idempotency: if user already owns this item, return 200 without charging
-    const { rows: existingRows } = await db.query<{ id: string }>(
-      `SELECT id FROM user_cosmetics WHERE user_id = $1 AND store_item_id = $2 LIMIT 1`,
-      [userId, body.itemId]
-    );
+    const [existingRow] = await orm
+      .select({ id: schema.userCosmetics.id })
+      .from(schema.userCosmetics)
+      .where(and(eq(schema.userCosmetics.userId, userId), eq(schema.userCosmetics.storeItemId, body.itemId)))
+      .limit(1);
 
-    if (existingRows[0]) {
+    if (existingRow) {
       return NextResponse.json({
         itemId: body.itemId,
         cosmeticType: item.cosmetic_type,
@@ -229,7 +254,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // 8. Atomic: debit currency and grant item.
     // SYS-CL-10: scope both currencies' references per-user so different users
     // buying the same item don't collide on the ledger unique index.
-    await db.transaction(async (tx) => {
+    await orm.transaction(async (tx) => {
       if (body.currency === "stars") {
         await debitStars(
           userId,
@@ -251,15 +276,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         );
       }
 
-      await tx.query(
-        `INSERT INTO user_cosmetics (user_id, store_item_id, cosmetic_type, is_active, acquired_at)
-         VALUES ($1, $2, $3, FALSE, NOW())
-         ON CONFLICT (user_id, store_item_id) DO NOTHING`,
-        [userId, body.itemId, item.cosmetic_type]
-      );
+      await tx
+        .insert(schema.userCosmetics)
+        .values({
+          userId,
+          storeItemId: body.itemId,
+          cosmeticType: item.cosmetic_type ?? "",
+          isActive: false,
+        })
+        .onConflictDoNothing({
+          target: [schema.userCosmetics.userId, schema.userCosmetics.storeItemId],
+        });
     });
 
-    void triggerActivityQuestProgress(userId, "market_purchase", db);
+    void triggerActivityQuestProgress(userId, "market_purchase", orm);
 
     return NextResponse.json(
       {

@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound } from "@/lib/api/errors";
 
@@ -30,47 +31,50 @@ export const PATCH = withAuth(
     try {
       const { userId } = await params;
 
+      const orm = await getDb();
+
       // Verify caller is admin
-      const { rows: adminRows } = await db.query<{ is_admin: boolean }>(
-        `SELECT COALESCE(is_admin, false) AS is_admin FROM users WHERE id = $1 LIMIT 1`,
-        [auth.user.sub]
-      );
-      if (!adminRows[0]?.is_admin) throw forbidden("Admin access required");
+      const [adminRow] = await orm
+        .select({ is_admin: sql<boolean>`COALESCE(${schema.users.isAdmin}, false)` })
+        .from(schema.users)
+        .where(eq(schema.users.id, auth.user.sub))
+        .limit(1);
+      if (!adminRow?.is_admin) throw forbidden("Admin access required");
 
       // Verify target user exists
-      const { rows: targetRows } = await db.query<{ id: string; season_xp: number; username: string }>(
-        `SELECT id, COALESCE(season_xp, 0)::int AS season_xp, username
-         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      if (!targetRows[0]) throw notFound("User not found");
+      const [target] = await orm
+        .select({
+          id: schema.users.id,
+          season_xp: sql<number>`COALESCE(${schema.users.seasonXp}, 0)::int`,
+          username: schema.users.username,
+        })
+        .from(schema.users)
+        .where(sql`${schema.users.id} = ${userId} AND ${schema.users.deletedAt} IS NULL`)
+        .limit(1);
+      if (!target) throw notFound("User not found");
 
       const body = await validateBody(req, patchSchema);
-      const previousXp = targetRows[0].season_xp;
+      const previousXp = target.season_xp;
       const newXp = body.action === "disqualify" ? 0 : body.season_xp;
 
-      await db.transaction(async (tx) => {
-        await tx.query(
-          `UPDATE users SET season_xp = $1, updated_at = NOW() WHERE id = $2`,
-          [newXp, userId]
-        );
+      await orm.transaction(async (tx) => {
+        await tx
+          .update(schema.users)
+          .set({ seasonXp: BigInt(newXp), updatedAt: new Date() })
+          .where(eq(schema.users.id, userId));
 
-        await tx.query(
-          `INSERT INTO admin_audit_log
-             (admin_id, action, target_type, target_id, metadata, created_at)
-           VALUES ($1, $2, 'user', $3, $4::jsonb, NOW())`,
-          [
-            auth.user.sub,
-            body.action === "disqualify" ? "leaderboard_disqualify" : "leaderboard_override",
-            userId,
-            JSON.stringify({
-              username: targetRows[0].username,
-              previous_xp: previousXp,
-              new_xp: newXp,
-              reason: body.reason,
-            }),
-          ]
-        );
+        await tx.insert(schema.adminAuditLog).values({
+          adminId: auth.user.sub,
+          action: body.action === "disqualify" ? "leaderboard_disqualify" : "leaderboard_override",
+          targetType: "user",
+          targetId: userId,
+          metadata: {
+            username: target.username,
+            previous_xp: previousXp,
+            new_xp: newXp,
+            reason: body.reason,
+          },
+        });
       });
 
       return NextResponse.json({

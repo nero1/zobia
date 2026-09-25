@@ -13,10 +13,11 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq, sql } from "drizzle-orm";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { deleteQuestion, deleteAnswer, setQuestionLocked } from "@/lib/forum/service";
 
 const bodySchema = z.object({
@@ -42,33 +43,47 @@ export const PATCH = withModeratorOrAdminAuth<{ id: string }>(async (req: NextRe
       throw forbidden("Only administrators can perform this action.", "ADMIN_ONLY_ACTION");
     }
 
+    const orm = await getDb();
+
     if (body.action === "hard_delete") {
       // Permanent, irreversible row deletion (distinct from "remove", which is a
       // soft status flip). Admin-only, requires explicit confirmation client-side.
       if (body.targetType === "question") {
-        const { rowCount } = await db.query(`DELETE FROM forum_questions WHERE id = $1`, [id]);
-        if (!rowCount) throw notFound("Not found");
+        const deleted = await orm
+          .delete(schema.forumQuestions)
+          .where(eq(schema.forumQuestions.id, id))
+          .returning({ id: schema.forumQuestions.id });
+        if (deleted.length === 0) throw notFound("Not found");
       } else {
-        const { rows } = await db.query<{ question_id: string }>(
-          `DELETE FROM forum_answers WHERE id = $1 RETURNING question_id`,
-          [id]
-        );
-        if (!rows[0]) throw notFound("Not found");
-        await db.query(
-          `UPDATE forum_questions SET answer_count = GREATEST(answer_count - 1, 0) WHERE id = $1`,
-          [rows[0].question_id]
-        );
+        const [deletedAnswer] = await orm
+          .delete(schema.forumAnswers)
+          .where(eq(schema.forumAnswers.id, id))
+          .returning({ questionId: schema.forumAnswers.questionId });
+        if (!deletedAnswer) throw notFound("Not found");
+        await orm
+          .update(schema.forumQuestions)
+          .set({ answerCount: sql`GREATEST(${schema.forumQuestions.answerCount} - 1, 0)` })
+          .where(eq(schema.forumQuestions.id, deletedAnswer.questionId));
       }
     } else if (body.action === "remove") {
       if (body.targetType === "question") await deleteQuestion(id, auth.user.sub, true);
       else await deleteAnswer(id, auth.user.sub, true);
     } else if (body.action === "restore") {
-      const table = body.targetType === "question" ? "forum_questions" : "forum_answers";
-      const { rowCount } = await db.query(
-        `UPDATE ${table} SET status = 'visible', deleted_at = NULL, updated_at = NOW() WHERE id = $1`,
-        [id]
-      );
-      if (!rowCount) throw notFound("Not found");
+      if (body.targetType === "question") {
+        const restored = await orm
+          .update(schema.forumQuestions)
+          .set({ status: "visible", deletedAt: null, updatedAt: new Date() })
+          .where(eq(schema.forumQuestions.id, id))
+          .returning({ id: schema.forumQuestions.id });
+        if (restored.length === 0) throw notFound("Not found");
+      } else {
+        const restored = await orm
+          .update(schema.forumAnswers)
+          .set({ status: "visible", deletedAt: null, updatedAt: new Date() })
+          .where(eq(schema.forumAnswers.id, id))
+          .returning({ id: schema.forumAnswers.id });
+        if (restored.length === 0) throw notFound("Not found");
+      }
     } else if (body.action === "lock") {
       if (body.targetType !== "question") throw badRequest("Only questions can be locked");
       await setQuestionLocked(id, true);
@@ -80,41 +95,42 @@ export const PATCH = withModeratorOrAdminAuth<{ id: string }>(async (req: NextRe
       // reverse a moderation decision — editing is a content correction).
       if (!body.body?.trim()) throw badRequest("Body is required");
       if (body.targetType === "question") {
-        const { rowCount } = await db.query(
-          `UPDATE forum_questions
-           SET title = COALESCE($2, title), body = $3, updated_at = NOW()
-           WHERE id = $1`,
-          [id, body.title?.trim() || null, body.body.trim()]
-        );
-        if (!rowCount) throw notFound("Not found");
+        const updates: Partial<typeof schema.forumQuestions.$inferInsert> = {
+          body: body.body.trim(),
+          updatedAt: new Date(),
+        };
+        if (body.title?.trim()) updates.title = body.title.trim();
+        const updated = await orm
+          .update(schema.forumQuestions)
+          .set(updates)
+          .where(eq(schema.forumQuestions.id, id))
+          .returning({ id: schema.forumQuestions.id });
+        if (updated.length === 0) throw notFound("Not found");
       } else {
-        const { rowCount } = await db.query(
-          `UPDATE forum_answers SET body = $2, updated_at = NOW() WHERE id = $1`,
-          [id, body.body.trim()]
-        );
-        if (!rowCount) throw notFound("Not found");
+        const updated = await orm
+          .update(schema.forumAnswers)
+          .set({ body: body.body.trim(), updatedAt: new Date() })
+          .where(eq(schema.forumAnswers.id, id))
+          .returning({ id: schema.forumAnswers.id });
+        if (updated.length === 0) throw notFound("Not found");
       }
     }
 
     // hard_delete removes the row this log would otherwise FK-reference (ON
     // DELETE CASCADE), so keep the id in metadata instead of question_id/answer_id.
     if (body.action === "hard_delete") {
-      await db.query(
-        `INSERT INTO forum_moderation_log (moderator_id, action, metadata, created_at)
-         VALUES ($1, $2, $3::jsonb, NOW())`,
-        [auth.user.sub, body.action, JSON.stringify({ targetType: body.targetType, targetId: id })]
-      );
+      await orm.insert(schema.forumModerationLog).values({
+        moderatorId: auth.user.sub,
+        action: body.action,
+        metadata: { targetType: body.targetType, targetId: id },
+      });
     } else {
-      await db.query(
-        `INSERT INTO forum_moderation_log (moderator_id, question_id, answer_id, action, created_at)
-         VALUES ($1, $2, $3, $4, NOW())`,
-        [
-          auth.user.sub,
-          body.targetType === "question" ? id : null,
-          body.targetType === "answer" ? id : null,
-          body.action,
-        ]
-      );
+      await orm.insert(schema.forumModerationLog).values({
+        moderatorId: auth.user.sub,
+        questionId: body.targetType === "question" ? id : null,
+        answerId: body.targetType === "answer" ? id : null,
+        action: body.action,
+      });
     }
 
     return NextResponse.json({ success: true, data: { id, action: body.action }, error: null });

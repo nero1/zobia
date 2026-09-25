@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { handleApiError } from "@/lib/api/errors";
 
 // ---------------------------------------------------------------------------
@@ -55,26 +56,25 @@ interface SpotlightRow {
  */
 export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
-    const { rows } = await db.query<SpotlightRow>(
-      `SELECT
-         cs.id,
-         cs.month_year,
-         cs.blurb,
-         cs.creator_id,
-         u.username        AS creator_username,
-         u.display_name    AS creator_display_name,
-         u.avatar_url      AS creator_avatar_url
-       FROM creator_spotlights cs
-       JOIN users u ON u.id = cs.creator_id AND u.deleted_at IS NULL
-       WHERE cs.is_active = TRUE
-       LIMIT 1`
-    );
+    const orm = await getDb();
+    const [row] = await orm
+      .select({
+        id: schema.creatorSpotlights.id,
+        month_year: schema.creatorSpotlights.monthYear,
+        blurb: schema.creatorSpotlights.blurb,
+        creator_id: schema.creatorSpotlights.creatorId,
+        creator_username: schema.users.username,
+        creator_display_name: schema.users.displayName,
+        creator_avatar_url: schema.users.avatarUrl,
+      })
+      .from(schema.creatorSpotlights)
+      .innerJoin(schema.users, and(eq(schema.users.id, schema.creatorSpotlights.creatorId), isNull(schema.users.deletedAt)))
+      .where(eq(schema.creatorSpotlights.isActive, true))
+      .limit(1);
 
-    if (!rows[0]) {
+    if (!row) {
       return NextResponse.json({ spotlight: null }, { status: 200 });
     }
-
-    const row = rows[0];
     const spotlight: SpotlightPublic = {
       id: row.id,
       month_year: row.month_year,

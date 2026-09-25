@@ -16,26 +16,9 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { handleApiError } from "@/lib/api/errors";
-
-// ---------------------------------------------------------------------------
-// Row types
-// ---------------------------------------------------------------------------
-
-interface PlatformEventRow {
-  id: string;
-  name: string;
-  description: string | null;
-  event_type: string;
-  xp_multiplier: number;
-  coin_bonus_pct: number;
-  starts_at: string;
-  ends_at: string;
-  target_cities: string[] | null;
-  is_live: boolean;
-  created_at: string;
-}
 
 // ---------------------------------------------------------------------------
 // GET /api/events
@@ -48,23 +31,24 @@ interface PlatformEventRow {
  */
 export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
-    const { rows } = await db.query<PlatformEventRow>(
-      `SELECT
-         id,
-         name,
-         description,
-         event_type,
-         xp_multiplier,
-         coin_bonus_pct,
-         starts_at,
-         ends_at,
-         target_cities,
-         (starts_at <= NOW() AND ends_at > NOW()) AS is_live,
-         created_at
-       FROM platform_events
-       WHERE is_active = TRUE AND ends_at > NOW()
-       ORDER BY starts_at ASC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.platformEvents.id,
+        name: schema.platformEvents.name,
+        description: schema.platformEvents.description,
+        event_type: schema.platformEvents.eventType,
+        xp_multiplier: schema.platformEvents.xpMultiplier,
+        coin_bonus_pct: schema.platformEvents.coinBonusPct,
+        starts_at: schema.platformEvents.startsAt,
+        ends_at: schema.platformEvents.endsAt,
+        target_cities: schema.platformEvents.targetCities,
+        is_live: sql<boolean>`(${schema.platformEvents.startsAt} <= NOW() AND ${schema.platformEvents.endsAt} > NOW())`,
+        created_at: schema.platformEvents.createdAt,
+      })
+      .from(schema.platformEvents)
+      .where(and(eq(schema.platformEvents.isActive, true), gt(schema.platformEvents.endsAt, sql`NOW()`)))
+      .orderBy(asc(schema.platformEvents.startsAt));
 
     const events = rows.map((row) => ({
       id: row.id,

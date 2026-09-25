@@ -6,7 +6,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
-import { db } from '@/lib/db';
+import { and, desc, eq, lt } from 'drizzle-orm';
+import { getDb, schema } from '@/lib/db/drizzle';
 
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   const userId = auth.user.sub;
@@ -14,18 +15,28 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   const cursor = searchParams.get('cursor');
   const limit = Math.min(Number(searchParams.get('limit') ?? 50), 100);
 
-  const { rows } = await db.query(
-    `SELECT f.id, f.created_at,
-            u.id AS addressee_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url
-     FROM friendships f
-     JOIN users u ON u.id = f.addressee_id
-     WHERE f.requester_id = $1
-       AND f.status = 'pending'
-       AND ($2::uuid IS NULL OR f.id < $2::uuid)
-     ORDER BY f.created_at DESC
-     LIMIT $3`,
-    [userId, cursor ?? null, limit + 1],
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: schema.friendships.id,
+      created_at: schema.friendships.createdAt,
+      addressee_id: schema.users.id,
+      username: schema.users.username,
+      display_name: schema.users.displayName,
+      avatar_emoji: schema.users.avatarEmoji,
+      avatar_url: schema.users.avatarUrl,
+    })
+    .from(schema.friendships)
+    .innerJoin(schema.users, eq(schema.users.id, schema.friendships.addresseeId))
+    .where(
+      and(
+        eq(schema.friendships.requesterId, userId),
+        eq(schema.friendships.status, 'pending'),
+        cursor ? lt(schema.friendships.id, cursor) : undefined,
+      ),
+    )
+    .orderBy(desc(schema.friendships.createdAt))
+    .limit(limit + 1);
 
   const hasNextPage = rows.length > limit;
   const data = hasNextPage ? rows.slice(0, limit) : rows;

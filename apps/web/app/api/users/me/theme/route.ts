@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 
@@ -35,14 +36,16 @@ const themeSchema = z.object({
 
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
-    const { rows } = await db.query<{ chat_theme: string | null }>(
-      "SELECT chat_theme FROM users WHERE id = $1 LIMIT 1",
-      [auth.user.sub]
-    );
+    const db = await getDb();
+    const [row] = await db
+      .select({ chatTheme: schema.users.chatTheme })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
 
     return NextResponse.json({
       success: true,
-      data: { theme: rows[0]?.chat_theme ?? "default" },
+      data: { theme: row?.chatTheme ?? "default" },
       error: null,
     });
   } catch (err) {
@@ -59,12 +62,15 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, themeSchema);
 
     // Non-default themes require Pro or Max
+    const db = await getDb();
+
     if (PAID_THEMES.includes(body.theme)) {
-      const { rows } = await db.query<{ plan: string }>(
-        "SELECT plan FROM users WHERE id = $1 LIMIT 1",
-        [auth.user.sub]
-      );
-      const plan = rows[0]?.plan ?? "free";
+      const [row] = await db
+        .select({ plan: schema.users.plan })
+        .from(schema.users)
+        .where(eq(schema.users.id, auth.user.sub))
+        .limit(1);
+      const plan = row?.plan ?? "free";
       if (plan !== "pro" && plan !== "max") {
         throw forbidden(
           "Custom chat themes require a Pro or Max plan. Upgrade to unlock this feature."
@@ -72,10 +78,10 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     }
 
-    await db.query(
-      "UPDATE users SET chat_theme = $1, updated_at = NOW() WHERE id = $2",
-      [body.theme, auth.user.sub]
-    );
+    await db
+      .update(schema.users)
+      .set({ chatTheme: body.theme, updatedAt: new Date() })
+      .where(eq(schema.users.id, auth.user.sub));
 
     return NextResponse.json({
       success: true,

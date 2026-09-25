@@ -4,19 +4,21 @@
  * DLQ depth monitor — checks unprocessed XP award failures and alerts
  * when the backlog exceeds the configured threshold.
  */
-import type { DatabaseAdapter } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import type { DbOrTx } from "@/lib/db/drizzle";
+import { schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 import { getManifestValue } from "@/lib/manifest";
 import { raiseAlert } from "@/lib/alerts/dispatch";
 
 export async function checkDlqDepth(
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<{ depth: number; alerted: boolean }> {
-  const { rows } = await db.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM failed_xp_awards WHERE resolved_at IS NULL`,
-    []
-  );
-  const depth = parseInt(rows[0]?.count ?? "0", 10);
+  const [{ count }] = await db
+    .select({ count: sql<string>`COUNT(*)::text` })
+    .from(schema.failedXpAwards)
+    .where(sql`${schema.failedXpAwards.resolvedAt} IS NULL`);
+  const depth = parseInt(count ?? "0", 10);
 
   // TASK-23: read threshold from manifest so ops can tune without redeployment
   const thresholdRaw = await getManifestValue("dlq_alert_threshold").catch(() => null);

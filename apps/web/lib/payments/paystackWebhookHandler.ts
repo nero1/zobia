@@ -7,7 +7,8 @@
  */
 
 import Decimal from "decimal.js";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditAdWallet } from "@/lib/economy/adWallet";
 import { creditStars } from "@/lib/economy/stars";
@@ -19,6 +20,20 @@ import { logger } from "@/lib/logger";
 import { BUSINESS_BILLING_PERIOD_DAYS } from "@/lib/business/limits";
 import { raiseAlert } from "@/lib/alerts/dispatch";
 import { awardEnrolmentXp, finalizeEnrolment, loadEnrolmentRoom } from "@/lib/classroom/enrolment";
+import { insertNotification } from "@/lib/notifications/insert";
+
+// NOTE ON THIS FILE'S MIGRATION STATUS: `processChargeSuccess` (and the
+// inner subscription-bonus transaction inside `processSubscriptionEvent`)
+// previously ran on the legacy raw adapter (`db.transaction`/`tx.query`)
+// because they must stay atomic with `creditCoins` (lib/economy/coins.ts),
+// `creditStars` (lib/economy/stars.ts), `creditAdWallet`
+// (lib/economy/adWallet.ts), `contributeToCreatorFund`
+// (lib/creator/fundContribution.ts), `loadEnrolmentRoom`/`finalizeEnrolment`
+// (lib/classroom/enrolment.ts), and `raiseAlert` (lib/alerts/dispatch.ts).
+// All of those have now been converted to accept a Drizzle `DbOrTx`, so both
+// transactions below run on `orm.transaction()` (a single Drizzle-wrapped
+// pg.Pool connection, same as everywhere else) and every call inside them
+// shares that same connection/transaction — atomicity is preserved.
 
 // ---------------------------------------------------------------------------
 // Paystack webhook event types (subset)
@@ -124,21 +139,21 @@ export async function processChargeSuccess(
   } | null = null;
   let classroomEnrolmentXp: { roomId: string; userId: string } | null = null;
 
-  await db.transaction(async (tx) => {
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
     // Idempotency guard — check if this reference was already processed
-    const { rows: existing } = await tx.query<{
-      id: string;
-      status: string;
-      provider: string | null;
-      chain: string | null;
-      token_symbol: string | null;
-      expected_token_amount: string | null;
-    }>(
-      `SELECT id, status, provider, chain, token_symbol, expected_token_amount FROM payments
-       WHERE provider_reference = $1
-       FOR UPDATE`,
-      [reference]
-    );
+    const existing = await tx
+      .select({
+        id: schema.payments.id,
+        status: schema.payments.status,
+        provider: schema.payments.provider,
+        chain: schema.payments.chain,
+        tokenSymbol: schema.payments.tokenSymbol,
+        expectedTokenAmount: schema.payments.expectedTokenAmount,
+      })
+      .from(schema.payments)
+      .where(eq(schema.payments.providerReference, reference))
+      .for("update");
 
     if (!existing[0]) {
       logger.error({ reference }, "[webhook/paystack] No payment record for reference");
@@ -151,12 +166,10 @@ export async function processChargeSuccess(
     }
 
     // Mark payment as completed — BUG-027 FIX: include updated_at = NOW()
-    await tx.query(
-      `UPDATE payments
-       SET status = 'completed', completed_at = NOW(), amount_received_kobo = $1, updated_at = NOW()
-       WHERE provider_reference = $2`,
-      [amount, reference]
-    );
+    await tx
+      .update(schema.payments)
+      .set({ status: "completed", completedAt: sql`NOW()`, amountReceivedKobo: BigInt(amount), updatedAt: sql`NOW()` })
+      .where(eq(schema.payments.providerReference, reference));
 
     const paymentId = existing[0].id;
     const { userId, coinsGranted, starsGranted, itemType } = metadata;
@@ -210,20 +223,34 @@ export async function processChargeSuccess(
         endsAt.setMonth(endsAt.getMonth() + 1);
       }
 
-      await tx.query(
-        `INSERT INTO subscriptions
-           (user_id, plan, billing_period, status, provider, provider_subscription_id, starts_at, ends_at, created_at, updated_at)
-         VALUES ($1, $2, $3, 'active', 'paystack', $4, NOW(), $5, NOW(), NOW())
-         ON CONFLICT (user_id) DO UPDATE
-           SET plan = $2, billing_period = $3, status = 'active', provider = 'paystack',
-               provider_subscription_id = $4, cancelled_at = NULL, ends_at = $5, updated_at = NOW()`,
-        [userId, planName, billingPeriod, reference, endsAt.toISOString()]
-      );
+      await tx
+        .insert(schema.subscriptions)
+        .values({
+          userId,
+          plan: planName,
+          billingPeriod,
+          status: "active",
+          provider: "paystack",
+          providerSubscriptionId: reference,
+          startsAt: sql`NOW()`,
+          endsAt: new Date(endsAt),
+          updatedAt: sql`NOW()`,
+        })
+        .onConflictDoUpdate({
+          target: schema.subscriptions.userId,
+          set: {
+            plan: planName,
+            billingPeriod,
+            status: "active",
+            provider: "paystack",
+            providerSubscriptionId: reference,
+            cancelledAt: null,
+            endsAt: new Date(endsAt),
+            updatedAt: sql`NOW()`,
+          },
+        });
 
-      await tx.query(
-        `UPDATE users SET plan = $1, updated_at = NOW() WHERE id = $2`,
-        [planName, userId]
-      );
+      await tx.update(schema.users).set({ plan: planName, updatedAt: sql`NOW()` }).where(eq(schema.users.id, userId));
 
       // Award monthly subscription bonus coins (PRD §3) — dedup key scoped to
       // plan + user + calendar month so a re-delivered webhook (or the
@@ -269,11 +296,12 @@ export async function processChargeSuccess(
 
       // Verify the room exists before inserting a subscription
       if (roomId) {
-        const roomCheck = await tx.query(
-          `SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-          [roomId]
-        );
-        if (!roomCheck.rows[0]) {
+        const roomCheck = await tx
+          .select({ id: schema.rooms.id })
+          .from(schema.rooms)
+          .where(and(eq(schema.rooms.id, roomId), isNull(schema.rooms.deletedAt)))
+          .limit(1);
+        if (!roomCheck[0]) {
           logger.warn({ roomId, reference }, "[paystackWebhook] Room not found, skipping room subscription");
           roomId = null;
         }
@@ -283,47 +311,56 @@ export async function processChargeSuccess(
         return;
       }
 
-      await tx.query(
-        `INSERT INTO room_subscriptions
-           (room_id, user_id, status, amount_kobo, started_at, expires_at)
-         VALUES ($1, $2, 'active', $3, NOW(), $4)
-         ON CONFLICT (room_id, user_id) DO UPDATE
-           SET status = 'active', amount_kobo = $3, started_at = NOW(), expires_at = $4`,
-        [roomId, userId, subGrossKobo, expiresAt]
-      );
+      await tx
+        .insert(schema.roomSubscriptions)
+        .values({
+          roomId,
+          userId,
+          status: "active",
+          amountKobo: BigInt(subGrossKobo),
+          startedAt: sql`NOW()`,
+          expiresAt: new Date(expiresAt),
+        })
+        .onConflictDoUpdate({
+          target: [schema.roomSubscriptions.roomId, schema.roomSubscriptions.userId],
+          set: { status: "active", amountKobo: BigInt(subGrossKobo), startedAt: sql`NOW()`, expiresAt: new Date(expiresAt) },
+        });
 
-      await tx.query(
-        `INSERT INTO room_members (room_id, user_id, role, joined_at)
-         VALUES ($1, $2, 'member', NOW())
-         ON CONFLICT (room_id, user_id) DO NOTHING`,
-        [roomId, userId]
-      );
+      await tx
+        .insert(schema.roomMembers)
+        .values({ roomId, userId, role: "member", joinedAt: sql`NOW()` })
+        .onConflictDoNothing({ target: [schema.roomMembers.roomId, schema.roomMembers.userId] });
 
       // Credit creator earnings
-      const roomRow = await tx.query<{ creator_id: string; creator_tier: string | null }>(
-        `SELECT r.creator_id, u.creator_tier
-         FROM rooms r JOIN users u ON u.id = r.creator_id WHERE r.id = $1`,
-        [roomId]
-      );
-      const creator = roomRow.rows[0];
+      const roomRow = await tx
+        .select({ creatorId: schema.rooms.creatorId, creatorTier: schema.users.creatorTier })
+        .from(schema.rooms)
+        .innerJoin(schema.users, eq(schema.users.id, schema.rooms.creatorId))
+        .where(eq(schema.rooms.id, roomId));
+      const creator = roomRow[0];
       if (creator) {
-        const feeRate = getCreatorFeeRate(creator.creator_tier);
+        const feeRate = getCreatorFeeRate(creator.creatorTier);
         // Use Decimal.js to avoid IEEE 754 float errors on kobo arithmetic (BUG-FIN-01).
         const netKobo = new Decimal(subGrossKobo).mul(new Decimal(1).minus(feeRate)).floor().toNumber();
         const platformFeeKobo = subGrossKobo - netKobo;
-        await tx.query(
-          `INSERT INTO creator_earnings
-             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
-           VALUES ($1, 'subscription', $2, $3, $4, $5)
-           ON CONFLICT (creator_id, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-          [creator.creator_id, subGrossKobo, platformFeeKobo, netKobo, paymentId]
-        );
-        await tx.query(
-          `UPDATE users
-           SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1, updated_at = NOW()
-           WHERE id = $2`,
-          [netKobo, creator.creator_id]
-        );
+        await tx
+          .insert(schema.creatorEarnings)
+          .values({
+            creatorId: creator.creatorId,
+            sourceType: "subscription",
+            grossAmountKobo: BigInt(subGrossKobo),
+            platformFeeKobo: BigInt(platformFeeKobo),
+            netAmountKobo: BigInt(netKobo),
+            referenceId: paymentId,
+          })
+          .onConflictDoNothing({
+            target: [schema.creatorEarnings.creatorId, schema.creatorEarnings.referenceId],
+            where: sql`${schema.creatorEarnings.referenceId} IS NOT NULL`,
+          });
+        await tx
+          .update(schema.users)
+          .set({ availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${netKobo}`, updatedAt: sql`NOW()` })
+          .where(eq(schema.users.id, creator.creatorId));
       }
 
       // BUG-PAY-01: seed Creator Fund for room_subscription payments (was missing)
@@ -380,16 +417,22 @@ export async function processChargeSuccess(
       }
       const tier = ["starter", "growth", "enterprise"].includes(signupTier as string) ? (signupTier as string) : "starter";
 
+      // NOTE (schema gap): `business_accounts.current_period_ends_at` is not
+      // modeled in lib/db/schema.ts — this insert therefore goes through
+      // Drizzle's `sql` tagged template via `.execute()` (still the shared
+      // Drizzle-wrapped pg.Pool, still fully parameterised) instead of the
+      // query builder. Report this gap — do not edit schema.ts here.
+      //
       // Idempotent: business_accounts.user_id is UNIQUE, so a replayed webhook
       // (or a race with a second signup attempt) simply no-ops here.
-      const { rows: createdRows } = await tx.query<{ id: string }>(
-        `INSERT INTO business_accounts
+      const createdResult = await tx.execute<{ id: string }>(sql`
+        INSERT INTO business_accounts
            (user_id, business_name, business_type, tier, verified, status, current_period_ends_at, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, FALSE, 'active', NOW() + ($5 || ' days')::interval, NOW(), NOW())
+         VALUES (${userId}, ${businessName}, ${businessType ?? null}, ${tier}, FALSE, 'active', NOW() + (${String(BUSINESS_BILLING_PERIOD_DAYS)} || ' days')::interval, NOW(), NOW())
          ON CONFLICT (user_id) DO NOTHING
-         RETURNING id`,
-        [userId, businessName, businessType ?? null, tier, String(BUSINESS_BILLING_PERIOD_DAYS)]
-      );
+         RETURNING id
+      `);
+      const createdRows = createdResult.rows;
 
       if (!createdRows[0]) {
         // The idempotency guard above (top of this function) only short-circuits
@@ -410,17 +453,14 @@ export async function processChargeSuccess(
         return;
       }
 
-      await tx.query(
-        `INSERT INTO notifications
-           (user_id, type, title, body, metadata, is_read, created_at)
-         VALUES ($1, 'business_tier_activated', 'Business Account Created',
-                 $2, $3::jsonb, false, NOW())`,
-        [
-          userId,
-          `Your Business ${tier.charAt(0).toUpperCase()}${tier.slice(1)} account is now active.`,
-          JSON.stringify({ businessAccountId: createdRows[0].id, tier, reference }),
-        ]
-      );
+      await tx.insert(schema.notifications).values({
+        userId,
+        type: "business_tier_activated",
+        title: "Business Account Created",
+        body: `Your Business ${tier.charAt(0).toUpperCase()}${tier.slice(1)} account is now active.`,
+        metadata: { businessAccountId: createdRows[0].id, tier, reference },
+        isRead: false,
+      });
       return;
     }
 
@@ -432,19 +472,20 @@ export async function processChargeSuccess(
         return;
       }
 
-      const activationResult = await tx.query(
-        `UPDATE business_accounts
-         SET tier = $1,
+      // NOTE (schema gap): `business_accounts.current_period_ends_at` is not
+      // modeled in lib/db/schema.ts — see the business_signup branch above.
+      const activationResult = await tx.execute(sql`
+        UPDATE business_accounts
+         SET tier = ${newTier},
              pending_tier = NULL,
              pending_payment_ref = NULL,
              tier_updated_at = NOW(),
              status = 'active',
              grace_period_ends_at = NULL,
-             current_period_ends_at = NOW() + ($4 || ' days')::interval,
+             current_period_ends_at = NOW() + (${String(BUSINESS_BILLING_PERIOD_DAYS)} || ' days')::interval,
              updated_at = NOW()
-         WHERE id = $2 AND pending_payment_ref = $3`,
-        [newTier, businessAccountId, reference, String(BUSINESS_BILLING_PERIOD_DAYS)]
-      );
+         WHERE id = ${businessAccountId} AND pending_payment_ref = ${reference}
+      `);
 
       // BIZ-TIER-RACE: if pending_payment_ref no longer matches (e.g. a newer
       // upgrade request overwrote it, or it was already activated by a prior
@@ -466,20 +507,20 @@ export async function processChargeSuccess(
       }
 
       // Notify the user
-      await tx.query(
-        `INSERT INTO notifications
-           (user_id, type, title, body, metadata, is_read, created_at)
-         SELECT user_id, 'business_tier_activated',
-                'Business Account Upgraded',
-                $1,
-                $2::jsonb, false, NOW()
-         FROM business_accounts WHERE id = $3`,
-        [
-          `Your business account has been upgraded to the ${newTier.charAt(0).toUpperCase() + newTier.slice(1)} tier.`,
-          JSON.stringify({ businessAccountId, tier: newTier, reference }),
-          businessAccountId,
-        ]
-      );
+      const upgradedAccount = await tx
+        .select({ userId: schema.businessAccounts.userId })
+        .from(schema.businessAccounts)
+        .where(eq(schema.businessAccounts.id, businessAccountId));
+      if (upgradedAccount[0]) {
+        await tx.insert(schema.notifications).values({
+          userId: upgradedAccount[0].userId,
+          type: "business_tier_activated",
+          title: "Business Account Upgraded",
+          body: `Your business account has been upgraded to the ${newTier.charAt(0).toUpperCase() + newTier.slice(1)} tier.`,
+          metadata: { businessAccountId, tier: newTier, reference },
+          isRead: false,
+        });
+      }
       return;
     }
 
@@ -495,24 +536,31 @@ export async function processChargeSuccess(
         return;
       }
 
-      await tx.query(
-        `UPDATE business_accounts
+      // NOTE (schema gap): `business_accounts.current_period_ends_at` is not
+      // modeled in lib/db/schema.ts — see the business_signup branch above.
+      await tx.execute(sql`
+        UPDATE business_accounts
          SET status = 'active',
              grace_period_ends_at = NULL,
-             current_period_ends_at = GREATEST(COALESCE(current_period_ends_at, NOW()), NOW()) + ($2 || ' days')::interval,
+             current_period_ends_at = GREATEST(COALESCE(current_period_ends_at, NOW()), NOW()) + (${String(BUSINESS_BILLING_PERIOD_DAYS)} || ' days')::interval,
              updated_at = NOW()
-         WHERE id = $1`,
-        [businessAccountId, String(BUSINESS_BILLING_PERIOD_DAYS)]
-      );
+         WHERE id = ${businessAccountId}
+      `);
 
-      await tx.query(
-        `INSERT INTO notifications
-           (user_id, type, title, body, metadata, is_read, created_at)
-         SELECT user_id, 'business_tier_activated', 'Business Account Renewed',
-                'Your business account subscription has been renewed.', $1::jsonb, false, NOW()
-         FROM business_accounts WHERE id = $2`,
-        [JSON.stringify({ businessAccountId, reference }), businessAccountId]
-      );
+      const renewedAccount = await tx
+        .select({ userId: schema.businessAccounts.userId })
+        .from(schema.businessAccounts)
+        .where(eq(schema.businessAccounts.id, businessAccountId));
+      if (renewedAccount[0]) {
+        await tx.insert(schema.notifications).values({
+          userId: renewedAccount[0].userId,
+          type: "business_tier_activated",
+          title: "Business Account Renewed",
+          body: "Your business account subscription has been renewed.",
+          metadata: { businessAccountId, reference },
+          isRead: false,
+        });
+      }
       return;
     }
 
@@ -520,22 +568,29 @@ export async function processChargeSuccess(
     let serverCoinsGranted = coinsGranted ?? 0;
     let serverStarsGranted = starsGranted ?? 0;
     if (metadata.packId) {
-      const { rows: packRows } = await tx.query<{ coins_granted: number | null; stars_granted: number | null; price_kobo: number | null; valid_until: string | null }>(
-        `SELECT coins_granted, stars_granted, price_kobo, valid_until FROM store_items WHERE id = $1 LIMIT 1`,
-        [metadata.packId]
-      );
+      const packRows = await tx
+        .select({
+          coinsGranted: schema.storeItems.coinsGranted,
+          starsGranted: schema.storeItems.starsGranted,
+          priceKobo: schema.storeItems.priceKobo,
+          validUntil: schema.storeItems.validUntil,
+        })
+        .from(schema.storeItems)
+        .where(eq(schema.storeItems.id, metadata.packId))
+        .limit(1);
       if (packRows[0]) {
         // BUG-042/075: Reject if the item expired before the payment was made.
         // Use paid_at as the purchase time (not webhook arrival) to honor payments made before expiry.
-        if (packRows[0].valid_until) {
+        if (packRows[0].validUntil) {
           const paidAt = new Date(data.paid_at);
-          const validUntil = new Date(packRows[0].valid_until);
+          const validUntil = new Date(packRows[0].validUntil);
           if (paidAt > validUntil) {
             logger.warn({ reference, packId: metadata.packId, paidAt, validUntil }, "[webhook/paystack] Purchase for expired store item — refunding");
-            await tx.query(
-              `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE provider_reference = $1`,
-              [reference]
-            ).catch(() => {});
+            await tx
+              .update(schema.payments)
+              .set({ status: "failed", updatedAt: sql`NOW()` })
+              .where(eq(schema.payments.providerReference, reference))
+              .catch(() => {});
             await raiseAlert(tx, {
               type: "purchase_expired_item",
               category: "financial",
@@ -548,23 +603,25 @@ export async function processChargeSuccess(
             return;
           }
         }
-        if (packRows[0].coins_granted != null) serverCoinsGranted = packRows[0].coins_granted;
-        if (packRows[0].stars_granted != null) serverStarsGranted = packRows[0].stars_granted;
+        if (packRows[0].coinsGranted != null) serverCoinsGranted = Number(packRows[0].coinsGranted);
+        if (packRows[0].starsGranted != null) serverStarsGranted = packRows[0].starsGranted;
 
         // Bug #18: Reject underpayments — never credit if paid amount < pack price
-        if (packRows[0].price_kobo != null && amount < packRows[0].price_kobo) {
-          logger.warn({ reference, paidKobo: amount, priceKobo: packRows[0].price_kobo, packId: metadata.packId }, "[webhook/paystack] Underpayment detected — flagging for manual review");
-          await tx.query(
-            `UPDATE payments SET status = 'underpaid', updated_at = NOW() WHERE provider_reference = $1`,
-            [reference]
-          ).catch(() => {});
+        if (packRows[0].priceKobo != null && amount < packRows[0].priceKobo) {
+          const priceKoboNum = Number(packRows[0].priceKobo);
+          logger.warn({ reference, paidKobo: amount, priceKobo: priceKoboNum, packId: metadata.packId }, "[webhook/paystack] Underpayment detected — flagging for manual review");
+          await tx
+            .update(schema.payments)
+            .set({ status: "underpaid", updatedAt: sql`NOW()` })
+            .where(eq(schema.payments.providerReference, reference))
+            .catch(() => {});
           await raiseAlert(tx, {
             type: "underpayment",
             category: "financial",
             priorityLevel: 2,
             title: "Underpayment detected",
-            message: `Underpayment for reference ${reference}: paid ${amount}, expected ${packRows[0].price_kobo}`,
-            metadata: { reference, amount, priceKobo: packRows[0].price_kobo, userId, packId: metadata.packId },
+            message: `Underpayment for reference ${reference}: paid ${amount}, expected ${priceKoboNum}`,
+            metadata: { reference, amount, priceKobo: priceKoboNum, userId, packId: metadata.packId },
             dedupeKey: `underpayment:${reference}`,
           }).catch(() => {});
           return;
@@ -611,8 +668,8 @@ export async function processChargeSuccess(
         paymentId,
         amountKobo: amount,
         crypto:
-          cryptoRow.provider === "crypto" && cryptoRow.chain && cryptoRow.token_symbol && cryptoRow.expected_token_amount
-            ? { currency: cryptoRow.token_symbol, chain: cryptoRow.chain, expectedBaseUnits: cryptoRow.expected_token_amount }
+          cryptoRow.provider === "crypto" && cryptoRow.chain && cryptoRow.tokenSymbol && cryptoRow.expectedTokenAmount
+            ? { currency: cryptoRow.tokenSymbol, chain: cryptoRow.chain, expectedBaseUnits: cryptoRow.expectedTokenAmount }
             : null,
       };
     }
@@ -635,7 +692,7 @@ export async function processChargeSuccess(
   if (capturedReferral) {
     try {
       await awardReferralCommissions(
-        db,
+        orm,
         capturedReferral.userId,
         capturedReferral.coins,
         capturedReferral.paymentId,
@@ -679,28 +736,27 @@ export async function processTransferEvent(
   // two Paystack transfer calls for the same payout.
   let payoutId: string | null = null;
   let creatorId: string | null = null;
-  let netKobo: number = 0;
+  let netKobo: bigint = 0n;
   // Flags for post-transaction side effects (avoid calling moveToDeadLetterQueue
   // inside the outer tx — it opens its own transaction, causing a nested tx deadlock).
   let shouldMoveToDLQ = false;
   let dlqRetryCount = 0;
   let dlqReason = "";
 
-  await db.transaction(async (tx) => {
-    const { rows } = await tx.query<{
-      id: string;
-      creator_id: string;
-      gross_kobo: number;
-      net_kobo: number;
-      retry_count: number;
-    }>(
-      `SELECT id, creator_id, gross_kobo, net_kobo, retry_count
-       FROM creator_payouts
-       WHERE provider_reference = $1
-       LIMIT 1
-       FOR UPDATE`,
-      [reference]
-    );
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const rows = await tx
+      .select({
+        id: schema.creatorPayouts.id,
+        creatorId: schema.creatorPayouts.creatorId,
+        grossKobo: schema.creatorPayouts.grossKobo,
+        netKobo: schema.creatorPayouts.netKobo,
+        retryCount: schema.creatorPayouts.retryCount,
+      })
+      .from(schema.creatorPayouts)
+      .where(eq(schema.creatorPayouts.providerReference, reference))
+      .limit(1)
+      .for("update");
 
     if (!rows[0]) {
       logger.warn({ reference }, "[webhook/paystack] No payout found for transfer reference");
@@ -709,51 +765,44 @@ export async function processTransferEvent(
 
     const payout = rows[0];
     payoutId = payout.id;
-    creatorId = payout.creator_id;
-    netKobo = payout.net_kobo;
+    creatorId = payout.creatorId;
+    netKobo = payout.netKobo ?? 0n;
 
     if (event.event === "transfer.success") {
-      await tx.query(
-        `UPDATE creator_payouts
-         SET status = 'completed', completed_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [payout.id]
-      );
+      await tx
+        .update(schema.creatorPayouts)
+        .set({ status: "completed", completedAt: sql`NOW()`, updatedAt: sql`NOW()` })
+        .where(eq(schema.creatorPayouts.id, payout.id));
 
     } else if (event.event === "transfer.failed") {
       const manifest = await loadManifest();
       const maxRetries = manifest.payouts.maxRetries;
 
-      const newRetryCount = payout.retry_count + 1;
+      const newRetryCount = payout.retryCount + 1;
 
       if (newRetryCount >= maxRetries) {
         // Mark payout as permanently failed within the transaction, then schedule
         // DLQ insertion and notification for after the transaction commits.
-        await tx.query(
-          `UPDATE creator_payouts
-           SET status = 'failed',
-               retry_count = $1,
-               last_retry_at = NOW(),
-               updated_at = NOW()
-           WHERE id = $2`,
-          [newRetryCount, payout.id]
-        );
+        await tx
+          .update(schema.creatorPayouts)
+          .set({ status: "failed", retryCount: newRetryCount, lastRetryAt: sql`NOW()`, updatedAt: sql`NOW()` })
+          .where(eq(schema.creatorPayouts.id, payout.id));
         shouldMoveToDLQ = true;
         dlqRetryCount = newRetryCount;
         dlqReason = `Paystack transfer failed after ${maxRetries} attempts. Status: ${status}`;
       } else {
         // Exponential backoff: 5min, 15min, 45min
         const backoffMinutes = [5, 15, 45][Math.min(newRetryCount - 1, 2)];
-        await tx.query(
-          `UPDATE creator_payouts
-           SET status = 'failed',
-               retry_count = $1,
-               last_retry_at = NOW(),
-               next_retry_at = NOW() + ($2 || ' minutes')::INTERVAL,
-               updated_at = NOW()
-           WHERE id = $3`,
-          [newRetryCount, backoffMinutes, payout.id]
-        );
+        await tx
+          .update(schema.creatorPayouts)
+          .set({
+            status: "failed",
+            retryCount: newRetryCount,
+            lastRetryAt: sql`NOW()`,
+            nextRetryAt: sql`NOW() + (${backoffMinutes} || ' minutes')::INTERVAL`,
+            updatedAt: sql`NOW()`,
+          })
+          .where(eq(schema.creatorPayouts.id, payout.id));
       }
     }
   });
@@ -766,55 +815,55 @@ export async function processTransferEvent(
 
   // Post-transaction notifications (no row lock needed)
   if (event.event === "transfer.success" && payoutId && creatorId) {
-    await db.query(
-      `INSERT INTO notifications
-         (user_id, type, title, body, metadata, created_at)
-       VALUES ($1, 'payout_completed', 'Payout Successful',
-         'Your payout has been processed and is on its way to your bank account.',
-         $2::jsonb, NOW())`,
-      [creatorId, JSON.stringify({ payoutId, reference })]
+    await insertNotification(
+      orm,
+      creatorId,
+      "payout_completed",
+      "Payout Successful",
+      "Your payout has been processed and is on its way to your bank account.",
+      { payoutId, reference }
     ).catch(() => {});
   }
 
   if (event.event === "transfer.reversed" && payoutId && creatorId) {
     // Restore earnings to creator — guard with FOR UPDATE + earnings_restored flag
     // to prevent duplicate webhook deliveries from double-crediting (#8)
-    await db.transaction(async (tx) => {
-      const { rows: cur } = await tx.query<{ status: string; earnings_restored: boolean }>(
-        `SELECT status, earnings_restored FROM creator_payouts WHERE id = $1 FOR UPDATE`,
-        [payoutId]
-      );
+    await orm.transaction(async (tx) => {
+      const cur = await tx
+        .select({ status: schema.creatorPayouts.status, earningsRestored: schema.creatorPayouts.earningsRestored })
+        .from(schema.creatorPayouts)
+        .where(eq(schema.creatorPayouts.id, payoutId as string))
+        .for("update");
       if (!cur[0] || cur[0].status === "reversed") return; // already handled
 
-      await tx.query(
-        `UPDATE creator_payouts
-         SET status = 'reversed', updated_at = NOW()
-         WHERE id = $1`,
-        [payoutId]
-      );
+      await tx
+        .update(schema.creatorPayouts)
+        .set({ status: "reversed", updatedAt: sql`NOW()` })
+        .where(eq(schema.creatorPayouts.id, payoutId as string));
 
-      if (!cur[0].earnings_restored) {
-        await tx.query(
-          `UPDATE creator_payouts SET earnings_restored = true WHERE id = $1`,
-          [payoutId]
-        );
-        await tx.query(
-          `UPDATE users
-           SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
-           WHERE id = $2`,
-          [netKobo, creatorId]
-        );
+      if (!cur[0].earningsRestored) {
+        await tx
+          .update(schema.creatorPayouts)
+          .set({ earningsRestored: true })
+          .where(eq(schema.creatorPayouts.id, payoutId as string));
+        await tx
+          .update(schema.users)
+          .set({
+            availableEarningsKobo: sql`${schema.users.availableEarningsKobo} + ${netKobo}`,
+            updatedAt: sql`NOW()`,
+          })
+          .where(eq(schema.users.id, creatorId as string));
       }
     });
 
     // Notify creator of reversal
-    await db.query(
-      `INSERT INTO notifications
-         (user_id, type, title, body, metadata, created_at)
-       VALUES ($1, 'payout_reversed', 'Payout Reversed',
-         'Your payout was reversed by the payment network. Your earnings have been restored to your balance. Please verify your bank account details.',
-         $2::jsonb, NOW())`,
-      [creatorId, JSON.stringify({ payoutId })]
+    await insertNotification(
+      orm,
+      creatorId,
+      "payout_reversed",
+      "Payout Reversed",
+      "Your payout was reversed by the payment network. Your earnings have been restored to your balance. Please verify your bank account details.",
+      { payoutId }
     ).catch(() => {});
   }
 }
@@ -829,13 +878,16 @@ export async function processSubscriptionEvent(
   const { subscription_code, status, customer, next_payment_date } = event.data;
   const userId = customer.metadata?.userId ?? null;
 
+  const orm = await getDb();
+
   // Single email lookup — cache result to avoid duplicate DB round-trip (BUG-13)
   let resolvedUserId = userId;
   if (!resolvedUserId) {
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL LIMIT 1`,
-      [customer.email]
-    );
+    const rows = await orm
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(eq(schema.users.email, customer.email), isNull(schema.users.deletedAt)))
+      .limit(1);
     resolvedUserId = rows[0]?.id ?? null;
     if (!resolvedUserId) {
       logger.warn({ email: customer.email }, "[webhook/paystack] Subscription event: no user found for email");
@@ -871,7 +923,7 @@ export async function processSubscriptionEvent(
 
     if (!derivedPlan) {
       logger.error({ planName: event.data.plan?.name, subscriptionCode: subscription_code, userId: resolvedUserId }, "[webhook/paystack] Unrecognised plan name — no plan activated");
-      await raiseAlert(db, {
+      await raiseAlert(orm, {
         type: "unknown_plan_code",
         category: "financial",
         priorityLevel: 2,
@@ -888,21 +940,34 @@ export async function processSubscriptionEvent(
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
 
     // Upsert canonical subscription record (B-11)
-    await db.query(
-      `INSERT INTO subscriptions
-         (user_id, plan, provider, provider_subscription_id, status, starts_at, ends_at, updated_at)
-       VALUES ($1, $2, 'paystack', $3, $4, NOW(), $5, NOW())
-       ON CONFLICT (user_id) DO UPDATE
-         SET plan = $2, provider_subscription_id = $3, status = $4, ends_at = $5, updated_at = NOW()`,
-      [resolvedUserId, derivedPlan, subscription_code, isActive ? "active" : "inactive", endsAt]
-    ).catch((err) => logger.error({ err }, "[webhook/paystack] subscriptions upsert failed"));
+    await orm
+      .insert(schema.subscriptions)
+      .values({
+        userId: resolvedUserId,
+        plan: derivedPlan,
+        provider: "paystack",
+        providerSubscriptionId: subscription_code,
+        status: isActive ? "active" : "inactive",
+        startsAt: sql`NOW()`,
+        endsAt: new Date(endsAt),
+        updatedAt: sql`NOW()`,
+      })
+      .onConflictDoUpdate({
+        target: schema.subscriptions.userId,
+        set: {
+          plan: derivedPlan,
+          providerSubscriptionId: subscription_code,
+          status: isActive ? "active" : "inactive",
+          endsAt: new Date(endsAt),
+          updatedAt: sql`NOW()`,
+        },
+      })
+      .catch((err) => logger.error({ err }, "[webhook/paystack] subscriptions upsert failed"));
 
-    await db.transaction(async (tx) => {
+    // This inner transaction must stay atomic with `creditCoins`/`creditStars`.
+    await orm.transaction(async (tx) => {
       // Update plan
-      await tx.query(
-        `UPDATE users SET plan = $1, updated_at = NOW() WHERE id = $2`,
-        [derivedPlan, resolvedUserId]
-      );
+      await tx.update(schema.users).set({ plan: derivedPlan, updatedAt: sql`NOW()` }).where(eq(schema.users.id, resolvedUserId));
 
       // Award monthly subscription bonus coins (PRD §3).
       // BUG-21: Key on `plan:{userId}:{YYYY-MM}` rather than subscription_code so
@@ -973,43 +1038,44 @@ export async function processSubscriptionEvent(
     // Use next_payment_date when present; fall back to the existing ends_at (if
     // already set), or NOW() as a last resort so the user never retains premium
     // indefinitely when both next_payment_date and ends_at are absent.
-    await db.query(
-      `UPDATE subscriptions
-       SET status = 'disabled',
-           auto_renew = false,
-           ends_at = CASE
-             WHEN $2::timestamptz IS NOT NULL THEN $2::timestamptz
-             WHEN ends_at IS NOT NULL THEN ends_at
-             ELSE NOW()
-           END,
-           updated_at = NOW()
-       WHERE user_id = $1`,
-      [resolvedUserId, disableEndsAt]
-    ).catch(() => {});
+    const disableEndsAtDate: Date | null = disableEndsAt ? new Date(disableEndsAt) : null;
+    await orm
+      .update(schema.subscriptions)
+      .set({
+        status: "disabled",
+        autoRenew: false,
+        endsAt: sql`CASE
+          WHEN ${disableEndsAtDate}::timestamptz IS NOT NULL THEN ${disableEndsAtDate}::timestamptz
+          WHEN ${schema.subscriptions.endsAt} IS NOT NULL THEN ${schema.subscriptions.endsAt}
+          ELSE NOW()
+        END`,
+        updatedAt: sql`NOW()`,
+      })
+      .where(eq(schema.subscriptions.userId, resolvedUserId))
+      .catch(() => {});
 
   } else if (isNonRenewing) {
     // Subscription will not renew but is still active until period end.
     // Set auto_renew=false; daily cron downgrades plan when ends_at lapses.
-    await db.query(
-      `UPDATE subscriptions
-       SET auto_renew = false, updated_at = NOW()
-       WHERE user_id = $1`,
-      [resolvedUserId]
-    ).catch(() => {});
+    await orm
+      .update(schema.subscriptions)
+      .set({ autoRenew: false, updatedAt: sql`NOW()` })
+      .where(eq(schema.subscriptions.userId, resolvedUserId))
+      .catch(() => {});
 
   } else if (isCancelled) {
     // Hard cancellation — downgrade immediately
-    await db.query(
-      `UPDATE subscriptions
-       SET status = 'cancelled', updated_at = NOW()
-       WHERE user_id = $1`,
-      [resolvedUserId]
-    ).catch(() => {});
+    await orm
+      .update(schema.subscriptions)
+      .set({ status: "cancelled", updatedAt: sql`NOW()` })
+      .where(eq(schema.subscriptions.userId, resolvedUserId))
+      .catch(() => {});
 
-    await db.query(
-      `UPDATE users SET plan = 'free', updated_at = NOW() WHERE id = $1`,
-      [resolvedUserId]
-    ).catch(() => {});
+    await orm
+      .update(schema.users)
+      .set({ plan: "free", updatedAt: sql`NOW()` })
+      .where(eq(schema.users.id, resolvedUserId))
+      .catch(() => {});
   }
 
   // Write notification to user using canonical schema (title/body/metadata columns)
@@ -1035,16 +1101,13 @@ export async function processSubscriptionEvent(
     notifBody = "Your subscription will not renew at the end of the current period.";
   }
 
-  await db.query(
-    `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-     VALUES ($1, $2, $3, $4, $5::jsonb, false, NOW())`,
-    [
-      resolvedUserId,
-      notifType,
-      notifTitle,
-      notifBody,
-      JSON.stringify({ subscriptionCode: subscription_code, status, nextPaymentDate: next_payment_date }),
-    ]
+  await insertNotification(
+    orm,
+    resolvedUserId,
+    notifType,
+    notifTitle,
+    notifBody,
+    { subscriptionCode: subscription_code, status, nextPaymentDate: next_payment_date }
   ).catch(() => {});
 }
 

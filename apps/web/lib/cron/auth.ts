@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "crypto";
 import type { NextRequest } from "next/server";
+import { sql } from "drizzle-orm";
+import { schema, type DbOrTx } from "@/lib/db/drizzle";
 
 export function validateCronSecret(req: NextRequest): boolean {
   const cronSecret = process.env.CRON_SECRET;
@@ -19,19 +21,26 @@ export function validateCronSecret(req: NextRequest): boolean {
 
 export async function checkCronIdempotency(
   key: string,
-  db: import("@/lib/db/interface").DatabaseAdapter
+  db: DbOrTx
 ): Promise<boolean> {
   const runDate = new Date().toISOString().slice(0, 10);
   try {
-    const { rowCount } = await db.query(
-      `INSERT INTO cron_state (key, value_ts, updated_at)
-       VALUES ($1, $2::date::timestamptz, NOW())
-       ON CONFLICT (key) DO UPDATE
-         SET value_ts = $2::date::timestamptz, updated_at = NOW()
-         WHERE cron_state.value_ts < $2::date::timestamptz`,
-      [key, runDate]
-    );
-    return (rowCount ?? 0) > 0;
+    const result = await db
+      .insert(schema.cronState)
+      .values({
+        key,
+        valueTs: sql`${runDate}::date::timestamptz`,
+        updatedAt: sql`NOW()`,
+      })
+      .onConflictDoUpdate({
+        target: schema.cronState.key,
+        set: {
+          valueTs: sql`${runDate}::date::timestamptz`,
+          updatedAt: sql`NOW()`,
+        },
+        setWhere: sql`${schema.cronState.valueTs} < ${runDate}::date::timestamptz`,
+      });
+    return (result.rowCount ?? 0) > 0;
   } catch {
     // Fail-closed: if the idempotency check fails, block the CRON run rather
     // than allowing a double-run that could double-send emails, double-pay, etc.

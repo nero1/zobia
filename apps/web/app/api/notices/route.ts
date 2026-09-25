@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull, lte, or, gte, asc, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { handleApiError } from "@/lib/api/errors";
 import { redis } from "@/lib/redis";
 import { memGet, memSet } from "@/lib/cache/memory";
@@ -64,54 +65,93 @@ async function loadMergedNotices(): Promise<MergedNotice[]> {
     logger.error({ err }, "[notices] Redis read failed — falling back to DB");
   }
 
-  const [noticesResult, eventsResult, bannersResult] = await Promise.all([
-    db.query<{
-      id: string; notice_type: string; title: string; body: string | null; icon: string | null;
-      image_url: string | null; cta_label: string | null; cta_url: string | null;
-      starts_at: string | null; ends_at: string | null; sort_order: number;
-    }>(
-      `SELECT id, notice_type, title, body, icon, image_url, cta_label, cta_url, starts_at, ends_at, sort_order
-       FROM notices
-       WHERE is_active = true
-         AND (starts_at IS NULL OR starts_at <= NOW())
-         AND (ends_at IS NULL OR ends_at >= NOW())
-       ORDER BY sort_order ASC, created_at DESC
-       LIMIT 50`
-    ),
-    db.query<{ id: string; name: string; description: string | null; event_type: string; starts_at: string; ends_at: string }>(
-      `SELECT id, name, description, event_type, starts_at, ends_at
-       FROM platform_events
-       WHERE is_active = true AND starts_at <= NOW() AND ends_at >= NOW()
-       ORDER BY starts_at DESC
-       LIMIT 20`
-    ),
-    db.query<{ id: string; title: string | null; content: string; content_type: string; link_url: string | null; starts_at: string | null; ends_at: string | null; display_order: number }>(
-      `SELECT id, title, content, content_type, link_url, starts_at, ends_at, display_order
-       FROM announcement_banners
-       WHERE is_active = true AND deleted_at IS NULL
-         AND (starts_at IS NULL OR starts_at <= NOW())
-         AND (ends_at IS NULL OR ends_at >= NOW())
-       ORDER BY display_order ASC
-       LIMIT 20`
-    ),
+  const db = await getDb();
+  const now = new Date();
+
+  const [noticesRows, eventsRows, bannersRows] = await Promise.all([
+    db
+      .select({
+        id: schema.notices.id,
+        noticeType: schema.notices.noticeType,
+        title: schema.notices.title,
+        body: schema.notices.body,
+        icon: schema.notices.icon,
+        imageUrl: schema.notices.imageUrl,
+        ctaLabel: schema.notices.ctaLabel,
+        ctaUrl: schema.notices.ctaUrl,
+        startsAt: schema.notices.startsAt,
+        endsAt: schema.notices.endsAt,
+        sortOrder: schema.notices.sortOrder,
+      })
+      .from(schema.notices)
+      .where(
+        and(
+          eq(schema.notices.isActive, true),
+          or(isNull(schema.notices.startsAt), lte(schema.notices.startsAt, now)),
+          or(isNull(schema.notices.endsAt), gte(schema.notices.endsAt, now))
+        )
+      )
+      .orderBy(asc(schema.notices.sortOrder), desc(schema.notices.createdAt))
+      .limit(50),
+    db
+      .select({
+        id: schema.platformEvents.id,
+        name: schema.platformEvents.name,
+        description: schema.platformEvents.description,
+        eventType: schema.platformEvents.eventType,
+        startsAt: schema.platformEvents.startsAt,
+        endsAt: schema.platformEvents.endsAt,
+      })
+      .from(schema.platformEvents)
+      .where(
+        and(
+          eq(schema.platformEvents.isActive, true),
+          lte(schema.platformEvents.startsAt, now),
+          gte(schema.platformEvents.endsAt, now)
+        )
+      )
+      .orderBy(desc(schema.platformEvents.startsAt))
+      .limit(20),
+    db
+      .select({
+        id: schema.announcementBanners.id,
+        title: schema.announcementBanners.title,
+        content: schema.announcementBanners.content,
+        contentType: schema.announcementBanners.contentType,
+        linkUrl: schema.announcementBanners.linkUrl,
+        startsAt: schema.announcementBanners.startsAt,
+        endsAt: schema.announcementBanners.endsAt,
+        displayOrder: schema.announcementBanners.displayOrder,
+      })
+      .from(schema.announcementBanners)
+      .where(
+        and(
+          eq(schema.announcementBanners.isActive, true),
+          isNull(schema.announcementBanners.deletedAt),
+          or(isNull(schema.announcementBanners.startsAt), lte(schema.announcementBanners.startsAt, now)),
+          or(isNull(schema.announcementBanners.endsAt), gte(schema.announcementBanners.endsAt, now))
+        )
+      )
+      .orderBy(asc(schema.announcementBanners.displayOrder))
+      .limit(20),
   ]);
 
   const merged: MergedNotice[] = [
-    ...noticesResult.rows.map((r) => ({
+    ...noticesRows.map((r) => ({
       id: `notice:${r.id}`,
       source: "notice" as const,
-      type: r.notice_type,
+      type: r.noticeType,
       title: r.title,
       body: r.body,
       icon: r.icon,
-      imageUrl: r.image_url,
-      ctaLabel: r.cta_label,
-      ctaUrl: r.cta_url,
-      startsAt: r.starts_at,
-      endsAt: r.ends_at,
-      sortOrder: r.sort_order,
+      imageUrl: r.imageUrl,
+      ctaLabel: r.ctaLabel,
+      ctaUrl: r.ctaUrl,
+      startsAt: r.startsAt as unknown as string | null,
+      endsAt: r.endsAt as unknown as string | null,
+      sortOrder: r.sortOrder,
     })),
-    ...eventsResult.rows.map((r) => ({
+    ...eventsRows.map((r) => ({
       id: `platform_event:${r.id}`,
       source: "platform_event" as const,
       type: "event",
@@ -121,23 +161,23 @@ async function loadMergedNotices(): Promise<MergedNotice[]> {
       imageUrl: null,
       ctaLabel: null,
       ctaUrl: null,
-      startsAt: r.starts_at,
-      endsAt: r.ends_at,
+      startsAt: r.startsAt as unknown as string | null,
+      endsAt: r.endsAt as unknown as string | null,
       sortOrder: 100,
     })),
-    ...bannersResult.rows.map((r) => ({
+    ...bannersRows.map((r) => ({
       id: `announcement_banner:${r.id}`,
       source: "announcement_banner" as const,
       type: "admin_news",
       title: r.title ?? "Announcement",
-      body: sanitizeAnnouncementContent(r.content, r.content_type),
+      body: sanitizeAnnouncementContent(r.content, r.contentType),
       icon: null,
       imageUrl: null,
-      ctaLabel: r.link_url ? "Learn more" : null,
-      ctaUrl: r.link_url,
-      startsAt: r.starts_at,
-      endsAt: r.ends_at,
-      sortOrder: r.display_order,
+      ctaLabel: r.linkUrl ? "Learn more" : null,
+      ctaUrl: r.linkUrl,
+      startsAt: r.startsAt as unknown as string | null,
+      endsAt: r.endsAt as unknown as string | null,
+      sortOrder: r.displayOrder,
     })),
   ].sort((a, b) => a.sortOrder - b.sortOrder);
 

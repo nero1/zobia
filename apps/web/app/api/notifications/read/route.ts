@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, inArray } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
@@ -28,18 +29,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
     const { ids } = await validateBody(req, readNotificationsSchema);
 
-    const result = await db.query<{ count: string }>(
-      `WITH updated AS (
-         UPDATE notifications
-         SET is_read = true, updated_at = NOW()
-         WHERE user_id = $1 AND id = ANY($2::uuid[]) AND is_read = false
-         RETURNING id
-       )
-       SELECT COUNT(*)::text AS count FROM updated`,
-      [userId, ids]
-    );
+    const db = await getDb();
+    const updated = await db
+      .update(schema.notifications)
+      .set({ isRead: true, updatedAt: new Date() })
+      .where(
+        and(
+          eq(schema.notifications.userId, userId),
+          inArray(schema.notifications.id, ids),
+          eq(schema.notifications.isRead, false)
+        )
+      )
+      .returning({ id: schema.notifications.id });
 
-    const markedRead = parseInt(result.rows[0]?.count ?? "0", 10);
+    const markedRead = updated.length;
 
     return NextResponse.json({
       success: true,

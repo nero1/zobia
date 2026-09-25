@@ -15,7 +15,9 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 
@@ -63,28 +65,50 @@ export const GET = withAuth(
     try {
       const { warId } = params;
 
-      const { rows } = await db.query<WarDetailRow>(
-        `SELECT
-           gw.id, gw.challenger_guild_id, gw.defender_guild_id, gw.status,
-           gw.challenger_points, gw.defender_points, gw.winner_guild_id,
-           gw.starts_at, gw.ends_at, gw.final_hour_starts_at, gw.created_at,
-           cg.name AS challenger_name,
-           cg.crest_emoji AS challenger_crest,
-           cg.tier AS challenger_tier,
-           cg.guild_xp AS challenger_guild_xp,
-           dg.name AS defender_name,
-           dg.crest_emoji AS defender_crest,
-           dg.tier AS defender_tier,
-           dg.guild_xp AS defender_guild_xp
-         FROM guild_wars gw
-         JOIN guilds cg ON cg.id = gw.challenger_guild_id
-         JOIN guilds dg ON dg.id = gw.defender_guild_id
-         WHERE gw.id = $1`,
-        [warId]
-      );
+      const orm = await getDb();
+      const cg = alias(schema.guilds, "cg");
+      const dg = alias(schema.guilds, "dg");
+      const dbRows = await orm
+        .select({
+          id: schema.guildWars.id,
+          challenger_guild_id: schema.guildWars.challengerGuildId,
+          defender_guild_id: schema.guildWars.defenderGuildId,
+          status: schema.guildWars.status,
+          challenger_points: schema.guildWars.challengerPoints,
+          defender_points: schema.guildWars.defenderPoints,
+          winner_guild_id: schema.guildWars.winnerGuildId,
+          starts_at: schema.guildWars.startsAt,
+          ends_at: schema.guildWars.endsAt,
+          final_hour_starts_at: schema.guildWars.finalHourStartsAt,
+          created_at: schema.guildWars.createdAt,
+          challenger_name: cg.name,
+          challenger_crest: cg.crestEmoji,
+          challenger_tier: cg.tier,
+          challenger_guild_xp: cg.guildXp,
+          defender_name: dg.name,
+          defender_crest: dg.crestEmoji,
+          defender_tier: dg.tier,
+          defender_guild_xp: dg.guildXp,
+        })
+        .from(schema.guildWars)
+        .innerJoin(cg, eq(cg.id, schema.guildWars.challengerGuildId))
+        .innerJoin(dg, eq(dg.id, schema.guildWars.defenderGuildId))
+        .where(eq(schema.guildWars.id, warId))
+        .limit(1);
 
-      const war = rows[0];
-      if (!war) throw notFound("War not found");
+      const warRow = dbRows[0];
+      if (!warRow) throw notFound("War not found");
+      const war: WarDetailRow = {
+        ...warRow,
+        challenger_points: Number(warRow.challenger_points),
+        defender_points: Number(warRow.defender_points),
+        starts_at: warRow.starts_at.toISOString(),
+        ends_at: warRow.ends_at.toISOString(),
+        final_hour_starts_at: warRow.final_hour_starts_at.toISOString(),
+        created_at: warRow.created_at ? warRow.created_at.toISOString() : new Date().toISOString(),
+        challenger_guild_xp: Number(warRow.challenger_guild_xp),
+        defender_guild_xp: Number(warRow.defender_guild_xp),
+      };
 
       const now = Date.now();
       const endsAt = new Date(war.ends_at).getTime();

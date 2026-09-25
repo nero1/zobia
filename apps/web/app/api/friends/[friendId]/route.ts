@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { badRequest, forbidden, notFound, handleApiError } from '@/lib/api/errors';
-import { db } from '@/lib/db';
+import { and, eq, or, sql } from 'drizzle-orm';
+import { getDb, schema } from '@/lib/db/drizzle';
 import { XP_VALUES } from '@/lib/xp/engine';
 import { advanceNewMemberQuestStep } from '@/lib/quests/newMemberQuestEngine';
 
@@ -26,12 +27,17 @@ export const PUT = withAuth(async (
       throw badRequest('action must be accept, reject, or block');
     }
 
-    const { rows: friendshipRows } = await db.query<{ id: string; requester_id: string; addressee_id: string; status: string }>(
-      `SELECT id, requester_id, addressee_id, status FROM friendships
-       WHERE id = $1`,
-      [friendId],
-    );
-    const friendship = friendshipRows[0];
+    const orm = await getDb();
+    const [friendship] = await orm
+      .select({
+        id: schema.friendships.id,
+        requester_id: schema.friendships.requesterId,
+        addressee_id: schema.friendships.addresseeId,
+        status: schema.friendships.status,
+      })
+      .from(schema.friendships)
+      .where(eq(schema.friendships.id, friendId))
+      .limit(1);
     if (!friendship) throw notFound('Friendship not found');
 
     // Only the recipient (addressee) can accept/reject; either party can block
@@ -47,13 +53,13 @@ export const PUT = withAuth(async (
     }
 
     if (action === 'reject') {
-      await db.query('DELETE FROM friendships WHERE id = $1', [friendId]);
+      await orm.delete(schema.friendships).where(eq(schema.friendships.id, friendId));
     } else {
       const newStatus = action === 'accept' ? 'accepted' : 'blocked';
-      await db.query(
-        'UPDATE friendships SET status = $1, updated_at = NOW() WHERE id = $2',
-        [newStatus, friendId],
-      );
+      await orm
+        .update(schema.friendships)
+        .set({ status: newStatus, updatedAt: new Date() })
+        .where(eq(schema.friendships.id, friendId));
 
       // Award XP on accept to BOTH parties (PRD §15)
       if (action === 'accept') {
@@ -61,30 +67,50 @@ export const PUT = withAuth(async (
         const requesterXP = XP_VALUES.add_new_friend;
 
         // Award accept_friend_request XP to addressee
-        await db.query(
-          `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW() WHERE id = $2`,
-          [xpAmount, userId],
-        ).catch(() => {});
-        await db.query(
-          `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
-           VALUES ($1, $2, 'social', 'accept_friend_request', $2, NOW())`,
-          [userId, xpAmount],
-        ).catch(() => {});
+        orm
+          .update(schema.users)
+          .set({
+            xpTotal: sql`${schema.users.xpTotal} + ${xpAmount}`,
+            xpSocial: sql`${schema.users.xpSocial} + ${xpAmount}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.users.id, userId))
+          .catch(() => {});
+        orm
+          .insert(schema.xpLedger)
+          .values({
+            userId,
+            amount: xpAmount,
+            track: 'social',
+            source: 'accept_friend_request',
+            baseAmount: xpAmount,
+          })
+          .catch(() => {});
 
         // Award add_new_friend XP to requester
-        await db.query(
-          `UPDATE users SET xp_total = xp_total + $1, xp_social = xp_social + $1, updated_at = NOW() WHERE id = $2`,
-          [requesterXP, friendship.requester_id],
-        ).catch(() => {});
-        await db.query(
-          `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
-           VALUES ($1, $2, 'social', 'add_new_friend', $2, NOW())`,
-          [friendship.requester_id, requesterXP],
-        ).catch(() => {});
+        orm
+          .update(schema.users)
+          .set({
+            xpTotal: sql`${schema.users.xpTotal} + ${requesterXP}`,
+            xpSocial: sql`${schema.users.xpSocial} + ${requesterXP}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.users.id, friendship.requester_id))
+          .catch(() => {});
+        orm
+          .insert(schema.xpLedger)
+          .values({
+            userId: friendship.requester_id,
+            amount: requesterXP,
+            track: 'social',
+            source: 'add_new_friend',
+            baseAmount: requesterXP,
+          })
+          .catch(() => {});
 
         // Both parties now have a new friend — advance the add_friend New Member Quest step
-        void advanceNewMemberQuestStep(db, userId, 'add_friend');
-        void advanceNewMemberQuestStep(db, friendship.requester_id, 'add_friend');
+        void advanceNewMemberQuestStep(orm, userId, 'add_friend');
+        void advanceNewMemberQuestStep(orm, friendship.requester_id, 'add_friend');
       }
     }
 
@@ -103,15 +129,21 @@ export const DELETE = withAuth(async (
     const { friendId } = await params;
     const userId = auth.user.sub;
 
-    const { rows: dRows } = await db.query(
-      `SELECT id, requester_id, addressee_id FROM friendships
-       WHERE id = $1 AND (requester_id = $2 OR addressee_id = $2)`,
-      [friendId, userId],
-    );
-    const friendship = dRows[0];
+    const orm = await getDb();
+    const [friendship] = await orm
+      .select({
+        id: schema.friendships.id,
+        requester_id: schema.friendships.requesterId,
+        addressee_id: schema.friendships.addresseeId,
+      })
+      .from(schema.friendships)
+      .where(
+        and(eq(schema.friendships.id, friendId), or(eq(schema.friendships.requesterId, userId), eq(schema.friendships.addresseeId, userId))),
+      )
+      .limit(1);
     if (!friendship) throw notFound('Friendship not found');
 
-    await db.query('DELETE FROM friendships WHERE id = $1', [friendId]);
+    await orm.delete(schema.friendships).where(eq(schema.friendships.id, friendId));
 
     return NextResponse.json({ success: true });
   } catch (err) {

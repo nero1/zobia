@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { and, asc, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -23,25 +24,43 @@ export const GET = withAuth<{ roomId: string; quizId: string }>(async (_req: Nex
     const { classroom, viewer } = await classroomContextFromParams(params, auth.user.sub);
     requireCapability(viewer, "viewMemberContent");
     const quizId = assertUuid(params.quizId, "Quiz");
+    const orm = await getDb();
 
-    const { rows: quizRows } = await db.query<{ id: string; title: string; description: string | null; xp_reward: number; pass_score: number }>(
-      `SELECT id, title, description, xp_reward, pass_score FROM classroom_quizzes
-        WHERE id = $1 AND room_id = $2 AND is_active = TRUE`,
-      [quizId, classroom.id]
-    );
-    const quiz = quizRows[0];
+    const [quiz] = await orm
+      .select({
+        id: schema.classroomQuizzes.id,
+        title: schema.classroomQuizzes.title,
+        description: schema.classroomQuizzes.description,
+        xp_reward: schema.classroomQuizzes.xpReward,
+        pass_score: schema.classroomQuizzes.passScore,
+      })
+      .from(schema.classroomQuizzes)
+      .where(and(eq(schema.classroomQuizzes.id, quizId), eq(schema.classroomQuizzes.roomId, classroom.id), eq(schema.classroomQuizzes.isActive, true)))
+      .limit(1);
     if (!quiz) throw notFound("Quiz not found");
 
-    const [{ rows: questions }, { rows: attempts }] = await Promise.all([
-      db.query<{ id: string; question: string; option_a: string; option_b: string; option_c: string; option_d: string }>(
-        `SELECT id, question, option_a, option_b, option_c, option_d
-           FROM classroom_quiz_questions WHERE quiz_id = $1 ORDER BY position ASC, created_at ASC`,
-        [quizId]
-      ),
-      db.query<{ score: number; passed: boolean; xp_awarded: number | null; completed_at: string }>(
-        `SELECT score, passed, xp_awarded, completed_at FROM classroom_quiz_attempts WHERE quiz_id = $1 AND user_id = $2`,
-        [quizId, auth.user.sub]
-      ),
+    const [questions, attempts] = await Promise.all([
+      orm
+        .select({
+          id: schema.classroomQuizQuestions.id,
+          question: schema.classroomQuizQuestions.question,
+          option_a: schema.classroomQuizQuestions.optionA,
+          option_b: schema.classroomQuizQuestions.optionB,
+          option_c: schema.classroomQuizQuestions.optionC,
+          option_d: schema.classroomQuizQuestions.optionD,
+        })
+        .from(schema.classroomQuizQuestions)
+        .where(eq(schema.classroomQuizQuestions.quizId, quizId))
+        .orderBy(asc(schema.classroomQuizQuestions.position), asc(schema.classroomQuizQuestions.createdAt)),
+      orm
+        .select({
+          score: schema.classroomQuizAttempts.score,
+          passed: schema.classroomQuizAttempts.passed,
+          xp_awarded: schema.classroomQuizAttempts.xpAwarded,
+          completed_at: schema.classroomQuizAttempts.completedAt,
+        })
+        .from(schema.classroomQuizAttempts)
+        .where(and(eq(schema.classroomQuizAttempts.quizId, quizId), eq(schema.classroomQuizAttempts.userId, auth.user.sub))),
     ]);
 
     return ok({
@@ -63,7 +82,7 @@ export const GET = withAuth<{ roomId: string; quizId: string }>(async (_req: Nex
         ],
       })),
       attempt: attempts[0]
-        ? { score: attempts[0].score, passed: attempts[0].passed, xpAwarded: attempts[0].xp_awarded ?? 0, completedAt: new Date(attempts[0].completed_at).toISOString() }
+        ? { score: attempts[0].score, passed: attempts[0].passed, xpAwarded: attempts[0].xp_awarded ?? 0, completedAt: new Date(attempts[0].completed_at ?? Date.now()).toISOString() }
         : null,
     });
   } catch (err) {
@@ -76,11 +95,13 @@ export const DELETE = withAuth<{ roomId: string; quizId: string }>(async (_req: 
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const { classroom, viewer } = await classroomContextFromParams(params, auth.user.sub);
     requireCapability(viewer, "manageClassroom");
-    const { rowCount } = await db.query(
-      `UPDATE classroom_quizzes SET is_active = FALSE, updated_at = NOW() WHERE id = $1 AND room_id = $2 AND is_active = TRUE`,
-      [assertUuid(params.quizId, "Quiz"), classroom.id]
-    );
-    if (rowCount === 0) throw notFound("Quiz not found");
+    const orm = await getDb();
+    const updated = await orm
+      .update(schema.classroomQuizzes)
+      .set({ isActive: false, updatedAt: new Date() })
+      .where(and(eq(schema.classroomQuizzes.id, assertUuid(params.quizId, "Quiz")), eq(schema.classroomQuizzes.roomId, classroom.id), eq(schema.classroomQuizzes.isActive, true)))
+      .returning({ id: schema.classroomQuizzes.id });
+    if (updated.length === 0) throw notFound("Quiz not found");
     return ok({ deleted: true });
   } catch (err) {
     return handleApiError(err);

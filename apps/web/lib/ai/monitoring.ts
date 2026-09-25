@@ -16,9 +16,16 @@
  * @module lib/ai/monitoring
  */
 
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 import type { AiProviderId } from "./config";
+
+// NOTE (schema gap): `ai_call_log` has no corresponding pgTable in
+// lib/db/schema.ts, so this module cannot use the Drizzle query builder for
+// it. Queries below run through Drizzle's `sql` tagged template via
+// getDb().execute()/orm.execute() — still the shared Drizzle-wrapped pg.Pool,
+// still fully parameterised — rather than the legacy raw-SQL adapter from @/lib/db.
 
 const RESULT_PREVIEW_MAX_LENGTH = 500;
 
@@ -47,23 +54,11 @@ export interface LogAiCallInput {
 /** Insert one row into the rotating AI call log. Never throws — logging must not break the caller. */
 export async function logAiCall(input: LogAiCallInput): Promise<void> {
   try {
-    await db.query(
-      `INSERT INTO ai_call_log (provider, model, feature, success, confidence, latency_ms, result_preview, error_message, input_tokens, output_tokens, metadata)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
-      [
-        input.provider,
-        input.model,
-        input.feature,
-        input.success,
-        input.confidence ?? null,
-        Math.round(input.latencyMs),
-        input.resultPreview ? input.resultPreview.slice(0, RESULT_PREVIEW_MAX_LENGTH) : null,
-        input.errorMessage ? input.errorMessage.slice(0, RESULT_PREVIEW_MAX_LENGTH) : null,
-        input.usage?.inputTokens ?? null,
-        input.usage?.outputTokens ?? null,
-        input.metadata ? JSON.stringify(input.metadata) : null,
-      ]
-    );
+    const orm = await getDb();
+    await orm.execute(sql`
+      INSERT INTO ai_call_log (provider, model, feature, success, confidence, latency_ms, result_preview, error_message, input_tokens, output_tokens, metadata)
+       VALUES (${input.provider}, ${input.model}, ${input.feature}, ${input.success}, ${input.confidence ?? null}, ${Math.round(input.latencyMs)}, ${input.resultPreview ? input.resultPreview.slice(0, RESULT_PREVIEW_MAX_LENGTH) : null}, ${input.errorMessage ? input.errorMessage.slice(0, RESULT_PREVIEW_MAX_LENGTH) : null}, ${input.usage?.inputTokens ?? null}, ${input.usage?.outputTokens ?? null}, ${input.metadata ? JSON.stringify(input.metadata) : null})
+    `);
   } catch (err) {
     logger.error({ err, feature: input.feature }, "[ai:monitoring] failed to write ai_call_log entry (non-fatal)");
   }
@@ -71,11 +66,12 @@ export async function logAiCall(input: LogAiCallInput): Promise<void> {
 
 /** Delete rows older than 48 hours. Called by the rotate-ai-call-log cron route. */
 export async function pruneAiCallLog(): Promise<number> {
-  const { rowCount } = await db.query(`DELETE FROM ai_call_log WHERE created_at < NOW() - INTERVAL '48 hours'`);
-  return rowCount ?? 0;
+  const orm = await getDb();
+  const result = await orm.execute(sql`DELETE FROM ai_call_log WHERE created_at < NOW() - INTERVAL '48 hours'`);
+  return result.rowCount ?? 0;
 }
 
-export interface AiCallLogRow {
+export type AiCallLogRow = {
   id: string;
   provider: string;
   model: string;
@@ -89,20 +85,22 @@ export interface AiCallLogRow {
   output_tokens: number | null;
   metadata: Record<string, unknown> | null;
   created_at: string;
-}
+};
 
 /** Recent calls for the admin AI Settings / AI Monitoring panels. Optionally filtered by feature prefix (e.g. "moderation:", "kyc:", "vision:"). */
 export async function getRecentAiCalls(limit = 100, featurePrefix?: string): Promise<AiCallLogRow[]> {
-  const { rows } = await db.query<AiCallLogRow>(
-    `SELECT id, provider, model, feature, success, confidence, latency_ms, result_preview, error_message,
+  const orm = await getDb();
+  const cappedLimit = Math.min(limit, 500);
+  const prefix = featurePrefix ?? null;
+  const result = await orm.execute<AiCallLogRow>(sql`
+    SELECT id, provider, model, feature, success, confidence, latency_ms, result_preview, error_message,
             input_tokens, output_tokens, metadata, created_at
      FROM ai_call_log
-     WHERE $2::text IS NULL OR feature LIKE $2 || '%'
+     WHERE ${prefix}::text IS NULL OR feature LIKE ${prefix} || '%'
      ORDER BY created_at DESC
-     LIMIT $1`,
-    [Math.min(limit, 500), featurePrefix ?? null]
-  );
-  return rows;
+     LIMIT ${cappedLimit}
+  `);
+  return result.rows;
 }
 
 export interface AiUsageStats {
@@ -117,7 +115,8 @@ export interface AiUsageStats {
 
 /** Aggregate usage/token stats over the retained 48-hour window, grouped by feature + provider, for the Admin AI Monitoring panel. */
 export async function getAiUsageStats(): Promise<AiUsageStats[]> {
-  const { rows } = await db.query<{
+  const orm = await getDb();
+  const result = await orm.execute<{
     feature: string;
     provider: string;
     call_count: string;
@@ -125,8 +124,8 @@ export async function getAiUsageStats(): Promise<AiUsageStats[]> {
     avg_latency_ms: string | null;
     total_input_tokens: string | null;
     total_output_tokens: string | null;
-  }>(
-    `SELECT feature, provider,
+  }>(sql`
+    SELECT feature, provider,
             COUNT(*) AS call_count,
             COUNT(*) FILTER (WHERE success) AS success_count,
             AVG(latency_ms) AS avg_latency_ms,
@@ -134,9 +133,9 @@ export async function getAiUsageStats(): Promise<AiUsageStats[]> {
             COALESCE(SUM(output_tokens), 0) AS total_output_tokens
      FROM ai_call_log
      GROUP BY feature, provider
-     ORDER BY feature, provider`
-  );
-  return rows.map((r) => ({
+     ORDER BY feature, provider
+  `);
+  return result.rows.map((r) => ({
     feature: r.feature,
     provider: r.provider,
     callCount: parseInt(r.call_count, 10),

@@ -18,7 +18,7 @@ export const runtime = 'nodejs';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -81,15 +81,21 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const totalRows = countNonEmptyLines(ndjson);
     if (totalRows === 0) throw badRequest("Uploaded file contains no rows.");
 
-    const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO admin_data_import_jobs
-         (admin_id, filename, format, dedupe_strategy, raw_data, total_rows, status)
-       VALUES ($1, $2, 'ndjson', $3, $4, $5, 'pending')
-       RETURNING id`,
-      [auth.user.sub, filename, dedupeStrategy, ndjson, totalRows]
-    );
+    const orm = await getDb();
+    const [job] = await orm
+      .insert(schema.adminDataImportJobs)
+      .values({
+        adminId: auth.user.sub,
+        filename,
+        format: "ndjson",
+        dedupeStrategy,
+        rawData: ndjson,
+        totalRows,
+        status: "pending",
+      })
+      .returning({ id: schema.adminDataImportJobs.id });
 
-    const jobId = rows[0].id;
+    const jobId = job.id;
 
     writeAuditLog({
       actorId: auth.user.sub,

@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -48,13 +49,30 @@ export const PATCH = withAdminAuth<AppealActionParams>(async (req, { params, aut
     const { appealId } = params;
     const body = await validateBody(req, ActionSchema);
 
-    const result = await db.transaction(async (client) => {
-      const { rows } = await client.query<AppealRow>(
-        `SELECT id, user_id, appeal_type, status, refusal_count
-         FROM account_appeals WHERE id = $1 FOR UPDATE`,
-        [appealId]
-      );
-      const appeal = rows[0];
+    const orm = await getDb();
+
+    const result = await orm.transaction(async (client) => {
+      const [appealRow] = await client
+        .select({
+          id: schema.accountAppeals.id,
+          userId: schema.accountAppeals.userId,
+          appealType: schema.accountAppeals.appealType,
+          status: schema.accountAppeals.status,
+          refusalCount: schema.accountAppeals.refusalCount,
+        })
+        .from(schema.accountAppeals)
+        .where(eq(schema.accountAppeals.id, appealId))
+        .for("update");
+
+      const appeal: AppealRow | undefined = appealRow
+        ? {
+            id: appealRow.id,
+            user_id: appealRow.userId,
+            appeal_type: appealRow.appealType,
+            status: appealRow.status,
+            refusal_count: appealRow.refusalCount,
+          }
+        : undefined;
       if (!appeal) throw notFound("Appeal not found");
       if (appeal.status !== "pending" && appeal.status !== "under_review") {
         throw conflict(`Appeal has already been ${appeal.status}`, "APPEAL_ALREADY_RESOLVED");
@@ -65,27 +83,36 @@ export const PATCH = withAdminAuth<AppealActionParams>(async (req, { params, aut
         // reused, not duplicated (see lib/moderation/accountActions.ts).
         await restoreUserAccount(client, appeal.user_id);
 
-        await client.query(
-          `UPDATE account_appeals
-           SET status = 'approved', admin_notes = $1, reviewed_by = $2, reviewed_at = NOW(), updated_at = NOW()
-           WHERE id = $3`,
-          [body.adminNotes ?? null, auth.user.sub, appealId]
-        );
+        await client
+          .update(schema.accountAppeals)
+          .set({
+            status: "approved",
+            adminNotes: body.adminNotes ?? null,
+            reviewedBy: auth.user.sub,
+            reviewedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.accountAppeals.id, appealId));
 
-        await client.query(
-          `INSERT INTO admin_actions (admin_id, target_user_id, action, reason, created_at)
-           VALUES ($1, $2, 'restore', $3, NOW())`,
-          [auth.user.sub, appeal.user_id, `Appeal ${appealId} approved`]
-        );
+        await client.insert(schema.adminActions).values({
+          adminId: auth.user.sub,
+          targetUserId: appeal.user_id,
+          action: "restore",
+          reason: `Appeal ${appealId} approved`,
+        });
       } else {
         const newRefusalCount = appeal.refusal_count + 1;
-        await client.query(
-          `UPDATE account_appeals
-           SET status = 'denied', refusal_count = $1, admin_notes = $2,
-               reviewed_by = $3, reviewed_at = NOW(), updated_at = NOW()
-           WHERE id = $4`,
-          [newRefusalCount, body.adminNotes ?? null, auth.user.sub, appealId]
-        );
+        await client
+          .update(schema.accountAppeals)
+          .set({
+            status: "denied",
+            refusalCount: newRefusalCount,
+            adminNotes: body.adminNotes ?? null,
+            reviewedBy: auth.user.sub,
+            reviewedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.accountAppeals.id, appealId));
       }
 
       return { appealType: appeal.appeal_type, userId: appeal.user_id };

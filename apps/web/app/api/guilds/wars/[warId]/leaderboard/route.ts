@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { asc, desc, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 
@@ -48,23 +49,33 @@ export const GET = withAuth(
     try {
       const { warId } = params;
 
-      const warResult = await db.query<WarGuildsRow>(
-        `SELECT challenger_guild_id, defender_guild_id FROM guild_wars WHERE id = $1`,
-        [warId]
-      );
-      if (!warResult.rows[0]) throw notFound("War not found");
+      const orm = await getDb();
+      const warRows = await orm
+        .select({
+          challenger_guild_id: schema.guildWars.challengerGuildId,
+          defender_guild_id: schema.guildWars.defenderGuildId,
+        })
+        .from(schema.guildWars)
+        .where(eq(schema.guildWars.id, warId))
+        .limit(1);
+      if (!warRows[0]) throw notFound("War not found");
 
-      const { challenger_guild_id, defender_guild_id } = warResult.rows[0];
+      const { challenger_guild_id, defender_guild_id } = warRows[0];
 
-      const { rows } = await db.query<ContributionRow>(
-        `SELECT wc.user_id, wc.guild_id, wc.war_points,
-                u.username, u.display_name, u.avatar_emoji, u.rank_name
-         FROM war_contributions wc
-         JOIN users u ON u.id = wc.user_id
-         WHERE wc.war_id = $1
-         ORDER BY wc.guild_id, wc.war_points DESC`,
-        [warId]
-      );
+      const rows = await orm
+        .select({
+          user_id: schema.warContributions.userId,
+          guild_id: schema.warContributions.guildId,
+          war_points: schema.warContributions.warPoints,
+          username: schema.users.username,
+          display_name: schema.users.displayName,
+          avatar_emoji: schema.users.avatarEmoji,
+          rank_name: schema.users.rankName,
+        })
+        .from(schema.warContributions)
+        .innerJoin(schema.users, eq(schema.users.id, schema.warContributions.userId))
+        .where(eq(schema.warContributions.warId, warId))
+        .orderBy(asc(schema.warContributions.guildId), desc(schema.warContributions.warPoints));
 
       const challengerEntries = rows.filter((r) => r.guild_id === challenger_guild_id);
       const defenderEntries = rows.filter((r) => r.guild_id === defender_guild_id);

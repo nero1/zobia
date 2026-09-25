@@ -14,7 +14,8 @@ export const maxDuration = 10;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
 
 const GUILD_TIERS = [
@@ -58,7 +59,8 @@ export const GET = async (req: NextRequest) => {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const didClaim = await checkCronIdempotency("cron_daily_guilds_last_run", db);
+  const orm = await getDb();
+  const didClaim = await checkCronIdempotency("cron_daily_guilds_last_run", orm);
   if (!didClaim) {
     return NextResponse.json({ skipped: true, reason: "Already ran today" });
   }
@@ -68,19 +70,19 @@ export const GET = async (req: NextRequest) => {
 
   // 1 & 2. Guild tier demotion + promotion
   try {
-    const { rows: guilds } = await db.query<{
+    const { rows: guilds } = await orm.execute<{
       id: string; captain_id: string; tier: string;
       member_count: number; below_min_since: string | null;
       guild_xp: number;
-    }>(
-      `SELECT g.id, g.captain_id, g.tier, g.guild_xp,
-              COUNT(gm.user_id)::int AS member_count,
-              g.below_min_since
-       FROM guilds g
-       LEFT JOIN guild_members gm ON gm.guild_id = g.id AND gm.left_at IS NULL
-       WHERE g.deleted_at IS NULL
-       GROUP BY g.id, g.captain_id, g.tier, g.guild_xp, g.below_min_since`
-    );
+    }>(sql`
+      SELECT g.id, g.captain_id, g.tier, g.guild_xp,
+             COUNT(gm.user_id)::int AS member_count,
+             g.below_min_since
+      FROM guilds g
+      LEFT JOIN guild_members gm ON gm.guild_id = g.id AND gm.left_at IS NULL
+      WHERE g.deleted_at IS NULL
+      GROUP BY g.id, g.captain_id, g.tier, g.guild_xp, g.below_min_since
+    `);
 
     let demoted = 0, flagged = 0, promoted = 0;
     const now = new Date();
@@ -97,20 +99,19 @@ export const GET = async (req: NextRequest) => {
       const newTier = getDemotedTier(guild.tier);
 
       if (isBelowMin && !guild.below_min_since) {
-        await db.query(`UPDATE guilds SET below_min_since = NOW(), updated_at = NOW() WHERE id = $1`, [guild.id]);
+        await orm.execute(sql`UPDATE guilds SET below_min_since = NOW(), updated_at = NOW() WHERE id = ${guild.id}`);
         flagged++;
       } else if (!isBelowMin && guild.below_min_since) {
-        await db.query(`UPDATE guilds SET below_min_since = NULL, updated_at = NOW() WHERE id = $1`, [guild.id]);
+        await orm.execute(sql`UPDATE guilds SET below_min_since = NULL, updated_at = NOW() WHERE id = ${guild.id}`);
       } else if (isBelowMin && guild.below_min_since && newTier) {
         const daysBelowMin = (now.getTime() - new Date(guild.below_min_since).getTime()) / 86_400_000;
         if (daysBelowMin >= 7) {
           const fromTier = guild.tier;
-          await db.query(`UPDATE guilds SET tier = $2, below_min_since = NULL, updated_at = NOW() WHERE id = $1`, [guild.id, newTier]);
-          await db.query(
-            `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, changed_at)
-             VALUES ($1, $2, $3, $4, NOW())`,
-            [guild.id, fromTier, newTier, guild.guild_xp]
-          ).catch(() => {});
+          await orm.execute(sql`UPDATE guilds SET tier = ${newTier}, below_min_since = NULL, updated_at = NOW() WHERE id = ${guild.id}`);
+          await orm.execute(sql`
+            INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, changed_at)
+            VALUES (${guild.id}, ${fromTier}, ${newTier}, ${guild.guild_xp}, NOW())
+          `).catch(() => {});
           demotionNotifs.push([guild.captain_id, fromTier, newTier, guild.id]);
           demoted++;
           continue;
@@ -122,12 +123,11 @@ export const GET = async (req: NextRequest) => {
       if (threshold?.next && guild.guild_xp >= threshold.promotionXP && guild.member_count >= threshold.minMembers) {
         const fromTier = guild.tier;
         const toTier = threshold.next;
-        await db.query(`UPDATE guilds SET tier = $2, updated_at = NOW() WHERE id = $1`, [guild.id, toTier]);
-        await db.query(
-          `INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, changed_at)
-           VALUES ($1, $2, $3, $4, NOW())`,
-          [guild.id, fromTier, toTier, guild.guild_xp]
-        ).catch(() => {});
+        await orm.execute(sql`UPDATE guilds SET tier = ${toTier}, updated_at = NOW() WHERE id = ${guild.id}`);
+        await orm.execute(sql`
+          INSERT INTO guild_tier_history (guild_id, from_tier, to_tier, guild_xp_at, changed_at)
+          VALUES (${guild.id}, ${fromTier}, ${toTier}, ${guild.guild_xp}, NOW())
+        `).catch(() => {});
         promotionNotifs.push([guild.captain_id, fromTier, toTier, guild.id]);
         promoted++;
       }
@@ -135,42 +135,30 @@ export const GET = async (req: NextRequest) => {
 
     // Batch demotion notifications
     if (demotionNotifs.length > 0) {
-      await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-         SELECT sub.captain_id, 'guild_tier_demoted', 'Guild Tier Update',
-                'Your guild has moved from ' || sub.from_tier || ' to ' || sub.to_tier || ' tier.',
-                jsonb_build_object('guildId', sub.guild_id, 'fromTier', sub.from_tier, 'toTier', sub.to_tier),
-                false, NOW()
-         FROM (SELECT unnest($1::uuid[]) AS captain_id,
-                      unnest($2::text[]) AS from_tier,
-                      unnest($3::text[]) AS to_tier,
-                      unnest($4::text[]) AS guild_id) sub`,
-        [
-          demotionNotifs.map(n => n[0]),
-          demotionNotifs.map(n => n[1]),
-          demotionNotifs.map(n => n[2]),
-          demotionNotifs.map(n => n[3]),
-        ]
-      ).catch(() => {});
+      await orm.execute(sql`
+        INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+        SELECT sub.captain_id, 'guild_tier_demoted', 'Guild Tier Update',
+               'Your guild has moved from ' || sub.from_tier || ' to ' || sub.to_tier || ' tier.',
+               jsonb_build_object('guildId', sub.guild_id, 'fromTier', sub.from_tier, 'toTier', sub.to_tier),
+               false, NOW()
+        FROM (SELECT unnest(${demotionNotifs.map(n => n[0])}::uuid[]) AS captain_id,
+                     unnest(${demotionNotifs.map(n => n[1])}::text[]) AS from_tier,
+                     unnest(${demotionNotifs.map(n => n[2])}::text[]) AS to_tier,
+                     unnest(${demotionNotifs.map(n => n[3])}::text[]) AS guild_id) sub
+      `).catch(() => {});
     }
     if (promotionNotifs.length > 0) {
-      await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-         SELECT sub.captain_id, 'guild_tier_promoted', 'Guild Promoted!',
-                'Your guild has been promoted from ' || sub.from_tier || ' to ' || sub.to_tier || ' tier.',
-                jsonb_build_object('guildId', sub.guild_id, 'fromTier', sub.from_tier, 'toTier', sub.to_tier),
-                false, NOW()
-         FROM (SELECT unnest($1::uuid[]) AS captain_id,
-                      unnest($2::text[]) AS from_tier,
-                      unnest($3::text[]) AS to_tier,
-                      unnest($4::text[]) AS guild_id) sub`,
-        [
-          promotionNotifs.map(n => n[0]),
-          promotionNotifs.map(n => n[1]),
-          promotionNotifs.map(n => n[2]),
-          promotionNotifs.map(n => n[3]),
-        ]
-      ).catch(() => {});
+      await orm.execute(sql`
+        INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+        SELECT sub.captain_id, 'guild_tier_promoted', 'Guild Promoted!',
+               'Your guild has been promoted from ' || sub.from_tier || ' to ' || sub.to_tier || ' tier.',
+               jsonb_build_object('guildId', sub.guild_id, 'fromTier', sub.from_tier, 'toTier', sub.to_tier),
+               false, NOW()
+        FROM (SELECT unnest(${promotionNotifs.map(n => n[0])}::uuid[]) AS captain_id,
+                     unnest(${promotionNotifs.map(n => n[1])}::text[]) AS from_tier,
+                     unnest(${promotionNotifs.map(n => n[2])}::text[]) AS to_tier,
+                     unnest(${promotionNotifs.map(n => n[3])}::text[]) AS guild_id) sub
+      `).catch(() => {});
     }
 
     results.guildTierDemotion = { demoted, flagged };
@@ -181,33 +169,29 @@ export const GET = async (req: NextRequest) => {
 
   // 3. "The Patron" badge
   try {
-    const { rows: patronCandidates } = await db.query<{ user_id: string; room_count: string }>(
-      `WITH room_totals AS (
-         SELECT room_id, sender_id, SUM(coin_cost) AS total_coins
-         FROM gifts
-         WHERE created_at >= NOW() - INTERVAL '24 hours' AND room_id IS NOT NULL
-         GROUP BY room_id, sender_id
-       ),
-       top_gifters AS (
-         SELECT DISTINCT ON (room_id) room_id, sender_id
-         FROM room_totals ORDER BY room_id, total_coins DESC
-       )
-       SELECT sender_id AS user_id, COUNT(*)::text AS room_count
-       FROM top_gifters GROUP BY sender_id HAVING COUNT(*) >= 3`
-    );
+    const { rows: patronCandidates } = await orm.execute<{ user_id: string; room_count: string }>(sql`
+      WITH room_totals AS (
+        SELECT room_id, sender_id, SUM(coin_cost) AS total_coins
+        FROM gifts
+        WHERE created_at >= NOW() - INTERVAL '24 hours' AND room_id IS NOT NULL
+        GROUP BY room_id, sender_id
+      ),
+      top_gifters AS (
+        SELECT DISTINCT ON (room_id) room_id, sender_id
+        FROM room_totals ORDER BY room_id, total_coins DESC
+      )
+      SELECT sender_id AS user_id, COUNT(*)::text AS room_count
+      FROM top_gifters GROUP BY sender_id HAVING COUNT(*) >= 3
+    `);
 
     if (patronCandidates.length > 0) {
-      await db.query(
-        `INSERT INTO user_badges (user_id, badge_type, badge_key, awarded_at, metadata)
-         SELECT sub.user_id, 'patron', 'patron', NOW(),
-                jsonb_build_object('roomCount', sub.room_count::int, 'awardedAt', NOW()::text)
-         FROM (SELECT unnest($1::uuid[]) AS user_id, unnest($2::int[]) AS room_count) sub
-         ON CONFLICT (user_id, badge_key) DO UPDATE SET awarded_at = NOW(), metadata = EXCLUDED.metadata`,
-        [
-          patronCandidates.map(c => c.user_id),
-          patronCandidates.map(c => parseInt(c.room_count)),
-        ]
-      ).catch(() => {});
+      await orm.execute(sql`
+        INSERT INTO user_badges (user_id, badge_type, badge_key, awarded_at, metadata)
+        SELECT sub.user_id, 'patron', 'patron', NOW(),
+               jsonb_build_object('roomCount', sub.room_count::int, 'awardedAt', NOW()::text)
+        FROM (SELECT unnest(${patronCandidates.map(c => c.user_id)}::uuid[]) AS user_id, unnest(${patronCandidates.map(c => parseInt(c.room_count))}::int[]) AS room_count) sub
+        ON CONFLICT (user_id, badge_key) DO UPDATE SET awarded_at = NOW(), metadata = EXCLUDED.metadata
+      `).catch(() => {});
     }
     results.patronBadge = { awarded: patronCandidates.length };
   } catch (err) {
@@ -218,95 +202,88 @@ export const GET = async (req: NextRequest) => {
   try {
     // Single CTE: compute guild averages, find below-threshold members,
     // batch-upsert alerts, and return data needed for notifications.
-    const { rows: alertRows } = await db.query<{
+    const { rows: alertRows } = await orm.execute<{
       guild_id: string;
       user_id: string;
       weeks_below: number;
       contribution_score: number;
       avg_score: number;
-    }>(
-      `WITH guild_avgs AS (
-         SELECT gm.guild_id,
-                ROUND(AVG(COALESCE(gm.contribution_score, 0)))::int AS avg_score
-         FROM guild_members gm
-         JOIN guilds g ON g.id = gm.guild_id
-         WHERE gm.left_at IS NULL AND g.deleted_at IS NULL AND g.is_active = TRUE
-         GROUP BY gm.guild_id
-         HAVING AVG(COALESCE(gm.contribution_score, 0)) > 0
-       ),
-       low_members AS (
-         SELECT gm.guild_id, gm.user_id,
-                COALESCE(gm.contribution_score, 0) AS contribution_score,
-                ga.avg_score
-         FROM guild_members gm
-         JOIN guild_avgs ga ON ga.guild_id = gm.guild_id
-         WHERE gm.left_at IS NULL
-           AND COALESCE(gm.contribution_score, 0) < ga.avg_score * 0.5
-       ),
-       upserted AS (
-         INSERT INTO guild_contribution_alerts (guild_id, user_id, weeks_below, alerted_at)
-         SELECT guild_id, user_id, 1, NOW()
-         FROM low_members
-         ON CONFLICT (guild_id, user_id) DO UPDATE
-           SET weeks_below = guild_contribution_alerts.weeks_below + 1,
-               alerted_at  = NOW()
-         RETURNING guild_id, user_id, weeks_below
-       )
-       SELECT u.guild_id, u.user_id, u.weeks_below,
-              lm.contribution_score, lm.avg_score
-       FROM upserted u
-       JOIN low_members lm ON lm.guild_id = u.guild_id AND lm.user_id = u.user_id`
-    );
+    }>(sql`
+      WITH guild_avgs AS (
+        SELECT gm.guild_id,
+               ROUND(AVG(COALESCE(gm.contribution_score, 0)))::int AS avg_score
+        FROM guild_members gm
+        JOIN guilds g ON g.id = gm.guild_id
+        WHERE gm.left_at IS NULL AND g.deleted_at IS NULL AND g.is_active = TRUE
+        GROUP BY gm.guild_id
+        HAVING AVG(COALESCE(gm.contribution_score, 0)) > 0
+      ),
+      low_members AS (
+        SELECT gm.guild_id, gm.user_id,
+               COALESCE(gm.contribution_score, 0) AS contribution_score,
+               ga.avg_score
+        FROM guild_members gm
+        JOIN guild_avgs ga ON ga.guild_id = gm.guild_id
+        WHERE gm.left_at IS NULL
+          AND COALESCE(gm.contribution_score, 0) < ga.avg_score * 0.5
+      ),
+      upserted AS (
+        INSERT INTO guild_contribution_alerts (guild_id, user_id, weeks_below, alerted_at)
+        SELECT guild_id, user_id, 1, NOW()
+        FROM low_members
+        ON CONFLICT (guild_id, user_id) DO UPDATE
+          SET weeks_below = guild_contribution_alerts.weeks_below + 1,
+              alerted_at  = NOW()
+        RETURNING guild_id, user_id, weeks_below
+      )
+      SELECT u.guild_id, u.user_id, u.weeks_below,
+             lm.contribution_score, lm.avg_score
+      FROM upserted u
+      JOIN low_members lm ON lm.guild_id = u.guild_id AND lm.user_id = u.user_id
+    `);
 
     if (alertRows.length > 0) {
       // Batch insert member notifications
-      await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-         SELECT sub.user_id,
-                'guild_low_contribution',
-                'Guild Contribution Alert',
-                'Your contribution score is below the guild average for ' || sub.weeks_below::text || ' week' ||
-                  CASE WHEN sub.weeks_below != 1 THEN 's' ELSE '' END || '.',
-                jsonb_build_object(
-                  'guildId', sub.guild_id::text,
-                  'contributionScore', sub.contribution_score,
-                  'guildAverage', sub.avg_score,
-                  'weeksBelow', sub.weeks_below
-                ),
-                false, NOW()
-         FROM (SELECT unnest($1::uuid[])  AS user_id,
-                      unnest($2::uuid[])  AS guild_id,
-                      unnest($3::int[])   AS weeks_below,
-                      unnest($4::int[])   AS contribution_score,
-                      unnest($5::int[])   AS avg_score) sub`,
-        [
-          alertRows.map(r => r.user_id),
-          alertRows.map(r => r.guild_id),
-          alertRows.map(r => r.weeks_below),
-          alertRows.map(r => r.contribution_score),
-          alertRows.map(r => r.avg_score),
-        ]
-      ).catch(() => {});
+      await orm.execute(sql`
+        INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+        SELECT sub.user_id,
+               'guild_low_contribution',
+               'Guild Contribution Alert',
+               'Your contribution score is below the guild average for ' || sub.weeks_below::text || ' week' ||
+                 CASE WHEN sub.weeks_below != 1 THEN 's' ELSE '' END || '.',
+               jsonb_build_object(
+                 'guildId', sub.guild_id::text,
+                 'contributionScore', sub.contribution_score,
+                 'guildAverage', sub.avg_score,
+                 'weeksBelow', sub.weeks_below
+               ),
+               false, NOW()
+        FROM (SELECT unnest(${alertRows.map(r => r.user_id)}::uuid[])  AS user_id,
+                     unnest(${alertRows.map(r => r.guild_id)}::uuid[])  AS guild_id,
+                     unnest(${alertRows.map(r => r.weeks_below)}::int[])   AS weeks_below,
+                     unnest(${alertRows.map(r => r.contribution_score)}::int[])   AS contribution_score,
+                     unnest(${alertRows.map(r => r.avg_score)}::int[])   AS avg_score) sub
+      `).catch(() => {});
     }
 
     // Clean up healed members from alerts table — single set-based DELETE
-    await db.query(
-      `DELETE FROM guild_contribution_alerts gca
-       USING guilds g
-       LEFT JOIN (
-         SELECT gm2.guild_id, AVG(COALESCE(gm2.contribution_score, 0)) AS avg_score
-         FROM guild_members gm2 WHERE gm2.left_at IS NULL
-         GROUP BY gm2.guild_id
-       ) ga2 ON ga2.guild_id = g.id
-       WHERE gca.guild_id = g.id
-         AND g.deleted_at IS NULL AND g.is_active = TRUE
-         AND NOT EXISTS (
-           SELECT 1 FROM guild_members gm3
-           WHERE gm3.guild_id = gca.guild_id AND gm3.user_id = gca.user_id
-             AND gm3.left_at IS NULL
-             AND COALESCE(gm3.contribution_score, 0) < COALESCE(ga2.avg_score * 0.5, 0)
-         )`
-    ).catch(() => {});
+    await orm.execute(sql`
+      DELETE FROM guild_contribution_alerts gca
+      USING guilds g
+      LEFT JOIN (
+        SELECT gm2.guild_id, AVG(COALESCE(gm2.contribution_score, 0)) AS avg_score
+        FROM guild_members gm2 WHERE gm2.left_at IS NULL
+        GROUP BY gm2.guild_id
+      ) ga2 ON ga2.guild_id = g.id
+      WHERE gca.guild_id = g.id
+        AND g.deleted_at IS NULL AND g.is_active = TRUE
+        AND NOT EXISTS (
+          SELECT 1 FROM guild_members gm3
+          WHERE gm3.guild_id = gca.guild_id AND gm3.user_id = gca.user_id
+            AND gm3.left_at IS NULL
+            AND COALESCE(gm3.contribution_score, 0) < COALESCE(ga2.avg_score * 0.5, 0)
+        )
+    `).catch(() => {});
 
     results.guildContributionAlerts = { alertsSent: alertRows.length };
   } catch (err) {
@@ -323,16 +300,15 @@ export const GET = async (req: NextRequest) => {
       const weekEnd = weekEndDate.toISOString().slice(0, 10);
 
       // Expire old incomplete quests for all guilds in one query
-      await db.query(
-        `UPDATE guild_quests SET is_active = false
-         WHERE week_end < $1 AND is_completed = false AND is_active = true`,
-        [weekStart]
-      ).catch(() => {});
+      await orm.execute(sql`
+        UPDATE guild_quests SET is_active = false
+        WHERE week_end < ${weekStart} AND is_completed = false AND is_active = true
+      `).catch(() => {});
 
       // Get all active guilds
-      const { rows: guilds } = await db.query<{ id: string }>(
-        `SELECT id FROM guilds WHERE deleted_at IS NULL AND is_active = TRUE`
-      );
+      const { rows: guilds } = await orm.execute<{ id: string }>(sql`
+        SELECT id FROM guilds WHERE deleted_at IS NULL AND is_active = TRUE
+      `);
 
       // Batch INSERT all guild × template combinations
       const guildIds: string[] = [];
@@ -361,34 +337,32 @@ export const GET = async (req: NextRequest) => {
 
       let questsCreated = 0;
       if (guildIds.length > 0) {
-        const { rowCount } = await db.query(
-          `INSERT INTO guild_quests
-             (guild_id, title, description, quest_type, target_count, current_count,
-              reward_guild_xp, reward_coins, week_start, week_end, is_completed, is_active, created_at)
-           SELECT unnest($1::uuid[]), unnest($2::text[]), unnest($3::text[]), unnest($4::text[]),
-                  unnest($5::int[]), 0,
-                  unnest($6::int[]), unnest($7::int[]),
-                  unnest($8::date[]), unnest($9::date[]),
-                  false, true, NOW()
-           ON CONFLICT DO NOTHING`,
-          [guildIds, titles, descriptions, questTypes, targetCounts, xpRewards, coinRewards, weekStarts, weekEnds]
-        ).catch(() => ({ rowCount: 0 }));
+        const { rowCount } = await orm.execute(sql`
+          INSERT INTO guild_quests
+            (guild_id, title, description, quest_type, target_count, current_count,
+             reward_guild_xp, reward_coins, week_start, week_end, is_completed, is_active, created_at)
+          SELECT unnest(${guildIds}::uuid[]), unnest(${titles}::text[]), unnest(${descriptions}::text[]), unnest(${questTypes}::text[]),
+                 unnest(${targetCounts}::int[]), 0,
+                 unnest(${xpRewards}::int[]), unnest(${coinRewards}::int[]),
+                 unnest(${weekStarts}::date[]), unnest(${weekEnds}::date[]),
+                 false, true, NOW()
+          ON CONFLICT DO NOTHING
+        `).catch(() => ({ rowCount: 0 }));
         questsCreated = rowCount ?? 0;
       }
 
       // Batch notify guild captains + veterans — single INSERT...SELECT
       if (guilds.length > 0) {
-        await db.query(
-          `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-           SELECT gm.user_id, 'guild_quests_reset', 'New Weekly Quests',
-                  'Your guild''s weekly quests have been reset. Complete them to earn rewards!',
-                  jsonb_build_object('guildId', gm.guild_id::text, 'weekStart', $1::text),
-                  false, NOW()
-           FROM guild_members gm
-           WHERE gm.left_at IS NULL AND gm.role IN ('captain', 'veteran')
-             AND gm.guild_id = ANY($2::uuid[])`,
-          [weekStart, guilds.map(g => g.id)]
-        ).catch(() => {});
+        await orm.execute(sql`
+          INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+          SELECT gm.user_id, 'guild_quests_reset', 'New Weekly Quests',
+                 'Your guild''s weekly quests have been reset. Complete them to earn rewards!',
+                 jsonb_build_object('guildId', gm.guild_id::text, 'weekStart', ${weekStart}::text),
+                 false, NOW()
+          FROM guild_members gm
+          WHERE gm.left_at IS NULL AND gm.role IN ('captain', 'veteran')
+            AND gm.guild_id = ANY(${guilds.map(g => g.id)}::uuid[])
+        `).catch(() => {});
       }
 
       results.guildQuestReset = { ran: true, guildsProcessed: guilds.length, questsCreated, weekStart, weekEnd };

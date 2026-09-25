@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -49,15 +50,18 @@ export const PATCH = withAdminAuth(async (
 
     const body = await validateBody(req, patchSeasonSchema);
 
-    const { rows: existing } = await db.query<{
-      id: string;
-      is_active: boolean;
-      starts_at: string;
-      ends_at: string;
-    }>(
-      `SELECT id, is_active, starts_at, ends_at FROM seasons WHERE id = $1 LIMIT 1`,
-      [seasonId]
-    );
+    const orm = await getDb();
+
+    const existing = await orm
+      .select({
+        id: schema.seasons.id,
+        is_active: schema.seasons.isActive,
+        starts_at: schema.seasons.startsAt,
+        ends_at: schema.seasons.endsAt,
+      })
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId))
+      .limit(1);
     if (!existing[0]) throw notFound("Season not found");
 
     const season = existing[0];
@@ -67,23 +71,19 @@ export const PATCH = withAdminAuth(async (
       throw badRequest("Cannot change end date of an already-active season. End the season first.");
     }
 
-    const setClauses: string[] = ["updated_at = NOW()"];
-    const values: SqlParam[] = [];
-    let idx = 1;
+    const setValues: Partial<typeof schema.seasons.$inferInsert> = { updatedAt: new Date() };
+    if (body.name !== undefined) setValues.name = body.name;
+    if (body.theme !== undefined) setValues.theme = body.theme;
+    if (body.description !== undefined) setValues.description = body.description;
+    if (body.passPriceCoins !== undefined) setValues.passPriceCoins = body.passPriceCoins;
+    if (body.rewardPoolCoins !== undefined) setValues.rewardPoolCoins = body.rewardPoolCoins;
+    if (body.endsAt !== undefined) setValues.endsAt = new Date(body.endsAt);
 
-    if (body.name !== undefined)            { setClauses.push(`name = $${idx++}`);               values.push(body.name); }
-    if (body.theme !== undefined)           { setClauses.push(`theme = $${idx++}`);              values.push(body.theme); }
-    if (body.description !== undefined)     { setClauses.push(`description = $${idx++}`);        values.push(body.description); }
-    if (body.passPriceCoins !== undefined)  { setClauses.push(`pass_price_coins = $${idx++}`);   values.push(body.passPriceCoins); }
-    if (body.rewardPoolCoins !== undefined) { setClauses.push(`reward_pool_coins = $${idx++}`);  values.push(body.rewardPoolCoins); }
-    if (body.endsAt !== undefined)          { setClauses.push(`ends_at = $${idx++}`);            values.push(body.endsAt); }
-
-    values.push(seasonId);
-
-    const { rows } = await db.query(
-      `UPDATE seasons SET ${setClauses.join(", ")} WHERE id = $${idx} RETURNING *`,
-      values
-    );
+    const rows = await orm
+      .update(schema.seasons)
+      .set(setValues)
+      .where(eq(schema.seasons.id, seasonId))
+      .returning();
 
     return NextResponse.json({
       success: true,
@@ -107,30 +107,32 @@ export const DELETE = withAdminAuth(async (
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const { seasonId } = await params as { seasonId: string };
 
-    const { rows: existing } = await db.query<{
-      id: string;
-      name: string;
-      is_active: boolean;
-      reward_pool_coins: number;
-    }>(
-      `SELECT id, name, is_active, reward_pool_coins FROM seasons WHERE id = $1 LIMIT 1`,
-      [seasonId]
-    );
+    const orm = await getDb();
+
+    const existing = await orm
+      .select({
+        id: schema.seasons.id,
+        name: schema.seasons.name,
+        is_active: schema.seasons.isActive,
+        reward_pool_coins: schema.seasons.rewardPoolCoins,
+      })
+      .from(schema.seasons)
+      .where(eq(schema.seasons.id, seasonId))
+      .limit(1);
     if (!existing[0]) throw notFound("Season not found");
 
     if (!existing[0].is_active) {
       throw badRequest("Season is already inactive");
     }
 
-    // Distribute rewards to top 10 performers, then mark as inactive
+    // Distribute rewards to top 10 performers, then mark as inactive.
     let rewardsDistributedCount = 0;
-    await distributeSeasonRewards(seasonId, db).then(() => { rewardsDistributedCount = 10; }).catch(() => {});
+    await distributeSeasonRewards(seasonId, orm).then(() => { rewardsDistributedCount = 10; }).catch(() => {});
 
-    await db.query(
-      `UPDATE seasons SET is_active = FALSE, ends_at = NOW(), updated_at = NOW()
-       WHERE id = $1`,
-      [seasonId]
-    );
+    await orm
+      .update(schema.seasons)
+      .set({ isActive: false, endsAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.seasons.id, seasonId));
 
     return NextResponse.json({
       success: true,

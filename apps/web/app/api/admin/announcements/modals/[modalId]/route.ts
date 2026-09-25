@@ -13,7 +13,8 @@ import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { sanitizeAnnouncementContent } from "@/lib/security/htmlSanitizer";
-import { db, SqlParam } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -39,7 +40,7 @@ const UpdateModalSchema = z.object({
  * Update an announcement modal's content, schedule, targeting, or status.
  *
  * Only provided fields are updated (partial update / PATCH semantics
- * implemented via explicit SET clause construction).
+ * implemented via explicit SET object construction).
  *
  * @returns Updated modal record
  */
@@ -67,65 +68,34 @@ export const PUT = withAdminAuth(
         throw badRequest("No fields to update");
       }
 
-      // Build dynamic SET clause
-      const setClauses: string[] = ["updated_at = NOW()"];
-      const values: SqlParam[] = [];
-      let idx = 1;
+      const setValues: Record<string, unknown> = { updatedAt: new Date() };
 
-      if (updates.title !== undefined) {
-        setClauses.push(`title = $${idx++}`);
-        values.push(updates.title);
-      }
+      if (updates.title !== undefined) setValues.title = updates.title;
       if (updates.content !== undefined) {
         // Sanitize using the new contentType if being updated, otherwise fall back to 'html' for safety
         const effectiveContentType = updates.contentType ?? "html";
-        setClauses.push(`content = $${idx++}`);
-        values.push(sanitizeAnnouncementContent(updates.content, effectiveContentType));
+        setValues.content = sanitizeAnnouncementContent(updates.content, effectiveContentType);
       }
-      if (updates.contentType !== undefined) {
-        setClauses.push(`content_type = $${idx++}`);
-        values.push(updates.contentType);
-      }
-      if (updates.isActive !== undefined) {
-        setClauses.push(`is_active = $${idx++}`);
-        values.push(updates.isActive);
-      }
-      if (updates.startsAt !== undefined) {
-        setClauses.push(`starts_at = $${idx++}`);
-        values.push(updates.startsAt);
-      }
-      if (updates.endsAt !== undefined) {
-        setClauses.push(`ends_at = $${idx++}`);
-        values.push(updates.endsAt);
-      }
-      if (updates.targetPlans !== undefined) {
-        setClauses.push(`target_plans = $${idx++}`);
-        values.push(JSON.stringify(updates.targetPlans));
-      }
-      if (updates.targetRoles !== undefined) {
-        setClauses.push(`target_roles = $${idx++}`);
-        values.push(JSON.stringify(updates.targetRoles));
-      }
-      if (updates.displayOrder !== undefined) {
-        setClauses.push(`display_order = $${idx++}`);
-        values.push(updates.displayOrder);
-      }
+      if (updates.contentType !== undefined) setValues.contentType = updates.contentType;
+      if (updates.isActive !== undefined) setValues.isActive = updates.isActive;
+      if (updates.startsAt !== undefined) setValues.startsAt = updates.startsAt ? new Date(updates.startsAt) : null;
+      if (updates.endsAt !== undefined) setValues.endsAt = updates.endsAt ? new Date(updates.endsAt) : null;
+      if (updates.targetPlans !== undefined) setValues.targetPlans = updates.targetPlans;
+      if (updates.targetRoles !== undefined) setValues.targetRoles = updates.targetRoles;
+      if (updates.displayOrder !== undefined) setValues.displayOrder = updates.displayOrder;
 
-      values.push(modalId);
+      const orm = await getDb();
+      const [row] = await orm
+        .update(schema.announcementModals)
+        .set(setValues)
+        .where(and(eq(schema.announcementModals.id, modalId), isNull(schema.announcementModals.deletedAt)))
+        .returning();
 
-      const { rows } = await db.query(
-        `UPDATE announcement_modals
-         SET ${setClauses.join(", ")}
-         WHERE id = $${idx} AND deleted_at IS NULL
-         RETURNING *`,
-        values
-      );
-
-      if (!rows[0]) {
+      if (!row) {
         throw notFound("Modal not found");
       }
 
-      return NextResponse.json(rows[0]);
+      return NextResponse.json(row);
     } catch (err) {
       return handleApiError(err);
     }
@@ -157,15 +127,14 @@ export const DELETE = withAdminAuth(
 
       const { modalId } = params;
 
-      const { rows } = await db.query(
-        `UPDATE announcement_modals
-         SET deleted_at = NOW(), is_active = false, updated_at = NOW()
-         WHERE id = $1 AND deleted_at IS NULL
-         RETURNING id`,
-        [modalId]
-      );
+      const orm = await getDb();
+      const [row] = await orm
+        .update(schema.announcementModals)
+        .set({ deletedAt: new Date(), isActive: false, updatedAt: new Date() })
+        .where(and(eq(schema.announcementModals.id, modalId), isNull(schema.announcementModals.deletedAt)))
+        .returning({ id: schema.announcementModals.id });
 
-      if (!rows[0]) {
+      if (!row) {
         throw notFound("Modal not found");
       }
 

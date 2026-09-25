@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, count, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, conflict, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -39,6 +40,7 @@ const unlockPackSchema = z.object({
 // ---------------------------------------------------------------------------
 
 interface StickerPackRow {
+  [key: string]: unknown;
   id: string;
   name: string;
   description: string | null;
@@ -79,35 +81,35 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       }
     }
 
-    const { rows } = await db.query<StickerPackRow>(
-      `SELECT
-         sp.id,
-         sp.name,
-         sp.description,
-         COALESCE(sp.cover_sticker_url, sp.cover_emoji) AS cover_sticker_url,
-         sp.pack_type,
-         sp.unlock_condition,
-         sp.coin_price,
-         COUNT(s.id)::int AS sticker_count,
-         sp.is_active,
-         sp.created_at,
-         CASE
-           WHEN $1::uuid IS NULL THEN FALSE
-           WHEN sp.coin_price = 0 THEN TRUE
-           ELSE EXISTS (
-             SELECT 1 FROM user_sticker_packs usp
-             WHERE usp.user_id = $1 AND usp.pack_id = sp.id
-           )
-         END AS unlocked
-       FROM sticker_packs sp
-       LEFT JOIN stickers s ON s.pack_id = sp.id
-       WHERE sp.is_active = TRUE
-       GROUP BY sp.id
-       ORDER BY sp.created_at DESC`,
-      [userId]
-    );
+    const orm = await getDb();
+    const result = await orm.execute<StickerPackRow>(sql`
+      SELECT
+        sp.id,
+        sp.name,
+        sp.description,
+        COALESCE(sp.cover_sticker_url, sp.cover_emoji) AS cover_sticker_url,
+        sp.pack_type,
+        sp.unlock_condition,
+        sp.coin_price,
+        COUNT(s.id)::int AS sticker_count,
+        sp.is_active,
+        sp.created_at,
+        CASE
+          WHEN ${userId}::uuid IS NULL THEN FALSE
+          WHEN sp.coin_price = 0 THEN TRUE
+          ELSE EXISTS (
+            SELECT 1 FROM user_sticker_packs usp
+            WHERE usp.user_id = ${userId} AND usp.pack_id = sp.id
+          )
+        END AS unlocked
+      FROM sticker_packs sp
+      LEFT JOIN stickers s ON s.pack_id = sp.id
+      WHERE sp.is_active = TRUE
+      GROUP BY sp.id
+      ORDER BY sp.created_at DESC
+    `);
 
-    return NextResponse.json({ success: true, data: { packs: rows }, error: null });
+    return NextResponse.json({ success: true, data: { packs: result.rows }, error: null });
   } catch (err) {
     return handleApiError(err);
   }
@@ -128,27 +130,30 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const { packId } = await validateBody(req, unlockPackSchema);
     const userId = auth.user.sub;
 
-    await db.transaction(async (tx) => {
+    const orm = await getDb();
+    await orm.transaction(async (tx) => {
       // Fetch pack details
-      const { rows: packRows } = await tx.query<{
-        id: string;
-        name: string;
-        coin_price: number;
-        is_active: boolean;
-      }>(
-        `SELECT id, name, coin_price, is_active FROM sticker_packs WHERE id = $1 LIMIT 1`,
-        [packId]
-      );
+      const packRows = await tx
+        .select({
+          id: schema.stickerPacks.id,
+          name: schema.stickerPacks.name,
+          coin_price: schema.stickerPacks.coinPrice,
+          is_active: schema.stickerPacks.isActive,
+        })
+        .from(schema.stickerPacks)
+        .where(eq(schema.stickerPacks.id, packId))
+        .limit(1);
 
       const pack = packRows[0];
       if (!pack) throw notFound("Sticker pack not found");
       if (!pack.is_active) throw badRequest("This sticker pack is no longer available");
 
       // Check if already unlocked
-      const { rows: existingRows } = await tx.query<{ id: string }>(
-        `SELECT id FROM user_sticker_packs WHERE user_id = $1 AND pack_id = $2 LIMIT 1`,
-        [userId, packId]
-      );
+      const existingRows = await tx
+        .select({ id: schema.userStickerPacks.id })
+        .from(schema.userStickerPacks)
+        .where(and(eq(schema.userStickerPacks.userId, userId), eq(schema.userStickerPacks.packId, packId)))
+        .limit(1);
       if (existingRows.length > 0) {
         throw conflict("You have already unlocked this sticker pack");
       }
@@ -169,21 +174,22 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
 
       // Insert unlock record
-      await tx.query(
-        `INSERT INTO user_sticker_packs (user_id, pack_id, acquired_at, unlocked_at)
-         VALUES ($1, $2, NOW(), NOW())`,
-        [userId, packId]
-      );
+      await tx.insert(schema.userStickerPacks).values({
+        userId,
+        packId,
+        acquiredAt: sql`NOW()`,
+        unlockedAt: sql`NOW()`,
+      });
     });
 
     // Track sticker unlock for badge progression
     // Check if user has unlocked 3+ packs (earns "Sticker Collector" badge)
     try {
-      const { rows: packCount } = await db.query<{ count: string }>(
-        `SELECT COUNT(*) AS count FROM user_sticker_packs WHERE user_id = $1`,
-        [userId]
-      );
-      const totalPacks = parseInt(packCount[0]?.count ?? "0", 10);
+      const packCountRows = await orm
+        .select({ count: count() })
+        .from(schema.userStickerPacks)
+        .where(eq(schema.userStickerPacks.userId, userId));
+      const totalPacks = Number(packCountRows[0]?.count ?? 0);
 
       // Award badge at milestones: 1, 3, 5, 10 packs
       const BADGE_MILESTONES: Record<number, string> = {
@@ -195,23 +201,33 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       const badgeType = BADGE_MILESTONES[totalPacks];
       if (badgeType) {
-        await db.query(
-          `INSERT INTO user_badges (user_id, badge_type, badge_key, reference_id, awarded_at)
-           VALUES ($1, $2, $2, $1, NOW())
-           ON CONFLICT (user_id, badge_type, reference_id) DO NOTHING`,
-          [userId, badgeType]
-        );
+        // NOTE: original raw SQL targeted ON CONFLICT (user_id, badge_type,
+        // reference_id), but the actual unique index in schema.ts is
+        // (user_id, badge_key) WHERE badge_key IS NOT NULL — flagged as a
+        // schema mismatch, not silently changed. badgeKey is set equal to
+        // badgeType here (as the original insert did), so this target is
+        // the closest faithful equivalent given the real constraint.
+        await orm
+          .insert(schema.userBadges)
+          .values({
+            userId,
+            badgeType,
+            badgeKey: badgeType,
+            referenceId: userId,
+            awardedAt: sql`NOW()`,
+          })
+          .onConflictDoNothing({
+            target: [schema.userBadges.userId, schema.userBadges.badgeKey],
+          });
 
         // Notify user of badge
-        await db.query(
-          `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
-           VALUES ($1, 'badge_unlocked', 'New Badge!', $2, $3, NOW())`,
-          [
-            userId,
-            `You unlocked the Sticker Collector badge for unlocking ${totalPacks} sticker packs!`,
-            JSON.stringify({ badgeType, packCount: totalPacks })
-          ]
-        );
+        await orm.insert(schema.notifications).values({
+          userId,
+          type: "badge_unlocked",
+          title: "New Badge!",
+          body: `You unlocked the Sticker Collector badge for unlocking ${totalPacks} sticker packs!`,
+          metadata: { badgeType, packCount: totalPacks },
+        });
       }
     } catch (badgeErr) {
       // Badge tracking is non-critical — log but don't fail the purchase

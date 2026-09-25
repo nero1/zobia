@@ -16,36 +16,11 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { debitCoins } from "@/lib/economy/coins";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, conflict } from "@/lib/api/errors";
-
-// ---------------------------------------------------------------------------
-// Row types
-// ---------------------------------------------------------------------------
-
-interface SeasonPassRow {
-  id: string;
-  user_id: string;
-  season_id: string;
-  is_paid: boolean;
-  season_xp: number;
-  season_rank: number | null;
-  purchased_at: string | null;
-  created_at: string;
-}
-
-interface SeasonRow {
-  id: string;
-  name: string;
-  is_active: boolean;
-  pass_price_coins: number;
-  ends_at: string;
-}
-
-interface UserPlanRow {
-  plan: string;
-}
 
 // ---------------------------------------------------------------------------
 // GET /api/seasons/[seasonId]/pass
@@ -63,24 +38,52 @@ export const GET = withAuth(
       const { seasonId } = params;
       const userId = auth.user.sub;
 
-      const seasonResult = await db.query<SeasonRow>(
-        `SELECT id, name, is_active, pass_price_coins, ends_at FROM seasons WHERE id = $1`,
-        [seasonId]
-      );
-      if (!seasonResult.rows[0]) throw notFound("Season not found");
+      const orm = await getDb();
+
+      const [season] = await orm
+        .select({
+          id: schema.seasons.id,
+          name: schema.seasons.name,
+          isActive: schema.seasons.isActive,
+          passPriceCoins: schema.seasons.passPriceCoins,
+          endsAt: schema.seasons.endsAt,
+        })
+        .from(schema.seasons)
+        .where(eq(schema.seasons.id, seasonId))
+        .limit(1);
+      if (!season) throw notFound("Season not found");
 
       // Upsert free pass record
-      const passResult = await db.query<SeasonPassRow>(
-        `INSERT INTO user_season_passes (user_id, season_id, is_paid, season_xp, created_at)
-         VALUES ($1, $2, FALSE, 0, NOW())
-         ON CONFLICT (user_id, season_id) DO UPDATE SET updated_at = NOW()
-         RETURNING id, user_id, season_id, is_paid, season_xp, season_rank, purchased_at, created_at`,
-        [userId, seasonId]
-      );
+      const [pass] = await orm
+        .insert(schema.userSeasonPasses)
+        .values({ userId, seasonId, isPaid: false, seasonXp: BigInt(0) })
+        .onConflictDoUpdate({
+          target: [schema.userSeasonPasses.userId, schema.userSeasonPasses.seasonId],
+          set: { updatedAt: new Date() },
+        })
+        .returning();
 
       return NextResponse.json({
         success: true,
-        data: { pass: passResult.rows[0], season: seasonResult.rows[0] },
+        data: {
+          pass: {
+            id: pass.id,
+            user_id: pass.userId,
+            season_id: pass.seasonId,
+            is_paid: pass.isPaid,
+            season_xp: Number(pass.seasonXp),
+            season_rank: pass.seasonRank,
+            purchased_at: pass.purchasedAt,
+            created_at: pass.createdAt,
+          },
+          season: {
+            id: season.id,
+            name: season.name,
+            is_active: season.isActive,
+            pass_price_coins: season.passPriceCoins,
+            ends_at: season.endsAt,
+          },
+        },
         error: null,
       });
     } catch (err) {
@@ -106,36 +109,45 @@ export const POST = withAuth(
       const { seasonId } = params;
       const userId = auth.user.sub;
 
-      const result = await db.transaction(async (client) => {
+      const orm = await getDb();
+
+      const result = await orm.transaction(async (tx) => {
         // 1. Lock and verify season
-        const seasonResult = await client.query<SeasonRow>(
-          `SELECT id, name, is_active, pass_price_coins, ends_at
-           FROM seasons WHERE id = $1 FOR UPDATE`,
-          [seasonId]
-        );
-        const season = seasonResult.rows[0];
+        const [season] = await tx
+          .select({
+            id: schema.seasons.id,
+            name: schema.seasons.name,
+            isActive: schema.seasons.isActive,
+            passPriceCoins: schema.seasons.passPriceCoins,
+            endsAt: schema.seasons.endsAt,
+          })
+          .from(schema.seasons)
+          .where(eq(schema.seasons.id, seasonId))
+          .for("update");
         if (!season) throw notFound("Season not found");
-        if (!season.is_active || new Date(season.ends_at) <= new Date()) {
+        if (!season.isActive || new Date(season.endsAt) <= new Date()) {
           throw badRequest("Season is no longer active", "SEASON_ENDED");
         }
 
         // 2. Check user doesn't already have paid pass
-        const existingPass = await client.query<{ is_paid: boolean }>(
-          `SELECT is_paid FROM user_season_passes WHERE user_id = $1 AND season_id = $2`,
-          [userId, seasonId]
-        );
-        if (existingPass.rows[0]?.is_paid) {
+        const [existingPass] = await tx
+          .select({ isPaid: schema.userSeasonPasses.isPaid })
+          .from(schema.userSeasonPasses)
+          .where(and(eq(schema.userSeasonPasses.userId, userId), eq(schema.userSeasonPasses.seasonId, seasonId)));
+        if (existingPass?.isPaid) {
           throw conflict("You already own the paid pass for this season", "PASS_ALREADY_OWNED");
         }
 
-        // 3. Read user's plan and coin balance; apply plan discount
-        const userRow = await client.query<{ coin_balance: number } & UserPlanRow>(
-          `SELECT coin_balance, plan FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-          [userId]
-        );
-        if (!userRow.rows[0]) throw notFound("User not found");
+        // 3. Read user's plan; apply plan discount. debitCoins below locks and
+        // reads the coin balance itself, so we only need the plan here.
+        const [userRow] = await tx
+          .select({ plan: schema.users.plan })
+          .from(schema.users)
+          .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+          .for("update");
+        if (!userRow) throw notFound("User not found");
 
-        const { coin_balance, plan } = userRow.rows[0];
+        const { plan } = userRow;
 
         // Determine discount percentage based on plan (PRD §3)
         const PLAN_DISCOUNTS: Record<string, number> = {
@@ -144,52 +156,55 @@ export const POST = withAuth(
           max: 30,
         };
         const discountPercent = PLAN_DISCOUNTS[plan] ?? 0;
-        const originalPrice = season.pass_price_coins;
+        const originalPrice = season.passPriceCoins;
         const discountedPrice = Math.floor(originalPrice * (1 - discountPercent / 100));
-
-        if (coin_balance < discountedPrice) {
-          throw badRequest(
-            `Insufficient coins. Pass costs ${discountedPrice} coins.`,
-            "INSUFFICIENT_BALANCE"
-          );
-        }
-
-        const newBalance = coin_balance - discountedPrice;
-        await client.query(
-          `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-          [newBalance, userId]
-        );
 
         // SYS-CL-06: scope the reference per user so repeat purchase attempts for the
         // same season by different users don't collide on the coin_ledger unique index.
-        await client.query(
-          `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-           VALUES ($1, $2, $3, $4, 'season_pass_purchase', $5, $6, NOW())
-           ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-          [
+        let ledgerEntry;
+        try {
+          ledgerEntry = await debitCoins(
             userId,
-            -discountedPrice,
-            coin_balance,
-            newBalance,
+            discountedPrice,
+            "season_pass_purchase",
             `season_pass:${seasonId}:${userId}`,
             `Season pass: ${season.name}`,
-          ]
-        );
+            null,
+            tx
+          );
+        } catch (err) {
+          if ((err as NodeJS.ErrnoException)?.code === "INSUFFICIENT_BALANCE") {
+            throw badRequest(
+              `Insufficient coins. Pass costs ${discountedPrice} coins.`,
+              "INSUFFICIENT_BALANCE"
+            );
+          }
+          throw err;
+        }
 
         // 4. Upsert pass as paid
-        const passResult = await client.query<SeasonPassRow>(
-          `INSERT INTO user_season_passes (user_id, season_id, is_paid, season_xp, purchased_at, created_at)
-           VALUES ($1, $2, TRUE, 0, NOW(), NOW())
-           ON CONFLICT (user_id, season_id) DO UPDATE
-             SET is_paid = TRUE, purchased_at = NOW(), updated_at = NOW()
-           RETURNING id, user_id, season_id, is_paid, season_xp, season_rank, purchased_at, created_at`,
-          [userId, seasonId]
-        );
+        const [pass] = await tx
+          .insert(schema.userSeasonPasses)
+          .values({ userId, seasonId, isPaid: true, seasonXp: BigInt(0), purchasedAt: new Date() })
+          .onConflictDoUpdate({
+            target: [schema.userSeasonPasses.userId, schema.userSeasonPasses.seasonId],
+            set: { isPaid: true, purchasedAt: new Date(), updatedAt: new Date() },
+          })
+          .returning();
 
         return {
-          pass: passResult.rows[0],
+          pass: {
+            id: pass.id,
+            user_id: pass.userId,
+            season_id: pass.seasonId,
+            is_paid: pass.isPaid,
+            season_xp: Number(pass.seasonXp),
+            season_rank: pass.seasonRank,
+            purchased_at: pass.purchasedAt,
+            created_at: pass.createdAt,
+          },
           coinsSpent: discountedPrice,
-          newCoinBalance: newBalance,
+          newCoinBalance: ledgerEntry.balance_after,
           originalPrice,
           discountPercent,
           discountedPrice,

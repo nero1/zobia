@@ -16,8 +16,8 @@
  * module only checks the monetization sub-flag passed in by the caller.
  */
 
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { eq, and, sql as sqlOp } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { checkAndDebit, creditCoins } from "@/lib/economy/coins";
 import { debitStars, creditStars } from "@/lib/economy/stars";
 import type { CoinTransactionType } from "@zobia/types";
@@ -63,11 +63,19 @@ function toTreasuryState(row: TreasuryRow): TreasuryState {
 }
 
 export async function getContentTreasury(contentType: TreasuryContentType, contentId: string): Promise<TreasuryState | null> {
-  const { rows } = await db.query<TreasuryRow>(
-    `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status
-     FROM content_treasuries WHERE content_type = $1 AND content_id = $2 LIMIT 1`,
-    [contentType, contentId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: schema.contentTreasuries.id,
+      funded_amount: schema.contentTreasuries.fundedAmount,
+      remaining_amount: schema.contentTreasuries.remainingAmount,
+      max_claimants: schema.contentTreasuries.maxClaimants,
+      claimant_count: schema.contentTreasuries.claimantCount,
+      status: schema.contentTreasuries.status,
+    })
+    .from(schema.contentTreasuries)
+    .where(and(eq(schema.contentTreasuries.contentType, contentType), eq(schema.contentTreasuries.contentId, contentId)))
+    .limit(1);
   return rows[0] ? toTreasuryState(rows[0]) : null;
 }
 
@@ -96,11 +104,13 @@ export async function fundContentTreasury(
   if (!Number.isInteger(maxClaimants) || maxClaimants <= 0) throw badRequest("Max claimants must be a positive integer.", "TREASURY_INVALID_MAX_CLAIMANTS");
 
   const referenceId = `content_treasury_fund:${contentType}:${contentId}:${Date.now()}`;
-  const result = await db.transaction(async (tx: TransactionClient) => {
-    const { rows: existingRows } = await tx.query<{ status: string }>(
-      `SELECT status FROM content_treasuries WHERE content_type = $1 AND content_id = $2 FOR UPDATE`,
-      [contentType, contentId]
-    );
+  const orm = await getDb();
+  const result = await orm.transaction(async (tx) => {
+    const existingRows = await tx
+      .select({ status: schema.contentTreasuries.status })
+      .from(schema.contentTreasuries)
+      .where(and(eq(schema.contentTreasuries.contentType, contentType), eq(schema.contentTreasuries.contentId, contentId)))
+      .for("update");
     if (existingRows[0] && existingRows[0].status !== "closed") {
       throw badRequest(
         "A reward pot already exists for this content. Edit it or turn it off instead of funding it again.",
@@ -109,20 +119,29 @@ export async function fundContentTreasury(
     }
 
     await checkAndDebit(ownerId, amount, fundType, referenceId, `Funded a ${contentType} reward pot`, { contentType, contentId }, tx);
-    const { rows } = await tx.query<TreasuryRow>(
-      `INSERT INTO content_treasuries (content_type, content_id, owner_id, funded_amount, remaining_amount, max_claimants)
-       VALUES ($1, $2, $3, $4, $4, $5)
-       ON CONFLICT (content_type, content_id) DO UPDATE SET
-         owner_id = $3,
-         funded_amount = $4,
-         remaining_amount = $4,
-         max_claimants = $5,
-         claimant_count = 0,
-         status = 'active',
-         updated_at = NOW()
-       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
-      [contentType, contentId, ownerId, amount, maxClaimants]
-    );
+    const rows = await tx
+      .insert(schema.contentTreasuries)
+      .values({ contentType, contentId, ownerId, fundedAmount: amount, remainingAmount: amount, maxClaimants })
+      .onConflictDoUpdate({
+        target: [schema.contentTreasuries.contentType, schema.contentTreasuries.contentId],
+        set: {
+          ownerId,
+          fundedAmount: amount,
+          remainingAmount: amount,
+          maxClaimants,
+          claimantCount: 0,
+          status: "active",
+          updatedAt: sqlOp`NOW()`,
+        },
+      })
+      .returning({
+        id: schema.contentTreasuries.id,
+        funded_amount: schema.contentTreasuries.fundedAmount,
+        remaining_amount: schema.contentTreasuries.remainingAmount,
+        max_claimants: schema.contentTreasuries.maxClaimants,
+        claimant_count: schema.contentTreasuries.claimantCount,
+        status: schema.contentTreasuries.status,
+      });
     return rows[0];
   });
 
@@ -150,12 +169,21 @@ export async function editContentTreasury(
     throw badRequest("Max claimants must be a positive integer.", "TREASURY_INVALID_MAX_CLAIMANTS");
   }
 
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows } = await tx.query<TreasuryRow>(
-      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id
-       FROM content_treasuries WHERE content_type = $1 AND content_id = $2 FOR UPDATE`,
-      [contentType, contentId]
-    );
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const rows = await tx
+      .select({
+        id: schema.contentTreasuries.id,
+        funded_amount: schema.contentTreasuries.fundedAmount,
+        remaining_amount: schema.contentTreasuries.remainingAmount,
+        max_claimants: schema.contentTreasuries.maxClaimants,
+        claimant_count: schema.contentTreasuries.claimantCount,
+        status: schema.contentTreasuries.status,
+        owner_id: schema.contentTreasuries.ownerId,
+      })
+      .from(schema.contentTreasuries)
+      .where(and(eq(schema.contentTreasuries.contentType, contentType), eq(schema.contentTreasuries.contentId, contentId)))
+      .for("update");
     const treasury = rows[0];
     if (!treasury) throw notFound("Reward pot not found.");
     if (treasury.owner_id !== ownerId) throw forbidden("Only the pot's creator can edit it.");
@@ -195,12 +223,18 @@ export async function editContentTreasury(
         ? "exhausted"
         : "active";
 
-    const { rows: updated } = await tx.query<TreasuryRow>(
-      `UPDATE content_treasuries SET funded_amount = $2, remaining_amount = $3, max_claimants = $4, status = $5, updated_at = NOW()
-       WHERE id = $1
-       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
-      [treasury.id, newAmount, newRemaining, newMaxClaimants, newStatus]
-    );
+    const updated = await tx
+      .update(schema.contentTreasuries)
+      .set({ fundedAmount: newAmount, remainingAmount: newRemaining, maxClaimants: newMaxClaimants, status: newStatus, updatedAt: sqlOp`NOW()` })
+      .where(eq(schema.contentTreasuries.id, treasury.id))
+      .returning({
+        id: schema.contentTreasuries.id,
+        funded_amount: schema.contentTreasuries.fundedAmount,
+        remaining_amount: schema.contentTreasuries.remainingAmount,
+        max_claimants: schema.contentTreasuries.maxClaimants,
+        claimant_count: schema.contentTreasuries.claimantCount,
+        status: schema.contentTreasuries.status,
+      });
     return toTreasuryState(updated[0]);
   });
 }
@@ -216,12 +250,21 @@ export async function closeContentTreasury(
   contentId: string,
   refundType: CoinTransactionType
 ): Promise<TreasuryState> {
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows } = await tx.query<TreasuryRow>(
-      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id
-       FROM content_treasuries WHERE content_type = $1 AND content_id = $2 FOR UPDATE`,
-      [contentType, contentId]
-    );
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const rows = await tx
+      .select({
+        id: schema.contentTreasuries.id,
+        funded_amount: schema.contentTreasuries.fundedAmount,
+        remaining_amount: schema.contentTreasuries.remainingAmount,
+        max_claimants: schema.contentTreasuries.maxClaimants,
+        claimant_count: schema.contentTreasuries.claimantCount,
+        status: schema.contentTreasuries.status,
+        owner_id: schema.contentTreasuries.ownerId,
+      })
+      .from(schema.contentTreasuries)
+      .where(and(eq(schema.contentTreasuries.contentType, contentType), eq(schema.contentTreasuries.contentId, contentId)))
+      .for("update");
     const treasury = rows[0];
     if (!treasury) throw notFound("Reward pot not found.");
     if (treasury.owner_id !== ownerId) throw forbidden("Only the pot's creator can turn it off.");
@@ -235,11 +278,18 @@ export async function closeContentTreasury(
       );
     }
 
-    const { rows: updated } = await tx.query<TreasuryRow>(
-      `UPDATE content_treasuries SET remaining_amount = 0, status = 'closed', updated_at = NOW() WHERE id = $1
-       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status`,
-      [treasury.id]
-    );
+    const updated = await tx
+      .update(schema.contentTreasuries)
+      .set({ remainingAmount: 0, status: "closed", updatedAt: sqlOp`NOW()` })
+      .where(eq(schema.contentTreasuries.id, treasury.id))
+      .returning({
+        id: schema.contentTreasuries.id,
+        funded_amount: schema.contentTreasuries.fundedAmount,
+        remaining_amount: schema.contentTreasuries.remainingAmount,
+        max_claimants: schema.contentTreasuries.maxClaimants,
+        claimant_count: schema.contentTreasuries.claimantCount,
+        status: schema.contentTreasuries.status,
+      });
     return toTreasuryState(updated[0]);
   });
 }
@@ -262,12 +312,21 @@ export async function claimContentTreasuryReward(
 ): Promise<{ amount: number } | null> {
   if (!monetizationEnabled) return null;
 
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows: treasuryRows } = await tx.query<TreasuryRow>(
-      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id
-       FROM content_treasuries WHERE content_type = $1 AND content_id = $2 FOR UPDATE`,
-      [contentType, contentId]
-    );
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const treasuryRows = await tx
+      .select({
+        id: schema.contentTreasuries.id,
+        funded_amount: schema.contentTreasuries.fundedAmount,
+        remaining_amount: schema.contentTreasuries.remainingAmount,
+        max_claimants: schema.contentTreasuries.maxClaimants,
+        claimant_count: schema.contentTreasuries.claimantCount,
+        status: schema.contentTreasuries.status,
+        owner_id: schema.contentTreasuries.ownerId,
+      })
+      .from(schema.contentTreasuries)
+      .where(and(eq(schema.contentTreasuries.contentType, contentType), eq(schema.contentTreasuries.contentId, contentId)))
+      .for("update");
     const treasury = treasuryRows[0];
     if (!treasury || treasury.status !== "active") return null;
     if (treasury.claimant_count >= treasury.max_claimants) return null;
@@ -276,19 +335,19 @@ export async function claimContentTreasuryReward(
     const rewardPerClaimant = Math.floor(treasury.funded_amount / treasury.max_claimants);
     if (rewardPerClaimant <= 0 || treasury.remaining_amount < rewardPerClaimant) return null;
 
-    const { rowCount } = await tx.query(
-      `INSERT INTO content_treasury_claims (treasury_id, user_id, claim_type, amount) VALUES ($1, $2, $3, $4) ON CONFLICT (treasury_id, user_id) DO NOTHING`,
-      [treasury.id, userId, claimType, rewardPerClaimant]
-    );
-    if (!rowCount || rowCount === 0) return null; // already claimed
+    const insertResult = await tx
+      .insert(schema.contentTreasuryClaims)
+      .values({ treasuryId: treasury.id, userId, claimType, amount: rewardPerClaimant })
+      .onConflictDoNothing({ target: [schema.contentTreasuryClaims.treasuryId, schema.contentTreasuryClaims.userId] });
+    if (!insertResult.rowCount || insertResult.rowCount === 0) return null; // already claimed
 
     const newClaimantCount = treasury.claimant_count + 1;
     const newRemaining = treasury.remaining_amount - rewardPerClaimant;
     const newStatus = newClaimantCount >= treasury.max_claimants || newRemaining < rewardPerClaimant ? "exhausted" : "active";
-    await tx.query(
-      `UPDATE content_treasuries SET claimant_count = $2, remaining_amount = $3, status = $4, updated_at = NOW() WHERE id = $1`,
-      [treasury.id, newClaimantCount, newRemaining, newStatus]
-    );
+    await tx
+      .update(schema.contentTreasuries)
+      .set({ claimantCount: newClaimantCount, remainingAmount: newRemaining, status: newStatus, updatedAt: sqlOp`NOW()` })
+      .where(eq(schema.contentTreasuries.id, treasury.id));
 
     await creditCoins(userId, rewardPerClaimant, claimRewardType, `content_treasury_claim:${treasury.id}:${userId}`, "Reward pot claim", { contentType, contentId, claimType }, tx);
 
@@ -316,13 +375,20 @@ function toRoomRewardState(row: RoomRewardRow): RoomRewardState {
   return { ...toTreasuryState(row), title: row.title, rewardAction: row.reward_action, customInstructions: row.custom_instructions };
 }
 
+// NOTE (schema gap): content_treasuries.title / reward_action / custom_instructions
+// (migration 0040, Room Custom Rewards) are not modeled in lib/db/schema.ts —
+// the Drizzle table only has the generic reward-pot columns. These queries use
+// Drizzle's `sql` tagged template (still through the shared getDb()/tx pool,
+// still fully parameterised) rather than the query builder until schema.ts is
+// updated to include those columns.
 export async function getRoomReward(roomId: string): Promise<RoomRewardState | null> {
-  const { rows } = await db.query<RoomRewardRow>(
-    `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, title, reward_action, custom_instructions
-     FROM content_treasuries WHERE content_type = 'room' AND content_id = $1 LIMIT 1`,
-    [roomId]
-  );
-  return rows[0] ? toRoomRewardState(rows[0]) : null;
+  const orm = await getDb();
+  const result = await orm.execute<RoomRewardRow & Record<string, unknown>>(sqlOp`
+    SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, title, reward_action, custom_instructions
+    FROM content_treasuries WHERE content_type = 'room' AND content_id = ${roomId} LIMIT 1
+  `);
+  const row = result.rows[0];
+  return row ? toRoomRewardState(row) : null;
 }
 
 export interface FundRoomRewardParams {
@@ -357,18 +423,18 @@ export async function fundRoomReward(params: FundRoomRewardParams): Promise<Room
     if (!customInstructions?.trim()) {
       throw badRequest("Custom unlock instructions are required.", "ROOM_REWARD_INVALID_INSTRUCTIONS");
     }
-    const { rows } = await db.query<RoomRewardRow>(
-      `INSERT INTO content_treasuries
+    const orm = await getDb();
+    const result = await orm.execute<RoomRewardRow & Record<string, unknown>>(sqlOp`
+      INSERT INTO content_treasuries
          (content_type, content_id, owner_id, funded_amount, remaining_amount, max_claimants, reward_action, custom_instructions, title, status)
-       VALUES ('room', $1, $2, 0, 0, $3, 'custom_text', $4, $5, 'active')
+       VALUES ('room', ${roomId}, ${ownerId}, 0, 0, ${maxClaimants}, 'custom_text', ${customInstructions.trim()}, ${title.trim()}, 'active')
        ON CONFLICT (content_type, content_id) DO UPDATE SET
-         funded_amount = 0, remaining_amount = 0, max_claimants = $3,
-         reward_action = 'custom_text', custom_instructions = $4, title = $5,
+         funded_amount = 0, remaining_amount = 0, max_claimants = ${maxClaimants},
+         reward_action = 'custom_text', custom_instructions = ${customInstructions.trim()}, title = ${title.trim()},
          claimant_count = 0, status = 'active', updated_at = NOW()
-       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status, title, reward_action, custom_instructions`,
-      [roomId, ownerId, maxClaimants, customInstructions.trim(), title.trim()]
-    );
-    return toRoomRewardState(rows[0]);
+       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status, title, reward_action, custom_instructions
+    `);
+    return toRoomRewardState(result.rows[0]);
   }
 
   if (!Number.isInteger(amount) || amount === undefined || amount <= 0) {
@@ -376,24 +442,24 @@ export async function fundRoomReward(params: FundRoomRewardParams): Promise<Room
   }
 
   const referenceId = `room_reward_fund:${roomId}:${Date.now()}`;
-  const result = await db.transaction(async (tx: TransactionClient) => {
+  const orm = await getDb();
+  const result = await orm.transaction(async (tx) => {
     if (rewardAction === "stars") {
       await debitStars(ownerId, amount, "room_reward_fund", referenceId, "Funded a room reward pot", tx);
     } else {
       await checkAndDebit(ownerId, amount, "room_reward_fund", referenceId, "Funded a room reward pot", { roomId }, tx);
     }
-    const { rows } = await tx.query<RoomRewardRow>(
-      `INSERT INTO content_treasuries
+    const insertResult = await tx.execute<RoomRewardRow & Record<string, unknown>>(sqlOp`
+      INSERT INTO content_treasuries
          (content_type, content_id, owner_id, funded_amount, remaining_amount, max_claimants, reward_action, custom_instructions, title, status)
-       VALUES ('room', $1, $2, $3, $3, $4, $5, NULL, $6, 'active')
+       VALUES ('room', ${roomId}, ${ownerId}, ${amount}, ${amount}, ${maxClaimants}, ${rewardAction}, NULL, ${title.trim()}, 'active')
        ON CONFLICT (content_type, content_id) DO UPDATE SET
-         funded_amount = $3, remaining_amount = $3, max_claimants = $4,
-         reward_action = $5, custom_instructions = NULL, title = $6,
+         funded_amount = ${amount}, remaining_amount = ${amount}, max_claimants = ${maxClaimants},
+         reward_action = ${rewardAction}, custom_instructions = NULL, title = ${title.trim()},
          claimant_count = 0, status = 'active', updated_at = NOW()
-       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status, title, reward_action, custom_instructions`,
-      [roomId, ownerId, amount, maxClaimants, rewardAction, title.trim()]
-    );
-    return rows[0];
+       RETURNING id, funded_amount, remaining_amount, max_claimants, claimant_count, status, title, reward_action, custom_instructions
+    `);
+    return insertResult.rows[0];
   });
 
   return toRoomRewardState(result);
@@ -401,10 +467,11 @@ export async function fundRoomReward(params: FundRoomRewardParams): Promise<Room
 
 /** Deactivate a room's Custom Reward without deleting its claim history. */
 export async function closeRoomReward(roomId: string): Promise<void> {
-  await db.query(
-    `UPDATE content_treasuries SET status = 'closed', updated_at = NOW() WHERE content_type = 'room' AND content_id = $1`,
-    [roomId]
-  );
+  const orm = await getDb();
+  await orm
+    .update(schema.contentTreasuries)
+    .set({ status: "closed", updatedAt: sqlOp`NOW()` })
+    .where(and(eq(schema.contentTreasuries.contentType, "room"), eq(schema.contentTreasuries.contentId, roomId)));
 }
 
 /**
@@ -418,13 +485,13 @@ export async function claimRoomRewardOnGift(
   userId: string,
   giftId: string
 ): Promise<{ title: string; rewardAction: RewardAction; amount: number; customInstructions: string | null } | null> {
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows } = await tx.query<RoomRewardRow>(
-      `SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id, title, reward_action, custom_instructions
-       FROM content_treasuries WHERE content_type = 'room' AND content_id = $1 FOR UPDATE`,
-      [roomId]
-    );
-    const reward = rows[0];
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const selectResult = await tx.execute<RoomRewardRow & Record<string, unknown>>(sqlOp`
+      SELECT id, funded_amount, remaining_amount, max_claimants, claimant_count, status, owner_id, title, reward_action, custom_instructions
+       FROM content_treasuries WHERE content_type = 'room' AND content_id = ${roomId} FOR UPDATE
+    `);
+    const reward = selectResult.rows[0];
     if (!reward || reward.status !== "active") return null;
     if (reward.claimant_count >= reward.max_claimants) return null;
     if (reward.owner_id === userId) return null; // owner can't claim their own reward
@@ -435,21 +502,20 @@ export async function claimRoomRewardOnGift(
       if (payoutAmount <= 0 || reward.remaining_amount < payoutAmount) return null;
     }
 
-    const { rowCount } = await tx.query(
-      `INSERT INTO content_treasury_claims (treasury_id, user_id, claim_type, amount) VALUES ($1, $2, 'gift', $3) ON CONFLICT (treasury_id, user_id) DO NOTHING`,
-      [reward.id, userId, payoutAmount]
-    );
-    if (!rowCount || rowCount === 0) return null; // already claimed this reward
+    const insertResult = await tx
+      .insert(schema.contentTreasuryClaims)
+      .values({ treasuryId: reward.id, userId, claimType: "gift", amount: payoutAmount })
+      .onConflictDoNothing({ target: [schema.contentTreasuryClaims.treasuryId, schema.contentTreasuryClaims.userId] });
+    if (!insertResult.rowCount || insertResult.rowCount === 0) return null; // already claimed this reward
 
     const newClaimantCount = reward.claimant_count + 1;
     const newRemaining = reward.remaining_amount - payoutAmount;
     const exhausted =
       newClaimantCount >= reward.max_claimants ||
       (reward.reward_action !== "custom_text" && newRemaining < payoutAmount);
-    await tx.query(
-      `UPDATE content_treasuries SET claimant_count = $2, remaining_amount = $3, status = $4, updated_at = NOW() WHERE id = $1`,
-      [reward.id, newClaimantCount, newRemaining, exhausted ? "exhausted" : "active"]
-    );
+    await tx.execute(sqlOp`
+      UPDATE content_treasuries SET claimant_count = ${newClaimantCount}, remaining_amount = ${newRemaining}, status = ${exhausted ? "exhausted" : "active"}, updated_at = NOW() WHERE id = ${reward.id}
+    `);
 
     if (reward.reward_action === "stars") {
       await creditStars(userId, payoutAmount, "room_reward_claim", `room_reward_claim:${reward.id}:${userId}`, "Room reward claim", tx);
@@ -476,14 +542,15 @@ export async function recordContentShare(
   userId: string,
   claimRewardType: CoinTransactionType,
   monetizationEnabled: boolean,
-  onShareCounted: (tx: TransactionClient) => Promise<void>
+  onShareCounted: (tx: DbOrTx) => Promise<void>
 ): Promise<{ rewardClaimed: number | null }> {
-  const { rowCount } = await db.query(
-    `INSERT INTO content_shares (content_type, content_id, user_id) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
-    [contentType, contentId, userId]
-  );
-  if (rowCount && rowCount > 0) {
-    await db.transaction(async (tx: TransactionClient) => {
+  const orm = await getDb();
+  const insertResult = await orm
+    .insert(schema.contentShares)
+    .values({ contentType, contentId, userId })
+    .onConflictDoNothing();
+  if (insertResult.rowCount && insertResult.rowCount > 0) {
+    await orm.transaction(async (tx) => {
       await onShareCounted(tx);
     });
   }

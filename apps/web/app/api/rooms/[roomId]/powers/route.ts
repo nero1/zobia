@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -81,22 +82,24 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
     const userId = auth.user.sub;
     const coinCost = POWER_COSTS[body.power];
 
-    const result = await db.transaction(async (client) => {
+    const orm = await getDb();
+    const result = await orm.transaction(async (tx) => {
       // 1. Verify room exists and monetization is enabled
-      const { rows: roomRows } = await client.query<{
-        id: string;
-        creator_id: string;
-        is_active: boolean;
-        is_suspended: boolean;
-        monetization_disabled: boolean;
-      }>(
-        `SELECT id, creator_id, is_active,
-                COALESCE(is_suspended, FALSE)          AS is_suspended,
-                COALESCE(monetization_disabled, FALSE) AS monetization_disabled
-         FROM rooms WHERE id = $1 AND deleted_at IS NULL`,
-        [roomId]
-      );
-      const room = roomRows[0];
+      // NOTE: rooms.monetization_disabled exists in the real table
+      // (db/migrations/0001_consolidated_schema.sql) but is missing from the
+      // Drizzle schema (lib/db/schema.ts) — a genuine schema gap. Selected
+      // via a raw `sql` fragment until that column is added to schema.ts.
+      const [room] = await tx
+        .select({
+          id: schema.rooms.id,
+          creator_id: schema.rooms.creatorId,
+          is_active: schema.rooms.isActive,
+          is_suspended: sql<boolean>`COALESCE(${schema.rooms.isSuspended}, FALSE)`,
+          monetization_disabled: sql<boolean>`COALESCE(monetization_disabled, FALSE)`,
+        })
+        .from(schema.rooms)
+        .where(and(eq(schema.rooms.id, roomId), isNull(schema.rooms.deletedAt)))
+        .limit(1);
       if (!room) throw notFound("Room not found");
       if (!room.is_active) throw badRequest("Room is no longer active");
       if (room.is_suspended) throw badRequest("Room is currently suspended");
@@ -105,26 +108,31 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
       // 2. For message_pin, check permissions before touching the coin balance.
       //    This avoids a confusing 403 response after coins were already locked.
       if (body.power === "message_pin" && room.creator_id !== userId) {
-        const { rows: modRows } = await client.query<{ id: string }>(
-          `SELECT id FROM room_members
-           WHERE room_id = $1 AND user_id = $2 AND role = 'co_moderator'`,
-          [roomId, userId]
-        );
-        if (!modRows.length) {
+        const [modRow] = await tx
+          .select({ id: schema.roomMembers.id })
+          .from(schema.roomMembers)
+          .where(
+            and(
+              eq(schema.roomMembers.roomId, roomId),
+              eq(schema.roomMembers.userId, userId),
+              eq(schema.roomMembers.role, "co_moderator")
+            )
+          )
+          .limit(1);
+        if (!modRow) {
           throw forbidden("Only room creators and moderators can pin messages");
         }
       }
 
       // 3. Check caller has enough coins — lock the row
-      const { rows: userRows } = await client.query<{
-        coin_balance: number;
-      }>(
-        `SELECT coin_balance FROM users WHERE id = $1 FOR UPDATE`,
-        [userId]
-      );
-      const user = userRows[0];
+      const [user] = await tx
+        .select({ coin_balance: schema.users.coinBalance })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId))
+        .for("update");
       if (!user) throw notFound("User not found");
-      if (user.coin_balance < coinCost) {
+      const coinBalance = Number(user.coin_balance);
+      if (coinBalance < coinCost) {
         throw badRequest(`Insufficient coins. This power costs ${coinCost} Coins.`);
       }
 
@@ -142,62 +150,66 @@ export const POST = withAuth<RoomParams>(async (req: NextRequest, { params, auth
         referenceId = `member_highlight:${roomId}:${(body as { targetUserId: string }).targetUserId}:${expiresAt}`;
       }
 
-      const newBalance = user.coin_balance - coinCost;
-      await client.query(
-        `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-        [newBalance, userId]
-      );
-      await client.query(
-        `INSERT INTO coin_ledger
-           (user_id, amount, balance_before, balance_after, transaction_type, reference_id, created_at)
-         VALUES ($1, $2, $3, $4, 'room_power', $5, NOW())
-         ON CONFLICT (user_id, transaction_type, reference_id) DO NOTHING`,
-        [userId, -coinCost, user.coin_balance, newBalance, referenceId]
-      );
+      const newBalance = coinBalance - coinCost;
+      await tx
+        .update(schema.users)
+        .set({ coinBalance: BigInt(newBalance), updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
+      await tx
+        .insert(schema.coinLedger)
+        .values({
+          userId,
+          amount: BigInt(-coinCost),
+          balanceBefore: BigInt(coinBalance),
+          balanceAfter: BigInt(newBalance),
+          transactionType: "room_power",
+          referenceId,
+        })
+        .onConflictDoNothing();
 
       // 5. Apply power
       if (body.power === "message_pin") {
 
-        const pinExpiresAt = new Date(Date.now() + MESSAGE_PIN_DURATION_MS).toISOString();
+        const pinExpiresAt = new Date(Date.now() + MESSAGE_PIN_DURATION_MS);
 
-        await client.query(
-          `UPDATE room_messages
-           SET is_pinned = true, pinned_at = NOW(), pinned_by = $1, pin_expires_at = $4
-           WHERE id = $2 AND room_id = $3`,
-          [userId, body.messageId, roomId, pinExpiresAt]
-        );
+        await tx
+          .update(schema.roomMessages)
+          .set({ isPinned: true, pinnedAt: new Date(), pinnedBy: userId, pinExpiresAt })
+          .where(and(eq(schema.roomMessages.id, body.messageId), eq(schema.roomMessages.roomId, roomId)));
 
-        return { power: "message_pin", messageId: body.messageId, pinExpiresAt, coinsSpent: coinCost };
+        return { power: "message_pin", messageId: body.messageId, pinExpiresAt: pinExpiresAt.toISOString(), coinsSpent: coinCost };
 
       } else if (body.power === "room_spotlight") {
         const durationMs = body.durationHours * 60 * 60 * 1000;
-        const spotlightUntil = new Date(Date.now() + durationMs).toISOString();
+        const spotlightUntil = new Date(Date.now() + durationMs);
 
-        await client.query(
-          `UPDATE rooms
-           SET spotlight_until = GREATEST(COALESCE(spotlight_until, NOW()), $1::timestamptz),
-               spotlight_by = $2,
-               updated_at = NOW()
-           WHERE id = $3`,
-          [spotlightUntil, userId, roomId]
-        );
+        await tx
+          .update(schema.rooms)
+          .set({
+            spotlightUntil: sql`GREATEST(COALESCE(${schema.rooms.spotlightUntil}, NOW()), ${spotlightUntil.toISOString()}::timestamptz)`,
+            spotlightBy: userId,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.rooms.id, roomId));
 
-        return { power: "room_spotlight", spotlightUntil, durationHours: body.durationHours, coinsSpent: coinCost };
+        return { power: "room_spotlight", spotlightUntil: spotlightUntil.toISOString(), durationHours: body.durationHours, coinsSpent: coinCost };
 
       } else if (body.power === "member_highlight") {
         const durationMs = body.durationMinutes * 60 * 1000;
-        const expiresAt = new Date(Date.now() + durationMs).toISOString();
+        const expiresAt = new Date(Date.now() + durationMs);
 
-        await client.query(
-          `INSERT INTO room_member_highlights (room_id, user_id, highlighted_by, expires_at)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT (room_id, user_id) DO UPDATE
-           SET expires_at = GREATEST(room_member_highlights.expires_at, EXCLUDED.expires_at),
-               highlighted_by = EXCLUDED.highlighted_by`,
-          [roomId, body.targetUserId, userId, expiresAt]
-        );
+        await tx
+          .insert(schema.roomMemberHighlights)
+          .values({ roomId, userId: body.targetUserId, highlightedBy: userId, expiresAt })
+          .onConflictDoUpdate({
+            target: [schema.roomMemberHighlights.roomId, schema.roomMemberHighlights.userId],
+            set: {
+              expiresAt: sql`GREATEST(${schema.roomMemberHighlights.expiresAt}, EXCLUDED.expires_at)`,
+              highlightedBy: sql`EXCLUDED.highlighted_by`,
+            },
+          });
 
-        return { power: "member_highlight", targetUserId: body.targetUserId, expiresAt, coinsSpent: coinCost };
+        return { power: "member_highlight", targetUserId: body.targetUserId, expiresAt: expiresAt.toISOString(), coinsSpent: coinCost };
       }
 
       throw badRequest("Unknown power type");

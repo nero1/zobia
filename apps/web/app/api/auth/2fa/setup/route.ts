@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
@@ -58,11 +59,13 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
 
     // Fetch username for the QR code label
-    const { rows: userRows } = await db.query<{ username: string }>(
-      "SELECT username FROM users WHERE id = $1",
-      [userId]
-    );
-    const username = userRows[0]?.username ?? userId;
+    const orm = await getDb();
+    const [userRow] = await orm
+      .select({ username: schema.users.username })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+    const username = userRow?.username ?? userId;
 
     // Store pending secret in Redis for 10 minutes (600 seconds)
     await redis.set(pendingTotpKey(userId), secret, "EX", 600);
@@ -125,11 +128,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Persist secret and enable TOTP
-    await db.query(
-      `UPDATE users SET totp_secret = $1, totp_enabled = true, updated_at = NOW()
-       WHERE id = $2`,
-      [encryptField(pendingSecret), userId]
-    );
+    const orm = await getDb();
+    await orm
+      .update(schema.users)
+      .set({ totpSecret: encryptField(pendingSecret), totpEnabled: true, updatedAt: new Date() })
+      .where(eq(schema.users.id, userId));
 
     // Remove pending key
     await redis.del(pendingTotpKey(userId));

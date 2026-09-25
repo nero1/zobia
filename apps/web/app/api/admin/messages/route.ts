@@ -18,10 +18,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -46,6 +47,7 @@ const SendMessageSchema = z.object({
  * based on the broadcast type and targeting parameters.
  */
 async function resolveRecipients(
+  orm: Awaited<ReturnType<typeof getDb>>,
   broadcastType: string,
   targetUserIds?: string[],
   targetPlans?: string[],
@@ -54,48 +56,58 @@ async function resolveRecipients(
   switch (broadcastType) {
     case "direct": {
       if (!targetUserIds?.length) return [];
-      const placeholders = targetUserIds.map((_, i) => `$${i + 1}`).join(", ");
-      const { rows } = await db.query<{ id: string; telegram_id: string | null }>(
-        `SELECT id, telegram_id FROM users
-         WHERE id IN (${placeholders})
-           AND COALESCE(is_banned, false) = false
-           AND deleted_at IS NULL`,
-        targetUserIds
-      );
+      const rows = await orm
+        .select({ id: schema.users.id, telegram_id: schema.users.telegramId })
+        .from(schema.users)
+        .where(
+          and(
+            inArray(schema.users.id, targetUserIds),
+            sql`COALESCE(${schema.users.isBanned}, false) = false`,
+            isNull(schema.users.deletedAt)
+          )
+        );
       return rows;
     }
     case "all": {
-      const { rows } = await db.query<{ id: string; telegram_id: string | null }>(
-        `SELECT id, telegram_id FROM users
-         WHERE COALESCE(is_banned, false) = false AND deleted_at IS NULL`
-      );
+      const rows = await orm
+        .select({ id: schema.users.id, telegram_id: schema.users.telegramId })
+        .from(schema.users)
+        .where(and(sql`COALESCE(${schema.users.isBanned}, false) = false`, isNull(schema.users.deletedAt)));
       return rows;
     }
     case "by_plan": {
       if (!targetPlans?.length) return [];
-      const placeholders = targetPlans.map((_, i) => `$${i + 1}`).join(", ");
-      const { rows } = await db.query<{ id: string; telegram_id: string | null }>(
-        `SELECT u.id, u.telegram_id FROM users u
-         JOIN user_subscriptions s ON s.user_id = u.id
-         WHERE s.plan_id IN (${placeholders})
-           AND s.status = 'active'
-           AND COALESCE(u.is_banned, false) = false
-           AND u.deleted_at IS NULL`,
-        targetPlans
-      );
+      // BUG-FIX: the pre-migration raw SQL filtered on a non-existent
+      // `user_subscriptions.plan_id` column, so this branch always returned
+      // zero recipients. `users.plan` (not the `subscriptions` billing-period
+      // table) is the canonical current-entitlement field used everywhere
+      // else in the codebase (see lib/plans/subscriptionSweep.ts) — it also
+      // covers admin/promo-granted plans that have no row in `subscriptions`.
+      const rows = await orm
+        .select({ id: schema.users.id, telegram_id: schema.users.telegramId })
+        .from(schema.users)
+        .where(
+          and(
+            inArray(schema.users.plan, targetPlans),
+            sql`COALESCE(${schema.users.isBanned}, false) = false`,
+            isNull(schema.users.deletedAt)
+          )
+        );
       return rows;
     }
     case "by_role": {
       if (!targetRoles?.length) return [];
-      const placeholders = targetRoles.map((_, i) => `$${i + 1}`).join(", ");
-      const { rows } = await db.query<{ id: string; telegram_id: string | null }>(
-        `SELECT u.id, u.telegram_id FROM users u
-         JOIN admin_roles r ON r.user_id = u.id
-         WHERE r.role IN (${placeholders})
-           AND COALESCE(u.is_banned, false) = false
-           AND u.deleted_at IS NULL`,
-        targetRoles
-      );
+      const rows = await orm
+        .selectDistinct({ id: schema.users.id, telegram_id: schema.users.telegramId })
+        .from(schema.users)
+        .innerJoin(schema.adminRoles, eq(schema.adminRoles.userId, schema.users.id))
+        .where(
+          and(
+            inArray(schema.adminRoles.role, targetRoles),
+            sql`COALESCE(${schema.users.isBanned}, false) = false`,
+            isNull(schema.users.deletedAt)
+          )
+        );
       return rows;
     }
     default:
@@ -129,8 +141,11 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     const { subject, body: msgBody, broadcastType, targetUserIds, targetPlans, targetRoles } =
       parsed.data;
 
+    const orm = await getDb();
+
     // Resolve recipients
     const recipients = await resolveRecipients(
+      orm,
       broadcastType,
       targetUserIds,
       targetPlans,
@@ -142,56 +157,42 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     }
 
     // Insert admin message record
-    const { rows: msgRows } = await db.query<{ id: string }>(
-      `INSERT INTO admin_messages
-         (sender_admin_id, subject, body, broadcast_type, recipient_count, created_at)
-       VALUES ($1, $2, $3, $4, $5, NOW())
-       RETURNING id`,
-      [auth.user.sub, subject, msgBody, broadcastType, recipients.length]
-    );
+    const [created] = await orm
+      .insert(schema.adminMessages)
+      .values({
+        senderAdminId: auth.user.sub,
+        subject,
+        body: msgBody,
+        broadcastType,
+        recipientCount: recipients.length,
+      })
+      .returning({ id: schema.adminMessages.id });
 
-    const messageId = msgRows[0]?.id;
+    const messageId = created?.id;
     if (!messageId) {
       throw new Error("Failed to create admin message record");
     }
 
     // Bulk insert receipts
-    // Build VALUES clause in chunks of 500 to avoid hitting DB limits
+    // Build in chunks of 500 to avoid hitting DB limits
     const CHUNK_SIZE = 500;
     for (let i = 0; i < recipients.length; i += CHUNK_SIZE) {
       const chunk = recipients.slice(i, i + CHUNK_SIZE);
-      const values: string[] = [];
-      const params: string[] = [];
-      let paramIdx = 1;
-
-      for (const recipient of chunk) {
-        values.push(`($${paramIdx}, $${paramIdx + 1}, NOW())`);
-        params.push(messageId, recipient.id);
-        paramIdx += 2;
-      }
-
-      await db.query(
-        `INSERT INTO admin_message_receipts
-           (admin_message_id, user_id, delivered_at)
-         VALUES ${values.join(", ")}
-         ON CONFLICT (admin_message_id, user_id) DO NOTHING`,
-        params
-      );
+      await orm
+        .insert(schema.adminMessageReceipts)
+        .values(chunk.map((r) => ({ adminMessageId: messageId, userId: r.id, deliveredAt: new Date() })))
+        .onConflictDoNothing();
     }
 
     // Enqueue Telegram delivery — the queue worker picks this up with retry logic
     const telegramRecipients = recipients.filter((r) => r.telegram_id);
     if (telegramRecipients.length > 0) {
-      await db
-        .query(
-          `INSERT INTO telegram_delivery_queue
-             (broadcast_id, telegram_ids)
-           VALUES ($1, $2)`,
-          [
-            messageId,
-            JSON.stringify(telegramRecipients.map((r) => r.telegram_id)),
-          ]
-        )
+      await orm
+        .insert(schema.telegramDeliveryQueue)
+        .values({
+          broadcastId: messageId,
+          telegramIds: telegramRecipients.map((r) => r.telegram_id),
+        })
         .catch((err) => {
           logger.error({ err: err }, "[admin/messages] Telegram queue enqueue failed:");
         });
@@ -220,48 +221,38 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50"), 100);
     const offset = parseInt(url.searchParams.get("offset") ?? "0");
 
-    const { rows } = await db.query<{
-      id: string;
-      sender_admin_id: string;
-      sender_username: string | null;
-      subject: string | null;
-      body: string;
-      broadcast_type: string;
-      recipient_count: number;
-      delivered_count: number;
-      read_count: number;
-      created_at: string;
-    }>(
-      `SELECT
-         m.id,
-         m.sender_admin_id,
-         u.username AS sender_username,
-         m.subject,
-         m.body,
-         m.broadcast_type,
-         m.recipient_count,
-         COUNT(r.id) FILTER (WHERE r.delivered_at IS NOT NULL)::int AS delivered_count,
-         COUNT(r.id) FILTER (WHERE r.read_at IS NOT NULL)::int      AS read_count,
-         m.created_at
-       FROM admin_messages m
-       LEFT JOIN users u  ON u.id = m.sender_admin_id
-       LEFT JOIN admin_message_receipts r ON r.admin_message_id = m.id
-       GROUP BY m.id, u.username
-       ORDER BY m.created_at DESC
-       LIMIT $1 OFFSET $2`,
-      [limit, offset]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.adminMessages.id,
+        senderAdminId: schema.adminMessages.senderAdminId,
+        senderUsername: schema.users.username,
+        subject: schema.adminMessages.subject,
+        body: schema.adminMessages.body,
+        broadcastType: schema.adminMessages.broadcastType,
+        recipientCount: schema.adminMessages.recipientCount,
+        deliveredCount: sql<number>`COUNT(${schema.adminMessageReceipts.id}) FILTER (WHERE ${schema.adminMessageReceipts.deliveredAt} IS NOT NULL)::int`,
+        readCount: sql<number>`COUNT(${schema.adminMessageReceipts.id}) FILTER (WHERE ${schema.adminMessageReceipts.readAt} IS NOT NULL)::int`,
+        createdAt: schema.adminMessages.createdAt,
+      })
+      .from(schema.adminMessages)
+      .leftJoin(schema.users, eq(schema.users.id, schema.adminMessages.senderAdminId))
+      .leftJoin(schema.adminMessageReceipts, eq(schema.adminMessageReceipts.adminMessageId, schema.adminMessages.id))
+      .groupBy(schema.adminMessages.id, schema.users.username)
+      .orderBy(desc(schema.adminMessages.createdAt))
+      .limit(limit)
+      .offset(offset);
 
     const items = rows.map((r) => ({
       id: r.id,
       subject: r.subject ?? "(no subject)",
       bodyPreview: r.body ? r.body.slice(0, 140) : "",
-      recipientMode: r.broadcast_type === "direct" ? "specific" : r.broadcast_type,
-      recipientsCount: r.recipient_count ?? 0,
-      deliveredCount: r.delivered_count ?? 0,
-      readCount: r.read_count ?? 0,
-      senderUsername: r.sender_username ?? undefined,
-      sentAt: r.created_at,
+      recipientMode: r.broadcastType === "direct" ? "specific" : r.broadcastType,
+      recipientsCount: r.recipientCount ?? 0,
+      deliveredCount: r.deliveredCount ?? 0,
+      readCount: r.readCount ?? 0,
+      senderUsername: r.senderUsername ?? undefined,
+      sentAt: r.createdAt,
     }));
 
     return NextResponse.json({ items, limit, offset });

@@ -14,7 +14,8 @@ export const maxDuration = 30;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { validateCronSecret } from "@/lib/cron/auth";
 import { logger } from "@/lib/logger";
 
@@ -24,11 +25,12 @@ export const GET = async (req: NextRequest) => {
   }
 
   try {
-    const { rowCount } = await db.query(
-      `DELETE FROM push_tickets
-       WHERE created_at < NOW() - INTERVAL '48 hours'
-         AND status IN ('ok', 'error', 'DeviceNotRegistered')`
-    );
+    const orm = await getDb();
+    const { rowCount } = await orm.execute(sql`
+      DELETE FROM push_tickets
+      WHERE created_at < NOW() - INTERVAL '48 hours'
+        AND status IN ('ok', 'error', 'DeviceNotRegistered')
+    `);
 
     logger.info({ pruned: rowCount }, "[cron/prune-push-tickets] completed");
     return NextResponse.json({ success: true, pruned: rowCount });

@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { desc } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -60,14 +61,22 @@ export const GET = withAdminAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-    const { rows } = await db.query<FlashXpEventRow>(
-      `SELECT id, name, description,
-              announced_at, fires_at, ends_at,
-              multiplier::TEXT AS multiplier,
-              is_active, fired, created_at
-       FROM flash_xp_events
-       ORDER BY announced_at DESC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.flashXpEvents.id,
+        name: schema.flashXpEvents.name,
+        description: schema.flashXpEvents.description,
+        announced_at: schema.flashXpEvents.announcedAt,
+        fires_at: schema.flashXpEvents.firesAt,
+        ends_at: schema.flashXpEvents.endsAt,
+        multiplier: schema.flashXpEvents.multiplier,
+        is_active: schema.flashXpEvents.isActive,
+        fired: schema.flashXpEvents.fired,
+        created_at: schema.flashXpEvents.createdAt,
+      })
+      .from(schema.flashXpEvents)
+      .orderBy(desc(schema.flashXpEvents.announcedAt));
 
     const events = rows.map((row) => ({
       ...row,
@@ -110,32 +119,40 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
       );
     }
 
-    const { rows } = await db.query<FlashXpEventRow>(
-      `INSERT INTO flash_xp_events
-         (name, description, announced_at, fires_at, ends_at,
-          multiplier, is_active, fired, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, TRUE, FALSE, NOW())
-       RETURNING id, name, description,
-                 announced_at, fires_at, ends_at,
-                 multiplier::TEXT AS multiplier,
-                 is_active, fired, created_at`,
-      [
-        body.name,
-        body.description ?? null,
-        body.announced_at,
-        body.fires_at,
-        body.ends_at,
-        body.multiplier,
-      ]
-    );
+    const orm = await getDb();
+    const [row] = await orm
+      .insert(schema.flashXpEvents)
+      .values({
+        name: body.name,
+        description: body.description ?? null,
+        announcedAt: announcedAt,
+        firesAt: firesAt,
+        endsAt: endsAt,
+        multiplier: String(body.multiplier),
+        isActive: true,
+        fired: false,
+        createdAt: new Date(),
+      })
+      .returning({
+        id: schema.flashXpEvents.id,
+        name: schema.flashXpEvents.name,
+        description: schema.flashXpEvents.description,
+        announced_at: schema.flashXpEvents.announcedAt,
+        fires_at: schema.flashXpEvents.firesAt,
+        ends_at: schema.flashXpEvents.endsAt,
+        multiplier: schema.flashXpEvents.multiplier,
+        is_active: schema.flashXpEvents.isActive,
+        fired: schema.flashXpEvents.fired,
+        created_at: schema.flashXpEvents.createdAt,
+      });
 
     return NextResponse.json(
       {
         success: true,
         data: {
           event: {
-            ...rows[0],
-            multiplier: parseFloat(rows[0].multiplier),
+            ...row,
+            multiplier: parseFloat(row.multiplier),
           },
         },
         error: null,

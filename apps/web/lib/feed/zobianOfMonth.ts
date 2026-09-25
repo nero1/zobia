@@ -10,7 +10,8 @@
  * load, so it must not hit the DB per request.
  */
 
-import { db } from "@/lib/db";
+import { desc, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { logger } from "@/lib/logger";
 import { memGet, memSet, memDel } from "@/lib/cache/memory";
@@ -53,35 +54,34 @@ export async function getCurrentZobianOfMonth(): Promise<ZobianOfMonthPublic | n
     logger.error({ err }, "[zobian-of-month] Redis read failed — falling back to DB");
   }
 
-  const { rows } = await db.query<{
-    month: string;
-    user_id: string;
-    username: string;
-    display_name: string;
-    avatar_emoji: string;
-    avatar_url: string | null;
-    score: string | null;
-    is_admin_override: boolean;
-    note: string | null;
-  }>(
-    `SELECT z.month, z.user_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url,
-            z.score, z.is_admin_override, z.note
-     FROM zobian_of_month z
-     JOIN users u ON u.id = z.user_id
-     WHERE z.month = date_trunc('month', NOW())::date
-     LIMIT 1`
-  );
-  const row = rows[0];
+  const db = await getDb();
+  const [row] = await db
+    .select({
+      month: schema.zobianOfMonth.month,
+      userId: schema.zobianOfMonth.userId,
+      username: schema.users.username,
+      displayName: schema.users.displayName,
+      avatarEmoji: schema.users.avatarEmoji,
+      avatarUrl: schema.users.avatarUrl,
+      score: schema.zobianOfMonth.score,
+      isAdminOverride: schema.zobianOfMonth.isAdminOverride,
+      note: schema.zobianOfMonth.note,
+    })
+    .from(schema.zobianOfMonth)
+    .innerJoin(schema.users, eq(schema.users.id, schema.zobianOfMonth.userId))
+    .where(eq(schema.zobianOfMonth.month, sql`date_trunc('month', NOW())::date`))
+    .limit(1);
+
   const result: ZobianOfMonthPublic | null = row
     ? {
-        month: row.month,
-        userId: row.user_id,
+        month: new Date(row.month).toISOString().slice(0, 10),
+        userId: row.userId,
         username: row.username,
-        displayName: row.display_name,
-        avatarEmoji: row.avatar_emoji,
-        avatarUrl: row.avatar_url,
+        displayName: row.displayName,
+        avatarEmoji: row.avatarEmoji,
+        avatarUrl: row.avatarUrl,
         score: row.score,
-        isAdminOverride: row.is_admin_override,
+        isAdminOverride: row.isAdminOverride,
         note: row.note,
       }
     : null;
@@ -112,32 +112,49 @@ export async function invalidateZobianOfMonthCache(): Promise<void> {
  * homeFeed.zobianOfMonthAutoComputeEnabled is off (caller checks that).
  */
 export async function autoComputeZobianOfMonth(): Promise<{ computed: boolean; userId: string | null }> {
-  const { rows: existing } = await db.query<{ is_admin_override: boolean }>(
-    `SELECT is_admin_override FROM zobian_of_month WHERE month = date_trunc('month', NOW())::date LIMIT 1`
-  );
-  if (existing[0]?.is_admin_override) {
+  const db = await getDb();
+
+  const [existing] = await db
+    .select({ isAdminOverride: schema.zobianOfMonth.isAdminOverride })
+    .from(schema.zobianOfMonth)
+    .where(eq(schema.zobianOfMonth.month, sql`date_trunc('month', NOW())::date`))
+    .limit(1);
+  if (existing?.isAdminOverride) {
     return { computed: false, userId: null }; // admin override wins — never overwrite
   }
 
-  const { rows: topRows } = await db.query<{ user_id: string; xp_gained: string }>(
-    `SELECT user_id, SUM(xp_awarded)::text AS xp_gained
-     FROM xp_events
-     WHERE created_at >= date_trunc('month', NOW()) AND created_at < date_trunc('month', NOW()) + INTERVAL '1 month'
-     GROUP BY user_id
-     ORDER BY SUM(xp_awarded) DESC
-     LIMIT 1`
-  );
-  const top = topRows[0];
+  const [top] = await db
+    .select({
+      userId: schema.xpEvents.userId,
+      xpGained: sql<string>`SUM(${schema.xpEvents.xpAwarded})::text`,
+    })
+    .from(schema.xpEvents)
+    .where(
+      sql`${schema.xpEvents.createdAt} >= date_trunc('month', NOW()) AND ${schema.xpEvents.createdAt} < date_trunc('month', NOW()) + INTERVAL '1 month'`
+    )
+    .groupBy(schema.xpEvents.userId)
+    .orderBy(desc(sql`SUM(${schema.xpEvents.xpAwarded})`))
+    .limit(1);
   if (!top) return { computed: false, userId: null };
 
-  await db.query(
-    `INSERT INTO zobian_of_month (month, user_id, score, is_admin_override)
-     VALUES (date_trunc('month', NOW())::date, $1, $2, false)
-     ON CONFLICT (month) DO UPDATE
-       SET user_id = EXCLUDED.user_id, score = EXCLUDED.score, updated_at = NOW()
-       WHERE zobian_of_month.is_admin_override = false`,
-    [top.user_id, top.xp_gained]
-  );
+  await db
+    .insert(schema.zobianOfMonth)
+    .values({
+      month: sql`date_trunc('month', NOW())::date`,
+      userId: top.userId,
+      score: top.xpGained,
+      isAdminOverride: false,
+    })
+    .onConflictDoUpdate({
+      target: schema.zobianOfMonth.month,
+      set: {
+        userId: top.userId,
+        score: top.xpGained,
+        updatedAt: new Date(),
+      },
+      where: eq(schema.zobianOfMonth.isAdminOverride, false),
+    });
+
   await invalidateZobianOfMonthCache();
-  return { computed: true, userId: top.user_id };
+  return { computed: true, userId: top.userId };
 }

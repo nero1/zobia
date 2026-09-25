@@ -11,16 +11,19 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { eq } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM user_pins WHERE user_id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ id: schema.userPins.id })
+      .from(schema.userPins)
+      .where(eq(schema.userPins.userId, auth.user.sub))
+      .limit(1);
 
     return NextResponse.json({ hasPinSet: rows.length > 0 });
   } catch (err) {

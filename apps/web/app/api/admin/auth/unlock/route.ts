@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { compare, hash } from "bcryptjs";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { handleApiError, unauthorized } from "@/lib/api/errors";
 import { validateBody } from "@/lib/api/middleware";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -49,11 +50,16 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ success: true, wasLocked: false }, { status: 200 });
     }
 
-    const { rows } = await db.query<AdminUserRow>(
-      `SELECT id, is_admin, admin_magic_word_hash FROM users WHERE email = $1 LIMIT 1`,
-      [body.email.toLowerCase()]
-    );
-    const user = rows[0];
+    const orm = await getDb();
+    const [user] = await orm
+      .select({
+        id: schema.users.id,
+        is_admin: schema.users.isAdmin,
+        admin_magic_word_hash: schema.users.adminMagicWordHash,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.email, body.email.toLowerCase()))
+      .limit(1);
 
     const magicWordHash = user?.admin_magic_word_hash ?? (await DUMMY_HASH_PROMISE);
     const valid = await compare(body.magicWord, magicWordHash);

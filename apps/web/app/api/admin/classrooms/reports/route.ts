@@ -12,10 +12,11 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { REPORT_SELECT, toReportView, type ReportRow } from "@/lib/classroom/community";
 
 export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) => {
@@ -24,16 +25,18 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
     const scope = new URL(req.url).searchParams.get("scope") ?? "escalated";
     const where =
       scope === "resolved"
-        ? "r.status <> 'pending'"
+        ? sql`r.status <> 'pending'`
         : scope === "pending"
-          ? "r.status = 'pending'"
-          : "r.status = 'pending' AND r.escalated = TRUE";
-    const { rows } = await db.query<ReportRow>(
-      `${REPORT_SELECT}
+          ? sql`r.status = 'pending'`
+          : sql`r.status = 'pending' AND r.escalated = TRUE`;
+
+    const orm = await getDb();
+    const { rows } = await orm.execute<ReportRow>(sql`
+      ${sql.raw(REPORT_SELECT)}
        WHERE ${where}
        ORDER BY r.escalated DESC, r.created_at DESC
-       LIMIT 200`
-    );
+       LIMIT 200
+    `);
     return NextResponse.json({ success: true, data: { reports: rows.map(toReportView) }, error: null });
   } catch (err) {
     return handleApiError(err);

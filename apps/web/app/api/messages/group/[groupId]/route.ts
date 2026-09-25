@@ -13,13 +13,19 @@ export const dynamic = 'force-dynamic';
  * exception (PRD): a Business account group creator may configure a one-time
  * credit on first join and/or a per-message credit for a member's first N
  * messages in the group — see maybeAwardBusinessMessageCredit() below.
+ *
+ * NOTE: `group_chats.is_deactivated` / `is_business` / `business_message_credit_*`
+ * are not present in lib/db/schema.ts's groupChats table (schema/DB mismatch —
+ * reported upstream; see lib/plans/groupChatSweep.ts for the same gap), so
+ * group_chats reads/writes here use Drizzle's `sql` tag directly.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { sql, eq, and } from 'drizzle-orm';
 import { withAuth, validateBody } from '@/lib/api/middleware';
 import { forbidden, badRequest, notFound } from '@/lib/api/errors';
-import { db } from '@/lib/db';
+import { getDb, schema } from '@/lib/db/drizzle';
 import { filterPublicContent } from '@/lib/messaging/antispam';
 import { applyAutoModeration } from '@/lib/moderation/contentFilter';
 import { creditCoins } from '@/lib/economy/coins';
@@ -41,18 +47,7 @@ const sendGroupMessageSchema = z.object({
   idempotencyKey: z.string().max(128).optional(),
 });
 
-interface GroupMessageRow {
-  id: string;
-  sender_id: string;
-  group_chat_id: string;
-  message_type: string;
-  content: string | null;
-  idempotency_key: string | null;
-  created_at: string;
-  updated_at: string;
-}
-
-interface GroupRow {
+type GroupRow = Record<string, unknown> & {
   name: string;
   is_active: boolean;
   is_deactivated: boolean;
@@ -60,7 +55,7 @@ interface GroupRow {
   business_message_credit_enabled: boolean;
   business_message_credit_amount: number | null;
   business_message_credit_threshold: number | null;
-}
+};
 
 /**
  * Business-configured credit for a member's first N messages in a group
@@ -77,21 +72,21 @@ async function maybeAwardBusinessMessageCredit(group: GroupRow, groupId: string,
   if (threshold <= 0 || amount <= 0) return;
 
   try {
-    const { rows } = await db.query<{ credited_message_count: number }>(
-      `UPDATE group_chat_members
-       SET credited_message_count = credited_message_count + 1
-       WHERE group_chat_id = $1 AND user_id = $2 AND credited_message_count < $3
-       RETURNING credited_message_count`,
-      [groupId, userId, threshold],
-    );
-    if (!rows[0]) return; // Already past the threshold — no more credits.
+    const orm = await getDb();
+    const result = await orm.execute<{ credited_message_count: number }>(sql`
+      UPDATE group_chat_members
+      SET credited_message_count = credited_message_count + 1
+      WHERE group_chat_id = ${groupId} AND user_id = ${userId} AND credited_message_count < ${threshold}
+      RETURNING credited_message_count
+    `);
+    if (!result.rows[0]) return; // Already past the threshold — no more credits.
 
     await creditCoins(
       userId,
       amount,
       'group_message_credit',
       `group_message_credit:${messageId}`,
-      `Message ${rows[0].credited_message_count}/${threshold} in "${group.name}"`,
+      `Message ${result.rows[0].credited_message_count}/${threshold} in "${group.name}"`,
       { groupId },
     );
   } catch (err) {
@@ -114,38 +109,45 @@ export const GET = withAuth(async (
   const after = searchParams.get('after');
   const deltaMode = !!after && !Number.isNaN(Date.parse(after));
 
+  const orm = await getDb();
+
   // Check membership
-  const { rows: memberRows } = await db.query(
-    'SELECT role FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',
-    [groupId, userId],
-  );
-  if (!memberRows[0]) throw forbidden('Not a member of this group');
+  const [membership] = await orm
+    .select({ role: schema.groupChatMembers.role })
+    .from(schema.groupChatMembers)
+    .where(and(eq(schema.groupChatMembers.groupChatId, groupId), eq(schema.groupChatMembers.userId, userId)));
+  if (!membership) throw forbidden('Not a member of this group');
 
   // Determine message history window based on user's plan
-  const { rows: planRows } = await db.query<{ plan: string }>(
-    `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [userId],
-  );
-  const userPlan = planRows[0]?.plan ?? 'free';
-  let historyFilter = '';
+  const [planRow] = await orm
+    .select({ plan: schema.users.plan })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), sql`${schema.users.deletedAt} IS NULL`))
+    .limit(1);
+  const userPlan = planRow?.plan ?? 'free';
+  let historyFilter = sql``;
   if (userPlan === 'free') {
-    historyFilter = `AND m.created_at > NOW() - INTERVAL '90 days'`;
+    historyFilter = sql`AND m.created_at > NOW() - INTERVAL '90 days'`;
   } else if (userPlan === 'plus') {
-    historyFilter = `AND m.created_at > NOW() - INTERVAL '180 days'`;
+    historyFilter = sql`AND m.created_at > NOW() - INTERVAL '180 days'`;
   }
 
-  const { rows } = await db.query(
-    `SELECT m.*, u.username, u.display_name, u.avatar_emoji, u.rank_name
-     FROM messages m
-     JOIN users u ON u.id = m.sender_id
-     WHERE m.group_chat_id = $1
-       AND m.is_deleted = false
-       ${deltaMode ? 'AND m.created_at >= $2::timestamptz' : 'AND ($2::uuid IS NULL OR m.id < $2::uuid)'}
-       ${historyFilter}
-     ORDER BY m.created_at ${deltaMode ? 'ASC' : 'DESC'}
-     LIMIT $3`,
-    [groupId, deltaMode ? after : (cursor ?? null), deltaMode ? limit : limit + 1],
-  );
+  const cursorClause = deltaMode
+    ? sql`AND m.created_at >= ${after}::timestamptz`
+    : sql`AND (${cursor ?? null}::uuid IS NULL OR m.id < ${cursor ?? null}::uuid)`;
+
+  const result = await orm.execute(sql`
+    SELECT m.*, u.username, u.display_name, u.avatar_emoji, u.rank_name
+    FROM messages m
+    JOIN users u ON u.id = m.sender_id
+    WHERE m.group_chat_id = ${groupId}
+      AND m.is_deleted = false
+      ${cursorClause}
+      ${historyFilter}
+    ORDER BY m.created_at ${deltaMode ? sql`ASC` : sql`DESC`}
+    LIMIT ${deltaMode ? limit : limit + 1}
+  `);
+  const rows = result.rows as Array<Record<string, unknown> & { id: string; created_at: string }>;
 
   // Cursor pagination only applies to the backlog query, not delta polling.
   const hasNextPage = !deltaMode && rows.length > limit;
@@ -168,80 +170,88 @@ export const POST = withAuth(async (
   await enforceRateLimit(userId, 'user', RATE_LIMITS.messageSend);
 
   const body = await validateBody(req, sendGroupMessageSchema);
+  const orm = await getDb();
 
-  // Check membership, role, and mute status
-  const { rows: memberRows } = await db.query<{ role: string; muted_until: string | null }>(
-    'SELECT role, muted_until FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',
-    [groupId, userId],
-  );
-  if (!memberRows[0]) throw forbidden('Not a member of this group');
-  if (memberRows[0].muted_until && new Date(memberRows[0].muted_until) > new Date()) {
+  // Check membership, role, and mute status.
+  // NOTE: group_chat_members.muted_until is not present in lib/db/schema.ts
+  // (schema/DB mismatch — reported upstream), so it's read via `sql` directly.
+  const [membership] = await orm
+    .select({ role: schema.groupChatMembers.role })
+    .from(schema.groupChatMembers)
+    .where(and(eq(schema.groupChatMembers.groupChatId, groupId), eq(schema.groupChatMembers.userId, userId)));
+  if (!membership) throw forbidden('Not a member of this group');
+
+  const mutedResult = await orm.execute<Record<string, unknown> & { muted_until: string | null }>(sql`
+    SELECT muted_until FROM group_chat_members WHERE group_chat_id = ${groupId} AND user_id = ${userId}
+  `);
+  const mutedUntil = mutedResult.rows[0]?.muted_until ?? null;
+  if (mutedUntil && new Date(mutedUntil) > new Date()) {
     throw forbidden(
-      `You have been suspended from posting in this group until ${new Date(memberRows[0].muted_until).toISOString()}.`,
+      `You have been suspended from posting in this group until ${new Date(mutedUntil).toISOString()}.`,
       'GROUP_MUTED',
-      { mutedUntil: memberRows[0].muted_until },
+      { mutedUntil },
     );
   }
 
-  const { rows: groupRows } = await db.query<GroupRow>(
-    `SELECT name, is_active, is_deactivated, is_business,
-            business_message_credit_enabled, business_message_credit_amount, business_message_credit_threshold
-     FROM group_chats WHERE id = $1`,
-    [groupId],
-  );
-  const group = groupRows[0];
+  const groupResult = await orm.execute<GroupRow>(sql`
+    SELECT name, is_active, is_deactivated, is_business,
+           business_message_credit_enabled, business_message_credit_amount, business_message_credit_threshold
+    FROM group_chats WHERE id = ${groupId}
+  `);
+  const group = groupResult.rows[0];
   if (!group || !group.is_active) throw notFound('Group not found');
   if (group.is_deactivated) throw forbidden('This group is deactivated', 'GROUP_DEACTIVATED');
 
-  const isAdmin = memberRows[0].role === 'admin';
+  const isAdmin = membership.role === 'admin';
 
   // Idempotency check — mirrors the DM route's existing-row check so offline-queued
   // group messages retried on reconnect don't create duplicates (OFFLINE-IDEMP-GAP).
   if (body.idempotencyKey) {
-    const { rows: dupRows } = await db.query<{ id: string }>(
-      `SELECT id FROM messages WHERE sender_id = $1 AND idempotency_key = $2 LIMIT 1`,
-      [userId, body.idempotencyKey]
-    );
-    if (dupRows[0]) {
-      const { rows: existingRows } = await db.query<GroupMessageRow>(
-        `SELECT * FROM messages WHERE id = $1 LIMIT 1`,
-        [dupRows[0].id]
+    const [dup] = await orm
+      .select({ id: schema.messages.id })
+      .from(schema.messages)
+      .where(and(eq(schema.messages.senderId, userId), eq(schema.messages.idempotencyKey, body.idempotencyKey)))
+      .limit(1);
+    if (dup) {
+      const [existing] = await orm.select().from(schema.messages).where(eq(schema.messages.id, dup.id)).limit(1);
+      return NextResponse.json(
+        { data: existing ? { ...existing, coinCost: Number(existing.coinCost ?? 0) } : existing },
+        { status: 200 }
       );
-      return NextResponse.json({ data: existingRows[0] }, { status: 200 });
     }
   }
 
   // Fetch sender's verification/trust for auto-moderation context, plus the
   // public profile fields used to render the bubble (so the HTTP response and
   // realtime echo are complete and don't show "@undefined").
-  const { rows: senderRows } = await db.query<{
-    plan: string;
-    is_verified: boolean;
-    trust_score: number;
-    username: string;
-    display_name: string | null;
-    avatar_emoji: string | null;
-    rank_name: string | null;
-  }>(
-    `SELECT COALESCE(plan, 'free') AS plan,
-            COALESCE(is_verified, false) AS is_verified,
-            COALESCE(trust_score, 50) AS trust_score,
-            username, display_name, avatar_emoji, rank_name
-     FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [userId],
-  );
-  const senderPlan = senderRows[0]?.plan ?? 'free';
+  const [senderRow] = await orm
+    .select({
+      plan: schema.users.plan,
+      isVerified: schema.users.isVerified,
+      trustScore: schema.users.trustScore,
+      username: schema.users.username,
+      displayName: schema.users.displayName,
+      avatarEmoji: schema.users.avatarEmoji,
+      rankName: schema.users.rankName,
+    })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), sql`${schema.users.deletedAt} IS NULL`))
+    .limit(1);
+  const senderPlan = senderRow?.plan ?? 'free';
 
   let content = body.content;
 
   // Layer-1 auto-moderation: bot detection, duplicate detection, profanity filter
   if (!isAdmin && body.messageType === 'text') {
-    const sender = senderRows[0] ?? { is_verified: false, trust_score: 50 };
+    const sender = senderRow
+      ? { isVerified: senderRow.isVerified ?? false, trustScore: senderRow.trustScore ?? 50 }
+      : { isVerified: false, trustScore: 50 };
+    const dbForModeration = await getDb();
     const modResult = await applyAutoModeration(
       { content, senderId: userId, roomId: groupId },
       { id: groupId },
-      { id: userId, is_verified: sender.is_verified, trust_score: sender.trust_score },
-      db
+      { id: userId, is_verified: sender.isVerified, trust_score: sender.trustScore },
+      dbForModeration
     );
     if (modResult.blocked) {
       throw badRequest(
@@ -259,29 +269,34 @@ export const POST = withAuth(async (
     throw badRequest('Message content is empty after content filtering');
   }
 
-  const { rows: msgRows } = await db.query<GroupMessageRow>(
-    `INSERT INTO messages (sender_id, group_chat_id, message_type, content, idempotency_key, sender_plan_at_creation)
-     VALUES ($1, $2, $3, $4, $5, $6)
-     RETURNING *`,
-    [userId, groupId, body.messageType, content, body.idempotencyKey ?? null, senderPlan],
-  );
+  const [insertedMessage] = await orm
+    .insert(schema.messages)
+    .values({
+      senderId: userId,
+      groupChatId: groupId,
+      messageType: body.messageType,
+      content,
+      idempotencyKey: body.idempotencyKey ?? null,
+      senderPlanAtCreation: senderPlan,
+    })
+    .returning();
+
   // Attach the sender's public profile so clients render the bubble (name +
   // avatar) immediately, matching the shape returned by the list endpoint's
   // JOIN on users.
   const enriched = {
-    ...msgRows[0],
-    username: senderRows[0]?.username ?? '',
-    display_name: senderRows[0]?.display_name ?? senderRows[0]?.username ?? '',
-    avatar_emoji: senderRows[0]?.avatar_emoji ?? '👤',
-    rank_name: senderRows[0]?.rank_name ?? null,
+    ...insertedMessage,
+    // coinCost is a bigint column — convert for JSON serialization (JSON.stringify throws on bigint).
+    coinCost: Number(insertedMessage.coinCost ?? 0),
+    username: senderRow?.username ?? '',
+    display_name: senderRow?.displayName ?? senderRow?.username ?? '',
+    avatar_emoji: senderRow?.avatarEmoji ?? '👤',
+    rank_name: senderRow?.rankName ?? null,
   };
   const message = enriched;
 
   // Update group's updated_at
-  await db.query(
-    'UPDATE group_chats SET updated_at = NOW() WHERE id = $1',
-    [groupId],
-  );
+  await orm.execute(sql`UPDATE group_chats SET updated_at = NOW() WHERE id = ${groupId}`);
 
   // The only reward posting in a group chat can earn: a Business creator's
   // configured first-N-messages credit. No XP, quests, or war contribution.
@@ -293,12 +308,12 @@ export const POST = withAuth(async (
 
   // Push notification to offline members (excludes the sender + online users).
   void (async () => {
-    const { rows: memberIdRows } = await db.query<{ user_id: string }>(
-      'SELECT user_id FROM group_chat_members WHERE group_chat_id = $1',
-      [groupId],
-    );
+    const memberIdRows = await orm
+      .select({ userId: schema.groupChatMembers.userId })
+      .from(schema.groupChatMembers)
+      .where(eq(schema.groupChatMembers.groupChatId, groupId));
     await notifyGroupMessage({
-      memberIds: memberIdRows.map((r) => r.user_id),
+      memberIds: memberIdRows.map((r) => r.userId),
       senderId: userId,
       senderName: enriched.display_name || enriched.username || 'Someone',
       groupName: group.name,

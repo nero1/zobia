@@ -19,7 +19,8 @@ import { handleApiError, forbidden, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug } from "@/lib/blogs/repo";
 import { equipTheme, purchaseAndEquipTheme } from "@/lib/blogs/themes";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 const bodySchema = z.object({
   themeId: z.string().min(1).max(60),
@@ -34,11 +35,22 @@ export const POST = withAuth<{ slug: string }>(async (req: NextRequest, { params
     if (blog.owner_id !== auth.user.sub) throw forbidden("Only the blog owner can manage its theme.");
 
     const body = await validateBody(req, bodySchema);
-    const { rows: userRows } = await db.query<{ plan: string }>(`SELECT plan FROM users WHERE id = $1 LIMIT 1`, [auth.user.sub]);
-    const plan = userRows[0]?.plan ?? "free";
-    const businessTier = blog.business_account_id
-      ? (await db.query<{ tier: string }>(`SELECT tier FROM business_accounts WHERE id = $1 LIMIT 1`, [blog.business_account_id])).rows[0]?.tier ?? null
-      : null;
+    const orm = await getDb();
+    const [userRow] = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
+    const plan = userRow?.plan ?? "free";
+    let businessTier: string | null = null;
+    if (blog.business_account_id) {
+      const [businessRow] = await orm
+        .select({ tier: schema.businessAccounts.tier })
+        .from(schema.businessAccounts)
+        .where(eq(schema.businessAccounts.id, blog.business_account_id))
+        .limit(1);
+      businessTier = businessRow?.tier ?? null;
+    }
 
     if (body.currency) {
       const result = await purchaseAndEquipTheme(blog.id, auth.user.sub, plan, businessTier, body.themeId, body.currency);

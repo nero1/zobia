@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { redis } from "@/lib/redis";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull } from "drizzle-orm";
 import { createSession, buildCookieHeaders } from "@/lib/auth/session";
 import { enforceRateLimit, getClientIp, getUserAgent, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { handleApiError } from "@/lib/api/errors";
@@ -34,16 +35,6 @@ import { handleApiError } from "@/lib/api/errors";
 // back to /home, while still rejecting anything that could carry `<`, `"`,
 // `javascript:`, `//`, or other injection-relevant characters.
 const SAFE_REDIRECT_RE = /^\/[a-zA-Z0-9/_-]*(?:\?[a-zA-Z0-9=&_-]*)?$/;
-
-interface UserRow {
-  id: string;
-  email: string | null;
-  username: string;
-  is_admin: boolean;
-  is_moderator: boolean;
-  is_creator: boolean;
-  onboarding_completed: boolean;
-}
 
 export async function GET(req: NextRequest): Promise<NextResponse> {
   try {
@@ -66,17 +57,29 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       return NextResponse.redirect(new URL("/auth/login", reqOrigin), { status: 302 });
     }
 
-    const { rows } = await db.query<UserRow>(
-      `SELECT id, email, username, is_admin, is_moderator, is_creator, onboarding_completed
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.users.id,
+        email: schema.users.email,
+        username: schema.users.username,
+        is_admin: schema.users.isAdmin,
+        is_moderator: schema.users.isModerator,
+        is_creator: schema.users.isCreator,
+        onboarding_completed: schema.users.onboardingCompleted,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     const user = rows[0];
     if (!user) {
       return NextResponse.redirect(new URL("/auth/login", reqOrigin), { status: 302 });
     }
 
-    const authTokens = await createSession(user, { ip, ua });
+    const authTokens = await createSession(
+      { ...user, onboarding_completed: user.onboarding_completed ?? false },
+      { ip, ua }
+    );
     const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
 
     const destination = new URL(safeRedirect, reqOrigin);

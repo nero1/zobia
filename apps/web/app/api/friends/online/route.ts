@@ -20,7 +20,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
-import { db } from '@/lib/db';
+import { and, desc, eq, gt, isNull, or, sql } from 'drizzle-orm';
+import { getDb, schema } from '@/lib/db/drizzle';
 
 const ONLINE_WINDOW_MINUTES = 5;
 const RECENTLY_ACTIVE_WINDOW_MINUTES = 60;
@@ -31,21 +32,35 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
   const rawLimit = Number(searchParams.get('limit'));
   const limit = Number.isFinite(rawLimit) && rawLimit > 0 ? Math.min(rawLimit, 50) : 20;
 
-  const { rows } = await db.query(
-    `SELECT u.id AS friend_id, u.username, u.display_name, u.avatar_emoji, u.rank_name,
-            u.is_creator, u.is_verified, u.plan, u.last_active_at,
-            (u.last_active_at > NOW() - INTERVAL '${ONLINE_WINDOW_MINUTES} minutes') AS is_online
-     FROM friendships f
-     JOIN users u ON u.id = CASE WHEN f.requester_id = $1 THEN f.addressee_id ELSE f.requester_id END
-     WHERE (f.requester_id = $1 OR f.addressee_id = $1)
-       AND f.status = 'accepted'
-       AND u.show_online_status = TRUE
-       AND u.last_active_at > NOW() - INTERVAL '${RECENTLY_ACTIVE_WINDOW_MINUTES} minutes'
-       AND u.deleted_at IS NULL
-     ORDER BY u.last_active_at DESC
-     LIMIT $2`,
-    [userId, limit],
-  );
+  const orm = await getDb();
+  const friendUserId = sql<string>`CASE WHEN ${schema.friendships.requesterId} = ${userId} THEN ${schema.friendships.addresseeId} ELSE ${schema.friendships.requesterId} END`;
+  const isOnline = sql<boolean>`(${schema.users.lastActiveAt} > NOW() - INTERVAL '${sql.raw(String(ONLINE_WINDOW_MINUTES))} minutes')`;
+  const rows = await orm
+    .select({
+      friend_id: schema.users.id,
+      username: schema.users.username,
+      display_name: schema.users.displayName,
+      avatar_emoji: schema.users.avatarEmoji,
+      rank_name: schema.users.rankName,
+      is_creator: schema.users.isCreator,
+      is_verified: schema.users.isVerified,
+      plan: schema.users.plan,
+      last_active_at: schema.users.lastActiveAt,
+      is_online: isOnline,
+    })
+    .from(schema.friendships)
+    .innerJoin(schema.users, eq(schema.users.id, friendUserId))
+    .where(
+      and(
+        or(eq(schema.friendships.requesterId, userId), eq(schema.friendships.addresseeId, userId)),
+        eq(schema.friendships.status, 'accepted'),
+        eq(schema.users.showOnlineStatus, true),
+        gt(schema.users.lastActiveAt, sql`NOW() - INTERVAL '${sql.raw(String(RECENTLY_ACTIVE_WINDOW_MINUTES))} minutes'`),
+        isNull(schema.users.deletedAt),
+      ),
+    )
+    .orderBy(desc(schema.users.lastActiveAt))
+    .limit(limit);
 
   const friends = rows.map((r) => ({
     id: r.friend_id,

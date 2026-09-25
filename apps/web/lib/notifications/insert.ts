@@ -10,7 +10,8 @@
  * BUG-18: standardised on title/body/metadata columns (not payload).
  */
 
-import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+import type { DbOrTx } from "@/lib/db/drizzle";
+import { schema } from "@/lib/db/schema";
 
 export type NotificationType =
   | "guild_discovery"
@@ -35,18 +36,21 @@ export type NotificationType =
  * @param metadata - Optional structured data surfaced to the client
  */
 export async function insertNotification(
-  db: DatabaseAdapter | TransactionClient,
+  db: DbOrTx,
   userId: string,
   type: NotificationType,
   title: string,
   body: string,
   metadata?: Record<string, unknown>
 ): Promise<void> {
-  await db.query(
-    `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-     VALUES ($1, $2, $3, $4, $5::jsonb, false, NOW())`,
-    [userId, type, title, body, JSON.stringify(metadata ?? {})]
-  );
+  await db.insert(schema.notifications).values({
+    userId,
+    type,
+    title,
+    body,
+    metadata: metadata ?? {},
+    isRead: false,
+  });
 }
 
 /**
@@ -58,7 +62,7 @@ export async function insertNotification(
  * to reduce round-trips and improve throughput.
  */
 export async function insertNotificationBatch(
-  db: DatabaseAdapter | TransactionClient,
+  db: DbOrTx,
   userIds: string[],
   type: NotificationType,
   title: string,
@@ -66,22 +70,21 @@ export async function insertNotificationBatch(
   metadata?: Record<string, unknown>
 ): Promise<void> {
   if (userIds.length === 0) return;
-  const metadataJson = JSON.stringify(metadata ?? {});
+  const metadataValue = metadata ?? {};
 
   // Chunk at 500 rows to avoid parameter count limits
   const CHUNK_SIZE = 500;
   for (let i = 0; i < userIds.length; i += CHUNK_SIZE) {
     const chunk = userIds.slice(i, i + CHUNK_SIZE);
-    const values = chunk
-      .map((_, j) => `($${j * 5 + 1}, $${j * 5 + 2}, $${j * 5 + 3}, $${j * 5 + 4}, $${j * 5 + 5}::jsonb, false, NOW())`)
-      .join(", ");
-    const params: string[] = [];
-    for (const userId of chunk) {
-      params.push(userId, type, title, body, metadataJson);
-    }
-    await db.query(
-      `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at) VALUES ${values}`,
-      params
+    await db.insert(schema.notifications).values(
+      chunk.map((userId) => ({
+        userId,
+        type,
+        title,
+        body,
+        metadata: metadataValue,
+        isRead: false,
+      }))
     );
   }
 }

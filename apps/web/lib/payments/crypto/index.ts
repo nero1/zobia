@@ -28,7 +28,8 @@
 
 import { randomUUID } from "crypto";
 import Decimal from "decimal.js";
-import { db } from "@/lib/db";
+import { and, eq, isNull, or } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 import { cryptoRpcBreaker } from "@/lib/payments/circuit";
 import type {
@@ -154,30 +155,35 @@ async function initializePayment(
 }
 
 export async function verifyPayment(providerReference: string): Promise<PaymentVerifyResult> {
-  interface PaymentRow {
-    id: string;
-    chain: string | null;
-    token_symbol: string | null;
-    tx_hash: string | null;
-    expected_token_amount: string | null;
-    currency: string;
-    amount_kobo: string;
-  }
-  const { rows } = await db.query<PaymentRow>(
-    `SELECT id, chain, token_symbol, tx_hash, expected_token_amount, currency, amount_kobo
-     FROM payments WHERE (provider_reference = $1 OR idempotency_key = $1) AND provider = 'crypto' LIMIT 1`,
-    [providerReference]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: schema.payments.id,
+      chain: schema.payments.chain,
+      tokenSymbol: schema.payments.tokenSymbol,
+      txHash: schema.payments.txHash,
+      expectedTokenAmount: schema.payments.expectedTokenAmount,
+      currency: schema.payments.currency,
+      amountKobo: schema.payments.amountKobo,
+    })
+    .from(schema.payments)
+    .where(
+      and(
+        or(eq(schema.payments.providerReference, providerReference), eq(schema.payments.idempotencyKey, providerReference)),
+        eq(schema.payments.provider, "crypto")
+      )
+    )
+    .limit(1);
   const payment = rows[0];
   if (!payment) {
     return { success: false, providerReference, amountSmallestUnit: 0, currency: "NGN", raw: null };
   }
-  if (!payment.tx_hash || !payment.chain || !payment.token_symbol || !payment.expected_token_amount) {
+  if (!payment.txHash || !payment.chain || !payment.tokenSymbol || !payment.expectedTokenAmount) {
     return {
       success: false,
       pending: true,
       providerReference,
-      amountSmallestUnit: Number(payment.amount_kobo),
+      amountSmallestUnit: Number(payment.amountKobo),
       currency: payment.currency,
       raw: { reason: "awaiting_tx_hash" },
     };
@@ -185,11 +191,11 @@ export async function verifyPayment(providerReference: string): Promise<PaymentV
 
   const chain = payment.chain as "bsc" | "solana";
   const adapter = getChainAdapter(chain);
-  const token = getToken(payment.token_symbol as CryptoCurrency);
+  const token = getToken(payment.tokenSymbol as CryptoCurrency);
   const receivingAddress = receivingAddressFor(chain);
 
   const transfer = await cryptoRpcBreaker.execute(() =>
-    adapter.getTransfer(payment.tx_hash as string, receivingAddress, token.contractAddress)
+    adapter.getTransfer(payment.txHash as string, receivingAddress, token.contractAddress)
   );
 
   if (transfer.status === "not_found" || transfer.status === "pending") {
@@ -197,7 +203,7 @@ export async function verifyPayment(providerReference: string): Promise<PaymentV
       success: false,
       pending: true,
       providerReference,
-      amountSmallestUnit: Number(payment.amount_kobo),
+      amountSmallestUnit: Number(payment.amountKobo),
       currency: payment.currency,
       raw: transfer,
     };
@@ -206,13 +212,13 @@ export async function verifyPayment(providerReference: string): Promise<PaymentV
     return {
       success: false,
       providerReference,
-      amountSmallestUnit: Number(payment.amount_kobo),
+      amountSmallestUnit: Number(payment.amountKobo),
       currency: payment.currency,
       raw: transfer,
     };
   }
 
-  const expected = BigInt(payment.expected_token_amount);
+  const expected = BigInt(payment.expectedTokenAmount);
   if (transfer.valueBaseUnits < expected) {
     logger.warn(
       { providerReference, expected: expected.toString(), got: transfer.valueBaseUnits.toString() },
@@ -221,7 +227,7 @@ export async function verifyPayment(providerReference: string): Promise<PaymentV
     return {
       success: false,
       providerReference,
-      amountSmallestUnit: Number(payment.amount_kobo),
+      amountSmallestUnit: Number(payment.amountKobo),
       currency: payment.currency,
       raw: { ...transfer, reason: "underpaid" },
     };
@@ -233,7 +239,7 @@ export async function verifyPayment(providerReference: string): Promise<PaymentV
       success: false,
       pending: true,
       providerReference,
-      amountSmallestUnit: Number(payment.amount_kobo),
+      amountSmallestUnit: Number(payment.amountKobo),
       currency: payment.currency,
       raw: transfer,
     };
@@ -242,7 +248,7 @@ export async function verifyPayment(providerReference: string): Promise<PaymentV
   return {
     success: true,
     providerReference,
-    amountSmallestUnit: Number(payment.amount_kobo),
+    amountSmallestUnit: Number(payment.amountKobo),
     currency: payment.currency,
     raw: transfer,
   };
@@ -285,26 +291,25 @@ export async function createPendingCryptoPayment(params: {
   const computed = await computeExpectedAmount(params.amountKobo, params.currency);
   const idempotencyKey = `crypto:${params.userId}:${randomUUID()}`;
 
-  const { rows } = await db.query<{ id: string }>(
-    `INSERT INTO payments
-       (user_id, payment_type, amount_kobo, currency, provider, status, idempotency_key,
-        reference_id, metadata, chain, token_symbol, wallet_address, expected_token_amount)
-     VALUES ($1, $2, $3, $4, 'crypto', 'pending', $5, $6, $7::jsonb, $8, $9, $10, $11)
-     RETURNING id`,
-    [
-      params.userId,
-      params.paymentType,
-      params.amountKobo,
-      "NGN",
+  const orm = await getDb();
+  const rows = await orm
+    .insert(schema.payments)
+    .values({
+      userId: params.userId,
+      paymentType: params.paymentType,
+      amountKobo: BigInt(params.amountKobo),
+      currency: "NGN",
+      provider: "crypto",
+      status: "pending",
       idempotencyKey,
-      params.referenceId ?? null,
-      JSON.stringify(params.metadata ?? {}),
-      computed.chain,
-      computed.currency,
-      computed.receivingAddress,
-      computed.expectedBaseUnits.toString(),
-    ]
-  );
+      referenceId: params.referenceId ?? null,
+      metadata: params.metadata ?? {},
+      chain: computed.chain,
+      tokenSymbol: computed.currency,
+      walletAddress: computed.receivingAddress,
+      expectedTokenAmount: computed.expectedBaseUnits.toString(),
+    })
+    .returning({ id: schema.payments.id });
   return { paymentId: rows[0].id, idempotencyKey, computed };
 }
 
@@ -317,12 +322,17 @@ export async function createPendingCryptoPayment(params: {
  */
 export async function applyCryptoComputedAmount(paymentId: string, raw: unknown): Promise<void> {
   const computed = raw as ComputedAmount;
-  await db.query(
-    `UPDATE payments
-     SET chain = $1, token_symbol = $2, wallet_address = $3, expected_token_amount = $4, updated_at = NOW()
-     WHERE id = $5`,
-    [computed.chain, computed.currency, computed.receivingAddress, computed.expectedBaseUnits.toString(), paymentId]
-  );
+  const orm = await getDb();
+  await orm
+    .update(schema.payments)
+    .set({
+      chain: computed.chain,
+      tokenSymbol: computed.currency,
+      walletAddress: computed.receivingAddress,
+      expectedTokenAmount: computed.expectedBaseUnits.toString(),
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.payments.id, paymentId));
 }
 
 export async function submitTransactionHash(params: {
@@ -331,18 +341,29 @@ export async function submitTransactionHash(params: {
   txHash: string;
   senderAddress: string;
 }): Promise<void> {
-  const { rows } = await db.query<{ id: string; status: string }>(
-    `SELECT id, status FROM payments WHERE idempotency_key = $1 AND user_id = $2 AND provider = 'crypto' LIMIT 1`,
-    [params.idempotencyKey, params.userId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ id: schema.payments.id, status: schema.payments.status })
+    .from(schema.payments)
+    .where(
+      and(
+        eq(schema.payments.idempotencyKey, params.idempotencyKey),
+        eq(schema.payments.userId, params.userId),
+        eq(schema.payments.provider, "crypto")
+      )
+    )
+    .limit(1);
   const payment = rows[0];
   if (!payment) throw new Error("[crypto] Payment not found for this reference");
   if (payment.status !== "pending") throw new Error(`[crypto] Payment is already ${payment.status}`);
 
-  await db.query(
-    `UPDATE payments
-     SET tx_hash = $1, provider_transaction_id = $1, wallet_address = $2, updated_at = NOW()
-     WHERE id = $3 AND tx_hash IS NULL`,
-    [params.txHash, params.senderAddress, payment.id]
-  );
+  await orm
+    .update(schema.payments)
+    .set({
+      txHash: params.txHash,
+      providerTransactionId: params.txHash,
+      walletAddress: params.senderAddress,
+      updatedAt: new Date(),
+    })
+    .where(and(eq(schema.payments.id, payment.id), isNull(schema.payments.txHash)));
 }

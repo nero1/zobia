@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull, lt, or, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -89,13 +90,13 @@ interface SenderRow {
   is_admin: boolean;
 }
 
-interface ConversationRow {
+interface ConversationRow extends Record<string, unknown> {
   conversation_id: string | null;
   reply_count_from_recipient: number;
   message_count: number;
 }
 
-interface MessageRow {
+interface MessageRow extends Record<string, unknown> {
   id: string;
   sender_id: string;
   recipient_id: string;
@@ -110,7 +111,7 @@ interface MessageRow {
   updated_at: string;
 }
 
-interface ConversationListRow {
+interface ConversationListRow extends Record<string, unknown> {
   conversation_id: string;
   other_user_id: string;
   other_username: string;
@@ -119,6 +120,42 @@ interface ConversationListRow {
   last_message_content: string | null;
   last_message_at: string;
   unread_count: number;
+}
+
+/** Selects a single `messages` row shaped like the legacy `MessageRow`. */
+async function selectMessageRow(
+  orm: Awaited<ReturnType<typeof getDb>>,
+  where: ReturnType<typeof eq>
+): Promise<MessageRow | undefined> {
+  const [row] = await orm
+    .select({
+      id: schema.messages.id,
+      sender_id: schema.messages.senderId,
+      recipient_id: schema.messages.recipientId,
+      conversation_id: schema.messages.conversationId,
+      message_type: schema.messages.messageType,
+      content: schema.messages.content,
+      media_url: schema.messages.mediaUrl,
+      coin_cost: schema.messages.coinCost,
+      reply_count_from_recipient: schema.messages.replyCountFromRecipient,
+      is_deleted: schema.messages.isDeleted,
+      created_at: schema.messages.createdAt,
+      updated_at: schema.messages.updatedAt,
+    })
+    .from(schema.messages)
+    .where(where)
+    .limit(1);
+  if (!row) return undefined;
+  return {
+    ...row,
+    recipient_id: row.recipient_id ?? "",
+    conversation_id: row.conversation_id,
+    coin_cost: Number(row.coin_cost ?? 0),
+    reply_count_from_recipient: row.reply_count_from_recipient ?? 0,
+    is_deleted: row.is_deleted ?? false,
+    created_at: (row.created_at as unknown as Date)?.toISOString?.() ?? String(row.created_at),
+    updated_at: (row.updated_at as unknown as Date)?.toISOString?.() ?? String(row.updated_at),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -138,31 +175,51 @@ async function handleDMGift(
   recipientId: string,
   giftItemId: string
 ): Promise<NextResponse> {
-  // Load gift item
-  const { rows: giftRows } = await db.query<{
-    id: string; name: string; emoji: string; coin_cost: number; tier: number;
-  }>(
-    `SELECT id, name, emoji, coin_cost, tier FROM gift_items WHERE id = $1 AND is_active = TRUE AND is_retired = FALSE LIMIT 1`,
-    [giftItemId]
-  );
+  const orm = await getDb();
+
+  // Load gift item, resolving a matching gift_type by name (see NOTE below).
+  const giftRows = await orm
+    .select({
+      id: schema.giftItems.id,
+      name: schema.giftItems.name,
+      emoji: schema.giftItems.emoji,
+      coin_cost: schema.giftItems.coinCost,
+      tier: schema.giftItems.tier,
+      giftTypeId: schema.giftTypes.id,
+    })
+    .from(schema.giftItems)
+    .leftJoin(
+      schema.giftTypes,
+      and(eq(schema.giftTypes.name, schema.giftItems.name), eq(schema.giftTypes.isActive, true))
+    )
+    .where(
+      and(eq(schema.giftItems.id, giftItemId), eq(schema.giftItems.isActive, true), eq(schema.giftItems.isRetired, false))
+    )
+    .limit(1);
   if (!giftRows[0]) throw badRequest("Gift item not found or unavailable");
-  const giftItem = giftRows[0];
+  const giftItemRow = giftRows[0];
+  const giftItem = { ...giftItemRow, coin_cost: Number(giftItemRow.coin_cost) };
 
   // Load recipient
-  const { rows: recipientRows } = await db.query<{
-    id: string; username: string; is_creator: boolean; creator_tier: string | null;
-    is_suspended: boolean; dm_opt_out: boolean;
-  }>(
-    `SELECT id, username,
-            COALESCE(is_creator, false) AS is_creator,
-            creator_tier,
-            COALESCE(is_suspended, false) AS is_suspended,
-            COALESCE(dm_opt_out, false) AS dm_opt_out
-     FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [recipientId]
-  );
-  if (!recipientRows[0]) throw badRequest("Recipient not found");
-  const recipient = recipientRows[0];
+  const [recipientRow] = await orm
+    .select({
+      id: schema.users.id,
+      username: schema.users.username,
+      is_creator: schema.users.isCreator,
+      creator_tier: schema.users.creatorTier,
+      is_suspended: schema.users.isSuspended,
+      dm_opt_out: schema.users.dmOptOut,
+    })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, recipientId), isNull(schema.users.deletedAt)))
+    .limit(1);
+  if (!recipientRow) throw badRequest("Recipient not found");
+  const recipient = {
+    ...recipientRow,
+    is_creator: recipientRow.is_creator ?? false,
+    is_suspended: recipientRow.is_suspended ?? false,
+    dm_opt_out: recipientRow.dm_opt_out ?? false,
+  };
 
   if (recipient.is_suspended || recipient.dm_opt_out) {
     throw badRequest("This account is not accepting messages.", "RECIPIENT_UNAVAILABLE");
@@ -177,15 +234,30 @@ async function handleDMGift(
 
   let giftId!: string;
 
-  await db.transaction(async (tx) => {
+  await orm.transaction(async (tx) => {
     // Insert the gift record FIRST to obtain a deterministic reference_id that
     // makes the subsequent debit/credit calls idempotent on client retries.
-    const { rows: giftInsert } = await tx.query<{ id: string }>(
-      `INSERT INTO gifts (sender_id, recipient_id, gift_item_id, coin_value, coin_cost, room_id, status)
-       VALUES ($1, $2, $3, $4, $4, NULL, 'delivered') RETURNING id`,
-      [senderId, recipientId, giftItem.id, giftItem.coin_cost]
-    );
-    giftId = giftInsert[0].id;
+    // NOTE: schema.gifts.giftTypeId is declared NOT NULL, but the LEFT JOIN
+    // above can legitimately produce no match for a legacy gift_items row
+    // with no matching gift_types row by name. Preserving the original
+    // raw-SQL behavior (attempt NULL, let the DB constraint decide) rather
+    // than silently changing it — flagged as a pre-existing schema/behavior
+    // mismatch, not introduced here. See app/api/economy/gifts/send/route.ts
+    // for the same pattern.
+    const [giftInsert] = await tx
+      .insert(schema.gifts)
+      .values({
+        senderId,
+        recipientId,
+        giftItemId: giftItem.id,
+        giftTypeId: giftItem.giftTypeId ?? (null as unknown as string),
+        coinValue: BigInt(giftItem.coin_cost),
+        coinCost: BigInt(giftItem.coin_cost),
+        roomId: null,
+        status: "delivered",
+      })
+      .returning({ id: schema.gifts.id });
+    giftId = giftInsert.id;
     const giftRef = `dm_gift:${giftId}`;
 
     await debitCoins(
@@ -213,30 +285,37 @@ async function handleDMGift(
     // accounting. The coin_ledger entries from creditCoins above are the
     // canonical record. Fiat conversion happens at withdrawal time only.
 
-    const { rows: convUpsert } = await tx.query<{ id: string }>(
-      `INSERT INTO dm_conversations (user_id_1, user_id_2)
-       VALUES (LEAST($1::uuid, $2::uuid), GREATEST($1::uuid, $2::uuid))
-       ON CONFLICT (user_id_1, user_id_2) DO UPDATE SET updated_at = NOW()
-       RETURNING id`,
-      [senderId, recipientId]
-    );
+    const [uid1, uid2] = canonicalDmPair(senderId, recipientId);
+    const [convUpsert] = await tx
+      .insert(schema.dmConversations)
+      .values({ userId1: uid1, userId2: uid2 })
+      .onConflictDoUpdate({
+        target: [schema.dmConversations.userId1, schema.dmConversations.userId2],
+        set: { updatedAt: sql`NOW()` },
+      })
+      .returning({ id: schema.dmConversations.id });
 
-    await tx.query(
-      `INSERT INTO messages
-         (sender_id, recipient_id, conversation_id, message_type, content, media_url, coin_cost, reply_count_from_recipient)
-       VALUES ($1, $2, $3, 'gift', $4, NULL, 0, 0)`,
-      [senderId, recipientId, convUpsert[0]?.id ?? null,
-       `${giftItem.emoji} ${giftItem.name} (${giftItem.coin_cost} coins)`]
-    );
+    await tx.insert(schema.messages).values({
+      senderId,
+      recipientId,
+      conversationId: convUpsert?.id ?? null,
+      messageType: "gift",
+      content: `${giftItem.emoji} ${giftItem.name} (${giftItem.coin_cost} coins)`,
+      mediaUrl: null,
+      coinCost: BigInt(0),
+      replyCountFromRecipient: 0,
+    });
   });
 
   // XP awards (fire-and-forget via safeAwardXP which includes DLQ fallback)
   {
-    const { rows: senderPlanRows } = await db.query<{ plan: Plan }>(
-      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [senderId]
-    ).catch(() => ({ rows: [] as Array<{ plan: Plan }> }));
-    const senderPlan: Plan = senderPlanRows[0]?.plan ?? 'free';
+    const senderPlanRows = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, senderId), isNull(schema.users.deletedAt)))
+      .limit(1)
+      .catch(() => [] as Array<{ plan: Plan }>);
+    const senderPlan: Plan = (senderPlanRows[0]?.plan as Plan | undefined) ?? 'free';
     const { finalXp: giftSenderFinalXp } = calculateFinalXP(
       'send_gift_message',
       { plan: senderPlan, isMessagingAction: true }
@@ -249,10 +328,10 @@ async function handleDMGift(
     safeAwardXP(recipientId, giftRecipFinalXp, 'social', 'gift_received', `dm_gift_received:${giftId}`).catch(() => {});
   }
 
-  void triggerActivityQuestProgress(senderId, "gift", db);
-  void advanceNewMemberQuestStep(db, senderId, "gift_someone");
+  void triggerActivityQuestProgress(senderId, "gift", orm);
+  void advanceNewMemberQuestStep(orm, senderId, "gift_someone");
 
-  recordWarContribution(senderId, "send_gift", db).catch(() => {});
+  recordWarContribution(senderId, "send_gift", orm).catch(() => {});
 
   return NextResponse.json({
     success: true,
@@ -292,34 +371,37 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("content is required for non-gift messages");
     }
 
+    const orm = await getDb();
+
     // 1. Fetch sender plan and coin balance
-    const { rows: senderRows } = await db.query<SenderRow>(
-      `SELECT id, plan, coin_balance, is_admin
-       FROM users
-       WHERE id = $1 AND deleted_at IS NULL AND is_suspended = FALSE
-       LIMIT 1`,
-      [auth.user.sub]
-    );
-    const sender = senderRows[0];
-    if (!sender) throw forbidden("Your account is not able to send messages");
+    const [senderRow] = await orm
+      .select({
+        id: schema.users.id,
+        plan: schema.users.plan,
+        coin_balance: schema.users.coinBalance,
+        is_admin: schema.users.isAdmin,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt), eq(schema.users.isSuspended, false)))
+      .limit(1);
+    if (!senderRow) throw forbidden("Your account is not able to send messages");
+    const sender = { ...senderRow, plan: senderRow.plan as Plan, coin_balance: Number(senderRow.coin_balance) };
 
     // 2. Verify recipient exists and is reachable
-    const { rows: recipientRows } = await db.query<{
-      id: string;
-      is_suspended: boolean;
-      dm_privacy: string;
-      dm_opt_out: boolean;
-    }>(
-      `SELECT id, COALESCE(is_suspended, false) AS is_suspended,
-              COALESCE(dm_privacy, 'everyone') AS dm_privacy,
-              COALESCE(dm_opt_out, false) AS dm_opt_out
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [body.recipientId]
-    );
-    if (!recipientRows[0]) throw badRequest("Recipient not found");
+    const [recipientRow] = await orm
+      .select({
+        id: schema.users.id,
+        is_suspended: schema.users.isSuspended,
+        dm_privacy: schema.users.dmPrivacy,
+        dm_opt_out: schema.users.dmOptOut,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, body.recipientId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    if (!recipientRow) throw badRequest("Recipient not found");
 
     // Suspended recipients show a generic unavailable notice (no ban reason disclosed)
-    if (recipientRows[0].is_suspended) {
+    if (recipientRow.is_suspended) {
       throw badRequest(
         "This account is temporarily unavailable.",
         "RECIPIENT_UNAVAILABLE"
@@ -327,7 +409,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // dm_opt_out: user has globally opted out of receiving DMs
-    if (recipientRows[0].dm_opt_out && !sender.is_admin) {
+    if (recipientRow.dm_opt_out && !sender.is_admin) {
       throw badRequest(
         "This account is not accepting direct messages.",
         "RECIPIENT_UNAVAILABLE"
@@ -335,11 +417,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Block check: fail silently with generic error if recipient has blocked sender
-    const { rows: blockRows } = await db.query<{ id: string }>(
-      `SELECT id FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2 LIMIT 1`,
-      [body.recipientId, auth.user.sub]
-    );
-    if (blockRows[0] && !sender.is_admin) {
+    const [blockRow] = await orm
+      .select({ id: schema.userBlocks.id })
+      .from(schema.userBlocks)
+      .where(and(eq(schema.userBlocks.blockerId, body.recipientId), eq(schema.userBlocks.blockedId, auth.user.sub)))
+      .limit(1);
+    if (blockRow && !sender.is_admin) {
       throw badRequest(
         "This account is temporarily unavailable.",
         "RECIPIENT_UNAVAILABLE"
@@ -347,45 +430,51 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // dm_privacy: 'friends_only' — only friends can initiate
-    if (recipientRows[0].dm_privacy === "friends_only" && !sender.is_admin) {
-      const { rows: friendRows } = await db.query<{ id: string }>(
-        `SELECT id FROM friendships
-         WHERE ((requester_id = $1 AND addressee_id = $2)
-             OR (requester_id = $2 AND addressee_id = $1))
-           AND status = 'accepted' LIMIT 1`,
-        [auth.user.sub, body.recipientId]
-      );
-      if (!friendRows[0]) {
+    if (recipientRow.dm_privacy === "friends_only" && !sender.is_admin) {
+      const [friendRow] = await orm
+        .select({ id: schema.friendships.id })
+        .from(schema.friendships)
+        .where(
+          and(
+            or(
+              and(eq(schema.friendships.requesterId, auth.user.sub), eq(schema.friendships.addresseeId, body.recipientId)),
+              and(eq(schema.friendships.requesterId, body.recipientId), eq(schema.friendships.addresseeId, auth.user.sub))
+            ),
+            eq(schema.friendships.status, "accepted")
+          )
+        )
+        .limit(1);
+      if (!friendRow) {
         throw forbidden("This user only accepts DMs from friends.");
       }
     }
 
     // 3. Check for an existing conversation between the two users
-    const { rows: convRows } = await db.query<ConversationRow>(
-      `SELECT
-         c.id AS conversation_id,
-         COALESCE(
-           (SELECT COUNT(*) FROM messages m
-            WHERE m.recipient_id = $1 AND m.sender_id = $2
-              AND m.is_deleted = FALSE),
-           0
-         )::int AS reply_count_from_recipient,
-         COALESCE(
-           (SELECT COUNT(*) FROM messages m
-            WHERE ((m.sender_id = $1 AND m.recipient_id = $2)
-                OR (m.sender_id = $2 AND m.recipient_id = $1))
-              AND m.is_deleted = FALSE),
-           0
-         )::int AS message_count
-       FROM dm_conversations c
-       WHERE c.user_id_1 = $1 AND c.user_id_2 = $2
-       LIMIT 1`,
-      // BUG-020 FIX: use canonicalDmPair to ensure the lookup hits the unique index
-      // on (user_id_1, user_id_2). Previously the OR condition bypassed the index.
-      canonicalDmPair(auth.user.sub, body.recipientId)
-    );
+    // BUG-020 FIX: use canonicalDmPair to ensure the lookup hits the unique index
+    // on (user_id_1, user_id_2). Previously the OR condition bypassed the index.
+    const [uid1, uid2] = canonicalDmPair(auth.user.sub, body.recipientId);
+    const convResult = await orm.execute<ConversationRow>(sql`
+      SELECT
+        c.id AS conversation_id,
+        COALESCE(
+          (SELECT COUNT(*) FROM messages m
+           WHERE m.recipient_id = ${uid1} AND m.sender_id = ${uid2}
+             AND m.is_deleted = FALSE),
+          0
+        )::int AS reply_count_from_recipient,
+        COALESCE(
+          (SELECT COUNT(*) FROM messages m
+           WHERE ((m.sender_id = ${uid1} AND m.recipient_id = ${uid2})
+               OR (m.sender_id = ${uid2} AND m.recipient_id = ${uid1}))
+             AND m.is_deleted = FALSE),
+          0
+        )::int AS message_count
+      FROM dm_conversations c
+      WHERE c.user_id_1 = ${uid1} AND c.user_id_2 = ${uid2}
+      LIMIT 1
+    `);
 
-    const existingConv = convRows[0] ?? null;
+    const existingConv = convResult.rows[0] ?? null;
     const isInitiating = !existingConv || existingConv.message_count === 0;
     const replyCountFromRecipient = existingConv?.reply_count_from_recipient ?? 0;
 
@@ -401,21 +490,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // 4b. Idempotency check BEFORE incrementing the daily counter so that retried
     //     requests with the same idempotency key do not consume quota (BUG-MSG-01).
     if (body.idempotencyKey) {
-      const { rows: dupRows } = await db.query<{ id: string }>(
-        `SELECT id FROM messages
-         WHERE sender_id = $1 AND idempotency_key = $2
-         LIMIT 1`,
-        [auth.user.sub, body.idempotencyKey]
-      );
-      if (dupRows[0]) {
+      const [dupRow] = await orm
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(and(eq(schema.messages.senderId, auth.user.sub), eq(schema.messages.idempotencyKey, body.idempotencyKey)))
+        .limit(1);
+      if (dupRow) {
         // Return the existing message — do not charge again
-        const { rows: existingMsgRows } = await db.query<MessageRow>(
-          `SELECT id, sender_id, recipient_id, conversation_id, message_type, content, media_url,
-                  coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at
-           FROM messages WHERE id = $1 LIMIT 1`,
-          [dupRows[0].id]
-        );
-        return NextResponse.json({ message: existingMsgRows[0] }, { status: 200 });
+        const existingMsg = await selectMessageRow(orm, eq(schema.messages.id, dupRow.id));
+        return NextResponse.json({ message: existingMsg }, { status: 200 });
       }
     }
 
@@ -486,21 +569,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // 9. Atomic transaction: deduct coins + create message + upsert conversation
-    const message = await db.transaction(async (tx) => {
+    const message = await orm.transaction(async (tx) => {
       // 9a. Upsert the dm_conversation record FIRST so its id can serve as the
       //     idempotency reference_id for the coin debit (TASK-03).
-      const { rows: convUpsertRows } = await tx.query<{ id: string }>(
-        `INSERT INTO dm_conversations (user_id_1, user_id_2)
-         VALUES (
-           LEAST($1::uuid, $2::uuid),
-           GREATEST($1::uuid, $2::uuid)
-         )
-         ON CONFLICT (user_id_1, user_id_2) DO UPDATE
-           SET updated_at = NOW()
-         RETURNING id`,
-        [auth.user.sub, body.recipientId]
-      );
-      const conversationId = convUpsertRows[0]?.id;
+      const [txUid1, txUid2] = canonicalDmPair(auth.user.sub, body.recipientId);
+      const [convUpsert] = await tx
+        .insert(schema.dmConversations)
+        .values({ userId1: txUid1, userId2: txUid2 })
+        .onConflictDoUpdate({
+          target: [schema.dmConversations.userId1, schema.dmConversations.userId2],
+          set: { updatedAt: sql`NOW()` },
+        })
+        .returning({ id: schema.dmConversations.id });
+      const conversationId = convUpsert?.id;
 
       // 9b. Deduct coins via debitCoins() — writes a ledger row and is idempotent
       //     on conversationId, preventing double-charges on client retries.
@@ -529,45 +610,61 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // (messages_sender_idempotency_key_uq) to enforce idempotency atomically at
       // the DB level. The pre-check SELECT (step 8) remains as a fast-path but is
       // no longer the correctness guard — only the DB constraint is.
-      const { rows: msgRows } = await tx.query<MessageRow>(
-        `INSERT INTO messages
-           (sender_id, recipient_id, conversation_id, message_type, content,
-            media_url, coin_cost, reply_count_from_recipient, idempotency_key, sender_plan_at_creation)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-         ON CONFLICT (sender_id, idempotency_key) WHERE idempotency_key IS NOT NULL
-         DO NOTHING
-         RETURNING id, sender_id, recipient_id, conversation_id, message_type, content, media_url,
-                   coin_cost, reply_count_from_recipient, is_deleted,
-                   created_at, updated_at`,
-        [
-          auth.user.sub,
-          body.recipientId,
-          conversationId ?? null,
-          body.messageType,
-          filteredContent.trim() || "[Message removed by content filter]",
-          body.mediaUrl ?? null,
-          coinCost,
+      const [msgRow] = await tx
+        .insert(schema.messages)
+        .values({
+          senderId: auth.user.sub,
+          recipientId: body.recipientId,
+          conversationId: conversationId ?? null,
+          messageType: body.messageType,
+          content: filteredContent.trim() || "[Message removed by content filter]",
+          mediaUrl: body.mediaUrl ?? null,
+          coinCost: BigInt(coinCost ?? 0),
           replyCountFromRecipient,
-          body.idempotencyKey ?? null,
-          sender.plan,
-        ]
-      );
+          idempotencyKey: body.idempotencyKey ?? null,
+          senderPlanAtCreation: sender.plan,
+        })
+        .onConflictDoNothing({
+          target: [schema.messages.senderId, schema.messages.idempotencyKey],
+        })
+        .returning({
+          id: schema.messages.id,
+          sender_id: schema.messages.senderId,
+          recipient_id: schema.messages.recipientId,
+          conversation_id: schema.messages.conversationId,
+          message_type: schema.messages.messageType,
+          content: schema.messages.content,
+          media_url: schema.messages.mediaUrl,
+          coin_cost: schema.messages.coinCost,
+          reply_count_from_recipient: schema.messages.replyCountFromRecipient,
+          is_deleted: schema.messages.isDeleted,
+          created_at: schema.messages.createdAt,
+          updated_at: schema.messages.updatedAt,
+        });
 
-      // If the INSERT was a no-op (idempotency conflict), msgRows is empty.
+      // If the INSERT was a no-op (idempotency conflict), msgRow is undefined.
       // Return null so the caller can fetch and return the existing message.
-      return msgRows[0] ?? null;
+      if (!msgRow) return null;
+      return {
+        ...msgRow,
+        recipient_id: msgRow.recipient_id ?? "",
+        coin_cost: Number(msgRow.coin_cost ?? 0),
+        reply_count_from_recipient: msgRow.reply_count_from_recipient ?? 0,
+        is_deleted: msgRow.is_deleted ?? false,
+        created_at: (msgRow.created_at as unknown as Date)?.toISOString?.() ?? String(msgRow.created_at),
+        updated_at: (msgRow.updated_at as unknown as Date)?.toISOString?.() ?? String(msgRow.updated_at),
+      } as MessageRow;
     });
 
     if (!message) {
       // ON CONFLICT DO NOTHING returned zero rows — a concurrent request with the
       // same idempotency key already inserted this message. Fetch and return it.
       if (body.idempotencyKey) {
-        const { rows: existingRows } = await db.query<MessageRow>(
-          `SELECT id, sender_id, recipient_id, conversation_id, message_type, content, media_url,
-                  coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at
-           FROM messages WHERE sender_id = $1 AND idempotency_key = $2 LIMIT 1`,
-          [auth.user.sub, body.idempotencyKey]
-        );
+        const { rows: existingRows } = await orm.execute<MessageRow>(sql`
+          SELECT id, sender_id, recipient_id, conversation_id, message_type, content, media_url,
+                 coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at
+          FROM messages WHERE sender_id = ${auth.user.sub} AND idempotency_key = ${body.idempotencyKey} LIMIT 1
+        `);
         if (existingRows[0]) {
           return NextResponse.json({ message: existingRows[0] }, { status: 200 });
         }
@@ -596,8 +693,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Trigger matching daily quest progress for sending a DM
-    void triggerActivityQuestProgress(auth.user.sub, "messages", db);
-    void advanceNewMemberQuestStep(db, auth.user.sub, "send_message");
+    void triggerActivityQuestProgress(auth.user.sub, "messages", orm);
+    void advanceNewMemberQuestStep(orm, auth.user.sub, "send_message");
 
     // 12. Daily counter already incremented atomically in step 5 (BUG-10)
 
@@ -607,19 +704,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     );
 
     // 14. Record guild war contribution — best-effort
-    recordWarContribution(auth.user.sub, 'send_message', db).catch((err) => {
+    recordWarContribution(auth.user.sub, 'send_message', orm).catch((err) => {
       logger.error({ err: err }, "[dm:POST] war contribution failed");
       });
 
     // 15. Realtime broadcast — push the new message to open clients
     if (message.id) {
       // Fetch the conversation id for the channel name (may be null for new convs)
-      db.query<{ id: string }>(
-        `SELECT id FROM dm_conversations
-         WHERE (user_id_1 = LEAST($1::text, $2::text) AND user_id_2 = GREATEST($1::text, $2::text))
-         LIMIT 1`,
-        [auth.user.sub, body.recipientId]
-      ).then(({ rows }) => {
+      orm.execute<{ id: string } & Record<string, unknown>>(sql`
+        SELECT id FROM dm_conversations
+        WHERE (user_id_1 = LEAST(${auth.user.sub}::text, ${body.recipientId}::text) AND user_id_2 = GREATEST(${auth.user.sub}::text, ${body.recipientId}::text))
+        LIMIT 1
+      `).then(({ rows }) => {
         if (rows[0]?.id) {
           return publishRealtimeEvent(
             `dm:conversation:${rows[0].id}`,
@@ -653,15 +749,13 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       listDMsQuerySchema
     );
 
+    const orm = await getDb();
     const cursorClause = cursor
-      ? `AND c.last_message_at < $3`
-      : "";
+      ? sql`AND c.last_message_at < ${cursor}`
+      : sql``;
 
-    const params: (string | number)[] = [auth.user.sub, limit];
-    if (cursor) params.push(cursor);
-
-    const { rows } = await db.query<ConversationListRow>(
-      `SELECT
+    const { rows } = await orm.execute<ConversationListRow>(sql`
+      SELECT
          c.id AS conversation_id,
          u.id AS other_user_id,
          u.username AS other_username,
@@ -672,14 +766,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          COALESCE(
            (SELECT COUNT(*) FROM messages unread
             WHERE unread.conversation_id = c.id
-              AND unread.recipient_id = $1
+              AND unread.recipient_id = ${auth.user.sub}
               AND unread.is_read = FALSE
               AND unread.is_deleted = FALSE),
            0
          )::int AS unread_count
        FROM dm_conversations c
        JOIN users u ON u.id = CASE
-         WHEN c.user_id_1 = $1 THEN c.user_id_2
+         WHEN c.user_id_1 = ${auth.user.sub} THEN c.user_id_2
          ELSE c.user_id_1
        END
        LEFT JOIN LATERAL (
@@ -687,13 +781,12 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          WHERE conversation_id = c.id AND is_deleted = FALSE
          ORDER BY created_at DESC LIMIT 1
        ) m ON TRUE
-       WHERE (c.user_id_1 = $1 OR c.user_id_2 = $1)
+       WHERE (c.user_id_1 = ${auth.user.sub} OR c.user_id_2 = ${auth.user.sub})
          AND u.deleted_at IS NULL
          ${cursorClause}
        ORDER BY c.updated_at DESC
-       LIMIT $2`,
-      params
-    );
+       LIMIT ${limit}
+    `);
 
     const nextCursor =
       rows.length === limit

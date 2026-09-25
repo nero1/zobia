@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import { schema, type DbOrTx } from "@/lib/db/drizzle";
 
 // ---------------------------------------------------------------------------
 // Rewarded Gifts — reward_config (see db/migrations/0001_consolidated_schema.sql)
@@ -92,57 +92,41 @@ export interface GiftItem {
   createdAt: string;
 }
 
-interface GiftItemInsertRow {
-  id: string;
-  name: string;
-  emoji: string;
-  coin_cost: number;
-  tier: number;
-  animation_url: string | null;
-  spectacle_threshold_coins: number | null;
-  is_active: boolean;
-  is_rewarded: boolean;
-  reward_config: RewardConfig | null;
-  created_at: string;
-}
-
 /**
  * Insert a new gift_items row. Caller is responsible for validating `input`
  * (e.g. via createGiftSchema in app/api/admin/gifts/route.ts) before calling.
  */
 export async function createGiftItem(
   input: CreateGiftItemInput,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<GiftItem> {
   const isRewarded = input.isRewarded ?? false;
-  const { rows } = await db.query<GiftItemInsertRow>(
-    `INSERT INTO gift_items (name, emoji, coin_cost, tier, animation_url, spectacle_threshold_coins, is_active, is_rewarded, reward_config)
-     VALUES ($1, $2, $3, $4, $5, $6, TRUE, $7, $8::jsonb)
-     RETURNING id, name, emoji, coin_cost, tier, animation_url, spectacle_threshold_coins, is_active, is_rewarded, reward_config, created_at`,
-    [
-      input.name,
-      input.emoji,
-      input.coinCost,
-      input.tier,
-      input.animationUrl ?? null,
-      input.spectacleThresholdCoins ?? null,
+  const [row] = await db
+    .insert(schema.giftItems)
+    .values({
+      name: input.name,
+      emoji: input.emoji,
+      coinCost: BigInt(input.coinCost),
+      tier: input.tier,
+      animationUrl: input.animationUrl ?? null,
+      spectacleThresholdCoins: input.spectacleThresholdCoins ?? null,
+      isActive: true,
       isRewarded,
-      isRewarded && input.rewardConfig ? JSON.stringify(input.rewardConfig) : null,
-    ]
-  );
+      rewardConfig: isRewarded && input.rewardConfig ? input.rewardConfig : null,
+    })
+    .returning();
 
-  const row = rows[0];
   return {
     id: row.id,
     name: row.name,
     emoji: row.emoji,
-    coinCost: row.coin_cost,
+    coinCost: Number(row.coinCost),
     tier: row.tier,
-    animationUrl: row.animation_url,
-    spectacleThresholdCoins: row.spectacle_threshold_coins,
-    isActive: row.is_active,
-    isRewarded: row.is_rewarded,
-    rewardConfig: row.reward_config,
-    createdAt: row.created_at,
+    animationUrl: row.animationUrl,
+    spectacleThresholdCoins: row.spectacleThresholdCoins,
+    isActive: row.isActive,
+    isRewarded: row.isRewarded,
+    rewardConfig: row.rewardConfig as RewardConfig | null,
+    createdAt: row.createdAt ? row.createdAt.toISOString() : new Date().toISOString(),
   };
 }

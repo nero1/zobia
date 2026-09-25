@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, conflict, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -29,40 +30,37 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
     await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
 
-    const { rows } = await db.query<{
-      id: string;
-      verification_status: string;
-    }>(
-      `SELECT id, verification_status
-       FROM business_accounts
-       WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ id: schema.businessAccounts.id, verificationStatus: schema.businessAccounts.verificationStatus })
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.userId, userId))
+      .limit(1);
 
     if (!rows[0]) throw notFound("Business account not found");
 
-    const { id, verification_status } = rows[0];
+    const { id, verificationStatus } = rows[0];
 
-    if (verification_status === "pending") {
+    if (verificationStatus === "pending") {
       throw conflict("A verification request is already pending");
     }
-    if (verification_status === "verified") {
+    if (verificationStatus === "verified") {
       throw conflict("This business account is already verified");
     }
 
-    await db.query(
-      `UPDATE business_accounts
-       SET verification_status = 'pending',
-           verification_requested_at = NOW(),
-           verification_reviewed_at = NULL,
-           verification_reject_reason = NULL,
-           updated_at = NOW()
-       WHERE id = $1`,
-      [id]
-    );
+    await orm
+      .update(schema.businessAccounts)
+      .set({
+        verificationStatus: "pending",
+        verificationRequestedAt: new Date(),
+        verificationReviewedAt: null,
+        verificationRejectReason: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.businessAccounts.id, id));
 
     // Alert admin of new verification request
-    await raiseAlert(db, {
+    await raiseAlert(orm, {
       type: "business_verification_request",
       category: "other",
       priorityLevel: 6,
@@ -90,23 +88,21 @@ export const DELETE = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<{ id: string; verification_status: string }>(
-      `SELECT id, verification_status FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ id: schema.businessAccounts.id, verificationStatus: schema.businessAccounts.verificationStatus })
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.userId, userId))
+      .limit(1);
     if (!rows[0]) throw notFound("Business account not found");
-    if (rows[0].verification_status !== "pending") {
+    if (rows[0].verificationStatus !== "pending") {
       throw badRequest("No pending verification request to cancel");
     }
 
-    await db.query(
-      `UPDATE business_accounts
-       SET verification_status = 'unverified',
-           verification_requested_at = NULL,
-           updated_at = NOW()
-       WHERE id = $1`,
-      [rows[0].id]
-    );
+    await orm
+      .update(schema.businessAccounts)
+      .set({ verificationStatus: "unverified", verificationRequestedAt: null, updatedAt: new Date() })
+      .where(eq(schema.businessAccounts.id, rows[0].id));
 
     return NextResponse.json({
       success: true,

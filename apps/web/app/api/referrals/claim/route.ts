@@ -24,7 +24,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import {
   withAuth,
   validateBody,
@@ -44,15 +45,6 @@ const claimSchema = z.object({
 // Types
 // ---------------------------------------------------------------------------
 
-interface ReferrerRow {
-  id: string;
-  referred_by: string | null;
-}
-
-interface ExistingReferralRow {
-  id: string;
-}
-
 // ---------------------------------------------------------------------------
 // Handler
 // ---------------------------------------------------------------------------
@@ -64,15 +56,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, claimSchema);
     const newUserId = auth.user.sub;
+    const orm = await getDb();
 
     // Resolve the referrer
-    const referrerResult = await db.query<ReferrerRow>(
-      `SELECT id, referred_by
-       FROM users
-       WHERE referral_code = $1 AND deleted_at IS NULL LIMIT 1`,
-      [body.referralCode]
-    );
-    const referrer = referrerResult.rows[0];
+    const [referrer] = await orm
+      .select({ id: schema.users.id, referredBy: schema.users.referredBy })
+      .from(schema.users)
+      .where(
+        and(
+          eq(schema.users.referralCode, body.referralCode),
+          isNull(schema.users.deletedAt)
+        )
+      )
+      .limit(1);
 
     if (!referrer) {
       throw badRequest(
@@ -88,49 +84,62 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    await db.transaction(async (client) => {
+    await orm.transaction(async (tx) => {
       // Check if tier-1 referral already exists (idempotency)
-      const existing = await client.query<ExistingReferralRow>(
-        `SELECT id FROM referrals
-         WHERE referrer_id = $1 AND referred_id = $2 LIMIT 1`,
-        [referrer.id, newUserId]
-      );
+      const [existing] = await tx
+        .select({ id: schema.referrals.id })
+        .from(schema.referrals)
+        .where(
+          and(
+            eq(schema.referrals.referrerId, referrer.id),
+            eq(schema.referrals.referredId, newUserId)
+          )
+        )
+        .limit(1);
 
-      if (existing.rows.length === 0) {
+      if (!existing) {
         // Create tier-1 referral: direct referrer → new user
-        await client.query(
-          `INSERT INTO referrals (referrer_id, referred_id, tier, qualified, created_at)
-           VALUES ($1, $2, 1, false, NOW())`,
-          [referrer.id, newUserId]
-        );
+        await tx.insert(schema.referrals).values({
+          referrerId: referrer.id,
+          referredId: newUserId,
+          tier: 1,
+          qualified: false,
+        });
       }
 
       // Tier-2: if the referrer was themselves referred by someone else,
       // create a tier-2 record so that original referrer can be rewarded
       // when the new user qualifies (e.g. completes first action).
-      if (referrer.referred_by) {
-        const existingTier2 = await client.query<ExistingReferralRow>(
-          `SELECT id FROM referrals
-           WHERE referrer_id = $1 AND referred_id = $2 AND tier = 2 LIMIT 1`,
-          [referrer.referred_by, newUserId]
-        );
+      if (referrer.referredBy) {
+        const [existingTier2] = await tx
+          .select({ id: schema.referrals.id })
+          .from(schema.referrals)
+          .where(
+            and(
+              eq(schema.referrals.referrerId, referrer.referredBy),
+              eq(schema.referrals.referredId, newUserId),
+              eq(schema.referrals.tier, 2)
+            )
+          )
+          .limit(1);
 
-        if (existingTier2.rows.length === 0) {
-          await client.query(
-            `INSERT INTO referrals (referrer_id, referred_id, tier, qualified, created_at)
-             VALUES ($1, $2, 2, false, NOW())`,
-            [referrer.referred_by, newUserId]
-          );
+        if (!existingTier2) {
+          await tx.insert(schema.referrals).values({
+            referrerId: referrer.referredBy,
+            referredId: newUserId,
+            tier: 2,
+            qualified: false,
+          });
         }
       }
 
       // Store the referrer on the new user's record (idempotent update)
-      await client.query(
-        `UPDATE users
-         SET referred_by = $1, updated_at = NOW()
-         WHERE id = $2 AND referred_by IS NULL`,
-        [referrer.id, newUserId]
-      );
+      await tx
+        .update(schema.users)
+        .set({ referredBy: referrer.id, updatedAt: new Date() })
+        .where(
+          and(eq(schema.users.id, newUserId), isNull(schema.users.referredBy))
+        );
     });
 
     return NextResponse.json({

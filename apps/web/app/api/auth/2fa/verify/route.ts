@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, unauthorized, forbidden } from "@/lib/api/errors";
@@ -86,48 +87,44 @@ export async function POST(req: NextRequest) {
       }
 
       // Fetch user row
-      const { rows } = await db.query<{
-        id: string;
-        email: string;
-        username: string;
-        is_admin: boolean;
-        totp_secret: string | null;
-        totp_enabled: boolean;
-        onboarding_completed: boolean;
-        is_moderator: boolean;
-        avatar_emoji: string | null;
-        city: string | null;
-        xp_total: number | null;
-        rank_name: string | null;
-        is_creator: boolean;
-        plan: string | null;
-        is_banned: boolean;
-        is_suspended: boolean;
-        suspended_until: string | null;
-      }>(
-        `SELECT id, email, username, is_admin, totp_secret, totp_enabled, onboarding_completed, is_moderator,
-                avatar_emoji, city, xp_total, rank_name, COALESCE(is_creator, false) AS is_creator, plan,
-                COALESCE(is_banned, false) AS is_banned,
-                COALESCE(is_suspended, false) AS is_suspended,
-                suspended_until
-         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      const user = rows[0];
+      const orm = await getDb();
+      const [user] = await orm
+        .select({
+          id: schema.users.id,
+          email: schema.users.email,
+          username: schema.users.username,
+          isAdmin: schema.users.isAdmin,
+          totpSecret: schema.users.totpSecret,
+          totpEnabled: schema.users.totpEnabled,
+          onboardingCompleted: schema.users.onboardingCompleted,
+          isModerator: schema.users.isModerator,
+          avatarEmoji: schema.users.avatarEmoji,
+          city: schema.users.city,
+          xpTotal: schema.users.xpTotal,
+          rankName: schema.users.rankName,
+          isCreator: schema.users.isCreator,
+          plan: schema.users.plan,
+          isBanned: schema.users.isBanned,
+          isSuspended: schema.users.isSuspended,
+          suspendedUntil: schema.users.suspendedUntil,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .limit(1);
 
-      if (!user || !user.totp_enabled || !user.totp_secret) {
+      if (!user || !user.totpEnabled || !user.totpSecret) {
         throw badRequest("2FA is not enabled for this user", "TOTP_NOT_ENABLED");
       }
 
-      if (user.is_banned) {
+      if (user.isBanned) {
         throw forbidden("Your account has been banned.");
       }
 
-      if (user.is_suspended && user.suspended_until && new Date(user.suspended_until) > new Date()) {
+      if (user.isSuspended && user.suspendedUntil && new Date(user.suspendedUntil) > new Date()) {
         throw forbidden("Your account is currently suspended.");
       }
 
-      const secret = user.totp_secret ? decryptField(user.totp_secret) : null;
+      const secret = user.totpSecret ? decryptField(user.totpSecret) : null;
       if (!secret || !(await verifyTotp(secret, code))) {
         return NextResponse.json({ success: false, error: "Invalid code" }, { status: 400 });
       }
@@ -141,10 +138,10 @@ export async function POST(req: NextRequest) {
 
       // Consume the pre-auth token — clear both Redis key and DB column
       await redis.del(redisKey);
-      await db.query(
-        `UPDATE users SET pre_auth_session = NULL, updated_at = NOW() WHERE id = $1`,
-        [userId]
-      );
+      await orm
+        .update(schema.users)
+        .set({ preAuthSession: null, updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
 
       // Create full session
       const authTokens = await createSession(
@@ -152,9 +149,9 @@ export async function POST(req: NextRequest) {
           id: user.id,
           email: user.email,
           username: user.username ?? "",
-          is_admin: user.is_admin,
-          is_moderator: user.is_moderator,
-          is_creator: user.is_creator,
+          is_admin: user.isAdmin,
+          is_moderator: user.isModerator,
+          is_creator: user.isCreator,
         },
         { ip, ua }
       );
@@ -165,22 +162,22 @@ export async function POST(req: NextRequest) {
         // BUG-EXPO-03: include all AuthUser fields so the mobile app has full user state.
         return NextResponse.json({
           success: true,
-          onboardingCompleted: user.onboarding_completed,
+          onboardingCompleted: user.onboardingCompleted,
           accessToken: authTokens.accessToken,
           refreshToken: authTokens.refreshToken,
           userId: user.id,
           user: {
             id: user.id,
             username: user.username ?? "",
-            avatarEmoji: user.avatar_emoji ?? "😎",
+            avatarEmoji: user.avatarEmoji ?? "😎",
             city: user.city ?? "",
-            xp: user.xp_total ?? 0,
-            rankTier: user.rank_name ?? "Beginner",
+            xp: user.xpTotal != null ? Number(user.xpTotal) : 0,
+            rankTier: user.rankName ?? "Beginner",
             plan: (user.plan ?? "free") as "free" | "plus" | "pro" | "max",
-            isAdmin: user.is_admin,
-            isModerator: user.is_moderator,
-            isCreator: user.is_creator,
-            onboardingCompleted: user.onboarding_completed,
+            isAdmin: user.isAdmin,
+            isModerator: user.isModerator,
+            isCreator: user.isCreator,
+            onboardingCompleted: user.onboardingCompleted,
           },
         });
       }
@@ -188,7 +185,7 @@ export async function POST(req: NextRequest) {
       const { accessCookie, refreshCookie } = buildCookieHeaders(authTokens);
       const response = NextResponse.json({
         success: true,
-        onboardingCompleted: user.onboarding_completed,
+        onboardingCompleted: user.onboardingCompleted,
       });
       response.headers.append("Set-Cookie", accessCookie);
       response.headers.append("Set-Cookie", refreshCookie);

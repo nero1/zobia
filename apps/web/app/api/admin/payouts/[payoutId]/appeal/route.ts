@@ -15,9 +15,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq, sql } from "drizzle-orm";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 const AppealResolveSchema = z.object({
   action: z.enum(["approve", "dismiss"]),
@@ -34,22 +35,22 @@ export const PATCH = withAdminAuth(
       const adminId = auth.user.sub;
       const body = await validateBody(req, AppealResolveSchema);
 
-      const { rows } = await db.query<{
-        id: string;
-        creator_id: string;
-        gross_kobo: number;
-        status: string;
-        appeal_status: string | null;
-        payout_method: string;
-      }>(
-        `SELECT id, creator_id, gross_kobo, status, appeal_status, payout_method
-         FROM creator_payouts WHERE id = $1 LIMIT 1`,
-        [payoutId]
-      );
+      const orm = await getDb();
 
-      if (!rows[0]) throw notFound("Payout not found");
+      const [payout] = await orm
+        .select({
+          id: schema.creatorPayouts.id,
+          creator_id: schema.creatorPayouts.creatorId,
+          gross_kobo: schema.creatorPayouts.grossKobo,
+          status: schema.creatorPayouts.status,
+          appeal_status: schema.creatorPayouts.appealStatus,
+          payout_method: schema.creatorPayouts.payoutMethod,
+        })
+        .from(schema.creatorPayouts)
+        .where(eq(schema.creatorPayouts.id, payoutId))
+        .limit(1);
 
-      const payout = rows[0];
+      if (!payout) throw notFound("Payout not found");
 
       if (payout.appeal_status !== "pending") {
         throw badRequest(
@@ -58,67 +59,68 @@ export const PATCH = withAdminAuth(
         );
       }
 
+      const grossKobo = payout.gross_kobo ?? BigInt(0);
+
       if (body.action === "approve") {
         // Re-open the payout: deduct from creator balance again and queue for processing
-        await db.transaction(async (tx) => {
+        await orm.transaction(async (tx) => {
           // Check if creator still has enough balance (they may have spent it)
-          const { rows: balanceRows } = await tx.query<{ available: number }>(
-            `SELECT available_earnings_kobo AS available FROM users WHERE id = $1 FOR UPDATE`,
-            [payout.creator_id]
-          );
-          const available = balanceRows[0]?.available ?? 0;
-          if (available < payout.gross_kobo) {
+          const [balanceRow] = await tx
+            .select({ available: schema.users.availableEarningsKobo })
+            .from(schema.users)
+            .where(eq(schema.users.id, payout.creator_id))
+            .for("update");
+          const available = balanceRow?.available ?? BigInt(0);
+          if (available < grossKobo) {
             throw badRequest(
               "Creator does not have sufficient earnings balance to re-process this payout.",
               "INSUFFICIENT_EARNINGS"
             );
           }
 
-          await tx.query(
-            `UPDATE users
-             SET available_earnings_kobo = available_earnings_kobo - $1, updated_at = NOW()
-             WHERE id = $2`,
-            [payout.gross_kobo, payout.creator_id]
-          );
+          await tx
+            .update(schema.users)
+            .set({
+              availableEarningsKobo: sql`${schema.users.availableEarningsKobo} - ${grossKobo}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.users.id, payout.creator_id));
 
-          await tx.query(
-            `UPDATE creator_payouts
-             SET status = 'awaiting_approval',
-                 appeal_status = 'resolved',
-                 appeal_resolved_at = NOW(),
-                 appeal_resolved_by = $1,
-                 rejection_reason = NULL,
-                 updated_at = NOW()
-             WHERE id = $2`,
-            [adminId, payoutId]
-          );
+          await tx
+            .update(schema.creatorPayouts)
+            .set({
+              status: "awaiting_approval",
+              appealStatus: "resolved",
+              appealResolvedAt: new Date(),
+              appealResolvedBy: adminId,
+              rejectionReason: null,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.creatorPayouts.id, payoutId));
         });
       } else {
         // Dismiss appeal
-        await db.query(
-          `UPDATE creator_payouts
-           SET appeal_status = 'dismissed',
-               appeal_resolved_at = NOW(),
-               appeal_resolved_by = $1,
-               updated_at = NOW()
-           WHERE id = $2`,
-          [adminId, payoutId]
-        );
+        await orm
+          .update(schema.creatorPayouts)
+          .set({
+            appealStatus: "dismissed",
+            appealResolvedAt: new Date(),
+            appealResolvedBy: adminId,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.creatorPayouts.id, payoutId));
       }
 
       // Audit log
-      await db
-        .query(
-          `INSERT INTO admin_audit_log
-             (admin_id, action, resource, resource_id, after_val, created_at)
-           VALUES ($1, $2, 'creator_payouts', $3, $4::jsonb, NOW())`,
-          [
-            adminId,
-            body.action === "approve" ? "payout_appeal_approved" : "payout_appeal_dismissed",
-            payoutId,
-            JSON.stringify({ action: body.action, note: body.note }),
-          ]
-        )
+      await orm
+        .insert(schema.adminAuditLog)
+        .values({
+          adminId,
+          action: body.action === "approve" ? "payout_appeal_approved" : "payout_appeal_dismissed",
+          resource: "creator_payouts",
+          resourceId: payoutId,
+          afterVal: { action: body.action, note: body.note },
+        })
         .catch(() => {});
 
       // Notify creator
@@ -128,18 +130,15 @@ export const PATCH = withAdminAuth(
           ? "Your payout appeal has been approved. Your payout has been re-queued for processing."
           : `Your payout appeal has been reviewed and dismissed.${body.note ? " Note: " + body.note : ""}`;
 
-      await db
-        .query(
-          `INSERT INTO notifications
-             (user_id, type, title, body, metadata, created_at)
-           VALUES ($1, 'payout_appeal_resolved', $2, $3, $4::jsonb, NOW())`,
-          [
-            payout.creator_id,
-            notifTitle,
-            notifBody,
-            JSON.stringify({ payoutId, action: body.action }),
-          ]
-        )
+      await orm
+        .insert(schema.notifications)
+        .values({
+          userId: payout.creator_id,
+          type: "payout_appeal_resolved",
+          title: notifTitle,
+          body: notifBody,
+          metadata: { payoutId, action: body.action },
+        })
         .catch(() => {});
 
       return NextResponse.json({

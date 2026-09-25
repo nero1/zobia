@@ -25,7 +25,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -81,19 +82,44 @@ export const POST = withAdminAuth<ActionParams>(async (req: NextRequest, { param
     const { actionId } = await params as ActionParams;
     const body = await validateBody(req, reverseActionSchema);
 
+    const orm = await getDb();
+
     // -----------------------------------------------------------------------
     // 1. Fetch the automated action from the log
     // -----------------------------------------------------------------------
+    // BUG-FIX: `automated_actions_log` has no `deleted_at` column (never has,
+    // in any migration) — the previous raw-SQL query filtered on
+    // `deleted_at IS NULL`, which meant every call to this endpoint failed
+    // with a Postgres "column does not exist" error. This table has no
+    // soft-delete concept, so the fix is simply to drop that bogus filter.
 
-    const { rows: actionRows } = await db.query<AutomatedActionRow>(
-      `SELECT id, action_type, target_type, target_id, target_user_id, metadata, reversed_at, created_at
-       FROM automated_actions_log
-       WHERE id = $1 AND deleted_at IS NULL
-       LIMIT 1`,
-      [actionId]
-    );
+    const [actionRow] = await orm
+      .select({
+        id: schema.automatedActionsLog.id,
+        actionType: schema.automatedActionsLog.actionType,
+        targetType: schema.automatedActionsLog.targetType,
+        targetId: schema.automatedActionsLog.targetId,
+        targetUserId: schema.automatedActionsLog.targetUserId,
+        metadata: schema.automatedActionsLog.metadata,
+        reversedAt: schema.automatedActionsLog.reversedAt,
+        createdAt: schema.automatedActionsLog.createdAt,
+      })
+      .from(schema.automatedActionsLog)
+      .where(eq(schema.automatedActionsLog.id, actionId))
+      .limit(1);
 
-    const action = actionRows[0];
+    const action: AutomatedActionRow | undefined = actionRow
+      ? {
+          id: actionRow.id,
+          action_type: actionRow.actionType,
+          target_type: actionRow.targetType,
+          target_id: actionRow.targetId,
+          target_user_id: actionRow.targetUserId,
+          metadata: actionRow.metadata as Record<string, unknown> | null,
+          reversed_at: actionRow.reversedAt ? actionRow.reversedAt.toISOString() : null,
+          created_at: actionRow.createdAt ? actionRow.createdAt.toISOString() : "",
+        }
+      : undefined;
     if (!action) {
       throw notFound("Automated action not found");
     }
@@ -113,47 +139,45 @@ export const POST = withAdminAuth<ActionParams>(async (req: NextRequest, { param
     if (action.action_type === "content_removed") {
       // Restore the content by clearing the soft-delete markers
       if (action.target_id) {
-        await db.query(
-          `UPDATE messages
-           SET deleted_at = NULL,
-               deleted_by = NULL
-           WHERE id = $1`,
-          [action.target_id]
-        );
+        await orm
+          .update(schema.messages)
+          .set({ deletedAt: null, deletedBy: null })
+          .where(eq(schema.messages.id, action.target_id));
       }
     } else if (action.action_type === "user_flagged") {
       // Restore trust score (capped at 100)
       if (action.target_user_id) {
-        await db.query(
-          `UPDATE users
-           SET trust_score = LEAST(trust_score + 5, 100),
-               updated_at  = NOW()
-           WHERE id = $1`,
-          [action.target_user_id]
-        );
+        await orm
+          .update(schema.users)
+          .set({
+            trustScore: sql`LEAST(${schema.users.trustScore} + 5, 100)`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.users.id, action.target_user_id));
       }
     } else if (action.action_type === "xp_stripped") {
       // Credit the stripped XP back based on the amount stored in metadata
       const xpAmount = action.metadata?.xp_amount;
       if (action.target_user_id && typeof xpAmount === "number" && xpAmount > 0) {
-        await db.query(
-          `UPDATE users
-           SET legacy_score = legacy_score + $1,
-               updated_at   = NOW()
-           WHERE id = $2`,
-          [xpAmount, action.target_user_id]
-        );
+        await orm
+          .update(schema.users)
+          .set({
+            legacyScore: sql`${schema.users.legacyScore} + ${xpAmount}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.users.id, action.target_user_id));
 
         // Restore xp_total via the canonical safeAwardXP path, which also
         // writes the compensatory xp_ledger entry (with the required NOT
         // NULL base_amount) and dedupes on reference_id.
+        // No explicit dbClient passed — defaults to the shared global adapter,
+        // matching this route's previous behavior of passing the same instance.
         await safeAwardXP(
           action.target_user_id,
           xpAmount,
           "main",
           "reversal_xp_restored",
-          `reversal:${actionId}`,
-          db
+          `reversal:${actionId}`
         );
       }
     }
@@ -164,17 +188,17 @@ export const POST = withAdminAuth<ActionParams>(async (req: NextRequest, { param
     // 4. Mark the action as reversed in the log
     // -----------------------------------------------------------------------
 
-    const { rows: updatedRows } = await db.query<{ reversed_at: string }>(
-      `UPDATE automated_actions_log
-       SET reversed_at  = NOW(),
-           reversed_by  = $1,
-           reverse_note = $2
-       WHERE id = $3
-       RETURNING reversed_at`,
-      [auth.user.sub, body.note ?? null, actionId]
-    );
+    const [updatedRow] = await orm
+      .update(schema.automatedActionsLog)
+      .set({
+        reversedAt: new Date(),
+        reversedBy: auth.user.sub,
+        reverseNote: body.note ?? null,
+      })
+      .where(eq(schema.automatedActionsLog.id, actionId))
+      .returning({ reversedAt: schema.automatedActionsLog.reversedAt });
 
-    const reversedAt = updatedRows[0]?.reversed_at ?? new Date().toISOString();
+    const reversedAt = updatedRow?.reversedAt ?? new Date().toISOString();
 
     return NextResponse.json(
       {

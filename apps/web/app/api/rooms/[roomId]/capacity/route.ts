@@ -17,7 +17,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -50,13 +51,18 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const { roomId } = (await params) as { roomId: string };
     if (!UUID_RE.test(roomId)) throw badRequest("roomId must be a valid UUID");
 
-    const { rows } = await db.query<RoomRow>(
-      `SELECT creator_id, type, max_members, is_active,
-              COALESCE(monetization_disabled, FALSE) AS monetization_disabled
-       FROM rooms WHERE id = $1`,
-      [roomId],
-    );
-    const room = rows[0];
+    const orm = await getDb();
+    const [room] = await orm
+      .select({
+        creator_id: schema.rooms.creatorId,
+        type: schema.rooms.type,
+        max_members: schema.rooms.maxMembers,
+        is_active: schema.rooms.isActive,
+        monetization_disabled: schema.rooms.monetizationDisabled,
+      })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
     if (!room || !room.is_active) throw notFound("Room not found");
 
     const manifest = await loadManifest();
@@ -92,21 +98,25 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const { steps } = await validateBody(req, bodySchema);
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<RoomRow>(
-      `SELECT creator_id, type, max_members, is_active,
-              COALESCE(monetization_disabled, FALSE) AS monetization_disabled
-       FROM rooms WHERE id = $1`,
-      [roomId],
-    );
-    const room = rows[0];
+    const orm = await getDb();
+    const [room] = await orm
+      .select({
+        creator_id: schema.rooms.creatorId,
+        type: schema.rooms.type,
+        max_members: schema.rooms.maxMembers,
+        is_active: schema.rooms.isActive,
+        monetization_disabled: schema.rooms.monetizationDisabled,
+      })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
     if (!room || !room.is_active) throw notFound("Room not found");
 
-    const { rows: userRows } = await db.query<UserRow>(
-      `SELECT COALESCE(is_admin, FALSE) AS is_admin, COALESCE(is_moderator, FALSE) AS is_moderator
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId],
-    );
-    const userRole = userRows[0];
+    const [userRole] = await orm
+      .select({ is_admin: schema.users.isAdmin, is_moderator: schema.users.isModerator })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     const isPrivileged = userRole?.is_admin || userRole?.is_moderator;
 
     if (room.creator_id !== userId && !isPrivileged) {
@@ -130,7 +140,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const cost = costCoinsPerStep * steps;
 
     try {
-      await db.transaction(async (tx) => {
+      await orm.transaction(async (tx) => {
         // Idempotent on the target cap: a retry to the same cap is a no-op.
         await debitCoins(
           userId,
@@ -141,10 +151,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           { roomId, currentCap, newCap, steps },
           tx,
         );
-        await tx.query(
-          `UPDATE rooms SET max_members = $1, updated_at = NOW() WHERE id = $2`,
-          [newCap, roomId],
-        );
+        await tx
+          .update(schema.rooms)
+          .set({ maxMembers: newCap, updatedAt: new Date() })
+          .where(eq(schema.rooms.id, roomId));
       });
     } catch (err) {
       if ((err as NodeJS.ErrnoException)?.code === "INSUFFICIENT_BALANCE") {

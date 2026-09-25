@@ -17,8 +17,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -48,11 +48,11 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-    const { rows: userRows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-      `SELECT is_admin, COALESCE(is_moderator, FALSE) AS is_moderator
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [auth.user.sub]
-    );
+    const orm = await getDb();
+    const { rows: userRows } = await orm.execute<{ is_admin: boolean; is_moderator: boolean }>(sql`
+      SELECT is_admin, COALESCE(is_moderator, FALSE) AS is_moderator
+       FROM users WHERE id = ${auth.user.sub} AND deleted_at IS NULL LIMIT 1
+    `);
     if (!userRows[0]?.is_admin && !userRows[0]?.is_moderator) {
       throw forbidden("Admin or moderator access required");
     }
@@ -63,44 +63,35 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const limit = Math.min(Number(url.searchParams.get("limit") ?? "30"), 100);
     const cursor = url.searchParams.get("cursor");
 
-    const conditions: string[] = ["g.deleted_at IS NULL"];
-    const values: SqlParam[] = [];
-    let paramIdx = 1;
+    const conditions = [sql`g.deleted_at IS NULL`];
 
     if (search) {
-      conditions.push(`(g.name ILIKE $${paramIdx} OR u.username ILIKE $${paramIdx})`);
-      values.push(`%${search}%`);
-      paramIdx++;
+      conditions.push(sql`(g.name ILIKE ${`%${search}%`} OR u.username ILIKE ${`%${search}%`})`);
     }
 
     if (cursor) {
-      conditions.push(`g.created_at < $${paramIdx}::timestamptz`);
-      values.push(cursor);
-      paramIdx++;
+      conditions.push(sql`g.created_at < ${cursor}::timestamptz`);
     }
 
     switch (status) {
       case "active":
-        conditions.push("g.is_active = TRUE AND g.is_suspended = FALSE AND g.is_banned = FALSE");
+        conditions.push(sql`g.is_active = TRUE AND g.is_suspended = FALSE AND g.is_banned = FALSE`);
         break;
       case "inactive":
-        conditions.push("g.is_active = FALSE AND g.is_banned = FALSE");
+        conditions.push(sql`g.is_active = FALSE AND g.is_banned = FALSE`);
         break;
       case "suspended":
-        conditions.push("g.is_suspended = TRUE");
+        conditions.push(sql`g.is_suspended = TRUE`);
         break;
       case "banned":
-        conditions.push("g.is_banned = TRUE");
+        conditions.push(sql`g.is_banned = TRUE`);
         break;
     }
 
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
+    const whereClause = sql.join(conditions, sql` AND `);
 
-    values.push(limit + 1);
-    const limitParam = paramIdx;
-
-    const { rows } = await db.query<AdminGuildRow>(
-      `SELECT
+    const { rows } = await orm.execute<AdminGuildRow & Record<string, unknown>>(sql`
+      SELECT
          g.id, g.name, g.crest_emoji, g.description, g.city, g.country,
          g.captain_id, u.username AS captain_username,
          g.tier, g.member_count, g.treasury_balance::text AS treasury_balance,
@@ -108,11 +99,10 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          g.is_banned, g.admin_notes, g.created_at
        FROM guilds g
        JOIN users u ON u.id = g.captain_id
-       ${where}
+       WHERE ${whereClause}
        ORDER BY g.created_at DESC
-       LIMIT $${limitParam}`,
-      values
-    );
+       LIMIT ${limit + 1}
+    `);
 
     const hasNextPage = rows.length > limit;
     const data = hasNextPage ? rows.slice(0, limit) : rows;

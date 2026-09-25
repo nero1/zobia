@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -69,17 +70,25 @@ export const GET = withAuth(
       const userId = auth.user.sub;
 
       // Fetch replay
-      const { rows } = await db.query<DropRoomReplayRow>(
-        `SELECT id, room_id, creator_id, title, highlights,
-                replay_fee_kobo::TEXT AS replay_fee_kobo,
-                is_published, published_at, created_at
-         FROM drop_room_replays
-         WHERE room_id = $1 LIMIT 1`,
-        [roomId]
-      );
+      const orm = await getDb();
+      const [replayRow] = await orm
+        .select({
+          id: schema.dropRoomReplays.id,
+          room_id: schema.dropRoomReplays.roomId,
+          creator_id: schema.dropRoomReplays.creatorId,
+          title: schema.dropRoomReplays.title,
+          highlights: schema.dropRoomReplays.highlights,
+          replay_fee_kobo: schema.dropRoomReplays.replayFeeKobo,
+          is_published: schema.dropRoomReplays.isPublished,
+          published_at: schema.dropRoomReplays.publishedAt,
+          created_at: schema.dropRoomReplays.createdAt,
+        })
+        .from(schema.dropRoomReplays)
+        .where(eq(schema.dropRoomReplays.roomId, roomId))
+        .limit(1);
 
-      if (!rows[0]) throw notFound("Replay not found for this room");
-      const replay = rows[0];
+      if (!replayRow) throw notFound("Replay not found for this room");
+      const replay = { ...replayRow, replay_fee_kobo: replayRow.replay_fee_kobo.toString() };
 
       // Check if published (only creator can see unpublished)
       if (!replay.is_published && replay.creator_id !== userId) {
@@ -93,15 +102,18 @@ export const GET = withAuth(
       // Check if user has purchased access (purchase is done via POST /replay/purchase)
       let hasPurchased = false;
       if (!isFree && !isCreator) {
-        const { rows: accessRows } = await db.query<{ id: string }>(
-          `SELECT id FROM coin_ledger
-           WHERE user_id = $1
-             AND reference_id = $2
-             AND transaction_type = 'replay_access'
-           LIMIT 1`,
-          [userId, replay.id]
-        );
-        hasPurchased = !!accessRows[0];
+        const [accessRow] = await orm
+          .select({ id: schema.coinLedger.id })
+          .from(schema.coinLedger)
+          .where(
+            and(
+              eq(schema.coinLedger.userId, userId),
+              eq(schema.coinLedger.referenceId, replay.id),
+              eq(schema.coinLedger.transactionType, "replay_access")
+            )
+          )
+          .limit(1);
+        hasPurchased = !!accessRow;
       }
 
       const userHasAccess = isFree || isCreator || hasPurchased;
@@ -151,49 +163,63 @@ export const POST = withAuth(
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
 
       // Verify caller is the room creator
-      const { rows: roomRows } = await db.query<{ creator_id: string; type: string }>(
-        `SELECT creator_id, type FROM rooms WHERE id = $1 LIMIT 1`,
-        [roomId]
-      );
-      if (!roomRows[0]) throw notFound("Room not found");
-      if (roomRows[0].creator_id !== userId) {
+      const orm = await getDb();
+      const [roomRow] = await orm
+        .select({ creator_id: schema.rooms.creatorId, type: schema.rooms.type })
+        .from(schema.rooms)
+        .where(eq(schema.rooms.id, roomId))
+        .limit(1);
+      if (!roomRow) throw notFound("Room not found");
+      if (roomRow.creator_id !== userId) {
         throw forbidden("Only the room creator can publish a replay");
       }
-      if (roomRows[0].type !== "drop") {
+      if (roomRow.type !== "drop") {
         throw forbidden("Replays are only available for Drop rooms");
       }
 
       const body = await validateBody(req, createReplaySchema);
 
-      const { rows } = await db.query<DropRoomReplayRow>(
-        `INSERT INTO drop_room_replays
-           (room_id, creator_id, title, highlights, replay_fee_kobo, is_published, published_at, created_at)
-         VALUES ($1, $2, $3, $4, $5, TRUE, NOW(), NOW())
-         ON CONFLICT (room_id) DO UPDATE
-           SET title = EXCLUDED.title,
-               highlights = EXCLUDED.highlights,
-               replay_fee_kobo = EXCLUDED.replay_fee_kobo,
-               is_published = TRUE,
-               published_at = NOW()
-         RETURNING id, room_id, creator_id, title, highlights,
-                   replay_fee_kobo::TEXT AS replay_fee_kobo,
-                   is_published, published_at, created_at`,
-        [
+      const [replayRow] = await orm
+        .insert(schema.dropRoomReplays)
+        .values({
           roomId,
-          userId,
-          body.title,
-          JSON.stringify(body.highlights),
-          body.replay_fee_kobo,
-        ]
-      );
+          creatorId: userId,
+          title: body.title,
+          highlights: body.highlights,
+          replayFeeKobo: BigInt(body.replay_fee_kobo),
+          isPublished: true,
+          publishedAt: new Date(),
+        })
+        .onConflictDoUpdate({
+          target: schema.dropRoomReplays.roomId,
+          set: {
+            title: body.title,
+            highlights: body.highlights,
+            replayFeeKobo: BigInt(body.replay_fee_kobo),
+            isPublished: true,
+            publishedAt: new Date(),
+          },
+        })
+        .returning({
+          id: schema.dropRoomReplays.id,
+          room_id: schema.dropRoomReplays.roomId,
+          creator_id: schema.dropRoomReplays.creatorId,
+          title: schema.dropRoomReplays.title,
+          highlights: schema.dropRoomReplays.highlights,
+          replay_fee_kobo: schema.dropRoomReplays.replayFeeKobo,
+          is_published: schema.dropRoomReplays.isPublished,
+          published_at: schema.dropRoomReplays.publishedAt,
+          created_at: schema.dropRoomReplays.createdAt,
+        });
 
       return NextResponse.json(
         {
           success: true,
           data: {
             replay: {
-              ...rows[0],
-              replayFeeKobo: parseInt(rows[0].replay_fee_kobo, 10),
+              ...replayRow,
+              replay_fee_kobo: replayRow.replay_fee_kobo.toString(),
+              replayFeeKobo: Number(replayRow.replay_fee_kobo),
             },
           },
           error: null,

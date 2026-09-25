@@ -14,26 +14,11 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { or, eq, lte, desc, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { getCurrentSeason, isSeasonActive, getSeasonPhase } from "@/lib/seasons/seasonEngine";
-
-// ---------------------------------------------------------------------------
-// Row types
-// ---------------------------------------------------------------------------
-
-interface SeasonRow {
-  id: string;
-  name: string;
-  theme: string;
-  starts_at: string;
-  ends_at: string;
-  is_active: boolean;
-  pass_price_coins: number;
-  reward_pool_coins: number;
-  created_at: string;
-}
 
 // ---------------------------------------------------------------------------
 // GET /api/seasons
@@ -44,17 +29,37 @@ interface SeasonRow {
  */
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
-    const current = await getCurrentSeason(db);
+    const orm = await getDb();
+    const current = await getCurrentSeason(orm);
 
-    const { rows: past } = await db.query<SeasonRow>(
-      `SELECT id, name, theme, starts_at, ends_at, is_active,
-              pass_price_coins, reward_pool_coins, created_at
-       FROM seasons
-       WHERE is_active = FALSE OR ends_at <= NOW()
-       ORDER BY ends_at DESC
-       LIMIT 10`,
-      []
-    );
+    const pastRows = await orm
+      .select({
+        id: schema.seasons.id,
+        name: schema.seasons.name,
+        theme: schema.seasons.theme,
+        startsAt: schema.seasons.startsAt,
+        endsAt: schema.seasons.endsAt,
+        isActive: schema.seasons.isActive,
+        passPriceCoins: schema.seasons.passPriceCoins,
+        rewardPoolCoins: schema.seasons.rewardPoolCoins,
+        createdAt: schema.seasons.createdAt,
+      })
+      .from(schema.seasons)
+      .where(or(eq(schema.seasons.isActive, false), lte(schema.seasons.endsAt, sql`NOW()`)))
+      .orderBy(desc(schema.seasons.endsAt))
+      .limit(10);
+
+    const past = pastRows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      theme: row.theme,
+      starts_at: row.startsAt,
+      ends_at: row.endsAt,
+      is_active: row.isActive,
+      pass_price_coins: row.passPriceCoins,
+      reward_pool_coins: row.rewardPoolCoins,
+      created_at: row.createdAt,
+    }));
 
     return NextResponse.json({
       success: true,

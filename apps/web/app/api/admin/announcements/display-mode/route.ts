@@ -12,7 +12,7 @@ import { z } from "zod";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 const DisplayModeSchema = z.object({
   mode: z.enum(["sequential", "serial", "all", "random"]),
@@ -33,12 +33,14 @@ export const PUT = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     const key = type === "banner" ? "announcement_banner_mode" : "announcement_modal_display_mode";
     const jsonValue = JSON.stringify(mode);
 
-    await db.query(
-      `INSERT INTO x_manifest (key, value, updated_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
-      [key, jsonValue]
-    );
+    const orm = await getDb();
+    await orm
+      .insert(schema.xManifest)
+      .values({ key, value: jsonValue, updatedAt: new Date() })
+      .onConflictDoUpdate({
+        target: schema.xManifest.key,
+        set: { value: jsonValue, updatedAt: new Date() },
+      });
 
     return NextResponse.json({ success: true, mode });
   } catch (err) {

@@ -23,7 +23,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { eq, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -135,7 +136,7 @@ const createRoomSchema = z.object({
 // DB row types
 // ---------------------------------------------------------------------------
 
-interface RoomRow {
+type RoomRow = Record<string, unknown> & {
   id: string;
   name: string;
   slug: string | null;
@@ -166,7 +167,7 @@ interface RoomRow {
   health_score: number;
   created_at: string;
   updated_at: string;
-}
+};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -177,8 +178,8 @@ interface RoomRow {
  *
  * Weights message activity in last 2 hours, member count, and featured flag.
  */
-function buildTrendingOrderClause(): string {
-  return `
+function buildTrendingScoreExpr() {
+  return sql`
     (
       COALESCE(
         (SELECT COUNT(*) FROM room_messages rm
@@ -196,7 +197,7 @@ function buildTrendingOrderClause(): string {
           ELSE 0
         END
       + (COALESCE(r.health_score, 100) - 50)
-    ) DESC
+    )
   `;
 }
 
@@ -218,17 +219,19 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
-    const params = validateSearchParams(req.nextUrl.searchParams, listRoomsQuerySchema);
+    const params2 = validateSearchParams(req.nextUrl.searchParams, listRoomsQuerySchema);
+    const orm = await getDb();
 
     // Fetch user's Vibe Quiz personalization to seed category affinity (PRD §4)
     // The vibe quiz answer for q1 ("argue/gist/learn/flex") maps to room categories.
     let vibeCategories: string[] = [];
     try {
-      const { rows: vibeRows } = await db.query<{ onboarding_personalization: unknown }>(
-        `SELECT onboarding_personalization FROM users WHERE id = $1 LIMIT 1`,
-        [auth.user.sub]
-      );
-      const personalization = vibeRows[0]?.onboarding_personalization as Record<string, string> | null;
+      const [vibeRow] = await orm
+        .select({ onboardingPersonalization: schema.users.onboardingPersonalization })
+        .from(schema.users)
+        .where(eq(schema.users.id, auth.user.sub))
+        .limit(1);
+      const personalization = vibeRow?.onboardingPersonalization as Record<string, string> | null;
       if (personalization) {
         // roomAffinity is the vibe quiz q1 answer: argue|gist|learn|flex
         const affinity = personalization.roomAffinity ?? personalization.categoryAffinity ?? null;
@@ -247,142 +250,123 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       // Non-fatal — personalization is a best-effort boost
     }
 
-    const conditions: string[] = [
-      "r.is_active = TRUE",
-      "r.type != 'guild'", // Guild rooms not discoverable publicly
+    const conditions: ReturnType<typeof sql>[] = [
+      sql`r.is_active = TRUE`,
+      sql`r.type != 'guild'`, // Guild rooms not discoverable publicly
     ];
-    const queryParams: SqlParam[] = [];
-    let paramIndex = 1;
 
-    if (params.city) {
-      conditions.push(`r.city ILIKE $${paramIndex++}`);
-      queryParams.push(`%${params.city}%`);
+    if (params2.city) {
+      conditions.push(sql`r.city ILIKE ${`%${params2.city}%`}`);
     }
 
-    if (params.category) {
-      conditions.push(`r.category ILIKE $${paramIndex++}`);
-      queryParams.push(`%${params.category}%`);
+    if (params2.category) {
+      conditions.push(sql`r.category ILIKE ${`%${params2.category}%`}`);
     }
 
-    if (params.type) {
-      conditions.push(`r.type = $${paramIndex++}`);
-      queryParams.push(params.type);
+    if (params2.type) {
+      conditions.push(sql`r.type = ${params2.type}`);
     }
 
-    if (params.creator_id) {
-      conditions.push(`r.creator_id = $${paramIndex++}`);
-      queryParams.push(params.creator_id);
+    if (params2.creator_id) {
+      conditions.push(sql`r.creator_id = ${params2.creator_id}`);
     }
 
-    if (params.friends_in_room) {
-      conditions.push(`
+    if (params2.friends_in_room) {
+      conditions.push(sql`
         EXISTS (
           SELECT 1 FROM room_members rme
           JOIN follows uf ON uf.following_id = rme.user_id
           WHERE rme.room_id = r.id
-            AND uf.follower_id = $${paramIndex++}
+            AND uf.follower_id = ${auth.user.sub}
         )
       `);
-      queryParams.push(auth.user.sub);
     }
 
     // Cursor pagination using created_at
-    if (params.cursor) {
-      conditions.push(`r.created_at < $${paramIndex++}`);
-      queryParams.push(params.cursor);
+    if (params2.cursor) {
+      conditions.push(sql`r.created_at < ${params2.cursor}`);
     }
-
-    // Page size param
-    queryParams.push(params.limit);
-    const limitParam = paramIndex++;
 
     // Vibe Quiz category affinity boost: rooms matching the user's preferred categories
     // are surfaced higher in discovery (PRD §4 — quiz results silently configure home feed)
     const vibeCategoryBoost =
       vibeCategories.length > 0
-        ? `CASE WHEN r.category = ANY(ARRAY[${vibeCategories.map((_, i) => `$${paramIndex + i}`).join(",")}]::TEXT[]) THEN 100 ELSE 0 END + `
-        : "";
-    if (vibeCategories.length > 0) {
-      vibeCategories.forEach((c) => queryParams.push(c));
-      paramIndex += vibeCategories.length;
-    }
+        ? sql`CASE WHEN r.category = ANY(${vibeCategories}::TEXT[]) THEN 100 ELSE 0 END + `
+        : sql``;
 
     // In non-trending mode, rooms with health < 40 are sorted last (PRD §10).
-    const orderBy = params.trending
-      ? `(${vibeCategoryBoost}${buildTrendingOrderClause().trim().replace(" DESC", "")}) DESC`
-      : `CASE WHEN COALESCE(r.health_score, 100) < 40 THEN 1 ELSE 0 END ASC, r.updated_at DESC`;
+    const orderBy = params2.trending
+      ? sql`(${vibeCategoryBoost}${buildTrendingScoreExpr()}) DESC`
+      : sql`CASE WHEN COALESCE(r.health_score, 100) < 40 THEN 1 ELSE 0 END ASC, r.updated_at DESC`;
 
     // Caller-scoped joins so each card can show join state + favorite state
     // without a second round-trip per room.
-    const callerParam = paramIndex++;
-    queryParams.push(auth.user.sub);
-
-    const { rows } = await db.query<
+    const result = await orm.execute<
       RoomRow & { is_joined: boolean; is_favorited: boolean; is_promoted: boolean }
-    >(
-      `SELECT
-         r.id,
-         r.name,
-         r.description,
-         r.type,
-         r.category,
-         r.city,
-         r.cover_emoji,
-         r.cover_image_url,
-         r.slug,
-         r.creator_id,
-         u.username         AS creator_username,
-         u.display_name     AS creator_display_name,
-         u.avatar_emoji     AS creator_avatar_emoji,
-         u.creator_tier,
-         r.member_count,
-         r.max_members,
-         r.is_active,
-         r.is_featured,
-         r.is_sponsored,
-         r.subscription_price_ngn,
-         r.entry_fee_ngn,
-         r.drop_starts_at,
-         r.drop_ends_at,
-         r.enrolment_fee_ngn,
-         COALESCE(
-           (SELECT COUNT(*) FROM room_messages rm
-            WHERE rm.room_id = r.id
-              AND rm.created_at > NOW() - INTERVAL '2 hours'),
-           0
-         ) AS trending_score,
-         COALESCE(
-           (SELECT COUNT(*) FROM room_messages rm
-            WHERE rm.room_id = r.id
-              AND rm.created_at > NOW() - INTERVAL '2 hours'),
-           0
-         ) AS recent_message_count,
-         r.total_messages,
-         COALESCE(r.health_score, 100) AS health_score,
-         -- Paid promotion boost: rooms with an active promotion appear higher
-         (rp.id IS NOT NULL AND rp.ends_at > NOW()) AS is_promoted,
-         (caller_member.user_id IS NOT NULL) AS is_joined,
-         (caller_pin.id IS NOT NULL)         AS is_favorited,
-         r.created_at,
-         r.updated_at
-       FROM rooms r
-       JOIN users u ON u.id = r.creator_id
-       LEFT JOIN room_promotions rp ON rp.room_id = r.id AND rp.is_active = TRUE AND rp.ends_at > NOW()
-       LEFT JOIN room_members caller_member ON caller_member.room_id = r.id AND caller_member.user_id = $${callerParam}
-       LEFT JOIN room_pins caller_pin ON caller_pin.room_id = r.id AND caller_pin.user_id = $${callerParam}
-       WHERE ${conditions.join(" AND ")}
-       ORDER BY
-         -- Promoted rooms (via room_promotions or spotlight power) surface first
-         CASE WHEN (rp.id IS NOT NULL AND rp.ends_at > NOW()) OR (r.spotlight_until IS NOT NULL AND r.spotlight_until > NOW()) THEN 0 ELSE 1 END ASC,
-         ${orderBy}
-       LIMIT $${limitParam}`,
-      queryParams
-    );
+    >(sql`
+      SELECT
+        r.id,
+        r.name,
+        r.description,
+        r.type,
+        r.category,
+        r.city,
+        r.cover_emoji,
+        r.cover_image_url,
+        r.slug,
+        r.creator_id,
+        u.username         AS creator_username,
+        u.display_name     AS creator_display_name,
+        u.avatar_emoji     AS creator_avatar_emoji,
+        u.creator_tier,
+        r.member_count,
+        r.max_members,
+        r.is_active,
+        r.is_featured,
+        r.is_sponsored,
+        r.subscription_price_ngn,
+        r.entry_fee_ngn,
+        r.drop_starts_at,
+        r.drop_ends_at,
+        r.enrolment_fee_ngn,
+        COALESCE(
+          (SELECT COUNT(*) FROM room_messages rm
+           WHERE rm.room_id = r.id
+             AND rm.created_at > NOW() - INTERVAL '2 hours'),
+          0
+        ) AS trending_score,
+        COALESCE(
+          (SELECT COUNT(*) FROM room_messages rm
+           WHERE rm.room_id = r.id
+             AND rm.created_at > NOW() - INTERVAL '2 hours'),
+          0
+        ) AS recent_message_count,
+        r.total_messages,
+        COALESCE(r.health_score, 100) AS health_score,
+        -- Paid promotion boost: rooms with an active promotion appear higher
+        (rp.id IS NOT NULL AND rp.ends_at > NOW()) AS is_promoted,
+        (caller_member.user_id IS NOT NULL) AS is_joined,
+        (caller_pin.id IS NOT NULL)         AS is_favorited,
+        r.created_at,
+        r.updated_at
+      FROM rooms r
+      JOIN users u ON u.id = r.creator_id
+      LEFT JOIN room_promotions rp ON rp.room_id = r.id AND rp.is_active = TRUE AND rp.ends_at > NOW()
+      LEFT JOIN room_members caller_member ON caller_member.room_id = r.id AND caller_member.user_id = ${auth.user.sub}
+      LEFT JOIN room_pins caller_pin ON caller_pin.room_id = r.id AND caller_pin.user_id = ${auth.user.sub}
+      WHERE ${sql.join(conditions, sql` AND `)}
+      ORDER BY
+        -- Promoted rooms (via room_promotions or spotlight power) surface first
+        CASE WHEN (rp.id IS NOT NULL AND rp.ends_at > NOW()) OR (r.spotlight_until IS NOT NULL AND r.spotlight_until > NOW()) THEN 0 ELSE 1 END ASC,
+        ${orderBy}
+      LIMIT ${params2.limit}
+    `);
+    const rows = result.rows;
 
     // nextCursor reflects the unfiltered page so pagination still advances even
     // when an availability filter hides some rooms from the current page.
     const nextCursor =
-      rows.length === params.limit ? rows[rows.length - 1]?.created_at ?? null : null;
+      rows.length === params2.limit ? rows[rows.length - 1]?.created_at ?? null : null;
 
     // Enrich each room with its LIVE presence count + soft cap so discovery can
     // show a "Full" badge and filter by availability. Presence is a cheap Redis
@@ -407,9 +391,9 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       }),
     );
 
-    if (params.availability === "available") {
+    if (params2.availability === "available") {
       items = items.filter((r) => !r._isFull);
-    } else if (params.availability === "full") {
+    } else if (params2.availability === "full") {
       items = items.filter((r) => r._isFull);
     }
     const cleanItems = items.map(({ _isFull, ...rest }) => rest);
@@ -444,6 +428,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const body = await validateBody(req, createRoomSchema);
+    const orm = await getDb();
 
     if (await isCaptchaSurfaceEnabled("create_room")) {
       const ip = getClientIp(req);
@@ -456,28 +441,26 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // (never trusted from the JWT alone) since it grants a bypass of every
     // eligibility gate below — admins can create any room type per the PRD's
     // "admin can take all actions" rule.
-    const { rows: userRows } = await db.query<{
-      creator_role: boolean;
-      creator_tier: string | null;
-      xp_creator: number;
-      is_admin: boolean;
-      plan: string;
-      level_creator: number;
-    }>(
-      `SELECT creator_role, creator_tier, COALESCE(xp_creator, 0) AS xp_creator, is_admin, plan, level_creator
-       FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [auth.user.sub]
-    );
+    const [user] = await orm
+      .select({
+        creatorRole: schema.users.creatorRole,
+        creatorTier: schema.users.creatorTier,
+        xpCreator: schema.users.xpCreator,
+        isAdmin: schema.users.isAdmin,
+        plan: schema.users.plan,
+        levelCreator: schema.users.levelCreator,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), sql`${schema.users.deletedAt} IS NULL`));
 
-    const user = userRows[0];
     if (!user) throw forbidden("User not found");
-    const isAdmin = user.is_admin;
+    const isAdmin = user.isAdmin;
 
     const isEligible =
       isAdmin ||
-      user.creator_role ||
-      (user.creator_tier !== null &&
-        CREATOR_TIERS_ALLOWED.includes(user.creator_tier as (typeof CREATOR_TIERS_ALLOWED)[number]));
+      user.creatorRole ||
+      (user.creatorTier !== null &&
+        CREATOR_TIERS_ALLOWED.includes(user.creatorTier as (typeof CREATOR_TIERS_ALLOWED)[number]));
 
     if (!isEligible) {
       throw forbidden(
@@ -528,7 +511,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         }
         // Trust Score gate: paid ClassRooms require 30-day account age + trust score ≥ 40 (PRD §19)
         if (body.enrolmentFeeNgn > 0 && !isAdmin) {
-          const eligible = await meetsMinimumTrust(auth.user.sub, "classroom_creation", db);
+          const eligible = await meetsMinimumTrust(
+            auth.user.sub,
+            "classroom_creation",
+            orm
+          );
           if (!eligible) {
             throw forbidden(
               "Paid ClassRooms require a 30-day account history and a minimum trust score. " +
@@ -541,21 +528,25 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           const plan = user.plan ?? "free";
           if (plan === "free") {
             const minLevel = await getFreeMinLevel();
-            if ((user.level_creator ?? 1) < minLevel) {
+            if ((user.levelCreator ?? 1) < minLevel) {
               throw forbidden(
                 `You need to reach Creator Level ${minLevel} before creating a classroom on the Free plan. Upgrade your plan to create one now.`,
                 "CLASSROOM_LEVEL_TOO_LOW"
               );
             }
           }
-          const [maxClassrooms, { rows: countRows }] = await Promise.all([
+          const [maxClassrooms, [{ n }]] = await Promise.all([
             getMaxClassrooms(plan),
-            db.query<{ n: string }>(
-              `SELECT COUNT(*)::text AS n FROM rooms WHERE creator_id = $1 AND type = 'classroom' AND deleted_at IS NULL`,
-              [auth.user.sub]
-            ),
+            orm
+              .select({ n: sql<string>`COUNT(*)` })
+              .from(schema.rooms)
+              .where(and(
+                eq(schema.rooms.creatorId, auth.user.sub),
+                eq(schema.rooms.type, 'classroom'),
+                sql`${schema.rooms.deletedAt} IS NULL`,
+              )),
           ]);
-          if (Number(countRows[0]?.n ?? 0) >= maxClassrooms) {
+          if (Number(n ?? 0) >= maxClassrooms) {
             throw forbidden(
               `Your plan allows up to ${maxClassrooms} classrooms (draft + live). Publish or delete one, or upgrade your plan, to create another.`,
               "CLASSROOM_LIMIT_REACHED"
@@ -570,38 +561,39 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
         if (isAdmin && body.guildId) {
           // Admins may attach a Guild Room to any guild regardless of tier.
-          const { rows: guildRows } = await db.query<{ id: string }>(
-            `SELECT id FROM guilds WHERE id = $1 LIMIT 1`,
-            [body.guildId]
-          );
-          if (!guildRows[0]) throw badRequest("Guild not found");
-          resolvedGuildId = guildRows[0].id;
+          const [guildRow] = await orm
+            .select({ id: schema.guilds.id })
+            .from(schema.guilds)
+            .where(eq(schema.guilds.id, body.guildId))
+            .limit(1);
+          if (!guildRow) throw badRequest("Guild not found");
+          resolvedGuildId = guildRow.id;
           break;
         }
 
         // Guild rooms require the guild to be Platinum-tier or above, and the
         // caller to own/administer it — unless the caller is an admin, who
         // only needs *some* owned/administered guild (tier check skipped).
-        const { rows: guildTierRows } = await db.query<{ id: string; tier: string }>(
-          `SELECT g.id, g.tier FROM guilds g
-           JOIN guild_members gm ON gm.guild_id = g.id
-           WHERE gm.user_id = $1 AND gm.role IN ('owner', 'admin')
-           ORDER BY
-             CASE g.tier
-               WHEN 'legend'     THEN 1
-               WHEN 'platinum_3' THEN 2
-               WHEN 'platinum_2' THEN 3
-               WHEN 'platinum_1' THEN 4
-               ELSE 99
-             END ASC
-           LIMIT 1`,
-          [auth.user.sub]
-        );
-        const guildTier = guildTierRows[0]?.tier ?? null;
-        if (!guildTierRows[0] || (!isAdmin && !platinumAndAbove.includes(guildTier ?? ""))) {
+        const guildTierResult = await orm.execute<{ id: string; tier: string }>(sql`
+          SELECT g.id, g.tier FROM guilds g
+          JOIN guild_members gm ON gm.guild_id = g.id
+          WHERE gm.user_id = ${auth.user.sub} AND gm.role IN ('owner', 'admin')
+          ORDER BY
+            CASE g.tier
+              WHEN 'legend'     THEN 1
+              WHEN 'platinum_3' THEN 2
+              WHEN 'platinum_2' THEN 3
+              WHEN 'platinum_1' THEN 4
+              ELSE 99
+            END ASC
+          LIMIT 1
+        `);
+        const guildTierRow = guildTierResult.rows[0];
+        const guildTier = guildTierRow?.tier ?? null;
+        if (!guildTierRow || (!isAdmin && !platinumAndAbove.includes(guildTier ?? ""))) {
           throw forbidden("Guild Rooms are only available to Platinum-tier Guilds and above.");
         }
-        resolvedGuildId = guildTierRows[0].id;
+        resolvedGuildId = guildTierRow.id;
         break;
       }
 
@@ -673,75 +665,59 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           }
         : body.curriculum ?? null;
 
-    const room = await db.transaction(async (tx) => {
-      const { rows: roomRows } = await tx.query<RoomRow>(
-        `INSERT INTO rooms (
-           name, description, type, category, city,
-           cover_emoji, cover_image_url, creator_id,
-           max_members, subscription_price_ngn, entry_fee_ngn,
-           drop_starts_at, drop_ends_at, enrolment_fee_ngn,
-           curriculum, class_start_date, class_end_date,
-           duration_minutes, slug, is_public, guild_id,
-           show_in_creator_listing,
-           member_count, total_messages, is_active
-         )
-         VALUES (
-           $1, $2, $3, $4, $5,
-           $6, $7, $8,
-           $9, $10, $11,
-           $12, $13, $14,
-           $15, $16, $17,
-           $18, $19, $20, $21,
-           $22,
-           1, 0, TRUE
-         )
-         RETURNING *`,
-        [
-          body.name,
-          body.description ?? null,
-          body.type,
-          body.category,
-          body.city ?? null,
-          body.coverEmoji,
-          body.coverImageUrl ?? null,
-          auth.user.sub,
-          maxMembers,
-          body.subscriptionPriceNgn ?? null,
-          body.entryFeeNgn ?? null,
-          body.dropStartsAt ?? null,
-          dropEndsAt,
-          body.enrolmentFeeNgn ?? null,
-          curriculum ? JSON.stringify(curriculum) : null,
-          body.classStartDate ?? null,
-          body.classEndDate ?? null,
-          body.durationMinutes ?? null,
-          slug,
-          isPublic,
-          resolvedGuildId,
-          body.showInCreatorListing ?? true,
-        ]
-      );
+    const room = await orm.transaction(async (tx) => {
+      const roomInsertValues: typeof schema.rooms.$inferInsert = {
+        name: body.name,
+        description: body.description ?? null,
+        type: body.type,
+        category: body.category,
+        city: body.city ?? null,
+        coverEmoji: body.coverEmoji,
+        coverImageUrl: body.coverImageUrl ?? null,
+        creatorId: auth.user.sub,
+        maxMembers,
+        subscriptionPriceNgn: body.subscriptionPriceNgn !== undefined ? BigInt(body.subscriptionPriceNgn) : null,
+        entryFeeNgn: body.entryFeeNgn !== undefined ? BigInt(body.entryFeeNgn) : null,
+        dropStartsAt: body.dropStartsAt ? new Date(body.dropStartsAt) : null,
+        dropEndsAt: dropEndsAt ? new Date(dropEndsAt) : null,
+        enrolmentFeeNgn: body.enrolmentFeeNgn !== undefined ? BigInt(body.enrolmentFeeNgn) : null,
+        curriculum: curriculum ?? null,
+        classStartDate: body.classStartDate ?? null,
+        classEndDate: body.classEndDate ?? null,
+        durationMinutes: body.durationMinutes ?? null,
+        slug,
+        isPublic,
+        guildId: resolvedGuildId,
+        showInCreatorListing: body.showInCreatorListing ?? true,
+        memberCount: 1,
+        totalMessages: 0,
+        isActive: true,
+      };
+      const [insertedRoom] = await tx
+        .insert(schema.rooms)
+        .values(roomInsertValues)
+        .returning();
 
-      const room = roomRows[0];
+      const room = insertedRoom;
       if (!room) throw new Error("Room creation failed");
 
       // Auto-join creator as creator member
-      await tx.query(
-        `INSERT INTO room_members (room_id, user_id, role, joined_at)
-         VALUES ($1, $2, 'creator', NOW())`,
-        [room.id, auth.user.sub]
-      );
+      await tx.insert(schema.roomMembers).values({
+        roomId: room.id,
+        userId: auth.user.sub,
+        role: 'creator',
+        joinedAt: sql`NOW()`,
+      });
 
       // Guild Rooms are looked up by the guild_rooms join table (GET
       // /api/rooms/[roomId]) *and* by rooms.guild_id directly (POST
       // /api/rooms/[roomId]/join) — both must be populated or the room is
       // unreachable even by its own creator.
       if (resolvedGuildId) {
-        await tx.query(
-          `INSERT INTO guild_rooms (guild_id, room_id) VALUES ($1, $2)
-           ON CONFLICT (guild_id, room_id) DO NOTHING`,
-          [resolvedGuildId, room.id]
-        );
+        await tx
+          .insert(schema.guildRooms)
+          .values({ guildId: resolvedGuildId, roomId: room.id })
+          .onConflictDoNothing();
       }
 
       return room;
@@ -751,36 +727,46 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Fire-and-forget: errors never block the response.
     if (room.city) {
       const NOMAD_XP_THRESHOLD = getTrackXPThreshold(25);
-      db.query<{ id: string }>(
-        `SELECT id FROM users
-         WHERE xp_explorer >= $1
-           AND city ILIKE $2
-           AND id != $3
-           AND deleted_at IS NULL
-         LIMIT 500`,
-        [NOMAD_XP_THRESHOLD, `%${room.city}%`, auth.user.sub]
-      ).then(async ({ rows: nomadUsers }) => {
-        if (nomadUsers.length === 0) return;
-        const userIds = nomadUsers.map((u) => u.id);
-        const notifPayload = JSON.stringify({ roomId: room.id, roomName: room.name, city: room.city });
-        await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           SELECT unnest($1::uuid[]), 'new_city_room', $2::jsonb, FALSE, NOW()`,
-          [userIds, notifPayload]
-        );
-        sendPushNotificationBatch(
-          nomadUsers.map((u) => ({
-            userId: u.id,
-            title: "New Room in Your City 🌍",
-            body: `${room.name} just opened in ${room.city}. Be first to join!`,
-            data: { action: `/rooms/${room.id}` },
-            priority: "normal" as const,
-          }))
-        ).catch(() => {/* fire-and-forget */});
-      }).catch(() => {/* fire-and-forget */});
+      orm
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(and(
+          sql`${schema.users.xpExplorer} >= ${NOMAD_XP_THRESHOLD}`,
+          sql`${schema.users.city} ILIKE ${`%${room.city}%`}`,
+          sql`${schema.users.id} != ${auth.user.sub}`,
+          sql`${schema.users.deletedAt} IS NULL`,
+        ))
+        .limit(500)
+        .then(async (nomadUsers) => {
+          if (nomadUsers.length === 0) return;
+          const userIds = nomadUsers.map((u) => u.id);
+          const notifPayload = { roomId: room.id, roomName: room.name, city: room.city };
+          await orm.execute(sql`
+            INSERT INTO notifications (user_id, type, payload, is_read, created_at)
+            SELECT unnest(${userIds}::uuid[]), 'new_city_room', ${JSON.stringify(notifPayload)}::jsonb, FALSE, NOW()
+          `);
+          sendPushNotificationBatch(
+            nomadUsers.map((u) => ({
+              userId: u.id,
+              title: "New Room in Your City 🌍",
+              body: `${room.name} just opened in ${room.city}. Be first to join!`,
+              data: { action: `/rooms/${room.id}` },
+              priority: "normal" as const,
+            }))
+          ).catch(() => {/* fire-and-forget */});
+        }).catch(() => {/* fire-and-forget */});
     }
 
-    return NextResponse.json({ room }, { status: 201 });
+    return NextResponse.json({
+      room: {
+        ...room,
+        subscriptionPriceNgn: room.subscriptionPriceNgn !== null ? Number(room.subscriptionPriceNgn) : null,
+        entryFeeNgn: room.entryFeeNgn !== null ? Number(room.entryFeeNgn) : null,
+        enrolmentFeeNgn: room.enrolmentFeeNgn !== null ? Number(room.enrolmentFeeNgn) : null,
+        subscriptionPriceKobo: room.subscriptionPriceKobo !== null ? Number(room.subscriptionPriceKobo) : null,
+        entryFeeKobo: room.entryFeeKobo !== null ? Number(room.entryFeeKobo) : null,
+      },
+    }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

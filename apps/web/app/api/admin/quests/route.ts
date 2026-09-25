@@ -37,7 +37,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -82,28 +83,34 @@ export const GET = withAdminAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-    const { rows } = await db.query<QuestTemplateRow>(
-      `SELECT qt.id, qt.title, qt.description, qt.action_type, qt.target_count,
-              qt.xp_reward, qt.coin_reward, qt.category, qt.icon, qt.plan_required,
-              qt.track, qt.feature_key, qt.is_active, qt.valid_date, qt.created_at,
-              COALESCE(stats.assigned_count, 0) AS assigned_count,
-              COALESCE(stats.completed_count, 0) AS completed_count
-       FROM quest_templates qt
-       LEFT JOIN (
-         SELECT uqd.quest_id,
-                COUNT(*) AS assigned_count,
-                COUNT(*) FILTER (WHERE uqp.completed) AS completed_count
-         FROM user_quest_decks uqd
-         LEFT JOIN user_quest_progress uqp
-           ON uqp.user_id = uqd.user_id
-          AND uqp.quest_id = uqd.quest_id
-          AND uqp.quest_date = uqd.assigned_date
-         WHERE uqd.assigned_date >= CURRENT_DATE - INTERVAL '30 days'
-         GROUP BY uqd.quest_id
-       ) stats ON stats.quest_id = qt.id
-       WHERE qt.sponsored_quest_id IS NULL
-       ORDER BY qt.category ASC, qt.title ASC`
-    );
+    const orm = await getDb();
+
+    // Genuinely complex aggregation (correlated subquery with FILTER +
+    // COALESCE) — expressed through Drizzle's `sql` template rather than the
+    // query builder, per the migration guidance for this kind of query.
+    const result = await orm.execute(sql`
+      SELECT qt.id, qt.title, qt.description, qt.action_type, qt.target_count,
+             qt.xp_reward, qt.coin_reward, qt.category, qt.icon, qt.plan_required,
+             qt.track, qt.feature_key, qt.is_active, qt.valid_date, qt.created_at,
+             COALESCE(stats.assigned_count, 0) AS assigned_count,
+             COALESCE(stats.completed_count, 0) AS completed_count
+      FROM quest_templates qt
+      LEFT JOIN (
+        SELECT uqd.quest_id,
+               COUNT(*) AS assigned_count,
+               COUNT(*) FILTER (WHERE uqp.completed) AS completed_count
+        FROM user_quest_decks uqd
+        LEFT JOIN user_quest_progress uqp
+          ON uqp.user_id = uqd.user_id
+         AND uqp.quest_id = uqd.quest_id
+         AND uqp.quest_date = uqd.assigned_date
+        WHERE uqd.assigned_date >= CURRENT_DATE - INTERVAL '30 days'
+        GROUP BY uqd.quest_id
+      ) stats ON stats.quest_id = qt.id
+      WHERE qt.sponsored_quest_id IS NULL
+      ORDER BY qt.category ASC, qt.title ASC
+    `);
+    const rows = result.rows as unknown as QuestTemplateRow[];
 
     return NextResponse.json({
       success: true,
@@ -126,41 +133,44 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const body = await validateBody(req, createSchema);
 
-    const { rows: existing } = await db.query<{ id: string }>(
-      `SELECT id FROM quest_templates WHERE title = $1 LIMIT 1`,
-      [body.title]
-    );
+    const orm = await getDb();
+
+    const existing = await orm
+      .select({ id: schema.questTemplates.id })
+      .from(schema.questTemplates)
+      .where(eq(schema.questTemplates.title, body.title))
+      .limit(1);
     if (existing[0]) {
       throw conflict(`A quest template titled "${body.title}" already exists`);
     }
 
-    const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO quest_templates
-         (title, description, action_type, target_count, xp_reward, coin_reward,
-          category, icon, plan_required, track, feature_key, is_active)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, true)
-       RETURNING id`,
-      [
-        body.title,
-        body.description,
-        body.actionType,
-        body.targetCount,
-        body.xpReward,
-        body.coinReward,
-        body.category,
-        body.icon ?? null,
-        body.planRequired,
-        body.track,
-        body.featureKey ?? null,
-      ]
-    );
+    const rows = await orm
+      .insert(schema.questTemplates)
+      .values({
+        title: body.title,
+        description: body.description,
+        actionType: body.actionType,
+        targetCount: body.targetCount,
+        xpReward: body.xpReward,
+        coinReward: body.coinReward,
+        category: body.category,
+        icon: body.icon ?? null,
+        planRequired: body.planRequired,
+        track: body.track,
+        featureKey: body.featureKey ?? null,
+        isActive: true,
+      })
+      .returning({ id: schema.questTemplates.id });
 
     try {
-      await db.query(
-        `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, before_val, after_val, created_at)
-         VALUES ($1, 'create_quest_template', 'quest_templates', $2, NULL, $3::jsonb, NOW())`,
-        [auth.user.sub, rows[0].id, JSON.stringify(body)]
-      );
+      await orm.insert(schema.adminAuditLog).values({
+        adminId: auth.user.sub,
+        action: "create_quest_template",
+        resource: "quest_templates",
+        resourceId: rows[0].id,
+        beforeVal: null,
+        afterVal: body,
+      });
     } catch (auditErr) {
       logger.error({ err: auditErr, questId: rows[0].id }, "[admin:quests] Failed to write admin_audit_log entry (non-fatal)");
     }

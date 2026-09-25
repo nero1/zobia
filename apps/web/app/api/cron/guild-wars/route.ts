@@ -21,7 +21,8 @@ export const maxDuration = 10;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { resolveWar } from "@/lib/guilds/warEngine";
 import { validateCronSecret } from "@/lib/cron/auth";
 
@@ -29,7 +30,7 @@ import { validateCronSecret } from "@/lib/cron/auth";
 // Types
 // ---------------------------------------------------------------------------
 
-interface GuildWarRow {
+interface GuildWarRow extends Record<string, unknown> {
   id: string;
   challenger_guild_id: string;
   defender_guild_id: string;
@@ -37,7 +38,7 @@ interface GuildWarRow {
   ends_at: string;
 }
 
-interface GuildMemberRow {
+interface GuildMemberRow extends Record<string, unknown> {
   user_id: string;
 }
 
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const orm = await getDb();
   const now = new Date();
   const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
 
@@ -67,59 +69,43 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Wars whose ends_at falls within the next hour (and are still 'active').
   // -------------------------------------------------------------------------
   try {
-    const finalHourCandidates = await db.query<GuildWarRow>(
-      `SELECT id, challenger_guild_id, defender_guild_id, status, ends_at
-       FROM guild_wars
-       WHERE status = 'active'
-         AND ends_at <= $1
-         AND ends_at > $2`,
-      [oneHourFromNow.toISOString(), now.toISOString()]
-    );
+    const finalHourCandidates = await orm.execute<GuildWarRow>(sql`
+      SELECT id, challenger_guild_id, defender_guild_id, status, ends_at
+      FROM guild_wars
+      WHERE status = 'active'
+        AND ends_at <= ${oneHourFromNow.toISOString()}
+        AND ends_at > ${now.toISOString()}
+    `);
 
     for (const war of finalHourCandidates.rows) {
       try {
         // Mark as final_hour
-        await db.query(
-          `UPDATE guild_wars SET status = 'final_hour', updated_at = NOW()
-           WHERE id = $1 AND status = 'active'`,
-          [war.id]
-        );
+        await orm.execute(sql`
+          UPDATE guild_wars SET status = 'final_hour', updated_at = NOW()
+          WHERE id = ${war.id} AND status = 'active'
+        `);
 
         // Collect all member user IDs from both guilds
-        const membersResult = await db.query<GuildMemberRow>(
-          `SELECT user_id FROM guild_members
-           WHERE guild_id = ANY($1::uuid[]) AND left_at IS NULL`,
-          [[war.challenger_guild_id, war.defender_guild_id]]
-        );
+        const membersResult = await orm.execute<GuildMemberRow>(sql`
+          SELECT user_id FROM guild_members
+          WHERE guild_id = ANY(${[war.challenger_guild_id, war.defender_guild_id]}::uuid[]) AND left_at IS NULL
+        `);
 
         // Insert in-app notifications for all members — reference_id = war id
         // ensures ON CONFLICT deduplicates CRON re-runs (BUG-NOTIF-02).
         const userIds = membersResult.rows.map((r) => r.user_id);
         if (userIds.length > 0) {
-          // Batch insert notifications (one per member) using modern title/body/metadata format
-          const values = userIds
-            .map(
-              (_, i) =>
-                `($${i * 6 + 1}, $${i * 6 + 2}, $${i * 6 + 3}, $${i * 6 + 4}, $${i * 6 + 5}::jsonb, $${i * 6 + 6})`
-            )
-            .join(", ");
-          const params: (string | boolean)[] = [];
-          for (const userId of userIds) {
-            params.push(
-              userId,
-              "guild_war_final_hour",
-              "⚔️ Final Hour!",
-              "Your guild's war is entering the final hour! Give it everything you've got.",
-              JSON.stringify({ war_id: war.id }),
-              `guild_war_final_hour:${war.id}`
-            );
-          }
-          await db.query(
-            `INSERT INTO notifications (user_id, type, title, body, metadata, reference_id)
-             VALUES ${values}
-             ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-            params
-          );
+          const types = userIds.map(() => "guild_war_final_hour");
+          const titles = userIds.map(() => "⚔️ Final Hour!");
+          const bodies = userIds.map(() => "Your guild's war is entering the final hour! Give it everything you've got.");
+          const metas = userIds.map(() => JSON.stringify({ war_id: war.id }));
+          const refIds = userIds.map(() => `guild_war_final_hour:${war.id}`);
+          await orm.execute(sql`
+            INSERT INTO notifications (user_id, type, title, body, metadata, reference_id)
+            SELECT unnest(${userIds}::uuid[]), unnest(${types}::text[]), unnest(${titles}::text[]),
+                   unnest(${bodies}::text[]), unnest(${metas}::jsonb[]), unnest(${refIds}::text[])
+            ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+          `);
         }
 
         finalHourStarted++;
@@ -136,28 +122,26 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // Wars whose ends_at has passed and are still active or in final_hour.
   // -------------------------------------------------------------------------
   try {
-    const completedWars = await db.query<GuildWarRow>(
-      `SELECT id, challenger_guild_id, defender_guild_id, status, ends_at
-       FROM guild_wars
-       WHERE status IN ('active', 'final_hour')
-         AND ends_at < $1`,
-      [now.toISOString()]
-    );
+    const completedWars = await orm.execute<GuildWarRow>(sql`
+      SELECT id, challenger_guild_id, defender_guild_id, status, ends_at
+      FROM guild_wars
+      WHERE status IN ('active', 'final_hour')
+        AND ends_at < ${now.toISOString()}
+    `);
 
     for (const war of completedWars.rows) {
       try {
         // resolveWar() sets status = 'completed' internally within its own transaction
-        const result = await resolveWar(war.id, db);
+        const result = await resolveWar(war.id, orm);
 
         // Award rematch token to the losing guild — skip on draw (no loser)
         if (result.outcome !== 'draw' && result.loserGuildId) {
-          await db.query(
-            `INSERT INTO guild_war_rematch_tokens
-               (guild_id, war_id, discount_percent, is_used, expires_at)
-             VALUES ($1, $2, 50, false, NOW() + INTERVAL '7 days')
-             ON CONFLICT DO NOTHING`,
-            [result.loserGuildId, war.id]
-          );
+          await orm.execute(sql`
+            INSERT INTO guild_war_rematch_tokens
+              (guild_id, war_id, discount_percent, is_used, expires_at)
+            VALUES (${result.loserGuildId}, ${war.id}, 50, false, NOW() + INTERVAL '7 days')
+            ON CONFLICT DO NOTHING
+          `);
         }
 
         resolved++;
@@ -175,17 +159,16 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // -------------------------------------------------------------------------
   let dropRoomsClosed = 0;
   try {
-    const closedRooms = await db.query<{ id: string }>(
-      `UPDATE rooms
-       SET is_active = false, updated_at = NOW()
-       WHERE (type = 'drop' OR room_type = 'drop')
-         AND is_active = true
-         AND drop_ends_at IS NOT NULL
-         AND drop_ends_at < $1
-         AND deleted_at IS NULL
-       RETURNING id`,
-      [now.toISOString()]
-    );
+    const closedRooms = await orm.execute<{ id: string }>(sql`
+      UPDATE rooms
+      SET is_active = false, updated_at = NOW()
+      WHERE (type = 'drop' OR room_type = 'drop')
+        AND is_active = true
+        AND drop_ends_at IS NOT NULL
+        AND drop_ends_at < ${now.toISOString()}
+        AND deleted_at IS NULL
+      RETURNING id
+    `);
     dropRoomsClosed = closedRooms.rows.length;
   } catch (err) {
     errors.push(`dropRoomAutoClose: ${String(err)}`);
@@ -196,10 +179,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // -------------------------------------------------------------------------
   try {
     const tenMinutesAgo = new Date(now.getTime() - 10 * 60 * 1000).toISOString();
-    await db.query(
-      `DELETE FROM telegram_login_states WHERE created_at < $1`,
-      [tenMinutesAgo]
-    );
+    await orm.execute(sql`
+      DELETE FROM telegram_login_states WHERE created_at < ${tenMinutesAgo}
+    `);
   } catch {
     // Non-critical; ignore
   }
@@ -239,7 +221,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // -------------------------------------------------------------------------
 
   // Reusable CASE expression for minimum member count per tier group
-  const TIER_MIN_CASE = `
+  const TIER_MIN_CASE = sql.raw(`
     CASE
       WHEN tier LIKE 'bronze%' THEN 5
       WHEN tier LIKE 'silver%' THEN 10
@@ -248,87 +230,82 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       WHEN tier = 'legend'     THEN 25
       ELSE 0
     END
-  `;
+  `);
 
   // Downgrade: legend→platinum, platinum→gold, gold→silver, silver→bronze (floor)
-  const TIER_DOWNGRADE_CASE = `
+  const TIER_DOWNGRADE_CASE = sql.raw(`
     CASE
       WHEN tier = 'legend'     THEN 'platinum'
       WHEN tier LIKE 'platinum%' THEN 'gold'
       WHEN tier LIKE 'gold%'   THEN 'silver'
       ELSE 'bronze'
     END
-  `;
+  `);
 
   let guildTierDowngrades = 0;
 
   try {
     // A) Reset healthy guilds — clear below_min_since when back above minimum
-    await db.query(
-      `UPDATE guilds g
-       SET below_min_since = NULL, updated_at = NOW()
-       WHERE g.deleted_at IS NULL AND g.is_active = TRUE
-         AND g.below_min_since IS NOT NULL
-         AND (
-           SELECT COUNT(*) FROM guild_members gm
-           WHERE gm.guild_id = g.id AND gm.left_at IS NULL
-         ) >= ${TIER_MIN_CASE}`
-    );
+    await orm.execute(sql`
+      UPDATE guilds g
+      SET below_min_since = NULL, updated_at = NOW()
+      WHERE g.deleted_at IS NULL AND g.is_active = TRUE
+        AND g.below_min_since IS NOT NULL
+        AND (
+          SELECT COUNT(*) FROM guild_members gm
+          WHERE gm.guild_id = g.id AND gm.left_at IS NULL
+        ) >= ${TIER_MIN_CASE}
+    `);
 
     // C) Downgrade guilds that have been below-minimum for 7+ days, notify captains
     //    (runs BEFORE the stamp step so it reads the original below_min_since)
     const downgradeWeek = now.toISOString().slice(0, 10);
-    const { rows: downgraded } = await db.query<{
+    const { rows: downgraded } = await orm.execute<{
       id: string; captain_id: string; old_tier: string; new_tier: string;
-    }>(
-      `WITH to_downgrade AS (
-         SELECT g.id, g.captain_id, g.tier AS old_tier,
-                ${TIER_DOWNGRADE_CASE} AS new_tier
-         FROM guilds g
-         WHERE g.deleted_at IS NULL AND g.is_active = TRUE
-           AND g.below_min_since IS NOT NULL
-           AND g.below_min_since <= NOW() - INTERVAL '7 days'
-           AND (
-             SELECT COUNT(*) FROM guild_members gm
-             WHERE gm.guild_id = g.id AND gm.left_at IS NULL
-           ) < ${TIER_MIN_CASE}
-       ),
-       updated AS (
-         UPDATE guilds SET tier = td.new_tier, below_min_since = NULL, updated_at = NOW()
-         FROM to_downgrade td
-         WHERE guilds.id = td.id
-         RETURNING guilds.id, td.captain_id, td.old_tier, td.new_tier
-       )
-       SELECT id, captain_id, old_tier, new_tier FROM updated`
-    );
+    }>(sql`
+      WITH to_downgrade AS (
+        SELECT g.id, g.captain_id, g.tier AS old_tier,
+               ${TIER_DOWNGRADE_CASE} AS new_tier
+        FROM guilds g
+        WHERE g.deleted_at IS NULL AND g.is_active = TRUE
+          AND g.below_min_since IS NOT NULL
+          AND g.below_min_since <= NOW() - INTERVAL '7 days'
+          AND (
+            SELECT COUNT(*) FROM guild_members gm
+            WHERE gm.guild_id = g.id AND gm.left_at IS NULL
+          ) < ${TIER_MIN_CASE}
+      ),
+      updated AS (
+        UPDATE guilds SET tier = td.new_tier, below_min_since = NULL, updated_at = NOW()
+        FROM to_downgrade td
+        WHERE guilds.id = td.id
+        RETURNING guilds.id, td.captain_id, td.old_tier, td.new_tier
+      )
+      SELECT id, captain_id, old_tier, new_tier FROM updated
+    `);
 
     if (downgraded.length > 0) {
       // Batch-insert captain notifications. Use a subquery to expand unnest() once
       // so each array column is only referenced once — avoids N² cross-join if
       // the same array is unnested more than once in a flat SELECT.
-      await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, reference_id, created_at)
-         SELECT sub.captain_id,
-                'guild_tier_downgrade',
-                'Guild Tier Downgrade',
-                'Your guild has been downgraded due to insufficient members. Recruit more members to restore your tier.',
-                jsonb_build_object('guildId', sub.guild_id, 'previousTier', sub.old_tier, 'newTier', sub.new_tier),
-                false,
-                'guild_tier_downgrade:' || sub.guild_id || ':' || $5,
-                NOW()
-         FROM (SELECT unnest($1::uuid[]) AS captain_id,
-                      unnest($2::text[]) AS guild_id,
-                      unnest($3::text[]) AS old_tier,
-                      unnest($4::text[]) AS new_tier) sub
-         ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-        [
-          downgraded.map(d => d.captain_id),
-          downgraded.map(d => d.id),
-          downgraded.map(d => d.old_tier),
-          downgraded.map(d => d.new_tier),
-          downgradeWeek,
-        ]
-      ).catch(() => {});
+      const refIds = downgraded.map(d => `guild_tier_downgrade:${d.id}:${downgradeWeek}`);
+      await orm.execute(sql`
+        INSERT INTO notifications (user_id, type, title, body, metadata, is_read, reference_id, created_at)
+        SELECT sub.captain_id,
+               'guild_tier_downgrade',
+               'Guild Tier Downgrade',
+               'Your guild has been downgraded due to insufficient members. Recruit more members to restore your tier.',
+               jsonb_build_object('guildId', sub.guild_id, 'previousTier', sub.old_tier, 'newTier', sub.new_tier),
+               false,
+               sub.ref_id,
+               NOW()
+        FROM (SELECT unnest(${downgraded.map(d => d.captain_id)}::uuid[]) AS captain_id,
+                     unnest(${downgraded.map(d => d.id)}::text[]) AS guild_id,
+                     unnest(${downgraded.map(d => d.old_tier)}::text[]) AS old_tier,
+                     unnest(${downgraded.map(d => d.new_tier)}::text[]) AS new_tier,
+                     unnest(${refIds}::text[]) AS ref_id) sub
+        ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+      `).catch(() => {});
 
       guildTierDowngrades = downgraded.length;
     }
@@ -338,15 +315,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     //    reset to NULL; if still below their (now lower) tier minimum they will be
     //    re-stamped at NOW() here — a fresh 7-day countdown, which is correct.
     //    COALESCE preserves the existing timestamp for guilds already in the countdown.
-    await db.query(
-      `UPDATE guilds g
-       SET below_min_since = COALESCE(g.below_min_since, NOW()), updated_at = NOW()
-       WHERE g.deleted_at IS NULL AND g.is_active = TRUE
-         AND (
-           SELECT COUNT(*) FROM guild_members gm
-           WHERE gm.guild_id = g.id AND gm.left_at IS NULL
-         ) < ${TIER_MIN_CASE}`
-    );
+    await orm.execute(sql`
+      UPDATE guilds g
+      SET below_min_since = COALESCE(g.below_min_since, NOW()), updated_at = NOW()
+      WHERE g.deleted_at IS NULL AND g.is_active = TRUE
+        AND (
+          SELECT COUNT(*) FROM guild_members gm
+          WHERE gm.guild_id = g.id AND gm.left_at IS NULL
+        ) < ${TIER_MIN_CASE}
+    `);
   } catch (err) {
     errors.push(`guildTierMinimumCheck: ${String(err)}`);
   }
@@ -357,16 +334,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // -------------------------------------------------------------------------
   let limitedRoomsClosed = 0;
   try {
-    const { rows: closedLimited } = await db.query<{ id: string }>(
-      `UPDATE rooms
-       SET is_active = false, updated_at = NOW()
-       WHERE type = 'limited'
-         AND is_active = true
-         AND created_at + (duration_minutes || ' minutes')::INTERVAL < $1
-         AND deleted_at IS NULL
-       RETURNING id`,
-      [now.toISOString()]
-    );
+    const { rows: closedLimited } = await orm.execute<{ id: string }>(sql`
+      UPDATE rooms
+      SET is_active = false, updated_at = NOW()
+      WHERE type = 'limited'
+        AND is_active = true
+        AND created_at + (duration_minutes || ' minutes')::INTERVAL < ${now.toISOString()}
+        AND deleted_at IS NULL
+      RETURNING id
+    `);
     limitedRoomsClosed = closedLimited.length;
   } catch (err) {
     errors.push(`limitedRoomAutoClose: ${String(err)}`);

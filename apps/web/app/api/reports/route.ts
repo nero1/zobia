@@ -16,10 +16,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq, inArray, sql } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { classifyReport, type ReportType } from "@/lib/moderation/aiClassifier";
 import { computeClusterKey, findExistingCluster, registerFirstReporter, maybeAutoQuarantine, maybeRaiseReportSpikeAlert } from "@/lib/moderation/clustering";
 import { logger } from "@/lib/logger";
@@ -125,8 +126,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const clusterKey = computeClusterKey(data);
     let reportId: string | undefined;
 
+    const orm = await getDb();
+
     if (clusterKey) {
-      const joined = await db.transaction(async (tx) => {
+      const joined = await orm.transaction(async (tx) => {
         const existing = await findExistingCluster(tx, clusterKey, auth.user.sub);
         if (existing) {
           await maybeAutoQuarantine(tx, existing.reportId, clusterKey, existing.duplicateCount);
@@ -142,34 +145,29 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Insert the report first so we have an ID
-    const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO moderation_reports
-         (reporter_id, reported_user_id, reported_message_id,
-          reported_room_id, reported_guild_id, reported_guild_message_id, reported_forum_question_id,
-          reported_forum_answer_id, reported_bb_thread_id, reported_bb_post_id,
-          report_type, description, status, cluster_key, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, 'pending', $13, NOW())
-       RETURNING id`,
-      [
-        auth.user.sub,
-        data.reportedUserId ?? null,
-        data.reportedMessageId ?? null,
-        data.reportedRoomId ?? null,
-        data.reportedGuildId ?? null,
-        data.reportedGuildMessageId ?? null,
-        data.reportedForumQuestionId ?? null,
-        data.reportedForumAnswerId ?? null,
-        data.reportedBbThreadId ?? null,
-        data.reportedBbPostId ?? null,
-        data.reportType,
-        data.description ?? null,
+    const rows = await orm
+      .insert(schema.moderationReports)
+      .values({
+        reporterId: auth.user.sub,
+        reportedUserId: data.reportedUserId ?? null,
+        reportedMessageId: data.reportedMessageId ?? null,
+        reportedRoomId: data.reportedRoomId ?? null,
+        reportedGuildId: data.reportedGuildId ?? null,
+        reportedGuildMessageId: data.reportedGuildMessageId ?? null,
+        reportedForumQuestionId: data.reportedForumQuestionId ?? null,
+        reportedForumAnswerId: data.reportedForumAnswerId ?? null,
+        reportedBbThreadId: data.reportedBbThreadId ?? null,
+        reportedBbPostId: data.reportedBbPostId ?? null,
+        reportType: data.reportType,
+        description: data.description ?? null,
+        status: "pending",
         clusterKey,
-      ]
-    );
+      })
+      .returning({ id: schema.moderationReports.id });
 
     reportId = rows[0]?.id;
     if (reportId) {
-      await registerFirstReporter(db, reportId, auth.user.sub);
+      await registerFirstReporter(orm, reportId, auth.user.sub);
     }
 
     // Run AI classification async — routes to correct pipeline stage based on confidence
@@ -177,10 +175,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       classifyReport(contentForClassification, data.reportType as ReportType)
         .then(async (classification) => {
           // Load thresholds from x_manifest (with fallback defaults)
-          const { rows: thresholdRows } = await db.query<{ key: string; value: string }>(
-            `SELECT key, value FROM x_manifest
-             WHERE key IN ('ai_moderation_auto_action_threshold', 'ai_moderation_community_threshold')`,
-          );
+          const thresholdRows = await orm
+            .select({ key: schema.xManifest.key, value: schema.xManifest.value })
+            .from(schema.xManifest)
+            .where(
+              inArray(schema.xManifest.key, [
+                "ai_moderation_auto_action_threshold",
+                "ai_moderation_community_threshold",
+              ])
+            );
           const thresholdMap = Object.fromEntries(thresholdRows.map((r) => [r.key, r.value]));
           const autoActionThreshold = parseFloat(thresholdMap['ai_moderation_auto_action_threshold'] ?? '0.9');
           const communityThreshold = parseFloat(thresholdMap['ai_moderation_community_threshold'] ?? '0.7');
@@ -196,59 +199,54 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             pipelineStatus = 'ai_auto_actioned';
             // Flag the reported content as hidden (best-effort)
             if (data.reportedMessageId) {
-              await db.query(
-                `UPDATE messages SET is_deleted = TRUE, updated_at = NOW() WHERE id = $1`,
-                [data.reportedMessageId]
-              ).catch(() => {});
+              await orm
+                .update(schema.messages)
+                .set({ isDeleted: true, updatedAt: sql`NOW()` })
+                .where(eq(schema.messages.id, data.reportedMessageId))
+                .catch(() => {});
             }
             if (data.reportedRoomId && classification.recommendation === 'ban_user') {
               // Suspend reported user from the room (non-destructive)
-              await db.query(
-                `UPDATE room_members SET is_muted = TRUE, updated_at = NOW()
-                 WHERE room_id = $1 AND user_id = $2`,
-                [data.reportedRoomId, data.reportedUserId ?? null]
-              ).catch(() => {});
+              await orm
+                .update(schema.roomMembers)
+                .set({ isMuted: true, updatedAt: sql`NOW()` })
+                .where(
+                  sql`${schema.roomMembers.roomId} = ${data.reportedRoomId} AND ${schema.roomMembers.userId} = ${data.reportedUserId ?? null}`
+                )
+                .catch(() => {});
             }
           } else if (classification.confidence >= communityThreshold) {
             pipelineStatus = 'community_review';
             // Create a community note for crowd review
             if (data.reportedUserId) {
-              await db.query(
-                `INSERT INTO community_notes
-                   (target_type, target_id, author_id, content, status, created_at, updated_at)
-                 VALUES ($1, $2, $3, $4, 'needs_review', NOW(), NOW())
-                 ON CONFLICT DO NOTHING`,
-                [
-                  data.reportedMessageId ? 'message' : data.reportedRoomId ? 'room' : 'user',
-                  data.reportedMessageId ?? data.reportedRoomId ?? data.reportedGuildId ?? data.reportedUserId,
-                  auth.user.sub,
-                  `AI flagged: ${classification.category} (confidence ${Math.round(classification.confidence * 100)}%)`,
-                ]
-              ).catch(() => {});
+              await orm
+                .insert(schema.communityNotes)
+                .values({
+                  targetType: data.reportedMessageId ? 'message' : data.reportedRoomId ? 'room' : 'user',
+                  targetId: (data.reportedMessageId ?? data.reportedRoomId ?? data.reportedGuildId ?? data.reportedUserId) as string,
+                  authorId: auth.user.sub,
+                  content: `AI flagged: ${classification.category} (confidence ${Math.round(classification.confidence * 100)}%)`,
+                  status: 'needs_review',
+                })
+                .onConflictDoNothing()
+                .catch(() => {});
             }
           } else {
             pipelineStatus = 'manual_queue';
           }
 
-          await db.query(
-            `UPDATE moderation_reports
-             SET ai_category       = $1,
-                 ai_confidence     = $2,
-                 ai_recommendation = $3,
-                 ai_provider       = $4,
-                 ai_classified_at  = NOW(),
-                 pipeline_status   = $5,
-                 status            = CASE WHEN $5 = 'ai_auto_actioned' THEN 'resolved' ELSE status END
-             WHERE id = $6`,
-            [
-              classification.category,
-              classification.confidence,
-              classification.recommendation,
-              classification.provider,
+          await orm
+            .update(schema.moderationReports)
+            .set({
+              aiCategory: classification.category,
+              aiConfidence: String(classification.confidence),
+              aiRecommendation: classification.recommendation,
+              aiProvider: classification.provider,
+              aiClassifiedAt: sql`NOW()`,
               pipelineStatus,
-              reportId,
-            ]
-          );
+              status: sql`CASE WHEN ${pipelineStatus} = 'ai_auto_actioned' THEN 'resolved' ELSE status END`,
+            })
+            .where(eq(schema.moderationReports.id, reportId as string));
         })
         .catch((err) => {
           logger.error({ err: err }, "[reports] AI classification/pipeline failed:");

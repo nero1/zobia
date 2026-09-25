@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -22,22 +23,28 @@ export const POST = withModeratorOrAdminAuth<{ id: string }>(
       const adminId = auth.user.sub;
       await enforceRateLimit(adminId, "user", RATE_LIMITS.admin);
 
-      const { rows } = await db.query<{ status: string }>(
-        `SELECT status FROM kyc_submissions WHERE id = $1`,
-        [params.id]
-      );
-      if (!rows[0]) throw notFound("KYC submission not found");
-      if (!["pending", "ai_review", "manual_review"].includes(rows[0].status)) {
+      const orm = await getDb();
+      const [submission] = await orm
+        .select({ status: schema.kycSubmissions.status })
+        .from(schema.kycSubmissions)
+        .where(eq(schema.kycSubmissions.id, params.id))
+        .limit(1);
+      if (!submission) throw notFound("KYC submission not found");
+      if (!["pending", "ai_review", "manual_review"].includes(submission.status)) {
         throw conflict("This submission has already been reviewed.");
       }
 
       await approveSubmission(params.id, adminId);
 
-      await db.query(
-        `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, created_at)
-         VALUES ($1, 'kyc_approve', 'kyc_submissions', $2, NOW())`,
-        [adminId, params.id]
-      ).catch((err) => logger.error({ err }, "[admin:kyc] audit log write failed"));
+      await orm
+        .insert(schema.adminAuditLog)
+        .values({
+          adminId,
+          action: "kyc_approve",
+          resource: "kyc_submissions",
+          resourceId: params.id,
+        })
+        .catch((err) => logger.error({ err }, "[admin:kyc] audit log write failed"));
 
       return NextResponse.json({ success: true, data: { status: "approved" }, error: null });
     } catch (err) {

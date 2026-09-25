@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, gte, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -60,23 +61,22 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Verify recipient exists and is active
-    const { rows: recipientRows } = await db.query<{
-      id: string;
-      username: string;
-      is_suspended: boolean;
-    }>(
-      `SELECT id, username, COALESCE(is_suspended, false) AS is_suspended
-       FROM users
-       WHERE id = $1 AND deleted_at IS NULL
-       LIMIT 1`,
-      [body.recipientId]
-    );
-    if (!recipientRows[0]) throw notFound("Recipient not found");
-    if (recipientRows[0].is_suspended) {
+    const orm = await getDb();
+    const [recipientRow] = await orm
+      .select({
+        id: schema.users.id,
+        username: schema.users.username,
+        isSuspended: schema.users.isSuspended,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, body.recipientId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    if (!recipientRow) throw notFound("Recipient not found");
+    if (recipientRow.isSuspended) {
       throw badRequest("This account is temporarily unavailable.", "RECIPIENT_UNAVAILABLE");
     }
 
-    const recipient = recipientRows[0];
+    const recipient = recipientRow;
 
     // Transfer stars atomically.
     // STAR-NOIDEM: the reference must be transaction-specific, not the counterparty's
@@ -84,7 +84,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // ever gift stars to the same recipient once (every subsequent gift would collide
     // on the user_id+transaction_type+reference_id ledger index).
     const transferRef = randomUUID();
-    await db.transaction(async (tx) => {
+    await orm.transaction(async (tx) => {
       await debitStars(
         senderId,
         body.amount,
@@ -109,16 +109,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       try {
         // BUG-XP-16: enforce a cumulative daily cap by querying how much XP has
         // already been awarded today for star_gift, then cap the remaining budget.
-        const { rows: xpRows } = await db.query<{ total_xp: string }>(
-          `SELECT COALESCE(SUM(amount), 0)::text AS total_xp
-           FROM xp_ledger
-           WHERE user_id = $1
-             AND track = 'generosity'
-             AND source = 'star_gift'
-             AND created_at >= CURRENT_DATE`,
-          [senderId]
-        );
-        const todayXp = parseInt(xpRows[0]?.total_xp ?? '0', 10);
+        const orm = await getDb();
+        const [xpRow] = await orm
+          .select({ totalXp: sql<string>`COALESCE(SUM(${schema.xpLedger.amount}), 0)::text` })
+          .from(schema.xpLedger)
+          .where(
+            and(
+              eq(schema.xpLedger.userId, senderId),
+              eq(schema.xpLedger.track, "generosity"),
+              eq(schema.xpLedger.source, "star_gift"),
+              gte(schema.xpLedger.createdAt, sql`CURRENT_DATE`)
+            )
+          );
+        const todayXp = parseInt(xpRow?.totalXp ?? "0", 10);
         const remaining = Math.max(0, GENEROSITY_XP_DAILY_CAP - todayXp);
         const xpAmount = Math.min(GENEROSITY_XP_PER_STAR * body.amount, remaining);
 

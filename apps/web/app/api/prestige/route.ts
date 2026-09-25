@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 import { getRankForXP } from "@/lib/xp/engine";
@@ -73,18 +74,17 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<{
-      xp_total: number;
-      prestige_count: number;
-    }>(
-      `SELECT xp_total, COALESCE(prestige_count, 0) AS prestige_count
-       FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [userId]
-    );
-    const user = rows[0];
+    const orm = await getDb();
+    const [user] = await orm
+      .select({ xpTotal: schema.users.xpTotal, prestigeCount: schema.users.prestigeCount })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!user) throw forbidden("User not found");
+    const xpTotal = Number(user.xpTotal);
+    const prestigeCount = user.prestigeCount ?? 0;
 
-    const rank = getRankForXP(user.xp_total);
+    const rank = getRankForXP(xpTotal);
     const eligible =
       rank.rankName === PRESTIGE_REQUIRED_RANK &&
       rank.sublevel === PRESTIGE_REQUIRED_SUBLEVEL;
@@ -93,7 +93,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       success: true,
       data: {
         eligible,
-        prestigeCount: user.prestige_count,
+        prestigeCount,
         currentRank: rank,
         requirements: {
           rank: PRESTIGE_REQUIRED_RANK,
@@ -101,10 +101,10 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
           xpRequired: rank.rankName === PRESTIGE_REQUIRED_RANK ? "Already at required rank" : `${rank.nextRankXp} XP needed`,
         },
         rewards: {
-          coins: user.prestige_count === 0 ? PRESTIGE_P1_COIN_REWARD : 0,
-          stars: user.prestige_count > 0 ? PRESTIGE_STAR_REWARD : 0,
-          frame: `${PRESTIGE_BADGE_TYPE}_${(user.prestige_count + 1)}`,
-          title: `Prestige ${user.prestige_count + 1}`,
+          coins: prestigeCount === 0 ? PRESTIGE_P1_COIN_REWARD : 0,
+          stars: prestigeCount > 0 ? PRESTIGE_STAR_REWARD : 0,
+          frame: `${PRESTIGE_BADGE_TYPE}_${(prestigeCount + 1)}`,
+          title: `Prestige ${prestigeCount + 1}`,
         },
       },
       error: null,
@@ -133,19 +133,24 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const result = await db.transaction(async (client) => {
+    const orm = await getDb();
+    const result = await orm.transaction(async (client) => {
       // 1. Lock user row
-      const { rows } = await client.query<{
-        xp_total: number;
-        prestige_count: number;
-        coin_balance: number;
-      }>(
-        `SELECT xp_total, COALESCE(prestige_count, 0) AS prestige_count, coin_balance
-         FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-        [userId]
-      );
-      const user = rows[0];
-      if (!user) throw forbidden("User not found");
+      const [userRow] = await client
+        .select({
+          xpTotal: schema.users.xpTotal,
+          prestigeCount: schema.users.prestigeCount,
+          coinBalance: schema.users.coinBalance,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .for("update");
+      if (!userRow) throw forbidden("User not found");
+      const user = {
+        xp_total: Number(userRow.xpTotal),
+        prestige_count: userRow.prestigeCount ?? 0,
+        coin_balance: Number(userRow.coinBalance),
+      };
 
       // 2. Verify eligibility
       const rank = getRankForXP(user.xp_total);
@@ -175,110 +180,126 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         : null;
 
       // 3. Reset main XP, increment prestige_count, award coins, set boost
-      await client.query(
-        `UPDATE users
-         SET xp_total = 0,
-             prestige_count = $1,
-             coin_balance = $2,
-             star_balance = COALESCE(star_balance, 0) + $3,
-             prestige_cycle_boost_expires_at = $4,
-             updated_at = NOW()
-         WHERE id = $5`,
-        [newPrestigeCount, newCoinBalance, starReward, boostExpiresAt, userId]
-      );
+      await client
+        .update(schema.users)
+        .set({
+          xpTotal: BigInt(0),
+          prestigeCount: newPrestigeCount,
+          coinBalance: BigInt(newCoinBalance),
+          starBalance: sql`COALESCE(${schema.users.starBalance}, 0) + ${starReward}`,
+          prestigeCycleBoostExpiresAt: boostExpiresAt ? new Date(boostExpiresAt) : null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.users.id, userId));
 
       // 4. Record XP reset in xp_ledger
-      await client.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
-         VALUES ($1, $2, 'main', 'prestige_reset', $2, NOW())`,
-        [userId, -xpBefore]
-      );
+      await client.insert(schema.xpLedger).values({
+        userId,
+        amount: -xpBefore,
+        track: "main",
+        source: "prestige_reset",
+        baseAmount: -xpBefore,
+      });
 
       // 5. Record coin award in coin_ledger (P1 only)
       if (coinReward > 0) {
-        await client.query(
-          `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
-           VALUES ($1, $2, $3, $4, 'prestige_reward', $5, NOW())`,
-          [
-            userId,
-            coinReward,
-            user.coin_balance,
-            newCoinBalance,
-            `Prestige ${newPrestigeCount} coin reward`,
-          ]
-        );
+        await client.insert(schema.coinLedger).values({
+          userId,
+          amount: BigInt(coinReward),
+          balanceBefore: BigInt(user.coin_balance),
+          balanceAfter: BigInt(newCoinBalance),
+          transactionType: "prestige_reward",
+          description: `Prestige ${newPrestigeCount} coin reward`,
+        });
       }
 
       // 5b. Record star award in star_ledger (P2+)
       if (starReward > 0) {
-        await client.query(
-          `INSERT INTO star_ledger (user_id, amount, transaction_type, description, created_at)
-           VALUES ($1, $2, 'prestige_reward', $3, NOW())`,
-          [userId, starReward, `Prestige ${newPrestigeCount} star reward`]
-        ).catch(() => {}); // non-fatal if star_ledger doesn't exist yet
+        await client
+          .insert(schema.starLedger)
+          .values({
+            userId,
+            amount: BigInt(starReward),
+            transactionType: "prestige_reward",
+            description: `Prestige ${newPrestigeCount} star reward`,
+          })
+          .catch(() => {}); // non-fatal if star_ledger doesn't exist yet
       }
 
       // 6. Award prestige frame badge (numbered, e.g. prestige_frame_1)
       const badgeType = `${PRESTIGE_BADGE_TYPE}_${newPrestigeCount}`;
-      await client.query(
-        `INSERT INTO user_badges (user_id, badge_type, badge_key, awarded_at, metadata)
-         VALUES ($1, $2, $2, NOW(), $3)
-         ON CONFLICT (user_id, badge_key) DO NOTHING`,
-        [userId, badgeType, JSON.stringify({ prestigeCount: newPrestigeCount })]
-      );
+      await client
+        .insert(schema.userBadges)
+        .values({
+          userId,
+          badgeType,
+          badgeKey: badgeType,
+          metadata: { prestigeCount: newPrestigeCount },
+        })
+        .onConflictDoNothing({
+          target: [schema.userBadges.userId, schema.userBadges.badgeKey],
+        });
 
       // 7. Award named milestone rewards (Phoenix, Elder Candidate, Veteran, Hall of Fame)
       const milestoneReward = PRESTIGE_MILESTONE_REWARDS[newPrestigeCount];
       const awardsGranted: string[] = [badgeType];
       if (milestoneReward) {
-        await client.query(
-          `INSERT INTO user_badges (user_id, badge_type, badge_key, awarded_at, metadata)
-           VALUES ($1, $2, $2, NOW(), $3)
-           ON CONFLICT (user_id, badge_key) DO NOTHING`,
-          [
+        await client
+          .insert(schema.userBadges)
+          .values({
             userId,
-            milestoneReward.badgeKey,
-            JSON.stringify({
+            badgeType: milestoneReward.badgeKey,
+            badgeKey: milestoneReward.badgeKey,
+            metadata: {
               title: milestoneReward.title,
               description: milestoneReward.description,
               prestigeCount: newPrestigeCount,
-            }),
-          ]
-        );
+            },
+          })
+          .onConflictDoNothing({
+            target: [schema.userBadges.userId, schema.userBadges.badgeKey],
+          });
         awardsGranted.push(milestoneReward.badgeKey);
 
         // For Hall of Fame (Prestige 10), write to the dedicated table
         if (newPrestigeCount === 10) {
           // Fetch current legacy_score for the hall of fame record
-          const { rows: legacyRows } = await client.query<{ legacy_score: number }>(
-            `SELECT COALESCE(legacy_score, 0) AS legacy_score FROM users WHERE id = $1`,
-            [userId]
-          );
-          await client.query(
-            `INSERT INTO hall_of_fame (user_id, inducted_at, prestige_count, legacy_score)
-             VALUES ($1, NOW(), $2, $3)
-             ON CONFLICT (user_id) DO UPDATE
-             SET prestige_count = $2, legacy_score = $3, inducted_at = NOW()`,
-            [userId, newPrestigeCount, legacyRows[0]?.legacy_score ?? 0]
-          );
+          const [legacyRow] = await client
+            .select({ legacyScore: schema.users.legacyScore })
+            .from(schema.users)
+            .where(eq(schema.users.id, userId))
+            .limit(1);
+          const legacyScore = legacyRow?.legacyScore ?? BigInt(0);
+          await client
+            .insert(schema.hallOfFame)
+            .values({
+              userId,
+              prestigeCount: newPrestigeCount,
+              legacyScore,
+            })
+            .onConflictDoUpdate({
+              target: schema.hallOfFame.userId,
+              set: { prestigeCount: newPrestigeCount, legacyScore, inductedAt: new Date() },
+            });
         }
       }
 
       // 8. In-app notification for the prestige achievement
-      await client.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-         VALUES ($1, 'prestige_complete', $2, false, NOW())`,
-        [
+      await client
+        .insert(schema.notifications)
+        .values({
           userId,
-          JSON.stringify({
+          type: "prestige_complete",
+          payload: {
             prestigeCount: newPrestigeCount,
             title: milestoneReward?.title ?? `Prestige ${newPrestigeCount}`,
             badgesAwarded: awardsGranted,
             boostActive: boostExpiresAt !== null,
             boostExpiresAt,
-          }),
-        ]
-      ).catch(() => {}); // notifications table may have different schema — non-fatal
+          },
+          isRead: false,
+        })
+        .catch(() => {}); // notifications table may have different schema — non-fatal
 
       return {
         prestigeCount: newPrestigeCount,

@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getManifestValue, invalidateManifestCache } from "@/lib/manifest";
 import { getProviderCircuitState } from "@/lib/ai/client";
 import { AI_PROVIDERS, CIRCUIT_BREAKER, type AiProviderId } from "@/lib/ai/config";
@@ -120,33 +120,32 @@ export const PUT = withAdminAuth(
       const existing = await getManifestValue(manifestKey);
 
       // Upsert into x_manifest
-      await db.query(
-        `INSERT INTO x_manifest (key, value, description, updated_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (key) DO UPDATE
-           SET value = EXCLUDED.value,
-               updated_at = EXCLUDED.updated_at`,
-        [
-          manifestKey,
-          apiKey,
-          `Admin-managed API key override for ${provider}`,
-        ]
-      );
+      const orm = await getDb();
+      await orm
+        .insert(schema.xManifest)
+        .values({
+          key: manifestKey,
+          value: apiKey,
+          description: `Admin-managed API key override for ${provider}`,
+        })
+        .onConflictDoUpdate({
+          target: schema.xManifest.key,
+          set: {
+            value: apiKey,
+            updatedAt: new Date(),
+          },
+        });
 
       // Audit log — store only masked values, never the real key
-      await db.query(
-        `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, before_val, after_val, ip_address)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-        [
-          ctx.auth.user.sub,
-          "update_ai_key",
-          "x_manifest",
-          manifestKey,
-          JSON.stringify({ keyMasked: maskKey(existing) }),
-          JSON.stringify({ keyMasked: apiKey.length > 0 ? maskKey(apiKey) : null }),
-          req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? null,
-        ]
-      );
+      await orm.insert(schema.adminAuditLog).values({
+        adminId: ctx.auth.user.sub,
+        action: "update_ai_key",
+        resource: "x_manifest",
+        resourceId: manifestKey,
+        beforeVal: { keyMasked: maskKey(existing) },
+        afterVal: { keyMasked: apiKey.length > 0 ? maskKey(apiKey) : null },
+        ipAddress: req.headers.get("x-forwarded-for") ?? req.headers.get("x-real-ip") ?? null,
+      });
 
       await invalidateManifestCache();
 

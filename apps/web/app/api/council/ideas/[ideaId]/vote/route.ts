@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -39,42 +40,29 @@ export const POST = withAuth(
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
 
       // Verify caller is a council member
-      const { rows: memberRows } = await db.query<{ id: string }>(
-        `SELECT id FROM platform_council_members
-         WHERE user_id = $1 AND left_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      if (!memberRows[0]) {
+      const orm = await getDb();
+      const [member] = await orm
+        .select({ id: schema.platformCouncilMembers.id })
+        .from(schema.platformCouncilMembers)
+        .where(and(eq(schema.platformCouncilMembers.userId, userId), isNull(schema.platformCouncilMembers.leftAt)))
+        .limit(1);
+      if (!member) {
         throw forbidden("Only Platform Council members can vote on ideas");
       }
 
-      const result = await db.transaction(async (tx) => {
+      const result = await orm.transaction(async (tx) => {
         // Fetch idea with lock
-        const { rows: ideaRows } = await tx.query<{
-          id: string;
-          votes: number;
-          status: string;
-          voter_ids: string[] | null;
-        }>(
-          `SELECT
-             id,
-             votes,
-             status,
-             COALESCE(
-               (SELECT array_agg(voter_id)
-                FROM jsonb_array_elements_text(
-                  COALESCE((SELECT metadata->'voter_ids' FROM platform_council_ideas WHERE id = $1), '[]'::jsonb)
-                ) AS voter_id),
-               ARRAY[]::TEXT[]
-             ) AS voter_ids
-           FROM platform_council_ideas
-           WHERE id = $1
-           FOR UPDATE`,
-          [ideaId]
-        );
+        const [idea] = await tx
+          .select({
+            id: schema.platformCouncilIdeas.id,
+            votes: schema.platformCouncilIdeas.votes,
+            status: schema.platformCouncilIdeas.status,
+          })
+          .from(schema.platformCouncilIdeas)
+          .where(eq(schema.platformCouncilIdeas.id, ideaId))
+          .for("update");
 
-        if (!ideaRows[0]) throw notFound("Council idea not found");
-        const idea = ideaRows[0];
+        if (!idea) throw notFound("Council idea not found");
 
         if (idea.status === "rejected") {
           throw forbidden("Cannot vote on a rejected idea");
@@ -82,34 +70,37 @@ export const POST = withAuth(
 
         // Check if user already voted using a simple metadata-based approach
         // We store voter IDs in a JSONB metadata column (voter_ids array)
-        const { rows: checkRows } = await tx.query<{ has_voted: boolean }>(
-          `SELECT EXISTS(
+        const [check] = await tx
+          .select({
+            has_voted: sql<boolean>`EXISTS(
              SELECT 1 FROM platform_council_ideas
-             WHERE id = $1
-               AND metadata->'voter_ids' ? $2
-           ) AS has_voted`,
-          [ideaId, userId]
-        );
+             WHERE id = ${ideaId}
+               AND metadata->'voter_ids' ? ${userId}
+           )`,
+          })
+          .from(schema.platformCouncilIdeas)
+          .where(eq(schema.platformCouncilIdeas.id, ideaId))
+          .limit(1);
 
-        if (checkRows[0]?.has_voted) {
+        if (check?.has_voted) {
           throw conflict("You have already voted on this idea");
         }
 
         // Increment votes and record voter
-        const { rows: updatedRows } = await tx.query<{ votes: number }>(
-          `UPDATE platform_council_ideas
-           SET votes = votes + 1,
-               metadata = jsonb_set(
-                 COALESCE(metadata, '{}'::jsonb),
+        const [updated] = await tx
+          .update(schema.platformCouncilIdeas)
+          .set({
+            votes: sql`${schema.platformCouncilIdeas.votes} + 1`,
+            metadata: sql`jsonb_set(
+                 COALESCE(${schema.platformCouncilIdeas.metadata}, '{}'::jsonb),
                  '{voter_ids}',
-                 COALESCE(metadata->'voter_ids', '[]'::jsonb) || to_jsonb($2::text)
-               )
-           WHERE id = $1
-           RETURNING votes`,
-          [ideaId, userId]
-        );
+                 COALESCE(${schema.platformCouncilIdeas.metadata}->'voter_ids', '[]'::jsonb) || to_jsonb(${userId}::text)
+               )`,
+          })
+          .where(eq(schema.platformCouncilIdeas.id, ideaId))
+          .returning({ votes: schema.platformCouncilIdeas.votes });
 
-        return { ideaId, votes: updatedRows[0].votes };
+        return { ideaId, votes: updated.votes };
       });
 
       return NextResponse.json({

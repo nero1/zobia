@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -56,7 +57,7 @@ const settingsSchema = z.object({
 // DB row type
 // ---------------------------------------------------------------------------
 
-interface SettingsRow {
+type SettingsRow = {
   dm_notifications:      boolean;
   group_notifications:   boolean;
   room_mention_notifications: boolean;
@@ -74,7 +75,7 @@ interface SettingsRow {
   locale:                     string | null;
   pidgin_suggestions_enabled: boolean | null;
   tweet_max_length:           number | null;
-}
+};
 
 // ---------------------------------------------------------------------------
 // GET /api/users/me/settings
@@ -84,8 +85,12 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<SettingsRow>(
-      `SELECT dm_notifications,
+    // `users.tweet_max_length` has no Drizzle column definition in
+    // lib/db/schema.ts, so this stays a `sql` template through the Drizzle
+    // instance instead of the query builder.
+    const db = await getDb();
+    const { rows } = await db.execute<SettingsRow>(sql`
+       SELECT dm_notifications,
               COALESCE(group_notifications, true)        AS group_notifications,
               COALESCE(room_mention_notifications, true) AS room_mention_notifications,
               guild_notifications,
@@ -103,10 +108,9 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
               pidgin_suggestions_enabled,
               tweet_max_length
        FROM users
-       WHERE id = $1 AND deleted_at IS NULL
-       LIMIT 1`,
-      [userId]
-    );
+       WHERE id = ${userId} AND deleted_at IS NULL
+       LIMIT 1
+    `);
 
     if (!rows[0]) throw notFound("User not found");
 
@@ -155,9 +159,9 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, settingsSchema);
     const userId = auth.user.sub;
 
-    const setClauses: string[] = [];
-    const values: SqlParam[] = [];
-    let idx = 1;
+    const db = await getDb();
+
+    const setClauses: ReturnType<typeof sql>[] = [];
 
     const boolFields: (keyof typeof body)[] = [
       "dm_notifications", "group_notifications", "room_mention_notifications",
@@ -169,42 +173,35 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
 
     for (const field of boolFields) {
       if (body[field] !== undefined) {
-        setClauses.push(`${field} = $${idx}`);
-        values.push(body[field]);
-        idx++;
+        setClauses.push(sql`${sql.raw(field)} = ${body[field]}`);
       }
     }
 
     if (body.locale !== undefined) {
-      setClauses.push(`locale = $${idx}`);
-      values.push(body.locale);
-      idx++;
+      setClauses.push(sql`locale = ${body.locale}`);
     }
 
     if (body.pidginSuggestionsEnabled !== undefined) {
-      setClauses.push(`pidgin_suggestions_enabled = $${idx}`);
-      values.push(body.pidginSuggestionsEnabled);
-      idx++;
+      setClauses.push(sql`pidgin_suggestions_enabled = ${body.pidginSuggestionsEnabled}`);
     }
 
     if (body.tweetMaxLength !== undefined) {
       const clamped = body.tweetMaxLength === null ? null : await clampPersonalTweetMaxLength(userId, body.tweetMaxLength);
-      setClauses.push(`tweet_max_length = $${idx}`);
-      values.push(clamped);
-      idx++;
+      // `users.tweet_max_length` has no Drizzle column definition in
+      // lib/db/schema.ts, so this stays a `sql` template.
+      setClauses.push(sql`tweet_max_length = ${clamped}`);
     }
 
     if (setClauses.length === 0) {
       return NextResponse.json({ success: true, data: {}, error: null });
     }
 
-    setClauses.push(`updated_at = NOW()`);
-    values.push(userId);
+    setClauses.push(sql`updated_at = NOW()`);
 
-    await db.query(
-      `UPDATE users SET ${setClauses.join(", ")} WHERE id = $${idx} AND deleted_at IS NULL`,
-      values
-    );
+    await db.execute(sql`
+      UPDATE users SET ${sql.join(setClauses, sql`, `)}
+      WHERE id = ${userId} AND deleted_at IS NULL
+    `);
 
     return NextResponse.json({
       success: true,

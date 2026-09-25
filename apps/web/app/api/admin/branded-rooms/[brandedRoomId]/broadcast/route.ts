@@ -25,9 +25,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq, sql } from "drizzle-orm";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -51,51 +52,56 @@ export const POST = withAdminAuth(async (
     const { brandedRoomId } = params;
     const body = await validateBody(req, broadcastSchema);
 
+    const orm = await getDb();
+
     // Fetch branded room
-    const { rows: brandedRoomRows } = await db.query<{
-      id: string;
-      room_id: string | null;
-      brand_name: string;
-      sponsor_budget_coins: number;
-      join_bonus_coins: number;
-      is_active: boolean;
-      ends_at: string | null;
-    }>(
-      `SELECT id, room_id, brand_name, sponsor_budget_coins, join_bonus_coins, is_active, ends_at
-       FROM branded_rooms WHERE id = $1 LIMIT 1`,
-      [brandedRoomId]
-    );
-    const branded = brandedRoomRows[0];
+    const [branded] = await orm
+      .select({
+        id: schema.brandedRooms.id,
+        room_id: schema.brandedRooms.roomId,
+        brand_name: schema.brandedRooms.brandName,
+        sponsor_budget_coins: schema.brandedRooms.sponsorBudgetCoins,
+        join_bonus_coins: schema.brandedRooms.joinBonusCoins,
+        is_active: schema.brandedRooms.isActive,
+        ends_at: schema.brandedRooms.endsAt,
+      })
+      .from(schema.brandedRooms)
+      .where(eq(schema.brandedRooms.id, brandedRoomId))
+      .limit(1);
     if (!branded) throw notFound("Branded room not found");
     if (!branded.is_active) throw badRequest("Branded room is not active");
-    if (branded.ends_at && new Date(branded.ends_at) < new Date()) {
+    if (branded.ends_at && branded.ends_at < new Date()) {
       throw badRequest("Branded room sponsorship has ended");
     }
+    const sponsorBudgetCoins = Number(branded.sponsor_budget_coins);
 
     // Resolve target user IDs
     let targetUserIds: string[] = [];
 
     if (body.targetType === "room_members" && branded.room_id) {
-      const { rows } = await db.query<{ user_id: string }>(
-        `SELECT user_id FROM room_members WHERE room_id = $1`,
-        [branded.room_id]
-      );
+      const rows = await orm
+        .select({ user_id: schema.roomMembers.userId })
+        .from(schema.roomMembers)
+        .where(eq(schema.roomMembers.roomId, branded.room_id));
       targetUserIds = rows.map((r) => r.user_id);
     } else if (body.targetType === "creator_followers" && branded.room_id) {
-      const { rows } = await db.query<{ user_id: string }>(
-        `SELECT f.follower_id AS user_id
-         FROM follows f
-         JOIN rooms r ON r.id = $1
-         WHERE f.followed_id = r.creator_id`,
-        [branded.room_id]
-      );
+      // NOTE: the previous raw SQL joined on `f.followed_id`, a column that
+      // has never existed on `follows` (the DB/schema column is
+      // `following_id` — see migration 0001_consolidated_schema.sql) — every
+      // call with targetType='creator_followers' would have failed with a
+      // Postgres "column does not exist" error. Fixed to use following_id.
+      const rows = await orm
+        .select({ user_id: schema.follows.followerId })
+        .from(schema.follows)
+        .innerJoin(schema.rooms, eq(schema.rooms.id, branded.room_id))
+        .where(eq(schema.follows.followingId, schema.rooms.creatorId));
       targetUserIds = rows.map((r) => r.user_id);
     }
 
     if (targetUserIds.length === 0) {
       return NextResponse.json({
         success: true,
-        data: { recipientCount: 0, totalCoinCost: 0, remainingBudget: branded.sponsor_budget_coins },
+        data: { recipientCount: 0, totalCoinCost: 0, remainingBudget: sponsorBudgetCoins },
         error: null,
       });
     }
@@ -103,59 +109,65 @@ export const POST = withAdminAuth(async (
     const totalCoinCost = (body.coinBonusPerRecipient ?? 0) * targetUserIds.length;
 
     // Check budget
-    if (totalCoinCost > 0 && branded.sponsor_budget_coins < totalCoinCost) {
+    if (totalCoinCost > 0 && sponsorBudgetCoins < totalCoinCost) {
       throw badRequest(
-        `Insufficient sponsor budget. Need ${totalCoinCost} coins, have ${branded.sponsor_budget_coins}.`
+        `Insufficient sponsor budget. Need ${totalCoinCost} coins, have ${sponsorBudgetCoins}.`
       );
     }
 
     // Send broadcast notifications and optionally award coins
-    await db.transaction(async (tx) => {
+    await orm.transaction(async (tx) => {
       // Insert notifications in bulk
       for (const userId of targetUserIds) {
-        await tx.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'brand_broadcast', $2::jsonb, FALSE, NOW())`,
-          [
-            userId,
-            JSON.stringify({
-              brandName: branded.brand_name,
-              message: body.message,
-              brandedRoomId,
-              coinBonus: body.coinBonusPerRecipient,
-            }),
-          ]
-        );
+        await tx.insert(schema.notifications).values({
+          userId,
+          type: "brand_broadcast",
+          payload: {
+            brandName: branded.brand_name,
+            message: body.message,
+            brandedRoomId,
+            coinBonus: body.coinBonusPerRecipient,
+          },
+          isRead: false,
+        });
 
         // Award coin bonus if specified
         if (body.coinBonusPerRecipient > 0) {
-          await tx.query(
-            `UPDATE users SET coin_balance = coin_balance + $1, updated_at = NOW() WHERE id = $2`,
-            [body.coinBonusPerRecipient, userId]
-          );
-          await tx.query(
-            `INSERT INTO coin_ledger
-               (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-             SELECT $1, $2, coin_balance - $2, coin_balance, 'brand_broadcast_bonus', $3,
-                    $4, NOW()
-             FROM users WHERE id = $1`,
-            [userId, body.coinBonusPerRecipient, brandedRoomId, `Brand broadcast bonus: ${branded.brand_name}`]
-          );
+          const [updatedUser] = await tx
+            .update(schema.users)
+            .set({
+              coinBalance: sql`${schema.users.coinBalance} + ${body.coinBonusPerRecipient}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.users.id, userId))
+            .returning({ coinBalance: schema.users.coinBalance });
+
+          if (updatedUser) {
+            const balanceAfter = updatedUser.coinBalance;
+            const balanceBefore = balanceAfter - BigInt(body.coinBonusPerRecipient);
+            await tx.insert(schema.coinLedger).values({
+              userId,
+              amount: BigInt(body.coinBonusPerRecipient),
+              balanceBefore,
+              balanceAfter,
+              transactionType: "brand_broadcast_bonus",
+              referenceId: brandedRoomId,
+              description: `Brand broadcast bonus: ${branded.brand_name}`,
+            });
+          }
         }
       }
 
       // Deduct from sponsor budget
       if (totalCoinCost > 0) {
-        await tx.query(
-          `UPDATE branded_rooms
-           SET sponsor_budget_coins = sponsor_budget_coins - $1
-           WHERE id = $2`,
-          [totalCoinCost, brandedRoomId]
-        );
+        await tx
+          .update(schema.brandedRooms)
+          .set({ sponsorBudgetCoins: sql`${schema.brandedRooms.sponsorBudgetCoins} - ${totalCoinCost}` })
+          .where(eq(schema.brandedRooms.id, brandedRoomId));
       }
     });
 
-    const remainingBudget = branded.sponsor_budget_coins - totalCoinCost;
+    const remainingBudget = sponsorBudgetCoins - totalCoinCost;
 
     return NextResponse.json({
       success: true,

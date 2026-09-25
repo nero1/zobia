@@ -17,8 +17,11 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from 'next/server';
 import { withAuth } from '@/lib/api/middleware';
 import { badRequest, forbidden, handleApiError } from '@/lib/api/errors';
-import { db, type SqlParam } from '@/lib/db';
+import { sql, eq, and } from 'drizzle-orm';
+import { getDb, schema } from '@/lib/db/drizzle';
 import { getAllowedPlans, isPlanEligible as userEligible, allEligibilityOptionsExcept } from '@/lib/plans/eligibility';
+
+type SqlParam = string | number | boolean | null;
 
 const VALID_SECTIONS = ['avatar', 'bio', 'rank', 'xp', 'guild', 'seasons', 'badges', 'activities'];
 
@@ -39,21 +42,21 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     // Fetch current user plan + prestige + role + business tier (business
     // tier and role are additional eligibility dimensions alongside plan/
     // prestige — see lib/plans/eligibility.ts).
-    const { rows: userRows } = await db.query<{
+    const db = await getDb();
+    const { rows: userRows } = await db.execute<{
       plan: string;
       prestige_count: number;
       is_admin: boolean;
       is_moderator: boolean;
       business_tier: string | null;
-    }>(
-      `SELECT COALESCE(u.plan, 'free') AS plan, COALESCE(u.prestige_count, 0) AS prestige_count,
+    }>(sql`
+       SELECT COALESCE(u.plan, 'free') AS plan, COALESCE(u.prestige_count, 0) AS prestige_count,
               COALESCE(u.is_admin, false) AS is_admin, COALESCE(u.is_moderator, false) AS is_moderator,
               ba.tier AS business_tier
        FROM users u
        LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
-       WHERE u.id = $1 LIMIT 1`,
-      [userId]
-    );
+       WHERE u.id = ${userId} LIMIT 1
+    `);
     const user = userRows[0];
     if (!user) throw forbidden('User not found');
     const eligibilityContext = {
@@ -122,12 +125,14 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
       throw badRequest('No valid fields to update');
     }
 
-    const setClauses = Object.keys(updates).map((k, i) => `${k} = $${i + 2}`).join(', ');
-    const values = [userId, ...Object.values(updates)];
-    await db.query(
-      `UPDATE users SET ${setClauses}, updated_at = NOW() WHERE id = $1`,
-      values
-    );
+    // Several of these columns (sitemap_opt_out, group_invite_privacy,
+    // nemesis_opt_out) have no Drizzle column definition in
+    // lib/db/schema.ts, so this whole dynamic UPDATE stays a `sql` template
+    // through the Drizzle instance instead of the query builder.
+    const setClauses = Object.entries(updates).map(([k, v]) => sql`${sql.raw(k)} = ${v}`);
+    await db.execute(sql`
+      UPDATE users SET ${sql.join(setClauses, sql`, `)}, updated_at = NOW() WHERE id = ${userId}
+    `);
 
     // Take effect immediately rather than waiting for the weekly refresh —
     // deactivate any assignment where this user is the one WITH a nemesis.
@@ -135,11 +140,16 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
     // alone; that side settles on the next weekly refresh via
     // refreshNemesisAssignments' candidate-pool filter.)
     if (updates.nemesis_opt_out === true) {
-      await db.query(
-        `UPDATE nemesis_assignments SET is_active = false
-         WHERE user_id = $1 AND is_active = true`,
-        [userId]
-      ).catch(() => {});
+      await db
+        .update(schema.nemesisAssignments)
+        .set({ isActive: false })
+        .where(
+          and(
+            eq(schema.nemesisAssignments.userId, userId),
+            eq(schema.nemesisAssignments.isActive, true)
+          )
+        )
+        .catch(() => {});
     }
 
     return NextResponse.json({ success: true });
@@ -152,7 +162,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<{
+    const db = await getDb();
+    const { rows } = await db.execute<{
       plan: string;
       prestige_count: number;
       is_admin: boolean;
@@ -165,8 +176,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       show_online_status: boolean;
       group_invite_privacy: string;
       nemesis_opt_out: boolean;
-    }>(
-      `SELECT COALESCE(u.plan, 'free') AS plan,
+    }>(sql`
+       SELECT COALESCE(u.plan, 'free') AS plan,
               COALESCE(u.prestige_count, 0) AS prestige_count,
               COALESCE(u.is_admin, false) AS is_admin,
               COALESCE(u.is_moderator, false) AS is_moderator,
@@ -180,9 +191,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
               COALESCE(u.nemesis_opt_out, false) AS nemesis_opt_out
        FROM users u
        LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
-       WHERE u.id = $1 LIMIT 1`,
-      [userId]
-    );
+       WHERE u.id = ${userId} LIMIT 1
+    `);
     const user = rows[0];
     if (!user) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
@@ -191,9 +201,8 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     // same real-world signal assignNemesis() itself uses, so the opt-out
     // toggle only appears once the system has actually engaged with this
     // user rather than duplicating a separate level table client-side.
-    const { rows: nemesisRows } = await db.query<{ exists: boolean }>(
-      `SELECT EXISTS(SELECT 1 FROM nemesis_assignments WHERE user_id = $1) AS exists`,
-      [userId]
+    const { rows: nemesisRows } = await db.execute<{ exists: boolean }>(
+      sql`SELECT EXISTS(SELECT 1 FROM nemesis_assignments WHERE user_id = ${userId}) AS exists`
     );
     const nemesisEligible = nemesisRows[0]?.exists === true || user.nemesis_opt_out;
     const eligibilityContext = {

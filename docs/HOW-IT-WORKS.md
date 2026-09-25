@@ -1704,18 +1704,20 @@ This ensures zero dropped requests during rolling deploys on Vercel and other co
 
 ### Database Provider Abstraction
 
-`DATABASE_PROVIDER` env var → `lib/db/index.ts` reads it and returns the correct `DatabaseAdapter` singleton. All queries in business logic call `db.query()` or `db.transaction()` — never a provider-specific SDK.
+`DATABASE_PROVIDER` env var → `lib/db/index.ts` reads it and returns the correct `DatabaseAdapter` singleton, which owns the underlying `pg.Pool` for that provider. `lib/db/drizzle.ts`'s `getDb()` wraps that *same* pool in a Drizzle ORM instance — application/business-logic code calls `const orm = await getDb();` and uses Drizzle's query builder against `schema.<table>` (see PRD §22.1.1), never a provider-specific SDK and, for new code, never the raw `db.query()`/`db.transaction()` adapter methods directly.
 
 An ESLint rule flags any direct import of `@supabase/supabase-js` or provider-specific modules from business logic files. Only the adapter file in `lib/db/providers/` may import provider SDKs.
 
 Switching providers requires only changing `DATABASE_PROVIDER` and redeploying. Data migration (pg_dump/restore) is a separate, manual step.
 
-**`db.query<T>` type parameter:** The generic `T` on `DatabaseAdapter.query<T>` (defined in `lib/db/interface.ts`) defaults to `Record<string, unknown>`. Provider implementations use `T & Record<string, unknown>` internally when calling the underlying `pg` driver (which requires `T extends QueryResultRow`), then cast the result back to `T[]`. This means call sites can pass any interface as the type parameter — they are not required to extend `Record<string, unknown>` themselves.
+**Legacy `db.query<T>`/`db.transaction()`:** The raw `DatabaseAdapter` interface (`lib/db/interface.ts`) still exists and still backs `getDb()`'s pool underneath, but is no longer the primary way application code talks to the database — it's kept for the connection-health circuit breaker (`lib/db/circuit.ts`) and the provider adapters themselves. The generic `T` on `DatabaseAdapter.query<T>` defaults to `Record<string, unknown>`; provider implementations use `T & Record<string, unknown>` internally when calling the underlying `pg` driver (which requires `T extends QueryResultRow`), then cast the result back to `T[]`. A handful of genuinely complex statements not cleanly expressible via Drizzle's builder use Drizzle's own `sql` tagged template through `client.execute(sql\`...\`)` instead — still parameterized, still routed through the same Drizzle-wrapped pool.
 
 ```typescript
-// Correct — interface does not need to extend Record<string, unknown>
-interface UserRow { id: string; username: string; }
-const { rows } = await db.query<UserRow>('SELECT id, username FROM users WHERE id = $1', [userId]);
+// Current pattern — Drizzle query builder
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
+const orm = await getDb();
+const [user] = await orm.select().from(schema.users).where(eq(schema.users.id, userId));
 ```
 
 ### Shared Type Package (`@zobia/types`)

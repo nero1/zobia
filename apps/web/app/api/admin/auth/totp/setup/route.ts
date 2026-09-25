@@ -24,7 +24,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { encryptField } from "@/lib/security/fieldEncryption";
@@ -85,11 +86,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     const secret = generateTotpSecret();
 
-    const { rows } = await db.query<{ email: string }>(
-      "SELECT email FROM users WHERE id = $1 LIMIT 1",
-      [adminId]
-    );
-    const email = rows[0]?.email ?? "admin";
+    const orm = await getDb();
+    const [row] = await orm
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(eq(schema.users.id, adminId))
+      .limit(1);
+    const email = row?.email ?? "admin";
     const issuer = "Zobia";
     const otpauthUri = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(email)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
 
@@ -120,12 +123,15 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       throw badRequest("TOTP code has already been used. Please wait for the next code.");
     }
 
-    await db.query(
-      `UPDATE users
-       SET totp_secret = $1, totp_enabled = TRUE, updated_at = NOW()
-       WHERE id = $2`,
-      [encryptField(body.secret), adminId]
-    );
+    const orm = await getDb();
+    await orm
+      .update(schema.users)
+      .set({
+        totpSecret: encryptField(body.secret),
+        totpEnabled: true,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.users.id, adminId));
 
     return NextResponse.json({
       success: true,

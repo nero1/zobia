@@ -14,42 +14,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { eq, asc } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface SponsoredQuestDetailRow {
-  id: string;
-  brand_name: string;
-  title: string;
-  description: string;
-  requirements: string;
-  reward_coins: number;
-  creator_share_percent: number;
-  platform_share_percent: number;
-  max_applications: number;
-  deadline: string;
-  is_active: boolean;
-  created_at: string;
-}
-
-interface ApplicationRow {
-  id: string;
-  quest_id: string;
-  creator_id: string;
-  room_id: string | null;
-  status: string;
-  applied_at: string;
-  creator_username: string;
-  creator_display_name: string;
-  creator_avatar_emoji: string;
-  creator_tier: string | null;
-}
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -81,38 +50,54 @@ export const GET = withAuth(
 
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiRead);
 
+      const orm = await getDb();
+
       // Fetch quest
-      const questResult = await db.query<SponsoredQuestDetailRow>(
-        `SELECT id, brand_name, title, description, requirements,
-                reward_coins, creator_share_percent, platform_share_percent,
-                max_applications, deadline, is_active, created_at
-         FROM sponsored_quests
-         WHERE id = $1`,
-        [questId]
-      );
-      const quest = questResult.rows[0];
+      const questRows = await orm
+        .select({
+          id: schema.sponsoredQuests.id,
+          brandName: schema.sponsoredQuests.brandName,
+          title: schema.sponsoredQuests.title,
+          description: schema.sponsoredQuests.description,
+          requirements: schema.sponsoredQuests.requirements,
+          rewardCoins: schema.sponsoredQuests.rewardCoins,
+          creatorSharePercent: schema.sponsoredQuests.creatorSharePercent,
+          platformSharePercent: schema.sponsoredQuests.platformSharePercent,
+          maxApplications: schema.sponsoredQuests.maxApplications,
+          deadline: schema.sponsoredQuests.deadline,
+          isActive: schema.sponsoredQuests.isActive,
+          createdAt: schema.sponsoredQuests.createdAt,
+        })
+        .from(schema.sponsoredQuests)
+        .where(eq(schema.sponsoredQuests.id, questId));
+      const quest = questRows[0];
       if (!quest) throw notFound("Sponsored quest not found");
 
       // Fetch applications with creator profile info
-      const appsResult = await db.query<ApplicationRow>(
-        `SELECT sqa.id, sqa.quest_id, sqa.creator_id, sqa.room_id, sqa.status, sqa.applied_at,
-                u.username AS creator_username,
-                u.display_name AS creator_display_name,
-                u.avatar_emoji AS creator_avatar_emoji,
-                u.creator_tier
-         FROM sponsored_quest_applications sqa
-         JOIN users u ON u.id = sqa.creator_id
-         WHERE sqa.quest_id = $1
-         ORDER BY sqa.applied_at ASC`,
-        [questId]
-      );
+      const applications = await orm
+        .select({
+          id: schema.sponsoredQuestApplications.id,
+          questId: schema.sponsoredQuestApplications.questId,
+          creatorId: schema.sponsoredQuestApplications.creatorId,
+          roomId: schema.sponsoredQuestApplications.roomId,
+          status: schema.sponsoredQuestApplications.status,
+          appliedAt: schema.sponsoredQuestApplications.appliedAt,
+          creatorUsername: schema.users.username,
+          creatorDisplayName: schema.users.displayName,
+          creatorAvatarEmoji: schema.users.avatarEmoji,
+          creatorTier: schema.users.creatorTier,
+        })
+        .from(schema.sponsoredQuestApplications)
+        .innerJoin(schema.users, eq(schema.users.id, schema.sponsoredQuestApplications.creatorId))
+        .where(eq(schema.sponsoredQuestApplications.questId, questId))
+        .orderBy(asc(schema.sponsoredQuestApplications.appliedAt));
 
       return NextResponse.json({
         success: true,
         data: {
           quest,
-          applications: appsResult.rows,
-          applicationCount: appsResult.rows.length,
+          applications,
+          applicationCount: applications.length,
         },
         error: null,
       });
@@ -144,28 +129,21 @@ export const PATCH = withAdminAuth(
 
       const body = await validateBody(req, patchQuestSchema);
 
+      const orm = await getDb();
+
       // Verify quest exists
-      const existing = await db.query<{ id: string }>(
-        `SELECT id FROM sponsored_quests WHERE id = $1`,
-        [questId]
-      );
-      if (!existing.rows[0]) throw notFound("Sponsored quest not found");
+      const existing = await orm
+        .select({ id: schema.sponsoredQuests.id })
+        .from(schema.sponsoredQuests)
+        .where(eq(schema.sponsoredQuests.id, questId));
+      if (!existing[0]) throw notFound("Sponsored quest not found");
 
       // Build dynamic update
-      const updates: string[] = [];
-      const values: SqlParam[] = [];
-      let idx = 1;
+      const updates: Partial<typeof schema.sponsoredQuests.$inferInsert> = {};
+      if (body.isActive !== undefined) updates.isActive = body.isActive;
+      if (body.deadline !== undefined) updates.deadline = new Date(body.deadline);
 
-      if (body.isActive !== undefined) {
-        updates.push(`is_active = $${idx++}`);
-        values.push(body.isActive);
-      }
-      if (body.deadline !== undefined) {
-        updates.push(`deadline = $${idx++}`);
-        values.push(body.deadline);
-      }
-
-      if (updates.length === 0) {
+      if (Object.keys(updates).length === 0) {
         return NextResponse.json({
           success: true,
           data: { updated: false, questId },
@@ -173,11 +151,7 @@ export const PATCH = withAdminAuth(
         });
       }
 
-      values.push(questId);
-      await db.query(
-        `UPDATE sponsored_quests SET ${updates.join(", ")} WHERE id = $${idx}`,
-        values
-      );
+      await orm.update(schema.sponsoredQuests).set(updates).where(eq(schema.sponsoredQuests.id, questId));
 
       return NextResponse.json({
         success: true,

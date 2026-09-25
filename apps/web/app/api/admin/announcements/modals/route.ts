@@ -16,7 +16,8 @@ import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { sanitizeAnnouncementContent } from "@/lib/security/htmlSanitizer";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { asc, count, desc, isNull } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -51,15 +52,25 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-    const { rows } = await db.query(
-      `SELECT
-         id, title, content, content_type, is_active,
-         target_plans, target_roles, display_order,
-         starts_at, ends_at, created_at, updated_at
-       FROM announcement_modals
-       WHERE deleted_at IS NULL
-       ORDER BY display_order ASC, created_at DESC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.announcementModals.id,
+        title: schema.announcementModals.title,
+        content: schema.announcementModals.content,
+        content_type: schema.announcementModals.contentType,
+        is_active: schema.announcementModals.isActive,
+        target_plans: schema.announcementModals.targetPlans,
+        target_roles: schema.announcementModals.targetRoles,
+        display_order: schema.announcementModals.displayOrder,
+        starts_at: schema.announcementModals.startsAt,
+        ends_at: schema.announcementModals.endsAt,
+        created_at: schema.announcementModals.createdAt,
+        updated_at: schema.announcementModals.updatedAt,
+      })
+      .from(schema.announcementModals)
+      .where(isNull(schema.announcementModals.deletedAt))
+      .orderBy(asc(schema.announcementModals.displayOrder), desc(schema.announcementModals.createdAt));
 
     return NextResponse.json({ items: rows, count: rows.length });
   } catch (err) {
@@ -89,11 +100,14 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
       throw badRequest("Invalid modal payload", parsed.error.flatten());
     }
 
+    const orm = await getDb();
+
     // Enforce modal cap
-    const { rows: countRows } = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM announcement_modals WHERE deleted_at IS NULL`
-    );
-    const currentCount = parseInt(countRows[0]?.count ?? "0", 10);
+    const [countRow] = await orm
+      .select({ count: count() })
+      .from(schema.announcementModals)
+      .where(isNull(schema.announcementModals.deletedAt));
+    const currentCount = countRow?.count ?? 0;
     if (currentCount >= MAX_MODALS) {
       throw badRequest(
         `Cannot create modal: already at maximum of ${MAX_MODALS} modals. Delete one first.`
@@ -113,27 +127,23 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
 
     const content = sanitizeAnnouncementContent(rawContent, contentType);
 
-    const { rows } = await db.query(
-      `INSERT INTO announcement_modals
-         (title, content, content_type, is_active,
-          target_plans, target_roles, display_order,
-          starts_at, ends_at, created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, false, $4, $5, $6, $7, $8, $9, NOW(), NOW())
-       RETURNING *`,
-      [
+    const [row] = await orm
+      .insert(schema.announcementModals)
+      .values({
         title,
         content,
         contentType,
-        JSON.stringify(targetPlans),
-        JSON.stringify(targetRoles),
+        isActive: false,
+        targetPlans,
+        targetRoles,
         displayOrder,
-        startsAt ?? null,
-        endsAt ?? null,
-        auth.user.sub,
-      ]
-    );
+        startsAt: startsAt ? new Date(startsAt) : null,
+        endsAt: endsAt ? new Date(endsAt) : null,
+        createdBy: auth.user.sub,
+      })
+      .returning();
 
-    return NextResponse.json(rows[0], { status: 201 });
+    return NextResponse.json(row, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

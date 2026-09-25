@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, gt, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -45,23 +46,29 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     if (!roomId || roomId === "undefined") throw notFound("Room not found");
 
-    const { rows: roomRows } = await db.query<RoomPulseRow>(
-      `SELECT member_count, max_members, type, is_active
-       FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-
-    const room = roomRows[0];
+    const orm = await getDb();
+    const [room] = await orm
+      .select({
+        member_count: schema.rooms.memberCount,
+        max_members: schema.rooms.maxMembers,
+        type: schema.rooms.type,
+        is_active: schema.rooms.isActive,
+      })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
     if (!room || !room.is_active) throw notFound("Room not found");
 
-    const { rows: msgRows } = await db.query<MessagesLastHourRow>(
-      `SELECT COUNT(*)::int AS count
-       FROM room_messages
-       WHERE room_id = $1
-         AND created_at > NOW() - INTERVAL '1 hour'
-         AND is_deleted = FALSE`,
-      [roomId]
-    );
+    const [msgRow] = await orm
+      .select({ count: sql<number>`COUNT(*)::int` })
+      .from(schema.roomMessages)
+      .where(
+        and(
+          eq(schema.roomMessages.roomId, roomId),
+          gt(schema.roomMessages.createdAt, sql`NOW() - INTERVAL '1 hour'`),
+          eq(schema.roomMessages.isDeleted, false)
+        )
+      );
 
     // Prefer the live presence count (who is viewing right now); fall back to the
     // denormalised membership count when presence is empty/unavailable.
@@ -75,7 +82,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         activeCount: presentCount > 0 ? presentCount : room.member_count,
         presentCount,
         maxCapacity: cap,
-        messagesLastHour: msgRows[0]?.count ?? 0,
+        messagesLastHour: msgRow?.count ?? 0,
       },
       { status: 200 }
     );

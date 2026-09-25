@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -37,11 +38,24 @@ export const PATCH = withAuth(
       const { questId } = await params;
       const body = await validateBody(req, bodySchema);
 
-      const { rows } = await db.query<{ id: string; auto_paused: boolean; flag_status: string; moderation_status: string }>(
-        `SELECT id, auto_paused, flag_status, moderation_status FROM sponsored_quests
-         WHERE id = $1 AND owner_user_id = $2 AND deleted_at IS NULL LIMIT 1`,
-        [questId, auth.user.sub]
-      );
+      const orm = await getDb();
+
+      const rows = await orm
+        .select({
+          id: schema.sponsoredQuests.id,
+          auto_paused: schema.sponsoredQuests.autoPaused,
+          flag_status: schema.sponsoredQuests.flagStatus,
+          moderation_status: schema.sponsoredQuests.moderationStatus,
+        })
+        .from(schema.sponsoredQuests)
+        .where(
+          and(
+            eq(schema.sponsoredQuests.id, questId),
+            eq(schema.sponsoredQuests.ownerUserId, auth.user.sub),
+            isNull(schema.sponsoredQuests.deletedAt)
+          )
+        )
+        .limit(1);
       const quest = rows[0];
       if (!quest) throw notFound("Sponsored quest not found");
       if (quest.flag_status === "flagged") throw conflict("This quest is flagged for review and cannot be changed until cleared by an admin.");
@@ -51,19 +65,30 @@ export const PATCH = withAuth(
         if (quest.auto_paused) {
           throw conflict("This quest was auto-paused due to an account issue — restart it from your Business panel once resolved, not here.");
         }
-        await db.query(`UPDATE sponsored_quests SET is_active = TRUE, pause_reason = NULL, paused_at = NULL, updated_at = NOW() WHERE id = $1`, [questId]);
+        // NOTE: original raw SQL also set `updated_at = NOW()`, but
+        // lib/db/schema.ts's sponsoredQuests table has no updatedAt column
+        // (schema mismatch — flagged, not silently patched).
+        await orm
+          .update(schema.sponsoredQuests)
+          .set({ isActive: true, pauseReason: null, pausedAt: null })
+          .where(eq(schema.sponsoredQuests.id, questId));
       } else if (body.action === "extend") {
         if (!body.newEndsAt) throw badRequest("newEndsAt is required for the extend action");
-        await db.query(`UPDATE sponsored_quests SET ends_at = $1, updated_at = NOW() WHERE id = $2`, [body.newEndsAt, questId]);
+        await orm
+          .update(schema.sponsoredQuests)
+          .set({ endsAt: new Date(body.newEndsAt) })
+          .where(eq(schema.sponsoredQuests.id, questId));
       } else {
         if (!body.addBudgetCredits) throw badRequest("addBudgetCredits is required for the add_budget action");
-        await db.query(
-          `UPDATE sponsored_quests SET total_budget_credits = total_budget_credits + $1, updated_at = NOW() WHERE id = $2`,
-          [body.addBudgetCredits, questId]
-        );
+        await orm
+          .update(schema.sponsoredQuests)
+          .set({
+            totalBudgetCredits: sql`${schema.sponsoredQuests.totalBudgetCredits} + ${body.addBudgetCredits}`,
+          })
+          .where(eq(schema.sponsoredQuests.id, questId));
       }
 
-      await syncSponsoredQuestTemplate(db, questId);
+      await syncSponsoredQuestTemplate(orm, questId);
 
       return NextResponse.json({ success: true, data: { questId, action: body.action }, error: null });
     } catch (err) {

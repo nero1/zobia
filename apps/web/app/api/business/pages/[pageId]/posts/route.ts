@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -30,15 +31,21 @@ const createPostSchema = z.object({
 });
 
 async function assertOwnerOrModerator(pageId: string, userId: string): Promise<void> {
-  const { rows } = await db.query<{ owner_user_id: string; status: string }>(
-    `SELECT ba.user_id AS owner_user_id, bp.status
-     FROM business_pages bp
-     JOIN business_accounts ba ON ba.id = bp.business_account_id
-     WHERE bp.id = $1 AND bp.deleted_at IS NULL LIMIT 1`,
-    [pageId]
-  );
-  if (!rows[0]) throw notFound("Business page not found");
-  if (rows[0].owner_user_id !== userId && !(await isUserModeratorOrAdmin(userId))) {
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      owner_user_id: schema.businessAccounts.userId,
+      status: schema.businessPages.status,
+    })
+    .from(schema.businessPages)
+    .innerJoin(
+      schema.businessAccounts,
+      eq(schema.businessAccounts.id, schema.businessPages.businessAccountId)
+    )
+    .where(and(eq(schema.businessPages.id, pageId), isNull(schema.businessPages.deletedAt)))
+    .limit(1);
+  if (!row) throw notFound("Business page not found");
+  if (row.owner_user_id !== userId && !(await isUserModeratorOrAdmin(userId))) {
     throw forbidden("Only the page owner or a moderator can manage this page.");
   }
 }
@@ -63,20 +70,29 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }: Ctx) => 
 
     const body = await validateBody(req, createPostSchema);
 
-    const { rows } = await db.transaction(async (tx) => {
-      const inserted = await tx.query<{ id: string }>(
-        `INSERT INTO business_page_posts (page_id, title, body, image_url, status, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-         RETURNING id`,
-        [pageId, body.title.trim(), body.body.trim(), body.imageUrl || null, body.status]
-      );
+    const orm = await getDb();
+    const newPostId = await orm.transaction(async (tx) => {
+      const [inserted] = await tx
+        .insert(schema.businessPagePosts)
+        .values({
+          pageId,
+          title: body.title.trim(),
+          body: body.body.trim(),
+          imageUrl: body.imageUrl || null,
+          status: body.status,
+        })
+        .returning({ id: schema.businessPagePosts.id });
+
       if (body.status === "published") {
-        await tx.query(`UPDATE business_pages SET post_count = post_count + 1, updated_at = NOW() WHERE id = $1`, [pageId]);
+        await tx
+          .update(schema.businessPages)
+          .set({ postCount: sql`${schema.businessPages.postCount} + 1`, updatedAt: new Date() })
+          .where(eq(schema.businessPages.id, pageId));
       }
-      return inserted;
+      return inserted.id;
     });
 
-    return NextResponse.json({ success: true, data: { postId: rows[0].id }, error: null }, { status: 201 });
+    return NextResponse.json({ success: true, data: { postId: newPostId }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

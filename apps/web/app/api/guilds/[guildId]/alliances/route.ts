@@ -19,7 +19,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import {
@@ -55,15 +57,17 @@ const leaveAllianceSchema = z.object({
 const PLATINUM_TIERS = ["platinum_1", "platinum_2", "platinum_3", "legend"];
 
 async function assertGuildLeader(guildId: string, userId: string) {
-  const { rows } = await db.query<{ captain_id: string }>(
-    `SELECT captain_id FROM guilds WHERE id = $1 AND is_active = TRUE LIMIT 1`,
-    [guildId]
-  );
-  if (!rows[0]) throw notFound("Guild not found");
-  if (rows[0].captain_id !== userId) {
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ captain_id: schema.guilds.captainId })
+    .from(schema.guilds)
+    .where(and(eq(schema.guilds.id, guildId), eq(schema.guilds.isActive, true)))
+    .limit(1);
+  if (!row) throw notFound("Guild not found");
+  if (row.captain_id !== userId) {
     throw forbidden("Only the guild leader can manage alliances");
   }
-  return rows[0];
+  return row;
 }
 
 // ---------------------------------------------------------------------------
@@ -78,42 +82,28 @@ export const GET = withAuth(
     try {
       const { guildId } = await params;
 
-      const { rows } = await db.query<{
-        alliance_id: string;
-        alliance_name: string;
-        alliance_description: string | null;
-        founded_by: string;
-        wars_won: number;
-        is_active: boolean;
-        alliance_created_at: string;
-        joined_at: string;
-        member_count: string;
-      }>(
-        `SELECT
-           ga.id AS alliance_id,
-           ga.name AS alliance_name,
-           ga.description AS alliance_description,
-           ga.founded_by,
-           ga.wars_won,
-           ga.is_active,
-           ga.created_at AS alliance_created_at,
-           gam.joined_at,
-           (
-             SELECT COUNT(*)::TEXT
-             FROM guild_alliance_members gam2
-             WHERE gam2.alliance_id = ga.id
-           ) AS member_count
-         FROM guild_alliance_members gam
-         JOIN guild_alliances ga ON ga.id = gam.alliance_id
-         WHERE gam.guild_id = $1
-           AND ga.is_active = TRUE
-         LIMIT 1`,
-        [guildId]
-      );
+      const orm = await getDb();
+      const gam2 = alias(schema.guildAllianceMembers, "gam2");
+      const [row] = await orm
+        .select({
+          alliance_id: schema.guildAlliances.id,
+          alliance_name: schema.guildAlliances.name,
+          alliance_description: schema.guildAlliances.description,
+          founded_by: schema.guildAlliances.foundedBy,
+          wars_won: schema.guildAlliances.warsWon,
+          is_active: schema.guildAlliances.isActive,
+          alliance_created_at: schema.guildAlliances.createdAt,
+          joined_at: schema.guildAllianceMembers.joinedAt,
+          member_count: sql<string>`(SELECT COUNT(*)::TEXT FROM ${gam2} WHERE ${gam2.allianceId} = ${schema.guildAlliances.id})`,
+        })
+        .from(schema.guildAllianceMembers)
+        .innerJoin(schema.guildAlliances, eq(schema.guildAlliances.id, schema.guildAllianceMembers.allianceId))
+        .where(and(eq(schema.guildAllianceMembers.guildId, guildId), eq(schema.guildAlliances.isActive, true)))
+        .limit(1);
 
       return NextResponse.json({
         success: true,
-        data: { alliance: rows[0] ?? null },
+        data: { alliance: row ?? null },
         error: null,
       });
     } catch (err) {
@@ -139,44 +129,40 @@ export const POST = withAuth(
 
       const body = await validateBody(req, createAllianceSchema);
       await assertGuildLeader(guildId, userId);
+      const orm = await getDb();
 
       if (body.action === "create") {
         if (!body.name) throw badRequest("name is required when creating an alliance");
 
         // Check guild tier is Platinum+
-        const { rows: guildRows } = await db.query<{ tier: string }>(
-          `SELECT tier FROM guilds WHERE id = $1 LIMIT 1`,
-          [guildId]
-        );
-        if (!PLATINUM_TIERS.includes(guildRows[0]?.tier ?? "")) {
+        const [guildRow] = await orm
+          .select({ tier: schema.guilds.tier })
+          .from(schema.guilds)
+          .where(eq(schema.guilds.id, guildId))
+          .limit(1);
+        if (!PLATINUM_TIERS.includes(guildRow?.tier ?? "")) {
           throw forbidden("Guild must be Platinum tier or higher to create an alliance");
         }
 
         // Check guild not already in an alliance
-        const { rows: existingRows } = await db.query<{ id: string }>(
-          `SELECT gam.id FROM guild_alliance_members gam
-           JOIN guild_alliances ga ON ga.id = gam.alliance_id
-           WHERE gam.guild_id = $1 AND ga.is_active = TRUE LIMIT 1`,
-          [guildId]
-        );
-        if (existingRows.length > 0) {
+        const [existing] = await orm
+          .select({ id: schema.guildAllianceMembers.id })
+          .from(schema.guildAllianceMembers)
+          .innerJoin(schema.guildAlliances, eq(schema.guildAlliances.id, schema.guildAllianceMembers.allianceId))
+          .where(and(eq(schema.guildAllianceMembers.guildId, guildId), eq(schema.guildAlliances.isActive, true)))
+          .limit(1);
+        if (existing) {
           throw conflict("Guild is already in an alliance");
         }
 
-        const result = await db.transaction(async (tx) => {
-          const { rows: allianceRows } = await tx.query<{ id: string }>(
-            `INSERT INTO guild_alliances (name, description, founded_by, is_active, wars_won, created_at, updated_at)
-             VALUES ($1, $2, $3, TRUE, 0, NOW(), NOW())
-             RETURNING id`,
-            [body.name!, body.description ?? null, guildId]
-          );
-          const allianceId = allianceRows[0].id;
+        const result = await orm.transaction(async (tx) => {
+          const [allianceRow] = await tx
+            .insert(schema.guildAlliances)
+            .values({ name: body.name!, description: body.description ?? null, foundedBy: guildId, isActive: true, warsWon: 0 })
+            .returning({ id: schema.guildAlliances.id });
+          const allianceId = allianceRow.id;
 
-          await tx.query(
-            `INSERT INTO guild_alliance_members (alliance_id, guild_id, joined_at)
-             VALUES ($1, $2, NOW())`,
-            [allianceId, guildId]
-          );
+          await tx.insert(schema.guildAllianceMembers).values({ allianceId, guildId });
 
           return { allianceId };
         });
@@ -190,39 +176,39 @@ export const POST = withAuth(
         if (!body.allianceId) throw badRequest("allianceId is required when joining an alliance");
 
         // Check guild not already in an alliance
-        const { rows: existingRows } = await db.query<{ id: string }>(
-          `SELECT gam.id FROM guild_alliance_members gam
-           JOIN guild_alliances ga ON ga.id = gam.alliance_id
-           WHERE gam.guild_id = $1 AND ga.is_active = TRUE LIMIT 1`,
-          [guildId]
-        );
-        if (existingRows.length > 0) {
+        const [existing] = await orm
+          .select({ id: schema.guildAllianceMembers.id })
+          .from(schema.guildAllianceMembers)
+          .innerJoin(schema.guildAlliances, eq(schema.guildAlliances.id, schema.guildAllianceMembers.allianceId))
+          .where(and(eq(schema.guildAllianceMembers.guildId, guildId), eq(schema.guildAlliances.isActive, true)))
+          .limit(1);
+        if (existing) {
           throw conflict("Guild is already in an alliance");
         }
 
         // Check alliance exists, is active, and has room (max 4 guilds per PRD §13)
-        const { rows: allianceRows } = await db.query<{ id: string; is_active: boolean; member_count: string }>(
-          `SELECT ga.id, ga.is_active,
-                  COUNT(gam2.guild_id)::TEXT AS member_count
-           FROM guild_alliances ga
-           LEFT JOIN guild_alliance_members gam2 ON gam2.alliance_id = ga.id
-           WHERE ga.id = $1
-           GROUP BY ga.id
-           LIMIT 1`,
-          [body.allianceId]
-        );
-        if (!allianceRows[0]) throw notFound("Alliance not found");
-        if (!allianceRows[0].is_active) throw badRequest("Alliance is no longer active");
-        if (parseInt(allianceRows[0].member_count, 10) >= 4) {
+        const gam2 = alias(schema.guildAllianceMembers, "gam2");
+        const [allianceRow] = await orm
+          .select({
+            id: schema.guildAlliances.id,
+            is_active: schema.guildAlliances.isActive,
+            member_count: sql<string>`COUNT(${gam2.guildId})::TEXT`,
+          })
+          .from(schema.guildAlliances)
+          .leftJoin(gam2, eq(gam2.allianceId, schema.guildAlliances.id))
+          .where(eq(schema.guildAlliances.id, body.allianceId))
+          .groupBy(schema.guildAlliances.id)
+          .limit(1);
+        if (!allianceRow) throw notFound("Alliance not found");
+        if (!allianceRow.is_active) throw badRequest("Alliance is no longer active");
+        if (parseInt(allianceRow.member_count, 10) >= 4) {
           throw conflict("Alliance is full — a maximum of 4 guilds can join an alliance");
         }
 
-        await db.query(
-          `INSERT INTO guild_alliance_members (alliance_id, guild_id, joined_at)
-           VALUES ($1, $2, NOW())
-           ON CONFLICT (alliance_id, guild_id) DO NOTHING`,
-          [body.allianceId, guildId]
-        );
+        await orm
+          .insert(schema.guildAllianceMembers)
+          .values({ allianceId: body.allianceId, guildId })
+          .onConflictDoNothing({ target: [schema.guildAllianceMembers.allianceId, schema.guildAllianceMembers.guildId] });
 
         return NextResponse.json(
           { success: true, data: { allianceId: body.allianceId, joined: true }, error: null },
@@ -252,13 +238,13 @@ export const DELETE = withAuth(
       const { allianceId } = await validateBody(req, leaveAllianceSchema);
       await assertGuildLeader(guildId, userId);
 
-      const { rowCount } = await db.query(
-        `DELETE FROM guild_alliance_members
-         WHERE alliance_id = $1 AND guild_id = $2`,
-        [allianceId, guildId]
-      );
+      const orm = await getDb();
+      const deleted = await orm
+        .delete(schema.guildAllianceMembers)
+        .where(and(eq(schema.guildAllianceMembers.allianceId, allianceId), eq(schema.guildAllianceMembers.guildId, guildId)))
+        .returning({ id: schema.guildAllianceMembers.id });
 
-      if (!rowCount || rowCount === 0) {
+      if (deleted.length === 0) {
         throw notFound("Guild is not a member of this alliance");
       }
 

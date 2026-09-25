@@ -33,7 +33,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -68,14 +69,16 @@ interface GuildCtx {
 }
 
 async function requireAdminOrMod(userId: string) {
-  const { rows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-    `SELECT is_admin, COALESCE(is_moderator, FALSE) AS is_moderator
-     FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [userId]
-  );
-  if (!rows[0]) throw forbidden("User not found");
-  if (!rows[0].is_admin && !rows[0].is_moderator) throw forbidden("Admin or moderator access required");
-  return rows[0];
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ isAdmin: schema.users.isAdmin, isModerator: schema.users.isModerator })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), sql`${schema.users.deletedAt} IS NULL`))
+    .limit(1);
+  if (!row) throw forbidden("User not found");
+  const isModerator = row.isModerator ?? false;
+  if (!row.isAdmin && !isModerator) throw forbidden("Admin or moderator access required");
+  return { is_admin: row.isAdmin, is_moderator: isModerator };
 }
 
 // ---------------------------------------------------------------------------
@@ -89,24 +92,43 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }: GuildCtx)
     if (!UUID_RE.test(guildId)) throw badRequest("guildId must be a valid UUID");
     await requireAdminOrMod(auth.user.sub);
 
-    const { rows: guildRows } = await db.query(
-      `SELECT g.*, u.username AS captain_username
-       FROM guilds g JOIN users u ON u.id = g.captain_id
-       WHERE g.id = $1 AND g.deleted_at IS NULL LIMIT 1`,
-      [guildId]
-    );
-    if (!guildRows[0]) throw notFound("Guild not found");
+    const orm = await getDb();
 
-    const { rows: members } = await db.query(
-      `SELECT gm.id, gm.user_id, gm.role, gm.contribution_score, gm.war_points_total, gm.joined_at,
-              u.username, u.display_name, u.avatar_emoji
-       FROM guild_members gm JOIN users u ON u.id = gm.user_id
-       WHERE gm.guild_id = $1
-       ORDER BY gm.role = 'captain' DESC, gm.contribution_score DESC`,
-      [guildId]
-    );
+    const [guildRow] = await orm
+      .select({ guild: schema.guilds, captainUsername: schema.users.username })
+      .from(schema.guilds)
+      .innerJoin(schema.users, eq(schema.users.id, schema.guilds.captainId))
+      .where(and(eq(schema.guilds.id, guildId), sql`${schema.guilds.deletedAt} IS NULL`))
+      .limit(1);
+    if (!guildRow) throw notFound("Guild not found");
 
-    return NextResponse.json({ success: true, data: { guild: guildRows[0], members } });
+    const memberRows = await orm
+      .select({
+        id: schema.guildMembers.id,
+        user_id: schema.guildMembers.userId,
+        role: schema.guildMembers.role,
+        contribution_score: schema.guildMembers.contributionScore,
+        war_points_total: schema.guildMembers.warPointsTotal,
+        joined_at: schema.guildMembers.joinedAt,
+        username: schema.users.username,
+        display_name: schema.users.displayName,
+        avatar_emoji: schema.users.avatarEmoji,
+      })
+      .from(schema.guildMembers)
+      .innerJoin(schema.users, eq(schema.users.id, schema.guildMembers.userId))
+      .where(eq(schema.guildMembers.guildId, guildId))
+      .orderBy(sql`${schema.guildMembers.role} = 'captain' DESC`, desc(schema.guildMembers.contributionScore));
+
+    // bigint columns don't serialize via JSON.stringify — stringify them.
+    const guild = {
+      ...guildRow.guild,
+      guildXp: guildRow.guild.guildXp.toString(),
+      treasuryBalance: guildRow.guild.treasuryBalance.toString(),
+      treasuryCap: guildRow.guild.treasuryCap.toString(),
+      captain_username: guildRow.captainUsername,
+    };
+
+    return NextResponse.json({ success: true, data: { guild, members: memberRows } });
   } catch (err) {
     return handleApiError(err);
   }
@@ -132,60 +154,67 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: GuildCt
       throw forbidden("Administrator access required for this action");
     }
 
-    const { rows: guildRows } = await db.query<{ id: string; name: string; captain_id: string }>(
-      `SELECT id, name, captain_id FROM guilds WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [guildId]
-    );
-    if (!guildRows[0]) throw notFound("Guild not found");
-    const guild = guildRows[0];
+    const orm = await getDb();
+    const [guild] = await orm
+      .select({ id: schema.guilds.id, name: schema.guilds.name, captain_id: schema.guilds.captainId })
+      .from(schema.guilds)
+      .where(and(eq(schema.guilds.id, guildId), sql`${schema.guilds.deletedAt} IS NULL`))
+      .limit(1);
+    if (!guild) throw notFound("Guild not found");
 
     if (body.action === "transfer_captain" || body.action === "remove_member") {
       // Handled in their own transaction blocks below (multi-table writes).
     } else {
-      let updateSql = "";
-      const updateValues: SqlParam[] = [];
+      const updates: Partial<typeof schema.guilds.$inferInsert> = { updatedAt: new Date() };
 
       switch (body.action) {
         case "set_active":
-          updateSql = `is_active = TRUE, updated_at = NOW()`;
+          updates.isActive = true;
           break;
         case "set_inactive":
-          updateSql = `is_active = FALSE, updated_at = NOW()`;
+          updates.isActive = false;
           break;
         case "suspend":
-          updateSql = `is_suspended = TRUE, suspended_at = NOW(), suspended_by = $2, suspension_reason = $3, is_active = FALSE, updated_at = NOW()`;
-          updateValues.push(auth.user.sub, body.reason);
+          updates.isSuspended = true;
+          updates.suspendedAt = new Date();
+          updates.suspendedBy = auth.user.sub;
+          updates.suspensionReason = body.reason;
+          updates.isActive = false;
           break;
         case "unsuspend":
-          updateSql = `is_suspended = FALSE, suspended_at = NULL, suspended_by = NULL, suspension_reason = NULL, is_active = TRUE, updated_at = NOW()`;
+          updates.isSuspended = false;
+          updates.suspendedAt = null;
+          updates.suspendedBy = null;
+          updates.suspensionReason = null;
+          updates.isActive = true;
           break;
         case "ban":
-          updateSql = `is_banned = TRUE, banned_at = NOW(), banned_by = $2, is_active = FALSE, is_suspended = FALSE, updated_at = NOW()`;
-          updateValues.push(auth.user.sub);
+          updates.isBanned = true;
+          updates.bannedAt = new Date();
+          updates.bannedBy = auth.user.sub;
+          updates.isActive = false;
+          updates.isSuspended = false;
           break;
         case "unban":
-          updateSql = `is_banned = FALSE, banned_at = NULL, banned_by = NULL, updated_at = NOW()`;
+          updates.isBanned = false;
+          updates.bannedAt = null;
+          updates.bannedBy = null;
           break;
         case "update_details": {
-          const setParts: string[] = ["updated_at = NOW()"];
-          let idx = 2;
-          if (body.name !== undefined) { setParts.push(`name = $${idx++}`); updateValues.push(body.name); }
-          if (body.crestEmoji !== undefined) { setParts.push(`crest_emoji = $${idx++}`); updateValues.push(body.crestEmoji); }
-          if (body.description !== undefined) { setParts.push(`description = $${idx++}`); updateValues.push(body.description); }
-          if (body.city !== undefined) { setParts.push(`city = $${idx++}`); updateValues.push(body.city); }
-          if (body.country !== undefined) { setParts.push(`country = $${idx++}`); updateValues.push(body.country); }
-          if (body.recruitmentType !== undefined) { setParts.push(`recruitment_type = $${idx++}`); updateValues.push(body.recruitmentType); }
-          updateSql = setParts.join(", ");
+          if (body.name !== undefined) updates.name = body.name;
+          if (body.crestEmoji !== undefined) updates.crestEmoji = body.crestEmoji;
+          if (body.description !== undefined) updates.description = body.description;
+          if (body.city !== undefined) updates.city = body.city;
+          if (body.country !== undefined) updates.country = body.country;
+          if (body.recruitmentType !== undefined) updates.recruitmentType = body.recruitmentType;
           break;
         }
         case "add_admin_notes":
-          updateSql = `admin_notes = $2, updated_at = NOW()`;
-          updateValues.push(body.notes);
+          updates.adminNotes = body.notes;
           break;
       }
 
-      const allValues = [guildId, ...updateValues];
-      await db.query(`UPDATE guilds SET ${updateSql} WHERE id = $1`, allValues);
+      await orm.update(schema.guilds).set(updates).where(eq(schema.guilds.id, guildId));
 
       writeAuditLog({
         actorId: auth.user.sub,
@@ -208,25 +237,26 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: GuildCt
       if (body.newCaptainUserId === guild.captain_id) {
         throw badRequest("User is already the guild captain");
       }
-      await db.transaction(async (client) => {
-        const memberCheck = await client.query<{ role: string }>(
-          `SELECT role FROM guild_members WHERE guild_id = $1 AND user_id = $2 LIMIT 1`,
-          [guildId, body.newCaptainUserId]
-        );
-        if (!memberCheck.rows[0]) throw badRequest("Target user is not a member of this guild");
+      await orm.transaction(async (tx) => {
+        const [memberCheck] = await tx
+          .select({ role: schema.guildMembers.role })
+          .from(schema.guildMembers)
+          .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, body.newCaptainUserId)))
+          .limit(1);
+        if (!memberCheck) throw badRequest("Target user is not a member of this guild");
 
-        await client.query(
-          `UPDATE guild_members SET role = 'veteran' WHERE guild_id = $1 AND user_id = $2`,
-          [guildId, guild.captain_id]
-        );
-        await client.query(
-          `UPDATE guild_members SET role = 'captain' WHERE guild_id = $1 AND user_id = $2`,
-          [guildId, body.newCaptainUserId]
-        );
-        await client.query(
-          `UPDATE guilds SET captain_id = $2, updated_at = NOW() WHERE id = $1`,
-          [guildId, body.newCaptainUserId]
-        );
+        await tx
+          .update(schema.guildMembers)
+          .set({ role: "veteran" })
+          .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, guild.captain_id)));
+        await tx
+          .update(schema.guildMembers)
+          .set({ role: "captain" })
+          .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, body.newCaptainUserId)));
+        await tx
+          .update(schema.guilds)
+          .set({ captainId: body.newCaptainUserId, updatedAt: new Date() })
+          .where(eq(schema.guilds.id, guildId));
       });
 
       writeAuditLog({
@@ -241,24 +271,24 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: GuildCt
     }
 
     if (body.action === "remove_member") {
-      await db.transaction(async (client) => {
+      await orm.transaction(async (tx) => {
         if (body.userId === guild.captain_id) {
           throw badRequest("Cannot remove the captain; transfer captaincy first");
         }
-        const removeResult = await client.query(
-          `DELETE FROM guild_members WHERE guild_id = $1 AND user_id = $2`,
-          [guildId, body.userId]
-        );
-        if (removeResult.rowCount === 0) throw notFound("Member not found in this guild");
+        const removed = await tx
+          .delete(schema.guildMembers)
+          .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, body.userId)))
+          .returning({ id: schema.guildMembers.id });
+        if (removed.length === 0) throw notFound("Member not found in this guild");
 
-        await client.query(
-          `UPDATE guilds SET member_count = GREATEST(member_count - 1, 0), updated_at = NOW() WHERE id = $1`,
-          [guildId]
-        );
-        await client.query(
-          `UPDATE users SET guild_id = NULL, updated_at = NOW() WHERE id = $1`,
-          [body.userId]
-        );
+        await tx
+          .update(schema.guilds)
+          .set({ memberCount: sql`GREATEST(${schema.guilds.memberCount} - 1, 0)`, updatedAt: new Date() })
+          .where(eq(schema.guilds.id, guildId));
+        await tx
+          .update(schema.users)
+          .set({ guildId: null, updatedAt: new Date() })
+          .where(eq(schema.users.id, body.userId));
       });
 
       writeAuditLog({
@@ -289,24 +319,31 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }: GuildC
     const { guildId } = await params;
     if (!UUID_RE.test(guildId)) throw badRequest("guildId must be a valid UUID");
 
-    const { rows: userRows } = await db.query<{ is_admin: boolean }>(
-      `SELECT is_admin FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [auth.user.sub]
-    );
-    if (!userRows[0]?.is_admin) throw forbidden("Administrator access required");
+    const orm = await getDb();
 
-    const { rows: guildRows } = await db.query<{ id: string; name: string }>(
-      `SELECT id, name FROM guilds WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [guildId]
-    );
-    if (!guildRows[0]) throw notFound("Guild not found");
+    const [userRow] = await orm
+      .select({ isAdmin: schema.users.isAdmin })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), sql`${schema.users.deletedAt} IS NULL`))
+      .limit(1);
+    if (!userRow?.isAdmin) throw forbidden("Administrator access required");
 
-    await db.transaction(async (client) => {
-      await client.query(
-        `UPDATE guilds SET deleted_at = NOW(), is_active = FALSE, updated_at = NOW() WHERE id = $1`,
-        [guildId]
-      );
-      await client.query(`UPDATE users SET guild_id = NULL, updated_at = NOW() WHERE guild_id = $1`, [guildId]);
+    const [guildRow] = await orm
+      .select({ id: schema.guilds.id, name: schema.guilds.name })
+      .from(schema.guilds)
+      .where(and(eq(schema.guilds.id, guildId), sql`${schema.guilds.deletedAt} IS NULL`))
+      .limit(1);
+    if (!guildRow) throw notFound("Guild not found");
+
+    await orm.transaction(async (tx) => {
+      await tx
+        .update(schema.guilds)
+        .set({ deletedAt: new Date(), isActive: false, updatedAt: new Date() })
+        .where(eq(schema.guilds.id, guildId));
+      await tx
+        .update(schema.users)
+        .set({ guildId: null, updatedAt: new Date() })
+        .where(eq(schema.users.guildId, guildId));
     });
 
     writeAuditLog({
@@ -314,7 +351,7 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }: GuildC
       action: "admin_delete_guild",
       targetType: "guild",
       targetId: guildId,
-      metadata: { guildName: guildRows[0].name },
+      metadata: { guildName: guildRow.name },
     });
 
     return NextResponse.json({ success: true, data: { guildId, deleted: true } });

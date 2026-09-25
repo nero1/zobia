@@ -15,9 +15,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, asc, isNull, or, gt, eq, sql } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { loadManifest } from "@/lib/manifest";
 
 // ---------------------------------------------------------------------------
@@ -55,20 +56,48 @@ interface StoreItemRow {
  */
 export const GET = withAuth(async (_req: NextRequest, _ctx) => {
   try {
-    const [manifest, { rows }] = await Promise.all([
+    const orm = await getDb();
+    const [manifest, dbRows] = await Promise.all([
       loadManifest(),
-      db.query<StoreItemRow>(
-        `SELECT id, name, description, item_type, price_kobo, currency,
-                coins_cost, stars_cost, coins_granted, stars_granted, bonus_label,
-                iap_product_id,
-                cosmetic_type, COALESCE(is_exclusive, false) AS is_exclusive,
-                is_featured, sort_order, metadata
-         FROM store_items
-         WHERE is_active = TRUE
-           AND (valid_until IS NULL OR valid_until > NOW())
-         ORDER BY item_type ASC, sort_order ASC, price_kobo ASC NULLS LAST`
-      ),
+      orm
+        .select({
+          id: schema.storeItems.id,
+          name: schema.storeItems.name,
+          description: schema.storeItems.description,
+          item_type: schema.storeItems.itemType,
+          price_kobo: schema.storeItems.priceKobo,
+          currency: schema.storeItems.currency,
+          coins_cost: schema.storeItems.coinsCost,
+          stars_cost: schema.storeItems.starsCost,
+          coins_granted: schema.storeItems.coinsGranted,
+          stars_granted: schema.storeItems.starsGranted,
+          bonus_label: schema.storeItems.bonusLabel,
+          iap_product_id: schema.storeItems.iapProductId,
+          cosmetic_type: schema.storeItems.cosmeticType,
+          is_exclusive: schema.storeItems.isExclusive,
+          is_featured: schema.storeItems.isFeatured,
+          sort_order: schema.storeItems.sortOrder,
+          metadata: schema.storeItems.metadata,
+        })
+        .from(schema.storeItems)
+        .where(
+          and(
+            eq(schema.storeItems.isActive, true),
+            or(isNull(schema.storeItems.validUntil), gt(schema.storeItems.validUntil, sql`NOW()`))
+          )
+        )
+        .orderBy(asc(schema.storeItems.itemType), asc(schema.storeItems.sortOrder), sql`${schema.storeItems.priceKobo} ASC NULLS LAST`),
     ]);
+
+    const rows: StoreItemRow[] = dbRows.map((r) => ({
+      ...r,
+      item_type: r.item_type as StoreItemRow["item_type"],
+      price_kobo: r.price_kobo !== null ? Number(r.price_kobo) : null,
+      coins_cost: r.coins_cost !== null ? Number(r.coins_cost) : null,
+      coins_granted: r.coins_granted !== null ? Number(r.coins_granted) : null,
+      is_exclusive: r.is_exclusive ?? false,
+      metadata: r.metadata as Record<string, unknown> | null,
+    }));
 
     const coinPacks = rows
       .filter((r) => r.item_type === "coin_pack")

@@ -14,7 +14,8 @@ import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug, listBlogCategories } from "@/lib/blogs/repo";
 import { updateBlogSettings } from "@/lib/blogs/service";
-import { db } from "@/lib/db";
+import { eq, and } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 const menuItemSchema = z.object({
   id: z.string().min(1).max(60),
@@ -48,10 +49,16 @@ export const GET = withAuth<{ slug: string }>(async (_req: NextRequest, { params
     const blog = await getBlogBySlug(params.slug);
     if (!blog) throw notFound("Blog not found");
 
-    const [categories, isSubscribed] = await Promise.all([
+    const orm = await getDb();
+    const [categories, subscriptionRows] = await Promise.all([
       listBlogCategories(blog.id),
-      db.query<{ exists: boolean }>(`SELECT EXISTS(SELECT 1 FROM blog_subscriptions WHERE blog_id = $1 AND user_id = $2) AS exists`, [blog.id, auth.user.sub]).then((r) => r.rows[0]?.exists ?? false),
+      orm
+        .select({ id: schema.blogSubscriptions.id })
+        .from(schema.blogSubscriptions)
+        .where(and(eq(schema.blogSubscriptions.blogId, blog.id), eq(schema.blogSubscriptions.userId, auth.user.sub)))
+        .limit(1),
     ]);
+    const isSubscribed = subscriptionRows.length > 0;
 
     return NextResponse.json({
       success: true,

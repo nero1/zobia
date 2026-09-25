@@ -7,7 +7,13 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
+// NOTE: `questFeatureBoosts` is defined in lib/db/schema.ts but omitted from
+// the `schema` bundle object exported from there (a pre-existing gap,
+// reported rather than silently added to the shared schema) — imported
+// directly.
+import { questFeatureBoosts } from "@/lib/db/schema";
 import { withAdminAuth, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -21,8 +27,12 @@ export const DELETE = withAdminAuth(
       const { boostId } = await params;
       if (!UUID_RE.test(boostId)) throw badRequest("boostId must be a valid UUID");
 
-      const { rowCount } = await db.query(`DELETE FROM quest_feature_boosts WHERE id = $1`, [boostId]);
-      if (!rowCount) throw notFound("Boost not found");
+      const orm = await getDb();
+      const deleted = await orm
+        .delete(questFeatureBoosts)
+        .where(eq(questFeatureBoosts.id, boostId))
+        .returning({ id: questFeatureBoosts.id });
+      if (deleted.length === 0) throw notFound("Boost not found");
 
       return NextResponse.json({ success: true, data: { boostId, deleted: true }, error: null });
     } catch (err) {

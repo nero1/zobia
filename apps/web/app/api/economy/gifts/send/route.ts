@@ -17,9 +17,15 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, forbidden, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+// NOTE: schema.giftRewardGrants is not included in the aggregated `schema`
+// object exported from lib/db/schema.ts (a genuine gap there — flagged, not
+// silently fixed since schema.ts is out of scope), so import the table
+// directly instead.
+import { giftRewardGrants } from "@/lib/db/schema";
 import { debitCoins, creditCoins } from "@/lib/economy/coins";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 import { recordWarContribution } from "@/lib/guilds/recordWarContribution";
@@ -77,33 +83,11 @@ const SendGiftSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// DB row types
-// ---------------------------------------------------------------------------
-
-interface GiftItemRow {
-  id: string;
-  name: string;
-  emoji: string;
-  coin_cost: number;
-  tier: number;
-  spectacle_threshold_coins: number | null;
-  gift_type_id: string | null;
-  is_rewarded: boolean;
-  reward_config: RewardConfig | null;
-}
-
-interface UserRow {
-  id: string;
-  username: string;
-  is_creator: boolean;
-  creator_tier: string | null;
-}
-
-// ---------------------------------------------------------------------------
 // XP awards (fire-and-forget)
 // ---------------------------------------------------------------------------
 
 async function awardGiftXP(
+  orm: Awaited<ReturnType<typeof getDb>>,
   senderId: string,
   recipientId: string,
   giftTier: number,
@@ -141,12 +125,16 @@ async function awardGiftXP(
   await safeAwardXP(recipientId, recipientXP, 'social', 'gift_received', `gift:${giftId}:recipient`);
 
   // Atomically claim first_time_gifted bonus to avoid a race when concurrent gifts arrive
-  const { rows: firstGiftRows } = await db.query<{ id: string }>(
-    `UPDATE users SET first_gift_received_xp_awarded = TRUE
-     WHERE id = $1 AND first_gift_received_xp_awarded IS NOT TRUE
-     RETURNING id`,
-    [recipientId]
-  );
+  const firstGiftRows = await orm
+    .update(schema.users)
+    .set({ firstGiftReceivedXpAwarded: true })
+    .where(
+      and(
+        eq(schema.users.id, recipientId),
+        or(isNull(schema.users.firstGiftReceivedXpAwarded), eq(schema.users.firstGiftReceivedXpAwarded, false))
+      )
+    )
+    .returning({ id: schema.users.id });
   if (firstGiftRows.length > 0) {
     await safeAwardXP(recipientId, firstGiftXP, 'social', 'first_time_gifted', `gift:${giftId}:first`);
   }
@@ -174,6 +162,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   let idempKey: string | null = null;
   try {
     const senderId = auth.user.sub;
+    const orm = await getDb();
 
     // Require a recent PIN verification only if:
     //   1. The admin has enabled the PIN auth feature, AND
@@ -182,10 +171,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     if (manifest.features.pinAuth) {
       const pinOk = await requirePinVerified(senderId, auth.user.sid);
       if (!pinOk) {
-        const { rows: pinRows } = await db.query<{ id: string }>(
-          `SELECT 1 AS id FROM user_pins WHERE user_id = $1 LIMIT 1`,
-          [senderId]
-        );
+        const pinRows = await orm
+          .select({ id: schema.userPins.id })
+          .from(schema.userPins)
+          .where(eq(schema.userPins.userId, senderId))
+          .limit(1);
         if (pinRows.length > 0) {
           return NextResponse.json(
             { error: "PIN verification required", code: "PIN_REQUIRED" },
@@ -229,18 +219,26 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // FIX-C5 (BUG-18): If a roomId is provided, ensure the sender is an active member
     let roomCreatorId: string | null = null;
     if (body.roomId) {
-      const { rows: memberRows } = await db.query(
-        `SELECT 1 FROM room_members WHERE room_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
-        [body.roomId, senderId]
-      );
+      const memberRows = await orm
+        .select({ id: schema.roomMembers.id })
+        .from(schema.roomMembers)
+        .where(
+          and(
+            eq(schema.roomMembers.roomId, body.roomId),
+            eq(schema.roomMembers.userId, senderId),
+            isNull(schema.roomMembers.leftAt)
+          )
+        )
+        .limit(1);
       if (memberRows.length === 0) {
         return NextResponse.json({ error: 'NOT_ROOM_MEMBER' }, { status: 403 });
       }
-      const { rows: roomOwnerRows } = await db.query<{ creator_id: string }>(
-        `SELECT creator_id FROM rooms WHERE id = $1 LIMIT 1`,
-        [body.roomId]
-      );
-      roomCreatorId = roomOwnerRows[0]?.creator_id ?? null;
+      const roomOwnerRows = await orm
+        .select({ creatorId: schema.rooms.creatorId })
+        .from(schema.rooms)
+        .where(eq(schema.rooms.id, body.roomId))
+        .limit(1);
+      roomCreatorId = roomOwnerRows[0]?.creatorId ?? null;
     }
 
     // Blog gift context (app/(app)/blogs/gift/[slug]/page.tsx): resolve the
@@ -249,21 +247,22 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // sending to that blog's owner, in the same way rooms/[roomId]/gift does.
     let blogOwnerId: string | null = null;
     if (body.blogId) {
-      const { rows: blogRows } = await db.query<{ owner_id: string }>(
-        `SELECT owner_id FROM blogs WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [body.blogId]
-      );
+      const blogRows = await orm
+        .select({ ownerId: schema.blogs.ownerId })
+        .from(schema.blogs)
+        .where(and(eq(schema.blogs.id, body.blogId), isNull(schema.blogs.deletedAt)))
+        .limit(1);
       if (!blogRows[0]) {
         throw notFound("Blog not found");
       }
-      blogOwnerId = blogRows[0].owner_id;
+      blogOwnerId = blogRows[0].ownerId;
       if (body.recipientId !== blogOwnerId) {
         throw badRequest("recipientId must be the blog's owner", "BLOG_RECIPIENT_MISMATCH");
       }
     }
 
     // Trust gate: send_gift requires minimum trust score of 20
-    const trusted = await meetsMinimumTrust(senderId, "send_gift", db);
+    const trusted = await meetsMinimumTrust(senderId, "send_gift", orm);
     if (!trusted) {
       throw forbidden("Your account trust score is too low to send gifts. Build your reputation first.", "TRUST_SCORE_TOO_LOW");
     }
@@ -274,19 +273,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     let giftMessageWordCount: number | null = null;
     const trimmedMessage = body.message?.trim();
     if (trimmedMessage) {
-      const { rows: senderPlanRows } = await db.query<{ plan: Plan; rank_level: number }>(
-        `SELECT COALESCE(plan, 'free') AS plan, COALESCE(rank_level, 1) AS rank_level
-         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [senderId]
-      );
-      const { rows: senderBizRows } = await db.query<{ tier: string }>(
-        `SELECT tier FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-        [senderId]
-      );
+      const senderPlanRows = await orm
+        .select({ plan: schema.users.plan, rankLevel: schema.users.rankLevel })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, senderId), isNull(schema.users.deletedAt)))
+        .limit(1);
+      const senderBizRows = await orm
+        .select({ tier: schema.businessAccounts.tier })
+        .from(schema.businessAccounts)
+        .where(eq(schema.businessAccounts.userId, senderId))
+        .limit(1);
       const config = await getGiftMessageConfig(
         senderPlanRows[0]?.plan ?? "free",
         senderBizRows[0]?.tier ?? null,
-        senderPlanRows[0]?.rank_level ?? 1
+        senderPlanRows[0]?.rankLevel ?? 1
       );
       if (!config.eligible) {
         throw forbidden(
@@ -306,31 +306,60 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // 1. Load gift item and resolve matching gift_type (if one exists by name)
-    const { rows: giftRows } = await db.query<GiftItemRow>(
-      `SELECT gi.id, gi.name, gi.emoji, gi.coin_cost, gi.tier,
-              gi.spectacle_threshold_coins, gt.id AS gift_type_id,
-              gi.is_rewarded, gi.reward_config
-       FROM gift_items gi
-       LEFT JOIN gift_types gt ON gt.name = gi.name AND gt.is_active = TRUE
-       WHERE gi.id = $1 AND gi.is_active = TRUE AND gi.is_retired = FALSE
-       LIMIT 1`,
-      [body.giftItemId]
-    );
+    const giftRows = await orm
+      .select({
+        id: schema.giftItems.id,
+        name: schema.giftItems.name,
+        emoji: schema.giftItems.emoji,
+        coinCost: schema.giftItems.coinCost,
+        tier: schema.giftItems.tier,
+        spectacleThresholdCoins: schema.giftItems.spectacleThresholdCoins,
+        giftTypeId: schema.giftTypes.id,
+        isRewarded: schema.giftItems.isRewarded,
+        rewardConfig: schema.giftItems.rewardConfig,
+      })
+      .from(schema.giftItems)
+      .leftJoin(
+        schema.giftTypes,
+        and(eq(schema.giftTypes.name, schema.giftItems.name), eq(schema.giftTypes.isActive, true))
+      )
+      .where(
+        and(
+          eq(schema.giftItems.id, body.giftItemId),
+          eq(schema.giftItems.isActive, true),
+          eq(schema.giftItems.isRetired, false)
+        )
+      )
+      .limit(1);
 
     if (!giftRows[0]) {
       throw notFound("Gift item not found or unavailable");
     }
 
-    const giftItem = giftRows[0];
+    const giftItemRow = giftRows[0];
+    const giftItem = {
+      ...giftItemRow,
+      coinCost: Number(giftItemRow.coinCost),
+      rewardConfig: giftItemRow.rewardConfig as RewardConfig | null,
+    };
 
     // 2. Verify recipient exists
-    const { rows: recipientRows } = await db.query<UserRow>(
-      `SELECT id, username, COALESCE(is_creator, false) AS is_creator, creator_tier
-       FROM users
-       WHERE id = $1 AND deleted_at IS NULL AND COALESCE(is_banned, false) = false
-       LIMIT 1`,
-      [body.recipientId]
-    );
+    const recipientRows = await orm
+      .select({
+        id: schema.users.id,
+        username: schema.users.username,
+        isCreator: schema.users.isCreator,
+        creatorTier: schema.users.creatorTier,
+      })
+      .from(schema.users)
+      .where(
+        and(
+          eq(schema.users.id, body.recipientId),
+          isNull(schema.users.deletedAt),
+          eq(schema.users.isBanned, false)
+        )
+      )
+      .limit(1);
 
     if (!recipientRows[0]) {
       throw notFound("Recipient not found");
@@ -339,13 +368,16 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const recipient = recipientRows[0];
 
     // Check block relationship (both directions) before sending
-    const { rows: blockRows } = await db.query<{ id: string }>(
-      `SELECT id FROM user_blocks
-       WHERE (blocker_id = $1 AND blocked_id = $2)
-          OR (blocker_id = $2 AND blocked_id = $1)
-       LIMIT 1`,
-      [senderId, body.recipientId]
-    );
+    const blockRows = await orm
+      .select({ id: schema.userBlocks.id })
+      .from(schema.userBlocks)
+      .where(
+        or(
+          and(eq(schema.userBlocks.blockerId, senderId), eq(schema.userBlocks.blockedId, body.recipientId)),
+          and(eq(schema.userBlocks.blockerId, body.recipientId), eq(schema.userBlocks.blockedId, senderId))
+        )
+      )
+      .limit(1);
     if (blockRows[0]) {
       throw forbidden("Cannot send a gift to this user", "USER_BLOCKED");
     }
@@ -358,22 +390,22 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const rewardState: { granted: { label: string; contextType: "room" | "blog" } | null } = { granted: null };
 
     // Compute fee split — Icon creators get 85% (15% fee), other creators 80% (20% fee), users 95% (5% fee)
-    const creatorFeePercent = recipient.creator_tier === 'icon' ? 15 : CREATOR_GIFT_FEE_PERCENT;
-    const feePercent = recipient.is_creator ? creatorFeePercent : USER_GIFT_FEE_PERCENT;
-    const platformFeeCoins = Math.floor((giftItem.coin_cost * feePercent) / 100);
-    const recipientCoins = giftItem.coin_cost - platformFeeCoins;
+    const creatorFeePercent = recipient.creatorTier === 'icon' ? 15 : CREATOR_GIFT_FEE_PERCENT;
+    const feePercent = recipient.isCreator ? creatorFeePercent : USER_GIFT_FEE_PERCENT;
+    const platformFeeCoins = Math.floor((giftItem.coinCost * feePercent) / 100);
+    const recipientCoins = giftItem.coinCost - platformFeeCoins;
 
-    await db.transaction(async (tx) => {
+    await orm.transaction(async (tx) => {
       // Debit full coin cost from sender — on failure the catch below cleans up idempKey
       // FIX-C4 (BUG-19): pass idempotency key as referenceId to prevent duplicate ledger entries
       await debitCoins(
         senderId,
-        giftItem.coin_cost,
+        giftItem.coinCost,
         "gift_sent",
         idempKey,
         `Sent ${giftItem.emoji} ${giftItem.name} to @${recipient.username}`,
         { recipientId: body.recipientId, giftItemId: giftItem.id },
-        tx
+        tx as never
       );
 
       // Credit coins to recipient (80% for creators, 95% for regular users)
@@ -384,7 +416,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         idempKey,
         `Received ${giftItem.emoji} ${giftItem.name} from a friend`,
         { senderId, giftItemId: giftItem.id },
-        tx
+        tx as never
       );
 
       // Gifts are virtual-coin denominated, not fiat (kobo). We do NOT insert into
@@ -397,39 +429,43 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // Guild Legend tier 5% Room Revenue Share (PRD §13)
       // If this gift is in a room and the room creator belongs to a Legend-tier guild,
       // credit 5% of the gift's coin value to that guild's treasury.
-      if (body.roomId && recipient.is_creator) {
+      if (body.roomId && recipient.isCreator) {
         try {
-          const { rows: legendGuildRows } = await tx.query<{ guild_id: string; treasury_balance: number }>(
-            `SELECT g.id AS guild_id, g.treasury_balance
-             FROM guilds g
-             JOIN guild_members gm ON gm.guild_id = g.id
-             WHERE gm.user_id = $1
-               AND g.tier = 'legend'
-               AND g.deleted_at IS NULL
-             LIMIT 1`,
-            [body.recipientId]
-          );
+          const legendGuildRows = await tx
+            .select({ guildId: schema.guilds.id, treasuryBalance: schema.guilds.treasuryBalance })
+            .from(schema.guilds)
+            .innerJoin(schema.guildMembers, eq(schema.guildMembers.guildId, schema.guilds.id))
+            .where(
+              and(
+                eq(schema.guildMembers.userId, body.recipientId),
+                eq(schema.guilds.tier, "legend"),
+                isNull(schema.guilds.deletedAt)
+              )
+            )
+            .limit(1);
           if (legendGuildRows[0]) {
             // Guild share must come from the platform fee — never create new coins (BUG-05)
-            const guildShare = Math.min(Math.floor(giftItem.coin_cost * 5 / 100), platformFeeCoins);
+            const guildShare = Math.min(Math.floor((giftItem.coinCost * 5) / 100), platformFeeCoins);
             if (guildShare > 0) {
-              const balanceBefore = legendGuildRows[0].treasury_balance ?? 0;
+              const balanceBefore = Number(legendGuildRows[0].treasuryBalance ?? BigInt(0));
               // LEAST clamp ensures treasury_balance never exceeds treasury_cap (#24)
-              const { rows: updatedGuild } = await tx.query<{ treasury_balance: number }>(
-                `UPDATE guilds
-                 SET treasury_balance = LEAST(treasury_cap, COALESCE(treasury_balance, 0) + $1),
-                     updated_at = NOW()
-                 WHERE id = $2
-                 RETURNING treasury_balance`,
-                [guildShare, legendGuildRows[0].guild_id]
-              );
-              const balanceAfter = updatedGuild[0]?.treasury_balance ?? balanceBefore;
-              await tx.query(
-                `INSERT INTO guild_treasury_ledger
-                   (guild_id, amount, balance_before, balance_after, transaction_type, reference_id, created_at)
-                 VALUES ($1, $2, $3, $4, 'room_revenue_share', $5, NOW())`,
-                [legendGuildRows[0].guild_id, guildShare, balanceBefore, balanceAfter, body.roomId ?? null]
-              );
+              const updatedGuild = await tx
+                .update(schema.guilds)
+                .set({
+                  treasuryBalance: sql`LEAST(${schema.guilds.treasuryCap}, COALESCE(${schema.guilds.treasuryBalance}, 0) + ${guildShare})`,
+                  updatedAt: sql`NOW()`,
+                })
+                .where(eq(schema.guilds.id, legendGuildRows[0].guildId))
+                .returning({ treasuryBalance: schema.guilds.treasuryBalance });
+              const balanceAfter = updatedGuild[0]?.treasuryBalance != null ? Number(updatedGuild[0].treasuryBalance) : balanceBefore;
+              await tx.insert(schema.guildTreasuryLedger).values({
+                guildId: legendGuildRows[0].guildId,
+                amount: BigInt(guildShare),
+                balanceBefore: BigInt(balanceBefore),
+                balanceAfter: BigInt(balanceAfter),
+                transactionType: "room_revenue_share",
+                referenceId: body.roomId ?? null,
+              });
             }
           }
         } catch {
@@ -438,57 +474,58 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
 
       // Create the gift record (coin_value is the original NOT NULL column; coin_cost is its alias)
-      const { rows: giftInsert } = await tx.query<{ id: string }>(
-        `INSERT INTO gifts
-           (sender_id, recipient_id, gift_item_id, gift_type_id, coin_value, coin_cost, room_id, status, message, message_word_count)
-         VALUES ($1, $2, $3, $4, $5, $5, $6, 'delivered', $7, $8)
-         RETURNING id`,
-        [
+      const giftInsert = await tx
+        .insert(schema.gifts)
+        .values({
           senderId,
-          body.recipientId,
-          giftItem.id,
-          giftItem.gift_type_id ?? null,
-          giftItem.coin_cost,
-          body.roomId ?? null,
-          giftMessage,
-          giftMessageWordCount,
-        ]
-      );
+          recipientId: body.recipientId,
+          giftItemId: giftItem.id,
+          // NOTE: schema.gifts.giftTypeId is declared NOT NULL, but this LEFT JOIN can
+          // legitimately produce no match for legacy gift_items with no matching
+          // gift_types row by name. Preserving the original raw-SQL behavior (attempt
+          // NULL, let the DB constraint decide) rather than silently changing it —
+          // flagged as a pre-existing schema/behavior mismatch, not introduced here.
+          giftTypeId: giftItem.giftTypeId ?? (null as unknown as string),
+          coinValue: BigInt(giftItem.coinCost),
+          coinCost: BigInt(giftItem.coinCost),
+          roomId: body.roomId ?? null,
+          status: "delivered",
+          message: giftMessage,
+          messageWordCount: giftMessageWordCount,
+        })
+        .returning({ id: schema.gifts.id });
 
       giftId = giftInsert[0].id;
 
       // Create the message/event in the appropriate context
       if (body.roomId) {
-        await tx.query(
-          `INSERT INTO room_messages
-             (room_id, sender_id, message_type, content, metadata)
-           VALUES ($1, $2, 'gift', $3, $4::jsonb)`,
-          [
-            body.roomId,
-            senderId,
-            `${giftItem.emoji} ${giftItem.name}`,
-            JSON.stringify({
-              giftId,
-              giftItemId: giftItem.id,
-              recipientId: body.recipientId,
-              coinCost: giftItem.coin_cost,
-              tier: giftItem.tier,
-              message: giftMessage,
-            }),
-          ]
-        );
+        await tx.insert(schema.roomMessages).values({
+          roomId: body.roomId,
+          senderId,
+          messageType: "gift",
+          content: `${giftItem.emoji} ${giftItem.name}`,
+          metadata: {
+            giftId,
+            giftItemId: giftItem.id,
+            recipientId: body.recipientId,
+            coinCost: giftItem.coinCost,
+            tier: giftItem.tier,
+            message: giftMessage,
+          },
+        });
 
         // Check both gift-item-level and creator-level spectacle thresholds (PRD §12)
         // Load the room's creator spectacle threshold
-        const { rows: roomRows } = await tx.query<{ spectacle_threshold_coins: number | null }>(
-          `SELECT spectacle_threshold_coins FROM rooms WHERE id = $1 LIMIT 1`,
-          [body.roomId]
-        );
+        const roomRows = await tx
+          .select({ spectacleThresholdCoins: schema.rooms.spectacleThresholdCoins })
+          .from(schema.rooms)
+          .where(eq(schema.rooms.id, body.roomId))
+          .limit(1);
 
-        const roomThreshold = roomRows[0]?.spectacle_threshold_coins ?? null;
-        const effectiveThreshold = roomThreshold ?? giftItem.spectacle_threshold_coins;
+        const roomThreshold = roomRows[0]?.spectacleThresholdCoins ?? null;
+        const effectiveThreshold = roomThreshold ?? giftItem.spectacleThresholdCoins;
 
-        if (effectiveThreshold != null && giftItem.coin_cost >= effectiveThreshold) {
+        if (effectiveThreshold != null && giftItem.coinCost >= effectiveThreshold) {
           spectacleTriggered = true;
         } else if (effectiveThreshold == null) {
           // No threshold set — always trigger spectacle for tier 2+ gifts
@@ -497,32 +534,28 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       } else {
         // DM gift message — upsert the conversation record then insert a
         // properly typed message so it appears in the DM feed (PRD §5).
-        const { rows: convUpsert } = await tx.query<{ id: string }>(
-          `INSERT INTO dm_conversations (user_id_1, user_id_2)
-           VALUES (
-             LEAST($1::uuid, $2::uuid),
-             GREATEST($1::uuid, $2::uuid)
-           )
-           ON CONFLICT (user_id_1, user_id_2) DO UPDATE SET updated_at = NOW()
-           RETURNING id`,
-          [senderId, body.recipientId]
-        );
+        const [userId1, userId2] = senderId < body.recipientId ? [senderId, body.recipientId] : [body.recipientId, senderId];
+        const convUpsert = await tx
+          .insert(schema.dmConversations)
+          .values({ userId1, userId2 })
+          .onConflictDoUpdate({
+            target: [schema.dmConversations.userId1, schema.dmConversations.userId2],
+            set: { updatedAt: sql`NOW()` },
+          })
+          .returning({ id: schema.dmConversations.id });
         const dmConversationId = convUpsert[0]?.id ?? null;
 
-        await tx.query(
-          `INSERT INTO messages
-             (sender_id, recipient_id, conversation_id, message_type, content,
-              media_url, coin_cost, reply_count_from_recipient, metadata)
-           VALUES ($1, $2, $3, 'gift', $4, NULL, $5, 0, $6::jsonb)`,
-          [
-            senderId,
-            body.recipientId,
-            dmConversationId,
-            `${giftItem.emoji} ${giftItem.name} (${giftItem.coin_cost} coins)`,
-            giftItem.coin_cost,
-            JSON.stringify({ giftId, giftItemId: giftItem.id, message: giftMessage }),
-          ]
-        );
+        await tx.insert(schema.messages).values({
+          senderId,
+          recipientId: body.recipientId,
+          conversationId: dmConversationId,
+          messageType: "gift",
+          content: `${giftItem.emoji} ${giftItem.name} (${giftItem.coinCost} coins)`,
+          mediaUrl: null,
+          coinCost: BigInt(giftItem.coinCost),
+          replyCountFromRecipient: 0,
+          metadata: { giftId, giftItemId: giftItem.id, message: giftMessage },
+        });
       }
 
       // Rewarded Gifts fulfillment (migration 0026): only when this gift item
@@ -531,8 +564,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // recipient. Written in the same transaction as the debit/ledger insert
       // above so a crash can never leave a gift sent without its reward
       // granted (or vice versa).
-      if (giftItem.is_rewarded && giftItem.reward_config) {
-        const config = giftItem.reward_config;
+      if (giftItem.isRewarded && giftItem.rewardConfig) {
+        const config = giftItem.rewardConfig;
         let contextType: "room" | "blog" | null = null;
         let contextId: string | null = null;
         if (body.roomId && roomCreatorId && body.recipientId === roomCreatorId) {
@@ -548,23 +581,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             ? new Date(Date.now() + config.durationDays * 24 * 60 * 60 * 1000)
             : null;
 
-          await tx.query(
-            `INSERT INTO gift_reward_grants
-               (gift_id, sender_id, recipient_id, context_type, context_id, benefit_type, label, description, custom_text, expires_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
-            [
-              giftId,
-              senderId,
-              body.recipientId,
-              contextType,
-              contextId,
-              config.benefitType,
-              config.label,
-              config.description ?? null,
-              config.benefitType === "custom_text" ? config.customText ?? null : null,
-              expiresAt,
-            ]
-          );
+          await tx.insert(giftRewardGrants).values({
+            giftId,
+            senderId,
+            recipientId: body.recipientId,
+            contextType,
+            contextId,
+            benefitType: config.benefitType,
+            label: config.label,
+            description: config.description ?? null,
+            customText: config.benefitType === "custom_text" ? config.customText ?? null : null,
+            expiresAt,
+          });
 
           rewardState.granted = { label: config.label, contextType };
 
@@ -589,24 +617,25 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // garbage-collected when Vercel terminates the invocation after the response is
     // sent, silently dropping all XP grants with no DLQ fallback.
     try {
-      const { rows: planRows } = await db.query<{ plan: Plan }>(
-        `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [senderId]
-      );
-      const senderPlan: Plan = planRows[0]?.plan ?? 'free';
-      await awardGiftXP(senderId, body.recipientId, giftItem.tier, senderPlan, giftId, body.roomId);
+      const planRows = await orm
+        .select({ plan: schema.users.plan })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, senderId), isNull(schema.users.deletedAt)))
+        .limit(1);
+      const senderPlan: Plan = (planRows[0]?.plan as Plan) ?? 'free';
+      await awardGiftXP(orm, senderId, body.recipientId, giftItem.tier, senderPlan, giftId, body.roomId);
     } catch (err) {
       logger.error({ err }, '[gifts:POST] XP award failed');
     }
 
     // 5. Record guild war contribution (fire-and-forget)
-    recordWarContribution(senderId, 'send_gift', db).catch((err) => {
+    recordWarContribution(senderId, 'send_gift', orm as never).catch((err) => {
       logger.error({ err: err }, '[gifts:POST] war contribution failed');
       });
 
     // Trigger matching daily quest progress + New Member Quest step (fire-and-forget)
-    void triggerActivityQuestProgress(senderId, 'gift', db);
-    void advanceNewMemberQuestStep(db, senderId, 'gift_someone');
+    void triggerActivityQuestProgress(senderId, 'gift', orm);
+    void advanceNewMemberQuestStep(orm, senderId, 'gift_someone');
 
     // Notify the sender that they unlocked a Rewarded Gift benefit. Best-effort,
     // fired after commit (mirrors lib/blogs/service.ts's sendGift notification
@@ -614,7 +643,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const granted = rewardState.granted;
     if (granted) {
       await insertNotificationBatch(
-        db,
+        orm,
         [senderId],
         "gift_reward_unlocked",
         `You unlocked "${granted.label}"!`,
@@ -630,7 +659,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // trigger the room's own owner-configured reward. Runs in its own
     // transaction AFTER the send above has committed (mirrors how Polls/
     // Quizzes claim their treasury post-commit) rather than nesting another
-    // db.transaction() inside the one above, which would check out a second
+    // orm.transaction() call inside the one above, which would check out a second
     // connection from the same pool while the first is still held (the exact
     // class of bug fixed in lib/manifest/getManifestValue — see
     // lib/creator/fundContribution.ts's doc comment).
@@ -645,7 +674,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
             ? roomReward.customInstructions ?? "Check the room for how to claim it."
             : `You received ${roomReward.amount} ${roomReward.rewardAction === "stars" ? "Stars" : "Credits"}!`;
         await insertNotificationBatch(
-          db,
+          orm,
           [senderId],
           "room_reward_unlocked",
           `You unlocked "${roomReward.title}"!`,
@@ -665,7 +694,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         name: giftItem.name,
         emoji: giftItem.emoji,
         tier: giftItem.tier,
-        coinCost: giftItem.coin_cost,
+        coinCost: giftItem.coinCost,
       },
       recipient: {
         id: recipient.id,

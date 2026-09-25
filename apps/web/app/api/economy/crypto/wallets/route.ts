@@ -16,20 +16,13 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { and, asc, eq } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, handleApiError, notFound } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getChainAdapter } from "@/lib/payments/crypto/chains";
 import { writeAuditLog } from "@/lib/audit/auditLog";
-
-interface WalletRow {
-  id: string;
-  chain: string;
-  address: string;
-  label: string | null;
-  created_at: string;
-}
 
 function maskAddress(address: string): string {
   if (address.length <= 10) return address;
@@ -44,10 +37,18 @@ const PostSchema = z.object({
 
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
-    const { rows } = await db.query<WalletRow>(
-      `SELECT id, chain, address, label, created_at FROM user_crypto_wallets WHERE user_id = $1 ORDER BY chain ASC`,
-      [auth.user.sub]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.userCryptoWallets.id,
+        chain: schema.userCryptoWallets.chain,
+        address: schema.userCryptoWallets.address,
+        label: schema.userCryptoWallets.label,
+        createdAt: schema.userCryptoWallets.createdAt,
+      })
+      .from(schema.userCryptoWallets)
+      .where(eq(schema.userCryptoWallets.userId, auth.user.sub))
+      .orderBy(asc(schema.userCryptoWallets.chain));
     return NextResponse.json({
       success: true,
       data: rows.map((w) => ({
@@ -55,7 +56,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
         chain: w.chain,
         addressMasked: maskAddress(w.address),
         label: w.label,
-        createdAt: w.created_at,
+        createdAt: w.createdAt,
       })),
       error: null,
     });
@@ -74,12 +75,24 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       throw badRequest(`Invalid ${body.chain === "bsc" ? "BNB Smart Chain" : "Solana"} address format`, "INVALID_ADDRESS");
     }
 
-    await db.query(
-      `INSERT INTO user_crypto_wallets (user_id, chain, address, label, updated_at)
-       VALUES ($1, $2, $3, $4, NOW())
-       ON CONFLICT (user_id, chain) DO UPDATE SET address = EXCLUDED.address, label = EXCLUDED.label, updated_at = NOW()`,
-      [auth.user.sub, body.chain, body.address, body.label ?? null]
-    );
+    const orm = await getDb();
+    await orm
+      .insert(schema.userCryptoWallets)
+      .values({
+        userId: auth.user.sub,
+        chain: body.chain,
+        address: body.address,
+        label: body.label ?? null,
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: [schema.userCryptoWallets.userId, schema.userCryptoWallets.chain],
+        set: {
+          address: body.address,
+          label: body.label ?? null,
+          updatedAt: new Date(),
+        },
+      });
 
     writeAuditLog({
       actorId: auth.user.sub,
@@ -107,11 +120,12 @@ export const DELETE = withAuth(async (req: NextRequest, { auth }) => {
       throw badRequest("Query param 'chain' must be 'bsc' or 'solana'");
     }
 
-    const { rowCount } = await db.query(
-      `DELETE FROM user_crypto_wallets WHERE user_id = $1 AND chain = $2`,
-      [auth.user.sub, chain]
-    );
-    if (!rowCount) throw notFound("No saved wallet for this chain");
+    const orm = await getDb();
+    const deleted = await orm
+      .delete(schema.userCryptoWallets)
+      .where(and(eq(schema.userCryptoWallets.userId, auth.user.sub), eq(schema.userCryptoWallets.chain, chain)))
+      .returning({ id: schema.userCryptoWallets.id });
+    if (deleted.length === 0) throw notFound("No saved wallet for this chain");
 
     writeAuditLog({
       actorId: auth.user.sub,

@@ -12,7 +12,8 @@
  * (A, B) and (B, A) resolve to the same record.
  */
 
-import { db } from "@/lib/db";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { logger } from "@/lib/logger";
 
@@ -129,55 +130,44 @@ export async function updateConversationScore(
   const [u1, u2] = orderedPair(userId1, userId2);
   const points = EVENT_POINTS[event];
 
-  interface ScoreRow {
-    user_id_1: string;
-    user_id_2: string;
-    score: number;
-    streak_days: number;
-    has_connection_badge: boolean;
-    updated_at: string;
-  }
-
-  const { rows } = await db.query<ScoreRow>(
-    `INSERT INTO conversation_scores
-       (user_id_1, user_id_2, score, streak_days, has_connection_badge, updated_at)
-     VALUES ($1, $2, $3, 1, $4, NOW())
-     ON CONFLICT (user_id_1, user_id_2)
-     DO UPDATE SET
-       score = conversation_scores.score + EXCLUDED.score,
-       streak_days = CASE
-         WHEN conversation_scores.updated_at::date = NOW()::date THEN
-           conversation_scores.streak_days
-         WHEN conversation_scores.updated_at::date = (NOW() - INTERVAL '1 day')::date THEN
-           conversation_scores.streak_days + 1
+  const orm = await getDb();
+  const streakCase = sql`CASE
+         WHEN ${schema.conversationScores.updatedAt}::date = NOW()::date THEN
+           ${schema.conversationScores.streakDays}
+         WHEN ${schema.conversationScores.updatedAt}::date = (NOW() - INTERVAL '1 day')::date THEN
+           ${schema.conversationScores.streakDays} + 1
          ELSE 1
-       END,
-       has_connection_badge = CASE
-         WHEN conversation_scores.has_connection_badge THEN TRUE
-         WHEN CASE
-               WHEN conversation_scores.updated_at::date = NOW()::date THEN
-                 conversation_scores.streak_days
-               WHEN conversation_scores.updated_at::date = (NOW() - INTERVAL '1 day')::date THEN
-                 conversation_scores.streak_days + 1
-               ELSE 1
-             END >= $5 THEN TRUE
+       END`;
+
+  const rows = await orm
+    .insert(schema.conversationScores)
+    .values({ userId1: u1, userId2: u2, score: points, streakDays: 1, hasConnectionBadge: false })
+    .onConflictDoUpdate({
+      target: [schema.conversationScores.userId1, schema.conversationScores.userId2],
+      set: {
+        score: sql`${schema.conversationScores.score} + ${points}`,
+        streakDays: streakCase,
+        hasConnectionBadge: sql`CASE
+         WHEN ${schema.conversationScores.hasConnectionBadge} THEN TRUE
+         WHEN ${streakCase} >= ${CONNECTION_BADGE_STREAK_DAYS} THEN TRUE
          ELSE FALSE
-       END,
-       badge_unlocked_at = CASE
-         WHEN conversation_scores.has_connection_badge THEN conversation_scores.badge_unlocked_at
-         WHEN CASE
-               WHEN conversation_scores.updated_at::date = NOW()::date THEN
-                 conversation_scores.streak_days
-               WHEN conversation_scores.updated_at::date = (NOW() - INTERVAL '1 day')::date THEN
-                 conversation_scores.streak_days + 1
-               ELSE 1
-             END >= $5 THEN NOW()
+       END`,
+        badgeUnlockedAt: sql`CASE
+         WHEN ${schema.conversationScores.hasConnectionBadge} THEN ${schema.conversationScores.badgeUnlockedAt}
+         WHEN ${streakCase} >= ${CONNECTION_BADGE_STREAK_DAYS} THEN NOW()
          ELSE NULL
-       END,
-       updated_at = NOW()
-     RETURNING user_id_1, user_id_2, score, streak_days, has_connection_badge, updated_at`,
-    [u1, u2, points, false, CONNECTION_BADGE_STREAK_DAYS]
-  );
+       END`,
+        updatedAt: new Date(),
+      },
+    })
+    .returning({
+      userId1: schema.conversationScores.userId1,
+      userId2: schema.conversationScores.userId2,
+      score: schema.conversationScores.score,
+      streakDays: schema.conversationScores.streakDays,
+      hasConnectionBadge: schema.conversationScores.hasConnectionBadge,
+      updatedAt: schema.conversationScores.updatedAt,
+    });
 
   const row = rows[0];
   if (!row) {
@@ -185,12 +175,12 @@ export async function updateConversationScore(
   }
 
   const result: ConversationScore = {
-    userId1: row.user_id_1,
-    userId2: row.user_id_2,
+    userId1: row.userId1,
+    userId2: row.userId2,
     score: row.score,
-    streakDays: row.streak_days,
-    hasConnectionBadge: row.has_connection_badge,
-    updatedAt: row.updated_at,
+    streakDays: row.streakDays,
+    hasConnectionBadge: row.hasConnectionBadge,
+    updatedAt: row.updatedAt!.toISOString(),
   };
 
   // Check for newly crossed sticker unlock thresholds
@@ -203,29 +193,28 @@ export async function updateConversationScore(
       // If the pack is missing, log the misconfiguration and skip so the threshold
       // can fire again once the pack is seeded.
       try {
-        const { rows: packRows } = await db.query<{ id: string }>(
-          `SELECT id FROM sticker_packs WHERE name = $1 LIMIT 1`,
-          [su.packName]
-        );
-        if (!packRows[0]) {
+        const [pack] = await orm
+          .select({ id: schema.stickerPacks.id })
+          .from(schema.stickerPacks)
+          .where(eq(schema.stickerPacks.name, su.packName))
+          .limit(1);
+        if (!pack) {
           logger.error(
             { packName: su.packName, u1, u2 },
             "[conversationScore] Sticker pack not found in DB — unlock threshold not consumed; will retry once pack is seeded"
           );
         } else {
-          await db.query(
-            `INSERT INTO dm_score_sticker_unlocks
-               (user_id_1, user_id_2, pack_name, unlocked_at)
-             VALUES ($1, $2, $3, NOW())
-             ON CONFLICT (user_id_1, user_id_2, pack_name) DO NOTHING`,
-            [u1, u2, su.packName]
-          );
-          await db.query(
-            `INSERT INTO user_sticker_packs (user_id, pack_id)
-             VALUES ($1, $2), ($3, $2)
-             ON CONFLICT (user_id, pack_id) DO NOTHING`,
-            [u1, packRows[0].id, u2]
-          );
+          await orm
+            .insert(schema.dmScoreStickerUnlocks)
+            .values({ userId1: u1, userId2: u2, packName: su.packName })
+            .onConflictDoNothing();
+          await orm
+            .insert(schema.userStickerPacks)
+            .values([
+              { userId: u1, packId: pack.id },
+              { userId: u2, packId: pack.id },
+            ])
+            .onConflictDoNothing();
           newStickerUnlocks.push(su.packName);
         }
       } catch {
@@ -275,31 +264,28 @@ export async function getConversationScore(
   }
 
   // 2. Read from database
-  interface ScoreRow {
-    user_id_1: string;
-    user_id_2: string;
-    score: number;
-    streak_days: number;
-    has_connection_badge: boolean;
-    updated_at: string;
-  }
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      userId1: schema.conversationScores.userId1,
+      userId2: schema.conversationScores.userId2,
+      score: schema.conversationScores.score,
+      streakDays: schema.conversationScores.streakDays,
+      hasConnectionBadge: schema.conversationScores.hasConnectionBadge,
+      updatedAt: schema.conversationScores.updatedAt,
+    })
+    .from(schema.conversationScores)
+    .where(and(eq(schema.conversationScores.userId1, u1), eq(schema.conversationScores.userId2, u2)))
+    .limit(1);
 
-  const { rows } = await db.query<ScoreRow>(
-    `SELECT user_id_1, user_id_2, score, streak_days, has_connection_badge, updated_at
-     FROM conversation_scores
-     WHERE user_id_1 = $1 AND user_id_2 = $2
-     LIMIT 1`,
-    [u1, u2]
-  );
-
-  const result: ConversationScore = rows[0]
+  const result: ConversationScore = row
     ? {
-        userId1: rows[0].user_id_1,
-        userId2: rows[0].user_id_2,
-        score: rows[0].score,
-        streakDays: rows[0].streak_days,
-        hasConnectionBadge: rows[0].has_connection_badge,
-        updatedAt: rows[0].updated_at,
+        userId1: row.userId1,
+        userId2: row.userId2,
+        score: row.score,
+        streakDays: row.streakDays,
+        hasConnectionBadge: row.hasConnectionBadge,
+        updatedAt: row.updatedAt!.toISOString(),
       }
     : {
         userId1: u1,

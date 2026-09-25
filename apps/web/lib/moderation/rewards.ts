@@ -22,7 +22,8 @@
  * if an action is retried or a report is reversed and re-resolved.
  */
 
-import { db } from "@/lib/db";
+import { and, eq, ne, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { loadManifest } from "@/lib/manifest";
 import { creditCoins } from "@/lib/economy/coins";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
@@ -30,55 +31,50 @@ import { logger } from "@/lib/logger";
 
 export type ReportOutcome = "accepted" | "not_accepted";
 
-interface ReporterRow {
-  reporter_id: string;
-  is_first: boolean;
-}
-
 /**
  * Pays out reporting rewards for a resolved (non-malicious) report.
  * Safe to call at most once per report — checks/sets reward_applied first.
  */
 export async function applyReportRewards(reportId: string, outcome: ReportOutcome): Promise<void> {
   try {
-    const { rows: guardRows } = await db.query<{ reward_applied: boolean }>(
-      `UPDATE moderation_reports SET reward_applied = true
-       WHERE id = $1 AND reward_applied = false
-       RETURNING reward_applied`,
-      [reportId]
-    );
+    const orm = await getDb();
+    const guardRows = await orm
+      .update(schema.moderationReports)
+      .set({ rewardApplied: true })
+      .where(and(eq(schema.moderationReports.id, reportId), eq(schema.moderationReports.rewardApplied, false)))
+      .returning({ rewardApplied: schema.moderationReports.rewardApplied });
     if (guardRows.length === 0) return; // already paid out (or report missing)
 
-    const { rows: reporters } = await db.query<ReporterRow>(
-      `SELECT reporter_id, is_first FROM moderation_report_reporters WHERE report_id = $1`,
-      [reportId]
-    );
+    const reporters = await orm
+      .select({ reporterId: schema.moderationReportReporters.reporterId, isFirst: schema.moderationReportReporters.isFirst })
+      .from(schema.moderationReportReporters)
+      .where(eq(schema.moderationReportReporters.reportId, reportId));
     if (reporters.length === 0) return;
 
     const manifest = await loadManifest();
     const cfg = manifest.moderation;
 
     for (const r of reporters) {
-      const referenceId = `report_reward:${reportId}:${r.reporter_id}`;
+      const referenceId = `report_reward:${reportId}:${r.reporterId}`;
       if (outcome === "accepted") {
-        if (r.is_first) {
+        if (r.isFirst) {
           if (cfg.reportRewardCreditsFirstAccepted > 0) {
             await creditCoins(
-              r.reporter_id,
+              r.reporterId,
               cfg.reportRewardCreditsFirstAccepted,
               "report_reward",
               referenceId,
               "Report accepted — first to report"
-            ).catch((err) => logger.error({ err, reportId, userId: r.reporter_id }, "[moderation/rewards] creditCoins failed"));
+            ).catch((err) => logger.error({ err, reportId, userId: r.reporterId }, "[moderation/rewards] creditCoins failed"));
           }
           if (cfg.reportRewardXpFirstAccepted > 0) {
-            safeAwardXPFireAndForget(r.reporter_id, cfg.reportRewardXpFirstAccepted, "social", "report_reward_first_accepted", referenceId);
+            safeAwardXPFireAndForget(r.reporterId, cfg.reportRewardXpFirstAccepted, "social", "report_reward_first_accepted", referenceId);
           }
         } else if (cfg.reportRewardXpSubsequentAccepted > 0) {
-          safeAwardXPFireAndForget(r.reporter_id, cfg.reportRewardXpSubsequentAccepted, "social", "report_reward_subsequent_accepted", referenceId);
+          safeAwardXPFireAndForget(r.reporterId, cfg.reportRewardXpSubsequentAccepted, "social", "report_reward_subsequent_accepted", referenceId);
         }
       } else if (cfg.reportRewardXpNotAccepted > 0) {
-        safeAwardXPFireAndForget(r.reporter_id, cfg.reportRewardXpNotAccepted, "social", "report_reward_not_accepted", referenceId);
+        safeAwardXPFireAndForget(r.reporterId, cfg.reportRewardXpNotAccepted, "social", "report_reward_not_accepted", referenceId);
       }
     }
   } catch (err) {
@@ -93,41 +89,41 @@ export async function applyReportRewards(reportId: string, outcome: ReportOutcom
  */
 export async function applyMaliciousReportPenalty(reportId: string): Promise<void> {
   try {
-    const { rows: guardRows } = await db.query<{ reward_applied: boolean }>(
-      `UPDATE moderation_reports SET is_malicious = true, reward_applied = true
-       WHERE id = $1 AND reward_applied = false
-       RETURNING reward_applied`,
-      [reportId]
-    );
+    const orm = await getDb();
+    const guardRows = await orm
+      .update(schema.moderationReports)
+      .set({ isMalicious: true, rewardApplied: true })
+      .where(and(eq(schema.moderationReports.id, reportId), eq(schema.moderationReports.rewardApplied, false)))
+      .returning({ rewardApplied: schema.moderationReports.rewardApplied });
     if (guardRows.length === 0) return;
 
-    const { rows: reportRows } = await db.query<{ reporter_id: string }>(
-      `SELECT reporter_id FROM moderation_reports WHERE id = $1`,
-      [reportId]
-    );
-    const originalReporterId = reportRows[0]?.reporter_id;
+    const [reportRow] = await orm
+      .select({ reporterId: schema.moderationReports.reporterId })
+      .from(schema.moderationReports)
+      .where(eq(schema.moderationReports.id, reportId));
+    const originalReporterId = reportRow?.reporterId;
     if (!originalReporterId) return;
 
     const manifest = await loadManifest();
     const penalty = manifest.moderation.reportMaliciousTrustPenalty;
     if (penalty > 0) {
-      await db.query(
-        `UPDATE users SET trust_score = GREATEST(0, COALESCE(trust_score, 50) - $2), updated_at = NOW() WHERE id = $1`,
-        [originalReporterId, penalty]
-      );
+      await orm
+        .update(schema.users)
+        .set({ trustScore: sql`GREATEST(0, COALESCE(${schema.users.trustScore}, 50) - ${penalty})`, updatedAt: new Date() })
+        .where(eq(schema.users.id, originalReporterId));
     }
 
     // Every OTHER reporter in the cluster is treated as an ordinary
     // "not accepted" reporter (piling onto a report they had no way to know
     // was bad-faith) — small consolation XP, no trust penalty.
-    const { rows: others } = await db.query<{ reporter_id: string }>(
-      `SELECT reporter_id FROM moderation_report_reporters WHERE report_id = $1 AND reporter_id != $2`,
-      [reportId, originalReporterId]
-    );
+    const others = await orm
+      .select({ reporterId: schema.moderationReportReporters.reporterId })
+      .from(schema.moderationReportReporters)
+      .where(and(eq(schema.moderationReportReporters.reportId, reportId), ne(schema.moderationReportReporters.reporterId, originalReporterId)));
     const xpNotAccepted = manifest.moderation.reportRewardXpNotAccepted;
     if (xpNotAccepted > 0) {
       for (const o of others) {
-        safeAwardXPFireAndForget(o.reporter_id, xpNotAccepted, "social", "report_reward_not_accepted", `report_reward:${reportId}:${o.reporter_id}`);
+        safeAwardXPFireAndForget(o.reporterId, xpNotAccepted, "social", "report_reward_not_accepted", `report_reward:${reportId}:${o.reporterId}`);
       }
     }
   } catch (err) {

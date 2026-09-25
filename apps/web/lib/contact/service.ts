@@ -8,9 +8,15 @@
  * in an inbox" — reused rather than inventing a parallel delivery mechanism.
  * Unlike the per-blog form, there's no single blog owner to notify, so every
  * current admin (`users.is_admin = true`) gets a notification instead.
+ *
+ * NOTE: `site_contact_messages` has no Drizzle table definition in
+ * lib/db/schema.ts (it only defines `blog_contact_messages`'s sibling
+ * tables, not this one) — queries against it are kept as `sql` templates
+ * run through the Drizzle instance rather than the query builder.
  */
 
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { sql, eq, isNull, and } from "drizzle-orm";
 import { insertNotificationBatch } from "@/lib/notifications/insert";
 import { logger } from "@/lib/logger";
 
@@ -25,27 +31,23 @@ export interface SubmitSiteContactMessageInput {
 export async function submitSiteContactMessage(
   input: SubmitSiteContactMessageInput
 ): Promise<{ id: string }> {
-  const { rows } = await db.query<{ id: string }>(
-    `INSERT INTO site_contact_messages (sender_user_id, sender_name, sender_email, subject, message)
-     VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-    [
-      input.senderUserId ?? null,
-      input.senderName?.trim() || null,
-      input.senderEmail?.trim() || null,
-      input.subject?.trim() || null,
-      input.message.trim(),
-    ]
-  );
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ id: string }>(sql`
+    INSERT INTO site_contact_messages (sender_user_id, sender_name, sender_email, subject, message)
+    VALUES (${input.senderUserId ?? null}, ${input.senderName?.trim() || null}, ${input.senderEmail?.trim() || null}, ${input.subject?.trim() || null}, ${input.message.trim()})
+    RETURNING id
+  `);
 
   // Best-effort: notify admins in-app. Never block/fail the submission on this.
   try {
-    const { rows: adminRows } = await db.query<{ id: string }>(
-      `SELECT id FROM users WHERE is_admin = true AND deleted_at IS NULL`
-    );
+    const adminRows = await orm
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(eq(schema.users.isAdmin, true), isNull(schema.users.deletedAt)));
     const adminIds = adminRows.map((r) => r.id);
     if (adminIds.length > 0) {
       await insertNotificationBatch(
-        db,
+        orm,
         adminIds,
         "site_contact_message",
         input.subject?.trim() ? `New Contact Us message: ${input.subject.trim()}` : "New Contact Us message",
@@ -64,7 +66,7 @@ export async function submitSiteContactMessage(
 // Admin inbox — /gate44/contact-messages
 // ---------------------------------------------------------------------------
 
-export interface SiteContactMessageRow {
+export type SiteContactMessageRow = {
   id: string;
   sender_name: string | null;
   sender_email: string | null;
@@ -73,18 +75,20 @@ export interface SiteContactMessageRow {
   message: string;
   is_read: boolean;
   created_at: string;
-}
+};
 
 /** Platform-level inbox — every admin can read it, mirroring lib/blogs/service.ts's listContactMessages shape (no per-owner scoping needed here). */
 export async function listSiteContactMessages(): Promise<SiteContactMessageRow[]> {
-  const { rows } = await db.query<SiteContactMessageRow>(
-    `SELECT m.id, m.sender_name, m.sender_email, u.username AS sender_username, m.subject, m.message, m.is_read, m.created_at
-     FROM site_contact_messages m LEFT JOIN users u ON u.id = m.sender_user_id
-     ORDER BY m.created_at DESC LIMIT 200`
-  );
+  const orm = await getDb();
+  const { rows } = await orm.execute<SiteContactMessageRow>(sql`
+    SELECT m.id, m.sender_name, m.sender_email, u.username AS sender_username, m.subject, m.message, m.is_read, m.created_at
+    FROM site_contact_messages m LEFT JOIN users u ON u.id = m.sender_user_id
+    ORDER BY m.created_at DESC LIMIT 200
+  `);
   return rows;
 }
 
 export async function markSiteContactMessageRead(messageId: string): Promise<void> {
-  await db.query(`UPDATE site_contact_messages SET is_read = TRUE WHERE id = $1`, [messageId]);
+  const orm = await getDb();
+  await orm.execute(sql`UPDATE site_contact_messages SET is_read = TRUE WHERE id = ${messageId}`);
 }

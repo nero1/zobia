@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { desc, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -53,16 +54,16 @@ interface PlatformEventRow {
   name: string;
   description: string | null;
   event_type: string;
-  xp_multiplier: string;
-  coin_bonus_pct: number;
-  starts_at: string;
-  ends_at: string;
-  is_active: boolean;
+  xp_multiplier: string | null;
+  coin_bonus_pct: number | null;
+  starts_at: Date | string;
+  ends_at: Date | string;
+  is_active: boolean | null;
   recurrence_interval: string;
   target_cities: string[] | null;
   metadata: unknown;
-  created_at: string;
-  updated_at: string;
+  created_at: Date | string | null;
+  updated_at: Date | string | null;
 }
 
 /** Shape returned to the admin UI — matches PlatformEvent in gate44/events/page.tsx. */
@@ -72,7 +73,7 @@ function toApiEvent(row: PlatformEventRow) {
     name: row.name,
     description: row.description,
     type: row.event_type ?? "platform",
-    xpMultiplier: parseFloat(row.xp_multiplier),
+    xpMultiplier: parseFloat(row.xp_multiplier ?? "1.0"),
     coinBonusPct: row.coin_bonus_pct,
     startsAt: row.starts_at,
     endsAt: row.ends_at,
@@ -84,6 +85,23 @@ function toApiEvent(row: PlatformEventRow) {
   };
 }
 
+const SELECT_SHAPE = {
+  id: schema.platformEvents.id,
+  name: schema.platformEvents.name,
+  description: schema.platformEvents.description,
+  event_type: schema.platformEvents.eventType,
+  xp_multiplier: sql<string>`${schema.platformEvents.xpMultiplier}::TEXT`,
+  coin_bonus_pct: schema.platformEvents.coinBonusPct,
+  starts_at: schema.platformEvents.startsAt,
+  ends_at: schema.platformEvents.endsAt,
+  is_active: schema.platformEvents.isActive,
+  recurrence_interval: schema.platformEvents.recurrenceInterval,
+  target_cities: schema.platformEvents.targetCities,
+  metadata: schema.platformEvents.metadata,
+  created_at: schema.platformEvents.createdAt,
+  updated_at: schema.platformEvents.updatedAt,
+};
+
 // ---------------------------------------------------------------------------
 // GET /api/admin/events
 // ---------------------------------------------------------------------------
@@ -92,18 +110,15 @@ export const GET = withAdminAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
 
-    const { rows } = await db.query<PlatformEventRow>(
-      `SELECT id, name, description, event_type,
-              xp_multiplier::TEXT AS xp_multiplier,
-              coin_bonus_pct, starts_at, ends_at,
-              is_active, recurrence_interval, target_cities, metadata, created_at, updated_at
-       FROM platform_events
-       ORDER BY starts_at DESC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select(SELECT_SHAPE)
+      .from(schema.platformEvents)
+      .orderBy(desc(schema.platformEvents.startsAt));
 
     return NextResponse.json({
       success: true,
-      data: { events: rows.map(toApiEvent) },
+      data: { events: rows.map((r) => toApiEvent(r as unknown as PlatformEventRow)) },
       error: null,
     });
   } catch (err) {
@@ -121,32 +136,26 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
 
     const body = await validateBody(req, createEventSchema);
 
-    const { rows } = await db.query<PlatformEventRow>(
-      `INSERT INTO platform_events
-         (name, description, event_type, xp_multiplier, coin_bonus_pct,
-          starts_at, ends_at, is_active, recurrence_interval, target_cities,
-          created_by, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE, $8, $9, $10, NOW(), NOW())
-       RETURNING id, name, description, event_type,
-                 xp_multiplier::TEXT AS xp_multiplier,
-                 coin_bonus_pct, starts_at, ends_at,
-                 is_active, recurrence_interval, target_cities, metadata, created_at, updated_at`,
-      [
-        body.name,
-        body.description ?? null,
-        body.event_type,
-        body.xp_multiplier,
-        body.coin_bonus_pct,
-        body.starts_at,
-        body.ends_at,
-        body.recurrence_interval,
-        body.target_cities ?? null,
-        auth.user.sub,
-      ]
-    );
+    const orm = await getDb();
+    const [inserted] = await orm
+      .insert(schema.platformEvents)
+      .values({
+        name: body.name,
+        description: body.description ?? null,
+        eventType: body.event_type,
+        xpMultiplier: String(body.xp_multiplier),
+        coinBonusPct: body.coin_bonus_pct,
+        startsAt: new Date(body.starts_at),
+        endsAt: new Date(body.ends_at),
+        isActive: true,
+        recurrenceInterval: body.recurrence_interval,
+        targetCities: body.target_cities ?? null,
+        createdBy: auth.user.sub,
+      })
+      .returning(SELECT_SHAPE);
 
     return NextResponse.json(
-      { success: true, data: { event: toApiEvent(rows[0]) }, error: null },
+      { success: true, data: { event: toApiEvent(inserted as unknown as PlatformEventRow) }, error: null },
       { status: 201 }
     );
   } catch (err) {

@@ -15,7 +15,8 @@
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { handleApiError } from "@/lib/api/errors";
 import { resolvePublicRoom } from "@/lib/public/resolveRoom";
 import { resolvePublicGame } from "@/lib/public/resolveGame";
@@ -100,18 +101,18 @@ export async function GET(req: NextRequest) {
       case "profile": {
         // Profiles are addressed by username; accept it directly. Only public
         // (non-deleted, non-banned) users resolve.
-        const { rows } = await db.query<{ id: string; username: string }>(
-          `SELECT id, username FROM users
-           WHERE username = $1 AND deleted_at IS NULL AND COALESCE(is_banned, false) = false
-           LIMIT 1`,
-          [identifier]
-        );
-        if (rows[0]) {
+        const orm = await getDb();
+        const [row] = await orm
+          .select({ id: schema.users.id, username: schema.users.username })
+          .from(schema.users)
+          .where(and(eq(schema.users.username, identifier), isNull(schema.users.deletedAt), eq(schema.users.isBanned, false)))
+          .limit(1);
+        if (row) {
           return NextResponse.json({
             found: true,
             type,
-            id: rows[0].id,
-            username: rows[0].username,
+            id: row.id,
+            username: row.username,
           }, { headers: CACHE_HEADERS });
         }
 
@@ -119,19 +120,18 @@ export async function GET(req: NextRequest) {
         // enabled) should still deep-link to the current profile.
         const resolution = await resolveOldUsername(identifier);
         if (resolution.kind === "redirect") {
-          const redirected = await db.query<{ id: string; username: string }>(
-            `SELECT id, username FROM users
-             WHERE username = $1 AND deleted_at IS NULL AND COALESCE(is_banned, false) = false
-             LIMIT 1`,
-            [resolution.toUsername]
-          );
-          if (redirected.rows[0]) {
+          const [redirected] = await orm
+            .select({ id: schema.users.id, username: schema.users.username })
+            .from(schema.users)
+            .where(and(eq(schema.users.username, resolution.toUsername), isNull(schema.users.deletedAt), eq(schema.users.isBanned, false)))
+            .limit(1);
+          if (redirected) {
             return NextResponse.json({
               found: true,
               type,
-              id: redirected.rows[0].id,
-              username: redirected.rows[0].username,
-              canonicalUsername: redirected.rows[0].username,
+              id: redirected.id,
+              username: redirected.username,
+              canonicalUsername: redirected.username,
             }, { headers: CACHE_HEADERS });
           }
         }

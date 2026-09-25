@@ -13,7 +13,8 @@
  * so the oldest saves beyond the limit are removed automatically).
  */
 
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { conflict, notFound, badRequest } from "@/lib/api/errors";
 import { getSaveSlotLimit } from "@/lib/plans/saveSlots";
 
@@ -39,27 +40,27 @@ const LIST_COLUMNS = `
 `;
 
 export async function listSavesForUser(userId: string): Promise<GameSaveRow[]> {
-  const { rows } = await db.query<GameSaveRow>(
-    `SELECT ${LIST_COLUMNS}
-     FROM game_saves gs
-     JOIN games g ON g.id = gs.game_id
-     WHERE gs.user_id = $1
-     ORDER BY gs.updated_at DESC`,
-    [userId]
-  );
-  return rows;
+  const db = await getDb();
+  const result = await db.execute<GameSaveRow & Record<string, unknown>>(sql`
+    SELECT ${sql.raw(LIST_COLUMNS)}
+    FROM game_saves gs
+    JOIN games g ON g.id = gs.game_id
+    WHERE gs.user_id = ${userId}
+    ORDER BY gs.updated_at DESC
+  `);
+  return result.rows;
 }
 
 export async function getSaveForUser(userId: string, saveId: string): Promise<GameSaveWithState | null> {
-  const { rows } = await db.query<GameSaveWithState>(
-    `SELECT ${LIST_COLUMNS}, gs.state
-     FROM game_saves gs
-     JOIN games g ON g.id = gs.game_id
-     WHERE gs.id = $1 AND gs.user_id = $2
-     LIMIT 1`,
-    [saveId, userId]
-  );
-  return rows[0] ?? null;
+  const db = await getDb();
+  const result = await db.execute<GameSaveWithState & Record<string, unknown>>(sql`
+    SELECT ${sql.raw(LIST_COLUMNS)}, gs.state
+    FROM game_saves gs
+    JOIN games g ON g.id = gs.game_id
+    WHERE gs.id = ${saveId} AND gs.user_id = ${userId}
+    LIMIT 1
+  `);
+  return result.rows[0] ?? null;
 }
 
 export interface SlotLimitInfo {
@@ -68,11 +69,12 @@ export interface SlotLimitInfo {
 }
 
 export async function getSlotLimitInfo(userId: string, plan: string): Promise<SlotLimitInfo> {
-  const [limit, { rows }] = await Promise.all([
+  const db = await getDb();
+  const [limit, result] = await Promise.all([
     getSaveSlotLimit(plan),
-    db.query<{ count: string }>(`SELECT COUNT(*)::text AS count FROM game_saves WHERE user_id = $1`, [userId]),
+    db.execute<{ count: string }>(sql`SELECT COUNT(*)::text AS count FROM game_saves WHERE user_id = ${userId}`),
   ]);
-  return { limit, count: parseInt(rows[0]?.count ?? "0", 10) };
+  return { limit, count: parseInt(result.rows[0]?.count ?? "0", 10) };
 }
 
 interface SaveGameParams {
@@ -94,17 +96,18 @@ interface SaveGameParams {
  */
 export async function upsertSave(params: SaveGameParams): Promise<GameSaveRow> {
   const { userId, plan, gameId, saveId, label, state, score } = params;
+  const stateJson = JSON.stringify(state ?? {});
 
   if (saveId) {
-    const { rows } = await db.query<{ id: string }>(
-      `UPDATE game_saves
-       SET state = $1, score = $2, label = COALESCE($3, label), updated_at = NOW()
-       WHERE id = $4 AND user_id = $5 AND game_id = $6
-       RETURNING id`,
-      [JSON.stringify(state ?? {}), score, label ?? null, saveId, userId, gameId]
-    );
-    if (!rows[0]) throw notFound("Save not found.");
-    const updated = await getSaveForUser(userId, rows[0].id);
+    const db = await getDb();
+    const result = await db.execute<{ id: string }>(sql`
+      UPDATE game_saves
+      SET state = ${stateJson}, score = ${score}, label = COALESCE(${label ?? null}, label), updated_at = NOW()
+      WHERE id = ${saveId} AND user_id = ${userId} AND game_id = ${gameId}
+      RETURNING id
+    `);
+    if (!result.rows[0]) throw notFound("Save not found.");
+    const updated = await getSaveForUser(userId, result.rows[0].id);
     if (!updated) throw notFound("Save not found.");
     return updated;
   }
@@ -114,15 +117,15 @@ export async function upsertSave(params: SaveGameParams): Promise<GameSaveRow> {
     throw badRequest("Your plan does not include save slots.", "SAVE_SLOTS_UNAVAILABLE");
   }
 
-  return db.transaction(async (tx) => {
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
     // FOR UPDATE can't be applied to an aggregate (COUNT(*)) — lock the
     // actual rows and count them in application code instead. This also
     // serializes concurrent creates for the same user against each other.
-    const { rows: existingRows } = await tx.query<{ id: string }>(
-      `SELECT id FROM game_saves WHERE user_id = $1 FOR UPDATE`,
-      [userId]
+    const existingResult = await tx.execute<{ id: string }>(
+      sql`SELECT id FROM game_saves WHERE user_id = ${userId} FOR UPDATE`
     );
-    const count = existingRows.length;
+    const count = existingResult.rows.length;
     if (count >= limit) {
       const err = conflict(
         `You've used all ${limit} of your save slots. Delete one to save a new game.`,
@@ -131,24 +134,23 @@ export async function upsertSave(params: SaveGameParams): Promise<GameSaveRow> {
       throw err;
     }
 
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO game_saves (user_id, game_id, label, state, score)
-       VALUES ($1, $2, $3, $4, $5)
-       RETURNING id`,
-      [userId, gameId, label ?? null, JSON.stringify(state ?? {}), score]
-    );
-    const created = await getSaveForUser(userId, rows[0].id);
+    const insertResult = await tx.execute<{ id: string }>(sql`
+      INSERT INTO game_saves (user_id, game_id, label, state, score)
+      VALUES (${userId}, ${gameId}, ${label ?? null}, ${stateJson}, ${score})
+      RETURNING id
+    `);
+    const created = await getSaveForUser(userId, insertResult.rows[0].id);
     if (!created) throw notFound("Save not found.");
     return created;
   });
 }
 
 export async function deleteSaveForUser(userId: string, saveId: string): Promise<void> {
-  const { rows } = await db.query<{ id: string }>(
-    `DELETE FROM game_saves WHERE id = $1 AND user_id = $2 RETURNING id`,
-    [saveId, userId]
+  const db = await getDb();
+  const result = await db.execute<{ id: string }>(
+    sql`DELETE FROM game_saves WHERE id = ${saveId} AND user_id = ${userId} RETURNING id`
   );
-  if (!rows[0]) throw notFound("Save not found.");
+  if (!result.rows[0]) throw notFound("Save not found.");
 }
 
 /**
@@ -165,35 +167,34 @@ export async function reconcileSavesForUser(
   limit: number,
   deleteIds?: string[]
 ): Promise<string[]> {
+  const db = await getDb();
   if (deleteIds && deleteIds.length > 0) {
-    const { rows } = await db.query<{ id: string }>(
-      `DELETE FROM game_saves WHERE id = ANY($1::uuid[]) AND user_id = $2 RETURNING id`,
-      [deleteIds, userId]
+    const result = await db.execute<{ id: string }>(
+      sql`DELETE FROM game_saves WHERE id = ANY(${deleteIds}::uuid[]) AND user_id = ${userId} RETURNING id`
     );
-    return rows.map((r) => r.id);
+    return result.rows.map((r) => r.id);
   }
 
   // Keep the `limit` most-recently-updated saves; delete the rest (the
   // oldest ones beyond the limit).
-  const { rows } = await db.query<{ id: string }>(
-    `DELETE FROM game_saves
-     WHERE id IN (
-       SELECT id FROM game_saves
-       WHERE user_id = $1
-       ORDER BY updated_at DESC
-       OFFSET $2
-     )
-     RETURNING id`,
-    [userId, Math.max(limit, 0)]
-  );
-  return rows.map((r) => r.id);
+  const result = await db.execute<{ id: string }>(sql`
+    DELETE FROM game_saves
+    WHERE id IN (
+      SELECT id FROM game_saves
+      WHERE user_id = ${userId}
+      ORDER BY updated_at DESC
+      OFFSET ${Math.max(limit, 0)}
+    )
+    RETURNING id
+  `);
+  return result.rows.map((r) => r.id);
 }
 
 /** Deletes ALL of a user's saves (used when grace period elapses with no preserved feature, or plan is Free). */
 export async function purgeAllSavesForUser(userId: string): Promise<number> {
-  const { rows } = await db.query<{ id: string }>(
-    `DELETE FROM game_saves WHERE user_id = $1 RETURNING id`,
-    [userId]
+  const db = await getDb();
+  const result = await db.execute<{ id: string }>(
+    sql`DELETE FROM game_saves WHERE user_id = ${userId} RETURNING id`
   );
-  return rows.length;
+  return result.rows.length;
 }

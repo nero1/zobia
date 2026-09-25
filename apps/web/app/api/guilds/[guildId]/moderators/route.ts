@@ -15,7 +15,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { getStaffRoles } from "@/lib/auth/roles";
@@ -24,24 +26,19 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 const grantSchema = z.object({ userId: z.string().uuid() });
 
 async function requireCaptainOrAdmin(guildId: string, userId: string): Promise<void> {
-  const [{ rows: guildRows }, roles] = await Promise.all([
-    db.query<{ captain_id: string }>(`SELECT captain_id FROM guilds WHERE id = $1 AND is_active = TRUE`, [guildId]),
+  const orm = await getDb();
+  const [[guild], roles] = await Promise.all([
+    orm
+      .select({ captain_id: schema.guilds.captainId })
+      .from(schema.guilds)
+      .where(and(eq(schema.guilds.id, guildId), eq(schema.guilds.isActive, true)))
+      .limit(1),
     getStaffRoles(userId),
   ]);
-  const guild = guildRows[0];
   if (!guild) throw notFound("Guild not found");
   if (guild.captain_id !== userId && !roles.isAdmin) {
     throw forbidden("Only the guild captain (or an admin) can manage Forum Mods.", "CAPTAIN_OR_ADMIN_ONLY");
   }
-}
-
-interface ModeratorRow {
-  user_id: string;
-  username: string;
-  display_name: string;
-  avatar_emoji: string;
-  moderator_granted_at: string | null;
-  granted_by_username: string | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -51,26 +48,33 @@ interface ModeratorRow {
 export const GET = withAuth<{ guildId: string }>(async (req: NextRequest, { params, auth }) => {
   try {
     const { guildId } = await params;
+    const orm = await getDb();
 
-    const membership = await db.query<{ id: string }>(
-      `SELECT id FROM guild_members WHERE guild_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
-      [guildId, auth.user.sub]
-    );
+    const membership = await orm
+      .select({ id: schema.guildMembers.id })
+      .from(schema.guildMembers)
+      .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, auth.user.sub), isNull(schema.guildMembers.leftAt)))
+      .limit(1);
     const roles = await getStaffRoles(auth.user.sub);
-    if (membership.rows.length === 0 && !roles.isAdmin) {
+    if (membership.length === 0 && !roles.isAdmin) {
       throw forbidden("You must be a member of this guild.", "NOT_A_MEMBER");
     }
 
-    const { rows } = await db.query<ModeratorRow>(
-      `SELECT gm.user_id, u.username, u.display_name, u.avatar_emoji,
-              gm.moderator_granted_at, granter.username AS granted_by_username
-       FROM guild_members gm
-       JOIN users u ON u.id = gm.user_id
-       LEFT JOIN users granter ON granter.id = gm.moderator_granted_by
-       WHERE gm.guild_id = $1 AND gm.is_moderator = true AND gm.left_at IS NULL
-       ORDER BY gm.moderator_granted_at ASC NULLS LAST`,
-      [guildId]
-    );
+    const granter = alias(schema.users, "granter");
+    const rows = await orm
+      .select({
+        user_id: schema.guildMembers.userId,
+        username: schema.users.username,
+        display_name: schema.users.displayName,
+        avatar_emoji: schema.users.avatarEmoji,
+        moderator_granted_at: schema.guildMembers.moderatorGrantedAt,
+        granted_by_username: granter.username,
+      })
+      .from(schema.guildMembers)
+      .innerJoin(schema.users, eq(schema.users.id, schema.guildMembers.userId))
+      .leftJoin(granter, eq(granter.id, schema.guildMembers.moderatorGrantedBy))
+      .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.isModerator, true), isNull(schema.guildMembers.leftAt)))
+      .orderBy(sql`${schema.guildMembers.moderatorGrantedAt} ASC NULLS LAST`);
 
     return NextResponse.json({
       success: true,
@@ -101,15 +105,14 @@ export const POST = withAuth<{ guildId: string }>(async (req: NextRequest, { par
     const { guildId } = await params;
     await requireCaptainOrAdmin(guildId, auth.user.sub);
     const { userId } = await validateBody(req, grantSchema);
+    const orm = await getDb();
 
-    const { rows } = await db.query<{ id: string }>(
-      `UPDATE guild_members
-       SET is_moderator = true, moderator_granted_by = $3, moderator_granted_at = NOW()
-       WHERE guild_id = $1 AND user_id = $2 AND left_at IS NULL
-       RETURNING id`,
-      [guildId, userId, auth.user.sub]
-    );
-    if (rows.length === 0) throw badRequest("That user is not a member of this guild.", "NOT_A_MEMBER");
+    const updated = await orm
+      .update(schema.guildMembers)
+      .set({ isModerator: true, moderatorGrantedBy: auth.user.sub, moderatorGrantedAt: new Date() })
+      .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, userId), isNull(schema.guildMembers.leftAt)))
+      .returning({ id: schema.guildMembers.id });
+    if (updated.length === 0) throw badRequest("That user is not a member of this guild.", "NOT_A_MEMBER");
 
     return NextResponse.json({ success: true, data: { userId, isModerator: true }, error: null });
   } catch (err) {
@@ -127,13 +130,12 @@ export const DELETE = withAuth<{ guildId: string }>(async (req: NextRequest, { p
     const { guildId } = await params;
     await requireCaptainOrAdmin(guildId, auth.user.sub);
     const { userId } = await validateBody(req, grantSchema);
+    const orm = await getDb();
 
-    await db.query(
-      `UPDATE guild_members
-       SET is_moderator = false, moderator_granted_by = NULL, moderator_granted_at = NULL
-       WHERE guild_id = $1 AND user_id = $2`,
-      [guildId, userId]
-    );
+    await orm
+      .update(schema.guildMembers)
+      .set({ isModerator: false, moderatorGrantedBy: null, moderatorGrantedAt: null })
+      .where(and(eq(schema.guildMembers.guildId, guildId), eq(schema.guildMembers.userId, userId)));
 
     return NextResponse.json({ success: true, data: { userId, isModerator: false }, error: null });
   } catch (err) {

@@ -30,7 +30,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, forbidden, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { and, eq, inArray, isNull, sql, desc } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
 import { loadManifest } from "@/lib/manifest";
@@ -88,16 +89,27 @@ const DEFAULT_MANUAL_APPROVAL_KOBO = 5_000_000; // ₦50,000
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
+    const orm = await getDb();
 
-    const { rows: profileRows } = await db.query<{
-      is_creator: boolean;
-      available_earnings_kobo: number;
-      country: string | null;
-    }>(
-      `SELECT is_creator, available_earnings_kobo, country
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const [profileRow] = await orm
+      .select({
+        isCreator: schema.users.isCreator,
+        availableEarningsKobo: schema.users.availableEarningsKobo,
+        country: schema.users.country,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
+
+    const profileRows = profileRow
+      ? [
+          {
+            is_creator: profileRow.isCreator,
+            available_earnings_kobo: Number(profileRow.availableEarningsKobo),
+            country: profileRow.country,
+          },
+        ]
+      : [];
 
     // Load payout config
     const manifest = await loadManifest();
@@ -137,41 +149,74 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
         };
 
     // Bank account status
-    const { rows: bankRows } = await db.query<{
-      bank_name: string;
-      account_name: string;
-      account_number_last4: string;
-    }>(
-      `SELECT bank_name, account_name, account_number_last4
-       FROM creator_bank_accounts WHERE creator_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const bankRows = await orm
+      .select({
+        bank_name: schema.creatorBankAccounts.bankName,
+        account_name: schema.creatorBankAccounts.accountName,
+        account_number_last4: schema.creatorBankAccounts.accountNumberLast4,
+      })
+      .from(schema.creatorBankAccounts)
+      .where(eq(schema.creatorBankAccounts.creatorId, userId))
+      .limit(1);
 
     // Wallet status
-    const { rows: walletRows } = await db.query<{ has_wallet: string }>(
-      `SELECT '1' AS has_wallet FROM creator_wallet_addresses WHERE creator_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const walletRows = await orm
+      .select({ id: schema.creatorWalletAddresses.id })
+      .from(schema.creatorWalletAddresses)
+      .where(eq(schema.creatorWalletAddresses.creatorId, userId))
+      .limit(1);
 
     // Pending payout check
-    const { rows: pendingRows } = await db.query<{ id: string; payout_method: string }>(
-      `SELECT id, payout_method FROM creator_payouts
-       WHERE creator_id = $1 AND status IN ('pending','awaiting_approval','processing')
-       LIMIT 1`,
-      [userId]
-    );
+    const pendingRows = await orm
+      .select({ id: schema.creatorPayouts.id, payout_method: schema.creatorPayouts.payoutMethod })
+      .from(schema.creatorPayouts)
+      .where(
+        and(
+          eq(schema.creatorPayouts.creatorId, userId),
+          inArray(schema.creatorPayouts.status, ["pending", "awaiting_approval", "processing"])
+        )
+      )
+      .limit(1);
 
     // Payout history
-    const { rows: payouts } = await db.query<PayoutRow>(
-      `SELECT id, gross_kobo, net_kobo, platform_fee_kobo, status,
-              payout_method, region, provider_reference, bank_account_snapshot,
-              retry_count, appeal_status, rejection_reason, created_at, completed_at
-       FROM creator_payouts
-       WHERE creator_id = $1
-       ORDER BY created_at DESC
-       LIMIT 50`,
-      [userId]
-    );
+    const payoutRows = await orm
+      .select({
+        id: schema.creatorPayouts.id,
+        gross_kobo: schema.creatorPayouts.grossKobo,
+        net_kobo: schema.creatorPayouts.netKobo,
+        platform_fee_kobo: schema.creatorPayouts.platformFeeKobo,
+        status: schema.creatorPayouts.status,
+        payout_method: schema.creatorPayouts.payoutMethod,
+        region: schema.creatorPayouts.region,
+        provider_reference: schema.creatorPayouts.providerReference,
+        bank_account_snapshot: schema.creatorPayouts.bankAccountSnapshot,
+        retry_count: schema.creatorPayouts.retryCount,
+        appeal_status: schema.creatorPayouts.appealStatus,
+        rejection_reason: schema.creatorPayouts.rejectionReason,
+        created_at: schema.creatorPayouts.createdAt,
+        completed_at: schema.creatorPayouts.completedAt,
+      })
+      .from(schema.creatorPayouts)
+      .where(eq(schema.creatorPayouts.creatorId, userId))
+      .orderBy(desc(schema.creatorPayouts.createdAt))
+      .limit(50);
+
+    const payouts: PayoutRow[] = payoutRows.map((p) => ({
+      id: p.id,
+      gross_kobo: Number(p.gross_kobo ?? 0),
+      net_kobo: Number(p.net_kobo ?? 0),
+      platform_fee_kobo: Number(p.platform_fee_kobo ?? 0),
+      status: p.status,
+      payout_method: p.payout_method ?? "bank_transfer",
+      region: p.region ?? "nigeria",
+      provider_reference: p.provider_reference,
+      bank_account_snapshot: p.bank_account_snapshot as Record<string, string> | null,
+      retry_count: p.retry_count,
+      appeal_status: p.appeal_status,
+      created_at: p.created_at ? p.created_at.toISOString() : "",
+      completed_at: p.completed_at ? p.completed_at.toISOString() : null,
+      rejection_reason: p.rejection_reason,
+    }));
 
     return NextResponse.json({
       isCreator: true,
@@ -248,8 +293,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
+    const preOrm = await getDb();
+
     // Trust gate (outside transaction — read-only, does not need the row lock)
-    const trusted = await meetsMinimumTrust(userId, "withdraw_coins", db);
+    const trusted = await meetsMinimumTrust(userId, "withdraw_coins", preOrm);
     if (!trusted) {
       throw forbidden(
         "Your account trust score is too low to request a payout.",
@@ -261,22 +308,29 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     let bankAccountSnapshot: Record<string, string> | null = null;
 
     if (body.method === "bank_transfer") {
-      const { rows: bankRows } = await db.query<BankAccountRow>(
-        `SELECT bank_name, bank_code, account_name, account_number_last4, recipient_code
-         FROM creator_bank_accounts WHERE creator_id = $1 LIMIT 1`,
-        [userId]
-      );
-      if (!bankRows[0] || !bankRows[0].recipient_code) {
+      const bankRows = await preOrm
+        .select({
+          bank_name: schema.creatorBankAccounts.bankName,
+          bank_code: schema.creatorBankAccounts.bankCode,
+          account_name: schema.creatorBankAccounts.accountName,
+          account_number_last4: schema.creatorBankAccounts.accountNumberLast4,
+          recipient_code: schema.creatorBankAccounts.recipientCode,
+        })
+        .from(schema.creatorBankAccounts)
+        .where(eq(schema.creatorBankAccounts.creatorId, userId))
+        .limit(1);
+      const bank = bankRows[0];
+      if (!bank || !bank.recipient_code) {
         throw badRequest(
           "No verified bank account found. Please add your bank account before requesting a payout.",
           "NO_BANK_ACCOUNT"
         );
       }
       bankAccountSnapshot = {
-        bank_name: bankRows[0].bank_name,
-        account_name: bankRows[0].account_name,
-        last4: bankRows[0].account_number_last4,
-        recipient_code: bankRows[0].recipient_code,
+        bank_name: bank.bank_name,
+        account_name: bank.account_name,
+        last4: bank.account_number_last4,
+        recipient_code: bank.recipient_code,
       };
     }
 
@@ -284,10 +338,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     let walletAddressSnapshot: string | null = null;
 
     if (body.method === "crypto") {
-      const { rows: walletRows } = await db.query<WalletRow>(
-        `SELECT address FROM creator_wallet_addresses WHERE creator_id = $1 LIMIT 1`,
-        [userId]
-      );
+      const walletRows = await preOrm
+        .select({ address: schema.creatorWalletAddresses.address })
+        .from(schema.creatorWalletAddresses)
+        .where(eq(schema.creatorWalletAddresses.creatorId, userId))
+        .limit(1);
       if (!walletRows[0]) {
         throw badRequest(
           "No USDT wallet address configured. Please add your Tron wallet address first.",
@@ -299,7 +354,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // ── Fraud check (outside transaction — read-only) ─────────────────────────
-    const fraudResult = await checkPayoutFraud(userId, body.amountKobo ?? 0, db);
+    const fraudResult = await checkPayoutFraud(userId, body.amountKobo ?? 0, preOrm);
 
     const idempotencyKey = `payout:${userId}:${randomUUID()}`;
 
@@ -307,23 +362,29 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // and INSERT in a single transaction so the FOR UPDATE row lock is held until
     // COMMIT, preventing concurrent requests from overdrafting the balance.
     // Return the result directly from the transaction so TypeScript can infer the type.
-    const payoutResult = await db.transaction(async (tx) => {
+    const orm = await getDb();
+    const payoutResult = await orm.transaction(async (tx) => {
       // Lock the user row for the duration of this transaction
-      const { rows: profileRows } = await tx.query<{
-        is_creator: boolean;
-        available_earnings_kobo: number;
-        country: string | null;
-      }>(
-        `SELECT is_creator, available_earnings_kobo, country
-         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1 FOR UPDATE`,
-        [userId]
-      );
+      const [profileRow] = await tx
+        .select({
+          isCreator: schema.users.isCreator,
+          availableEarningsKobo: schema.users.availableEarningsKobo,
+          country: schema.users.country,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .limit(1)
+        .for("update");
 
-      if (!profileRows[0]?.is_creator) {
+      if (!profileRow?.isCreator) {
         throw forbidden("Creator access required");
       }
 
-      const profile = profileRows[0];
+      const profile = {
+        is_creator: profileRow.isCreator,
+        available_earnings_kobo: Number(profileRow.availableEarningsKobo),
+        country: profileRow.country,
+      };
       const isNigeria = (profile.country ?? "NG") === "NG";
       const region: "nigeria" | "global" = isNigeria ? "nigeria" : "global";
 
@@ -357,13 +418,12 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
 
       // One pending payout at a time (checked inside the locked transaction)
-      const { rows: pendingRows } = await tx.query<{ id: string }>(
-        `SELECT id FROM creator_payouts
-         WHERE creator_id = $1 AND status IN ('pending','awaiting_approval','processing')
-         LIMIT 1`,
-        [userId]
-      );
-      if (pendingRows[0]) {
+      const [pendingRow] = await tx
+        .select({ id: schema.creatorPayouts.id })
+        .from(schema.creatorPayouts)
+        .where(and(eq(schema.creatorPayouts.creatorId, userId), inArray(schema.creatorPayouts.status, ["pending", "awaiting_approval", "processing"])))
+        .limit(1);
+      if (pendingRow) {
         throw badRequest(
           "You already have a pending payout. Wait for it to complete before requesting another.",
           "PAYOUT_PENDING"
@@ -388,17 +448,25 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           );
         }
 
-        await tx.query(
-          `UPDATE users SET available_earnings_kobo = available_earnings_kobo - $1, updated_at = NOW() WHERE id = $2`,
-          [requestedKobo, userId]
-        );
-        await tx.query(
-          `INSERT INTO creator_payouts
-             (creator_id, amount_kobo, gross_kobo, net_kobo, platform_fee_kobo, payout_method,
-              provider, region, status, idempotency_key)
-           VALUES ($1, $2, $2, $2, 0, 'coins', 'internal', $3, 'completed', $4)`,
-          [userId, requestedKobo, region, idempotencyKey]
-        );
+        await tx
+          .update(schema.users)
+          .set({
+            availableEarningsKobo: sql`${schema.users.availableEarningsKobo} - ${requestedKobo}`,
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.users.id, userId));
+        await tx.insert(schema.creatorPayouts).values({
+          creatorId: userId,
+          amountKobo: BigInt(requestedKobo),
+          grossKobo: BigInt(requestedKobo),
+          netKobo: BigInt(requestedKobo),
+          platformFeeKobo: BigInt(0),
+          payoutMethod: "coins",
+          provider: "internal",
+          region,
+          status: "completed",
+          idempotencyKey,
+        });
         await creditCoins(
           userId, coinsToCredit, "creator_coin_conversion", idempotencyKey,
           `Earnings converted to ${coinsToCredit} Coins`,
@@ -420,32 +488,32 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // ── Bank transfer / Crypto path ──────────────────────────────────────────
       const txStatus = needsManualApproval ? "awaiting_approval" : "pending";
 
-      await tx.query(
-        `UPDATE users
-         SET available_earnings_kobo = available_earnings_kobo - $1, updated_at = NOW()
-         WHERE id = $2`,
-        [requestedKobo, userId]
-      );
+      await tx
+        .update(schema.users)
+        .set({
+          availableEarningsKobo: sql`${schema.users.availableEarningsKobo} - ${requestedKobo}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.users.id, userId));
 
       const payoutProvider = body.method === "bank_transfer" ? "paystack" : "crypto";
-      const { rows: insertedRows } = await tx.query<{ id: string }>(
-        `INSERT INTO creator_payouts
-           (creator_id, amount_kobo, gross_kobo, net_kobo, platform_fee_kobo, payout_method,
-            provider, region, status, idempotency_key, bank_account_snapshot, wallet_address_snapshot)
-         VALUES ($1, $2, $2, $2, 0, $3, $4, $5, $6, $7, $8::jsonb, $9)
-         RETURNING id`,
-        [
-          userId,
-          requestedKobo,
-          body.method,
-          payoutProvider,
+      const [insertedRow] = await tx
+        .insert(schema.creatorPayouts)
+        .values({
+          creatorId: userId,
+          amountKobo: BigInt(requestedKobo),
+          grossKobo: BigInt(requestedKobo),
+          netKobo: BigInt(requestedKobo),
+          platformFeeKobo: BigInt(0),
+          payoutMethod: body.method,
+          provider: payoutProvider,
           region,
-          txStatus,
+          status: txStatus,
           idempotencyKey,
-          bankAccountSnapshot ? JSON.stringify(bankAccountSnapshot) : null,
-          walletAddressSnapshot,
-        ]
-      );
+          bankAccountSnapshot: bankAccountSnapshot ?? null,
+          walletAddressSnapshot: walletAddressSnapshot ?? null,
+        })
+        .returning({ id: schema.creatorPayouts.id });
 
       return {
         method: body.method as "bank_transfer" | "crypto",
@@ -453,7 +521,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         status: txStatus,
         requiresManualApproval: needsManualApproval,
         fraudFlagged: fraudResult.isSuspicious,
-        id: insertedRows[0]?.id,
+        id: insertedRow?.id,
         coinsAwarded: undefined as number | undefined,
       };
     });

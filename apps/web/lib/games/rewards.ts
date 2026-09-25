@@ -10,8 +10,8 @@
  * never double-pays.
  */
 
-import { db as globalDb } from "@/lib/db";
-import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
@@ -44,7 +44,11 @@ export async function grantGamingReward(
   bundle: RewardBundle,
   source: string,
   referenceId: string,
-  client?: TransactionClient,
+  // NOTE: creditCoins/creditStars (lib/economy/coins.ts, lib/economy/stars.ts)
+  // are being migrated to Drizzle concurrently and may still type their
+  // txClient param as TransactionClient — if so this produces a transient
+  // type mismatch below that resolves once that migration lands.
+  client?: DbOrTx,
   gameName?: string | null
 ): Promise<RewardBundle> {
   const credits = Math.max(0, Math.floor(bundle.credits));
@@ -54,6 +58,11 @@ export async function grantGamingReward(
   const description = `Game reward: ${label}`;
 
   if (credits > 0) {
+    // TODO(drizzle-migration): lib/economy/coins.ts is being migrated to
+    // Drizzle concurrently by another agent — creditCoins still types its
+    // txClient param as the legacy TransactionClient, so passing our DbOrTx
+    // `client` here is a transient type mismatch that resolves once that
+    // migration lands.
     await creditCoins(
       userId,
       credits,
@@ -88,17 +97,24 @@ export async function grantGamingReward(
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
       logger.error({ userId, source, referenceId }, `[grantGamingReward] XP award failed inside tx — writing to DLQ: ${errorMessage}`);
-      await globalDb.query(
-        `INSERT INTO failed_xp_awards
-           (user_id, amount, track, source, reference_id, error_message, failed_at, retry_count)
-         VALUES ($1, $2, 'gaming', $3, $4, $5, NOW(), 0)
-         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-        [userId, xp, source, `${referenceId}:xp`, errorMessage]
-      ).catch((dlqErr) => {
-        logger.error({ userId, source }, `[grantGamingReward] Failed to write XP to DLQ: ${dlqErr}`);
-      });
+      const globalDb = await getDb();
+      await globalDb
+        .insert(schema.failedXpAwards)
+        .values({
+          userId,
+          amount: xp,
+          track: "gaming",
+          source,
+          referenceId: `${referenceId}:xp`,
+          errorMessage,
+          retryCount: 0,
+        })
+        .onConflictDoNothing()
+        .catch((dlqErr) => {
+          logger.error({ userId, source }, `[grantGamingReward] Failed to write XP to DLQ: ${dlqErr}`);
+        });
     }
-    await recomputeGamingLevel(userId, client ?? globalDb);
+    await recomputeGamingLevel(userId, client ?? (await getDb()));
   }
 
   return { credits, xp, stars };
@@ -110,20 +126,21 @@ export async function grantGamingReward(
  */
 export async function recomputeGamingLevel(
   userId: string,
-  client: DatabaseAdapter | TransactionClient
+  client: DbOrTx
 ): Promise<void> {
   try {
-    const { rows } = await (client as DatabaseAdapter).query<{ xp_gaming: number }>(
-      `SELECT xp_gaming FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    if (!rows[0]) return;
-    const info = getTrackLevelForXP("gaming", rows[0].xp_gaming ?? 0);
-    await (client as DatabaseAdapter).query(
-      `UPDATE users SET level_gaming = $1, updated_at = NOW() WHERE id = $2`,
-      [info.level, userId]
-    );
-    await checkAndAwardTrackMilestones(userId, "gaming", info.level, client as DatabaseAdapter);
+    const [row] = await client
+      .select({ xpGaming: schema.users.xpGaming })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), sql`${schema.users.deletedAt} IS NULL`))
+      .limit(1);
+    if (!row) return;
+    const info = getTrackLevelForXP("gaming", Number(row.xpGaming ?? 0));
+    await client
+      .update(schema.users)
+      .set({ levelGaming: info.level, updatedAt: new Date() })
+      .where(eq(schema.users.id, userId));
+    await checkAndAwardTrackMilestones(userId, "gaming", info.level, client);
   } catch (err) {
     logger.warn({ userId }, `[games] recomputeGamingLevel failed: ${err}`);
   }
@@ -135,47 +152,48 @@ export async function recomputeGamingLevel(
  */
 export async function checkPlayMilestones(userId: string): Promise<void> {
   try {
-    const { rows: countRows } = await globalDb.query<{ plays: number }>(
-      `SELECT COUNT(*)::int AS plays FROM game_plays WHERE user_id = $1 AND counted = TRUE`,
-      [userId]
-    );
-    const totalPlays = countRows[0]?.plays ?? 0;
+    const globalDb = await getDb();
+    const [countRow] = await globalDb
+      .select({ plays: sql<number>`COUNT(*)::int` })
+      .from(schema.gamePlays)
+      .where(and(eq(schema.gamePlays.userId, userId), eq(schema.gamePlays.counted, true)));
+    const totalPlays = countRow?.plays ?? 0;
     if (totalPlays === 0) return;
 
-    const { rows: milestones } = await globalDb.query<{
-      games_played_threshold: number;
-      reward_credits: number;
-      reward_xp: number;
-      reward_stars: number;
-    }>(
-      `SELECT m.games_played_threshold, m.reward_credits, m.reward_xp, m.reward_stars
-       FROM game_play_milestones m
-       WHERE m.is_active = TRUE
-         AND m.games_played_threshold <= $1
-         AND NOT EXISTS (
-           SELECT 1 FROM game_milestone_claims c
-           WHERE c.user_id = $2 AND c.threshold = m.games_played_threshold
-         )
-       ORDER BY m.games_played_threshold ASC`,
-      [totalPlays, userId]
-    );
+    const milestones = await globalDb
+      .select({
+        gamesPlayedThreshold: schema.gamePlayMilestones.gamesPlayedThreshold,
+        rewardCredits: schema.gamePlayMilestones.rewardCredits,
+        rewardXp: schema.gamePlayMilestones.rewardXp,
+        rewardStars: schema.gamePlayMilestones.rewardStars,
+      })
+      .from(schema.gamePlayMilestones)
+      .where(
+        and(
+          eq(schema.gamePlayMilestones.isActive, true),
+          sql`${schema.gamePlayMilestones.gamesPlayedThreshold} <= ${totalPlays}`,
+          sql`NOT EXISTS (
+            SELECT 1 FROM ${schema.gameMilestoneClaims} c
+            WHERE c.user_id = ${userId} AND c.threshold = ${schema.gamePlayMilestones.gamesPlayedThreshold}
+          )`
+        )
+      )
+      .orderBy(sql`${schema.gamePlayMilestones.gamesPlayedThreshold} ASC`);
 
     for (const m of milestones) {
       // Claim first (idempotency gate), then pay.
-      const { rows: claimed } = await globalDb.query<{ threshold: number }>(
-        `INSERT INTO game_milestone_claims (user_id, threshold)
-         VALUES ($1, $2)
-         ON CONFLICT (user_id, threshold) DO NOTHING
-         RETURNING threshold`,
-        [userId, m.games_played_threshold]
-      );
+      const claimed = await globalDb
+        .insert(schema.gameMilestoneClaims)
+        .values({ userId, threshold: m.gamesPlayedThreshold })
+        .onConflictDoNothing()
+        .returning({ threshold: schema.gameMilestoneClaims.threshold });
       if (claimed.length === 0) continue; // another request already claimed it
 
       await grantGamingReward(
         userId,
-        { credits: m.reward_credits, xp: m.reward_xp, stars: m.reward_stars },
+        { credits: m.rewardCredits, xp: m.rewardXp, stars: m.rewardStars },
         "game_play_milestone",
-        `milestone:${userId}:${m.games_played_threshold}`
+        `milestone:${userId}:${m.gamesPlayedThreshold}`
       );
     }
   } catch (err) {

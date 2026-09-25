@@ -22,7 +22,8 @@ import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { submitSiteContactMessage } from "@/lib/contact/service";
 import { isCaptchaSurfaceEnabled, verifyCaptcha } from "@/lib/security/captcha";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 const bodySchema = z.object({
   message: z.string().trim().min(1).max(4000),
@@ -44,11 +45,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     let senderEmail: string | null = null;
 
     if (viewer) {
-      const { rows } = await db.query<{ username: string }>(
-        `SELECT username FROM users WHERE id = $1 LIMIT 1`,
-        [viewer.userId]
-      );
-      senderName = rows[0]?.username ?? null;
+      const orm = await getDb();
+      const [userRow] = await orm
+        .select({ username: schema.users.username })
+        .from(schema.users)
+        .where(eq(schema.users.id, viewer.userId))
+        .limit(1);
+      senderName = userRow?.username ?? null;
     } else {
       if (await isCaptchaSurfaceEnabled("contact_us")) {
         if (!body.captchaToken || !(await verifyCaptcha(body.captchaToken, ip, "contact_us"))) {

@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 
@@ -60,54 +61,62 @@ export const POST = withAuth(
       const userId = auth.user.sub;
       const body = await validateBody(req, joinGuildSchema);
 
-      const result = await db.transaction(async (client) => {
+      const orm = await getDb();
+      const result = await orm.transaction(async (client) => {
         // 1. Verify guild exists and is active
-        const guildResult = await client.query<GuildRow>(
-          `SELECT id, recruitment_type, member_count, is_active
-           FROM guilds WHERE id = $1 FOR UPDATE`,
-          [guildId]
-        );
-        if (!guildResult.rows[0] || !guildResult.rows[0].is_active) {
+        const guildRows = await client
+          .select({
+            id: schema.guilds.id,
+            recruitment_type: schema.guilds.recruitmentType,
+            member_count: schema.guilds.memberCount,
+            is_active: schema.guilds.isActive,
+          })
+          .from(schema.guilds)
+          .where(eq(schema.guilds.id, guildId))
+          .for("update");
+        if (!guildRows[0] || !guildRows[0].is_active) {
           throw notFound("Guild not found");
         }
-        const guild = guildResult.rows[0];
+        const guild = guildRows[0];
 
         // 2. Check user isn't already a member
-        const existingMember = await client.query<{ id: string }>(
-          `SELECT id FROM guild_members WHERE user_id = $1 LIMIT 1`,
-          [userId]
-        );
-        if (existingMember.rows.length > 0) {
+        const existingMember = await client
+          .select({ id: schema.guildMembers.id })
+          .from(schema.guildMembers)
+          .where(eq(schema.guildMembers.userId, userId))
+          .limit(1);
+        if (existingMember.length > 0) {
           throw badRequest("You already belong to a guild", "ALREADY_IN_GUILD");
         }
 
         // 3. Handle recruitment type
         if (guild.recruitment_type === "open") {
           // Immediate membership
-          await client.query(
-            `INSERT INTO guild_members (guild_id, user_id, role, contribution_score, war_points_total, joined_at)
-             VALUES ($1, $2, 'member', 0, 0, NOW())`,
-            [guildId, userId]
-          );
-          await client.query(
-            `UPDATE guilds SET member_count = member_count + 1, updated_at = NOW() WHERE id = $1`,
-            [guildId]
-          );
-          await client.query(
-            `UPDATE users SET guild_id = $1, updated_at = NOW() WHERE id = $2`,
-            [guildId, userId]
-          );
+          await client.insert(schema.guildMembers).values({
+            guildId,
+            userId,
+            role: "member",
+            contributionScore: 0,
+            warPointsTotal: 0,
+            joinedAt: sql`NOW()`,
+          });
+          await client
+            .update(schema.guilds)
+            .set({ memberCount: sql`${schema.guilds.memberCount} + 1`, updatedAt: sql`NOW()` })
+            .where(eq(schema.guilds.id, guildId));
+          await client
+            .update(schema.users)
+            .set({ guildId, updatedAt: sql`NOW()` })
+            .where(eq(schema.users.id, userId));
           return { status: "joined" };
         }
 
         if (guild.recruitment_type === "approval") {
           // Create pending application
-          await client.query(
-            `INSERT INTO guild_applications (guild_id, user_id, status, created_at)
-             VALUES ($1, $2, 'pending', NOW())
-             ON CONFLICT (guild_id, user_id) DO NOTHING`,
-            [guildId, userId]
-          );
+          await client
+            .insert(schema.guildApplications)
+            .values({ guildId, userId, status: "pending" })
+            .onConflictDoNothing({ target: [schema.guildApplications.guildId, schema.guildApplications.userId] });
           return { status: "pending" };
         }
 
@@ -116,16 +125,21 @@ export const POST = withAuth(
             throw forbidden("An invite token is required to join this guild");
           }
           // Validate invite token
-          const inviteResult = await client.query<InviteRow>(
-            `SELECT id, guild_id, invited_user_id, expires_at, used_at
-             FROM guild_invites
-             WHERE token = $1 AND guild_id = $2 FOR UPDATE`,
-            [body.inviteToken, guildId]
-          );
-          const invite = inviteResult.rows[0];
+          const inviteRows = await client
+            .select({
+              id: schema.guildInvites.id,
+              guild_id: schema.guildInvites.guildId,
+              invited_user_id: schema.guildInvites.invitedUserId,
+              expires_at: schema.guildInvites.expiresAt,
+              used_at: schema.guildInvites.usedAt,
+            })
+            .from(schema.guildInvites)
+            .where(and(eq(schema.guildInvites.token, body.inviteToken), eq(schema.guildInvites.guildId, guildId)))
+            .for("update");
+          const invite = inviteRows[0];
           if (!invite) throw forbidden("Invalid or expired invite token");
           if (invite.used_at) throw forbidden("This invite has already been used");
-          if (new Date(invite.expires_at) < new Date()) {
+          if (invite.expires_at < new Date()) {
             throw forbidden("This invite has expired");
           }
           if (invite.invited_user_id && invite.invited_user_id !== userId) {
@@ -133,25 +147,28 @@ export const POST = withAuth(
           }
 
           // Mark invite as used
-          await client.query(
-            `UPDATE guild_invites SET used_at = NOW(), used_by_user_id = $1 WHERE id = $2`,
-            [userId, invite.id]
-          );
+          await client
+            .update(schema.guildInvites)
+            .set({ usedAt: sql`NOW()`, usedByUserId: userId })
+            .where(eq(schema.guildInvites.id, invite.id));
 
           // Join guild
-          await client.query(
-            `INSERT INTO guild_members (guild_id, user_id, role, contribution_score, war_points_total, joined_at)
-             VALUES ($1, $2, 'member', 0, 0, NOW())`,
-            [guildId, userId]
-          );
-          await client.query(
-            `UPDATE guilds SET member_count = member_count + 1, updated_at = NOW() WHERE id = $1`,
-            [guildId]
-          );
-          await client.query(
-            `UPDATE users SET guild_id = $1, updated_at = NOW() WHERE id = $2`,
-            [guildId, userId]
-          );
+          await client.insert(schema.guildMembers).values({
+            guildId,
+            userId,
+            role: "member",
+            contributionScore: 0,
+            warPointsTotal: 0,
+            joinedAt: sql`NOW()`,
+          });
+          await client
+            .update(schema.guilds)
+            .set({ memberCount: sql`${schema.guilds.memberCount} + 1`, updatedAt: sql`NOW()` })
+            .where(eq(schema.guilds.id, guildId));
+          await client
+            .update(schema.users)
+            .set({ guildId, updatedAt: sql`NOW()` })
+            .where(eq(schema.users.id, userId));
           return { status: "joined" };
         }
 

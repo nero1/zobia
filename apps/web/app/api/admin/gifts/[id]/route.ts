@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { rewardConfigSchema, refineRewardFields } from "@/lib/economy/giftItems";
@@ -38,36 +39,34 @@ export const PATCH = withAdminAuth(async (req: NextRequest, ctx) => {
 
     const body = await validateBody(req, updateGiftSchema);
 
-    const sets: string[] = [];
-    const values: (string | number | boolean | null)[] = [];
-    let i = 1;
-
-    if (body.name !== undefined)                      { sets.push(`name = $${i++}`);                        values.push(body.name); }
-    if (body.emoji !== undefined)                     { sets.push(`emoji = $${i++}`);                       values.push(body.emoji); }
-    if (body.coinCost !== undefined)                  { sets.push(`coin_cost = $${i++}`);                   values.push(body.coinCost); }
-    if (body.tier !== undefined)                      { sets.push(`tier = $${i++}`);                        values.push(body.tier); }
-    if (body.animationUrl !== undefined)              { sets.push(`animation_url = $${i++}`);               values.push(body.animationUrl ?? null); }
-    if (body.spectacleThresholdCoins !== undefined)   { sets.push(`spectacle_threshold_coins = $${i++}`);   values.push(body.spectacleThresholdCoins ?? null); }
-    if (body.isActive !== undefined)                  { sets.push(`is_active = $${i++}`);                   values.push(body.isActive); }
-    if (body.isRewarded !== undefined)                { sets.push(`is_rewarded = $${i++}`);                 values.push(body.isRewarded); }
-    if (body.rewardConfig !== undefined)              { sets.push(`reward_config = $${i++}::jsonb`);        values.push(body.rewardConfig ? JSON.stringify(body.rewardConfig) : null); }
+    const updates: Partial<typeof schema.giftItems.$inferInsert> = {};
+    if (body.name !== undefined) updates.name = body.name;
+    if (body.emoji !== undefined) updates.emoji = body.emoji;
+    if (body.coinCost !== undefined) updates.coinCost = BigInt(body.coinCost);
+    if (body.tier !== undefined) updates.tier = body.tier;
+    if (body.animationUrl !== undefined) updates.animationUrl = body.animationUrl ?? null;
+    if (body.spectacleThresholdCoins !== undefined) updates.spectacleThresholdCoins = body.spectacleThresholdCoins ?? null;
+    if (body.isActive !== undefined) updates.isActive = body.isActive;
+    if (body.isRewarded !== undefined) updates.isRewarded = body.isRewarded;
+    if (body.rewardConfig !== undefined) updates.rewardConfig = body.rewardConfig ?? null;
     // Turning rewarded off clears any stale reward_config unless the caller
     // explicitly also sent a new one in this same request.
     if (body.isRewarded === false && body.rewardConfig === undefined) {
-      sets.push(`reward_config = NULL`);
+      updates.rewardConfig = null;
     }
 
-    if (sets.length === 0) {
+    if (Object.keys(updates).length === 0) {
       return NextResponse.json({ success: true, data: null, error: null });
     }
 
-    values.push(id);
-    const { rowCount } = await db.query(
-      `UPDATE gift_items SET ${sets.join(", ")} WHERE id = $${i}`,
-      values
-    );
+    const orm = await getDb();
+    const result = await orm
+      .update(schema.giftItems)
+      .set(updates)
+      .where(eq(schema.giftItems.id, id))
+      .returning({ id: schema.giftItems.id });
 
-    if (!rowCount) throw notFound("Gift item not found");
+    if (result.length === 0) throw notFound("Gift item not found");
 
     return NextResponse.json({ success: true, data: null, error: null });
   } catch (err) {
@@ -81,12 +80,14 @@ export const DELETE = withAdminAuth(async (_req: NextRequest, ctx) => {
     const id = params?.id;
     if (!id) throw notFound("Gift item not found");
 
-    const { rowCount } = await db.query(
-      `UPDATE gift_items SET is_active = FALSE WHERE id = $1`,
-      [id]
-    );
+    const orm = await getDb();
+    const result = await orm
+      .update(schema.giftItems)
+      .set({ isActive: false })
+      .where(eq(schema.giftItems.id, id))
+      .returning({ id: schema.giftItems.id });
 
-    if (!rowCount) throw notFound("Gift item not found");
+    if (result.length === 0) throw notFound("Gift item not found");
 
     return NextResponse.json({ success: true, data: null, error: null });
   } catch (err) {

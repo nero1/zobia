@@ -22,7 +22,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
@@ -103,14 +104,15 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
 
     // Set idempotency key atomically BEFORE the transaction (NX ensures only one wins under concurrency)
     const acquired = await redis.set(redisKey, "1", "EX", DAILY_LOGIN_KEY_TTL_SECONDS, "NX");
+    const orm = await getDb();
     if (acquired === null) {
       // Another concurrent request already won the race
-      const userResult = await db.query<UserStreakRow>(
-        `SELECT login_streak, longest_streak FROM users
-         WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      const user = userResult.rows[0];
+      const userResult = await orm
+        .select({ login_streak: schema.users.loginStreak, longest_streak: schema.users.longestStreak })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .limit(1);
+      const user = userResult[0];
       return NextResponse.json({
         success: true,
         data: {
@@ -124,16 +126,26 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
     }
 
     // Process the daily login inside a transaction
-    const result = await db.transaction(async (client) => {
+    const result = await orm.transaction(async (client) => {
       // Lock user row for update
-      const userResult = await client.query<UserStreakRow>(
-        `SELECT login_streak, longest_streak, last_login_date, xp_total
-         FROM users
-         WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-        [userId]
-      );
-      const user = userResult.rows[0];
-      if (!user) throw new Error("User not found");
+      const userResult = await client
+        .select({
+          login_streak: schema.users.loginStreak,
+          longest_streak: schema.users.longestStreak,
+          last_login_date: schema.users.lastLoginDate,
+          xp_total: schema.users.xpTotal,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .for("update");
+      const userRow = userResult[0];
+      if (!userRow) throw new Error("User not found");
+      const user: UserStreakRow = {
+        login_streak: userRow.login_streak,
+        longest_streak: userRow.longest_streak,
+        last_login_date: userRow.last_login_date,
+        xp_total: Number(userRow.xp_total),
+      };
 
       // Determine new streak
       const lastLogin = user.last_login_date
@@ -172,58 +184,59 @@ export const POST = withAuth(async (req: NextRequest, { auth }: { params: Record
       const isPersonalBest = newStreak > user.longest_streak;
 
       // Update user record
-      await client.query(
-        `UPDATE users
-         SET login_streak      = $1,
-             login_streak_days = $1,
-             longest_streak    = $2,
-             last_login_date   = $3,
-             last_login_at     = NOW(),
-             last_active_at    = NOW(),
-             xp_total          = $4,
-             updated_at        = NOW()
-         WHERE id = $5`,
-        [newStreak, newLongestStreak, today, newXpTotal, userId]
-      );
+      await client
+        .update(schema.users)
+        .set({
+          loginStreak: newStreak,
+          loginStreakDays: newStreak,
+          longestStreak: newLongestStreak,
+          lastLoginDate: today,
+          lastLoginAt: sql`NOW()`,
+          lastActiveAt: sql`NOW()`,
+          xpTotal: BigInt(newXpTotal),
+          updatedAt: sql`NOW()`,
+        })
+        .where(eq(schema.users.id, userId));
 
       // Append XP ledger entry. xp_ledger has no `description` column (see
       // every other xp_ledger INSERT in the codebase, e.g. lib/xp/safeAwardXP.ts) —
       // it was mistakenly assumed here, which made this insert fail outright
       // (unknown column) and also miscounted the VALUES list. base_amount is
       // NOT NULL and always mirrors amount when no multiplier is applied.
-      await client.query(
-        `INSERT INTO xp_ledger
-           (user_id, amount, track, source, base_amount, created_at)
-         VALUES ($1, $2, 'main', 'daily_login', $2, NOW())`,
-        [userId, xpAwarded]
-      );
+      await client.insert(schema.xpLedger).values({
+        userId,
+        amount: xpAwarded,
+        track: "main",
+        source: "daily_login",
+        baseAmount: xpAwarded,
+      });
 
       return { newStreak, xpAwarded, isPersonalBest };
     });
 
     // Trigger the login_streak daily quest ("Log in for 7 consecutive days") and
     // the daily_login New Member Quest step (fire-and-forget, non-fatal)
-    void triggerActivityQuestProgress(userId, "login_streak", db);
-    void advanceNewMemberQuestStep(db, userId, "daily_login");
+    void triggerActivityQuestProgress(userId, "login_streak", orm);
+    void advanceNewMemberQuestStep(orm, userId, "daily_login");
 
     // Process any unclaimed comeback bonus coins (90-day re-engagement)
     let comebackBonusClaimed = 0;
     try {
-      const { rows: pendingBonuses } = await db.query<{ id: string; amount: number }>(
-        `SELECT id, amount FROM coin_ledger
-         WHERE user_id = $1
+      const pendingResult = await orm.execute<{ id: string; amount: string }>(sql`
+        SELECT id, amount FROM coin_ledger
+         WHERE user_id = ${userId}
            AND transaction_type = 'comeback_bonus_reserved'
            AND created_at > NOW() - INTERVAL '7 days'
            AND NOT EXISTS (
              SELECT 1 FROM coin_ledger cl2
-             WHERE cl2.user_id = $1
+             WHERE cl2.user_id = ${userId}
                AND cl2.transaction_type = 'comeback_bonus_claimed'
                AND cl2.reference_id = coin_ledger.id::text
            )
          ORDER BY created_at ASC
-         LIMIT 5`,
-        [userId]
-      );
+         LIMIT 5
+      `);
+      const pendingBonuses = pendingResult.rows.map((r) => ({ id: r.id, amount: Number(r.amount) }));
 
       for (const bonus of pendingBonuses) {
         await creditCoins(
