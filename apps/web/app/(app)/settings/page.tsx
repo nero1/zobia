@@ -21,6 +21,8 @@ import { useTweetsConfig } from "@/lib/hooks/useTweetsConfig";
 import { useTweetLengthPolicy } from "@/lib/hooks/useTweetLengthPolicy";
 import { AvatarCropModal } from "@/components/profile/AvatarCropModal";
 import { DEFAULT_AVATAR_EMOJIS } from "@/lib/profile/defaultAvatars";
+import { useSiteTheme } from "@/lib/hooks/useSiteTheme";
+import { SITE_THEMES, ICON_SETS } from "@zobia/shared/utils";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -250,6 +252,13 @@ export default function SettingsPage() {
   // to the same "theme" field/endpoint, so picking light/dark/system sent an
   // invalid value to /api/users/me/theme and always failed with 400.
   const { theme: nextTheme, setTheme: setNextTheme } = useNextTheme();
+  // Sitewide theme re-skin, icon set, and accessibility font zoom — separate,
+  // orthogonal axis from light/dark above. See lib/hooks/useSiteTheme.ts.
+  const {
+    siteTheme, setSiteTheme,
+    iconSet, setIconSet,
+    fontZoomPercent, stepFontZoom, setFontZoomPercent,
+  } = useSiteTheme();
   const [notifications, setNotifications] = useState<Record<string, boolean>>({});
   const [dmOptOut, setDmOptOut] = useState(false);
 
@@ -1071,6 +1080,92 @@ export default function SettingsPage() {
               {t === "light" ? "☀️" : t === "dark" ? "🌙" : "💻"} {t}
             </button>
           ))}
+        </div>
+      </Section>
+
+      {/* Appearance: sitewide theme, icon set, text zoom */}
+      <Section title={t("settings.appearance.title", "Appearance")}>
+        <div className="space-y-5">
+          <div>
+            <p className="mb-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              {t("settings.appearance.siteThemeLabel", "Site Theme")}
+            </p>
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+              {SITE_THEMES.map((theme) => (
+                <button
+                  key={theme.id}
+                  type="button"
+                  onClick={() => setSiteTheme(theme.id)}
+                  className={`rounded-xl border py-2.5 text-sm font-semibold transition-colors ${
+                    siteTheme === theme.id
+                      ? "border-blue-600 bg-blue-600 text-white"
+                      : "border-neutral-300 text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  {t(theme.labelKey)}
+                </button>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-neutral-500">{t("settings.appearance.siteThemeHint", "Applies to this device only.")}</p>
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              {t("settings.appearance.iconSetLabel", "Icon Set")}
+            </p>
+            <div className="flex gap-2">
+              {ICON_SETS.map((set) => (
+                <button
+                  key={set.id}
+                  type="button"
+                  onClick={() => setIconSet(set.id)}
+                  className={`flex-1 rounded-xl border py-2.5 text-sm font-semibold transition-colors ${
+                    iconSet === set.id
+                      ? "border-blue-600 bg-blue-600 text-white"
+                      : "border-neutral-300 text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                  }`}
+                >
+                  {t(set.labelKey)}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm font-medium text-neutral-900 dark:text-neutral-100">
+              {t("settings.appearance.textSizeLabel", "Text Size")}
+            </p>
+            <div className="flex items-center gap-3">
+              <button
+                type="button"
+                aria-label={t("settings.appearance.zoomOut", "Decrease text size")}
+                onClick={() => stepFontZoom(-1)}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-neutral-300 text-lg font-bold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                −
+              </button>
+              <span className="min-w-[4rem] text-center text-sm font-semibold text-neutral-900 dark:text-neutral-100">
+                {fontZoomPercent}%
+              </span>
+              <button
+                type="button"
+                aria-label={t("settings.appearance.zoomIn", "Increase text size")}
+                onClick={() => stepFontZoom(1)}
+                className="flex h-10 w-10 items-center justify-center rounded-xl border border-neutral-300 text-lg font-bold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                +
+              </button>
+              {fontZoomPercent !== 100 && (
+                <button
+                  type="button"
+                  onClick={() => setFontZoomPercent(100)}
+                  className="text-xs font-medium text-blue-600 hover:underline dark:text-blue-400"
+                >
+                  {t("action.reset", "Reset")}
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </Section>
 

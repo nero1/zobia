@@ -23,7 +23,7 @@ function TweetBody({ tweet }: { tweet: PublicTweet }) {
       {tweet.content && <p className="mb-4 whitespace-pre-wrap text-foreground">{tweet.content}</p>}
       {tweet.image_url && (
         // eslint-disable-next-line @next/next/no-img-element
-        <img src={tweet.image_url} alt="" className="mb-4 max-h-96 w-full rounded-2xl object-cover" />
+        <img src={tweet.image_url} alt="" className="mb-4 max-h-96 w-full rounded-2xl object-cover sm:max-w-md" />
       )}
       {tweet.video_provider && tweet.video_embed_id && (
         <div className="mb-4 aspect-video w-full overflow-hidden rounded-2xl">

@@ -64,6 +64,31 @@ type GroupedConfig = Record<string, ConfigItem[]>;
 // ---------------------------------------------------------------------------
 
 const CONFIG_META: Record<string, ConfigMeta> = {
+  // Theming — sitewide UI theme + icon set defaults. Users can override
+  // either per-device at Settings > Appearance; this is only the fallback
+  // for devices that haven't. See shared/utils/uiThemes.ts.
+  ui_site_theme: {
+    label: "Default Site Theme",
+    description: "Sitewide color/shape/density re-skin applied to any device that hasn't chosen its own theme in Settings > Appearance.",
+    type: "select",
+    group: "Theming",
+    options: [
+      { value: "default", label: "Default (Zobia)" },
+      { value: "reddit", label: "Reddit-style" },
+      { value: "facebook", label: "Facebook-style" },
+      { value: "christmas", label: "Christmas" },
+    ],
+  },
+  ui_icon_set: {
+    label: "Default Icon Set",
+    description: "Nav/UI icon style applied to any device that hasn't chosen its own icon set in Settings > Appearance.",
+    type: "select",
+    group: "Theming",
+    options: [
+      { value: "emoji", label: "Emoji (default)" },
+      { value: "mono", label: "Pro — Black & White" },
+    ],
+  },
   // Maintenance Mode
   maintenance_mode_enabled: {
     label: "Maintenance Mode",

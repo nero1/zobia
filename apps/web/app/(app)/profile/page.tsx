@@ -276,7 +276,7 @@ export default function MyProfilePage() {
 
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-xl font-bold" style={{ color: themeTokens.text }}>
+              <h1 className="min-w-0 truncate text-xl font-bold" style={{ color: themeTokens.text }}>
                 {me.display_name ?? me.username ?? "Anonymous"}
               </h1>
               {me.is_verified && (
@@ -340,19 +340,21 @@ export default function MyProfilePage() {
               </span>
             </div>
           </div>
+        </div>
 
-          {/* Edit / theme buttons */}
-          <div className="flex shrink-0 flex-col items-end gap-1.5">
-            <Link
-              href="/settings"
-              className="rounded-lg border border-neutral-300 px-4 py-1.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-            >
-              Edit profile
-            </Link>
-            <Link href="/profile/theme" className="text-xs font-medium hover:underline" style={{ color: themeTokens.accent }}>
-              🎨 Theme
-            </Link>
-          </div>
+        {/* Edit / theme actions — a full-width row below the header instead of a
+            fixed-width column squeezed next to the avatar, so long display
+            names/usernames above have room to breathe on mobile. */}
+        <div className="mt-3 flex flex-wrap items-center justify-end gap-2">
+          <Link href="/profile/theme" className="text-xs font-medium hover:underline" style={{ color: themeTokens.accent }}>
+            🎨 Theme
+          </Link>
+          <Link
+            href="/settings"
+            className="rounded-lg border border-neutral-300 px-4 py-1.5 text-sm font-medium text-neutral-700 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            Edit profile
+          </Link>
         </div>
 
         {/* Wallet summary */}

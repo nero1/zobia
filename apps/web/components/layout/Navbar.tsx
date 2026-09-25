@@ -18,6 +18,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { clsx } from "clsx";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/Avatar";
+import { Icon, type IconName } from "@/components/ui/Icon";
 import { useUnreadNotificationsCount } from "@/lib/notifications/useUnreadCount";
 import { useHasNewNotifications } from "@/lib/notifications/useHasNewNotifications";
 import { useHasNewMessages, useHasNewAnnouncements } from "@/lib/notifications/useHasNewSince";
@@ -43,7 +44,7 @@ const bottomTabItems = [
 interface PrimaryNavItem {
   href: string;
   labelKey: string;
-  icon: string;
+  icon: IconName;
   /** When set, hides this entry from non-admins if the flag is off (see useFeatureFlags). */
   flagKey?: keyof FeatureFlags;
   /** Council-only gate — see Sidebar.tsx's identical flag for the rationale. */
@@ -52,62 +53,59 @@ interface PrimaryNavItem {
 
 // Full nav for desktop + drawer
 const primaryNavItems: PrimaryNavItem[] = [
-  { href: "/home",         labelKey: "nav.home",         icon: "🏠" },
-  { href: "/search",       labelKey: "nav.search",       icon: "🔍" },
-  { href: "/moments",      labelKey: "nav.moments",      icon: "⚡", flagKey: "moments" },
-  { href: "/tweets",       labelKey: "nav.tweets",       icon: "🐦", flagKey: "tweets" },
-  { href: "/answers",      labelKey: "nav.answers",      icon: "❓", flagKey: "forum" },
-  { href: "/forum",        labelKey: "nav.bbforum",      icon: "🗨️", flagKey: "bbforum" },
-  { href: "/quests",       labelKey: "nav.quests",       icon: "🎯" },
-  { href: "/games",        labelKey: "nav.games",        icon: "🎮", flagKey: "games" },
-  { href: "/blogs",        labelKey: "nav.blogs",        icon: "✍️", flagKey: "blogs" },
-  { href: "/polls",        labelKey: "nav.polls",        icon: "📊", flagKey: "polls" },
-  { href: "/quizzes",      labelKey: "nav.quizzes",      icon: "🧠", flagKey: "quizzes" },
-  { href: "/business",     labelKey: "nav.business",     icon: "🏢", flagKey: "businessAccounts" },
-  { href: "/ads",          labelKey: "nav.ads",          icon: "📢", flagKey: "adsSystem" },
-  { href: "/rooms",        labelKey: "nav.rooms",        icon: "🚪", flagKey: "rooms" },
-  { href: "/guilds",       labelKey: "nav.guilds",       icon: "🏰" },
-  { href: "/messages",     labelKey: "nav.messages",     icon: "💬" },
-  { href: "/friends",      labelKey: "nav.friends",      icon: "👥" },
-  { href: "/gifts",        labelKey: "nav.gifts",        icon: "🎁", flagKey: "gifts" },
-  { href: "/wallet",       labelKey: "nav.wallet",       icon: "🪙" },
-  { href: "/market",       labelKey: "nav.market",       icon: "🏪" },
-  { href: "/notifications",labelKey: "nav.notifications",icon: "🔔" },
-  { href: "/events",       labelKey: "nav.events",       icon: "📅" },
-  { href: "/announcements",labelKey: "nav.announcements",icon: "📬" },
-  { href: "/elder",        labelKey: "nav.elder",        icon: "🎓" },
-  { href: "/referrals",    labelKey: "nav.referrals",    icon: "🔗" },
-  { href: "/classroom",    labelKey: "nav.classroom",    icon: "🏫", flagKey: "classrooms" },
-  { href: "/leaderboards", labelKey: "nav.leaderboards", icon: "🏆", flagKey: "rankings" },
-  { href: "/seasons",      labelKey: "nav.seasons",      icon: "🗓️" },
-  { href: "/council",      labelKey: "nav.council",      icon: "⚖️", flagKey: "platformCouncil", requiresCouncilMembership: true },
+  { href: "/home",         labelKey: "nav.home",         icon: "home" },
+  { href: "/search",       labelKey: "nav.search",       icon: "search" },
+  { href: "/moments",      labelKey: "nav.moments",      icon: "moments", flagKey: "moments" },
+  { href: "/tweets",       labelKey: "nav.tweets",       icon: "tweets", flagKey: "tweets" },
+  { href: "/answers",      labelKey: "nav.answers",      icon: "answers", flagKey: "forum" },
+  { href: "/forum",        labelKey: "nav.bbforum",      icon: "forum", flagKey: "bbforum" },
+  { href: "/quests",       labelKey: "nav.quests",       icon: "quests" },
+  { href: "/games",        labelKey: "nav.games",        icon: "games", flagKey: "games" },
+  { href: "/blogs",        labelKey: "nav.blogs",        icon: "blogs", flagKey: "blogs" },
+  { href: "/polls",        labelKey: "nav.polls",        icon: "polls", flagKey: "polls" },
+  { href: "/quizzes",      labelKey: "nav.quizzes",      icon: "quizzes", flagKey: "quizzes" },
+  { href: "/business",     labelKey: "nav.business",     icon: "business", flagKey: "businessAccounts" },
+  { href: "/ads",          labelKey: "nav.ads",          icon: "ads", flagKey: "adsSystem" },
+  { href: "/rooms",        labelKey: "nav.rooms",        icon: "rooms", flagKey: "rooms" },
+  { href: "/guilds",       labelKey: "nav.guilds",       icon: "guilds" },
+  { href: "/messages",     labelKey: "nav.messages",     icon: "messages" },
+  { href: "/friends",      labelKey: "nav.friends",      icon: "friends" },
+  { href: "/gifts",        labelKey: "nav.gifts",        icon: "gifts", flagKey: "gifts" },
+  { href: "/wallet",       labelKey: "nav.wallet",       icon: "wallet" },
+  { href: "/market",       labelKey: "nav.market",       icon: "market" },
+  { href: "/notifications",labelKey: "nav.notifications",icon: "notifications" },
+  { href: "/events",       labelKey: "nav.events",       icon: "events" },
+  { href: "/announcements",labelKey: "nav.announcements",icon: "announcements" },
+  { href: "/elder",        labelKey: "nav.elder",        icon: "elder" },
+  { href: "/referrals",    labelKey: "nav.referrals",    icon: "referrals" },
+  { href: "/classroom",    labelKey: "nav.classroom",    icon: "classroom", flagKey: "classrooms" },
+  { href: "/leaderboards", labelKey: "nav.leaderboards", icon: "leaderboards", flagKey: "rankings" },
+  { href: "/seasons",      labelKey: "nav.seasons",      icon: "seasons" },
+  { href: "/council",      labelKey: "nav.council",      icon: "council", flagKey: "platformCouncil", requiresCouncilMembership: true },
 ];
 
-const secondaryNavItems = [
-  { href: "/profile",  labelKey: "nav.profile",  icon: "👤" },
-  { href: "/settings", labelKey: "nav.settings", icon: "⚙️" },
-] as const;
+const secondaryNavItems: { href: string; labelKey: string; icon: IconName }[] = [
+  { href: "/profile",  labelKey: "nav.profile",  icon: "profile" },
+  { href: "/settings", labelKey: "nav.settings", icon: "settings" },
+];
 
 // ---------------------------------------------------------------------------
 // Bottom tab icon map
 // ---------------------------------------------------------------------------
 
-const TAB_ICONS: Record<string, { active: string; inactive: string }> = {
-  Home:    { active: "🏠", inactive: "🏡" },
-  Quests:  { active: "🎯", inactive: "🎯" },
-  Games:   { active: "🎮", inactive: "🕹️" },
-  Friends: { active: "👥", inactive: "👥" },
-  Wallet:  { active: "🪙", inactive: "🪙" },
-  Profile: { active: "👤", inactive: "👤" },
+const TAB_ICON_NAMES: Record<string, IconName> = {
+  Home: "home",
+  Quests: "quests",
+  Games: "games",
+  Friends: "friends",
+  Wallet: "wallet",
+  Profile: "profile",
 };
 
 function TabIcon({ label, isActive }: { label: string; isActive: boolean }) {
-  const icon = TAB_ICONS[label];
-  return (
-    <span className="text-xl leading-none" aria-hidden="true">
-      {isActive ? icon?.active : icon?.inactive}
-    </span>
-  );
+  const name = TAB_ICON_NAMES[label];
+  if (!name) return null;
+  return <Icon name={name} active={isActive} className="text-xl leading-none" />;
 }
 
 // ---------------------------------------------------------------------------
@@ -262,7 +260,7 @@ function MobileDrawer({
           aria-label={t("nav.closeMenu")}
           className="absolute right-4 top-4 rounded-full p-2 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
         >
-          <span aria-hidden="true" className="text-xl leading-none">✕</span>
+          <Icon name="close" className="text-xl leading-none" />
         </button>
 
         <div className="flex h-full flex-col overflow-y-auto px-3 py-4">
@@ -280,7 +278,7 @@ function MobileDrawer({
                 )}
                 aria-current={pathname?.startsWith("/gate44") ? "page" : undefined}
               >
-                <span className="w-5 text-center text-base leading-none" aria-hidden="true">🛡️</span>
+                <Icon name="admin" className="w-5 text-center text-base leading-none" />
                 {t("admin.link")}
               </Link>
             )}
@@ -296,7 +294,7 @@ function MobileDrawer({
                 )}
                 aria-current={pathname?.startsWith("/watch56") ? "page" : undefined}
               >
-                <span className="w-5 text-center text-base leading-none" aria-hidden="true">🧭</span>
+                <Icon name="moderation" className="w-5 text-center text-base leading-none" />
                 {t("moderation.title", "Moderation Center")}
               </Link>
             )}
@@ -316,8 +314,8 @@ function MobileDrawer({
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
-                  <span className="relative w-5 text-center text-base leading-none" aria-hidden="true">
-                    {item.icon}
+                  <span className="relative w-5 text-center text-base leading-none">
+                    <Icon name={item.icon} />
                     {newDotHrefs[item.href] && (
                       <span className="absolute -top-0.5 -right-0.5 block h-2 w-2 rounded-full bg-red-500 ring-2 ring-white dark:ring-neutral-900" />
                     )}
@@ -351,7 +349,7 @@ function MobileDrawer({
                   )}
                   aria-current={isActive ? "page" : undefined}
                 >
-                  <span className="w-5 text-center text-base leading-none" aria-hidden="true">{item.icon}</span>
+                  <Icon name={item.icon} className="w-5 text-center text-base leading-none" />
                   {t(item.labelKey)}
                 </Link>
               );
@@ -367,7 +365,8 @@ function MobileDrawer({
             onClick={() => { onClose(); onLogout(); }}
             className="mt-4 w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
           >
-            🚪 {t("nav.logout")}
+            <Icon name="logout" className="inline-block align-[-2px] mr-1" aria-hidden />
+            {t("nav.logout")}
           </button>
         </div>
       </div>
@@ -478,7 +477,7 @@ function ProfileDropdown({
               role="menuitem"
               className="flex items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
-              <span aria-hidden="true">👤</span>
+              <Icon name="profile" />
               {t("profile.dropdown.viewProfile")}
             </Link>
             <Link
@@ -487,7 +486,7 @@ function ProfileDropdown({
               role="menuitem"
               className="flex items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
-              <span aria-hidden="true">⚙️</span>
+              <Icon name="settings" />
               {t("profile.dropdown.profileSettings")}
             </Link>
 
@@ -497,7 +496,7 @@ function ProfileDropdown({
               onClick={handleThemeToggle}
               className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
-              <span aria-hidden="true">{isDark ? "☀️" : "🌙"}</span>
+              <Icon name={isDark ? "themeLight" : "themeDark"} />
               {isDark ? t("profile.dropdown.themeLight") : t("profile.dropdown.themeDark")}
             </button>
 
@@ -507,7 +506,7 @@ function ProfileDropdown({
               role="menuitem"
               className="flex items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 hover:bg-neutral-50 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
-              <span aria-hidden="true">⭐</span>
+              <Icon name="star" />
               {isMaxPlan(plan) ? t("profile.dropdown.managePlanNamed", { plan: plan.charAt(0).toUpperCase() + plan.slice(1) }) : t("profile.dropdown.upgradePlan")}
             </Link>
           </div>
@@ -519,7 +518,7 @@ function ProfileDropdown({
               onClick={() => { setOpen(false); onLogout(); }}
               className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950"
             >
-              <span aria-hidden="true">🚪</span>
+              <Icon name="logout" />
               {t("nav.logout")}
             </button>
           </div>
@@ -618,7 +617,7 @@ export function Navbar() {
     <>
       {/* Top bar */}
       <header className="sticky top-0 z-40 border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
-        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-4 sm:px-6">
+        <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-3 sm:px-6">
 
           {/* Left: hamburger (mobile) + logo */}
           <div className="flex items-center gap-2">
@@ -630,11 +629,7 @@ export function Navbar() {
               onClick={() => setDrawerOpen(true)}
               className="rounded-lg p-2 text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 lg:hidden"
             >
-              <svg aria-hidden="true" width="20" height="20" viewBox="0 0 20 20" fill="currentColor">
-                <rect x="2" y="4"  width="16" height="2" rx="1" />
-                <rect x="2" y="9"  width="16" height="2" rx="1" />
-                <rect x="2" y="14" width="16" height="2" rx="1" />
-              </svg>
+              <Icon name="menu" />
             </button>
 
             <Link

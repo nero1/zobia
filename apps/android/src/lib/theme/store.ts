@@ -18,12 +18,106 @@
  */
 
 import { Preferences } from '@capacitor/preferences';
+import { SITE_THEME_IDS, FONT_ZOOM_STEPS, type SiteThemeId } from '@zobia/shared/utils';
 
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type ResolvedTheme = 'light' | 'dark';
 
 const STORAGE_KEY = 'zobia_theme';
 const VALID: ThemePreference[] = ['light', 'dark', 'system'];
+
+// ---------------------------------------------------------------------------
+// Site theme (Reddit/Facebook/Christmas re-skins) — separate axis from
+// light/dark above. "site" means "follow the admin default from /api/manifest"
+// (see lib/manifest/useUiManifest.ts); anything else is a per-device override.
+// ---------------------------------------------------------------------------
+
+const SITE_THEME_STORAGE_KEY = 'zobia_site_theme';
+const FONT_ZOOM_STORAGE_KEY = 'zobia_font_zoom';
+
+function isValidSiteTheme(v: unknown): v is SiteThemeId {
+  return typeof v === 'string' && (SITE_THEME_IDS as readonly string[]).includes(v);
+}
+
+/** Applies (or clears, for "default") the `data-site-theme` attribute. Distinct from `data-theme` above, which carries the resolved light/dark value. */
+export function applySiteTheme(theme: SiteThemeId | null): void {
+  const root = document.documentElement;
+  if (theme && theme !== 'default') {
+    root.setAttribute('data-site-theme', theme);
+  } else {
+    root.removeAttribute('data-site-theme');
+  }
+}
+
+export function getStoredSiteThemeSync(): SiteThemeId | null {
+  try {
+    const v = localStorage.getItem(SITE_THEME_STORAGE_KEY);
+    return isValidSiteTheme(v) ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function getStoredSiteTheme(): Promise<SiteThemeId | null> {
+  try {
+    const { value } = await Preferences.get({ key: SITE_THEME_STORAGE_KEY });
+    if (isValidSiteTheme(value)) return value;
+  } catch {
+    // fall through
+  }
+  return getStoredSiteThemeSync();
+}
+
+/** `null` clears the per-device override, reverting to the admin default. */
+export async function setStoredSiteTheme(theme: SiteThemeId | null): Promise<void> {
+  try {
+    if (theme) localStorage.setItem(SITE_THEME_STORAGE_KEY, theme);
+    else localStorage.removeItem(SITE_THEME_STORAGE_KEY);
+  } catch { /* private mode etc — non-fatal */ }
+  try {
+    if (theme) await Preferences.set({ key: SITE_THEME_STORAGE_KEY, value: theme });
+    else await Preferences.remove({ key: SITE_THEME_STORAGE_KEY });
+  } catch { /* non-fatal, offline-friendly */ }
+}
+
+// ---------------------------------------------------------------------------
+// Font zoom (accessibility text scaling) — see shared/utils/uiThemes.ts.
+// ---------------------------------------------------------------------------
+
+function isValidFontZoom(v: unknown): v is number {
+  return typeof v === 'number' && (FONT_ZOOM_STEPS as readonly number[]).includes(v);
+}
+
+/** Sets `--font-zoom` (a 1.0-based multiplier) on <html> from a whole percent (100 = 1.0). */
+export function applyFontZoomPercent(percent: number): void {
+  document.documentElement.style.setProperty('--font-zoom', String(percent / 100));
+}
+
+export function getStoredFontZoomSync(): number {
+  try {
+    const raw = localStorage.getItem(FONT_ZOOM_STORAGE_KEY);
+    const n = raw ? parseInt(raw, 10) : NaN;
+    return isValidFontZoom(n) ? n : 100;
+  } catch {
+    return 100;
+  }
+}
+
+export async function getStoredFontZoom(): Promise<number> {
+  try {
+    const { value } = await Preferences.get({ key: FONT_ZOOM_STORAGE_KEY });
+    const n = value ? parseInt(value, 10) : NaN;
+    if (isValidFontZoom(n)) return n;
+  } catch {
+    // fall through
+  }
+  return getStoredFontZoomSync();
+}
+
+export async function setStoredFontZoom(percent: number): Promise<void> {
+  try { localStorage.setItem(FONT_ZOOM_STORAGE_KEY, String(percent)); } catch { /* non-fatal */ }
+  try { await Preferences.set({ key: FONT_ZOOM_STORAGE_KEY, value: String(percent) }); } catch { /* non-fatal */ }
+}
 
 function isValidTheme(v: unknown): v is ThemePreference {
   return typeof v === 'string' && (VALID as string[]).includes(v);

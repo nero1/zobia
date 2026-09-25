@@ -68,18 +68,27 @@ module.exports = {
       900: "#78350f",
       950: "#451a03",
     },
+    // Theme-aware — these used to be static hex, so a site-wide re-skin
+    // (see gate44/config "Theming" group + settings.siteTheme, and
+    // shared/utils/uiThemes.ts) meant touching every component that uses
+    // `bg-neutral-*`/`text-neutral-*`/`border-neutral-*` (hundreds of call
+    // sites). Routing them through CSS vars set in globals.css'
+    // `:root`/`.dark`/`[data-theme="..."]` blocks means a theme switch
+    // re-colors the whole app instantly, with zero component changes.
+    // Values are HSL triples (see shared/tailwind-tokens numeric-shade note
+    // above `primary` for why no hsl() wrapper).
     neutral: {
-      50: "#fafafa",
-      100: "#f5f5f5",
-      200: "#e5e5e5",
-      300: "#d4d4d4",
-      400: "#a3a3a3",
-      500: "#737373",
-      600: "#525252",
-      700: "#404040",
-      800: "#262626",
-      900: "#171717",
-      950: "#0a0a0a",
+      50: "hsl(var(--neutral-50))",
+      100: "hsl(var(--neutral-100))",
+      200: "hsl(var(--neutral-200))",
+      300: "hsl(var(--neutral-300))",
+      400: "hsl(var(--neutral-400))",
+      500: "hsl(var(--neutral-500))",
+      600: "hsl(var(--neutral-600))",
+      700: "hsl(var(--neutral-700))",
+      800: "hsl(var(--neutral-800))",
+      900: "hsl(var(--neutral-900))",
+      950: "hsl(var(--neutral-950))",
     },
     danger: {
       50: "#fef2f2",
@@ -98,13 +107,38 @@ module.exports = {
     sans: ["Inter", "ui-sans-serif", "system-ui", "-apple-system", "sans-serif"],
     mono: ["JetBrains Mono", "ui-monospace", "monospace"],
   },
+  // Base sizes are Tailwind's stock scale x1.3 (the sitewide "+30% font
+  // size" pass), then wrapped in calc() against `--font-zoom` (default 1,
+  // set in globals.css `:root`) so the Settings > Appearance zoom stepper
+  // (shared/utils/uiThemes.ts FONT_ZOOM_STEPS) scales every `text-*`
+  // utility at once with no per-component work. line-heights are kept as
+  // unitless ratios (not rem) so they scale proportionally with the size
+  // automatically instead of needing their own calc().
+  fontSize: {
+    xs: ["calc(0.975rem * var(--font-zoom, 1))", { lineHeight: "1.4" }],
+    sm: ["calc(1.1375rem * var(--font-zoom, 1))", { lineHeight: "1.45" }],
+    base: ["calc(1.3rem * var(--font-zoom, 1))", { lineHeight: "1.5" }],
+    lg: ["calc(1.4625rem * var(--font-zoom, 1))", { lineHeight: "1.55" }],
+    xl: ["calc(1.625rem * var(--font-zoom, 1))", { lineHeight: "1.4" }],
+    "2xl": ["calc(1.95rem * var(--font-zoom, 1))", { lineHeight: "1.35" }],
+    "3xl": ["calc(2.4375rem * var(--font-zoom, 1))", { lineHeight: "1.2" }],
+    "4xl": ["calc(2.925rem * var(--font-zoom, 1))", { lineHeight: "1.15" }],
+    "5xl": ["calc(3.9rem * var(--font-zoom, 1))", { lineHeight: "1.1" }],
+    "6xl": ["calc(4.875rem * var(--font-zoom, 1))", { lineHeight: "1.05" }],
+    "7xl": ["calc(5.85rem * var(--font-zoom, 1))", { lineHeight: "1" }],
+    "8xl": ["calc(7.8rem * var(--font-zoom, 1))", { lineHeight: "1" }],
+    "9xl": ["calc(10.4rem * var(--font-zoom, 1))", { lineHeight: "1" }],
+  },
   borderRadius: {
-    DEFAULT: "0.5rem",
-    sm: "0.375rem",
-    md: "0.5rem",
-    lg: "0.75rem",
-    xl: "1rem",
-    "2xl": "1.5rem",
+    // `--radius-scale` (default 1, themed in globals.css) lets a site theme
+    // shift sharp-vs-rounded corners app-wide (e.g. Reddit-style is sharper,
+    // Facebook-style rounder) without per-component edits.
+    DEFAULT: "calc(0.5rem * var(--radius-scale, 1))",
+    sm: "calc(0.375rem * var(--radius-scale, 1))",
+    md: "calc(0.5rem * var(--radius-scale, 1))",
+    lg: "calc(0.75rem * var(--radius-scale, 1))",
+    xl: "calc(1rem * var(--radius-scale, 1))",
+    "2xl": "calc(1.5rem * var(--radius-scale, 1))",
   },
   boxShadow: {
     card: "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",

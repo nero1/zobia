@@ -11,3 +11,4 @@ export * from "./publicRoutes";
 export * from "./games";
 export * from "./giftTiers";
 export * from "./defaultAvatars";
+export * from "./uiThemes";

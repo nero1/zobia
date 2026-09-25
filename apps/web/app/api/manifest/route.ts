@@ -41,7 +41,7 @@ import { env } from "@/lib/env";
  * Only these top-level manifest sections are exposed publicly.
  * Payment provider secrets and moderation internals are excluded.
  */
-const PUBLIC_MANIFEST_SECTIONS = ["features", "payment"] as const;
+const PUBLIC_MANIFEST_SECTIONS = ["features", "payment", "ui"] as const;
 
 type PublicManifestSection = (typeof PUBLIC_MANIFEST_SECTIONS)[number];
 
@@ -172,6 +172,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         planAdsLevel: manifest.ads.planAdsLevel,
         admob: manifest.ads.admob,
       },
+      ui: manifest.ui,
     };
 
     return NextResponse.json(publicManifest, {
