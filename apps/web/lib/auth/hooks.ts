@@ -76,3 +76,63 @@ export function useAuth(): AuthState {
 
   return state;
 }
+
+// ---------------------------------------------------------------------------
+// Shared /api/users/me profile (nav display data)
+//
+// BUG: Sidebar.tsx and Navbar.tsx each used to define their own ad-hoc
+// useState/useEffect hook that independently fetched /api/users/me on mount
+// with no dedup (two redundant requests per page load), no retry, and any
+// non-OK response or network error silently swallowed forever — leaving the
+// nav permanently stuck showing the "Your Name" / "@username" / "U" avatar
+// placeholders with zero recovery path, even once the underlying session
+// issue (if any) resolved. This mirrors the same BUG-PERF-02 dedup fix above
+// for /api/auth/me, applied to the nav's profile fetch, and the global
+// window.fetch guard (lib/auth/sessionExpiredBus.ts) already turns a genuine
+// 401 here into the proper "session expired" modal instead of a silent null.
+// ---------------------------------------------------------------------------
+
+export interface NavProfile {
+  display_name: string | null;
+  username: string | null;
+  avatar_emoji: string | null;
+  plan?: string | null;
+  is_admin?: boolean;
+  is_moderator?: boolean;
+  is_council_member?: boolean;
+}
+
+let _profilePromise: Promise<NavProfile | null> | null = null;
+
+function fetchUserProfile(): Promise<NavProfile | null> {
+  if (_profilePromise) return _profilePromise;
+
+  const promise: Promise<NavProfile | null> = fetch('/api/users/me', { credentials: 'include' })
+    .then((res) => (res.ok ? res.json() : null))
+    .then((data: { user?: NavProfile } | null): NavProfile | null => data?.user ?? null)
+    .catch(() => null)
+    .finally(() => {
+      _profilePromise = null;
+    });
+  _profilePromise = promise;
+
+  return promise;
+}
+
+export function useUserProfile(): NavProfile | null {
+  const [user, setUser] = useState<NavProfile | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    fetchUserProfile().then((profile) => {
+      if (!cancelled) setUser(profile);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return user;
+}

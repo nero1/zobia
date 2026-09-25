@@ -16,7 +16,7 @@ import type {
   TransactionClient,
 } from "../interface";
 import { env } from "@/lib/env";
-import { withCircuitBreaker } from "../circuit";
+import { withCircuitBreaker, wrapPoolWithCircuitBreaker } from "../circuit";
 
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -57,6 +57,11 @@ export function getPool(): Pool {
         logger.error({ err }, "[db:railway] pool error")
       ).catch(() => {});
     });
+    // Drizzle (lib/db/drizzle.ts) reuses this same pool (not _directPool) and
+    // calls pool.query() directly, bypassing this adapter's own
+    // withCircuitBreaker wrapping below — see wrapPoolWithCircuitBreaker's
+    // doc comment.
+    wrapPoolWithCircuitBreaker(_pool);
   }
   return _pool;
 }
@@ -107,12 +112,14 @@ export class RailwayDatabaseAdapter implements DatabaseAdapter {
   ): Promise<QueryResult<T>> {
     // BUG-CAP-02: gate every query through the shared DB circuit breaker so a
     // degraded database fails fast instead of every request queuing behind
-    // the full pool/statement timeout. See lib/db/circuit.ts.
-    return withCircuitBreaker(async () => {
-      const pool = getPool();
-      const result = await pool.query<T & Record<string, unknown>>(sql, params as unknown[]);
-      return { rows: result.rows as T[], rowCount: result.rowCount ?? 0 };
-    });
+    // the full pool/statement timeout. See lib/db/circuit.ts. getPool()
+    // already wraps pool.query() itself (wrapPoolWithCircuitBreaker) — no
+    // extra withCircuitBreaker() here, since Drizzle shares this same pool
+    // and double-wrapping would count every query against the breaker's
+    // rolling window twice for this adapter but once for Drizzle callers.
+    const pool = getPool();
+    const result = await pool.query<T & Record<string, unknown>>(sql, params as unknown[]);
+    return { rows: result.rows as T[], rowCount: result.rowCount ?? 0 };
   }
 
   /** @inheritdoc */

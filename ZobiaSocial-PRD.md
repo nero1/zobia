@@ -8673,6 +8673,91 @@ models").
 
 ---
 
-*ZobiaSocial PRD v2.34*
+### v2.35 — Changelog
+
+#### Creator Dashboard 500 (`GET /api/creator/dashboard`)
+
+- **Bug fixed**: the dashboard's "Quest performance" panel queried
+  `sponsored_quests` for a `status` and a `creator_id` column — neither
+  exists on that table (it's `sponsoredQuests.ownerUserId` /
+  `businessAccountId` / `submittedBy` for ownership, and it has no lifecycle
+  `status` at all). Every call threw a real Postgres "column does not
+  exist" error, unhandled, which is what actually produced the reported
+  500 — a nearby `[database] Circuit CLOSED after recovery` log line was an
+  unrelated coincidence (the DB circuit breaker's own rejections surface as
+  a distinct 503 `DB_UNAVAILABLE`, not this generic 500). Fixed to query
+  `sponsored_quest_applications` (which does have `creator_id` and
+  `status`: `applied` → `accepted` → `completed`/`rejected`) — this is the
+  table that actually tracks a creator's own sponsored-quest completions,
+  per `app/api/creator/sponsored-quests/[questId]/{apply,complete}/route.ts`.
+- **Hardening**: every other stat panel in this route (members, top
+  gifters, quest performance, payout history, room health) now runs
+  through a shared `fetchRows()` helper that catches and logs a query
+  failure and falls back to an empty result instead of 500ing the whole
+  dashboard — the same try/catch-with-fallback pattern the route's
+  `fetchAvgSessionTimeMinutes()` helper already used for the one panel it
+  covered. Revenue figures are deliberately left unprotected (a silent $0
+  would be misleading for financial data) — a genuine revenue-query bug
+  should still surface as a 500, not a quietly wrong number.
+- **Separately discovered while investigating this**: the DB circuit
+  breaker (`lib/db/circuit.ts`) only ever wrapped each provider adapter's
+  own `query()`/`transaction()` methods — but `lib/db/drizzle.ts`'s
+  `getDb()` hands Drizzle the *same* underlying `pg.Pool` and Drizzle calls
+  `pool.query()` on it directly, bypassing that wrapper entirely. Since
+  "full Drizzle ORM coverage" (#532) moved nearly all application code onto
+  `getDb()`/Drizzle, the breaker had quietly stopped protecting the vast
+  majority of real traffic — a DB outage would hang every Drizzle-issued
+  query for the full statement/connection timeout instead of failing fast
+  with a clean 503, and none of that traffic fed back into the breaker's
+  own OPEN/CLOSED state either. Fixed by wrapping the `pg.Pool`'s `query()`
+  method itself, once, at pool-creation time
+  (`wrapPoolWithCircuitBreaker()`), so both the legacy adapter and Drizzle
+  share the same protection; the adapters' own `.query()` methods no longer
+  double-wrap (that would have double-counted every legacy-path query
+  against the breaker's rolling window once Drizzle and the adapter both
+  ran through it).
+- **No new migration.**
+
+#### "Empty user" after re-login (Auth — extends the v2.34 session-expiry fix)
+
+- **Bug fixed**: after a session died (revoked, or the access token simply
+  expired) a stale-but-still-cryptographically-valid `zobia_at` cookie
+  could remain in the browser, because a plain API 401 (as opposed to a
+  *genuine* revocation caught inside `/api/auth/refresh` /
+  `/api/auth/silent-refresh`, which the v2.34 fix already handles) never
+  cleared it. `middleware.ts`'s public-route handling only checks JWT
+  signature/expiry — not revocation — before bouncing a
+  signed-in-looking visitor away from `/auth/login` straight back to
+  `/home`. So clicking "Sign in" on the `SessionExpiredModal` never reached
+  the actual Google OAuth button: the user was redirected right back into
+  an app shell whose client-side user fetch then 401'd, rendering the
+  "Your Name" / "@username" / "U"-avatar placeholders with "View Profile"
+  erroring out. Fixed by clearing both auth cookies (via the existing
+  `POST /api/auth/logout`, always-200/always-clears) the moment
+  `markSessionExpired()` fires — before the user ever gets a chance to
+  click "Sign in" — with the modal's own button additionally awaiting that
+  clear before navigating, so `/auth/login` is guaranteed to render the
+  real sign-in screen instead of bouncing back. Web/PWA-only — the
+  Capacitor app already clears its stored Bearer token correctly on any
+  confirmed-unauthenticated state (`onUnauthenticated` → `clearAuth()` in
+  `apps/android/src/lib/auth/store.ts`), since it doesn't rely on a
+  middleware cookie check to gate `/auth/login`.
+- **Bug fixed (contributing cause)**: `Sidebar.tsx` and `Navbar.tsx` each
+  defined their own separate, ad-hoc `useState`/`useEffect` hook that
+  independently fetched `GET /api/users/me` on mount with no
+  deduplication (two redundant requests per page load, on top of the
+  already-deduplicated `/api/auth/me` call `useAuth()` makes), no retry,
+  and any non-OK response or network error silently swallowed forever —
+  so a single transient failure of that one mount-time fetch permanently
+  stranded the nav in the placeholder state for the rest of that page's
+  life, with no recovery path even after the underlying issue resolved.
+  Replaced both with a single shared `useUserProfile()` hook
+  (`lib/auth/hooks.ts`) using the same module-level dedup-promise pattern
+  already established there for `useAuth()`/`fetchAuthMe()` (BUG-PERF-02).
+- **No new migration.**
+
+---
+
+*ZobiaSocial PRD v2.35*
 *Project Codename: ZobiaSocialAPK*
 *Prepared for developer handoff*

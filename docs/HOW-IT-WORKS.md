@@ -1377,6 +1377,8 @@ Deletion is batched by joining the `messages` table against the sender's **curre
 
 **Pitfall — local `fetch` shadows:** `components/games/GameRunner.tsx` previously defined its own local `authFetch` helper (a plain `fetch` with `credentials: "include"`) instead of importing the shared one, so a session expiring mid-game (failing to start a game or submit a score) surfaced only a generic inline error — the session-expired modal never fired. Any new authenticated client component must call the shared `authFetch`/`apiClient`, never hand-roll a same-named local wrapper; a local function named `authFetch` that isn't the shared import is a code-review red flag.
 
+**Bug fix — "empty user" after clicking Sign In on the expired-session modal:** `markSessionExpired()` (`lib/auth/sessionExpiredBus.ts`) fires on a plain API 401, not just the two specific `SessionRevokedError`/`JwtVerificationError` cases `/api/auth/refresh` and `/api/auth/silent-refresh` already clear cookies for (v2.34). That left a window where the `zobia_at` cookie was still present and still cryptographically valid (unexpired) even though the session behind it was dead — and `middleware.ts`'s public-route handling only checks JWT signature/expiry, not revocation, before bouncing a signed-in-looking visitor away from `/auth/login` straight back to `/home`. So clicking "Sign in" on `SessionExpiredModal` never reached the real Google OAuth button: the user landed back in the app shell with `user: null` (the nav's `/api/users/me` 401'd), rendering the "Your Name"/"@username"/"U"-avatar placeholders. Fixed by having `markSessionExpired()` itself clear both auth cookies (via the existing `POST /api/auth/logout`, which is always-200/always-clears) the moment the session is confirmed dead — `SessionExpiredModal`'s "Sign in" button additionally awaits that clear before navigating, as a race-safety belt-and-suspenders. A contributing cause: `Sidebar.tsx`/`Navbar.tsx` each fetched `/api/users/me` via their own ad-hoc, un-deduplicated hook with no retry and a silently-swallowed failure, permanently stranding the nav in the placeholder state — replaced with a shared `useUserProfile()` hook (`lib/auth/hooks.ts`) using the same dedup-promise pattern as `useAuth()`.
+
 **Scroll-to-error:** A related, separate UX bug — a failed form submit or button click sometimes rendered its error message off-screen (above or below the fold) with no indication anything happened. `lib/hooks/useScrollToError.ts` is a small reusable hook (`const ref = useScrollToError(error)` → attach `ref` to the error container) that scrolls the element into view the moment the error transitions from falsy to truthy. It's wired into the shared `<Input>` component (per-field errors) and a new shared `<ErrorAlert>` component (`components/ui/ErrorAlert.tsx`, for page/form-level banners), and applied to the Home page, login page, and register page banners. New forms should use `<ErrorAlert error={...} />` or the hook directly rather than a bare `{error && <div>...}` block.
 
 **Expo mobile auth hardening:** On an irrecoverable 401, the Expo auth context clears all three SecureStore keys (`zobia_jwt`, `zobia_rt`, `zobia_user`) before transitioning to the signed-out state, so stale credentials cannot cause a re-authentication loop on the next app restart. After a successful silent token refresh, the Axios interceptor fetches `/api/users/me` and fires an `onUserUpdated` event; the auth context subscribes to this event and updates the in-memory user object with fresh XP, rank, and city — fields that are not embedded in the JWT payload and would otherwise go stale until re-login.
@@ -1401,6 +1403,23 @@ wrapped call cost a `GET circuit:database` plus an `EVAL` that itself did a
 `GET` and a `SET` — a route issuing three queries spent ~12 Redis commands
 purely asking "is Postgres healthy?", with every instance in the fleet
 read-modify-writing one hot key.
+
+**Bug fix (post-#532 "full Drizzle ORM coverage"):** for a stretch, this
+breaker had quietly stopped protecting most real traffic. Each provider's own
+`query()`/`transaction()` wrapper calls `withCircuitBreaker`, but
+`lib/db/drizzle.ts`'s `getDb()` hands Drizzle the *same* underlying `pg.Pool`
+and Drizzle calls `pool.query()` on it directly — bypassing the adapter
+wrapper (and therefore the breaker) entirely. Since #532 moved nearly all
+application code from `db.query()` onto `getDb()`/Drizzle, a DB outage would
+hang every Drizzle-issued query for the full statement/connection timeout
+instead of failing fast with a clean 503, and that traffic never fed back
+into the breaker's OPEN/CLOSED state either. Fixed by wrapping the
+`pg.Pool`'s own `query()` method once, at pool-creation time
+(`wrapPoolWithCircuitBreaker()` in `lib/db/circuit.ts`, called from each
+provider's `getPool()`), so both the legacy adapter and Drizzle share the
+same protection — the adapters' `.query()` methods no longer wrap a second
+time themselves (that would have double-counted every legacy-path query
+against the breaker's rolling window).
 
 `lib/db/circuit.ts` now uses the **in-process** `CircuitBreaker`. On serverless,
 where instances are cold and short-lived, shared breaker state bought almost
@@ -1688,7 +1707,7 @@ older ones within the same tier).
 
 Returns HTTP 200 when all checks pass. Returns HTTP 503 when one or more checks fail (status will be `"degraded"`; `errors` is only present when at least one check failed). Load balancers should poll this endpoint and remove the instance from rotation when a 503 is received.
 
-`checks.dbCircuit` reports the shared database circuit breaker's state (BUG-CAP-02 fix — `lib/db/circuit.ts`'s `dbCircuit`/`withCircuitBreaker` previously had no callers at all, so a degraded database had no fail-fast path; every DB provider adapter's `query()`/`transaction()` now routes through it — see "AI Provider Fallback" below for the equivalent circuit-breaker pattern already used for DeepSeek/Gemini). Since REDIS-COST-01 the DB breaker is **in-process** rather than Redis-backed: wrapping every query in a distributed breaker cost two to three Redis commands per query and was by far our largest single consumer, for state that short-lived serverless instances barely benefit from. Set `DB_CIRCUIT_DISTRIBUTED=1` to restore the Redis-backed breaker on a long-lived runtime. The Paystack/crypto breakers are low-volume and remain Redis-backed. `checks.dbCircuit` reads `"error"` only when the circuit is fully OPEN (fast-failing every call); `HALF_OPEN` still reports `"ok"` since it's actively probing for recovery. Because this health check's own `db.query("SELECT 1")` call goes through the same circuit breaker, a monitoring poll against `/api/health` doubles as the breaker's periodic recovery probe once the reset timeout elapses.
+`checks.dbCircuit` reports the shared database circuit breaker's state (BUG-CAP-02 fix — `lib/db/circuit.ts`'s `dbCircuit`/`withCircuitBreaker` previously had no callers at all, so a degraded database had no fail-fast path; every DB provider adapter's `transaction()` and, since the Drizzle-bypass fix above, every `pg.Pool.query()` call — whichever path issued it — now routes through it — see "AI Provider Fallback" below for the equivalent circuit-breaker pattern already used for DeepSeek/Gemini). Since REDIS-COST-01 the DB breaker is **in-process** rather than Redis-backed: wrapping every query in a distributed breaker cost two to three Redis commands per query and was by far our largest single consumer, for state that short-lived serverless instances barely benefit from. Set `DB_CIRCUIT_DISTRIBUTED=1` to restore the Redis-backed breaker on a long-lived runtime. The Paystack/crypto breakers are low-volume and remain Redis-backed. `checks.dbCircuit` reads `"error"` only when the circuit is fully OPEN (fast-failing every call); `HALF_OPEN` still reports `"ok"` since it's actively probing for recovery. Because this health check's own `db.query("SELECT 1")` call goes through the same circuit breaker, a monitoring poll against `/api/health` doubles as the breaker's periodic recovery probe once the reset timeout elapses.
 
 ### Graceful Shutdown
 

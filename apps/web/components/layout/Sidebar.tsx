@@ -11,33 +11,13 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useState, useEffect, useCallback } from "react";
+import { useCallback } from "react";
 import { clsx } from "clsx";
 import { Avatar } from "@/components/ui/Avatar";
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, type FeatureFlags } from "@/lib/hooks/useFeatureFlags";
 import { useHasNewNotifications } from "@/lib/notifications/useHasNewNotifications";
 import { useHasNewMessages, useHasNewAnnouncements } from "@/lib/notifications/useHasNewSince";
-
-interface SidebarUser {
-  display_name: string | null;
-  username: string | null;
-  avatar_emoji: string | null;
-  plan?: string | null;
-  is_admin?: boolean;
-  is_moderator?: boolean;
-  is_council_member?: boolean;
-}
-
-function useSidebarUser() {
-  const [user, setUser] = useState<SidebarUser | null>(null);
-  useEffect(() => {
-    fetch("/api/users/me", { credentials: "include" })
-      .then((r) => r.ok ? r.json() : null)
-      .then((json) => { if (json) setUser(json.user ?? json); })
-      .catch(() => {});
-  }, []);
-  return user;
-}
+import { useUserProfile } from "@/lib/auth/hooks";
 
 // ---------------------------------------------------------------------------
 // Nav items
@@ -179,7 +159,7 @@ function navIcon(label: string): string {
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const user = useSidebarUser();
+  const user = useUserProfile();
   const featureFlags = useFeatureFlags();
   const modVisibleKeys = useFeatureModVisibility();
   const hasNewNotifications = useHasNewNotifications();

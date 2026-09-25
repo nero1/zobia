@@ -32,6 +32,30 @@ export function isSessionExpired(): boolean {
 /**
  * Mark the session as expired and notify listeners. Safe to call repeatedly;
  * the notice is only raised once until {@link resetSessionExpired} is called.
+ *
+ * BUG: "logged in as an empty user without seeing the Google screen" — once a
+ * session is confirmed dead (this function runs), the browser can still be
+ * holding a `zobia_at` access-token cookie that is cryptographically valid
+ * (not yet past its own `exp`) even though the underlying session was
+ * revoked server-side (see lib/auth/session.ts SessionRevokedError). Only
+ * /api/auth/refresh and /api/auth/silent-refresh clear that cookie on a
+ * *genuine* revocation — a plain API 401 (which is what actually lands here,
+ * via the SessionExpiredModal "Sign in" button or the window.fetch guard
+ * below) never did.
+ *
+ * middleware.ts's public-route handling only checks JWT signature/expiry
+ * (not revocation) before bouncing a signed-in-looking visitor away from
+ * /auth/login straight back to /home — so with that stale-but-unexpired
+ * cookie still present, clicking "Sign in" never reaches the actual Google
+ * OAuth button: the user is redirected right back into an app shell whose
+ * client-side user fetch 401s, rendering the "Your Name"/"@username"/"U"
+ * placeholders.
+ *
+ * Clearing the cookies here (the same POST /api/auth/logout every explicit
+ * "Log out" action already uses — always 200, always clears both cookies)
+ * closes that gap: by the time the user acts on the notice, the cookie jar
+ * is already empty, so the next /auth/login visit renders the real sign-in
+ * screen instead of bouncing back.
  */
 export function markSessionExpired(): void {
   if (expired) return;
@@ -42,6 +66,19 @@ export function markSessionExpired(): void {
   // Session is confirmed dead — stop the expiry countdown (imported lazily to
   // avoid a module cycle; sessionExpiryBus never imports this file back).
   void import("./sessionExpiryBus").then(({ setSessionExpiresAt }) => setSessionExpiresAt(null));
+  void clearAuthCookies();
+}
+
+/**
+ * Clear the browser's zobia_at/zobia_rt cookies via the existing logout
+ * endpoint (always 200, always clears both cookies — see
+ * app/api/auth/logout/route.ts). Uses {@link rawFetch} so this never
+ * re-triggers the 401 guard below, and is safe to call multiple times.
+ */
+export function clearAuthCookies(): Promise<void> {
+  return rawFetch("/api/auth/logout", { method: "POST", credentials: "include" })
+    .then(() => undefined)
+    .catch(() => undefined);
 }
 
 /** Clear the latch (e.g. after the user signs back in / navigates to login). */
