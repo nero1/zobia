@@ -22,12 +22,35 @@ categories at once: **People, Blogs, Wikis, Answers, Games**. It supports:
 ## How it works
 
 `GET /api/search?q=&types=&range=&offset=` (`apps/web/app/api/search/route.ts`)
-runs one `ILIKE`-filtered `SELECT` per requested category, `UNION ALL`s them
-into a single ordered, paginated result set, and returns it. This mirrors the
-existing search endpoints in the codebase (`/api/users/search`,
-`/api/help/search`) rather than introducing a new search stack — no
+runs one `SELECT` per requested category, `UNION ALL`s them into a single
+ordered, paginated result set, and returns it. This mirrors the existing
+search endpoints in the codebase (`/api/users/search`, `/api/help/search`)
+rather than introducing a new search stack — no
 Elasticsearch/Algolia/Meilisearch, no separate index to keep in sync, no
 extra service to pay for or operate.
+
+**Matching + ranking** (migration `0014_search_trgm_fts.sql` — both of the
+upgrades described below have now been applied): each category branch
+matches rows on EITHER Postgres full-text search
+(`search_vector @@ websearch_to_tsquery('english', q)`, a generated `tsvector`
+column per table, GIN-indexed) OR a `pg_trgm`-indexed `ILIKE '%term%'`
+fallback. Both conditions are indexed, so this is still a single
+index-accelerated query per branch, not a sequential scan:
+
+- Full-text search alone would miss short/partial-word queries — "zob" does
+  not stem-match "zobia" — so the trigram `ILIKE` fallback keeps every query
+  that used to match still matching.
+- The `ILIKE`-only approach had no ranking or stemming, so `search_vector` +
+  `ts_rank` is layered on top to order whole/stemmed-word matches by
+  relevance instead of pure recency.
+- When `q` is non-empty, each branch is ordered by `ts_rank(search_vector,
+  tsquery) DESC`, falling back to recency as a tiebreak, and the outer
+  `UNION ALL` re-sorts the merged set the same way. When `q` is empty (the
+  default "browse" view), rank is a constant `0` for every row and ordering
+  is pure recency, unchanged from before this migration.
+- `search_vector` is a `GENERATED ALWAYS AS (...) STORED` column — Postgres
+  keeps it in sync on every insert/update automatically, no trigger or
+  application code required.
 
 Each category branch only reads rows that are already publicly visible on
 their own listing pages (published/active, not deleted, not banned), so
@@ -57,21 +80,23 @@ so behavior never drifts between platforms.
   maintain.
 
 **Where this approach starts to hurt, and what to do about it:**
-1. **`ILIKE '%term%'` can't use a plain B-tree index** (the leading `%`
-   defeats prefix matching). At small-to-medium table sizes Postgres just
-   sequential-scans the filtered set, which is fine; once any one searched
-   table reaches the high hundreds-of-thousands to low-millions of rows,
-   this scan starts showing up in query latency. **First upgrade**: enable
-   the `pg_trgm` extension and add a `GIN` trigram index per searched
-   column (`CREATE INDEX ... USING gin (title gin_trgm_ops)`), which turns
-   `ILIKE '%term%'` into an index-accelerated lookup — no application code
-   changes, no new service, just a migration.
-2. **No relevance ranking** — results are ordered by recency, not textual
-   relevance (no term-frequency scoring, no typo tolerance, no stemming).
-   This is a deliberate scope cut for v1 (keeps the query simple and cheap).
-   **Second upgrade**: Postgres full-text search (`tsvector`/`tsquery` +
-   `ts_rank`) gets you real relevance ranking and stemming while staying
-   entirely inside Postgres — still no new service.
+1. ~~**`ILIKE '%term%'` can't use a plain B-tree index**~~ — **done**
+   (migration `0014_search_trgm_fts.sql`). The leading `%` in `ILIKE
+   '%term%'` defeats plain B-tree prefix matching, so at small-to-medium
+   table sizes Postgres was sequential-scanning the filtered set; once any
+   one searched table reaches the high hundreds-of-thousands to
+   low-millions of rows, that scan starts showing up in query latency. The
+   `pg_trgm` extension is now enabled with a `GIN` trigram index per
+   searched column (`CREATE INDEX ... USING gin (title gin_trgm_ops)`),
+   which turns `ILIKE '%term%'` into an index-accelerated lookup.
+2. ~~**No relevance ranking**~~ — **done** (migration
+   `0014_search_trgm_fts.sql`). Results used to be ordered purely by
+   recency (no term-frequency scoring, no typo tolerance, no stemming).
+   Each searched table now has a generated `search_vector` `tsvector`
+   column (GIN indexed), and `app/api/search/route.ts` matches with
+   `websearch_to_tsquery('english', q)` and orders by `ts_rank(...)` when a
+   query is present — real relevance ranking and stemming, entirely inside
+   Postgres, no new service.
 3. **A dedicated search engine** (Meilisearch/Typesense/OpenSearch/Algolia)
    only becomes worth the operational cost (a service to run and pay for,
    an index to keep in sync with Postgres via triggers/CDC/a queue) once
@@ -103,3 +128,7 @@ so behavior never drifts between platforms.
   (Android).
 - `db/migrations/0011_search_ad_placements.sql` — registers the four ad
   placement keys this page uses.
+- `db/migrations/0014_search_trgm_fts.sql` — enables `pg_trgm`, adds a GIN
+  trigram index per searched column, and adds a generated `search_vector`
+  tsvector column (+ GIN index) per searched table for `ts_rank` relevance
+  ranking.
