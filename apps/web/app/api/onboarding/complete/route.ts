@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, conflict, ApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -176,28 +177,34 @@ export const POST = withAuth(async (req, { params, auth }) => {
     // Holds the referrer's user ID after the transaction commits (if a referral was used)
     let referrerId: string | null = null;
 
-    // Execute all writes in a single transaction
-    const result = await db.transaction(async (client) => {
-      // 1. Re-check username availability inside the transaction (TOCTOU
-      // protection) — via the shared checkUsernameAvailability() helper so a
-      // username under an active username_reservations hold (Username
-      // Change redirect/reservation) is rejected here too, not just at
-      // registration-time format/uniqueness checks.
-      const availability = await checkUsernameAvailability(body.username, {
-        excludeUserId: auth.user.sub,
-        client,
-      });
-      if (!availability.available) {
-        throw conflict(availability.reason ?? "This username is already taken", "USERNAME_TAKEN");
-      }
+    // Re-check username availability just before the transaction (TOCTOU
+    // protection) — via the shared checkUsernameAvailability() helper so a
+    // username under an active username_reservations hold (Username Change
+    // redirect/reservation) is rejected here too, not just at
+    // registration-time format/uniqueness checks. checkUsernameAvailability()
+    // still talks to the raw `db` adapter internally (lib/username/availability.ts
+    // is shared with non-migrated callers), so it cannot accept a Drizzle
+    // transaction handle — it runs just outside the transaction below instead
+    // of nested inside it.
+    const availability = await checkUsernameAvailability(body.username, {
+      excludeUserId: auth.user.sub,
+    });
+    if (!availability.available) {
+      throw conflict(availability.reason ?? "This username is already taken", "USERNAME_TAKEN");
+    }
 
+    const orm = await getDb();
+
+    // Execute all writes in a single transaction
+    const result = await orm.transaction(async (client) => {
       // 2. Generate referral code (ensure uniqueness with retry)
       let referralCode = generateReferralCode();
-      const codeCheck = await client.query<{ exists: boolean }>(
-        `SELECT EXISTS(SELECT 1 FROM users WHERE referral_code = $1) AS exists`,
-        [referralCode]
-      );
-      if (codeCheck.rows[0]?.exists) {
+      const [codeCheck] = await client
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(eq(schema.users.referralCode, referralCode))
+        .limit(1);
+      if (codeCheck) {
         referralCode = generateReferralCode() + "X"; // simple collision avoidance
       }
 
@@ -219,72 +226,55 @@ export const POST = withAuth(async (req, { params, auth }) => {
           }
         : null;
 
-      await client.query(
-        `UPDATE users SET
-           username                   = $1,
-           display_name               = $2,
-           avatar_emoji               = $3,
-           city                       = $4,
-           vibe_quiz_responses        = $5,
-           onboarding_personalization = $6,
-           date_of_birth              = $7,
-           referral_code              = $8,
-           gender                     = $9,
-           onboarding_completed       = true,
-           updated_at                 = NOW()
-         WHERE id = $10 AND deleted_at IS NULL`,
-        [
-          body.username,
-          body.display_name,
-          body.avatar_emoji ?? null,
-          body.city ?? null,
-          body.vibe_quiz_responses ? JSON.stringify(body.vibe_quiz_responses) : null,
-          personalization ? JSON.stringify(personalization) : null,
+      await client
+        .update(schema.users)
+        .set({
+          username: body.username,
+          displayName: body.display_name,
+          avatarEmoji: body.avatar_emoji ?? undefined,
+          city: body.city ?? null,
+          vibeQuizResponses: body.vibe_quiz_responses ?? null,
+          onboardingPersonalization: personalization ?? null,
           dateOfBirth,
           referralCode,
-          body.gender ?? null,
-          auth.user.sub,
-        ]
-      );
+          gender: body.gender ?? null,
+          onboardingCompleted: true,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)));
 
       // 4. Award XP – write to xp_ledger
-      await client.query(
-        `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, created_at)
-         VALUES ($1, $2, 'main', 'welcome_drop', $2, NOW())`,
-        [auth.user.sub, WELCOME_XP]
-      );
+      await client.insert(schema.xpLedger).values({
+        userId: auth.user.sub,
+        amount: WELCOME_XP,
+        track: "main",
+        source: "welcome_drop",
+        baseAmount: WELCOME_XP,
+      });
 
       // 5. Update user's xp_total
-      await client.query(
-        `UPDATE users SET xp_total = COALESCE(xp_total, 0) + $1 WHERE id = $2`,
-        [WELCOME_XP, auth.user.sub]
-      );
-
-      // 6. Credit welcome coins (locks row, writes ledger with balance_before/after, updates balance)
-      await creditCoins(
-        auth.user.sub,
-        WELCOME_COINS,
-        "welcome_bonus",
-        "onboarding_welcome",
-        "Welcome bonus",
-        null,
-        client
-      );
+      await client
+        .update(schema.users)
+        .set({ xpTotal: sql`COALESCE(${schema.users.xpTotal}, 0) + ${WELCOME_XP}` })
+        .where(eq(schema.users.id, auth.user.sub));
 
       // 8. Track referral if a code was supplied
       if (body.referral_code) {
-        const referrer = await client.query<{ id: string }>(
-          `SELECT id FROM users WHERE referral_code = $1 AND deleted_at IS NULL LIMIT 1`,
-          [body.referral_code.toUpperCase()]
-        );
-        if (referrer.rows[0]) {
-          referrerId = referrer.rows[0].id;
-          await client.query(
-            `INSERT INTO referrals (referrer_id, referred_id, code, created_at)
-             VALUES ($1, $2, $3, NOW())
-             ON CONFLICT DO NOTHING`,
-            [referrerId, auth.user.sub, body.referral_code.toUpperCase()]
-          );
+        const [referrer] = await client
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(and(eq(schema.users.referralCode, body.referral_code.toUpperCase()), isNull(schema.users.deletedAt)))
+          .limit(1);
+        if (referrer) {
+          referrerId = referrer.id;
+          await client
+            .insert(schema.referrals)
+            .values({
+              referrerId,
+              referredId: auth.user.sub,
+              code: body.referral_code.toUpperCase(),
+            })
+            .onConflictDoNothing();
         }
       }
 
@@ -302,18 +292,34 @@ export const POST = withAuth(async (req, { params, auth }) => {
         ],
       };
 
-      await client.query(
-        `INSERT INTO new_member_quests
-           (user_id, quest_type, progress, completed, created_at, updated_at)
-         VALUES ($1, 'new_member', $2, FALSE, NOW(), NOW())
-         ON CONFLICT (user_id, quest_type) DO NOTHING`,
-        [auth.user.sub, JSON.stringify(newMemberQuestProgress)]
-      ).catch(() => {
-        logger.warn('[onboarding/complete] Could not insert new_member quest (non-fatal)');
-      });
+      await client
+        .insert(schema.newMemberQuests)
+        .values({
+          userId: auth.user.sub,
+          questType: "new_member",
+          progress: newMemberQuestProgress,
+          completed: false,
+        })
+        .onConflictDoNothing()
+        .catch(() => {
+          logger.warn('[onboarding/complete] Could not insert new_member quest (non-fatal)');
+        });
 
       return { referralCode };
     });
+
+    // 6. Credit welcome coins (locks row, writes ledger with balance_before/after,
+    // updates balance). Runs in its own atomic transaction — creditCoins is
+    // idempotent on (user, type, referenceId), so it is safe to run just after
+    // the profile-update transaction commits rather than nested inside it.
+    await creditCoins(
+      auth.user.sub,
+      WELCOME_COINS,
+      "welcome_bonus",
+      "onboarding_welcome",
+      "Welcome bonus",
+      null
+    );
 
     // Fire referral notification to referrer (fire-and-forget — never blocks the response)
     if (referrerId) {

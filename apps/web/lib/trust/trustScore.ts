@@ -16,7 +16,8 @@
  * @module lib/trust/trustScore
  */
 
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import { eq, sql } from "drizzle-orm";
+import type { DbOrTx } from "@/lib/db/drizzle";
 // Schema-derived types: columns are guaranteed to exist in the users table.
 // When the DB schema changes, these imports break at compile time rather than
 // at runtime. Use schema.$inferSelect field names as authoritative references.
@@ -135,12 +136,12 @@ function computeScore(signals: TrustSignals): number {
  * and updates users.trust_score atomically.
  *
  * @param userId - User UUID
- * @param db     - Database adapter
+ * @param db     - Drizzle instance or transaction handle
  * @returns The newly computed trust score (0–100)
  */
 export async function calculateTrustScore(
   userId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<number> {
   // Compile-time schema validation: if these columns are renamed or removed in
   // schema.ts, the type references below produce a TypeScript error before the
@@ -160,8 +161,8 @@ export async function calculateTrustScore(
     payment_count: string;
     moderation_action_count: string;
   };
-  const { rows } = await db.query<TrustSignalRow>(
-    `SELECT
+  const { rows } = await db.execute<TrustSignalRow>(sql`
+    SELECT
        EXTRACT(DAY FROM (NOW() - u.created_at))::int::text  AS account_age_days,
        (SELECT COUNT(*)::text FROM reports WHERE reported_user_id = u.id) AS report_count,
        (SELECT COUNT(*)::text FROM moderation_actions WHERE target_user_id = u.id AND action_type = 'warn') AS warning_count,
@@ -178,9 +179,8 @@ export async function calculateTrustScore(
          WHERE target_user_id = u.id AND action_type != 'warn'
        )                                                     AS moderation_action_count
      FROM users u
-     WHERE u.id = $1 AND u.deleted_at IS NULL`,
-    [userId]
-  );
+     WHERE u.id = ${userId} AND u.deleted_at IS NULL
+  `);
 
   const row = rows[0];
   if (!row) {
@@ -199,10 +199,7 @@ export async function calculateTrustScore(
 
   const score = computeScore(signals);
 
-  await db.query(`UPDATE users SET trust_score = $1 WHERE id = $2`, [
-    score,
-    userId,
-  ]);
+  await db.update(schema.users).set({ trustScore: score }).where(eq(schema.users.id, userId));
 
   return score;
 }
@@ -217,12 +214,12 @@ export async function calculateTrustScore(
  * then batch-updates all users atomically.
  *
  * @param userIds - Array of user UUIDs to recalculate
- * @param db      - Database adapter
+ * @param db      - Drizzle instance or transaction handle
  * @returns Map of userId → computed score
  */
 export async function batchCalculateTrustScores(
   userIds: string[],
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<Map<string, number>> {
   if (userIds.length === 0) return new Map();
 
@@ -237,8 +234,8 @@ export async function batchCalculateTrustScores(
     moderation_action_count: string;
   };
 
-  const { rows } = await db.query<BatchRow>(
-    `SELECT
+  const { rows } = await db.execute<BatchRow>(sql`
+    SELECT
        u.id,
        EXTRACT(DAY FROM (NOW() - u.created_at))::int::text AS account_age_days,
        COALESCE(rc.report_count, 0)::text       AS report_count,
@@ -250,30 +247,29 @@ export async function batchCalculateTrustScores(
      FROM users u
      LEFT JOIN (
        SELECT reported_user_id AS uid, COUNT(*)::int AS report_count
-       FROM reports WHERE reported_user_id = ANY($1::uuid[])
+       FROM reports WHERE reported_user_id = ANY(${userIds}::uuid[])
        GROUP BY reported_user_id
      ) rc ON rc.uid = u.id
      LEFT JOIN (
        SELECT target_user_id AS uid, COUNT(*)::int AS warning_count
        FROM moderation_actions
-       WHERE target_user_id = ANY($1::uuid[]) AND action_type = 'warn'
+       WHERE target_user_id = ANY(${userIds}::uuid[]) AND action_type = 'warn'
        GROUP BY target_user_id
      ) wc ON wc.uid = u.id
      LEFT JOIN (
        SELECT user_id AS uid, COUNT(*)::int AS payment_count
        FROM payments
-       WHERE user_id = ANY($1::uuid[]) AND status = 'completed'
+       WHERE user_id = ANY(${userIds}::uuid[]) AND status = 'completed'
        GROUP BY user_id
      ) pc ON pc.uid = u.id
      LEFT JOIN (
        SELECT target_user_id AS uid, COUNT(*)::int AS action_count
        FROM moderation_actions
-       WHERE target_user_id = ANY($1::uuid[]) AND action_type != 'warn'
+       WHERE target_user_id = ANY(${userIds}::uuid[]) AND action_type != 'warn'
        GROUP BY target_user_id
      ) mac ON mac.uid = u.id
-     WHERE u.id = ANY($1::uuid[]) AND u.deleted_at IS NULL`,
-    [userIds]
-  );
+     WHERE u.id = ANY(${userIds}::uuid[]) AND u.deleted_at IS NULL
+  `);
 
   const scores = new Map<string, number>();
   const updateIds: string[] = [];
@@ -295,13 +291,12 @@ export async function batchCalculateTrustScores(
   }
 
   if (updateIds.length > 0) {
-    await db.query(
-      `UPDATE users u
+    await db.execute(sql`
+      UPDATE users u
        SET trust_score = updates.score, updated_at = NOW()
-       FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::int[]) AS score) updates
-       WHERE u.id = updates.id`,
-      [updateIds, updateScores]
-    );
+       FROM (SELECT unnest(${updateIds}::uuid[]) AS id, unnest(${updateScores}::int[]) AS score) updates
+       WHERE u.id = updates.id
+    `);
   }
 
   return scores;
@@ -320,12 +315,12 @@ export async function batchCalculateTrustScores(
  *
  * @param userId - User UUID
  * @param event  - The event that triggered the update
- * @param db     - Database adapter
+ * @param db     - Drizzle instance or transaction handle
  */
 export async function updateTrustScore(
   userId: string,
   event: TrustEvent,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<void> {
   try {
     const newScore = await calculateTrustScore(userId, db);
@@ -349,7 +344,7 @@ export async function updateTrustScore(
  *
  * @param userId           - User UUID
  * @param feature          - The feature being gated
- * @param db               - Database adapter
+ * @param db               - Drizzle instance or transaction handle
  * @param forceRecalculate - When true, recomputes the score from signals before
  *                           checking the threshold (useful after moderation actions)
  * @returns true if the user is eligible
@@ -357,7 +352,7 @@ export async function updateTrustScore(
 export async function meetsMinimumTrust(
   userId: string,
   feature: TrustGatedFeature,
-  db: DatabaseAdapter,
+  db: DbOrTx,
   { forceRecalculate = false }: { forceRecalculate?: boolean } = {}
 ): Promise<boolean> {
   // Compile-time schema validation: TypeScript errors if these columns change in schema.ts.
@@ -371,16 +366,15 @@ export async function meetsMinimumTrust(
     is_banned: boolean;
     is_verified: boolean;
   };
-  const { rows } = await db.query<TrustGateRow>(
-    `SELECT
+  const { rows } = await db.execute<TrustGateRow>(sql`
+    SELECT
        trust_score,
        EXTRACT(DAY FROM (NOW() - created_at))::int AS account_age_days,
        is_banned,
        is_verified
      FROM users
-     WHERE id = $1 AND deleted_at IS NULL`,
-    [userId]
-  );
+     WHERE id = ${userId} AND deleted_at IS NULL
+  `);
 
   const user = rows[0];
   if (!user || user.is_banned) return false;

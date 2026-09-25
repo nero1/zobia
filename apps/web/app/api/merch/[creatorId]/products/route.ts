@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -68,26 +69,40 @@ export async function GET(
   try {
     const { creatorId } = await params;
 
+    const orm = await getDb();
+
     // Get store for creator
-    const { rows: storeRows } = await db.query<{ id: string }>(
-      `SELECT id FROM merch_stores WHERE creator_id = $1 LIMIT 1`,
-      [creatorId]
-    );
+    const storeRows = await orm
+      .select({ id: schema.merchStores.id })
+      .from(schema.merchStores)
+      .where(eq(schema.merchStores.creatorId, creatorId))
+      .limit(1);
     if (!storeRows[0]) throw notFound("Merch store not found for this creator");
 
-    const { rows } = await db.query<MerchProductRow>(
-      `SELECT id, store_id, name, description, product_type,
-              price_kobo::TEXT AS price_kobo, image_url, is_active, stock,
-              referral_enabled, referral_commission_pct::TEXT AS referral_commission_pct, created_at
-       FROM merch_products
-       WHERE store_id = $1 AND is_active = TRUE
-       ORDER BY created_at DESC`,
-      [storeRows[0].id]
-    );
+    const dbRows = await orm
+      .select({
+        id: schema.merchProducts.id,
+        store_id: schema.merchProducts.storeId,
+        name: schema.merchProducts.name,
+        description: schema.merchProducts.description,
+        product_type: schema.merchProducts.productType,
+        price_kobo: schema.merchProducts.priceKobo,
+        image_url: schema.merchProducts.imageUrl,
+        is_active: schema.merchProducts.isActive,
+        stock: schema.merchProducts.stock,
+        referral_enabled: schema.merchProducts.referralEnabled,
+        referral_commission_pct: schema.merchProducts.referralCommissionPct,
+        created_at: schema.merchProducts.createdAt,
+      })
+      .from(schema.merchProducts)
+      .where(and(eq(schema.merchProducts.storeId, storeRows[0].id), eq(schema.merchProducts.isActive, true)))
+      .orderBy(desc(schema.merchProducts.createdAt));
 
-    const products = rows.map((p) => ({
+    const products = dbRows.map((p) => ({
       ...p,
-      priceKobo: parseInt(p.price_kobo, 10),
+      price_kobo: String(p.price_kobo),
+      created_at: p.created_at ? p.created_at.toISOString() : null,
+      priceKobo: Number(p.price_kobo),
       referralCommissionPct: p.referral_commission_pct ? parseFloat(p.referral_commission_pct) : null,
     }));
 
@@ -124,16 +139,19 @@ export const POST = withAuth(
 
       // Verify Elite+ creator OR verified Business account (per PRD §14:
       // Merch Store is Elite tier+, extended to Business accounts).
-      const eligibility = await getMerchSellerEligibility(userId, db);
+      const eligibility = await getMerchSellerEligibility(userId);
       if (!eligibility.qualified) {
         throw forbidden(MERCH_SELLER_INELIGIBLE_MESSAGE);
       }
 
+      const orm = await getDb();
+
       // Get store for creator
-      const { rows: storeRows } = await db.query<{ id: string }>(
-        `SELECT id FROM merch_stores WHERE creator_id = $1 LIMIT 1`,
-        [userId]
-      );
+      const storeRows = await orm
+        .select({ id: schema.merchStores.id })
+        .from(schema.merchStores)
+        .where(eq(schema.merchStores.creatorId, userId))
+        .limit(1);
       if (!storeRows[0]) throw notFound("Merch store not found. Create a store first.");
 
       const body = await validateBody(req, createProductSchema);
@@ -144,10 +162,11 @@ export const POST = withAuth(
       // business_account's own verification_status is a separate, already-
       // enforced gate (checked by getMerchSellerEligibility above).
       {
-        const { rows: kycRows } = await db.query<{ kyc_tier: number }>(
-          `SELECT kyc_tier FROM users WHERE id = $1`,
-          [userId]
-        );
+        const kycRows = await orm
+          .select({ kyc_tier: schema.users.kycTier })
+          .from(schema.users)
+          .where(eq(schema.users.id, userId))
+          .limit(1);
         const requiredTier = await getRequiredKycTier(eligibility.accountType, { kobo: body.price_kobo });
         if (requiredTier > 0 && !meetsRequiredKycTier(kycRows[0]?.kyc_tier ?? 0, requiredTier)) {
           throw forbidden(
@@ -164,10 +183,11 @@ export const POST = withAuth(
         if (!manifest.features.physicalGoodsEnabled) {
           throw forbidden("Physical goods sales are not enabled on this platform");
         }
-        const { rows: storeSettingRows } = await db.query<{ physical_goods_enabled: boolean }>(
-          `SELECT physical_goods_enabled FROM merch_stores WHERE creator_id = $1 LIMIT 1`,
-          [userId]
-        );
+        const storeSettingRows = await orm
+          .select({ physical_goods_enabled: schema.merchStores.physicalGoodsEnabled })
+          .from(schema.merchStores)
+          .where(eq(schema.merchStores.creatorId, userId))
+          .limit(1);
         if (!storeSettingRows[0]?.physical_goods_enabled) {
           throw forbidden("You must enable physical goods on your store before creating physical products");
         }
@@ -198,33 +218,45 @@ export const POST = withAuth(
         referralEnabled = false;
       }
 
-      const { rows } = await db.query<MerchProductRow>(
-        `INSERT INTO merch_products
-           (store_id, name, description, product_type, price_kobo, is_active, stock,
-            referral_enabled, referral_commission_pct, created_at)
-         VALUES ($1, $2, $3, $4, $5, TRUE, $6, $7, $8, NOW())
-         RETURNING id, store_id, name, description, product_type,
-                   price_kobo::TEXT AS price_kobo, image_url, is_active, stock,
-                   referral_enabled, referral_commission_pct::TEXT AS referral_commission_pct, created_at`,
-        [
-          storeRows[0].id,
-          body.name,
-          body.description ?? null,
-          body.product_type,
-          body.price_kobo,
-          body.stock ?? null,
+      const inserted = await orm
+        .insert(schema.merchProducts)
+        .values({
+          storeId: storeRows[0].id,
+          name: body.name,
+          description: body.description ?? null,
+          productType: body.product_type,
+          priceKobo: BigInt(body.price_kobo),
+          isActive: true,
+          stock: body.stock ?? null,
           referralEnabled,
-          referralCommissionPct,
-        ]
-      );
+          referralCommissionPct: referralCommissionPct !== null ? String(referralCommissionPct) : null,
+        })
+        .returning({
+          id: schema.merchProducts.id,
+          store_id: schema.merchProducts.storeId,
+          name: schema.merchProducts.name,
+          description: schema.merchProducts.description,
+          product_type: schema.merchProducts.productType,
+          price_kobo: schema.merchProducts.priceKobo,
+          image_url: schema.merchProducts.imageUrl,
+          is_active: schema.merchProducts.isActive,
+          stock: schema.merchProducts.stock,
+          referral_enabled: schema.merchProducts.referralEnabled,
+          referral_commission_pct: schema.merchProducts.referralCommissionPct,
+          created_at: schema.merchProducts.createdAt,
+        });
+
+      const row = inserted[0];
 
       return NextResponse.json(
         {
           success: true,
           data: {
             product: {
-              ...rows[0],
-              priceKobo: parseInt(rows[0].price_kobo, 10),
+              ...row,
+              price_kobo: String(row.price_kobo),
+              created_at: row.created_at ? row.created_at.toISOString() : null,
+              priceKobo: Number(row.price_kobo),
             },
           },
           error: null,

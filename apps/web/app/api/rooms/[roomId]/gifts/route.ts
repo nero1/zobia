@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -71,12 +72,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const { roomId } = await params as { roomId: string };
 
     // Verify room exists
-    const { rows: roomRows } = await db.query<{ is_active: boolean; monetization_disabled: boolean }>(
-      `SELECT is_active, COALESCE(monetization_disabled, FALSE) AS monetization_disabled FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-    if (!roomRows[0]?.is_active) throw notFound("Room not found");
-    if (roomRows[0].monetization_disabled) throw forbidden("Monetization has been disabled for this room");
+    const orm = await getDb();
+    const [roomRow] = await orm
+      .select({ is_active: schema.rooms.isActive, monetization_disabled: schema.rooms.monetizationDisabled })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
+    if (!roomRow?.is_active) throw notFound("Room not found");
+    if (roomRow.monetization_disabled) throw forbidden("Monetization has been disabled for this room");
 
     const cacheKey = `room:gifts:top:${roomId}`;
 
@@ -99,8 +102,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Query DB
-    const { rows: topGifters } = await db.query<TopGifterRow>(
-      `SELECT
+    const { rows: topGifters } = await orm.execute<TopGifterRow & Record<string, unknown>>(sql`
+      SELECT
          ROW_NUMBER() OVER (ORDER BY SUM(g.coin_value) DESC)::int AS rank,
          g.sender_id     AS user_id,
          u.username,
@@ -110,13 +113,12 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          COUNT(g.id)::int         AS gift_count
        FROM gifts g
        JOIN users u ON u.id = g.sender_id
-       WHERE g.room_id = $1
+       WHERE g.room_id = ${roomId}
          AND g.created_at > NOW() - INTERVAL '24 hours'
        GROUP BY g.sender_id, u.username, u.display_name, u.avatar_emoji
        ORDER BY total_coins DESC
-       LIMIT $2`,
-      [roomId, TOP_N]
-    );
+       LIMIT ${TOP_N}
+    `);
 
     // Populate in-process and Redis cache
     memSet(cacheKey, topGifters, LEADERBOARD_MEM_TTL_MS);
@@ -151,12 +153,14 @@ export const POST = withAuth(async (req: NextRequest, { params }) => {
   try {
     const { roomId } = await params as { roomId: string };
 
-    const { rows } = await db.query<{ is_active: boolean; monetization_disabled: boolean }>(
-      `SELECT is_active, COALESCE(monetization_disabled, FALSE) AS monetization_disabled FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-    if (!rows[0]?.is_active) throw notFound("Room not found");
-    if (rows[0].monetization_disabled) throw forbidden("Monetization has been disabled for this room");
+    const orm = await getDb();
+    const [row] = await orm
+      .select({ is_active: schema.rooms.isActive, monetization_disabled: schema.rooms.monetizationDisabled })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
+    if (!row?.is_active) throw notFound("Room not found");
+    if (row.monetization_disabled) throw forbidden("Monetization has been disabled for this room");
 
     return NextResponse.redirect(
       new URL(`/api/economy/gifts/send?roomId=${roomId}`, req.url),

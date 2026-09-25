@@ -16,7 +16,8 @@ export const maxDuration = 10;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
 import { logger } from "@/lib/logger";
 
@@ -28,7 +29,8 @@ export const GET = async (req: NextRequest) => {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const didClaim = await checkCronIdempotency("cron_daily_users_last_run", db);
+  const orm = await getDb();
+  const didClaim = await checkCronIdempotency("cron_daily_users_last_run", orm);
   if (!didClaim) {
     return NextResponse.json({ skipped: true, reason: "Already ran today" });
   }
@@ -42,25 +44,25 @@ export const GET = async (req: NextRequest) => {
     for (const days of INACTIVITY_TRIGGERS) {
       const cutoff     = new Date(Date.now() - days       * 86_400_000).toISOString();
       const oneDayBack = new Date(Date.now() - (days + 1) * 86_400_000).toISOString();
-      const { rows } = await db.query<{ count: string }>(
-        `WITH flagged AS (
-           INSERT INTO user_inactivity_events (user_id, inactive_days, created_at)
-           SELECT id, $1, NOW()
-           FROM users
-           WHERE deleted_at IS NULL
-             AND last_active_at BETWEEN $2 AND $3
-             AND NOT EXISTS (
-               SELECT 1 FROM user_inactivity_events
-               WHERE user_id = users.id AND inactive_days = $1
-                 AND created_at > NOW() - INTERVAL '7 days'
-             )
-           ON CONFLICT DO NOTHING
-           RETURNING 1
-         )
-         SELECT COUNT(*) AS count FROM flagged`,
-        [days, oneDayBack, cutoff]
-      );
-      inactivityEvents[days] = parseInt(rows[0]?.count ?? "0");
+      const result = await orm.execute(sql`
+        WITH flagged AS (
+          INSERT INTO user_inactivity_events (user_id, inactive_days, created_at)
+          SELECT id, ${days}, NOW()
+          FROM users
+          WHERE deleted_at IS NULL
+            AND last_active_at BETWEEN ${oneDayBack} AND ${cutoff}
+            AND NOT EXISTS (
+              SELECT 1 FROM user_inactivity_events
+              WHERE user_id = users.id AND inactive_days = ${days}
+                AND created_at > NOW() - INTERVAL '7 days'
+            )
+          ON CONFLICT DO NOTHING
+          RETURNING 1
+        )
+        SELECT COUNT(*) AS count FROM flagged
+      `);
+      const row = result.rows[0] as { count: string } | undefined;
+      inactivityEvents[days] = parseInt(row?.count ?? "0");
     }
     results.inactivityEvents = inactivityEvents;
   } catch (err) {
@@ -69,29 +71,30 @@ export const GET = async (req: NextRequest) => {
 
   // 2. Guild discovery prompts — single batch INSERT...SELECT (was per-user loop)
   try {
-    const { rows } = await db.query<{ count: string }>(
-      `WITH notified AS (
-         INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-         SELECT u.id,
-                'guild_discovery',
-                'Join a Guild',
-                'Crews near you are recruiting! Join a Guild to earn XP boosts.',
-                '{}',
-                false,
-                NOW()
-         FROM users u
-         WHERE u.created_at BETWEEN NOW() - INTERVAL '25 hours' AND NOW() - INTERVAL '23 hours'
-           AND u.deleted_at IS NULL
-           AND NOT EXISTS (SELECT 1 FROM guild_members gm WHERE gm.user_id = u.id)
-           AND NOT EXISTS (
-             SELECT 1 FROM notifications n
-             WHERE n.user_id = u.id AND n.type = 'guild_discovery'
-           )
-         RETURNING 1
-       )
-       SELECT COUNT(*) AS count FROM notified`
-    );
-    results.guildDiscoveryPrompts = { notified: parseInt(rows[0]?.count ?? "0") };
+    const result = await orm.execute(sql`
+      WITH notified AS (
+        INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+        SELECT u.id,
+               'guild_discovery',
+               'Join a Guild',
+               'Crews near you are recruiting! Join a Guild to earn XP boosts.',
+               '{}',
+               false,
+               NOW()
+        FROM users u
+        WHERE u.created_at BETWEEN NOW() - INTERVAL '25 hours' AND NOW() - INTERVAL '23 hours'
+          AND u.deleted_at IS NULL
+          AND NOT EXISTS (SELECT 1 FROM guild_members gm WHERE gm.user_id = u.id)
+          AND NOT EXISTS (
+            SELECT 1 FROM notifications n
+            WHERE n.user_id = u.id AND n.type = 'guild_discovery'
+          )
+        RETURNING 1
+      )
+      SELECT COUNT(*) AS count FROM notified
+    `);
+    const row = result.rows[0] as { count: string } | undefined;
+    results.guildDiscoveryPrompts = { notified: parseInt(row?.count ?? "0") };
   } catch (err) {
     errors.push(`guildDiscoveryPrompts: ${String(err)}`);
   }
@@ -101,24 +104,25 @@ export const GET = async (req: NextRequest) => {
     // BUG-22: select cl.id so each reversal gets a unique reference_id keyed on
     // the ledger row — prevents the partial-index ON CONFLICT from deduping
     // a second reversal for the same user as if it were the first.
-    const { rows: expiredBonusUsers } = await db.query<{
+    const expiredResult = await orm.execute(sql`
+      SELECT cl.user_id, cl.id AS ledger_id
+      FROM coin_ledger cl
+      JOIN users u ON u.id = cl.user_id
+      WHERE cl.transaction_type = 'comeback_bonus_reserved'
+        AND cl.created_at < NOW() - INTERVAL '7 days'
+        AND NOT EXISTS (
+          SELECT 1 FROM coin_ledger cl2
+          WHERE cl2.user_id = cl.user_id
+            AND cl2.transaction_type = 'comeback_bonus_claimed'
+            AND cl2.created_at > cl.created_at
+        )
+        AND (u.last_active_at IS NULL OR u.last_active_at < cl.created_at)
+        AND u.deleted_at IS NULL
+    `);
+    const expiredBonusUsers = expiredResult.rows as unknown as {
       user_id: string;
       ledger_id: string;
-    }>(
-      `SELECT cl.user_id, cl.id AS ledger_id
-       FROM coin_ledger cl
-       JOIN users u ON u.id = cl.user_id
-       WHERE cl.transaction_type = 'comeback_bonus_reserved'
-         AND cl.created_at < NOW() - INTERVAL '7 days'
-         AND NOT EXISTS (
-           SELECT 1 FROM coin_ledger cl2
-           WHERE cl2.user_id = cl.user_id
-             AND cl2.transaction_type = 'comeback_bonus_claimed'
-             AND cl2.created_at > cl.created_at
-         )
-         AND (u.last_active_at IS NULL OR u.last_active_at < cl.created_at)
-         AND u.deleted_at IS NULL`
-    );
+    }[];
 
     let expiredBonuses = 0;
     const { debitCoins } = await import("@/lib/economy/coins");
@@ -132,7 +136,7 @@ export const GET = async (req: NextRequest) => {
       await Promise.allSettled(
         chunk.map(async (row) => {
           try {
-            await db.transaction(async (tx) => {
+            await orm.transaction(async (tx) => {
               await debitCoins(
                 row.user_id,
                 COMEBACK_COIN_AMOUNT,

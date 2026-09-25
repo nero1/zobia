@@ -19,8 +19,8 @@
  * key/value rows — not from a single serialised JSON blob.
  */
 
-import { db } from "@/lib/db";
-import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+import { eq } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { env } from "@/lib/env";
 import { memGet, memSet, memDel } from "@/lib/cache/memory";
@@ -1646,9 +1646,8 @@ export async function loadManifest(): Promise<ZobiaManifest> {
       let kv: Record<string, string> = {};
 
       try {
-        const { rows } = await db.query<{ key: string; value: string }>(
-          "SELECT key, value FROM x_manifest"
-        );
+        const orm = await getDb();
+        const rows = await orm.select({ key: schema.xManifest.key, value: schema.xManifest.value }).from(schema.xManifest);
 
         if (rows.length > 0) {
           for (const row of rows) {
@@ -1710,17 +1709,21 @@ export async function invalidateManifestCache(): Promise<void> {
  * @param key - The x_manifest key to look up
  * @param dbClient - Optional DB client/transaction to run the cache-miss
  *   fallback query on. Pass the transaction client when calling this from
- *   inside `db.transaction()` — otherwise the fallback query checks out a
+ *   inside a transaction — otherwise the fallback query checks out a
  *   SECOND connection from the same pool the open transaction is already
  *   holding one from, which can starve/timeout a small pool (default
  *   DB_POOL_SIZE=2) and surface as a spurious 500/503 whenever the Redis
- *   manifest cache happens to be cold. Defaults to the shared pooled `db`
- *   for callers outside a transaction.
+ *   manifest cache happens to be cold. Defaults to the shared Drizzle
+ *   singleton for callers outside a transaction. Accepts either a Drizzle
+ *   handle/tx or a not-yet-migrated caller's legacy `{ query() }` client
+ *   (some call sites still pass their raw transaction client through here
+ *   pending their own migration) — duck-typed so this module doesn't need
+ *   to import the legacy adapter types.
  * @returns Raw string value or null if the key does not exist
  */
 export async function getManifestValue(
   key: string,
-  dbClient: Pick<DatabaseAdapter, "query"> | TransactionClient = db
+  dbClient?: DbOrTx | { query<T = unknown>(sqlText: string, params?: unknown[]): Promise<{ rows: T[] }> }
 ): Promise<string | null> {
   // 1. In-process KV cache — zero Redis calls on a warm instance. loadManifest()
   //    populates this on every fill, so any request that has already touched the
@@ -1746,11 +1749,24 @@ export async function getManifestValue(
 
   // 3. Cache miss — query the DB directly (via the caller's client, if given)
   try {
-    const { rows } = await dbClient.query<{ value: string }>(
-      "SELECT value FROM x_manifest WHERE key = $1 LIMIT 1",
-      [key]
-    );
-    const raw = rows[0]?.value;
+    let raw: string | undefined;
+    if (dbClient && typeof (dbClient as { query?: unknown }).query === "function") {
+      // Legacy (not-yet-migrated) caller's raw client — duck-typed, see above.
+      const legacyClient = dbClient as { query<T = unknown>(sqlText: string, params?: unknown[]): Promise<{ rows: T[] }> };
+      const { rows } = await legacyClient.query<{ value: string }>(
+        "SELECT value FROM x_manifest WHERE key = $1 LIMIT 1",
+        [key]
+      );
+      raw = rows[0]?.value;
+    } else {
+      const orm = (dbClient as DbOrTx | undefined) ?? (await getDb());
+      const rows = await orm
+        .select({ value: schema.xManifest.value })
+        .from(schema.xManifest)
+        .where(eq(schema.xManifest.key, key))
+        .limit(1);
+      raw = rows[0]?.value;
+    }
     // Normalise JSON-quoted enum/string values (e.g. seed stores `"none"`) to
     // the bare string callers compare against. Boolean/integer rows are stored
     // unquoted, so unquote() is a no-op for them.
@@ -1850,30 +1866,29 @@ export async function isFeatureAvailableForUser(
   featureKey: string,
   userPlan: string,
   isCouncilMember: boolean,
-  dbClient: DatabaseAdapter = db,
+  dbClient?: DbOrTx,
 ): Promise<boolean> {
   let availableFrom: Date | null = null;
   let earlyAccessPlans: string[] | null = null;
 
   try {
-    const { rows } = await dbClient.query<{
-      available_from: string | null;
-      early_access_plans: string[] | null;
-    }>(
-      `SELECT available_from, early_access_plans
-       FROM feature_flags
-       WHERE key = $1
-       LIMIT 1`,
-      [featureKey],
-    );
+    const orm = dbClient ?? (await getDb());
+    const rows = await orm
+      .select({
+        availableFrom: schema.featureFlags.availableFrom,
+        earlyAccessPlans: schema.featureFlags.earlyAccessPlans,
+      })
+      .from(schema.featureFlags)
+      .where(eq(schema.featureFlags.key, featureKey))
+      .limit(1);
 
     if (rows.length === 0) {
       // Feature flag not found — treat as available (fail open)
       return true;
     }
 
-    availableFrom = rows[0].available_from ? new Date(rows[0].available_from) : null;
-    earlyAccessPlans = rows[0].early_access_plans ?? null;
+    availableFrom = rows[0].availableFrom ? new Date(rows[0].availableFrom) : null;
+    earlyAccessPlans = rows[0].earlyAccessPlans ?? null;
   } catch (err) {
     logger.error({ err, featureKey, userPlan }, '[manifest] Feature gate DB error — denying access');
     return false;

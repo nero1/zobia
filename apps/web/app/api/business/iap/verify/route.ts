@@ -23,7 +23,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { insertNotification } from "@/lib/notifications/insert";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
@@ -97,17 +99,21 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const tier = BUSINESS_TIER_PRODUCTS[body.productId];
     const idempotencyKey = `play:biz:${body.purchaseToken}`;
 
+    const orm = await getDb();
+
     // Idempotency check — a replayed client call (e.g. the purchase listener
     // firing twice) simply returns the already-applied result.
-    const { rows: alreadyProcessed } = await db.query<{ id: string }>(
-      `SELECT id FROM payments WHERE idempotency_key = $1 LIMIT 1`,
-      [idempotencyKey]
-    );
+    const alreadyProcessed = await orm
+      .select({ id: schema.payments.id })
+      .from(schema.payments)
+      .where(eq(schema.payments.idempotencyKey, idempotencyKey))
+      .limit(1);
     if (alreadyProcessed.length > 0) {
-      const { rows: existingAccount } = await db.query<{ tier: string }>(
-        `SELECT tier FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-        [userId]
-      );
+      const existingAccount = await orm
+        .select({ tier: schema.businessAccounts.tier })
+        .from(schema.businessAccounts)
+        .where(eq(schema.businessAccounts.userId, userId))
+        .limit(1);
       return NextResponse.json({ success: true, data: { tier: existingAccount[0]?.tier ?? tier } }, { status: 200 });
     }
 
@@ -120,10 +126,11 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     const priceKobo = await resolveTierPriceKobo(tier);
 
-    const { rows: existingRows } = await db.query<{ id: string; tier: string }>(
-      `SELECT id, tier FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const existingRows = await orm
+      .select({ id: schema.businessAccounts.id, tier: schema.businessAccounts.tier })
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.userId, userId))
+      .limit(1);
 
     let itemType: "business_signup" | "business_upgrade";
     let businessAccountId: string;
@@ -134,30 +141,38 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         throw badRequest("business_name is required to create a Business Account", "BUSINESS_NAME_REQUIRED");
       }
       itemType = "business_signup";
-      const { rows: created } = await db.query<{ id: string }>(
-        `INSERT INTO business_accounts
-           (user_id, business_name, business_type, tier, verified, status, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, FALSE, 'active', NOW(), NOW())
-         ON CONFLICT (user_id) DO NOTHING
-         RETURNING id`,
-        [userId, body.business_name, body.business_type ?? null, tier]
-      );
+      const created = await orm
+        .insert(schema.businessAccounts)
+        .values({
+          userId,
+          businessName: body.business_name,
+          businessType: body.business_type ?? null,
+          tier,
+          verified: false,
+          status: "active",
+        })
+        .onConflictDoNothing({ target: schema.businessAccounts.userId })
+        .returning({ id: schema.businessAccounts.id });
       if (!created[0]) {
         // Lost a race against a concurrent signup — re-read and treat as upgrade below.
-        const { rows: raced } = await db.query<{ id: string }>(
-          `SELECT id FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-          [userId]
-        );
+        const raced = await orm
+          .select({ id: schema.businessAccounts.id })
+          .from(schema.businessAccounts)
+          .where(eq(schema.businessAccounts.userId, userId))
+          .limit(1);
         if (!raced[0]) throw notFound("Business account not found after creation race");
         businessAccountId = raced[0].id;
         itemType = "business_upgrade";
-        await db.query(
-          `UPDATE business_accounts
-           SET tier = $1, downgrade_to_tier = NULL, downgrade_effective_at = NULL,
-               tier_updated_at = NOW(), updated_at = NOW()
-           WHERE id = $2`,
-          [tier, businessAccountId]
-        );
+        await orm
+          .update(schema.businessAccounts)
+          .set({
+            tier,
+            downgradeToTier: null,
+            downgradeEffectiveAt: null,
+            tierUpdatedAt: new Date(),
+            updatedAt: new Date(),
+          })
+          .where(eq(schema.businessAccounts.id, businessAccountId));
       } else {
         businessAccountId = created[0].id;
       }
@@ -167,47 +182,49 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       // in PATCH /api/business/tier which applies before any payment).
       itemType = "business_upgrade";
       businessAccountId = existingRows[0].id;
-      await db.query(
-        `UPDATE business_accounts
-         SET tier = $1, pending_tier = NULL, pending_payment_ref = NULL,
-             downgrade_to_tier = NULL, downgrade_effective_at = NULL,
-             tier_updated_at = NOW(), updated_at = NOW()
-         WHERE id = $2`,
-        [tier, businessAccountId]
-      );
+      await orm
+        .update(schema.businessAccounts)
+        .set({
+          tier,
+          pendingTier: null,
+          pendingPaymentRef: null,
+          downgradeToTier: null,
+          downgradeEffectiveAt: null,
+          tierUpdatedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.businessAccounts.id, businessAccountId));
     }
 
     // Acknowledge to prevent Google Play auto-cancelling after 3 days.
     await acknowledgeGooglePlaySubscription(body.packageName, body.productId, body.purchaseToken);
 
     // Record the payment for revenue reporting parity with Paystack/crypto.
-    await db.query(
-      `INSERT INTO payments
-         (user_id, payment_type, amount_kobo, currency, provider,
-          status, idempotency_key, provider_reference, metadata, completed_at)
-       VALUES ($1, 'business_upgrade', $2, 'NGN', 'google_play',
-               'completed', $3, $3, $4::jsonb, NOW())
-       ON CONFLICT (idempotency_key) DO NOTHING`,
-      [
+    await orm
+      .insert(schema.payments)
+      .values({
         userId,
-        priceKobo,
+        paymentType: "business_upgrade",
+        amountKobo: BigInt(priceKobo),
+        currency: "NGN",
+        provider: "google_play",
+        status: "completed",
         idempotencyKey,
-        JSON.stringify({ itemType, businessAccountId, tier, productId: body.productId, purchaseToken: body.purchaseToken }),
-      ]
-    );
+        providerReference: idempotencyKey,
+        metadata: { itemType, businessAccountId, tier, productId: body.productId, purchaseToken: body.purchaseToken },
+        completedAt: new Date(),
+      })
+      .onConflictDoNothing({ target: schema.payments.idempotencyKey });
 
-    await db.query(
-      `INSERT INTO notifications
-         (user_id, type, title, body, metadata, is_read, created_at)
-       VALUES ($1, 'business_tier_activated', $2, $3, $4::jsonb, false, NOW())`,
-      [
-        userId,
-        itemType === "business_signup" ? "Business Account Created" : "Business Account Upgraded",
-        itemType === "business_signup"
-          ? `Your Business ${tier.charAt(0).toUpperCase() + tier.slice(1)} account is now active.`
-          : `Your business account has been upgraded to the ${tier.charAt(0).toUpperCase() + tier.slice(1)} tier.`,
-        JSON.stringify({ businessAccountId, tier }),
-      ]
+    await insertNotification(
+      orm,
+      userId,
+      "business_tier_activated",
+      itemType === "business_signup" ? "Business Account Created" : "Business Account Upgraded",
+      itemType === "business_signup"
+        ? `Your Business ${tier.charAt(0).toUpperCase() + tier.slice(1)} account is now active.`
+        : `Your business account has been upgraded to the ${tier.charAt(0).toUpperCase() + tier.slice(1)} tier.`,
+      { businessAccountId, tier }
     );
 
     return NextResponse.json({ success: true, data: { tier } }, { status: 200 });

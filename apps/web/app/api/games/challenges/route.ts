@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -48,10 +49,12 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const game = await getActiveGameBySlug(body.gameSlug);
     if (!game) throw notFound("Game not found.");
 
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM users WHERE LOWER(username) = LOWER($1) AND deleted_at IS NULL LIMIT 1`,
-      [body.opponentUsername]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(sql`LOWER(${schema.users.username}) = LOWER(${body.opponentUsername})`, isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!rows[0]) throw notFound("Opponent not found.");
 
     const created = await createChallenge({

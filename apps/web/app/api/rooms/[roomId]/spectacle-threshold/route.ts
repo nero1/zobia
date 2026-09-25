@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound } from "@/lib/api/errors";
 
@@ -51,28 +52,28 @@ export const PUT = withAuth(
       const { roomId } = params;
 
       const body = await validateBody(req, SpectacleThresholdSchema);
+      const orm = await getDb();
 
       // Verify the room exists and the caller is its creator
-      const { rows: roomRows } = await db.query<{ id: string; creator_id: string }>(
-        `SELECT id, creator_id FROM rooms WHERE id = $1 AND is_active = TRUE LIMIT 1`,
-        [roomId]
-      );
+      const [room] = await orm
+        .select({ id: schema.rooms.id, creatorId: schema.rooms.creatorId })
+        .from(schema.rooms)
+        .where(and(eq(schema.rooms.id, roomId), eq(schema.rooms.isActive, true)))
+        .limit(1);
 
-      if (!roomRows[0]) {
+      if (!room) {
         throw notFound("Room not found");
       }
 
-      if (roomRows[0].creator_id !== userId) {
+      if (room.creatorId !== userId) {
         throw forbidden("Only the room creator can set the spectacle threshold");
       }
 
       // Update the threshold (null clears it)
-      await db.query(
-        `UPDATE rooms
-         SET spectacle_threshold_coins = $1, updated_at = NOW()
-         WHERE id = $2`,
-        [body.thresholdCoins, roomId]
-      );
+      await orm
+        .update(schema.rooms)
+        .set({ spectacleThresholdCoins: body.thresholdCoins, updatedAt: sql`NOW()` })
+        .where(eq(schema.rooms.id, roomId));
 
       return NextResponse.json(
         {

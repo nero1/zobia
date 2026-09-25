@@ -11,8 +11,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db";
+import { eq, and, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -34,15 +34,20 @@ const updateSchema = z.object({
 });
 
 async function assertOwnedPendingOrRejected(questId: string, userId: string) {
-  const { rows } = await db.query<{ id: string; business_account_id: string | null; owner_user_id: string; moderation_status: string }>(
-    `SELECT sq.id, sq.business_account_id, ba.user_id AS owner_user_id, sq.moderation_status
-     FROM sponsored_quests sq
-     JOIN business_accounts ba ON ba.id = sq.business_account_id
-     WHERE sq.id = $1 AND sq.deleted_at IS NULL LIMIT 1`,
-    [questId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: schema.sponsoredQuests.id,
+      businessAccountId: schema.sponsoredQuests.businessAccountId,
+      ownerUserId: schema.businessAccounts.userId,
+      moderationStatus: schema.sponsoredQuests.moderationStatus,
+    })
+    .from(schema.sponsoredQuests)
+    .innerJoin(schema.businessAccounts, eq(schema.businessAccounts.id, schema.sponsoredQuests.businessAccountId))
+    .where(and(eq(schema.sponsoredQuests.id, questId), isNull(schema.sponsoredQuests.deletedAt)))
+    .limit(1);
   const quest = rows[0];
-  if (!quest || quest.owner_user_id !== userId) throw notFound("Sponsored quest not found");
+  if (!quest || quest.ownerUserId !== userId) throw notFound("Sponsored quest not found");
   return quest;
 }
 
@@ -51,7 +56,7 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: Ctx) =>
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const { questId } = await params;
     const quest = await assertOwnedPendingOrRejected(questId, auth.user.sub);
-    if (quest.moderation_status === "approved") {
+    if (quest.moderationStatus === "approved") {
       throw forbidden("Live Sponsored Quests cannot be edited — cancel and resubmit instead.", "SPONSORED_QUEST_LIVE");
     }
 
@@ -60,27 +65,24 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: Ctx) =>
       throw badRequest("deadline must be in the future");
     }
 
-    const setParts: string[] = ["updated_at = NOW()", "moderation_status = 'pending'", "moderation_reason = NULL", "is_active = FALSE"];
-    const values: SqlParam[] = [questId];
-    let idx = 2;
-    const fieldMap: Record<string, string> = {
-      title: "title",
-      description: "description",
-      requirements: "requirements",
-      rewardCoins: "reward_coins",
-      maxApplications: "max_applications",
-      deadline: "deadline",
+    // NOTE (schema mismatch): sponsored_quests has no `updated_at` column in
+    // the real DB or in lib/db/schema.ts — the original raw SQL's
+    // `updated_at = NOW()` here would have thrown at runtime. Omitted.
+    const updates: Partial<typeof schema.sponsoredQuests.$inferInsert> = {
+      moderationStatus: "pending",
+      moderationReason: null,
+      isActive: false,
     };
-    for (const [jsKey, col] of Object.entries(fieldMap)) {
-      const val = (body as Record<string, unknown>)[jsKey];
-      if (val !== undefined) {
-        setParts.push(`${col} = $${idx++}`);
-        values.push(val as SqlParam);
-      }
-    }
+    if (body.title !== undefined) updates.title = body.title;
+    if (body.description !== undefined) updates.description = body.description;
+    if (body.requirements !== undefined) updates.requirements = body.requirements;
+    if (body.rewardCoins !== undefined) updates.rewardCoins = body.rewardCoins;
+    if (body.maxApplications !== undefined) updates.maxApplications = body.maxApplications;
+    if (body.deadline !== undefined) updates.deadline = new Date(body.deadline);
 
-    await db.query(`UPDATE sponsored_quests SET ${setParts.join(", ")} WHERE id = $1`, values);
-    await syncSponsoredQuestTemplate(db, questId);
+    const orm = await getDb();
+    await orm.update(schema.sponsoredQuests).set(updates).where(eq(schema.sponsoredQuests.id, questId));
+    await syncSponsoredQuestTemplate(orm, questId);
 
     return NextResponse.json({
       success: true,
@@ -98,11 +100,12 @@ export const DELETE = withAuth(async (_req: NextRequest, { params, auth }: Ctx) 
     const { questId } = await params;
     await assertOwnedPendingOrRejected(questId, auth.user.sub);
 
-    await db.query(
-      `UPDATE sponsored_quests SET deleted_at = NOW(), is_active = FALSE, updated_at = NOW() WHERE id = $1`,
-      [questId]
-    );
-    await syncSponsoredQuestTemplate(db, questId);
+    const orm = await getDb();
+    await orm
+      .update(schema.sponsoredQuests)
+      .set({ deletedAt: new Date(), isActive: false })
+      .where(eq(schema.sponsoredQuests.id, questId));
+    await syncSponsoredQuestTemplate(orm, questId);
 
     return NextResponse.json({ success: true, data: { questId, deleted: true }, error: null });
   } catch (err) {

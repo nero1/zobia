@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -67,22 +68,45 @@ export const GET = withAuth<UserParams>(async (req, { params, auth }) => {
       throw badRequest("userId must be a valid UUID");
     }
 
-    const { rows } = await db.query<PublicUserProfile>(
-      `SELECT
-         id, username, display_name, bio,
-         avatar_url, avatar_emoji, city, xp_total, created_at
-       FROM users
-       WHERE id = $1
-         AND deleted_at IS NULL
-         AND onboarding_completed = true
-         AND is_suspended = false
-       LIMIT 1`,
-      [userId]
-    );
+    const db = await getDb();
+    const [row] = await db
+      .select({
+        id: schema.users.id,
+        username: schema.users.username,
+        displayName: schema.users.displayName,
+        bio: schema.users.bio,
+        avatarUrl: schema.users.avatarUrl,
+        avatarEmoji: schema.users.avatarEmoji,
+        city: schema.users.city,
+        xpTotal: schema.users.xpTotal,
+        createdAt: schema.users.createdAt,
+      })
+      .from(schema.users)
+      .where(
+        and(
+          eq(schema.users.id, userId),
+          isNull(schema.users.deletedAt),
+          eq(schema.users.onboardingCompleted, true),
+          eq(schema.users.isSuspended, false)
+        )
+      )
+      .limit(1);
 
-    if (!rows[0]) throw notFound("User not found");
+    if (!row) throw notFound("User not found");
 
-    return NextResponse.json({ user: rows[0] }, { status: 200 });
+    const user: PublicUserProfile = {
+      id: row.id,
+      username: row.username,
+      display_name: row.displayName,
+      bio: row.bio,
+      avatar_url: row.avatarUrl,
+      avatar_emoji: row.avatarEmoji,
+      city: row.city,
+      xp_total: Number(row.xpTotal),
+      created_at: row.createdAt ? row.createdAt.toISOString() : "",
+    };
+
+    return NextResponse.json({ user }, { status: 200 });
   } catch (err) {
     return handleApiError(err);
   }

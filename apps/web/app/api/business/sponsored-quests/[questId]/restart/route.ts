@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq, and, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -26,36 +27,53 @@ export const POST = withAuth(
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
       const { questId } = await params;
 
-      const { rows } = await db.query<{
-        id: string;
-        auto_paused: boolean;
-        is_active: boolean;
-        tier: string;
-        account_status: string;
-      }>(
-        `SELECT sq.id, sq.auto_paused, sq.is_active, ba.tier, ba.status AS account_status
-         FROM sponsored_quests sq
-         JOIN business_accounts ba ON ba.id = sq.business_account_id
-         WHERE sq.id = $1 AND ba.user_id = $2 AND sq.deleted_at IS NULL LIMIT 1`,
-        [questId, auth.user.sub]
-      );
+      const orm = await getDb();
+      const rows = await orm
+        .select({
+          id: schema.sponsoredQuests.id,
+          autoPaused: schema.sponsoredQuests.autoPaused,
+          isActive: schema.sponsoredQuests.isActive,
+          tier: schema.businessAccounts.tier,
+          accountStatus: schema.businessAccounts.status,
+        })
+        .from(schema.sponsoredQuests)
+        .innerJoin(
+          schema.businessAccounts,
+          eq(schema.businessAccounts.id, schema.sponsoredQuests.businessAccountId)
+        )
+        .where(
+          and(
+            eq(schema.sponsoredQuests.id, questId),
+            eq(schema.businessAccounts.userId, auth.user.sub),
+            isNull(schema.sponsoredQuests.deletedAt)
+          )
+        )
+        .limit(1);
       const quest = rows[0];
       if (!quest) throw notFound("Sponsored quest not found");
-      if (!quest.auto_paused) throw conflict("This quest was not auto-paused — nothing to restart.");
-      if (quest.account_status !== "active") {
+      if (!quest.autoPaused) throw conflict("This quest was not auto-paused — nothing to restart.");
+      if (quest.accountStatus !== "active") {
         throw forbidden("Your business account must be active (subscription current, not banned) before restarting this quest.", "BUSINESS_ACCOUNT_NOT_ACTIVE");
       }
       if (!canSubmitSponsoredQuests(quest.tier)) {
         throw forbidden("Sponsored Quests require the Business Growth tier or higher.", "BUSINESS_TIER_TOO_LOW");
       }
 
-      await db.query(
-        `UPDATE sponsored_quests
-         SET is_active = TRUE, auto_paused = FALSE, pause_reason = NULL, paused_at = NULL, updated_at = NOW()
-         WHERE id = $1`,
-        [questId]
-      );
-      await syncSponsoredQuestTemplate(db, questId);
+      await orm
+        .update(schema.sponsoredQuests)
+        .set({
+          // NOTE (schema mismatch): sponsored_quests has no `updated_at`
+          // column in the real DB (db/migrations/0001_consolidated_schema.sql)
+          // or in lib/db/schema.ts — the original raw SQL's
+          // `updated_at = NOW()` here would have thrown "column does not
+          // exist" at runtime. Omitted rather than replicated.
+          isActive: true,
+          autoPaused: false,
+          pauseReason: null,
+          pausedAt: null,
+        })
+        .where(eq(schema.sponsoredQuests.id, questId));
+      await syncSponsoredQuestTemplate(orm, questId);
 
       return NextResponse.json({ success: true, data: { questId, restarted: true }, error: null });
     } catch (err) {

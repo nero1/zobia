@@ -16,13 +16,13 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { logger } from "@/lib/logger";
 import { QUEST_FEATURE_KEYS, TRACK_COLUMN } from "@/lib/quests/questEngine";
-import type { SqlParam } from "@/lib/db/interface";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -40,37 +40,6 @@ const updateSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-const FIELD_MAP: Record<keyof z.infer<typeof updateSchema>, string> = {
-  title: "title",
-  description: "description",
-  targetCount: "target_count",
-  xpReward: "xp_reward",
-  coinReward: "coin_reward",
-  category: "category",
-  icon: "icon",
-  planRequired: "plan_required",
-  track: "track",
-  featureKey: "feature_key",
-  isActive: "is_active",
-};
-
-interface QuestTemplateRow {
-  id: string;
-  title: string;
-  description: string;
-  action_type: string;
-  target_count: number;
-  xp_reward: number;
-  coin_reward: number;
-  category: string;
-  icon: string | null;
-  plan_required: string | null;
-  track: string | null;
-  feature_key: string | null;
-  is_active: boolean;
-  sponsored_quest_id: string | null;
-}
-
 export const PATCH = withAdminAuth(
   async (req: NextRequest, { params, auth }: { params: Promise<{ id: string }>; auth: AdminContext }) => {
     try {
@@ -80,12 +49,28 @@ export const PATCH = withAdminAuth(
 
       const body = await validateBody(req, updateSchema);
 
-      const { rows: existingRows } = await db.query<QuestTemplateRow>(
-        `SELECT id, title, description, action_type, target_count, xp_reward, coin_reward,
-                category, icon, plan_required, track, feature_key, is_active, sponsored_quest_id
-         FROM quest_templates WHERE id = $1 LIMIT 1`,
-        [id]
-      );
+      const orm = await getDb();
+
+      const existingRows = await orm
+        .select({
+          id: schema.questTemplates.id,
+          title: schema.questTemplates.title,
+          description: schema.questTemplates.description,
+          action_type: schema.questTemplates.actionType,
+          target_count: schema.questTemplates.targetCount,
+          xp_reward: schema.questTemplates.xpReward,
+          coin_reward: schema.questTemplates.coinReward,
+          category: schema.questTemplates.category,
+          icon: schema.questTemplates.icon,
+          plan_required: schema.questTemplates.planRequired,
+          track: schema.questTemplates.track,
+          feature_key: schema.questTemplates.featureKey,
+          is_active: schema.questTemplates.isActive,
+          sponsored_quest_id: schema.questTemplates.sponsoredQuestId,
+        })
+        .from(schema.questTemplates)
+        .where(eq(schema.questTemplates.id, id))
+        .limit(1);
       const existing = existingRows[0];
       if (!existing) throw notFound("Quest template not found");
       if (existing.sponsored_quest_id) {
@@ -94,31 +79,46 @@ export const PATCH = withAdminAuth(
         );
       }
 
-      const sets: string[] = [];
-      const values: SqlParam[] = [];
-      for (const [key, column] of Object.entries(FIELD_MAP) as [keyof typeof FIELD_MAP, string][]) {
-        if (key in body && (body as Record<string, unknown>)[key] !== undefined) {
-          values.push((body as Record<string, unknown>)[key] as SqlParam);
-          sets.push(`${column} = $${values.length}`);
+      // Field names in `body` already match the Drizzle schema's camelCase
+      // columns 1:1, so the update payload can be built directly from it.
+      const setValues: Partial<typeof schema.questTemplates.$inferInsert> = {};
+      for (const key of Object.keys(body) as (keyof typeof body)[]) {
+        const val = body[key];
+        if (val !== undefined) {
+          (setValues as Record<string, unknown>)[key] = val;
         }
       }
-      if (sets.length === 0) throw badRequest("No fields to update");
-      values.push(id);
+      if (Object.keys(setValues).length === 0) throw badRequest("No fields to update");
 
-      const { rows } = await db.query<QuestTemplateRow>(
-        `UPDATE quest_templates SET ${sets.join(", ")}
-         WHERE id = $${values.length}
-         RETURNING id, title, description, action_type, target_count, xp_reward, coin_reward,
-                   category, icon, plan_required, track, feature_key, is_active`,
-        values
-      );
+      const rows = await orm
+        .update(schema.questTemplates)
+        .set(setValues)
+        .where(eq(schema.questTemplates.id, id))
+        .returning({
+          id: schema.questTemplates.id,
+          title: schema.questTemplates.title,
+          description: schema.questTemplates.description,
+          action_type: schema.questTemplates.actionType,
+          target_count: schema.questTemplates.targetCount,
+          xp_reward: schema.questTemplates.xpReward,
+          coin_reward: schema.questTemplates.coinReward,
+          category: schema.questTemplates.category,
+          icon: schema.questTemplates.icon,
+          plan_required: schema.questTemplates.planRequired,
+          track: schema.questTemplates.track,
+          feature_key: schema.questTemplates.featureKey,
+          is_active: schema.questTemplates.isActive,
+        });
 
       try {
-        await db.query(
-          `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, before_val, after_val, created_at)
-           VALUES ($1, 'update_quest_template', 'quest_templates', $2, $3::jsonb, $4::jsonb, NOW())`,
-          [auth.user.sub, id, JSON.stringify(existing), JSON.stringify(rows[0])]
-        );
+        await orm.insert(schema.adminAuditLog).values({
+          adminId: auth.user.sub,
+          action: "update_quest_template",
+          resource: "quest_templates",
+          resourceId: id,
+          beforeVal: existing,
+          afterVal: rows[0],
+        });
       } catch (auditErr) {
         logger.error({ err: auditErr, questId: id }, "[admin:quests] Failed to write admin_audit_log entry (non-fatal)");
       }

@@ -20,8 +20,8 @@
  *    a failure on one channel never blocks the others.
  */
 
-import { db } from "@/lib/db";
-import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+import { sql } from "drizzle-orm";
+import { getDb, type DbOrTx } from "@/lib/db/drizzle";
 import { loadManifest } from "@/lib/manifest";
 import { logger } from "@/lib/logger";
 import { insertNotificationBatch } from "@/lib/notifications/insert";
@@ -62,7 +62,7 @@ export interface RaiseAlertResult {
   isUpgrade: boolean;
 }
 
-interface SystemAlertRow {
+type SystemAlertRow = {
   id: string;
   type: string;
   category: string;
@@ -72,7 +72,7 @@ interface SystemAlertRow {
   metadata: Record<string, unknown> | null;
   notify_admin: boolean;
   notify_mods: boolean;
-}
+};
 
 // ---------------------------------------------------------------------------
 // Audience resolution
@@ -111,7 +111,17 @@ export function getEscalationPolicy(
 // raiseAlert
 // ---------------------------------------------------------------------------
 
-export async function raiseAlert(dbOrTx: DatabaseAdapter | TransactionClient, input: RaiseAlertInput): Promise<RaiseAlertResult> {
+// NOTE (schema gap): `system_alerts` in lib/db/schema.ts models only the
+// original small alert shape (type/severity/message/metadata/resolved/...).
+// The 6-level alert system implemented here — category, priority_level,
+// notify_admin/notify_mods, dedupe_key, and the escalation_*/sms_sent_count/
+// channels_sent/first_notified_at/last_notified_at columns — is not modeled
+// at all. `alert_notification_log` (insertAlertNotificationLog below) has no
+// pgTable either. Every query against these two tables in this file therefore
+// runs through Drizzle's `sql` tagged template via `.execute()` (still the
+// shared Drizzle-wrapped pg.Pool, still fully parameterised) rather than the
+// query builder, until schema.ts is extended to cover them.
+export async function raiseAlert(dbOrTx: DbOrTx, input: RaiseAlertInput): Promise<RaiseAlertResult> {
   const { notifyAdmin, notifyMods } = await resolveAudience(input.category, input.notifyModsOverride);
   const legacySeverity = input.priorityLevel <= 2 ? "critical" : input.priorityLevel <= 4 ? "warning" : "info";
   const metadataJson = JSON.stringify(input.metadata ?? {});
@@ -131,49 +141,44 @@ export async function raiseAlert(dbOrTx: DatabaseAdapter | TransactionClient, in
     // through to the SELECT-and-upgrade-or-merge path against whichever
     // concurrent call won the race.
     let existing: SystemAlertRow | undefined;
-    const { rows: insertedRows } = await dbOrTx.query<{ id: string }>(
-      `INSERT INTO system_alerts
+    const insertedResult = await dbOrTx.execute<{ id: string }>(sql`
+      INSERT INTO system_alerts
          (type, category, severity, priority_level, title, message, metadata,
           notify_admin, notify_mods, dedupe_key, resolved, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, false, NOW(), NOW())
+       VALUES (${input.type}, ${input.category}, ${legacySeverity}, ${input.priorityLevel}, ${input.title}, ${input.message}, ${metadataJson}::jsonb, ${notifyAdmin}, ${notifyMods}, ${input.dedupeKey}, false, NOW(), NOW())
        ON CONFLICT (type, dedupe_key) WHERE resolved = false AND dedupe_key IS NOT NULL DO NOTHING
-       RETURNING id`,
-      [input.type, input.category, legacySeverity, input.priorityLevel, input.title, input.message, metadataJson, notifyAdmin, notifyMods, input.dedupeKey]
-    );
+       RETURNING id
+    `);
+    const insertedRows = insertedResult.rows;
 
     if (insertedRows.length > 0) {
       alertId = insertedRows[0].id;
       isNew = true;
     } else {
       // Lost the race (or an open alert already existed before this call) — look it up.
-      const { rows: existingRows } = await dbOrTx.query<SystemAlertRow>(
-        `SELECT id, type, category, priority_level, title, message, metadata, notify_admin, notify_mods
-         FROM system_alerts WHERE type = $1 AND dedupe_key = $2 AND resolved = false LIMIT 1`,
-        [input.type, input.dedupeKey]
-      );
-      existing = existingRows[0];
+      const existingResult = await dbOrTx.execute<SystemAlertRow>(sql`
+        SELECT id, type, category, priority_level, title, message, metadata, notify_admin, notify_mods
+         FROM system_alerts WHERE type = ${input.type} AND dedupe_key = ${input.dedupeKey} AND resolved = false LIMIT 1
+      `);
+      existing = existingResult.rows[0];
     }
 
     if (!isNew && existing) {
       if (input.priorityLevel < existing.priority_level) {
         // Severity upgrade — bump the alert and re-notify at the new level.
-        await dbOrTx.query(
-          `UPDATE system_alerts
-           SET priority_level = $2, category = $3, severity = $4, title = $5, message = $6,
-               metadata = metadata || $7::jsonb, notify_admin = $8, notify_mods = $9,
+        await dbOrTx.execute(sql`
+          UPDATE system_alerts
+           SET priority_level = ${input.priorityLevel}, category = ${input.category}, severity = ${legacySeverity}, title = ${input.title}, message = ${input.message},
+               metadata = metadata || ${metadataJson}::jsonb, notify_admin = ${notifyAdmin}, notify_mods = ${notifyMods},
                escalation_stage = 0, escalation_cycle = 0, escalation_phase = 'backoff',
                escalation_complete = false, updated_at = NOW()
-           WHERE id = $1`,
-          [existing.id, input.priorityLevel, input.category, legacySeverity, input.title, input.message, metadataJson, notifyAdmin, notifyMods]
-        );
+           WHERE id = ${existing.id}
+        `);
         alertId = existing.id;
         isUpgrade = true;
       } else {
         // Same/lower severity repeat trigger — just merge metadata (e.g. bump a counter), don't re-page.
-        await dbOrTx.query(`UPDATE system_alerts SET metadata = metadata || $2::jsonb, updated_at = NOW() WHERE id = $1`, [
-          existing.id,
-          metadataJson,
-        ]);
+        await dbOrTx.execute(sql`UPDATE system_alerts SET metadata = metadata || ${metadataJson}::jsonb, updated_at = NOW() WHERE id = ${existing.id}`);
         return { alertId: existing.id, isNew: false, isUpgrade: false };
       }
     }
@@ -184,15 +189,14 @@ export async function raiseAlert(dbOrTx: DatabaseAdapter | TransactionClient, in
       throw new Error(`raiseAlert: failed to resolve alertId for dedupeKey ${input.dedupeKey}`);
     }
   } else {
-    const { rows } = await dbOrTx.query<{ id: string }>(
-      `INSERT INTO system_alerts
+    const insertResult = await dbOrTx.execute<{ id: string }>(sql`
+      INSERT INTO system_alerts
          (type, category, severity, priority_level, title, message, metadata,
           notify_admin, notify_mods, resolved, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, false, NOW(), NOW())
-       RETURNING id`,
-      [input.type, input.category, legacySeverity, input.priorityLevel, input.title, input.message, metadataJson, notifyAdmin, notifyMods]
-    );
-    alertId = rows[0].id;
+       VALUES (${input.type}, ${input.category}, ${legacySeverity}, ${input.priorityLevel}, ${input.title}, ${input.message}, ${metadataJson}::jsonb, ${notifyAdmin}, ${notifyMods}, false, NOW(), NOW())
+       RETURNING id
+    `);
+    alertId = insertResult.rows[0].id;
     isNew = true;
   }
 
@@ -201,12 +205,11 @@ export async function raiseAlert(dbOrTx: DatabaseAdapter | TransactionClient, in
     const manifest = await loadManifest();
     const policy = getEscalationPolicy(manifest, input.priorityLevel);
     const { nextAt } = computeInitialSchedule(policy);
-    await dbOrTx.query(
-      `UPDATE system_alerts SET next_escalation_at = $2, escalation_complete = $3 WHERE id = $1`,
-      [alertId, nextAt, nextAt === null]
-    );
+    await dbOrTx.execute(sql`
+      UPDATE system_alerts SET next_escalation_at = ${nextAt}, escalation_complete = ${nextAt === null} WHERE id = ${alertId}
+    `);
   } else {
-    await dbOrTx.query(`UPDATE system_alerts SET escalation_complete = true WHERE id = $1`, [alertId]);
+    await dbOrTx.execute(sql`UPDATE system_alerts SET escalation_complete = true WHERE id = ${alertId}`);
   }
 
   if (isNew || isUpgrade) {
@@ -246,7 +249,8 @@ export async function notifyForAlert(
 
   if (enabledChannels.length === 0) return;
 
-  const recipients = await resolveAlertRecipients(db, notifyAdmin, notifyMods);
+  const orm = await getDb();
+  const recipients = await resolveAlertRecipients(orm, notifyAdmin, notifyMods);
   if (recipients.length === 0) {
     logger.warn({ alertId }, "[alerts/dispatch] No admin/moderator recipients found — alert not delivered anywhere");
     return;
@@ -270,7 +274,7 @@ export async function notifyForAlert(
   if (enabledChannels.includes("in_app")) {
     jobs.push(
       insertNotificationBatch(
-        db,
+        orm,
         recipients.map((r) => r.userId),
         "admin_alert",
         `[${levelLabel}] ${title}`,
@@ -328,16 +332,15 @@ export async function notifyForAlert(
 
   await Promise.allSettled(jobs);
 
-  await db
-    .query(
-      `UPDATE system_alerts
+  await orm
+    .execute(sql`
+      UPDATE system_alerts
        SET first_notified_at = COALESCE(first_notified_at, NOW()),
            last_notified_at = NOW(),
-           sms_sent_count = sms_sent_count + $2,
-           channels_sent = (SELECT jsonb_agg(DISTINCT v) FROM jsonb_array_elements_text(channels_sent || $3::jsonb) v)
-       WHERE id = $1`,
-      [alertId, smsSentCount, JSON.stringify(enabledChannels)]
-    )
+           sms_sent_count = sms_sent_count + ${smsSentCount},
+           channels_sent = (SELECT jsonb_agg(DISTINCT v) FROM jsonb_array_elements_text(channels_sent || ${JSON.stringify(enabledChannels)}::jsonb) v)
+       WHERE id = ${alertId}
+    `)
     .catch((err) => logger.error({ err, alertId }, "[alerts/dispatch] failed to update alert delivery state"));
 
   if (logRows.length > 0) {
@@ -356,15 +359,16 @@ interface AlertNotificationLogRow {
 }
 
 async function insertAlertNotificationLog(alertId: string, escalationStage: number, rows: AlertNotificationLogRow[]): Promise<void> {
-  const params: (string | number | null)[] = [];
-  const clauses = rows.map((row, i) => {
-    const base = i * 7;
-    params.push(alertId, escalationStage, row.channel, row.recipientType, row.recipientUserId, row.status, row.error);
-    return `($${base + 1}, $${base + 2}, $${base + 3}, $${base + 4}, $${base + 5}, $${base + 6}, $${base + 7})`;
-  });
-  await db.query(
-    `INSERT INTO alert_notification_log (alert_id, escalation_stage, channel, recipient_type, recipient_user_id, status, error) VALUES ${clauses.join(", ")}`,
-    params
+  const orm = await getDb();
+  const valueClauses = sql.join(
+    rows.map(
+      (row) =>
+        sql`(${alertId}, ${escalationStage}, ${row.channel}, ${row.recipientType}, ${row.recipientUserId}, ${row.status}, ${row.error})`
+    ),
+    sql`, `
+  );
+  await orm.execute(
+    sql`INSERT INTO alert_notification_log (alert_id, escalation_stage, channel, recipient_type, recipient_user_id, status, error) VALUES ${valueClauses}`
   );
 }
 

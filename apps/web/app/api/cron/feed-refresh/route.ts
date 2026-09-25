@@ -30,7 +30,8 @@ export const maxDuration = 60;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { validateCronSecret } from "@/lib/cron/auth";
 import { logger } from "@/lib/logger";
 import { loadManifest } from "@/lib/manifest";
@@ -56,29 +57,29 @@ const SIGNAL_RETENTION_DAYS = 30;
  * comment on the current tagging simplification.
  */
 async function aggregateEngagementSignals(): Promise<{ upserted: number; pruned: number }> {
-  const { rowCount: upserted } = await db.query(
-    `INSERT INTO user_interests (user_id, interest_tag, source, weight)
-     SELECT
-       s.user_id,
-       COALESCE(s.interest_tag, s.content_type) AS interest_tag,
-       'implicit',
-       SUM(
-         CASE s.event_type
-           WHEN 'like' THEN 2 WHEN 'comment' THEN 3 WHEN 'share' THEN 4
-           ELSE 0.5
-         END
-       )
-     FROM content_engagement_signals s
-     WHERE s.created_at > NOW() - INTERVAL '1 day'
-     GROUP BY s.user_id, COALESCE(s.interest_tag, s.content_type)
-     ON CONFLICT (user_id, interest_tag, source) DO UPDATE
-       SET weight = user_interests.weight + EXCLUDED.weight, updated_at = NOW()`
-  );
+  const orm = await getDb();
+  const { rowCount: upserted } = await orm.execute(sql`
+    INSERT INTO user_interests (user_id, interest_tag, source, weight)
+    SELECT
+      s.user_id,
+      COALESCE(s.interest_tag, s.content_type) AS interest_tag,
+      'implicit',
+      SUM(
+        CASE s.event_type
+          WHEN 'like' THEN 2 WHEN 'comment' THEN 3 WHEN 'share' THEN 4
+          ELSE 0.5
+        END
+      )
+    FROM content_engagement_signals s
+    WHERE s.created_at > NOW() - INTERVAL '1 day'
+    GROUP BY s.user_id, COALESCE(s.interest_tag, s.content_type)
+    ON CONFLICT (user_id, interest_tag, source) DO UPDATE
+      SET weight = user_interests.weight + EXCLUDED.weight, updated_at = NOW()
+  `);
 
-  const { rowCount: pruned } = await db.query(
-    `DELETE FROM content_engagement_signals WHERE created_at < NOW() - ($1 || ' days')::interval`,
-    [SIGNAL_RETENTION_DAYS]
-  );
+  const { rowCount: pruned } = await orm.execute(sql`
+    DELETE FROM content_engagement_signals WHERE created_at < NOW() - (${SIGNAL_RETENTION_DAYS} || ' days')::interval
+  `);
 
   return { upserted: upserted ?? 0, pruned: pruned ?? 0 };
 }

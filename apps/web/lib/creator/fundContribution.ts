@@ -13,10 +13,17 @@
  * generic x_manifest config panel (/gate44/config — see migration
  * 0001_consolidated_schema.sql for the seeded keys/defaults, which match the
  * prior hard-coded 5% exactly so nothing changes until an admin edits it).
+ *
+ * All callers (lib/payments/paystackWebhookHandler.ts,
+ * app/api/admin/branded-rooms/route.ts,
+ * app/api/economy/rewards/ad-reward/route.ts) now run on Drizzle, so this
+ * accepts a single `DbOrTx` — pass the caller's `tx` when already inside a
+ * transaction so this write commits/rolls back atomically with the rest of
+ * the payment/purchase.
  */
 
-import type { TransactionClient } from "@/lib/db/interface";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { getManifestValue } from "@/lib/manifest";
 import { logger } from "@/lib/logger";
 
@@ -38,16 +45,10 @@ function splitPercentKey(activity: CreatorFundActivity): string {
  * Reads the admin-configured contribution percent for an activity (via the
  * cached manifest — no extra Redis round-trip beyond the existing shared KV
  * cache).
- *
- * @param dbClient - Pass the active transaction client when calling this
- *   from inside `db.transaction()` so a cold manifest cache falls back to a
- *   query on that same connection instead of checking out a second one from
- *   the shared pool (which can starve/timeout a small pool and surface as a
- *   spurious 500 — see contributeToCreatorFund below).
  */
 export async function getCreatorFundSplitPercent(
   activity: CreatorFundActivity,
-  dbClient: TransactionClient | typeof db = db
+  dbClient?: DbOrTx
 ): Promise<number> {
   const raw = await getManifestValue(splitPercentKey(activity), dbClient);
   const parsed = raw !== null ? Number(raw) : NaN;
@@ -61,13 +62,13 @@ export async function getCreatorFundSplitPercent(
  * to eligible creators on the 5th of each month (lib/creator/fund.ts).
  *
  * Safe to call with a zero/negative gross amount (no-ops). Callers already
- * inside a transaction should pass their `tx` client so this write commits
- * or rolls back atomically with the rest of the payment/purchase.
+ * inside a transaction should pass their `tx` so this write commits or rolls
+ * back atomically with the rest of the payment/purchase.
  */
 export async function contributeToCreatorFund(
   grossAmountKobo: number,
   activity: CreatorFundActivity,
-  dbClient: TransactionClient | typeof db = db
+  dbClient?: DbOrTx
 ): Promise<void> {
   if (!Number.isFinite(grossAmountKobo) || grossAmountKobo <= 0) return;
 
@@ -75,17 +76,22 @@ export async function contributeToCreatorFund(
   const contributionKobo = Math.floor((grossAmountKobo * percent) / 100);
   if (contributionKobo <= 0) return;
 
-  await dbClient.query(
-    `INSERT INTO x_manifest (key, value, updated_at)
-     VALUES ('creator_fund_balance_kobo', $1::TEXT, NOW())
-     ON CONFLICT (key) DO UPDATE
-       -- $1 is typed TEXT by its first use above; adding it to a NUMERIC
-       -- without a cast raised "operator does not exist: numeric + text",
-       -- rolling back every payment webhook that seeds the Creator Fund.
-       SET value = (COALESCE(x_manifest.value::NUMERIC, 0) + $1::TEXT::NUMERIC)::TEXT,
-           updated_at = NOW()`,
-    [contributionKobo]
-  );
+  const client = dbClient ?? (await getDb());
+  await client
+    .insert(schema.xManifest)
+    .values({
+      key: "creator_fund_balance_kobo",
+      value: contributionKobo.toString(),
+      updatedAt: sql`NOW()`,
+    })
+    .onConflictDoUpdate({
+      target: schema.xManifest.key,
+      set: {
+        // Add is cast to NUMERIC then back to TEXT, matching x_manifest's TEXT value column.
+        value: sql`(COALESCE(${schema.xManifest.value}::NUMERIC, 0) + ${contributionKobo}::NUMERIC)::TEXT`,
+        updatedAt: sql`NOW()`,
+      },
+    });
 
   logger.info(
     { activity, grossAmountKobo, percent, contributionKobo },

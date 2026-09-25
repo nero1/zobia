@@ -5,7 +5,7 @@
  * All writes are fire-and-forget — never block the main request path.
  */
 
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 
 export type AuditAction =
@@ -72,20 +72,19 @@ export interface AuditLogParams {
  * Write an audit log entry. Fire-and-forget — errors are logged but never thrown.
  */
 export function writeAuditLog(params: AuditLogParams): void {
-  db.query(
-    `INSERT INTO audit_log
-       (actor_id, action, target_type, target_id, metadata, ip_address, user_agent, created_at)
-     VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, NOW())`,
-    [
-      params.actorId ?? null,
-      params.action,
-      params.targetType ?? null,
-      params.targetId ?? null,
-      params.metadata ? JSON.stringify(params.metadata) : null,
-      params.ipAddress ?? null,
-      params.userAgent ?? null,
-    ]
-  ).catch((err) => {
-    logger.error({ err }, "[audit] Failed to write audit log");
-  });
+  getDb()
+    .then((db) =>
+      db.insert(schema.auditLog).values({
+        actorId: params.actorId ?? null,
+        action: params.action,
+        targetType: params.targetType ?? null,
+        targetId: params.targetId ?? null,
+        metadata: params.metadata ?? null,
+        ipAddress: params.ipAddress ?? null,
+        userAgent: params.userAgent ?? null,
+      })
+    )
+    .catch((err) => {
+      logger.error({ err }, "[audit] Failed to write audit log");
+    });
 }

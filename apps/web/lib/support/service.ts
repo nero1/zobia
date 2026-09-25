@@ -12,8 +12,8 @@
  * @module lib/support/service
  */
 
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
+import { and, asc, desc, eq, gt, inArray, isNull, lt, or, sql } from "drizzle-orm";
 import { loadManifest, requireFeatureEnabled, type ZobiaManifest } from "@/lib/manifest";
 import { debitCoins } from "@/lib/economy/coins";
 import { debitStars } from "@/lib/economy/stars";
@@ -58,6 +58,47 @@ export interface SupportTicketMessage {
   charged_credits: number;
   charged_stars: number;
   created_at: string;
+}
+
+// ---------------------------------------------------------------------------
+// Row mappers — the public API shape here is snake_case (matches the old
+// raw-SQL row shape other callers/tests already depend on); Drizzle returns
+// camelCase, so map at the read boundary.
+// ---------------------------------------------------------------------------
+
+type TicketRow = typeof schema.supportTickets.$inferSelect;
+type MessageRow = typeof schema.supportTicketMessages.$inferSelect;
+
+function toTicket(row: TicketRow): SupportTicket {
+  return {
+    id: row.id,
+    user_id: row.userId,
+    subject: row.subject,
+    status: row.status as TicketStatus,
+    priority: row.priority as TicketPriority,
+    assigned_to: row.assignedTo,
+    is_ai_handled: row.isAiHandled,
+    ai_resolved: row.aiResolved,
+    source: row.source as "ticket" | "help_center_ai",
+    message_count: row.messageCount,
+    created_at: row.createdAt.toISOString(),
+    updated_at: row.updatedAt.toISOString(),
+    last_activity_at: row.lastActivityAt.toISOString(),
+  };
+}
+
+function toMessage(row: MessageRow): SupportTicketMessage {
+  return {
+    id: row.id,
+    ticket_id: row.ticketId,
+    sender_id: row.senderId,
+    sender_type: row.senderType as "user" | "staff" | "ai",
+    body: row.body,
+    charged: row.charged,
+    charged_credits: row.chargedCredits,
+    charged_stars: row.chargedStars,
+    created_at: row.createdAt.toISOString(),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +155,7 @@ async function chargeForMessage(
   costCredits: number,
   costStars: number,
   referenceId: string,
-  tx: TransactionClient
+  tx: DbOrTx
 ): Promise<ChargeResult> {
   if (costCredits <= 0 && costStars <= 0) {
     return { charged: false, chargedCredits: 0, chargedStars: 0 };
@@ -189,21 +230,20 @@ export async function createTicket(input: CreateTicketInput): Promise<SupportTic
     !eligibility.freeAccess &&
     shouldChargeMessage(manifest.support.chargingModel, manifest.support.chargingX, 1);
 
-  const ticket = await db.transaction(async (tx) => {
-    const { rows } = await tx.query<SupportTicket>(
-      `INSERT INTO support_tickets
-         (user_id, subject, status, priority, is_ai_handled, source, source_help_doc_id)
-       VALUES ($1, $2, 'open', 'normal', $3, $4, $5)
-       RETURNING *`,
-      [
-        input.userId,
+  const orm = await getDb();
+  const ticket = await orm.transaction(async (tx) => {
+    const [created] = await tx
+      .insert(schema.supportTickets)
+      .values({
+        userId: input.userId,
         subject,
-        manifest.support.aiTriageEnabled,
-        input.source ?? "ticket",
-        input.sourceHelpDocId ?? null,
-      ]
-    );
-    const created = rows[0];
+        status: "open",
+        priority: "normal",
+        isAiHandled: manifest.support.aiTriageEnabled,
+        source: input.source ?? "ticket",
+        sourceHelpDocId: input.sourceHelpDocId ?? null,
+      })
+      .returning();
 
     let charge: ChargeResult = { charged: false, chargedCredits: 0, chargedStars: 0 };
     if (shouldCharge) {
@@ -216,26 +256,35 @@ export async function createTicket(input: CreateTicketInput): Promise<SupportTic
       );
     }
 
-    await tx.query(
-      `INSERT INTO support_ticket_messages (ticket_id, sender_id, sender_type, body, charged, charged_credits, charged_stars)
-       VALUES ($1, $2, 'user', $3, $4, $5, $6)`,
-      [created.id, input.userId, firstMessage, charge.charged, charge.chargedCredits, charge.chargedStars]
-    );
+    await tx.insert(schema.supportTicketMessages).values({
+      ticketId: created.id,
+      senderId: input.userId,
+      senderType: "user",
+      body: firstMessage,
+      charged: charge.charged,
+      chargedCredits: charge.chargedCredits,
+      chargedStars: charge.chargedStars,
+    });
 
-    await tx.query(
-      `UPDATE support_tickets
-       SET message_count = 1, charged_credits = $2, charged_stars = $3, last_activity_at = NOW()
-       WHERE id = $1`,
-      [created.id, charge.chargedCredits, charge.chargedStars]
-    );
+    await tx
+      .update(schema.supportTickets)
+      .set({
+        messageCount: 1,
+        chargedCredits: charge.chargedCredits,
+        chargedStars: charge.chargedStars,
+        lastActivityAt: new Date(),
+      })
+      .where(eq(schema.supportTickets.id, created.id));
 
-    await tx.query(
-      `INSERT INTO support_ticket_events (ticket_id, actor_id, event_type, to_value, note)
-       VALUES ($1, $2, 'created', 'open', $3)`,
-      [created.id, input.userId, charge.charged ? `Charged ${charge.chargedCredits} credits / ${charge.chargedStars} stars` : null]
-    );
+    await tx.insert(schema.supportTicketEvents).values({
+      ticketId: created.id,
+      actorId: input.userId,
+      eventType: "created",
+      toValue: "open",
+      note: charge.charged ? `Charged ${charge.chargedCredits} credits / ${charge.chargedStars} stars` : null,
+    });
 
-    return created;
+    return toTicket(created);
   });
 
   if (manifest.support.aiTriageEnabled) {
@@ -274,13 +323,21 @@ export async function postUserMessage(input: PostMessageInput): Promise<SupportT
 
   const eligibility = await getTicketEligibility(input.userId);
 
-  const message = await db.transaction(async (tx) => {
-    const { rows } = await tx.query<SupportTicket>(
-      `SELECT * FROM support_tickets WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [input.ticketId, input.userId]
-    );
-    const ticket = rows[0];
-    if (!ticket) throw notFound("Ticket not found");
+  const orm = await getDb();
+  const message = await orm.transaction(async (tx) => {
+    const [ticketRow] = await tx
+      .select()
+      .from(schema.supportTickets)
+      .where(
+        and(
+          eq(schema.supportTickets.id, input.ticketId),
+          eq(schema.supportTickets.userId, input.userId),
+          isNull(schema.supportTickets.deletedAt)
+        )
+      )
+      .for("update");
+    if (!ticketRow) throw notFound("Ticket not found");
+    const ticket = toTicket(ticketRow);
     if (ticket.status === "closed") throw conflict("This ticket is closed. Open a new ticket for further help.");
 
     const messageIndex = ticket.message_count + 1;
@@ -301,32 +358,42 @@ export async function postUserMessage(input: PostMessageInput): Promise<SupportT
       );
     }
 
-    const { rows: msgRows } = await tx.query<SupportTicketMessage>(
-      `INSERT INTO support_ticket_messages (ticket_id, sender_id, sender_type, body, charged, charged_credits, charged_stars)
-       VALUES ($1, $2, 'user', $3, $4, $5, $6)
-       RETURNING *`,
-      [ticket.id, input.userId, body, charge.charged, charge.chargedCredits, charge.chargedStars]
-    );
+    const [msgRow] = await tx
+      .insert(schema.supportTicketMessages)
+      .values({
+        ticketId: ticket.id,
+        senderId: input.userId,
+        senderType: "user",
+        body,
+        charged: charge.charged,
+        chargedCredits: charge.chargedCredits,
+        chargedStars: charge.chargedStars,
+      })
+      .returning();
 
     // Reopen a resolved/pending ticket when the user replies.
     const newStatus: TicketStatus = ticket.status === "resolved" ? "open" : ticket.status;
 
-    await tx.query(
-      `UPDATE support_tickets
-       SET message_count = $2, status = $3,
-           charged_credits = charged_credits + $4, charged_stars = charged_stars + $5,
-           last_activity_at = NOW(), updated_at = NOW()
-       WHERE id = $1`,
-      [ticket.id, messageIndex, newStatus, charge.chargedCredits, charge.chargedStars]
-    );
+    await tx
+      .update(schema.supportTickets)
+      .set({
+        messageCount: messageIndex,
+        status: newStatus,
+        chargedCredits: sql`${schema.supportTickets.chargedCredits} + ${charge.chargedCredits}`,
+        chargedStars: sql`${schema.supportTickets.chargedStars} + ${charge.chargedStars}`,
+        lastActivityAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.supportTickets.id, ticket.id));
 
-    await tx.query(
-      `INSERT INTO support_ticket_events (ticket_id, actor_id, event_type, note)
-       VALUES ($1, $2, 'message_added', $3)`,
-      [ticket.id, input.userId, charge.charged ? `Charged ${charge.chargedCredits} credits / ${charge.chargedStars} stars` : null]
-    );
+    await tx.insert(schema.supportTicketEvents).values({
+      ticketId: ticket.id,
+      actorId: input.userId,
+      eventType: "message_added",
+      note: charge.charged ? `Charged ${charge.chargedCredits} credits / ${charge.chargedStars} stars` : null,
+    });
 
-    return msgRows[0];
+    return toMessage(msgRow);
   });
 
   return message;
@@ -339,33 +406,33 @@ export async function postStaffMessage(ticketId: string, staffUserId: string, bo
   const trimmed = body.trim();
   if (!trimmed) throw badRequest("Message cannot be empty");
 
-  return db.transaction(async (tx) => {
-    const { rows } = await tx.query<SupportTicket>(
-      `SELECT * FROM support_tickets WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-      [ticketId]
-    );
-    const ticket = rows[0];
-    if (!ticket) throw notFound("Ticket not found");
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const [ticketRow] = await tx
+      .select()
+      .from(schema.supportTickets)
+      .where(and(eq(schema.supportTickets.id, ticketId), isNull(schema.supportTickets.deletedAt)))
+      .for("update");
+    if (!ticketRow) throw notFound("Ticket not found");
+    const ticket = toTicket(ticketRow);
 
     const messageIndex = ticket.message_count + 1;
-    const { rows: msgRows } = await tx.query<SupportTicketMessage>(
-      `INSERT INTO support_ticket_messages (ticket_id, sender_id, sender_type, body)
-       VALUES ($1, $2, 'staff', $3)
-       RETURNING *`,
-      [ticket.id, staffUserId, trimmed]
-    );
+    const [msgRow] = await tx
+      .insert(schema.supportTicketMessages)
+      .values({ ticketId: ticket.id, senderId: staffUserId, senderType: "staff", body: trimmed })
+      .returning();
 
-    await tx.query(
-      `UPDATE support_tickets
-       SET message_count = $2, status = 'pending', last_activity_at = NOW(), updated_at = NOW()
-       WHERE id = $1`,
-      [ticket.id, messageIndex]
-    );
+    await tx
+      .update(schema.supportTickets)
+      .set({ messageCount: messageIndex, status: "pending", lastActivityAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.supportTickets.id, ticket.id));
 
-    await tx.query(
-      `INSERT INTO support_ticket_events (ticket_id, actor_id, event_type, note) VALUES ($1, $2, 'message_added', 'staff reply')`,
-      [ticket.id, staffUserId]
-    );
+    await tx.insert(schema.supportTicketEvents).values({
+      ticketId: ticket.id,
+      actorId: staffUserId,
+      eventType: "message_added",
+      note: "staff reply",
+    });
 
     await insertNotificationBatch(
       tx,
@@ -376,7 +443,7 @@ export async function postStaffMessage(ticketId: string, staffUserId: string, bo
       { ticketId: ticket.id }
     ).catch(() => {});
 
-    return msgRows[0];
+    return toMessage(msgRow);
   });
 }
 
@@ -393,15 +460,17 @@ const AI_TRIAGE_SYSTEM_PROMPT =
 
 /** Runs AI triage on a newly created ticket and posts the AI's response as the first reply. */
 export async function runAiTriage(ticketId: string): Promise<void> {
-  const { rows } = await db.query<{ subject: string; body: string }>(
-    `SELECT t.subject, m.body
-     FROM support_tickets t
-     JOIN support_ticket_messages m ON m.ticket_id = t.id AND m.sender_type = 'user'
-     WHERE t.id = $1
-     ORDER BY m.created_at ASC LIMIT 1`,
-    [ticketId]
-  );
-  const first = rows[0];
+  const orm = await getDb();
+  const [first] = await orm
+    .select({ subject: schema.supportTickets.subject, body: schema.supportTicketMessages.body })
+    .from(schema.supportTickets)
+    .innerJoin(
+      schema.supportTicketMessages,
+      and(eq(schema.supportTicketMessages.ticketId, schema.supportTickets.id), eq(schema.supportTicketMessages.senderType, "user"))
+    )
+    .where(eq(schema.supportTickets.id, ticketId))
+    .orderBy(asc(schema.supportTicketMessages.createdAt))
+    .limit(1);
   if (!first) return;
 
   let aiText: string;
@@ -420,72 +489,87 @@ export async function runAiTriage(ticketId: string): Promise<void> {
   }
   if (!aiText) return;
 
-  await db.transaction(async (tx) => {
-    await tx.query(
-      `INSERT INTO support_ticket_messages (ticket_id, sender_type, body) VALUES ($1, 'ai', $2)`,
-      [ticketId, aiText]
-    );
-    await tx.query(
-      `UPDATE support_tickets SET message_count = message_count + 1, ai_resolved = true, last_activity_at = NOW() WHERE id = $1`,
-      [ticketId]
-    );
-    await tx.query(
-      `INSERT INTO support_ticket_events (ticket_id, event_type, note) VALUES ($1, 'ai_response', 'AI triage response posted')`,
-      [ticketId]
-    );
+  await orm.transaction(async (tx) => {
+    await tx.insert(schema.supportTicketMessages).values({ ticketId, senderType: "ai", body: aiText });
+    await tx
+      .update(schema.supportTickets)
+      .set({
+        messageCount: sql`${schema.supportTickets.messageCount} + 1`,
+        aiResolved: true,
+        lastActivityAt: new Date(),
+      })
+      .where(eq(schema.supportTickets.id, ticketId));
+    await tx.insert(schema.supportTicketEvents).values({
+      ticketId,
+      eventType: "ai_response",
+      note: "AI triage response posted",
+    });
   });
 }
 
 /** User rejects the AI's answer ("talk to a real person") — routes to the human queue. */
 export async function rejectAiTriage(ticketId: string, userId: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    const { rows } = await tx.query<SupportTicket>(
-      `SELECT * FROM support_tickets WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [ticketId, userId]
-    );
-    const ticket = rows[0];
-    if (!ticket) throw notFound("Ticket not found");
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const [ticketRow] = await tx
+      .select({ id: schema.supportTickets.id })
+      .from(schema.supportTickets)
+      .where(
+        and(
+          eq(schema.supportTickets.id, ticketId),
+          eq(schema.supportTickets.userId, userId),
+          isNull(schema.supportTickets.deletedAt)
+        )
+      )
+      .for("update");
+    if (!ticketRow) throw notFound("Ticket not found");
 
-    await tx.query(
-      `UPDATE support_tickets SET ai_resolved = false, status = 'open', updated_at = NOW() WHERE id = $1`,
-      [ticketId]
-    );
-    await tx.query(
-      `INSERT INTO support_ticket_events (ticket_id, actor_id, event_type, note) VALUES ($1, $2, 'ai_rejected', 'User requested a human')`,
-      [ticketId, userId]
-    );
+    await tx
+      .update(schema.supportTickets)
+      .set({ aiResolved: false, status: "open", updatedAt: new Date() })
+      .where(eq(schema.supportTickets.id, ticketId));
+    await tx.insert(schema.supportTicketEvents).values({
+      ticketId,
+      actorId: userId,
+      eventType: "ai_rejected",
+      note: "User requested a human",
+    });
   });
 
   await notifyStaffOfNewTicket(await getTicketByIdInternal(ticketId)).catch(() => {});
 }
 
 async function getTicketByIdInternal(ticketId: string): Promise<SupportTicket> {
-  const { rows } = await db.query<SupportTicket>(`SELECT * FROM support_tickets WHERE id = $1`, [ticketId]);
-  if (!rows[0]) throw notFound("Ticket not found");
-  return rows[0];
+  const orm = await getDb();
+  const [row] = await orm.select().from(schema.supportTickets).where(eq(schema.supportTickets.id, ticketId));
+  if (!row) throw notFound("Ticket not found");
+  return toTicket(row);
 }
 
 async function notifyStaffOfNewTicket(ticket: SupportTicket): Promise<void> {
   const manifest = await loadManifest();
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM users
-     WHERE deleted_at IS NULL
-       AND (
-         (is_admin = true AND $1::boolean)
-         OR (is_moderator = true AND $2::boolean)
-         OR (is_support = true AND $3::boolean)
-       )
-     LIMIT 500`,
-    [
-      manifest.support.staffRoles.includes("admin"),
-      manifest.support.staffRoles.includes("moderator"),
-      manifest.support.staffRoles.includes("support"),
-    ]
-  );
+  const orm = await getDb();
+  const wantAdmin = manifest.support.staffRoles.includes("admin");
+  const wantModerator = manifest.support.staffRoles.includes("moderator");
+  const wantSupport = manifest.support.staffRoles.includes("support");
+  const rows = await orm
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(
+      and(
+        isNull(schema.users.deletedAt),
+        or(
+          wantAdmin ? eq(schema.users.isAdmin, true) : sql`false`,
+          wantModerator ? eq(schema.users.isModerator, true) : sql`false`,
+          wantSupport ? eq(schema.users.isSupport, true) : sql`false`
+        )
+      )
+    )
+    .limit(500);
   const staffIds = rows.map((r) => r.id);
   if (staffIds.length === 0) return;
   await insertNotificationBatch(
-    db,
+    orm,
     staffIds,
     "support_ticket_new",
     "New support ticket needs a response",
@@ -546,23 +630,27 @@ export async function escalateTicket(ticketId: string, actorId: string, targetUs
     throw forbidden(decision.reason);
   }
 
-  await db.transaction(async (tx) => {
-    const { rows } = await tx.query<SupportTicket>(
-      `SELECT * FROM support_tickets WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-      [ticketId]
-    );
-    const ticket = rows[0];
-    if (!ticket) throw notFound("Ticket not found");
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const [ticketRow] = await tx
+      .select()
+      .from(schema.supportTickets)
+      .where(and(eq(schema.supportTickets.id, ticketId), isNull(schema.supportTickets.deletedAt)))
+      .for("update");
+    if (!ticketRow) throw notFound("Ticket not found");
+    const ticket = toTicket(ticketRow);
 
-    await tx.query(
-      `UPDATE support_tickets SET assigned_to = $2, status = 'escalated', updated_at = NOW() WHERE id = $1`,
-      [ticketId, targetUserId]
-    );
-    await tx.query(
-      `INSERT INTO support_ticket_events (ticket_id, actor_id, event_type, from_value, to_value)
-       VALUES ($1, $2, 'escalated', $3, $4)`,
-      [ticketId, actorId, ticket.assigned_to ?? "", targetUserId]
-    );
+    await tx
+      .update(schema.supportTickets)
+      .set({ assignedTo: targetUserId, status: "escalated", updatedAt: new Date() })
+      .where(eq(schema.supportTickets.id, ticketId));
+    await tx.insert(schema.supportTicketEvents).values({
+      ticketId,
+      actorId,
+      eventType: "escalated",
+      fromValue: ticket.assigned_to ?? "",
+      toValue: targetUserId,
+    });
 
     await insertNotificationBatch(
       tx,
@@ -587,41 +675,57 @@ export async function assignTicket(ticketId: string, actorId: string, targetUser
     throw badRequest("Assignment target is not a support staff member.");
   }
 
-  await db.transaction(async (tx) => {
-    const { rows } = await tx.query<SupportTicket>(
-      `SELECT * FROM support_tickets WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-      [ticketId]
-    );
-    const ticket = rows[0];
-    if (!ticket) throw notFound("Ticket not found");
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const [ticketRow] = await tx
+      .select()
+      .from(schema.supportTickets)
+      .where(and(eq(schema.supportTickets.id, ticketId), isNull(schema.supportTickets.deletedAt)))
+      .for("update");
+    if (!ticketRow) throw notFound("Ticket not found");
+    const ticket = toTicket(ticketRow);
 
-    await tx.query(`UPDATE support_tickets SET assigned_to = $2, updated_at = NOW() WHERE id = $1`, [ticketId, targetUserId]);
-    await tx.query(
-      `INSERT INTO support_ticket_events (ticket_id, actor_id, event_type, from_value, to_value) VALUES ($1, $2, 'assigned', $3, $4)`,
-      [ticketId, actorId, ticket.assigned_to ?? "", targetUserId]
-    );
+    await tx
+      .update(schema.supportTickets)
+      .set({ assignedTo: targetUserId, updatedAt: new Date() })
+      .where(eq(schema.supportTickets.id, ticketId));
+    await tx.insert(schema.supportTicketEvents).values({
+      ticketId,
+      actorId,
+      eventType: "assigned",
+      fromValue: ticket.assigned_to ?? "",
+      toValue: targetUserId,
+    });
   });
 }
 
 export async function setTicketStatus(ticketId: string, actorId: string, status: TicketStatus): Promise<void> {
-  await db.transaction(async (tx) => {
-    const { rows } = await tx.query<SupportTicket>(
-      `SELECT * FROM support_tickets WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-      [ticketId]
-    );
-    const ticket = rows[0];
-    if (!ticket) throw notFound("Ticket not found");
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const [ticketRow] = await tx
+      .select()
+      .from(schema.supportTickets)
+      .where(and(eq(schema.supportTickets.id, ticketId), isNull(schema.supportTickets.deletedAt)))
+      .for("update");
+    if (!ticketRow) throw notFound("Ticket not found");
+    const ticket = toTicket(ticketRow);
 
-    const resolvedAt = status === "resolved" ? "NOW()" : "resolved_at";
-    const closedAt = status === "closed" ? "NOW()" : "closed_at";
-    await tx.query(
-      `UPDATE support_tickets SET status = $2, resolved_at = ${resolvedAt}, closed_at = ${closedAt}, updated_at = NOW() WHERE id = $1`,
-      [ticketId, status]
-    );
-    await tx.query(
-      `INSERT INTO support_ticket_events (ticket_id, actor_id, event_type, from_value, to_value) VALUES ($1, $2, 'status_changed', $3, $4)`,
-      [ticketId, actorId, ticket.status, status]
-    );
+    await tx
+      .update(schema.supportTickets)
+      .set({
+        status,
+        resolvedAt: status === "resolved" ? new Date() : undefined,
+        closedAt: status === "closed" ? new Date() : undefined,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.supportTickets.id, ticketId));
+    await tx.insert(schema.supportTicketEvents).values({
+      ticketId,
+      actorId,
+      eventType: "status_changed",
+      fromValue: ticket.status,
+      toValue: status,
+    });
   });
 }
 
@@ -630,38 +734,50 @@ export async function setTicketStatus(ticketId: string, actorId: string, status:
 // ---------------------------------------------------------------------------
 
 export async function listUserTickets(userId: string): Promise<SupportTicket[]> {
-  const { rows } = await db.query<SupportTicket>(
-    `SELECT * FROM support_tickets WHERE user_id = $1 AND deleted_at IS NULL ORDER BY last_activity_at DESC LIMIT 100`,
-    [userId]
-  );
-  return rows;
+  const orm = await getDb();
+  const rows = await orm
+    .select()
+    .from(schema.supportTickets)
+    .where(and(eq(schema.supportTickets.userId, userId), isNull(schema.supportTickets.deletedAt)))
+    .orderBy(desc(schema.supportTickets.lastActivityAt))
+    .limit(100);
+  return rows.map(toTicket);
 }
 
 /** Fetches a ticket + its messages for the OWNING user only (IDOR guard). */
 export async function getTicketForUser(ticketId: string, userId: string): Promise<{ ticket: SupportTicket; messages: SupportTicketMessage[] }> {
-  const { rows } = await db.query<SupportTicket>(
-    `SELECT * FROM support_tickets WHERE id = $1 AND user_id = $2 AND deleted_at IS NULL LIMIT 1`,
-    [ticketId, userId]
-  );
-  const ticket = rows[0];
-  if (!ticket) throw notFound("Ticket not found");
-  const { rows: messages } = await db.query<SupportTicketMessage>(
-    `SELECT * FROM support_ticket_messages WHERE ticket_id = $1 ORDER BY created_at ASC`,
-    [ticketId]
-  );
-  return { ticket, messages };
+  const orm = await getDb();
+  const [ticketRow] = await orm
+    .select()
+    .from(schema.supportTickets)
+    .where(
+      and(eq(schema.supportTickets.id, ticketId), eq(schema.supportTickets.userId, userId), isNull(schema.supportTickets.deletedAt))
+    )
+    .limit(1);
+  if (!ticketRow) throw notFound("Ticket not found");
+  const messages = await orm
+    .select()
+    .from(schema.supportTicketMessages)
+    .where(eq(schema.supportTicketMessages.ticketId, ticketId))
+    .orderBy(asc(schema.supportTicketMessages.createdAt));
+  return { ticket: toTicket(ticketRow), messages: messages.map(toMessage) };
 }
 
 /** Fetches a ticket + its messages for STAFF — access gated by staffRoles config, checked by the caller. */
 export async function getTicketForStaff(ticketId: string): Promise<{ ticket: SupportTicket; messages: SupportTicketMessage[] }> {
-  const { rows } = await db.query<SupportTicket>(`SELECT * FROM support_tickets WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [ticketId]);
-  const ticket = rows[0];
-  if (!ticket) throw notFound("Ticket not found");
-  const { rows: messages } = await db.query<SupportTicketMessage>(
-    `SELECT * FROM support_ticket_messages WHERE ticket_id = $1 ORDER BY created_at ASC`,
-    [ticketId]
-  );
-  return { ticket, messages };
+  const orm = await getDb();
+  const [ticketRow] = await orm
+    .select()
+    .from(schema.supportTickets)
+    .where(and(eq(schema.supportTickets.id, ticketId), isNull(schema.supportTickets.deletedAt)))
+    .limit(1);
+  if (!ticketRow) throw notFound("Ticket not found");
+  const messages = await orm
+    .select()
+    .from(schema.supportTicketMessages)
+    .where(eq(schema.supportTicketMessages.ticketId, ticketId))
+    .orderBy(asc(schema.supportTicketMessages.createdAt));
+  return { ticket: toTicket(ticketRow), messages: messages.map(toMessage) };
 }
 
 export interface QueueFilters {
@@ -672,30 +788,20 @@ export interface QueueFilters {
 }
 
 export async function listQueue(filters: QueueFilters): Promise<SupportTicket[]> {
-  const conditions: string[] = ["deleted_at IS NULL"];
-  const params: import("@/lib/db/interface").SqlParam[] = [];
-
-  if (filters.status) {
-    params.push(filters.status);
-    conditions.push(`status = $${params.length}`);
-  }
-  if (filters.assignedTo) {
-    params.push(filters.assignedTo);
-    conditions.push(`assigned_to = $${params.length}`);
-  }
-  if (filters.cursor) {
-    params.push(filters.cursor);
-    conditions.push(`last_activity_at < $${params.length}::timestamptz`);
-  }
+  const orm = await getDb();
+  const conditions = [isNull(schema.supportTickets.deletedAt)];
+  if (filters.status) conditions.push(eq(schema.supportTickets.status, filters.status));
+  if (filters.assignedTo) conditions.push(eq(schema.supportTickets.assignedTo, filters.assignedTo));
+  if (filters.cursor) conditions.push(lt(schema.supportTickets.lastActivityAt, new Date(filters.cursor)));
 
   const limit = Math.min(filters.limit ?? 50, 100);
-  params.push(limit);
-
-  const { rows } = await db.query<SupportTicket>(
-    `SELECT * FROM support_tickets WHERE ${conditions.join(" AND ")} ORDER BY last_activity_at DESC LIMIT $${params.length}`,
-    params
-  );
-  return rows;
+  const rows = await orm
+    .select()
+    .from(schema.supportTickets)
+    .where(and(...conditions))
+    .orderBy(desc(schema.supportTickets.lastActivityAt))
+    .limit(limit);
+  return rows.map(toTicket);
 }
 
 /**
@@ -706,26 +812,32 @@ export async function listQueue(filters: QueueFilters): Promise<SupportTicket[]>
  * already-closed tickets.
  */
 export async function autoCloseStaleResolvedTickets(staleDays = 7): Promise<number> {
-  const { rowCount } = await db.query(
-    `UPDATE support_tickets
-     SET status = 'closed', closed_at = NOW(), updated_at = NOW()
-     WHERE status = 'resolved'
-       AND deleted_at IS NULL
-       AND last_activity_at < NOW() - ($1 || ' days')::interval`,
-    [staleDays]
-  );
-  if (rowCount && rowCount > 0) {
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM support_tickets WHERE status = 'closed' AND closed_at >= NOW() - interval '1 minute'`
+  const orm = await getDb();
+  const staleBefore = new Date(Date.now() - staleDays * 24 * 60 * 60 * 1000);
+  const closedRows = await orm
+    .update(schema.supportTickets)
+    .set({ status: "closed", closedAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.supportTickets.status, "resolved"),
+        isNull(schema.supportTickets.deletedAt),
+        lt(schema.supportTickets.lastActivityAt, staleBefore)
+      )
+    )
+    .returning({ id: schema.supportTickets.id });
+
+  if (closedRows.length > 0) {
+    await orm.insert(schema.supportTicketEvents).values(
+      closedRows.map((row) => ({
+        ticketId: row.id,
+        eventType: "status_changed",
+        fromValue: "resolved",
+        toValue: "closed",
+        note: "Auto-closed: no activity",
+      }))
     );
-    for (const row of rows) {
-      await db.query(
-        `INSERT INTO support_ticket_events (ticket_id, event_type, from_value, to_value, note) VALUES ($1, 'status_changed', 'resolved', 'closed', 'Auto-closed: no activity')`,
-        [row.id]
-      );
-    }
   }
-  return rowCount ?? 0;
+  return closedRows.length;
 }
 
 export { ApiError };

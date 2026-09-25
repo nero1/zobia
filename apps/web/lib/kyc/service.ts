@@ -35,8 +35,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { eq, and, inArray, sql, desc } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { loadManifest } from "@/lib/manifest";
 import { checkAndDebit, creditCoins } from "@/lib/economy/coins";
 import { insertNotification } from "@/lib/notifications/insert";
@@ -100,28 +100,38 @@ function isYouTubeUrl(url: string): boolean {
 }
 
 async function getAccountType(userId: string): Promise<"individual" | "business"> {
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ id: schema.businessAccounts.id })
+    .from(schema.businessAccounts)
+    .where(eq(schema.businessAccounts.userId, userId))
+    .limit(1);
   return rows[0] ? "business" : "individual";
 }
 
 async function assertNoActiveSubmission(userId: string, tier: number): Promise<void> {
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM kyc_submissions
-     WHERE user_id = $1 AND tier = $2 AND status IN ('pending', 'ai_review', 'manual_review')
-     LIMIT 1`,
-    [userId, tier]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ id: schema.kycSubmissions.id })
+    .from(schema.kycSubmissions)
+    .where(
+      and(
+        eq(schema.kycSubmissions.userId, userId),
+        eq(schema.kycSubmissions.tier, tier),
+        inArray(schema.kycSubmissions.status, ["pending", "ai_review", "manual_review"])
+      )
+    )
+    .limit(1);
   if (rows[0]) throw conflict("You already have a Tier " + tier + " verification in progress.", "KYC_ALREADY_PENDING");
 }
 
 async function getApprovedTierCount(userId: string, tier: number): Promise<boolean> {
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM kyc_submissions WHERE user_id = $1 AND tier = $2 AND status = 'approved' LIMIT 1`,
-    [userId, tier]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ id: schema.kycSubmissions.id })
+    .from(schema.kycSubmissions)
+    .where(and(eq(schema.kycSubmissions.userId, userId), eq(schema.kycSubmissions.tier, tier), eq(schema.kycSubmissions.status, "approved")))
+    .limit(1);
   return !!rows[0];
 }
 
@@ -136,10 +146,11 @@ async function chargeCredits(userId: string, submissionId: string, costCredits: 
       "KYC verification fee",
       { submissionId }
     );
-    await db.query(
-      `UPDATE kyc_submissions SET credit_ledger_reference_id = $1, updated_at = NOW() WHERE id = $2`,
-      [entry.id, submissionId]
-    );
+    const orm = await getDb();
+    await orm
+      .update(schema.kycSubmissions)
+      .set({ creditLedgerReferenceId: entry.id, updatedAt: sql`NOW()` })
+      .where(eq(schema.kycSubmissions.id, submissionId));
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "INSUFFICIENT_BALANCE") {
       throw badRequest(`This verification costs ${costCredits} credits. Top up your balance and try again.`, "INSUFFICIENT_CREDITS");
@@ -155,12 +166,18 @@ async function refundCredits(userId: string, submissionId: string, costCredits: 
   });
 }
 
-async function attachDocuments(tx: TransactionClient, submissionId: string, userId: string, documentIds: string[]): Promise<void> {
+async function attachDocuments(tx: DbOrTx, submissionId: string, userId: string, documentIds: string[]): Promise<void> {
   if (documentIds.length === 0) return;
-  await tx.query(
-    `UPDATE kyc_documents SET submission_id = $1 WHERE id = ANY($2::uuid[]) AND user_id = $3 AND submission_id IS NULL`,
-    [submissionId, documentIds, userId]
-  );
+  await tx
+    .update(schema.kycDocuments)
+    .set({ submissionId })
+    .where(
+      and(
+        inArray(schema.kycDocuments.id, documentIds),
+        eq(schema.kycDocuments.userId, userId),
+        sql`${schema.kycDocuments.submissionId} IS NULL`
+      )
+    );
 }
 
 async function alertAdmins(
@@ -169,7 +186,8 @@ async function alertAdmins(
   metadata: Record<string, unknown>,
   priorityLevel: AlertPriorityLevel = 6
 ): Promise<void> {
-  await raiseAlert(db, {
+  const orm = await getDb();
+  await raiseAlert(orm, {
     type,
     category: "other",
     priorityLevel,
@@ -180,7 +198,8 @@ async function alertAdmins(
 }
 
 async function notifyUser(userId: string, type: string, title: string, body: string, metadata?: Record<string, unknown>): Promise<void> {
-  await insertNotification(db, userId, type, title, body, metadata).catch(() => {});
+  const orm = await getDb();
+  await insertNotification(orm, userId, type, title, body, metadata).catch(() => {});
 }
 
 /**
@@ -209,10 +228,11 @@ export async function submitTier1Nigeria(userId: string, input: SubmitTier1Niger
   if (!manifest.features.kyc) throw badRequest("KYC verification is currently unavailable.", "KYC_DISABLED");
   await assertNoActiveSubmission(userId, 1);
 
-  const { rows: userRows } = await db.query<{ email: string; display_name: string }>(
-    `SELECT email, display_name FROM users WHERE id = $1`,
-    [userId]
-  );
+  const orm = await getDb();
+  const userRows = await orm
+    .select({ email: schema.users.email, display_name: schema.users.displayName })
+    .from(schema.users)
+    .where(eq(schema.users.id, userId));
   const user = userRows[0];
   if (!user?.email) throw badRequest("A verified email is required before starting KYC.", "EMAIL_REQUIRED");
 
@@ -220,18 +240,21 @@ export async function submitTier1Nigeria(userId: string, input: SubmitTier1Niger
   const submissionId = randomUUID();
 
   await runInsertOrActiveConflict(1, () =>
-    db.transaction(async (tx) => {
-      await tx.query(
-        `INSERT INTO kyc_submissions
-           (id, user_id, tier, status, account_type, citizenship_country, review_mode,
-            bvn_last4, id_type, submitted_full_name, credits_charged, submitted_at)
-         VALUES ($1, $2, 1, 'pending', $3, 'NG', $4, $5, $6, $7, $8, NOW())`,
-        [
-          submissionId, userId, accountType, manifest.kyc.tier1ReviewMode,
-          input.bvn.slice(-4), "bvn_slip", `${input.firstName} ${input.lastName}`.trim(),
-          manifest.kyc.costCredits,
-        ]
-      );
+    orm.transaction(async (tx) => {
+      await tx.insert(schema.kycSubmissions).values({
+        id: submissionId,
+        userId,
+        tier: 1,
+        status: "pending",
+        accountType,
+        citizenshipCountry: "NG",
+        reviewMode: manifest.kyc.tier1ReviewMode,
+        bvnLast4: input.bvn.slice(-4),
+        idType: "bvn_slip",
+        submittedFullName: `${input.firstName} ${input.lastName}`.trim(),
+        creditsCharged: manifest.kyc.costCredits,
+        submittedAt: sql`NOW()`,
+      });
       await attachDocuments(tx, submissionId, userId, input.documentIds);
     })
   );
@@ -239,16 +262,16 @@ export async function submitTier1Nigeria(userId: string, input: SubmitTier1Niger
   try {
     await chargeCredits(userId, submissionId, manifest.kyc.costCredits);
   } catch (err) {
-    await db.query(`DELETE FROM kyc_submissions WHERE id = $1`, [submissionId]);
+    await orm.delete(schema.kycSubmissions).where(eq(schema.kycSubmissions.id, submissionId));
     throw err;
   }
 
   try {
     const customer = await createCustomer(user.email, input.firstName, input.lastName);
-    await db.query(
-      `UPDATE kyc_submissions SET paystack_customer_code = $1, paystack_verification_status = 'pending', updated_at = NOW() WHERE id = $2`,
-      [customer.customer_code, submissionId]
-    );
+    await orm
+      .update(schema.kycSubmissions)
+      .set({ paystackCustomerCode: customer.customer_code, paystackVerificationStatus: "pending", updatedAt: sql`NOW()` })
+      .where(eq(schema.kycSubmissions.id, submissionId));
     await validateCustomerIdentity(customer.customer_code, {
       country: "NG",
       type: "bank_account",
@@ -260,10 +283,10 @@ export async function submitTier1Nigeria(userId: string, input: SubmitTier1Niger
     });
   } catch (err) {
     logger.error({ err: err instanceof Error ? err.message : String(err), submissionId }, "[kyc] Paystack BVN validation request failed");
-    await db.query(
-      `UPDATE kyc_submissions SET status = 'manual_review', paystack_verification_status = 'failed', ai_notes = 'Paystack BVN request failed — routed to manual review.', updated_at = NOW() WHERE id = $1`,
-      [submissionId]
-    );
+    await orm
+      .update(schema.kycSubmissions)
+      .set({ status: "manual_review", paystackVerificationStatus: "failed", aiNotes: "Paystack BVN request failed — routed to manual review.", updatedAt: sql`NOW()` })
+      .where(eq(schema.kycSubmissions.id, submissionId));
   }
 
   await notifyUser(userId, "kyc_submitted", "KYC submitted", "Your Tier 1 verification is under review. This can take a few days.", { submissionId, tier: 1 });
@@ -277,22 +300,27 @@ export async function handleBvnIdentificationResult(params: {
   bvnLast4: string | null;
   failureReason: string | null;
 }): Promise<void> {
-  const { rows } = await db.query<{ id: string; user_id: string; submitted_full_name: string | null; review_mode: string }>(
-    `SELECT id, user_id, submitted_full_name, review_mode FROM kyc_submissions
-     WHERE paystack_customer_code = $1 AND status IN ('pending', 'ai_review')
-     ORDER BY submitted_at DESC LIMIT 1`,
-    [params.paystackCustomerCode]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ id: schema.kycSubmissions.id, user_id: schema.kycSubmissions.userId, submitted_full_name: schema.kycSubmissions.submittedFullName, review_mode: schema.kycSubmissions.reviewMode })
+    .from(schema.kycSubmissions)
+    .where(and(eq(schema.kycSubmissions.paystackCustomerCode, params.paystackCustomerCode), inArray(schema.kycSubmissions.status, ["pending", "ai_review"])))
+    .orderBy(desc(schema.kycSubmissions.submittedAt))
+    .limit(1);
   const submission = rows[0];
   if (!submission) {
     logger.warn({ customerCode: params.paystackCustomerCode }, "[kyc] BVN webhook for unknown/already-resolved submission");
     return;
   }
 
-  await db.query(
-    `UPDATE kyc_submissions SET paystack_verification_status = $1, bvn_last4 = COALESCE($2, bvn_last4), updated_at = NOW() WHERE id = $3`,
-    [params.success ? "success" : "failed", params.bvnLast4, submission.id]
-  );
+  await orm
+    .update(schema.kycSubmissions)
+    .set({
+      paystackVerificationStatus: params.success ? "success" : "failed",
+      bvnLast4: params.bvnLast4 ?? sql`${schema.kycSubmissions.bvnLast4}`,
+      updatedAt: sql`NOW()`,
+    })
+    .where(eq(schema.kycSubmissions.id, submission.id));
 
   if (!params.success) {
     await rejectSubmission(submission.id, null, params.failureReason ?? "BVN identity validation failed.");
@@ -320,24 +348,27 @@ export async function submitTier1International(userId: string, input: SubmitTier
   await assertNoActiveSubmission(userId, 1);
   if (input.documentIds.length === 0) throw badRequest("Upload your government ID and proof of address first.", "DOCUMENTS_REQUIRED");
 
+  const orm = await getDb();
   const accountType = await getAccountType(userId);
   const submissionId = randomUUID();
   const initialStatus = manifest.kyc.tier1ReviewMode === "ai" ? "ai_review" : "manual_review";
 
   await runInsertOrActiveConflict(1, () =>
-    db.transaction(async (tx) => {
-      await tx.query(
-        `INSERT INTO kyc_submissions
-           (id, user_id, tier, status, account_type, citizenship_country, review_mode,
-            id_type, id_number_encrypted, submitted_full_name, credits_charged, submitted_at)
-         VALUES ($1, $2, 1, $3, $4, $5, $6, $7, $8, $9, $10, NOW())`,
-        [
-          submissionId, userId, initialStatus, accountType,
-          input.citizenshipCountry, manifest.kyc.tier1ReviewMode,
-          input.idType, encryptField(input.idNumber), input.submittedFullName,
-          manifest.kyc.costCredits,
-        ]
-      );
+    orm.transaction(async (tx) => {
+      await tx.insert(schema.kycSubmissions).values({
+        id: submissionId,
+        userId,
+        tier: 1,
+        status: initialStatus,
+        accountType,
+        citizenshipCountry: input.citizenshipCountry,
+        reviewMode: manifest.kyc.tier1ReviewMode,
+        idType: input.idType,
+        idNumberEncrypted: encryptField(input.idNumber),
+        submittedFullName: input.submittedFullName,
+        creditsCharged: manifest.kyc.costCredits,
+        submittedAt: sql`NOW()`,
+      });
       await attachDocuments(tx, submissionId, userId, input.documentIds);
     })
   );
@@ -345,7 +376,7 @@ export async function submitTier1International(userId: string, input: SubmitTier
   try {
     await chargeCredits(userId, submissionId, manifest.kyc.costCredits);
   } catch (err) {
-    await db.query(`DELETE FROM kyc_submissions WHERE id = $1`, [submissionId]);
+    await orm.delete(schema.kycSubmissions).where(eq(schema.kycSubmissions.id, submissionId));
     throw err;
   }
 
@@ -387,21 +418,24 @@ async function fetchDocumentBuffer(storageKey: string): Promise<{ buffer: Buffer
  * confidence thresholds.
  */
 export async function runTier1AiReview(submissionId: string): Promise<void> {
-  const { rows } = await db.query<{
-    id: string; user_id: string; submitted_full_name: string | null;
-    citizenship_country: string | null; paystack_verification_status: string | null;
-  }>(
-    `SELECT id, user_id, submitted_full_name, citizenship_country, paystack_verification_status
-     FROM kyc_submissions WHERE id = $1`,
-    [submissionId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: schema.kycSubmissions.id,
+      user_id: schema.kycSubmissions.userId,
+      submitted_full_name: schema.kycSubmissions.submittedFullName,
+      citizenship_country: schema.kycSubmissions.citizenshipCountry,
+      paystack_verification_status: schema.kycSubmissions.paystackVerificationStatus,
+    })
+    .from(schema.kycSubmissions)
+    .where(eq(schema.kycSubmissions.id, submissionId));
   const submission = rows[0];
   if (!submission) return;
 
-  const { rows: docs } = await db.query<{ id: string; doc_type: string; storage_key: string }>(
-    `SELECT id, doc_type, storage_key FROM kyc_documents WHERE submission_id = $1`,
-    [submissionId]
-  );
+  const docs = await orm
+    .select({ id: schema.kycDocuments.id, doc_type: schema.kycDocuments.docType, storage_key: schema.kycDocuments.storageKey })
+    .from(schema.kycDocuments)
+    .where(eq(schema.kycDocuments.submissionId, submissionId));
   const idDoc = docs.find((d) => d.doc_type === "govt_id_front" || d.doc_type === "nin_slip");
 
   let documentConfidence = 0;
@@ -448,23 +482,28 @@ async function finalizeAiReview(
   notes: string
 ): Promise<void> {
   const manifest = await loadManifest();
-  await db.query(
-    `UPDATE kyc_submissions
-     SET ai_name_match_score = $1, ai_document_confidence = $2, ai_provider = 'deepseek/gemini', ai_notes = $3, updated_at = NOW()
-     WHERE id = $4`,
-    [nameMatchScore, documentConfidence, notes, submissionId]
-  );
+  const orm = await getDb();
+  await orm
+    .update(schema.kycSubmissions)
+    .set({ aiNameMatchScore: String(nameMatchScore), aiDocumentConfidence: String(documentConfidence), aiProvider: "deepseek/gemini", aiNotes: notes, updatedAt: sql`NOW()` })
+    .where(eq(schema.kycSubmissions.id, submissionId));
 
   if (combinedScore >= manifest.kyc.aiAutoApproveThreshold) {
     await approveSubmission(submissionId, null);
   } else if (combinedScore < manifest.kyc.aiEscalateBelowThreshold) {
-    await db.query(`UPDATE kyc_submissions SET status = 'manual_review', ai_escalated = true, updated_at = NOW() WHERE id = $1`, [submissionId]);
+    await orm
+      .update(schema.kycSubmissions)
+      .set({ status: "manual_review", aiEscalated: true, updatedAt: sql`NOW()` })
+      .where(eq(schema.kycSubmissions.id, submissionId));
     await notifyUser(userId, "kyc_escalated", "KYC under review", "We need a bit more time to review your verification. This may take a few days.", { submissionId });
     await alertAdmins("kyc_ai_escalation", "AI-reviewed KYC submission escalated to manual review", { submissionId, combinedScore }, 5);
   } else {
     // Mid-confidence band: not confident enough to auto-approve, not low enough to
     // treat as likely-fraudulent — still a human call, but not flagged as an escalation.
-    await db.query(`UPDATE kyc_submissions SET status = 'manual_review', updated_at = NOW() WHERE id = $1`, [submissionId]);
+    await orm
+      .update(schema.kycSubmissions)
+      .set({ status: "manual_review", updatedAt: sql`NOW()` })
+      .where(eq(schema.kycSubmissions.id, submissionId));
     await alertAdmins("kyc_submission", "KYC submission awaiting manual review", { submissionId, combinedScore });
   }
 }
@@ -481,17 +520,23 @@ export async function submitTier2(userId: string, input: SubmitTier2Input): Prom
   await assertNoActiveSubmission(userId, 2);
   if (input.documentIds.length === 0) throw badRequest("Upload your government ID and a selfie.", "DOCUMENTS_REQUIRED");
 
+  const orm = await getDb();
   const accountType = await getAccountType(userId);
   const submissionId = randomUUID();
 
   await runInsertOrActiveConflict(2, () =>
-    db.transaction(async (tx) => {
-      await tx.query(
-        `INSERT INTO kyc_submissions
-           (id, user_id, tier, status, account_type, review_mode, video_url, liveness_status, submitted_at)
-         VALUES ($1, $2, 2, 'manual_review', $3, 'manual', $4, 'pending', NOW())`,
-        [submissionId, userId, accountType, input.videoUrl]
-      );
+    orm.transaction(async (tx) => {
+      await tx.insert(schema.kycSubmissions).values({
+        id: submissionId,
+        userId,
+        tier: 2,
+        status: "manual_review",
+        accountType,
+        reviewMode: "manual",
+        videoUrl: input.videoUrl,
+        livenessStatus: "pending",
+        submittedAt: sql`NOW()`,
+      });
       await attachDocuments(tx, submissionId, userId, input.documentIds);
     })
   );
@@ -502,10 +547,13 @@ export async function submitTier2(userId: string, input: SubmitTier2Input): Prom
 
   // Best-effort AI liveness heuristic on the selfie — informational only, this
   // tier is always human-reviewed regardless of the result (see module docblock).
-  const selfieDoc = (await db.query<{ storage_key: string }>(
-    `SELECT storage_key FROM kyc_documents WHERE submission_id = $1 AND doc_type = 'selfie' LIMIT 1`,
-    [submissionId]
-  )).rows[0];
+  const selfieDoc = (
+    await orm
+      .select({ storage_key: schema.kycDocuments.storageKey })
+      .from(schema.kycDocuments)
+      .where(and(eq(schema.kycDocuments.submissionId, submissionId), eq(schema.kycDocuments.docType, "selfie")))
+      .limit(1)
+  )[0];
   if (selfieDoc) {
     const file = await fetchDocumentBuffer(selfieDoc.storage_key);
     if (file) {
@@ -514,10 +562,11 @@ export async function submitTier2(userId: string, input: SubmitTier2Input): Prom
         "This should be a live selfie photo for a liveness/anti-spoof check — flag tamperingSuspected if it looks like a photo of a photo, a screen, or stock imagery."
       );
       if (analysis) {
-        await db.query(
-          `UPDATE kyc_submissions SET liveness_status = 'manual_review', liveness_score = $1, liveness_notes = $2, updated_at = NOW() WHERE id = $3`,
-          [analysis.tamperingSuspected ? Math.min(analysis.confidence, 0.3) : analysis.confidence, analysis.notes, submissionId]
-        );
+        const score = analysis.tamperingSuspected ? Math.min(analysis.confidence, 0.3) : analysis.confidence;
+        await orm
+          .update(schema.kycSubmissions)
+          .set({ livenessStatus: "manual_review", livenessScore: String(score), livenessNotes: analysis.notes, updatedAt: sql`NOW()` })
+          .where(eq(schema.kycSubmissions.id, submissionId));
       }
     }
   }
@@ -539,16 +588,22 @@ export async function submitTier3(userId: string, input: SubmitTier3Input): Prom
     throw badRequest("Provide an updated address, or choose to reuse your previous address.", "ADDRESS_REQUIRED");
   }
 
+  const orm = await getDb();
   const accountType = await getAccountType(userId);
   const submissionId = randomUUID();
 
   await runInsertOrActiveConflict(3, () =>
-    db.query(
-      `INSERT INTO kyc_submissions
-         (id, user_id, tier, status, account_type, review_mode, reuse_previous_address, updated_address, submitted_at)
-       VALUES ($1, $2, 3, 'manual_review', $3, 'manual', $4, $5::jsonb, NOW())`,
-      [submissionId, userId, accountType, input.reusePreviousAddress, JSON.stringify(input.updatedAddress ?? null)]
-    )
+    orm.insert(schema.kycSubmissions).values({
+      id: submissionId,
+      userId,
+      tier: 3,
+      status: "manual_review",
+      accountType,
+      reviewMode: "manual",
+      reusePreviousAddress: input.reusePreviousAddress,
+      updatedAddress: input.updatedAddress ?? null,
+      submittedAt: sql`NOW()`,
+    })
   );
 
   await notifyUser(
@@ -570,10 +625,11 @@ export async function scheduleTier3PhysicalCheck(
   scheduledAt: string | null,
   notes: string | null
 ): Promise<void> {
-  const { rows } = await db.query<{ tier: number; status: string }>(
-    `SELECT tier, status FROM kyc_submissions WHERE id = $1`,
-    [submissionId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ tier: schema.kycSubmissions.tier, status: schema.kycSubmissions.status })
+    .from(schema.kycSubmissions)
+    .where(eq(schema.kycSubmissions.id, submissionId));
   const submission = rows[0];
   if (!submission) throw notFound("KYC submission not found");
   if (submission.tier !== 3) throw badRequest("Physical-check scheduling only applies to Tier 3 submissions.", "NOT_TIER3");
@@ -581,12 +637,10 @@ export async function scheduleTier3PhysicalCheck(
     throw badRequest("This submission has already been finalized.", "KYC_NOT_SCHEDULABLE");
   }
 
-  await db.query(
-    `UPDATE kyc_submissions
-     SET physical_verification_scheduled_at = $1, physical_verification_notes = $2, updated_at = NOW()
-     WHERE id = $3`,
-    [scheduledAt, notes, submissionId]
-  );
+  await orm
+    .update(schema.kycSubmissions)
+    .set({ physicalVerificationScheduledAt: scheduledAt ? new Date(scheduledAt) : null, physicalVerificationNotes: notes, updatedAt: sql`NOW()` })
+    .where(eq(schema.kycSubmissions.id, submissionId));
 }
 
 // ---------------------------------------------------------------------------
@@ -594,26 +648,27 @@ export async function scheduleTier3PhysicalCheck(
 // ---------------------------------------------------------------------------
 
 export async function approveSubmission(submissionId: string, reviewedBy: string | null): Promise<void> {
-  const { rows } = await db.query<{ user_id: string; tier: number }>(
-    `SELECT user_id, tier FROM kyc_submissions WHERE id = $1`,
-    [submissionId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ user_id: schema.kycSubmissions.userId, tier: schema.kycSubmissions.tier })
+    .from(schema.kycSubmissions)
+    .where(eq(schema.kycSubmissions.id, submissionId));
   const submission = rows[0];
   if (!submission) throw notFound("KYC submission not found");
 
   const manifest = await loadManifest();
 
-  await db.transaction(async (tx) => {
-    await tx.query(
-      `UPDATE kyc_submissions SET status = 'approved', reviewed_by = $1, reviewed_at = NOW(), updated_at = NOW() WHERE id = $2`,
-      [reviewedBy, submissionId]
-    );
-    await tx.query(
-      `UPDATE users SET kyc_tier = GREATEST(kyc_tier, $1), updated_at = NOW() WHERE id = $2`,
-      [submission.tier, submission.user_id]
-    );
+  await orm.transaction(async (tx) => {
+    await tx
+      .update(schema.kycSubmissions)
+      .set({ status: "approved", reviewedBy, reviewedAt: sql`NOW()`, updatedAt: sql`NOW()` })
+      .where(eq(schema.kycSubmissions.id, submissionId));
+    await tx
+      .update(schema.users)
+      .set({ kycTier: sql`GREATEST(${schema.users.kycTier}, ${submission.tier})`, updatedAt: sql`NOW()` })
+      .where(eq(schema.users.id, submission.user_id));
     if (submission.tier >= manifest.kyc.badgeMinTier) {
-      await tx.query(`UPDATE users SET is_verified = true WHERE id = $1`, [submission.user_id]);
+      await tx.update(schema.users).set({ isVerified: true }).where(eq(schema.users.id, submission.user_id));
     }
   });
 
@@ -627,17 +682,18 @@ export async function approveSubmission(submissionId: string, reviewedBy: string
 }
 
 export async function rejectSubmission(submissionId: string, reviewedBy: string | null, reason: string): Promise<void> {
-  const { rows } = await db.query<{ user_id: string; tier: number; credits_charged: number }>(
-    `SELECT user_id, tier, credits_charged FROM kyc_submissions WHERE id = $1`,
-    [submissionId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ user_id: schema.kycSubmissions.userId, tier: schema.kycSubmissions.tier, credits_charged: schema.kycSubmissions.creditsCharged })
+    .from(schema.kycSubmissions)
+    .where(eq(schema.kycSubmissions.id, submissionId));
   const submission = rows[0];
   if (!submission) throw notFound("KYC submission not found");
 
-  await db.query(
-    `UPDATE kyc_submissions SET status = 'rejected', reviewed_by = $1, reviewed_at = NOW(), rejection_reason = $2, updated_at = NOW() WHERE id = $3`,
-    [reviewedBy, reason, submissionId]
-  );
+  await orm
+    .update(schema.kycSubmissions)
+    .set({ status: "rejected", reviewedBy, reviewedAt: sql`NOW()`, rejectionReason: reason, updatedAt: sql`NOW()` })
+    .where(eq(schema.kycSubmissions.id, submissionId));
 
   if (submission.credits_charged > 0) {
     await refundCredits(submission.user_id, submissionId, submission.credits_charged);
@@ -651,17 +707,18 @@ export async function rejectSubmission(submissionId: string, reviewedBy: string 
 }
 
 export async function cancelSubmission(userId: string, submissionId: string): Promise<void> {
-  const { rows } = await db.query<{ user_id: string; status: string; credits_charged: number }>(
-    `SELECT user_id, status, credits_charged FROM kyc_submissions WHERE id = $1`,
-    [submissionId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ user_id: schema.kycSubmissions.userId, status: schema.kycSubmissions.status, credits_charged: schema.kycSubmissions.creditsCharged })
+    .from(schema.kycSubmissions)
+    .where(eq(schema.kycSubmissions.id, submissionId));
   const submission = rows[0];
   if (!submission || submission.user_id !== userId) throw notFound("KYC submission not found");
   if (!["pending", "ai_review", "manual_review"].includes(submission.status)) {
     throw badRequest("This submission can no longer be cancelled.", "KYC_NOT_CANCELLABLE");
   }
 
-  await db.query(`UPDATE kyc_submissions SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [submissionId]);
+  await orm.update(schema.kycSubmissions).set({ status: "cancelled", updatedAt: sql`NOW()` }).where(eq(schema.kycSubmissions.id, submissionId));
   if (submission.credits_charged > 0) {
     await refundCredits(userId, submissionId, submission.credits_charged);
   }

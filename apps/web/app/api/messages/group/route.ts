@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -104,12 +105,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, createGroupSchema);
 
     // Fetch the creator's plan for group size enforcement
-    const { rows: planRows } = await db.query<{ plan: string; is_admin: boolean }>(
-      `SELECT COALESCE(plan, 'free') AS plan, COALESCE(is_admin, false) AS is_admin FROM users WHERE id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
-    const userPlan = planRows[0]?.plan ?? "free";
-    const isAdmin = planRows[0]?.is_admin ?? false;
+    const orm = await getDb();
+    const [planRow] = await orm
+      .select({ plan: schema.users.plan, is_admin: schema.users.isAdmin })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
+    const userPlan = planRow?.plan ?? "free";
+    const isAdmin = planRow?.is_admin ?? false;
     const maxGroupMembers = PLAN_GROUP_LIMITS[userPlan] ?? PLAN_GROUP_LIMITS.free;
 
     // Who-can-create-groups gating (admin configurable via manifest.groupChatCreationLimits)
@@ -142,11 +145,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Verify all provided member IDs are valid users
     if (uniqueMembers.length > 0) {
-      const { rows: validUsers } = await db.query<{ id: string }>(
-        `SELECT id FROM users
-         WHERE id = ANY($1::uuid[]) AND deleted_at IS NULL`,
-        [uniqueMembers]
-      );
+      const validUsers = await orm
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(and(inArray(schema.users.id, uniqueMembers), isNull(schema.users.deletedAt)));
 
       if (validUsers.length !== uniqueMembers.length) {
         throw badRequest("One or more member IDs are invalid");
@@ -154,15 +156,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Business creator info (for ad suppression + join/message credit config eligibility)
-    const { rows: bizRows } = await db.query<{ tier: string | null }>(
-      `SELECT tier FROM business_accounts WHERE user_id = $1 AND status = 'active' LIMIT 1`,
-      [auth.user.sub]
-    );
-    const businessTier = bizRows[0]?.tier ?? null;
+    const [bizRow] = await orm
+      .select({ tier: schema.businessAccounts.tier })
+      .from(schema.businessAccounts)
+      .where(and(eq(schema.businessAccounts.userId, auth.user.sub), eq(schema.businessAccounts.status, "active")))
+      .limit(1);
+    const businessTier = bizRow?.tier ?? null;
 
-    const group = await db.transaction(async (tx) => {
-      // Create group chat record
-      const { rows: groupRows } = await tx.query<{
+    const group = await orm.transaction(async (tx) => {
+      // Create group chat record.
+      // group_chats.creator_plan_at_creation / creator_business_tier_at_creation
+      // / is_business exist in the DB (migration 0001) but are not present in
+      // lib/db/schema.ts, so this insert stays raw SQL.
+      const { rows: groupRows } = await tx.execute<{
         id: string;
         name: string;
         creator_id: string;
@@ -173,46 +179,36 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         is_active: boolean;
         created_at: string;
         updated_at: string;
-      }>(
-        `INSERT INTO group_chats
+      }>(sql`
+        INSERT INTO group_chats
            (name, creator_id, avatar_emoji, tag, member_count, max_members,
             creator_plan_at_creation, creator_business_tier_at_creation, is_business)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+         VALUES (${body.name}, ${auth.user.sub}, ${body.avatarEmoji}, ${body.tag ?? null},
+                 ${uniqueMembers.length + 1}, ${maxGroupMembers}, ${userPlan}, ${businessTier},
+                 ${businessTier !== null})
          RETURNING id, name, creator_id, avatar_emoji, tag, member_count, max_members,
-                   is_active, created_at, updated_at`,
-        [
-          body.name,
-          auth.user.sub,
-          body.avatarEmoji,
-          body.tag ?? null,
-          uniqueMembers.length + 1, // creator + initial members
-          maxGroupMembers,
-          userPlan,
-          businessTier,
-          businessTier !== null,
-        ]
-      );
+                   is_active, created_at, updated_at
+      `);
 
       const group = groupRows[0];
       if (!group) throw new Error("Group creation failed");
 
-      // Add creator as admin
-      await tx.query(
-        `INSERT INTO group_chat_members (group_chat_id, user_id, role, can_invite)
-         VALUES ($1, $2, 'admin', TRUE)`,
-        [group.id, auth.user.sub]
-      );
+      // Add creator as admin.
+      // group_chat_members.can_invite exists in the DB but is not present in
+      // lib/db/schema.ts, so this insert stays raw SQL.
+      await tx.execute(sql`
+        INSERT INTO group_chat_members (group_chat_id, user_id, role, can_invite)
+         VALUES (${group.id}, ${auth.user.sub}, 'admin', TRUE)
+      `);
 
       // Add initial members
       if (uniqueMembers.length > 0) {
-        const memberValues = uniqueMembers
-          .map((_, idx) => `($1, $${idx + 2}, 'member')`)
-          .join(", ");
-
-        await tx.query(
-          `INSERT INTO group_chat_members (group_chat_id, user_id, role)
-           VALUES ${memberValues}`,
-          [group.id, ...uniqueMembers]
+        await tx.insert(schema.groupChatMembers).values(
+          uniqueMembers.map((userId) => ({
+            groupChatId: group.id,
+            userId,
+            role: "member",
+          }))
         );
       }
 
@@ -243,12 +239,13 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       listGroupsQuerySchema
     );
 
-    const cursorClause = cursor ? `AND gc.updated_at < $3` : "";
-    const params: (string | number)[] = [auth.user.sub, limit];
-    if (cursor) params.push(cursor);
+    const cursorClause = cursor ? sql`AND gc.updated_at < ${cursor}` : sql``;
 
-    const { rows } = await db.query<GroupChatRow>(
-      `SELECT
+    // group_chats.is_deactivated exists in the DB (migration 0001) but is not
+    // present in lib/db/schema.ts, so this stays raw SQL.
+    const orm = await getDb();
+    const { rows } = await orm.execute<GroupChatRow & Record<string, unknown>>(sql`
+      SELECT
          gc.id,
          gc.name,
          gc.creator_id,
@@ -262,18 +259,17 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          gcm.role AS user_role,
          gc.updated_at AS last_message_at
        FROM group_chats gc
-       JOIN group_chat_members gcm ON gcm.group_chat_id = gc.id AND gcm.user_id = $1
+       JOIN group_chat_members gcm ON gcm.group_chat_id = gc.id AND gcm.user_id = ${auth.user.sub}
        WHERE gc.is_active = TRUE
          AND gc.is_deactivated = FALSE
          AND NOT EXISTS (
            SELECT 1 FROM group_chat_blocks b
-           WHERE b.group_chat_id = gc.id AND b.user_id = $1
+           WHERE b.group_chat_id = gc.id AND b.user_id = ${auth.user.sub}
          )
          ${cursorClause}
        ORDER BY gc.updated_at DESC
-       LIMIT $2`,
-      params
-    );
+       LIMIT ${limit}
+    `);
 
     const nextCursor =
       rows.length === limit

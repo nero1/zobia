@@ -9,7 +9,9 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, type SqlParam } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
+import { gamePlayMilestones } from "@/lib/db/schema";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 
@@ -20,33 +22,24 @@ const updateSchema = z.object({
   isActive: z.boolean().optional(),
 });
 
-const COLUMN_MAP: Record<string, string> = {
-  rewardCredits: "reward_credits",
-  rewardXp: "reward_xp",
-  rewardStars: "reward_stars",
-  isActive: "is_active",
-};
-
 export const PUT = withAdminAuth(
   async (req: NextRequest, { params }: { params: { id: string }; auth: any }) => {
     try {
       const body = await validateBody(req, updateSchema);
-      const sets: string[] = [];
-      const values: SqlParam[] = [];
-      let i = 1;
-      for (const [key, col] of Object.entries(COLUMN_MAP)) {
-        if (key in body && body[key as keyof typeof body] !== undefined) {
-          sets.push(`${col} = $${i++}`);
-          values.push(body[key as keyof typeof body] as SqlParam);
-        }
-      }
-      if (sets.length === 0) throw badRequest("No fields to update.");
-      values.push(params.id);
-      const { rowCount } = await db.query(
-        `UPDATE game_play_milestones SET ${sets.join(", ")} WHERE id = $${i}`,
-        values
-      );
-      if (!rowCount) throw notFound("Milestone not found.");
+      const updates: Partial<typeof gamePlayMilestones.$inferInsert> = {};
+      if (body.rewardCredits !== undefined) updates.rewardCredits = body.rewardCredits;
+      if (body.rewardXp !== undefined) updates.rewardXp = body.rewardXp;
+      if (body.rewardStars !== undefined) updates.rewardStars = body.rewardStars;
+      if (body.isActive !== undefined) updates.isActive = body.isActive;
+      if (Object.keys(updates).length === 0) throw badRequest("No fields to update.");
+
+      const orm = await getDb();
+      const result = await orm
+        .update(gamePlayMilestones)
+        .set(updates)
+        .where(eq(gamePlayMilestones.id, params.id))
+        .returning({ id: gamePlayMilestones.id });
+      if (result.length === 0) throw notFound("Milestone not found.");
       return NextResponse.json({ success: true, data: { id: params.id }, error: null });
     } catch (err) {
       return handleApiError(err);
@@ -57,8 +50,12 @@ export const PUT = withAdminAuth(
 export const DELETE = withAdminAuth(
   async (_req: NextRequest, { params }: { params: { id: string }; auth: any }) => {
     try {
-      const { rowCount } = await db.query(`DELETE FROM game_play_milestones WHERE id = $1`, [params.id]);
-      if (!rowCount) throw notFound("Milestone not found.");
+      const orm = await getDb();
+      const result = await orm
+        .delete(gamePlayMilestones)
+        .where(eq(gamePlayMilestones.id, params.id))
+        .returning({ id: gamePlayMilestones.id });
+      if (result.length === 0) throw notFound("Milestone not found.");
       return NextResponse.json({ success: true, data: { deleted: true }, error: null });
     } catch (err) {
       return handleApiError(err);

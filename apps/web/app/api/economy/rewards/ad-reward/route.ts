@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
@@ -68,14 +69,14 @@ function adRewardRedisKey(userId: string): string {
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // 1. Verify user is on the free plan (fetch from DB for accuracy)
-    const userResult = await db.query<{ plan: string; coin_balance: number }>(
-      `SELECT plan, coin_balance FROM users
-       WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    const user = userResult.rows[0];
+    const [user] = await orm
+      .select({ plan: schema.users.plan, coinBalance: schema.users.coinBalance })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!user) throw forbidden("User not found");
 
     if (user.plan !== "free" && user.plan !== "plus") {
@@ -121,29 +122,31 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const coinsAwarded = randomIntInclusive(minCoins, maxCoins);
 
     try {
-      await db.transaction(async (client) => {
+      await orm.transaction(async (tx) => {
         // Lock user row and get current balance
-        const lockResult = await client.query<{ coin_balance: number }>(
-          `SELECT coin_balance FROM users
-           WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-          [userId]
-        );
-        const balanceBefore = lockResult.rows[0]?.coin_balance ?? 0;
-        const balanceAfter = balanceBefore + coinsAwarded;
+        const [locked] = await tx
+          .select({ coinBalance: schema.users.coinBalance })
+          .from(schema.users)
+          .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+          .for("update");
+        const balanceBefore = locked?.coinBalance ?? BigInt(0);
+        const balanceAfter = balanceBefore + BigInt(coinsAwarded);
 
         // Update user balance
-        await client.query(
-          `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-          [balanceAfter, userId]
-        );
+        await tx
+          .update(schema.users)
+          .set({ coinBalance: balanceAfter, updatedAt: new Date() })
+          .where(eq(schema.users.id, userId));
 
         // Append-only ledger entry
-        await client.query(
-          `INSERT INTO coin_ledger
-             (user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
-           VALUES ($1, $2, $3, $4, 'ad_reward', 'Rewarded ad bonus', NOW())`,
-          [userId, coinsAwarded, balanceBefore, balanceAfter]
-        );
+        await tx.insert(schema.coinLedger).values({
+          userId,
+          amount: BigInt(coinsAwarded),
+          balanceBefore,
+          balanceAfter,
+          transactionType: "ad_reward",
+          description: "Rewarded ad bonus",
+        });
 
         // Creator Fund auto-seeding, contributed to the monthly creator pool
         // (percent is admin-configurable — see lib/creator/fundContribution.ts).
@@ -152,7 +155,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         // but the code never divided by 100) — not touched by this refactor,
         // which is scoped to making the split percent configurable, not
         // auditing the coin↔kobo conversion rate.
-        await contributeToCreatorFund(coinsAwarded, "ad_reward", client)
+        await contributeToCreatorFund(coinsAwarded, "ad_reward", tx)
           .catch(() => {/* non-fatal if x_manifest table doesn't exist yet */});
       });
     } catch (dbErr) {

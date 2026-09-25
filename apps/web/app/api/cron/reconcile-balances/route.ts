@@ -16,6 +16,8 @@ export const maxDuration = 300;
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { db } from "@/lib/db";
 import { validateCronSecret } from "@/lib/cron/auth";
 import { getManifestValue } from "@/lib/manifest";
@@ -29,6 +31,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   if (!validateCronSecret(req)) {
     return NextResponse.json({ error: "Unauthorised" }, { status: 401 });
   }
+
+  const orm = await getDb();
 
   // BUG-CRON-05: read threshold from manifest so operators can tune without a code deploy
   const manifestThreshold = await getManifestValue('reconcileAutoCorrectThreshold').catch(() => null);
@@ -58,35 +62,34 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // BUG-CRON-03 FIX: single CTE reads wallet balances and ledger sums in one
     // snapshot-consistent query, eliminating the TOCTOU window where a concurrent
     // XP award could change balances between the separate SELECT and SUM queries.
-    const { rows: batchRows } = await db.query<{
+    const { rows: batchRows } = await orm.execute<{
       id: string;
       xp_total: string;
       coin_balance: string;
       xp_ledger_sum: string;
       coin_ledger_sum: string;
-    }>(
-      `WITH batch AS (
-         SELECT id, xp_total::text, coin_balance::text
-         FROM users
-         WHERE deleted_at IS NULL AND id > $1
-         ORDER BY id LIMIT $2
-       ),
-       xp_sums AS (
-         SELECT user_id, COALESCE(SUM(amount), 0)::text AS ledger_sum
-         FROM xp_ledger WHERE user_id IN (SELECT id FROM batch) GROUP BY user_id
-       ),
-       coin_sums AS (
-         SELECT user_id, COALESCE(SUM(amount), 0)::text AS ledger_sum
-         FROM coin_ledger WHERE user_id IN (SELECT id FROM batch) GROUP BY user_id
-       )
-       SELECT b.id, b.xp_total, b.coin_balance,
-              COALESCE(x.ledger_sum, '0') AS xp_ledger_sum,
-              COALESCE(c.ledger_sum, '0') AS coin_ledger_sum
-       FROM batch b
-       LEFT JOIN xp_sums x ON x.user_id = b.id
-       LEFT JOIN coin_sums c ON c.user_id = b.id`,
-      [lastId, BATCH_SIZE]
-    );
+    }>(sql`
+      WITH batch AS (
+        SELECT id, xp_total::text, coin_balance::text
+        FROM users
+        WHERE deleted_at IS NULL AND id > ${lastId}
+        ORDER BY id LIMIT ${BATCH_SIZE}
+      ),
+      xp_sums AS (
+        SELECT user_id, COALESCE(SUM(amount), 0)::text AS ledger_sum
+        FROM xp_ledger WHERE user_id IN (SELECT id FROM batch) GROUP BY user_id
+      ),
+      coin_sums AS (
+        SELECT user_id, COALESCE(SUM(amount), 0)::text AS ledger_sum
+        FROM coin_ledger WHERE user_id IN (SELECT id FROM batch) GROUP BY user_id
+      )
+      SELECT b.id, b.xp_total, b.coin_balance,
+             COALESCE(x.ledger_sum, '0') AS xp_ledger_sum,
+             COALESCE(c.ledger_sum, '0') AS coin_ledger_sum
+      FROM batch b
+      LEFT JOIN xp_sums x ON x.user_id = b.id
+      LEFT JOIN coin_sums c ON c.user_id = b.id
+    `);
     const users = batchRows;
     if (users.length === 0) break;
 
@@ -147,24 +150,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     // DISC-01: plain INSERT (no ON CONFLICT UPDATE) so each detection is a new row.
     // History is preserved; use the active index (WHERE resolved = false) for lookups.
     if (discXpIds.length > 0) {
-      await db.query(
-        `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-         SELECT unnest($1::uuid[]), 'xp', unnest($2::bigint[]), unnest($3::bigint[]), NOW()`,
-        [discXpIds, discXpLedger.map(String), discXpBal.map(String)]
-      ).catch(() => {});
+      await orm.execute(sql`
+        INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
+        SELECT unnest(${discXpIds}::uuid[]), 'xp', unnest(${discXpLedger.map(String)}::bigint[]), unnest(${discXpBal.map(String)}::bigint[]), NOW()
+      `).catch(() => {});
     }
 
     if (discCoinIds.length > 0) {
-      await db.query(
-        `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
-         SELECT unnest($1::uuid[]), 'coins', unnest($2::bigint[]), unnest($3::bigint[]), NOW()`,
-        [discCoinIds, discCoinLedger.map(String), discCoinBal.map(String)]
-      ).catch(() => {});
+      await orm.execute(sql`
+        INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at)
+        SELECT unnest(${discCoinIds}::uuid[]), 'coins', unnest(${discCoinLedger.map(String)}::bigint[]), unnest(${discCoinBal.map(String)}::bigint[]), NOW()
+      `).catch(() => {});
     }
 
     // BUG-CRON-01: Raise critical alerts for large discrepancies that exceed the threshold.
     for (const d of largeXpDiscrepancies) {
-      await raiseAlert(db, {
+      await raiseAlert(orm, {
         type: "balance_discrepancy",
         category: "financial",
         priorityLevel: 2,
@@ -176,7 +177,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     }
 
     for (const d of largeCoinDiscrepancies) {
-      await raiseAlert(db, {
+      await raiseAlert(orm, {
         type: "balance_discrepancy",
         category: "financial",
         priorityLevel: 2,
@@ -193,12 +194,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       const ledgerSum = fixXpValues[i];
       const walletBalance = discXpBal[discXpIds.indexOf(userId)];
       const discrepancyAmount = ledgerSum > walletBalance ? ledgerSum - walletBalance : walletBalance - ledgerSum;
-      await db.query(
-        `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at, notes)
-         VALUES ($1, 'xp', $2, $3, NOW(), 'auto-corrected by reconcile-balances CRON')`,
-        [userId, String(ledgerSum), String(walletBalance)]
-      ).catch(() => {});
-      await raiseAlert(db, {
+      await orm.execute(sql`
+        INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at, notes)
+        VALUES (${userId}, 'xp', ${String(ledgerSum)}, ${String(walletBalance)}, NOW(), 'auto-corrected by reconcile-balances CRON')
+      `).catch(() => {});
+      await raiseAlert(orm, {
         type: "balance_discrepancy",
         category: "financial",
         priorityLevel: 4,
@@ -211,12 +211,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     // Batch auto-correct XP
     if (fixXpIds.length > 0) {
-      await db.query(
-        `UPDATE users SET xp_total = updates.val::bigint, updated_at = NOW()
-         FROM (SELECT unnest($1::uuid[]) AS uid, unnest($2::text[]) AS val) updates
-         WHERE id = updates.uid`,
-        [fixXpIds, fixXpValues.map(String)]
-      ).catch(() => {});
+      await orm.execute(sql`
+        UPDATE users SET xp_total = updates.val::bigint, updated_at = NOW()
+        FROM (SELECT unnest(${fixXpIds}::uuid[]) AS uid, unnest(${fixXpValues.map(String)}::text[]) AS val) updates
+        WHERE id = updates.uid
+      `).catch(() => {});
     }
 
     for (let i = 0; i < fixCoinIds.length; i++) {
@@ -224,12 +223,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       const ledgerSum = fixCoinValues[i];
       const walletBalance = discCoinBal[discCoinIds.indexOf(userId)];
       const discrepancyAmount = ledgerSum > walletBalance ? ledgerSum - walletBalance : walletBalance - ledgerSum;
-      await db.query(
-        `INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at, notes)
-         VALUES ($1, 'coins', $2, $3, NOW(), 'auto-corrected by reconcile-balances CRON')`,
-        [userId, String(ledgerSum), String(walletBalance)]
-      ).catch(() => {});
-      await raiseAlert(db, {
+      await orm.execute(sql`
+        INSERT INTO audit_discrepancies (user_id, asset_type, ledger_sum, wallet_balance, detected_at, notes)
+        VALUES (${userId}, 'coins', ${String(ledgerSum)}, ${String(walletBalance)}, NOW(), 'auto-corrected by reconcile-balances CRON')
+      `).catch(() => {});
+      await raiseAlert(orm, {
         type: "balance_discrepancy",
         category: "financial",
         priorityLevel: 4,
@@ -242,12 +240,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     // Batch auto-correct coins
     if (fixCoinIds.length > 0) {
-      await db.query(
-        `UPDATE users SET coin_balance = updates.val::bigint, updated_at = NOW()
-         FROM (SELECT unnest($1::uuid[]) AS uid, unnest($2::text[]) AS val) updates
-         WHERE id = updates.uid`,
-        [fixCoinIds, fixCoinValues.map(String)]
-      ).catch(() => {});
+      await orm.execute(sql`
+        UPDATE users SET coin_balance = updates.val::bigint, updated_at = NOW()
+        FROM (SELECT unnest(${fixCoinIds}::uuid[]) AS uid, unnest(${fixCoinValues.map(String)}::text[]) AS val) updates
+        WHERE id = updates.uid
+      `).catch(() => {});
     }
   }
 

@@ -7,7 +7,8 @@
  * returned — suspended/banned/deactivated/deleted blogs 404 publicly.
  */
 
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull } from "drizzle-orm";
 import { looksLikeUuid } from "@zobia/shared/utils";
 import { lookupSlugRedirect } from "@/lib/slug";
 import { normalizeMenuConfig, type BlogMenuConfig } from "@/lib/blogs/menu";
@@ -40,22 +41,64 @@ export interface ResolvedBlog {
   canonicalRedirectSlug: string | null;
 }
 
-const SELECT = `
-  SELECT b.id, b.slug, b.title, b.tagline, b.description, b.avatar_url, b.cover_image_url,
-         b.show_subscriber_count, b.hide_author_info, b.comments_enabled, b.subscriber_count, b.post_count,
-         b.menu_config, b.active_theme_id,
-         b.owner_id, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url,
-         b.created_at, b.updated_at
-  FROM blogs b
-  JOIN users u ON u.id = b.owner_id
-  WHERE b.deleted_at IS NULL AND b.status = 'active'
-`;
-
 async function queryBy(column: "slug" | "id", value: string): Promise<PublicBlog | null> {
-  const { rows } = await db.query<PublicBlog>(`${SELECT} AND b.${column} = $1 LIMIT 1`, [value]);
-  const row = rows[0];
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      id: schema.blogs.id,
+      slug: schema.blogs.slug,
+      title: schema.blogs.title,
+      tagline: schema.blogs.tagline,
+      description: schema.blogs.description,
+      avatarUrl: schema.blogs.avatarUrl,
+      coverImageUrl: schema.blogs.coverImageUrl,
+      showSubscriberCount: schema.blogs.showSubscriberCount,
+      hideAuthorInfo: schema.blogs.hideAuthorInfo,
+      commentsEnabled: schema.blogs.commentsEnabled,
+      subscriberCount: schema.blogs.subscriberCount,
+      postCount: schema.blogs.postCount,
+      menuConfig: schema.blogs.menuConfig,
+      activeThemeId: schema.blogs.activeThemeId,
+      ownerId: schema.blogs.ownerId,
+      ownerUsername: schema.users.username,
+      ownerDisplayName: schema.users.displayName,
+      ownerAvatarUrl: schema.users.avatarUrl,
+      createdAt: schema.blogs.createdAt,
+      updatedAt: schema.blogs.updatedAt,
+    })
+    .from(schema.blogs)
+    .innerJoin(schema.users, eq(schema.users.id, schema.blogs.ownerId))
+    .where(
+      and(
+        isNull(schema.blogs.deletedAt),
+        eq(schema.blogs.status, "active"),
+        column === "slug" ? eq(schema.blogs.slug, value) : eq(schema.blogs.id, value)
+      )
+    )
+    .limit(1);
   if (!row) return null;
-  return { ...row, menu_config: normalizeMenuConfig(row.menu_config) };
+  return {
+    id: row.id,
+    slug: row.slug,
+    title: row.title,
+    tagline: row.tagline,
+    description: row.description,
+    avatar_url: row.avatarUrl,
+    cover_image_url: row.coverImageUrl,
+    show_subscriber_count: row.showSubscriberCount,
+    hide_author_info: row.hideAuthorInfo,
+    comments_enabled: row.commentsEnabled,
+    subscriber_count: row.subscriberCount,
+    post_count: row.postCount,
+    menu_config: normalizeMenuConfig(row.menuConfig),
+    active_theme_id: row.activeThemeId,
+    owner_id: row.ownerId,
+    owner_username: row.ownerUsername,
+    owner_display_name: row.ownerDisplayName,
+    owner_avatar_url: row.ownerAvatarUrl,
+    created_at: row.createdAt.toISOString(),
+    updated_at: row.updatedAt.toISOString(),
+  };
 }
 
 export async function resolvePublicBlog(identifier: string): Promise<ResolvedBlog | null> {

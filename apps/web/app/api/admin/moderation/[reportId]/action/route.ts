@@ -22,10 +22,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq, isNull, and, sql } from "drizzle-orm";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { DEEPSEEK_MODELS, GEMINI_MODELS, GEMINI_CONFIG } from "@/lib/ai/config";
 import { revokeUserAccess } from "@/lib/auth/session";
 import { canPlatformModPerform } from "@/lib/moderation/capabilities";
@@ -72,22 +73,21 @@ interface AiEscalationResult {
  * to re-analyze contested moderation decisions. Used for appeals processing.
  */
 async function triggerAiEscalation(
+  orm: DbOrTx,
   reportId: string,
   adminId: string
 ): Promise<AiEscalationResult | null> {
   // Load report + original message content for context
-  const { rows } = await db.query<{
-    report_type: string; content: string | null; status: string;
-  }>(
-    `SELECT mr.report_type,
-            m.content,
-            mr.status
-     FROM moderation_reports mr
-     LEFT JOIN messages m ON m.id = mr.reported_message_id
-     WHERE mr.id = $1 LIMIT 1`,
-    [reportId]
-  );
-  const report = rows[0];
+  const [report] = await orm
+    .select({
+      report_type: schema.moderationReports.reportType,
+      content: schema.messages.content,
+      status: schema.moderationReports.status,
+    })
+    .from(schema.moderationReports)
+    .leftJoin(schema.messages, eq(schema.messages.id, schema.moderationReports.reportedMessageId))
+    .where(eq(schema.moderationReports.id, reportId))
+    .limit(1);
   if (!report) return null;
 
   const prompt = `You are a content moderation AI. Review the following reported content and determine if it violates community guidelines.
@@ -126,13 +126,18 @@ Respond with JSON: { "verdict": "violation"|"borderline"|"no_violation", "confid
           reasoning: parsed.reasoning ?? "",
         };
         // Save escalation result to DB
-        await db.query(
-          `INSERT INTO moderation_ai_escalations
-             (report_id, admin_id, provider, verdict, confidence, reasoning, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW())
-           ON CONFLICT DO NOTHING`,
-          [reportId, adminId, result.provider, result.verdict, result.confidence, result.reasoning]
-        ).catch(() => {});
+        await orm
+          .insert(schema.moderationAiEscalations)
+          .values({
+            reportId,
+            adminId,
+            provider: result.provider,
+            verdict: result.verdict,
+            confidence: result.confidence.toString(),
+            reasoning: result.reasoning,
+          })
+          .onConflictDoNothing()
+          .catch(() => {});
         return result;
       }
     } catch {
@@ -165,13 +170,18 @@ Respond with JSON: { "verdict": "violation"|"borderline"|"no_violation", "confid
           confidence: parsed.confidence ?? 0.5,
           reasoning: parsed.reasoning ?? "",
         };
-        await db.query(
-          `INSERT INTO moderation_ai_escalations
-             (report_id, admin_id, provider, verdict, confidence, reasoning, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW())
-           ON CONFLICT DO NOTHING`,
-          [reportId, adminId, result.provider, result.verdict, result.confidence, result.reasoning]
-        ).catch(() => {});
+        await orm
+          .insert(schema.moderationAiEscalations)
+          .values({
+            reportId,
+            adminId,
+            provider: result.provider,
+            verdict: result.verdict,
+            confidence: result.confidence.toString(),
+            reasoning: result.reasoning,
+          })
+          .onConflictDoNothing()
+          .catch(() => {});
         return result;
       }
     } catch {
@@ -223,22 +233,22 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
         throw badRequest("duration_hours is required for suspend_user");
       }
 
-      // Load the report
-      const { rows: reportRows } = await db.query<{
-        id: string;
-        reported_user_id: string | null;
-        reported_message_id: string | null;
-        reported_guild_message_id: string | null;
-        reporter_id: string | null;
-        status: string;
-      }>(
-        `SELECT id, reported_user_id, reported_message_id, reported_guild_message_id, reporter_id, status
-         FROM moderation_reports
-         WHERE id = $1 AND deleted_at IS NULL`,
-        [reportId]
-      );
+      const orm = await getDb();
 
-      const report = reportRows[0];
+      // Load the report
+      const [report] = await orm
+        .select({
+          id: schema.moderationReports.id,
+          reported_user_id: schema.moderationReports.reportedUserId,
+          reported_message_id: schema.moderationReports.reportedMessageId,
+          reported_guild_message_id: schema.moderationReports.reportedGuildMessageId,
+          reporter_id: schema.moderationReports.reporterId,
+          status: schema.moderationReports.status,
+        })
+        .from(schema.moderationReports)
+        .where(and(eq(schema.moderationReports.id, reportId), isNull(schema.moderationReports.deletedAt)))
+        .limit(1);
+
       if (!report) {
         throw notFound("Report not found");
       }
@@ -249,11 +259,12 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
 
       // escalate_ai bypasses the normal action flow — handle immediately
       if (action === "escalate_ai") {
-        const aiAnalysis = await triggerAiEscalation(reportId, auth.user.sub).catch(() => null);
-        await db.query(
-          `UPDATE moderation_reports SET status = 'escalated', updated_at = NOW() WHERE id = $1`,
-          [reportId]
-        ).catch(() => {});
+        const aiAnalysis = await triggerAiEscalation(orm, reportId, auth.user.sub).catch(() => null);
+        await orm
+          .update(schema.moderationReports)
+          .set({ status: "escalated", updatedAt: new Date() })
+          .where(eq(schema.moderationReports.id, reportId))
+          .catch(() => {});
         return NextResponse.json({
           ok: true,
           reportId,
@@ -264,84 +275,73 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
       }
 
       // Execute within a transaction
-      await db.transaction(async (tx) => {
+      await orm.transaction(async (tx) => {
         // 1. Log the moderation action
-        await tx.query(
-          `INSERT INTO moderation_actions
-             (report_id, target_user_id, action_type, reason, duration_hours,
-              moderator_id, created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-          [
-            reportId,
-            report.reported_user_id ?? null,
-            action,
-            note ?? null,
-            duration_hours ?? null,
-            auth.user.sub,
-          ]
-        );
+        await tx.insert(schema.moderationActions).values({
+          reportId,
+          targetUserId: report.reported_user_id ?? null,
+          actionType: action,
+          reason: note ?? null,
+          durationHours: duration_hours ?? null,
+          moderatorId: auth.user.sub,
+        });
 
         // 2. Update report status
         const resolvedStatus =
           action === "dismiss" ? "dismissed" : "resolved";
-        await tx.query(
-          `UPDATE moderation_reports
-           SET status        = $1,
-               resolved_at   = NOW(),
-               resolved_by   = $2,
-               resolution_note = $3
-           WHERE id = $4`,
-          [resolvedStatus, auth.user.sub, note ?? null, reportId]
-        );
+        await tx
+          .update(schema.moderationReports)
+          .set({
+            status: resolvedStatus,
+            resolvedAt: new Date(),
+            resolvedBy: auth.user.sub,
+            resolutionNote: note ?? null,
+          })
+          .where(eq(schema.moderationReports.id, reportId));
 
         // 3. Apply side effects
         if (report.reported_user_id) {
           if (action === "warn") {
-            await tx.query(
-              `UPDATE users
-               SET warning_count = COALESCE(warning_count, 0) + 1
-               WHERE id = $1`,
-              [report.reported_user_id]
-            );
+            await tx
+              .update(schema.users)
+              .set({ warningCount: sql`COALESCE(${schema.users.warningCount}, 0) + 1` })
+              .where(eq(schema.users.id, report.reported_user_id));
           } else if (action === "suspend_user" && duration_hours) {
             const suspendUntil = new Date(
               Date.now() + duration_hours * 60 * 60 * 1000
-            ).toISOString();
-            await tx.query(
-              `UPDATE users
-               SET suspended_until = $1, is_suspended = true
-               WHERE id = $2`,
-              [suspendUntil, report.reported_user_id]
             );
+            await tx
+              .update(schema.users)
+              .set({ suspendedUntil: suspendUntil, isSuspended: true })
+              .where(eq(schema.users.id, report.reported_user_id));
           } else if (action === "ban_user") {
-            await tx.query(
-              `UPDATE users
-               SET is_banned = true, banned_at = NOW(), banned_by = $1
-               WHERE id = $2`,
-              [auth.user.sub, report.reported_user_id]
-            );
+            await tx
+              .update(schema.users)
+              .set({ isBanned: true, bannedAt: new Date(), bannedBy: auth.user.sub })
+              .where(eq(schema.users.id, report.reported_user_id));
           }
         }
 
         // 4. Remove content if requested
         if (action === "remove_content" && report.reported_message_id) {
-          await tx.query(
-            `UPDATE messages
-             SET deleted_at = NOW(), deleted_by = $1
-             WHERE id = $2`,
-            [auth.user.sub, report.reported_message_id]
-          );
+          await tx
+            .update(schema.messages)
+            .set({ deletedAt: new Date(), deletedBy: auth.user.sub })
+            .where(eq(schema.messages.id, report.reported_message_id));
         } else if (action === "remove_content" && report.reported_guild_message_id) {
-          await tx.query(
-            `UPDATE guild_messages SET is_deleted = true, deleted_by = $1 WHERE id = $2`,
-            [auth.user.sub, report.reported_guild_message_id]
-          );
+          await tx
+            .update(schema.guildMessages)
+            .set({ isDeleted: true, deletedBy: auth.user.sub })
+            .where(eq(schema.guildMessages.id, report.reported_guild_message_id));
         }
 
         // 5. Malicious/spammy report — flags the report, docks the original
         // reporter's Trust Score instead of the usual reward (dismiss only).
         if (action === "dismiss" && mark_malicious) {
-          await tx.query(`UPDATE moderation_reports SET is_malicious = true WHERE id = $1`, [reportId]);
+          await tx
+            .update(schema.moderationReports)
+            .set({ isMalicious: true })
+            .where(eq(schema.moderationReports.id, reportId));
         }
       });
 
@@ -366,14 +366,15 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(
           action === "suspend_user" ? "resulted in a suspension" :
           action === "remove_content" ? "resulted in content removal" :
           "resolved";
-        await db.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'report_resolved', $2, false, NOW())`,
-          [
-            report.reporter_id,
-            JSON.stringify({ reportId, outcome: outcomeLabel }),
-          ]
-        ).catch(() => {});
+        await orm
+          .insert(schema.notifications)
+          .values({
+            userId: report.reporter_id,
+            type: "report_resolved",
+            payload: { reportId, outcome: outcomeLabel },
+            isRead: false,
+          })
+          .catch(() => {});
       }
 
       return NextResponse.json({

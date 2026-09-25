@@ -26,7 +26,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, type SqlParam } from "@/lib/db";
+import { and, desc, eq, gte, lte, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -50,39 +51,6 @@ const listQuerySchema = z.object({
     .transform((v) => (v ? Math.min(Math.max(parseInt(v, 10), 1), 200) : 50)),
 });
 
-// ---------------------------------------------------------------------------
-// Row shapes
-// ---------------------------------------------------------------------------
-
-interface AdminAuditRow {
-  id: string;
-  admin_id: string;
-  admin_username: string | null;
-  action: string;
-  resource: string | null;
-  resource_id: string | null;
-  target_type: string | null;
-  target_id: string | null;
-  before_val: unknown;
-  after_val: unknown;
-  metadata: unknown;
-  ip_address: string | null;
-  created_at: string;
-}
-
-interface SecurityAuditRow {
-  id: string;
-  actor_id: string | null;
-  actor_username: string | null;
-  action: string;
-  target_type: string | null;
-  target_id: string | null;
-  metadata: unknown;
-  ip_address: string | null;
-  user_agent: string | null;
-  created_at: string;
-}
-
 function parseCursor(cursor: string | undefined): { createdAt: string; id: string } | null {
   if (!cursor) return null;
   const sep = cursor.lastIndexOf("|");
@@ -102,31 +70,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
     const cursor = parseCursor(query.cursor);
     const fetchLimit = query.limit + 1;
 
-    const conditions: string[] = [];
-    const params: SqlParam[] = [];
-    let idx = 1;
-
-    if (query.action) {
-      conditions.push(`log.action = $${idx++}`);
-      params.push(query.action);
-    }
-    if (query.targetType) {
-      conditions.push(`log.target_type = $${idx++}`);
-      params.push(query.targetType);
-    }
-    if (query.startDate) {
-      conditions.push(`log.created_at >= $${idx++}`);
-      params.push(query.startDate);
-    }
-    if (query.endDate) {
-      conditions.push(`log.created_at <= $${idx++}`);
-      params.push(query.endDate);
-    }
-    if (cursor) {
-      conditions.push(`(log.created_at, log.id) < ($${idx}, $${idx + 1})`);
-      params.push(cursor.createdAt, cursor.id);
-      idx += 2;
-    }
+    const orm = await getDb();
 
     // BUG-45-style read-path auditing: viewing the audit trail is itself a
     // sensitive read (IP addresses, KYC/financial before/after diffs).
@@ -137,24 +81,35 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
     });
 
     if (query.source === "security") {
-      if (query.actorId) {
-        conditions.push(`log.actor_id = $${idx++}`);
-        params.push(query.actorId);
+      const log = schema.auditLog;
+      const conditions = [];
+      if (query.action) conditions.push(eq(log.action, query.action));
+      if (query.targetType) conditions.push(eq(log.targetType, query.targetType));
+      if (query.startDate) conditions.push(gte(log.createdAt, new Date(query.startDate)));
+      if (query.endDate) conditions.push(lte(log.createdAt, new Date(query.endDate)));
+      if (cursor) {
+        conditions.push(sql`(${log.createdAt}, ${log.id}) < (${cursor.createdAt}, ${cursor.id})`);
       }
-      params.push(fetchLimit);
+      if (query.actorId) conditions.push(eq(log.actorId, query.actorId));
 
-      const { rows } = await db.query<SecurityAuditRow>(
-        `SELECT
-           log.id, log.actor_id, actor.username AS actor_username,
-           log.action, log.target_type, log.target_id, log.metadata,
-           log.ip_address, log.user_agent, log.created_at
-         FROM audit_log log
-         LEFT JOIN users actor ON actor.id = log.actor_id
-         ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
-         ORDER BY log.created_at DESC, log.id DESC
-         LIMIT $${idx}`,
-        params
-      );
+      const rows = await orm
+        .select({
+          id: log.id,
+          actor_id: log.actorId,
+          actor_username: schema.users.username,
+          action: log.action,
+          target_type: log.targetType,
+          target_id: log.targetId,
+          metadata: log.metadata,
+          ip_address: log.ipAddress,
+          user_agent: log.userAgent,
+          created_at: log.createdAt,
+        })
+        .from(log)
+        .leftJoin(schema.users, eq(schema.users.id, log.actorId))
+        .where(conditions.length ? and(...conditions) : undefined)
+        .orderBy(desc(log.createdAt), desc(log.id))
+        .limit(fetchLimit);
 
       const hasMore = rows.length > query.limit;
       const items = hasMore ? rows.slice(0, query.limit) : rows;
@@ -177,30 +132,44 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
             createdAt: r.created_at,
           })),
           hasMore,
-          nextCursor: hasMore && last ? `${last.created_at}|${last.id}` : null,
+          nextCursor: hasMore && last ? `${last.created_at as unknown as string}|${last.id}` : null,
         },
         error: null,
       });
     }
 
-    if (query.actorId) {
-      conditions.push(`log.admin_id = $${idx++}`);
-      params.push(query.actorId);
+    const log = schema.adminAuditLog;
+    const conditions = [];
+    if (query.action) conditions.push(eq(log.action, query.action));
+    if (query.targetType) conditions.push(eq(log.targetType, query.targetType));
+    if (query.startDate) conditions.push(gte(log.createdAt, new Date(query.startDate)));
+    if (query.endDate) conditions.push(lte(log.createdAt, new Date(query.endDate)));
+    if (cursor) {
+      conditions.push(sql`(${log.createdAt}, ${log.id}) < (${cursor.createdAt}, ${cursor.id})`);
     }
-    params.push(fetchLimit);
+    if (query.actorId) conditions.push(eq(log.adminId, query.actorId));
 
-    const { rows } = await db.query<AdminAuditRow>(
-      `SELECT
-         log.id, log.admin_id, admin.username AS admin_username,
-         log.action, log.resource, log.resource_id, log.target_type, log.target_id,
-         log.before_val, log.after_val, log.metadata, log.ip_address, log.created_at
-       FROM admin_audit_log log
-       LEFT JOIN users admin ON admin.id = log.admin_id
-       ${conditions.length ? `WHERE ${conditions.join(" AND ")}` : ""}
-       ORDER BY log.created_at DESC, log.id DESC
-       LIMIT $${idx}`,
-      params
-    );
+    const rows = await orm
+      .select({
+        id: log.id,
+        admin_id: log.adminId,
+        admin_username: schema.users.username,
+        action: log.action,
+        resource: log.resource,
+        resource_id: log.resourceId,
+        target_type: log.targetType,
+        target_id: log.targetId,
+        before_val: log.beforeVal,
+        after_val: log.afterVal,
+        metadata: log.metadata,
+        ip_address: log.ipAddress,
+        created_at: log.createdAt,
+      })
+      .from(log)
+      .leftJoin(schema.users, eq(schema.users.id, log.adminId))
+      .where(conditions.length ? and(...conditions) : undefined)
+      .orderBy(desc(log.createdAt), desc(log.id))
+      .limit(fetchLimit);
 
     const hasMore = rows.length > query.limit;
     const items = hasMore ? rows.slice(0, query.limit) : rows;
@@ -226,7 +195,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
           createdAt: r.created_at,
         })),
         hasMore,
-        nextCursor: hasMore && last ? `${last.created_at}|${last.id}` : null,
+        nextCursor: hasMore && last ? `${last.created_at as unknown as string}|${last.id}` : null,
       },
       error: null,
     });

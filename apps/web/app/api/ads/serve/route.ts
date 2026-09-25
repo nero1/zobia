@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull } from "drizzle-orm";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, badRequest } from "@/lib/api/errors";
@@ -26,10 +27,12 @@ export const GET = withAuth(async (req: NextRequest, { auth }: { auth: AuthConte
     const placement = req.nextUrl.searchParams.get("placement");
     if (!placement) throw badRequest("placement query param is required");
 
-    const { rows } = await db.query<{ plan: string }>(
-      `SELECT plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [auth.user.sub]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)))
+      .limit(1);
     const plan = rows[0]?.plan ?? "free";
 
     const ad = await serveAd(placement, plan);

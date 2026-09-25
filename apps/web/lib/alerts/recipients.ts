@@ -9,7 +9,8 @@
  * every request), keeping to the project's low-Redis-call budget.
  */
 
-import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+import { and, eq, isNull, or, sql } from "drizzle-orm";
+import { schema, type DbOrTx } from "@/lib/db/drizzle";
 
 export interface AlertRecipient {
   userId: string;
@@ -20,16 +21,6 @@ export interface AlertRecipient {
   smsEnabled: boolean;
 }
 
-interface RecipientRow {
-  id: string;
-  is_admin: boolean;
-  is_moderator: boolean;
-  email: string | null;
-  telegram_id: string | null;
-  phone_number: string | null;
-  sms_enabled: boolean | null;
-}
-
 /**
  * Fetch admins and/or moderators eligible to receive an alert.
  *
@@ -37,33 +28,43 @@ interface RecipientRow {
  * @param includeModerators - Include users with is_moderator = true (sitewide Platform Mods only — guild-scoped Forum Mods are not staff for this purpose)
  */
 export async function resolveAlertRecipients(
-  db: DatabaseAdapter | TransactionClient,
+  db: DbOrTx,
   includeAdmins: boolean,
   includeModerators: boolean
 ): Promise<AlertRecipient[]> {
   if (!includeAdmins && !includeModerators) return [];
 
-  const conditions: string[] = [];
-  if (includeAdmins) conditions.push("u.is_admin = true");
-  if (includeModerators) conditions.push("u.is_moderator = true");
+  const roleConditions = [];
+  if (includeAdmins) roleConditions.push(eq(schema.users.isAdmin, true));
+  if (includeModerators) roleConditions.push(eq(schema.users.isModerator, true));
 
-  const { rows } = await db.query<RecipientRow>(
-    `SELECT u.id, u.is_admin, u.is_moderator, u.email, u.telegram_id,
-            sac.phone_number, sac.sms_enabled
-     FROM users u
-     LEFT JOIN staff_alert_contacts sac ON sac.user_id = u.id
-     WHERE (${conditions.join(" OR ")})
-       AND COALESCE(u.is_banned, false) = false
-       AND COALESCE(u.is_suspended, false) = false
-       AND u.deleted_at IS NULL`
-  );
+  const rows = await db
+    .select({
+      id: schema.users.id,
+      isAdmin: schema.users.isAdmin,
+      isModerator: schema.users.isModerator,
+      email: schema.users.email,
+      telegramId: schema.users.telegramId,
+      phoneNumber: schema.staffAlertContacts.phoneNumber,
+      smsEnabled: schema.staffAlertContacts.smsEnabled,
+    })
+    .from(schema.users)
+    .leftJoin(schema.staffAlertContacts, eq(schema.staffAlertContacts.userId, schema.users.id))
+    .where(
+      and(
+        or(...roleConditions),
+        eq(schema.users.isBanned, false),
+        sql`COALESCE(${schema.users.isSuspended}, false) = false`,
+        isNull(schema.users.deletedAt)
+      )
+    );
 
   return rows.map((row) => ({
     userId: row.id,
-    type: row.is_admin ? "admin" : "moderator",
+    type: row.isAdmin ? "admin" : "moderator",
     email: row.email,
-    telegramId: row.telegram_id,
-    phoneNumber: row.phone_number,
-    smsEnabled: row.sms_enabled ?? false,
+    telegramId: row.telegramId,
+    phoneNumber: row.phoneNumber,
+    smsEnabled: row.smsEnabled ?? false,
   }));
 }

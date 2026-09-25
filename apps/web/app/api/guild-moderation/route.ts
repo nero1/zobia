@@ -16,10 +16,11 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getStaffRoles } from "@/lib/auth/roles";
 
 interface GuildReportRow {
@@ -53,34 +54,37 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const roles = await getStaffRoles(userId);
     const isPlatformStaff = roles.isAdmin || roles.isModerator;
 
+    const orm = await getDb();
+
     let scopedGuildIds: string[] = [];
     if (!isPlatformStaff) {
-      const { rows: scopeRows } = await db.query<{ guild_id: string }>(
-        `SELECT guild_id FROM guild_members WHERE user_id = $1 AND is_moderator = true AND left_at IS NULL
-         UNION
-         SELECT id AS guild_id FROM guilds WHERE captain_id = $1 AND is_active = TRUE`,
-        [userId]
-      );
+      const scopeRows = await orm
+        .select({ guild_id: schema.guildMembers.guildId })
+        .from(schema.guildMembers)
+        .where(and(eq(schema.guildMembers.userId, userId), eq(schema.guildMembers.isModerator, true), isNull(schema.guildMembers.leftAt)))
+        .union(
+          orm
+            .select({ guild_id: schema.guilds.id })
+            .from(schema.guilds)
+            .where(and(eq(schema.guilds.captainId, userId), eq(schema.guilds.isActive, true)))
+        );
       scopedGuildIds = scopeRows.map((r) => r.guild_id);
       if (scopedGuildIds.length === 0) {
         throw forbidden("You do not moderate any guild.", "NOT_A_FORUM_MOD");
       }
     }
 
-    const params: (string | string[])[] = [];
-    let whereClause = `(r.reported_guild_id IS NOT NULL OR r.reported_guild_message_id IS NOT NULL)`;
-
+    const whereParts = [sql`(r.reported_guild_id IS NOT NULL OR r.reported_guild_message_id IS NOT NULL)`];
     if (safeStatus !== "all") {
-      params.push(safeStatus);
-      whereClause += ` AND r.status = $${params.length}`;
+      whereParts.push(sql`r.status = ${safeStatus}`);
     }
     if (!isPlatformStaff) {
-      params.push(scopedGuildIds);
-      whereClause += ` AND COALESCE(r.reported_guild_id, gmsg.guild_id) = ANY($${params.length})`;
+      whereParts.push(sql`COALESCE(r.reported_guild_id, gmsg.guild_id) = ANY(${scopedGuildIds}::uuid[])`);
     }
+    const whereClause = sql.join(whereParts, sql` AND `);
 
-    const { rows } = await db.query<GuildReportRow>(
-      `SELECT
+    const result = await orm.execute<GuildReportRow & Record<string, unknown>>(sql`
+      SELECT
          r.id,
          reporter.username AS reporter_username,
          reported.username AS reported_user_username,
@@ -109,9 +113,9 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
        ) action ON true
        WHERE ${whereClause}
        ORDER BY r.duplicate_count DESC, r.created_at DESC
-       LIMIT 100`,
-      params
-    );
+       LIMIT 100
+    `);
+    const rows = result.rows;
 
     return NextResponse.json({
       success: true,

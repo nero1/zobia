@@ -14,9 +14,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 
 interface GiftHistoryRow {
   id: string;
@@ -67,27 +68,19 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     }
 
     const typeCondition =
-      type === "sent"     ? "g.sender_id = $1" :
-      type === "received" ? "g.recipient_id = $1" :
-                            "(g.sender_id = $1 OR g.recipient_id = $1)";
+      type === "sent"     ? sql`g.sender_id = ${userId}` :
+      type === "received" ? sql`g.recipient_id = ${userId}` :
+                            sql`(g.sender_id = ${userId} OR g.recipient_id = ${userId})`;
 
     // Cursor pagination: fetch rows strictly before the cursor position
     // using the composite (created_at, id) key for stable ordering.
-    let queryParams: (string | number)[];
-    let cursorCondition: string;
+    const cursorCondition = cursorData
+      ? sql`AND (g.created_at, g.id) < (${cursorData.created_at}, ${cursorData.id})`
+      : sql``;
 
-    if (cursorData) {
-      cursorCondition = `AND (g.created_at, g.id) < ($2, $3)`;
-      queryParams = [userId, cursorData.created_at, cursorData.id, limit];
-    } else {
-      cursorCondition = "";
-      queryParams = [userId, limit];
-    }
-
-    const limitParam = cursorData ? "$4" : "$2";
-
-    const { rows } = await db.query<GiftHistoryRow>(
-      `SELECT g.id, g.created_at, g.coin_value, g.status,
+    const orm = await getDb();
+    const result = await orm.execute<GiftHistoryRow & Record<string, unknown>>(sql`
+      SELECT g.id, g.created_at, g.coin_value, g.status,
               g.sender_id,
               s.username     AS sender_username,
               s.display_name AS sender_display_name,
@@ -114,9 +107,9 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
        WHERE ${typeCondition}
        ${cursorCondition}
        ORDER BY g.created_at DESC, g.id DESC
-       LIMIT ${limitParam}`,
-      queryParams
-    );
+       LIMIT ${limit}
+    `);
+    const rows = result.rows;
 
     const gifts = rows.map((row) => ({
       id: row.id,

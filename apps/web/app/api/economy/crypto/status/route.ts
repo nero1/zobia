@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { badRequest, handleApiError, notFound } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { verifyPayment } from "@/lib/payments/crypto";
 import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
@@ -24,14 +25,23 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const ref = new URL(req.url).searchParams.get("ref");
     if (!ref) throw badRequest("Query param 'ref' is required");
 
-    const { rows } = await db.query<{
-      status: string; amount_kobo: string; metadata: Record<string, unknown>; tx_hash: string | null;
-    }>(
-      `SELECT status, amount_kobo, metadata, tx_hash FROM payments
-       WHERE idempotency_key = $1 AND user_id = $2 AND provider = 'crypto' LIMIT 1`,
-      [ref, auth.user.sub]
-    );
-    const payment = rows[0];
+    const orm = await getDb();
+    const [payment] = await orm
+      .select({
+        status: schema.payments.status,
+        amount_kobo: schema.payments.amountKobo,
+        metadata: schema.payments.metadata,
+        tx_hash: schema.payments.txHash,
+      })
+      .from(schema.payments)
+      .where(
+        and(
+          eq(schema.payments.idempotencyKey, ref),
+          eq(schema.payments.userId, auth.user.sub),
+          eq(schema.payments.provider, "crypto")
+        )
+      )
+      .limit(1);
     if (!payment) throw notFound("Payment not found");
 
     if (payment.status === "completed" || payment.status === "failed") {

@@ -10,9 +10,19 @@
  * Revenue is read from creator_earnings (source_type 'classroom_enrolment',
  * reference_id = classroom_enrolments.id) — the same rows the shared payout
  * pipeline pays out from.
+ *
+ * NOTE: the aggregate queries below (correlated subqueries, LATERAL joins,
+ * generate_series calendars) are executed via Drizzle's `sql` template tag
+ * through the typed `getDb()` instance rather than rebuilt with the fluent
+ * query builder — expressing them with the builder would add real risk of
+ * subtly changing the aggregation semantics for no behavioural benefit. This
+ * still runs through the shared Drizzle/pg.Pool connection, not the legacy
+ * legacy raw-SQL adapter.
  */
 
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { eq } from "drizzle-orm";
 import { redis } from "@/lib/redis";
 import { memGet, memSet } from "@/lib/cache/memory";
 import { logger } from "@/lib/logger";
@@ -102,21 +112,21 @@ export interface ClassroomStats {
 
 export async function getClassroomStats(roomId: string, tier: ClassroomStatsTier): Promise<ClassroomStats> {
   return cached(`classroom:stats:${roomId}:${tier}`, async () => {
-    const { rows: roomRows } = await db.query<{ curriculum: unknown }>(`SELECT curriculum FROM rooms WHERE id = $1`, [roomId]);
-    const modules = parseModules(roomRows[0]?.curriculum);
+    const orm = await getDb();
+    const [room] = await orm.select({ curriculum: schema.rooms.curriculum }).from(schema.rooms).where(eq(schema.rooms.id, roomId));
+    const modules = parseModules(room?.curriculum);
 
-    const { rows: b } = await db.query<Record<string, string>>(
-      `SELECT
-         (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = $1) AS members,
-         (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = $1 AND paid) AS paid_members,
+    const { rows: b } = await orm.execute<Record<string, string>>(sql`
+      SELECT
+         (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = ${roomId}) AS members,
+         (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = ${roomId} AND paid) AS paid_members,
          (SELECT COALESCE(SUM(e.net_amount_kobo), 0) FROM creator_earnings e
             JOIN classroom_enrolments ce ON ce.id::text = e.reference_id
-           WHERE ce.room_id = $1 AND e.source_type = 'classroom_enrolment') AS revenue_all,
-         (SELECT COUNT(*) FROM classroom_posts WHERE room_id = $1 AND deleted_at IS NULL) AS posts,
-         (SELECT COUNT(*) FROM classroom_events WHERE room_id = $1 AND deleted_at IS NULL AND starts_at >= NOW()) AS upcoming_events,
-         (SELECT COUNT(*) FROM classroom_moderators WHERE room_id = $1 AND status = 'active' AND is_moderator) AS moderators`,
-      [roomId]
-    );
+           WHERE ce.room_id = ${roomId} AND e.source_type = 'classroom_enrolment') AS revenue_all,
+         (SELECT COUNT(*) FROM classroom_posts WHERE room_id = ${roomId} AND deleted_at IS NULL) AS posts,
+         (SELECT COUNT(*) FROM classroom_events WHERE room_id = ${roomId} AND deleted_at IS NULL AND starts_at >= NOW()) AS upcoming_events,
+         (SELECT COUNT(*) FROM classroom_moderators WHERE room_id = ${roomId} AND status = 'active' AND is_moderator) AS moderators
+    `);
     const basic: ClassroomStatsBasic = {
       members: num(b[0]?.members),
       paidMembers: num(b[0]?.paid_members),
@@ -129,25 +139,24 @@ export async function getClassroomStats(roomId: string, tier: ClassroomStatsTier
 
     let more: ClassroomStatsMore | null = null;
     if (statsTierAtLeast(tier, "more")) {
-      const { rows: m } = await db.query<Record<string, string>>(
-        `SELECT
-           (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = $1 AND enrolled_at >= NOW() - INTERVAL '7 days') AS new_7d,
-           (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = $1 AND enrolled_at >= NOW() - INTERVAL '30 days') AS new_30d,
-           (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = $1 AND last_active_at >= NOW() - INTERVAL '7 days') AS active_7d,
+      const { rows: m } = await orm.execute<Record<string, string>>(sql`
+        SELECT
+           (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = ${roomId} AND enrolled_at >= NOW() - INTERVAL '7 days') AS new_7d,
+           (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = ${roomId} AND enrolled_at >= NOW() - INTERVAL '30 days') AS new_30d,
+           (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = ${roomId} AND last_active_at >= NOW() - INTERVAL '7 days') AS active_7d,
            (SELECT COALESCE(SUM(e.net_amount_kobo), 0) FROM creator_earnings e
               JOIN classroom_enrolments ce ON ce.id::text = e.reference_id
-             WHERE ce.room_id = $1 AND e.source_type = 'classroom_enrolment'
+             WHERE ce.room_id = ${roomId} AND e.source_type = 'classroom_enrolment'
                AND e.created_at >= NOW() - INTERVAL '30 days') AS revenue_30d,
-           (SELECT COUNT(*) FROM classroom_post_comments WHERE room_id = $1 AND deleted_at IS NULL) AS comments,
-           (SELECT COUNT(*) FROM classroom_likes WHERE room_id = $1) AS likes,
-           (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = $1 AND completed_at IS NOT NULL) AS completions,
-           (SELECT COUNT(*) FROM classroom_lesson_completions WHERE room_id = $1) AS lesson_completions,
-           (SELECT COUNT(*) FROM classroom_quiz_attempts a JOIN classroom_quizzes q ON q.id = a.quiz_id WHERE q.room_id = $1) AS quiz_attempts,
-           (SELECT COUNT(*) FROM classroom_quiz_attempts a JOIN classroom_quizzes q ON q.id = a.quiz_id WHERE q.room_id = $1 AND a.passed) AS quiz_passes,
-           (SELECT COALESCE(SUM(share_count), 0) FROM classroom_shares WHERE room_id = $1) AS shares,
-           (SELECT COALESCE(SUM(page_views), 0) FROM classroom_daily_stats WHERE room_id = $1 AND day >= CURRENT_DATE - 29) AS views_30d`,
-        [roomId]
-      );
+           (SELECT COUNT(*) FROM classroom_post_comments WHERE room_id = ${roomId} AND deleted_at IS NULL) AS comments,
+           (SELECT COUNT(*) FROM classroom_likes WHERE room_id = ${roomId}) AS likes,
+           (SELECT COUNT(*) FROM classroom_enrolments WHERE room_id = ${roomId} AND completed_at IS NOT NULL) AS completions,
+           (SELECT COUNT(*) FROM classroom_lesson_completions WHERE room_id = ${roomId}) AS lesson_completions,
+           (SELECT COUNT(*) FROM classroom_quiz_attempts a JOIN classroom_quizzes q ON q.id = a.quiz_id WHERE q.room_id = ${roomId}) AS quiz_attempts,
+           (SELECT COUNT(*) FROM classroom_quiz_attempts a JOIN classroom_quizzes q ON q.id = a.quiz_id WHERE q.room_id = ${roomId} AND a.passed) AS quiz_passes,
+           (SELECT COALESCE(SUM(share_count), 0) FROM classroom_shares WHERE room_id = ${roomId}) AS shares,
+           (SELECT COALESCE(SUM(page_views), 0) FROM classroom_daily_stats WHERE room_id = ${roomId} AND day >= CURRENT_DATE - 29) AS views_30d
+      `);
       const r = m[0] ?? {};
       const possibleCompletions = basic.members * modules.length;
       const attempts = num(r.quiz_attempts);
@@ -170,23 +179,21 @@ export async function getClassroomStats(roomId: string, tier: ClassroomStatsTier
     let detailed: ClassroomStatsDetailed | null = null;
     if (statsTierAtLeast(tier, "detailed")) {
       const [{ rows: daily }, { rows: funnel }, topContributors] = await Promise.all([
-        db.query<{ day: string; enrolments: string; revenue: string; views: string; posts: string }>(
-          `SELECT d.day::text AS day,
+        orm.execute<{ day: string; enrolments: string; revenue: string; views: string; posts: string }>(sql`
+          SELECT d.day::text AS day,
                   (SELECT COUNT(*) FROM classroom_enrolments ce
-                    WHERE ce.room_id = $1 AND ce.enrolled_at::date = d.day) AS enrolments,
+                    WHERE ce.room_id = ${roomId} AND ce.enrolled_at::date = d.day) AS enrolments,
                   (SELECT COALESCE(SUM(e.net_amount_kobo), 0) FROM creator_earnings e
                      JOIN classroom_enrolments ce ON ce.id::text = e.reference_id
-                    WHERE ce.room_id = $1 AND e.source_type = 'classroom_enrolment' AND e.created_at::date = d.day) AS revenue,
-                  COALESCE((SELECT page_views FROM classroom_daily_stats s WHERE s.room_id = $1 AND s.day = d.day), 0) AS views,
-                  (SELECT COUNT(*) FROM classroom_posts p WHERE p.room_id = $1 AND p.created_at::date = d.day AND p.deleted_at IS NULL) AS posts
+                    WHERE ce.room_id = ${roomId} AND e.source_type = 'classroom_enrolment' AND e.created_at::date = d.day) AS revenue,
+                  COALESCE((SELECT page_views FROM classroom_daily_stats s WHERE s.room_id = ${roomId} AND s.day = d.day), 0) AS views,
+                  (SELECT COUNT(*) FROM classroom_posts p WHERE p.room_id = ${roomId} AND p.created_at::date = d.day AND p.deleted_at IS NULL) AS posts
              FROM generate_series(CURRENT_DATE - 29, CURRENT_DATE, INTERVAL '1 day') AS d(day)
-            ORDER BY d.day`,
-          [roomId]
-        ),
-        db.query<{ module_id: string; n: string }>(
-          `SELECT module_id, COUNT(*)::text AS n FROM classroom_lesson_completions WHERE room_id = $1 GROUP BY module_id`,
-          [roomId]
-        ),
+            ORDER BY d.day
+        `),
+        orm.execute<{ module_id: string; n: string }>(sql`
+          SELECT module_id, COUNT(*)::text AS n FROM classroom_lesson_completions WHERE room_id = ${roomId} GROUP BY module_id
+        `),
         getClassroomLeaderboard(roomId, "30d", 5),
       ]);
       const funnelMap = new Map(funnel.map((f) => [f.module_id, num(f.n)]));
@@ -253,7 +260,8 @@ export interface StudioSummary {
 
 export async function getStudioSummary(creatorId: string, tier: ClassroomStatsTier): Promise<StudioSummary> {
   return cached(`classroom:studio:${creatorId}:${tier}`, async () => {
-    const { rows } = await db.query<{
+    const orm = await getDb();
+    const { rows } = await orm.execute<{
       id: string;
       name: string;
       slug: string | null;
@@ -270,8 +278,8 @@ export async function getStudioSummary(creatorId: string, tier: ClassroomStatsTi
       posts_30d: string;
       active_7d: string;
       pending_reports: string;
-    }>(
-      `SELECT r.id, r.name, r.slug, r.cover_emoji, r.is_active, r.is_public, r.show_in_creator_listing,
+    }>(sql`
+      SELECT r.id, r.name, r.slug, r.cover_emoji, r.is_active, r.is_public, r.show_in_creator_listing,
               r.enrolment_fee_ngn, r.created_at,
               COALESCE(en.members, 0) AS members, COALESCE(en.paid_members, 0) AS paid_members,
               COALESCE(en.active_7d, 0) AS active_7d,
@@ -293,10 +301,9 @@ export async function getStudioSummary(creatorId: string, tier: ClassroomStatsTi
              JOIN classroom_enrolments ce ON ce.id::text = e.reference_id
             WHERE ce.room_id = r.id AND e.source_type = 'classroom_enrolment'
          ) rev ON TRUE
-        WHERE r.creator_id = $1 AND r.type = 'classroom' AND r.deleted_at IS NULL
-        ORDER BY r.created_at DESC`,
-      [creatorId]
-    );
+        WHERE r.creator_id = ${creatorId} AND r.type = 'classroom' AND r.deleted_at IS NULL
+        ORDER BY r.created_at DESC
+    `);
 
     const classrooms: StudioClassroomRow[] = rows.map((r) => ({
       id: r.id,
@@ -317,28 +324,26 @@ export async function getStudioSummary(creatorId: string, tier: ClassroomStatsTi
       createdAt: new Date(r.created_at).toISOString(),
     }));
 
-    const { rows: revRows } = await db.query<{ today: string; week: string; month: string }>(
-      `SELECT
+    const { rows: revRows } = await orm.execute<{ today: string; week: string; month: string }>(sql`
+      SELECT
          COALESCE(SUM(e.net_amount_kobo) FILTER (WHERE e.created_at >= date_trunc('day', NOW())), 0) AS today,
          COALESCE(SUM(e.net_amount_kobo) FILTER (WHERE e.created_at >= NOW() - INTERVAL '7 days'), 0) AS week,
          COALESCE(SUM(e.net_amount_kobo) FILTER (WHERE e.created_at >= NOW() - INTERVAL '30 days'), 0) AS month
          FROM creator_earnings e
-        WHERE e.creator_id = $1 AND e.source_type = 'classroom_enrolment'`,
-      [creatorId]
-    );
+        WHERE e.creator_id = ${creatorId} AND e.source_type = 'classroom_enrolment'
+    `);
 
     let daily: StudioSummary["daily"] = null;
     if (statsTierAtLeast(tier, "detailed")) {
-      const { rows: d } = await db.query<{ day: string; enrolments: string; revenue: string }>(
-        `SELECT g.day::text AS day,
+      const { rows: d } = await orm.execute<{ day: string; enrolments: string; revenue: string }>(sql`
+        SELECT g.day::text AS day,
                 (SELECT COUNT(*) FROM classroom_enrolments ce JOIN rooms r ON r.id = ce.room_id
-                  WHERE r.creator_id = $1 AND ce.enrolled_at::date = g.day) AS enrolments,
+                  WHERE r.creator_id = ${creatorId} AND ce.enrolled_at::date = g.day) AS enrolments,
                 (SELECT COALESCE(SUM(e.net_amount_kobo), 0) FROM creator_earnings e
-                  WHERE e.creator_id = $1 AND e.source_type = 'classroom_enrolment' AND e.created_at::date = g.day) AS revenue
+                  WHERE e.creator_id = ${creatorId} AND e.source_type = 'classroom_enrolment' AND e.created_at::date = g.day) AS revenue
            FROM generate_series(CURRENT_DATE - 29, CURRENT_DATE, INTERVAL '1 day') AS g(day)
-          ORDER BY g.day`,
-        [creatorId]
-      );
+          ORDER BY g.day
+      `);
       daily = d.map((x) => ({ day: x.day.slice(0, 10), enrolments: num(x.enrolments), revenueKobo: num(x.revenue) }));
     }
 
@@ -363,29 +368,38 @@ export async function getStudioSummary(creatorId: string, tier: ClassroomStatsTi
 
 /** Best-effort page-view counter for /c/<slug> (one upsert, never blocks render). */
 export function recordClassroomView(roomId: string): void {
-  db.query(
-    `INSERT INTO classroom_daily_stats (room_id, day, page_views) VALUES ($1, CURRENT_DATE, 1)
-     ON CONFLICT (room_id, day) DO UPDATE SET page_views = classroom_daily_stats.page_views + 1`,
-    [roomId]
-  ).catch((err) => logger.warn({ err, roomId }, "[classroom:stats] view counter failed"));
+  getDb()
+    .then((orm) =>
+      orm
+        .insert(schema.classroomDailyStats)
+        .values({ roomId, day: sql`CURRENT_DATE`, pageViews: 1 })
+        .onConflictDoUpdate({
+          target: [schema.classroomDailyStats.roomId, schema.classroomDailyStats.day],
+          set: { pageViews: sql`${schema.classroomDailyStats.pageViews} + 1` },
+        })
+    )
+    .catch((err) => logger.warn({ err, roomId }, "[classroom:stats] view counter failed"));
 }
 
 /** Record a share (idempotent per user for the share counter; always bumps the daily tally). */
 export async function recordClassroomShare(roomId: string, userId: string): Promise<{ shareCount: number }> {
-  return db.transaction(async (tx) => {
-    const { rows } = await tx.query<{ share_count: number }>(
-      `INSERT INTO classroom_shares (room_id, user_id, share_count, first_shared_at, last_shared_at)
-       VALUES ($1, $2, 1, NOW(), NOW())
-       ON CONFLICT (room_id, user_id) DO UPDATE
-         SET share_count = classroom_shares.share_count + 1, last_shared_at = NOW()
-       RETURNING share_count`,
-      [roomId, userId]
-    );
-    await tx.query(
-      `INSERT INTO classroom_daily_stats (room_id, day, shares) VALUES ($1, CURRENT_DATE, 1)
-       ON CONFLICT (room_id, day) DO UPDATE SET shares = classroom_daily_stats.shares + 1`,
-      [roomId]
-    );
-    return { shareCount: rows[0]?.share_count ?? 1 };
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(schema.classroomShares)
+      .values({ roomId, userId, shareCount: 1 })
+      .onConflictDoUpdate({
+        target: [schema.classroomShares.roomId, schema.classroomShares.userId],
+        set: { shareCount: sql`${schema.classroomShares.shareCount} + 1`, lastSharedAt: new Date() },
+      })
+      .returning({ shareCount: schema.classroomShares.shareCount });
+    await tx
+      .insert(schema.classroomDailyStats)
+      .values({ roomId, day: sql`CURRENT_DATE`, shares: 1 })
+      .onConflictDoUpdate({
+        target: [schema.classroomDailyStats.roomId, schema.classroomDailyStats.day],
+        set: { shares: sql`${schema.classroomDailyStats.shares} + 1` },
+      });
+    return { shareCount: row?.shareCount ?? 1 };
   });
 }

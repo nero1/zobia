@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql, type SQL } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -71,12 +72,11 @@ interface OverviewStats {
  * @returns Map of label → numeric value
  */
 async function runCountQueries(
-  queries: Array<{ label: string; sql: string; params?: (string | number)[] }>
+  queries: Array<{ label: string; query: SQL }>
 ): Promise<Map<string, number>> {
+  const orm = await getDb();
   const results = await Promise.allSettled(
-    queries.map(({ sql, params }) =>
-      db.query<{ value: string }>(sql, params)
-    )
+    queries.map(({ query }) => orm.execute<{ value: string }>(query))
   );
 
   const map = new Map<string, number>();
@@ -114,19 +114,19 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
       // Active users (last_active_at within window)
       {
         label: "dau",
-        sql: `SELECT COUNT(*)::text AS value FROM users
+        query: sql`SELECT COUNT(*)::text AS value FROM users
               WHERE last_active_at >= NOW() - INTERVAL '1 day'
                 AND deleted_at IS NULL`,
       },
       {
         label: "wau",
-        sql: `SELECT COUNT(*)::text AS value FROM users
+        query: sql`SELECT COUNT(*)::text AS value FROM users
               WHERE last_active_at >= NOW() - INTERVAL '7 days'
                 AND deleted_at IS NULL`,
       },
       {
         label: "mau",
-        sql: `SELECT COUNT(*)::text AS value FROM users
+        query: sql`SELECT COUNT(*)::text AS value FROM users
               WHERE last_active_at >= NOW() - INTERVAL '30 days'
                 AND deleted_at IS NULL`,
       },
@@ -134,13 +134,13 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
       // Registrations
       {
         label: "registrations_today",
-        sql: `SELECT COUNT(*)::text AS value FROM users
+        query: sql`SELECT COUNT(*)::text AS value FROM users
               WHERE created_at >= CURRENT_DATE
                 AND deleted_at IS NULL`,
       },
       {
         label: "registrations_week",
-        sql: `SELECT COUNT(*)::text AS value FROM users
+        query: sql`SELECT COUNT(*)::text AS value FROM users
               WHERE created_at >= NOW() - INTERVAL '7 days'
                 AND deleted_at IS NULL`,
       },
@@ -148,21 +148,21 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
       // Revenue (sum of successful payment amounts)
       {
         label: "revenue_today",
-        sql: `SELECT COALESCE(SUM(amount), 0)::text AS value
+        query: sql`SELECT COALESCE(SUM(amount), 0)::text AS value
               FROM payments
               WHERE status = 'completed'
                 AND created_at >= CURRENT_DATE`,
       },
       {
         label: "revenue_week",
-        sql: `SELECT COALESCE(SUM(amount), 0)::text AS value
+        query: sql`SELECT COALESCE(SUM(amount), 0)::text AS value
               FROM payments
               WHERE status = 'completed'
                 AND created_at >= NOW() - INTERVAL '7 days'`,
       },
       {
         label: "revenue_month",
-        sql: `SELECT COALESCE(SUM(amount), 0)::text AS value
+        query: sql`SELECT COALESCE(SUM(amount), 0)::text AS value
               FROM payments
               WHERE status = 'completed'
                 AND created_at >= NOW() - INTERVAL '30 days'`,
@@ -171,28 +171,28 @@ export const GET = withAdminAuth(async (req, { params, auth }) => {
       // Rooms
       {
         label: "active_rooms",
-        sql: `SELECT COUNT(*)::text AS value FROM rooms
+        query: sql`SELECT COUNT(*)::text AS value FROM rooms
               WHERE is_active = true AND deleted_at IS NULL`,
       },
 
       // Guilds
       {
         label: "active_guilds",
-        sql: `SELECT COUNT(*)::text AS value FROM guilds
+        query: sql`SELECT COUNT(*)::text AS value FROM guilds
               WHERE is_active = true AND deleted_at IS NULL`,
       },
 
       // Active guild wars
       {
         label: "active_guild_wars",
-        sql: `SELECT COUNT(*)::text AS value FROM guild_wars
+        query: sql`SELECT COUNT(*)::text AS value FROM guild_wars
               WHERE status IN ('active', 'final_hour')`,
       },
 
       // Moderation queue
       {
         label: "pending_reports",
-        sql: `SELECT COUNT(*)::text AS value FROM reports
+        query: sql`SELECT COUNT(*)::text AS value FROM reports
               WHERE status = 'pending'`,
       },
     ]);

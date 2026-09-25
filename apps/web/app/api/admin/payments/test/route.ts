@@ -24,7 +24,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -51,23 +52,33 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       throw badRequest(`${body.provider} is not enabled in Payments config. Enable it first at /gate44/config.`);
     }
 
-    const { rows: userRows } = await db.query<{ email: string | null; username: string }>(
-      `SELECT email, username FROM users WHERE id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
-    const email = userRows[0]?.email ?? `${userRows[0]?.username ?? "admin"}@zobia.app`;
+    const orm = await getDb();
+
+    const [userRow] = await orm
+      .select({ email: schema.users.email, username: schema.users.username })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
+    const email = userRow?.email ?? `${userRow?.username ?? "admin"}@zobia.app`;
 
     const idempotencyKey = `admin_test:${auth.user.sub}:${crypto.randomUUID()}`;
     const returnUrl = `${env.NEXT_PUBLIC_APP_URL}/gate44/config`;
     const metadata = { adminTest: true, initiatedBy: auth.user.sub };
 
-    const { rows: insertRows } = await db.query<{ id: string }>(
-      `INSERT INTO payments (user_id, payment_type, amount_kobo, currency, provider, status, idempotency_key, metadata)
-       VALUES ($1, 'admin_test', $2, 'NGN', $3, 'pending', $4, $5)
-       RETURNING id`,
-      [auth.user.sub, TEST_AMOUNT_SMALLEST_UNIT, body.provider, idempotencyKey, JSON.stringify(metadata)]
-    );
-    const paymentDbId = insertRows[0]?.id;
+    const [insertRow] = await orm
+      .insert(schema.payments)
+      .values({
+        userId: auth.user.sub,
+        paymentType: "admin_test",
+        amountKobo: BigInt(TEST_AMOUNT_SMALLEST_UNIT),
+        currency: "NGN",
+        provider: body.provider,
+        status: "pending",
+        idempotencyKey,
+        metadata,
+      })
+      .returning({ id: schema.payments.id });
+    const paymentDbId = insertRow?.id;
 
     const result = await initializePayment(
       TEST_AMOUNT_SMALLEST_UNIT,
@@ -80,10 +91,11 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     );
 
     if (paymentDbId) {
-      await db.query(
-        `UPDATE payments SET provider_reference = $1, updated_at = NOW() WHERE id = $2`,
-        [result.providerReference, paymentDbId]
-      ).catch(() => {});
+      await orm
+        .update(schema.payments)
+        .set({ providerReference: result.providerReference, updatedAt: new Date() })
+        .where(eq(schema.payments.id, paymentDbId))
+        .catch(() => {});
     }
 
     return NextResponse.json({

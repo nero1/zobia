@@ -6,7 +6,8 @@
  * retired slug via slug_redirects. Only public, live games are returned.
  */
 
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull } from "drizzle-orm";
 import { looksLikeUuid } from "@zobia/shared/utils";
 import { lookupSlugRedirect } from "@/lib/slug";
 
@@ -35,21 +36,45 @@ export interface ResolvedGame {
   canonicalRedirectSlug: string | null;
 }
 
-const SELECT = `
-  SELECT id, slug, name, tagline, description, long_description, category,
-         cover_image_url, cover_emoji, engine_key,
-         reward_credits_per_win, reward_xp_per_win, reward_stars_per_win,
-         play_cost_credits, play_cost_stars,
-         created_at, updated_at
-  FROM games
-  WHERE deleted_at IS NULL
-    AND is_active = TRUE
-    AND is_public = TRUE
-`;
+type GameRow = typeof schema.games.$inferSelect;
+
+function toPublicGame(row: GameRow): PublicGame {
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    tagline: row.tagline,
+    description: row.description,
+    long_description: row.longDescription,
+    category: row.category,
+    cover_image_url: row.coverImageUrl,
+    cover_emoji: row.coverEmoji,
+    engine_key: row.engineKey,
+    reward_credits_per_win: row.rewardCreditsPerWin,
+    reward_xp_per_win: row.rewardXpPerWin,
+    reward_stars_per_win: row.rewardStarsPerWin,
+    play_cost_credits: row.playCostCredits,
+    play_cost_stars: row.playCostStars,
+    created_at: row.createdAt.toISOString(),
+    updated_at: row.updatedAt.toISOString(),
+  };
+}
 
 async function queryBy(column: "slug" | "id", value: string): Promise<PublicGame | null> {
-  const { rows } = await db.query<PublicGame>(`${SELECT} AND ${column} = $1 LIMIT 1`, [value]);
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select()
+    .from(schema.games)
+    .where(
+      and(
+        isNull(schema.games.deletedAt),
+        eq(schema.games.isActive, true),
+        eq(schema.games.isPublic, true),
+        column === "slug" ? eq(schema.games.slug, value) : eq(schema.games.id, value)
+      )
+    )
+    .limit(1);
+  return row ? toPublicGame(row) : null;
 }
 
 export async function resolvePublicGame(identifier: string): Promise<ResolvedGame | null> {

@@ -25,9 +25,10 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { randomUUID } from "crypto";
+import { and, eq, gt, isNull, like, sql } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { initializePayment } from "@/lib/payments";
 import { serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { env } from "@/lib/env";
@@ -47,26 +48,6 @@ const StarPurchaseSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Row types
-// ---------------------------------------------------------------------------
-
-interface StoreItemRow {
-  id: string;
-  name: string;
-  item_type: string;
-  price_kobo: number;
-  currency: string;
-  stars_granted: number;
-  is_active: boolean;
-}
-
-interface UserRow {
-  id: string;
-  email: string | null;
-  username: string;
-}
-
-// ---------------------------------------------------------------------------
 // POST /api/economy/stars/purchase
 // ---------------------------------------------------------------------------
 
@@ -80,10 +61,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
+    const orm = await getDb();
+
     // 1. Check admin toggle — star direct purchase can be disabled globally
-    const { rows: flagRows } = await db.query<{ value: string }>(
-      `SELECT value FROM x_manifest WHERE key = 'feature_star_purchase_enabled' LIMIT 1`
-    );
+    const flagRows = await orm
+      .select({ value: schema.xManifest.value })
+      .from(schema.xManifest)
+      .where(eq(schema.xManifest.key, "feature_star_purchase_enabled"))
+      .limit(1);
     const starPurchaseEnabled = (flagRows[0]?.value ?? "true") === "true";
     if (!starPurchaseEnabled) {
       throw badRequest(
@@ -96,31 +81,38 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
 
     // 2. Load the star pack from the database
-    const { rows: packRows } = await db.query<StoreItemRow>(
-      `SELECT id, name, item_type, price_kobo, currency,
-              COALESCE(stars_granted, 0) AS stars_granted, is_active
-       FROM store_items
-       WHERE id = $1 AND item_type = 'star_pack'
-       LIMIT 1`,
-      [body.packId]
-    );
+    const packRows = await orm
+      .select({
+        id: schema.storeItems.id,
+        name: schema.storeItems.name,
+        itemType: schema.storeItems.itemType,
+        priceKobo: schema.storeItems.priceKobo,
+        currency: schema.storeItems.currency,
+        starsGranted: schema.storeItems.starsGranted,
+        isActive: schema.storeItems.isActive,
+      })
+      .from(schema.storeItems)
+      .where(and(eq(schema.storeItems.id, body.packId), eq(schema.storeItems.itemType, "star_pack")))
+      .limit(1);
 
     if (!packRows[0]) throw notFound("Star pack not found");
     const pack = packRows[0];
+    const starsGranted = pack.starsGranted ?? 0;
 
-    if (!pack.is_active) {
+    if (!pack.isActive) {
       throw badRequest("This star pack is currently unavailable");
     }
 
-    if (pack.stars_granted <= 0) {
+    if (starsGranted <= 0) {
       throw badRequest("Invalid star pack configuration");
     }
 
     // 3. Load user email (needed by payment providers)
-    const { rows: userRows } = await db.query<UserRow>(
-      `SELECT id, email, username FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const userRows = await orm
+      .select({ id: schema.users.id, email: schema.users.email, username: schema.users.username })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!userRows[0]) throw badRequest("User not found");
 
     const user = userRows[0];
@@ -130,23 +122,26 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const today = new Date().toISOString().slice(0, 10);
     const idempotencyKey = `star_purchase:${userId}:${body.packId}:${today}:${randomUUID()}`;
 
-    const { rows: existingRows } = await db.query<{
-      payment_url: string;
-      provider_reference: string;
-    }>(
-      `SELECT metadata->>'payment_url' AS payment_url, provider_reference
-       FROM payments
-       WHERE idempotency_key LIKE $1
-         AND status = 'pending'
-         AND created_at > NOW() - INTERVAL '10 minutes'
-       LIMIT 1`,
-      [`star_purchase:${userId}:${body.packId}:${today}%`]
-    );
+    const existingRows = await orm
+      .select({
+        metadata: schema.payments.metadata,
+        providerReference: schema.payments.providerReference,
+      })
+      .from(schema.payments)
+      .where(
+        and(
+          like(schema.payments.idempotencyKey, `star_purchase:${userId}:${body.packId}:${today}%`),
+          eq(schema.payments.status, "pending"),
+          gt(schema.payments.createdAt, sql`NOW() - INTERVAL '10 minutes'`)
+        )
+      )
+      .limit(1);
 
     if (existingRows[0]) {
+      const existingMetadata = (existingRows[0].metadata ?? {}) as Record<string, unknown>;
       return NextResponse.json({
-        paymentUrl: existingRows[0].payment_url,
-        paymentReference: existingRows[0].provider_reference,
+        paymentUrl: existingMetadata.payment_url,
+        paymentReference: existingRows[0].providerReference,
         reused: true,
       });
     }
@@ -157,11 +152,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const isNigeria = await getUserIsNigeria(userId);
     const decision = await enforcePaymentContext("star_purchase", isNigeria, body.paymentProvider, body.cryptoCurrency);
 
+    const priceKobo = Number(pack.priceKobo);
+
     const metadata = {
       userId,
       packId: pack.id,
       packName: pack.name,
-      starsGranted: pack.stars_granted,
+      starsGranted,
       itemType: "star_pack",
       ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
     };
@@ -170,7 +167,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       await grantFreePayment({
         userId,
         paymentType: "star_purchase",
-        amountKobo: pack.price_kobo,
+        amountKobo: priceKobo,
         currency: pack.currency,
         idempotencyKey,
         metadata: metadata as never,
@@ -179,14 +176,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         paymentUrl: "",
         paymentReference: idempotencyKey,
         free: true,
-        pack: { id: pack.id, name: pack.name, starsGranted: pack.stars_granted, priceKobo: pack.price_kobo, currency: pack.currency },
+        pack: { id: pack.id, name: pack.name, starsGranted, priceKobo, currency: pack.currency },
       });
     }
 
     const provider = decision.provider;
 
     const paymentResult = await initializePayment(
-      pack.price_kobo,
+      priceKobo,
       pack.currency,
       email,
       idempotencyKey,
@@ -199,26 +196,21 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const computed = provider === "crypto" ? (paymentResult.raw as ComputedAmount) : null;
 
     // 6. Persist the pending payment record
-    await db.query(
-      `INSERT INTO payments
-         (user_id, payment_type, amount_kobo, currency, provider, status,
-          idempotency_key, provider_reference, metadata, chain, token_symbol, wallet_address, expected_token_amount)
-       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12)`,
-      [
-        userId,
-        'star_purchase', // BUG-FIN-18: was 'coin_purchase'; this is a star pack
-        pack.price_kobo,
-        pack.currency,
-        provider,
-        idempotencyKey,
-        paymentResult.providerReference,
-        JSON.stringify(metadataWithUrl),
-        computed?.chain ?? null,
-        computed?.currency ?? null,
-        computed?.receivingAddress ?? null,
-        computed ? computed.expectedBaseUnits.toString() : null,
-      ]
-    );
+    await orm.insert(schema.payments).values({
+      userId,
+      paymentType: "star_purchase", // BUG-FIN-18: was 'coin_purchase'; this is a star pack
+      amountKobo: pack.priceKobo,
+      currency: pack.currency,
+      provider,
+      status: "pending",
+      idempotencyKey,
+      providerReference: paymentResult.providerReference,
+      metadata: metadataWithUrl,
+      chain: computed?.chain ?? null,
+      tokenSymbol: computed?.currency ?? null,
+      walletAddress: computed?.receivingAddress ?? null,
+      expectedTokenAmount: computed ? computed.expectedBaseUnits.toString() : null,
+    });
 
     return NextResponse.json({
       paymentUrl: paymentResult.paymentUrl,
@@ -227,8 +219,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       pack: {
         id: pack.id,
         name: pack.name,
-        starsGranted: pack.stars_granted,
-        priceKobo: pack.price_kobo,
+        starsGranted,
+        priceKobo,
         currency: pack.currency,
       },
     });

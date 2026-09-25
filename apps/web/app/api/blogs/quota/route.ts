@@ -15,10 +15,11 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, eq, isNull } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { countActiveBlogsForScope } from "@/lib/blogs/repo";
 import {
   getIncludedPersonalBlogCount,
@@ -43,20 +44,28 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const userId = auth.user.sub;
     await enforceRateLimit(userId, "user", RATE_LIMITS.apiRead);
 
-    const { rows: userRows } = await db.query<{ plan: string; level_creator: number }>(
-      `SELECT plan, level_creator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    const user = userRows[0] ?? { plan: "free", level_creator: 0 };
+    const orm = await getDb();
+    const [userRow] = await orm
+      .select({ plan: schema.users.plan, levelCreator: schema.users.levelCreator })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    const user = userRow ?? { plan: "free", levelCreator: 0 };
 
-    const { rows: bizRows } = await db.query<{ id: string; business_name: string; tier: string; status: string }>(
-      `SELECT id, business_name, tier, status FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
-    const business = bizRows[0] ?? null;
+    const [bizRow] = await orm
+      .select({
+        id: schema.businessAccounts.id,
+        businessName: schema.businessAccounts.businessName,
+        tier: schema.businessAccounts.tier,
+        status: schema.businessAccounts.status,
+      })
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.userId, userId))
+      .limit(1);
+    const business = bizRow ?? null;
 
     const [personalIncluded, personalUsed, personalCost] = await Promise.all([
-      getIncludedPersonalBlogCount(user.plan, user.level_creator),
+      getIncludedPersonalBlogCount(user.plan, user.levelCreator),
       countActiveBlogsForScope({ ownerId: userId, businessAccountId: null }),
       getExtraBlogSlotCost("personal"),
     ]);
@@ -72,7 +81,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       ]);
       businessData = {
         id: business.id,
-        name: business.business_name,
+        name: business.businessName,
         tier: business.tier,
         status: business.status,
         extraSlotCost: businessCost,

@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -26,11 +27,12 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
-    const { rows } = await db.query<{ id: string; tier: string; user_id: string }>(
-      `SELECT id, tier, user_id FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
-    const account = rows[0];
+    const orm = await getDb();
+    const [account] = await orm
+      .select({ id: schema.businessAccounts.id, tier: schema.businessAccounts.tier, user_id: schema.businessAccounts.userId })
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.userId, auth.user.sub))
+      .limit(1);
     if (!account) throw notFound("Business account not found");
 
     if (account.user_id !== auth.user.sub && !(await isUserModeratorOrAdmin(auth.user.sub))) {

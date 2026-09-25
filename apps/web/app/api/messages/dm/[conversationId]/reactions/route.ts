@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -35,36 +36,6 @@ const addReactionSchema = z.object({
     .max(10, "emoji must be at most 10 characters"),
   isCustom: z.boolean().default(false),
 });
-
-// ---------------------------------------------------------------------------
-// DB row types
-// ---------------------------------------------------------------------------
-
-interface MessageOwnerRow {
-  id: string;
-  sender_id: string;
-  conversation_id: string;
-  recipient_id: string;
-  is_deleted: boolean;
-}
-
-interface ConversationParticipantRow {
-  user_id_1: string;
-  user_id_2: string;
-}
-
-interface ExistingReactionRow {
-  id: string;
-}
-
-interface ReactionRow {
-  id: string;
-  message_id: string;
-  user_id: string;
-  emoji: string;
-  is_custom: boolean;
-  created_at: string;
-}
 
 // ---------------------------------------------------------------------------
 // POST handler
@@ -93,49 +64,53 @@ export const POST = withAuth(
 
       const { conversationId } = params;
       const body = await validateBody(req, addReactionSchema);
+      const orm = await getDb();
 
       // 1. Verify the conversation exists and user is a participant
-      const { rows: convRows } = await db.query<ConversationParticipantRow>(
-        `SELECT user_id_1, user_id_2
-         FROM dm_conversations
-         WHERE id = $1 LIMIT 1`,
-        [conversationId]
-      );
+      const [conv] = await orm
+        .select({ userId1: schema.dmConversations.userId1, userId2: schema.dmConversations.userId2 })
+        .from(schema.dmConversations)
+        .where(eq(schema.dmConversations.id, conversationId))
+        .limit(1);
 
-      const conv = convRows[0];
       if (!conv) throw notFound("Conversation not found");
 
       const isParticipant =
-        conv.user_id_1 === auth.user.sub || conv.user_id_2 === auth.user.sub;
+        conv.userId1 === auth.user.sub || conv.userId2 === auth.user.sub;
       if (!isParticipant) {
         throw forbidden("You are not a participant in this conversation");
       }
 
       // 2. Verify the message belongs to this conversation
-      const { rows: msgRows } = await db.query<MessageOwnerRow>(
-        `SELECT id, sender_id, conversation_id, recipient_id, is_deleted
-         FROM messages
-         WHERE id = $1 AND conversation_id = $2 LIMIT 1`,
-        [body.messageId, conversationId]
-      );
+      const [message] = await orm
+        .select({
+          id: schema.messages.id,
+          senderId: schema.messages.senderId,
+          conversationId: schema.messages.conversationId,
+          recipientId: schema.messages.recipientId,
+          isDeleted: schema.messages.isDeleted,
+        })
+        .from(schema.messages)
+        .where(and(eq(schema.messages.id, body.messageId), eq(schema.messages.conversationId, conversationId)))
+        .limit(1);
 
-      const message = msgRows[0];
       if (!message) throw notFound("Message not found in this conversation");
-      if (message.is_deleted) throw badRequest("Cannot react to a deleted message");
+      if (message.isDeleted) throw badRequest("Cannot react to a deleted message");
 
       // 3. Toggle reaction
-      const { rows: existingRows } = await db.query<ExistingReactionRow>(
-        `SELECT id FROM message_reactions
-         WHERE message_id = $1 AND user_id = $2 AND emoji = $3 LIMIT 1`,
-        [body.messageId, auth.user.sub, body.emoji]
-      );
+      const [existing] = await orm
+        .select({ id: schema.messageReactions.id })
+        .from(schema.messageReactions)
+        .where(and(
+          eq(schema.messageReactions.messageId, body.messageId),
+          eq(schema.messageReactions.userId, auth.user.sub),
+          eq(schema.messageReactions.emoji, body.emoji),
+        ))
+        .limit(1);
 
-      if (existingRows[0]) {
+      if (existing) {
         // Remove existing reaction
-        await db.query(
-          `DELETE FROM message_reactions WHERE id = $1`,
-          [existingRows[0].id]
-        );
+        await orm.delete(schema.messageReactions).where(eq(schema.messageReactions.id, existing.id));
 
         return NextResponse.json(
           { removed: true, messageId: body.messageId, emoji: body.emoji },
@@ -144,14 +119,16 @@ export const POST = withAuth(
       }
 
       // 4. Add new reaction
-      const { rows: reactionRows } = await db.query<ReactionRow>(
-        `INSERT INTO message_reactions (message_id, user_id, emoji, is_custom)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, message_id, user_id, emoji, is_custom, created_at`,
-        [body.messageId, auth.user.sub, body.emoji, body.isCustom]
-      );
+      const [reaction] = await orm
+        .insert(schema.messageReactions)
+        .values({
+          messageId: body.messageId,
+          userId: auth.user.sub,
+          emoji: body.emoji,
+          isCustom: body.isCustom,
+        })
+        .returning();
 
-      const reaction = reactionRows[0];
       if (!reaction) throw new Error("Reaction creation failed");
 
       // 5. XP awards (fire-and-forget):
@@ -160,35 +137,39 @@ export const POST = withAuth(
       void (async () => {
         try {
           // a) Reactor gets 1 XP for using a custom reaction set emoji
-          if (body.isCustom && message.sender_id !== auth.user.sub) {
-            await db.query(
-              `UPDATE users SET xp_total = xp_total + 1, xp_social = xp_social + 1, updated_at = NOW()
-               WHERE id = $1`,
-              [auth.user.sub]
-            );
-            await db.query(
-              `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount)
-               VALUES ($1, 1, 'social', 'custom_reaction', $2, 1)`,
-              [auth.user.sub, reaction.id]
-            );
+          if (body.isCustom && message.senderId !== auth.user.sub) {
+            await orm
+              .update(schema.users)
+              .set({ xpTotal: sql`${schema.users.xpTotal} + 1`, xpSocial: sql`${schema.users.xpSocial} + 1`, updatedAt: sql`NOW()` })
+              .where(eq(schema.users.id, auth.user.sub));
+            await orm.insert(schema.xpLedger).values({
+              userId: auth.user.sub,
+              amount: 1,
+              track: "social",
+              source: "custom_reaction",
+              referenceId: reaction.id,
+              baseAmount: 1,
+            });
           }
 
           // b) Message sender gets 1 social XP for receiving any reaction (not self-reaction)
-          if (message.sender_id !== auth.user.sub) {
-            await db.query(
-              `UPDATE users SET xp_total = xp_total + 1, xp_social = xp_social + 1, updated_at = NOW()
-               WHERE id = $1`,
-              [message.sender_id]
-            );
-            await db.query(
-              `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount)
-               VALUES ($1, 1, 'social', 'reaction_received', $2, 1)`,
-              [message.sender_id, reaction.id]
-            );
+          if (message.senderId !== auth.user.sub) {
+            await orm
+              .update(schema.users)
+              .set({ xpTotal: sql`${schema.users.xpTotal} + 1`, xpSocial: sql`${schema.users.xpSocial} + 1`, updatedAt: sql`NOW()` })
+              .where(eq(schema.users.id, message.senderId));
+            await orm.insert(schema.xpLedger).values({
+              userId: message.senderId,
+              amount: 1,
+              track: "social",
+              source: "reaction_received",
+              referenceId: reaction.id,
+              baseAmount: 1,
+            });
 
             updateConversationScore(
               auth.user.sub,
-              message.sender_id,
+              message.senderId,
               "reaction_sent"
             ).catch(() => {});
           }
@@ -198,7 +179,11 @@ export const POST = withAuth(
       })();
 
       // Record guild war contribution (fire-and-forget)
-      recordWarContribution(auth.user.sub, 'react_to_message', db).catch((err) => {
+      recordWarContribution(
+        auth.user.sub,
+        'react_to_message',
+        orm
+      ).catch((err) => {
         logger.error({ err: err }, '[reactions:POST] war contribution failed');
         });
 

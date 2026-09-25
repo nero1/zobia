@@ -14,18 +14,36 @@
  */
 
 // ---------------------------------------------------------------------------
-// Mock @/lib/db
+// lib/creator/fund.ts has been migrated to Drizzle ORM (getDb() and
+// client.execute(sql`...`)) instead of the raw `@/lib/db` adapter. Back a
+// real `drizzle-orm/node-postgres` instance with a fake pg-shaped client so
+// the real query compiles exactly like production, landing on `mockQuery` as
+// plain SQL text + params (see lib/seasons/__tests__/seasonEngine.test.ts for
+// the same pattern).
 // ---------------------------------------------------------------------------
 
-const mockQuery = jest.fn();
-const mockTransaction = jest.fn();
+import { drizzle } from "drizzle-orm/node-postgres";
+import { schema } from "@/lib/db/schema";
+import type { DbOrTx } from "@/lib/db/drizzle";
 
-jest.mock("@/lib/db", () => ({
-  db: {
-    query: (...args: unknown[]) => mockQuery(...args),
-    transaction: (...args: unknown[]) => mockTransaction(...args),
+const mockQuery = jest.fn();
+
+const fakeClient = {
+  query: (queryConfig: unknown, params?: unknown[]) => {
+    const text = typeof queryConfig === "string" ? queryConfig : (queryConfig as { text: string }).text;
+    return mockQuery(text, params);
   },
-}));
+};
+
+const mockDb = drizzle(fakeClient as any, { schema }) as unknown as DbOrTx;
+
+jest.mock("@/lib/db/drizzle", () => {
+  const actual = jest.requireActual("@/lib/db/drizzle");
+  return {
+    ...actual,
+    getDb: async () => mockDb,
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Imports

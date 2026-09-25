@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -102,94 +103,108 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     const callerId = auth.user.sub;
 
     // 1. Main user row
-    const { rows: userRows } = await db.query<{
-      id: string;
-      username: string | null;
-      display_name: string | null;
-      bio: string | null;
-      avatar_emoji: string | null;
-      city: string | null;
-      xp_total: number;
-      legacy_score: number;
-      rank_name: string;
-      rank_sublevel: number;
-      prestige_count: number;
-      level_social: number;
-      level_creator: number;
-      level_competitor: number;
-      level_generosity: number;
-      level_knowledge: number;
-      level_explorer: number;
-      level_gaming: number;
-      xp_social: number;
-      xp_creator: number;
-      xp_competitor: number;
-      xp_generosity: number;
-      xp_knowledge: number;
-      xp_explorer: number;
-      xp_gaming: number;
-      login_streak: number;
-      longest_streak: number;
-      is_creator: boolean;
-      creator_tier: string | null;
-      guild_id: string | null;
-      created_at: string;
-      custom_crest: string | null;
-      is_suspended: boolean;
-      is_banned: boolean;
-      profile_private: boolean;
-      profile_hidden_sections: string[];
-      disable_friend_requests: boolean;
-      plan: string | null;
-      is_moderator: boolean;
-      is_verified: boolean;
-      active_profile_theme_id: string;
-    }>(
-      `SELECT id, username, display_name, bio, avatar_emoji, city,
-              COALESCE(active_profile_theme_id, 'classic') AS active_profile_theme_id,
-              xp_total, COALESCE(legacy_score, 0) AS legacy_score,
-              COALESCE(rank_name, 'Beginner') AS rank_name,
-              COALESCE(rank_sublevel, 1) AS rank_sublevel,
-              COALESCE(prestige_count, 0) AS prestige_count,
-              COALESCE(level_social, 1) AS level_social,
-              COALESCE(level_creator, 1) AS level_creator,
-              COALESCE(level_competitor, 1) AS level_competitor,
-              COALESCE(level_generosity, 1) AS level_generosity,
-              COALESCE(level_knowledge, 1) AS level_knowledge,
-              COALESCE(level_explorer, 1) AS level_explorer,
-              COALESCE(level_gaming, 1) AS level_gaming,
-              COALESCE(xp_social, 0) AS xp_social,
-              COALESCE(xp_creator, 0) AS xp_creator,
-              COALESCE(xp_competitor, 0) AS xp_competitor,
-              COALESCE(xp_generosity, 0) AS xp_generosity,
-              COALESCE(xp_knowledge, 0) AS xp_knowledge,
-              COALESCE(xp_explorer, 0) AS xp_explorer,
-              COALESCE(xp_gaming, 0) AS xp_gaming,
-              COALESCE(login_streak, 0) AS login_streak,
-              COALESCE(longest_streak, 0) AS longest_streak,
-              COALESCE(is_creator, false) AS is_creator,
-              creator_tier,
-              guild_id,
-              created_at,
-              custom_crest,
-              COALESCE(is_suspended, false) AS is_suspended,
-              COALESCE(is_banned, false) AS is_banned,
-              COALESCE(profile_private, false) AS profile_private,
-              COALESCE(profile_hidden_sections, '[]'::jsonb) AS profile_hidden_sections,
-              COALESCE(disable_friend_requests, false) AS disable_friend_requests,
-              COALESCE(plan, 'free') AS plan,
-              COALESCE(is_moderator, false) AS is_moderator,
-              COALESCE(is_verified, false) AS is_verified
-       FROM users
-       WHERE id = $1
-         AND deleted_at IS NULL
-         AND onboarding_completed = true
-       LIMIT 1`,
-      [userId]
-    );
+    const db = await getDb();
+    const [userRow] = await db
+      .select({
+        id: schema.users.id,
+        username: schema.users.username,
+        displayName: schema.users.displayName,
+        bio: schema.users.bio,
+        avatarEmoji: schema.users.avatarEmoji,
+        city: schema.users.city,
+        activeProfileThemeId: schema.users.activeProfileThemeId,
+        xpTotal: schema.users.xpTotal,
+        legacyScore: schema.users.legacyScore,
+        rankName: schema.users.rankName,
+        rankSublevel: schema.users.rankSublevel,
+        prestigeCount: schema.users.prestigeCount,
+        levelSocial: schema.users.levelSocial,
+        levelCreator: schema.users.levelCreator,
+        levelCompetitor: schema.users.levelCompetitor,
+        levelGenerosity: schema.users.levelGenerosity,
+        levelKnowledge: schema.users.levelKnowledge,
+        levelExplorer: schema.users.levelExplorer,
+        levelGaming: schema.users.levelGaming,
+        xpSocial: schema.users.xpSocial,
+        xpCreator: schema.users.xpCreator,
+        xpCompetitor: schema.users.xpCompetitor,
+        xpGenerosity: schema.users.xpGenerosity,
+        xpKnowledge: schema.users.xpKnowledge,
+        xpExplorer: schema.users.xpExplorer,
+        xpGaming: schema.users.xpGaming,
+        loginStreak: schema.users.loginStreak,
+        longestStreak: schema.users.longestStreak,
+        isCreator: schema.users.isCreator,
+        creatorTier: schema.users.creatorTier,
+        guildId: schema.users.guildId,
+        createdAt: schema.users.createdAt,
+        customCrest: schema.users.customCrest,
+        isSuspended: schema.users.isSuspended,
+        isBanned: schema.users.isBanned,
+        profilePrivate: schema.users.profilePrivate,
+        profileHiddenSections: schema.users.profileHiddenSections,
+        disableFriendRequests: schema.users.disableFriendRequests,
+        plan: schema.users.plan,
+        isModerator: schema.users.isModerator,
+        isVerified: schema.users.isVerified,
+      })
+      .from(schema.users)
+      .where(
+        and(
+          eq(schema.users.id, userId),
+          isNull(schema.users.deletedAt),
+          eq(schema.users.onboardingCompleted, true)
+        )
+      )
+      .limit(1);
 
-    const user = userRows[0];
-    if (!user) throw notFound("User not found");
+    if (!userRow) throw notFound("User not found");
+
+    const user = {
+      id: userRow.id,
+      username: userRow.username,
+      display_name: userRow.displayName,
+      bio: userRow.bio,
+      avatar_emoji: userRow.avatarEmoji,
+      city: userRow.city,
+      active_profile_theme_id: userRow.activeProfileThemeId ?? "classic",
+      xp_total: Number(userRow.xpTotal),
+      legacy_score: Number(userRow.legacyScore ?? 0),
+      rank_name: userRow.rankName ?? "Beginner",
+      rank_sublevel: userRow.rankSublevel ?? 1,
+      prestige_count: userRow.prestigeCount ?? 0,
+      level_social: userRow.levelSocial ?? 1,
+      level_creator: userRow.levelCreator ?? 1,
+      level_competitor: userRow.levelCompetitor ?? 1,
+      level_generosity: userRow.levelGenerosity ?? 1,
+      level_knowledge: userRow.levelKnowledge ?? 1,
+      level_explorer: userRow.levelExplorer ?? 1,
+      level_gaming: userRow.levelGaming ?? 1,
+      xp_social: Number(userRow.xpSocial ?? 0),
+      xp_creator: Number(userRow.xpCreator ?? 0),
+      xp_competitor: Number(userRow.xpCompetitor ?? 0),
+      xp_generosity: Number(userRow.xpGenerosity ?? 0),
+      xp_knowledge: Number(userRow.xpKnowledge ?? 0),
+      xp_explorer: Number(userRow.xpExplorer ?? 0),
+      xp_gaming: Number(userRow.xpGaming ?? 0),
+      login_streak: userRow.loginStreak ?? 0,
+      longest_streak: userRow.longestStreak ?? 0,
+      is_creator: userRow.isCreator ?? false,
+      creator_tier: userRow.creatorTier,
+      guild_id: userRow.guildId,
+      created_at: userRow.createdAt ? userRow.createdAt.toISOString() : "",
+      custom_crest: userRow.customCrest,
+      is_suspended: userRow.isSuspended ?? false,
+      is_banned: userRow.isBanned ?? false,
+      profile_private: userRow.profilePrivate ?? false,
+      profile_hidden_sections: Array.isArray(userRow.profileHiddenSections)
+        ? (userRow.profileHiddenSections as string[])
+        : [],
+      disable_friend_requests: userRow.disableFriendRequests ?? false,
+      plan: userRow.plan ?? "free",
+      is_moderator: userRow.isModerator ?? false,
+      is_verified: userRow.isVerified ?? false,
+    };
 
     const isOwnProfileCheck = callerId === userId;
 
@@ -206,13 +221,20 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     // Private profile check (skip for own profile)
     if (!isOwnProfileCheck && user.profile_private) {
       // Allow friends to still view
-      const { rows: friendRows } = await db.query<{ id: string }>(
-        `SELECT id FROM friendships
-         WHERE ((requester_id = $1 AND addressee_id = $2) OR (requester_id = $2 AND addressee_id = $1))
-           AND status = 'accepted'
-         LIMIT 1`,
-        [callerId, userId]
-      ).catch(() => ({ rows: [] as Array<{ id: string }> }));
+      const friendRows = await db
+        .select({ id: schema.friendships.id })
+        .from(schema.friendships)
+        .where(
+          and(
+            or(
+              and(eq(schema.friendships.requesterId, callerId), eq(schema.friendships.addresseeId, userId)),
+              and(eq(schema.friendships.requesterId, userId), eq(schema.friendships.addresseeId, callerId))
+            ),
+            eq(schema.friendships.status, "accepted")
+          )
+        )
+        .limit(1)
+        .catch(() => [] as Array<{ id: string }>);
       if (friendRows.length === 0) {
         return NextResponse.json({ error: "This profile is private.", code: "PROFILE_PRIVATE" }, { status: 403 });
       }
@@ -228,13 +250,14 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     let guildId: string | null = user.guild_id;
 
     if (user.guild_id) {
-      const { rows: guildRows } = await db.query<{ name: string; crest_emoji: string | null }>(
-        `SELECT name, crest_emoji FROM guilds WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [user.guild_id]
-      );
-      if (guildRows[0]) {
-        guildName = guildRows[0].name;
-        guildCrest = guildRows[0].crest_emoji ?? "🛡️";
+      const [guildRow] = await db
+        .select({ name: schema.guilds.name, crestEmoji: schema.guilds.crestEmoji })
+        .from(schema.guilds)
+        .where(and(eq(schema.guilds.id, user.guild_id), isNull(schema.guilds.deletedAt)))
+        .limit(1);
+      if (guildRow) {
+        guildName = guildRow.name;
+        guildCrest = guildRow.crestEmoji ?? "🛡️";
       } else {
         guildId = null;
       }
@@ -243,16 +266,15 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     // 2b. Alliance trophy — surface the user's alliance and its wars won (PRD §13)
     let allianceTrophy: { allianceName: string; warsWon: number } | null = null;
     if (user.guild_id) {
-      const { rows: allianceRows } = await db.query<{ name: string; wars_won: number }>(
-        `SELECT ga.name, ga.wars_won
-         FROM guild_alliance_members gam
-         JOIN guild_alliances ga ON ga.id = gam.alliance_id
-         WHERE gam.guild_id = $1 AND ga.is_active = true
-         LIMIT 1`,
-        [user.guild_id]
-      ).catch(() => ({ rows: [] as Array<{ name: string; wars_won: number }> }));
+      const allianceRows = await db
+        .select({ name: schema.guildAlliances.name, warsWon: schema.guildAlliances.warsWon })
+        .from(schema.guildAllianceMembers)
+        .innerJoin(schema.guildAlliances, eq(schema.guildAlliances.id, schema.guildAllianceMembers.allianceId))
+        .where(and(eq(schema.guildAllianceMembers.guildId, user.guild_id), eq(schema.guildAlliances.isActive, true)))
+        .limit(1)
+        .catch(() => [] as Array<{ name: string; warsWon: number }>);
       if (allianceRows[0]) {
-        allianceTrophy = { allianceName: allianceRows[0].name, warsWon: allianceRows[0].wars_won };
+        allianceTrophy = { allianceName: allianceRows[0].name, warsWon: allianceRows[0].warsWon };
       }
     }
 
@@ -275,21 +297,30 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     let isFollowing = false;
 
     if (!isOwnProfile) {
-      const [friendRes, followRes] = await Promise.all([
-        db.query<{ id: string }>(
-          `SELECT id FROM friendships
-           WHERE ((requester_id = $1 AND addressee_id = $2) OR (requester_id = $2 AND addressee_id = $1))
-             AND status = 'accepted'
-           LIMIT 1`,
-          [callerId, userId]
-        ).catch(() => ({ rows: [] as Array<{ id: string }> })),
-        db.query<{ id: string }>(
-          `SELECT id FROM follows WHERE follower_id = $1 AND following_id = $2 LIMIT 1`,
-          [callerId, userId]
-        ).catch(() => ({ rows: [] as Array<{ id: string }> })),
+      const [friendRows, followRows] = await Promise.all([
+        db
+          .select({ id: schema.friendships.id })
+          .from(schema.friendships)
+          .where(
+            and(
+              or(
+                and(eq(schema.friendships.requesterId, callerId), eq(schema.friendships.addresseeId, userId)),
+                and(eq(schema.friendships.requesterId, userId), eq(schema.friendships.addresseeId, callerId))
+              ),
+              eq(schema.friendships.status, "accepted")
+            )
+          )
+          .limit(1)
+          .catch(() => [] as Array<{ id: string }>),
+        db
+          .select({ id: schema.follows.id })
+          .from(schema.follows)
+          .where(and(eq(schema.follows.followerId, callerId), eq(schema.follows.followingId, userId)))
+          .limit(1)
+          .catch(() => [] as Array<{ id: string }>),
       ]);
-      isFriend = friendRes.rows.length > 0;
-      isFollowing = followRes.rows.length > 0;
+      isFriend = friendRows.length > 0;
+      isFollowing = followRows.length > 0;
     }
 
     // Stats page visibility (PRD §15): only the profile owner or a
@@ -315,38 +346,45 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     let totalEarningsKobo: number | null = null;
 
     if (user.is_creator) {
-      const [roomRes, earningsRes] = await Promise.all([
+      const [roomRows, earningsRows] = await Promise.all([
         // total_count comes from the same query/row-set as the top-3 rooms
         // (COUNT(*) OVER()) rather than a second, independently-failing
         // query — so the "see all N rooms" link can never disagree with
         // the rooms actually returned.
-        db.query<{ id: string; name: string; cover_emoji: string; member_count: number; total_count: string }>(
-          `SELECT id, name, cover_emoji, member_count, COUNT(*) OVER() AS total_count FROM rooms
-           WHERE creator_id = $1 AND is_active = TRUE
-           ORDER BY member_count DESC LIMIT 3`,
-          [userId]
-        ).catch(() => ({ rows: [] as Array<{ id: string; name: string; cover_emoji: string; member_count: number; total_count: string }> })),
-        db.query<{ subscriber_count: string; total_earnings_kobo: string }>(
-          `SELECT
-             COUNT(DISTINCT rm.user_id)::TEXT AS subscriber_count,
-             COALESCE(SUM(ce.gross_amount_kobo), 0)::TEXT AS total_earnings_kobo
-           FROM rooms r
-           LEFT JOIN room_members rm ON rm.room_id = r.id
-           LEFT JOIN creator_earnings ce ON ce.creator_id = $1
-           WHERE r.creator_id = $1 AND r.is_active = TRUE`,
-          [userId]
-        ).catch(() => ({ rows: [] as Array<{ subscriber_count: string; total_earnings_kobo: string }> })),
+        db
+          .select({
+            id: schema.rooms.id,
+            name: schema.rooms.name,
+            coverEmoji: schema.rooms.coverEmoji,
+            memberCount: schema.rooms.memberCount,
+            totalCount: sql<string>`COUNT(*) OVER()`,
+          })
+          .from(schema.rooms)
+          .where(and(eq(schema.rooms.creatorId, userId), eq(schema.rooms.isActive, true)))
+          .orderBy(desc(schema.rooms.memberCount))
+          .limit(3)
+          .catch(() => [] as Array<{ id: string; name: string; coverEmoji: string; memberCount: number; totalCount: string }>),
+        db
+          .select({
+            subscriberCount: sql<string>`COUNT(DISTINCT ${schema.roomMembers.userId})::TEXT`,
+            totalEarningsKobo: sql<string>`COALESCE(SUM(${schema.creatorEarnings.grossAmountKobo}), 0)::TEXT`,
+          })
+          .from(schema.rooms)
+          .leftJoin(schema.roomMembers, eq(schema.roomMembers.roomId, schema.rooms.id))
+          .leftJoin(schema.creatorEarnings, eq(schema.creatorEarnings.creatorId, userId))
+          .where(and(eq(schema.rooms.creatorId, userId), eq(schema.rooms.isActive, true)))
+          .catch(() => [] as Array<{ subscriberCount: string; totalEarningsKobo: string }>),
       ]);
 
-      creatorRoom = roomRes.rows[0]
-        ? { id: roomRes.rows[0].id, name: roomRes.rows[0].name, coverEmoji: roomRes.rows[0].cover_emoji }
+      creatorRoom = roomRows[0]
+        ? { id: roomRows[0].id, name: roomRows[0].name, coverEmoji: roomRows[0].coverEmoji }
         : null;
-      creatorRooms = roomRes.rows.map((r) => ({ id: r.id, name: r.name, coverEmoji: r.cover_emoji, memberCount: r.member_count }));
-      creatorRoomCount = parseInt(roomRes.rows[0]?.total_count ?? "0", 10);
-      subscriberCount = earningsRes.rows[0] ? parseInt(earningsRes.rows[0].subscriber_count, 10) : 0;
+      creatorRooms = roomRows.map((r) => ({ id: r.id, name: r.name, coverEmoji: r.coverEmoji, memberCount: r.memberCount }));
+      creatorRoomCount = parseInt(roomRows[0]?.totalCount ?? "0", 10);
+      subscriberCount = earningsRows[0] ? parseInt(earningsRows[0].subscriberCount, 10) : 0;
       // Only expose total earnings to the profile owner (privacy gate)
-      totalEarningsKobo = isOwnProfile && earningsRes.rows[0]
-        ? parseInt(earningsRes.rows[0].total_earnings_kobo, 10)
+      totalEarningsKobo = isOwnProfile && earningsRows[0]
+        ? parseInt(earningsRows[0].totalEarningsKobo, 10)
         : null;
     }
 
@@ -354,8 +392,8 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     let connectionBadge: string | null = null;
     if (!isOwnProfile) {
       try {
-        const { rows: badgeRows } = await db.query<{ streak_days: number; tier: string }>(
-          `SELECT conversation_score AS streak_days,
+        const badgeResult = await db.execute(sql`
+          SELECT conversation_score AS streak_days,
                   CASE
                     WHEN conversation_score >= 30 THEN 'Platinum Bond'
                     WHEN conversation_score >= 14 THEN 'Gold Connection'
@@ -363,11 +401,11 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
                     ELSE NULL
                   END AS tier
            FROM dm_conversations
-           WHERE (user_id_1 = LEAST($1::text,$2::text) AND user_id_2 = GREATEST($1::text,$2::text))
+           WHERE (user_id_1 = LEAST(${callerId}::text,${userId}::text) AND user_id_2 = GREATEST(${callerId}::text,${userId}::text))
              AND conversation_score >= 7
-           LIMIT 1`,
-          [callerId, userId]
-        );
+           LIMIT 1
+        `);
+        const badgeRows = badgeResult.rows as unknown as Array<{ streak_days: number; tier: string | null }>;
         connectionBadge = badgeRows[0]?.tier ?? null;
       } catch {
         // Non-fatal — dm_conversations may not have conversation_score yet
@@ -375,40 +413,44 @@ export const GET = withAuth<UserParams>(async (req: NextRequest, { params, auth 
     }
 
     // 5c. Public Achievements Wall — top lifetime milestones (PRD §15)
-    const { rows: achievementRows } = await db.query<{
-      badge_key: string;
-      badge_type: string;
-      awarded_at: string;
-      metadata: Record<string, unknown> | null;
-    }>(
-      `SELECT badge_key, badge_type, awarded_at, metadata
-       FROM user_badges
-       WHERE user_id = $1
-       ORDER BY awarded_at ASC
-       LIMIT 12`,
-      [userId]
-    ).catch(() => ({
-      rows: [] as Array<{ badge_key: string; badge_type: string; awarded_at: string; metadata: Record<string, unknown> | null }>,
+    const rawAchievementRows = await db
+      .select({
+        badgeKey: schema.userBadges.badgeKey,
+        badgeType: schema.userBadges.badgeType,
+        awardedAt: schema.userBadges.awardedAt,
+        metadata: schema.userBadges.metadata,
+      })
+      .from(schema.userBadges)
+      .where(eq(schema.userBadges.userId, userId))
+      .orderBy(schema.userBadges.awardedAt)
+      .limit(12)
+      .catch(() => [] as Array<{ badgeKey: string | null; badgeType: string | null; awardedAt: Date | null; metadata: unknown }>);
+    const achievementRows = rawAchievementRows.map((a) => ({
+      badge_key: a.badgeKey ?? "",
+      badge_type: a.badgeType ?? "",
+      awarded_at: a.awardedAt ? a.awardedAt.toISOString() : "",
+      metadata: a.metadata as Record<string, unknown> | null,
     }));
 
     // 6. Past seasons (up to 12 most recent)
-    const { rows: seasonRows } = await db.query<{
-      id: string;
-      name: string;
-      theme_emoji: string | null;
-      ended_at: string | null;
-      final_rank: number | null;
-    }>(
-      `SELECT s.id, s.name, s.theme_emoji, s.ended_at, sra.final_rank
-       FROM season_rank_archives sra
-       JOIN seasons s ON s.id = sra.season_id
-       WHERE sra.user_id = $1 AND s.ended_at IS NOT NULL
-       ORDER BY s.ended_at DESC
-       LIMIT 12`,
-      [userId]
-    ).catch(() => ({
-      rows: [] as Array<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }>,
-    }));
+    // NOTE: seasons has no `theme_emoji` or `ended_at` column in the current
+    // Drizzle schema (lib/db/schema.ts) — this pre-existing query targeted
+    // columns that don't exist there, so it always failed and was silently
+    // swallowed by .catch() below (pre-existing gap, not introduced here).
+    let seasonRows: Array<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }> = [];
+    try {
+      const seasonResult = await db.execute(sql`
+        SELECT s.id, s.name, s.theme_emoji, s.ended_at, sra.final_rank
+        FROM season_rank_archives sra
+        JOIN seasons s ON s.id = sra.season_id
+        WHERE sra.user_id = ${userId} AND s.ended_at IS NOT NULL
+        ORDER BY s.ended_at DESC
+        LIMIT 12
+      `);
+      seasonRows = seasonResult.rows as unknown as Array<{ id: string; name: string; theme_emoji: string | null; ended_at: string | null; final_rank: number | null }>;
+    } catch {
+      seasonRows = [];
+    }
 
     // 6b. Profile theme (color skin only — see lib/profile/themes.ts).
     // Always shown to any viewer, like a blog's active theme, since it's the

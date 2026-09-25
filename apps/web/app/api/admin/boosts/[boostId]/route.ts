@@ -10,10 +10,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
-import type { SqlParam } from "@/lib/db/interface";
 
 const updateBoostSchema = z.object({
   label: z.string().min(2).max(100).optional(),
@@ -34,6 +34,9 @@ export const PATCH = withAdminAuth(
       const { boostId } = await params;
       const body = await validateBody(req, updateBoostSchema);
 
+      // NOTE: `boost_types` is not present in lib/db/schema.ts (schema/DB
+      // mismatch — reported separately), so this update is expressed via the
+      // `sql` template rather than the Drizzle query builder.
       const fieldMap: Record<string, string> = {
         label: "label",
         description: "description",
@@ -47,24 +50,22 @@ export const PATCH = withAdminAuth(
         sortOrder: "sort_order",
       };
 
-      const sets: string[] = [];
-      const values: SqlParam[] = [];
+      const sets = [];
       for (const [key, column] of Object.entries(fieldMap)) {
         if (key in body && (body as Record<string, unknown>)[key] !== undefined) {
-          values.push((body as Record<string, unknown>)[key] as SqlParam);
-          sets.push(`${column} = $${values.length}`);
+          const value = (body as Record<string, unknown>)[key];
+          sets.push(sql`${sql.raw(column)} = ${value}`);
         }
       }
       if (sets.length === 0) {
         throw badRequest("No fields to update");
       }
-      values.push(boostId);
 
-      const { rows } = await db.query(
-        `UPDATE boost_types SET ${sets.join(", ")}, updated_at = NOW()
-         WHERE id = $${values.length} RETURNING id`,
-        values
-      );
+      const orm = await getDb();
+      const { rows } = await orm.execute<{ id: string }>(sql`
+        UPDATE boost_types SET ${sql.join(sets, sql`, `)}, updated_at = NOW()
+        WHERE id = ${boostId} RETURNING id
+      `);
       if (!rows[0]) throw notFound("Boost type not found");
 
       return NextResponse.json({ success: true, data: { id: boostId }, error: null });

@@ -12,7 +12,8 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -25,18 +26,18 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
     await requireFeatureEnabled("classrooms");
-    const { rows } = await db.query<{
-      plan: string;
-      creator_tier: string | null;
-      is_creator: boolean;
-      available_earnings_kobo: string | null;
-      username: string;
-    }>(
-      `SELECT plan, creator_tier, is_creator, available_earnings_kobo, username
-         FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [auth.user.sub]
-    );
-    const me = rows[0];
+    const orm = await getDb();
+    const [me] = await orm
+      .select({
+        plan: schema.users.plan,
+        creator_tier: schema.users.creatorTier,
+        is_creator: schema.users.isCreator,
+        available_earnings_kobo: schema.users.availableEarningsKobo,
+        username: schema.users.username,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)))
+      .limit(1);
     const tier = resolveClassroomStatsTier(me?.plan, me?.creator_tier);
     const summary = await getStudioSummary(auth.user.sub, tier);
     return ok({

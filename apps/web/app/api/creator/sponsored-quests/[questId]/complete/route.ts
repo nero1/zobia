@@ -18,7 +18,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, and, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { insertNotificationBatch } from "@/lib/notifications/insert";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -49,30 +51,36 @@ export const POST = withAuth(async (
 
     const body = await validateBody(req, completeQuestSchema);
 
+    const orm = await getDb();
+
     // Fetch quest
-    const { rows: questRows } = await db.query<{
-      id: string;
-      title: string;
-      deadline: string;
-      is_active: boolean;
-    }>(
-      `SELECT id, title, deadline, is_active FROM sponsored_quests WHERE id = $1 LIMIT 1`,
-      [questId]
-    );
+    const questRows = await orm
+      .select({
+        id: schema.sponsoredQuests.id,
+        title: schema.sponsoredQuests.title,
+        deadline: schema.sponsoredQuests.deadline,
+        isActive: schema.sponsoredQuests.isActive,
+      })
+      .from(schema.sponsoredQuests)
+      .where(eq(schema.sponsoredQuests.id, questId))
+      .limit(1);
     const quest = questRows[0];
     if (!quest) throw notFound("Sponsored quest not found");
-    if (!quest.is_active || new Date(quest.deadline) < new Date()) {
+    if (!quest.isActive || !quest.deadline || new Date(quest.deadline) < new Date()) {
       throw badRequest("This quest is no longer accepting completions");
     }
 
     // Verify creator has an accepted application
-    const { rows: appRows } = await db.query<{ id: string; status: string }>(
-      `SELECT id, status
-       FROM sponsored_quest_applications
-       WHERE quest_id = $1 AND creator_id = $2
-       LIMIT 1`,
-      [questId, userId]
-    );
+    const appRows = await orm
+      .select({ id: schema.sponsoredQuestApplications.id, status: schema.sponsoredQuestApplications.status })
+      .from(schema.sponsoredQuestApplications)
+      .where(
+        and(
+          eq(schema.sponsoredQuestApplications.questId, questId),
+          eq(schema.sponsoredQuestApplications.creatorId, userId)
+        )
+      )
+      .limit(1);
     const app = appRows[0];
     if (!app) throw notFound("You have not applied to this quest");
     if (!["applied", "accepted"].includes(app.status)) {
@@ -80,29 +88,33 @@ export const POST = withAuth(async (
     }
 
     // Update application to 'completed'
-    await db.query(
-      `UPDATE sponsored_quest_applications
-       SET status = 'completed',
-           completion_proof = $1,
-           completed_at = NOW(),
-           updated_at = NOW()
-       WHERE id = $2`,
-      [body.completionProof, app.id]
-    );
+    await orm
+      .update(schema.sponsoredQuestApplications)
+      .set({
+        status: "completed",
+        completionProof: body.completionProof,
+        completedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.sponsoredQuestApplications.id, app.id));
 
     // Notify admin for review (best-effort)
-    db.query(
-      `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-       SELECT u.id,
-              'sponsored_quest_completion_pending',
-              $1::jsonb,
-              FALSE,
-              NOW()
-       FROM users u
-       WHERE u.is_admin = TRUE AND u.deleted_at IS NULL
-       LIMIT 5`,
-      [JSON.stringify({ questId, questTitle: quest.title, creatorId: userId, applicationId: app.id })]
-    ).catch(() => {});
+    (async () => {
+      const admins = await orm
+        .select({ id: schema.users.id })
+        .from(schema.users)
+        .where(and(eq(schema.users.isAdmin, true), isNull(schema.users.deletedAt)))
+        .limit(5);
+      if (admins.length === 0) return;
+      await insertNotificationBatch(
+        orm,
+        admins.map((a) => a.id),
+        "sponsored_quest_completion_pending",
+        "Sponsored quest completion pending review",
+        `A creator submitted completion proof for "${quest.title}".`,
+        { questId, questTitle: quest.title, creatorId: userId, applicationId: app.id }
+      );
+    })().catch(() => {});
 
     return NextResponse.json(
       {

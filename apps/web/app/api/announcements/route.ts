@@ -18,7 +18,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
+import { sql } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // GET /api/announcements
@@ -55,22 +56,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Cursor pagination using composite (m.created_at, r.id) for stable ordering.
-    let queryParams: (string | number)[];
-    let cursorCondition: string;
-
-    if (cursorData) {
-      cursorCondition = `AND (m.created_at, r.id) < ($2, $3)`;
-      queryParams = [auth.user.sub, cursorData.created_at, cursorData.id, limit];
-    } else {
-      cursorCondition = "";
-      queryParams = [auth.user.sub, limit];
-    }
-
-    const limitParam = cursorData ? "$4" : "$2";
+    const cursorCondition = cursorData
+      ? sql`AND (m.created_at, r.id) < (${cursorData.created_at}, ${cursorData.id})`
+      : sql``;
 
     // Fetch messages and mark undelivered ones as delivered atomically.
     // Column names match the actual DB schema: admin_message_id + user_id.
-    const { rows } = await db.query<{
+    const orm = await getDb();
+    const { rows } = await orm.execute<{
       id: string;
       admin_message_id: string;
       subject: string;
@@ -80,17 +73,17 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       delivered_at: string | null;
       read_at: string | null;
       created_at: string;
-    }>(
-      `WITH updated AS (
+    }>(sql`
+       WITH updated AS (
          UPDATE admin_message_receipts
          SET delivered_at = NOW()
          WHERE admin_message_id IN (
            SELECT r2.admin_message_id
            FROM admin_message_receipts r2
-           WHERE r2.user_id = $1
+           WHERE r2.user_id = ${auth.user.sub}
              AND r2.delivered_at IS NULL
          )
-         AND user_id = $1
+         AND user_id = ${auth.user.sub}
        )
        SELECT
          r.id,
@@ -104,12 +97,11 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          m.created_at
        FROM admin_message_receipts r
        JOIN admin_messages m ON m.id = r.admin_message_id
-       WHERE r.user_id = $1
+       WHERE r.user_id = ${auth.user.sub}
        ${cursorCondition}
        ORDER BY m.created_at DESC, r.id DESC
-       LIMIT ${limitParam}`,
-      queryParams
-    );
+       LIMIT ${limit}
+    `);
 
     const unreadCount = rows.filter((r) => !r.read_at).length;
 

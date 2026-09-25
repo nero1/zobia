@@ -21,7 +21,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -33,6 +34,7 @@ import {
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getTrackLevelForXP } from "@/lib/xp/engine";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
+import { insertNotification } from "@/lib/notifications/insert";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -58,22 +60,6 @@ const issueCertificateSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// DB row types
-// ---------------------------------------------------------------------------
-
-interface ClassroomRow {
-  id: string;
-  name: string;
-  type: string;
-  creator_id: string;
-  is_active: boolean;
-}
-
-interface CreatorXpRow {
-  xp_knowledge: number;
-}
-
-// ---------------------------------------------------------------------------
 // POST /api/classroom/[roomId]/certificate
 // ---------------------------------------------------------------------------
 
@@ -95,33 +81,41 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const callerId = auth.user.sub;
     const body = await validateBody(req, issueCertificateSchema);
 
+    const orm = await getDb();
+
     // Fetch classroom room
-    const { rows: roomRows } = await db.query<ClassroomRow>(
-      `SELECT id, name, type, creator_id, is_active FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-    const room = roomRows[0];
-    if (!room || !room.is_active) throw notFound("Classroom room not found");
+    const [room] = await orm
+      .select({
+        id: schema.rooms.id,
+        name: schema.rooms.name,
+        type: schema.rooms.type,
+        creatorId: schema.rooms.creatorId,
+        isActive: schema.rooms.isActive,
+      })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
+    if (!room || !room.isActive) throw notFound("Classroom room not found");
     if (room.type !== "classroom") {
       throw badRequest("Certificates can only be issued for classroom rooms");
     }
 
     // Verify caller is the room creator
-    if (room.creator_id !== callerId) {
+    if (room.creatorId !== callerId) {
       throw forbidden("Only the room creator can issue certificates");
     }
 
     // Verify creator meets Knowledge Track Level 25 requirement
-    const { rows: xpRows } = await db.query<CreatorXpRow>(
-      `SELECT xp_knowledge FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [callerId]
-    );
-    const creatorXp = xpRows[0];
+    const [creatorXp] = await orm
+      .select({ xpKnowledge: schema.users.xpKnowledge })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, callerId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!creatorXp) throw notFound("Creator not found");
 
     const knowledgeLevel = getTrackLevelForXP(
       "knowledge",
-      creatorXp.xp_knowledge
+      Number(creatorXp.xpKnowledge)
     ).level;
 
     if (knowledgeLevel < MIN_KNOWLEDGE_LEVEL) {
@@ -132,84 +126,75 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Verify recipient is enrolled
-    const { rows: enrolRows } = await db.query<{ id: string }>(
-      `SELECT id FROM classroom_enrolments
-       WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
-      [roomId, body.recipientUserId]
-    );
-    if (enrolRows.length === 0) {
+    const [enrolment] = await orm
+      .select({ id: schema.classroomEnrolments.id })
+      .from(schema.classroomEnrolments)
+      .where(and(eq(schema.classroomEnrolments.roomId, roomId), eq(schema.classroomEnrolments.userId, body.recipientUserId)))
+      .limit(1);
+    if (!enrolment) {
       throw forbidden("The recipient is not enrolled in this classroom");
     }
 
     // Idempotency: check for existing certificate
-    const { rows: existingRows } = await db.query<{ id: string; issued_at: string }>(
-      `SELECT id, issued_at FROM learning_certificates
-       WHERE room_id = $1 AND recipient_user_id = $2 LIMIT 1`,
-      [roomId, body.recipientUserId]
-    );
-    if (existingRows.length > 0) {
+    const [existing] = await orm
+      .select({ id: schema.learningCertificates.id, issuedAt: schema.learningCertificates.issuedAt })
+      .from(schema.learningCertificates)
+      .where(and(eq(schema.learningCertificates.roomId, roomId), eq(schema.learningCertificates.recipientUserId, body.recipientUserId)))
+      .limit(1);
+    if (existing) {
       return NextResponse.json(
-        { certificate: existingRows[0], alreadyIssued: true },
+        { certificate: { id: existing.id, issued_at: existing.issuedAt }, alreadyIssued: true },
         { status: 200 }
       );
     }
 
     // Fetch recipient display name and email for certificate + email delivery
-    const { rows: recipientRows } = await db.query<{
-      display_name: string;
-      username: string;
-      email: string | null;
-    }>(
-      `SELECT display_name, username, email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [body.recipientUserId]
-    );
-    const recipient = recipientRows[0];
+    const [recipient] = await orm
+      .select({
+        displayName: schema.users.displayName,
+        username: schema.users.username,
+        email: schema.users.email,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, body.recipientUserId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!recipient) throw notFound("Recipient user not found");
 
     const certificateTitle = body.title ?? `${room.name} — Learning Certificate`;
 
-    const certificate = await db.transaction(async (tx) => {
+    const certificate = await orm.transaction(async (tx) => {
       // Create certificate record
-      const { rows: certRows } = await tx.query<{ id: string }>(
-        `INSERT INTO learning_certificates
-           (room_id, recipient_user_id, issuer_user_id, title, note, issued_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())
-         RETURNING *`,
-        [
+      const [cert] = await tx
+        .insert(schema.learningCertificates)
+        .values({
           roomId,
-          body.recipientUserId,
-          callerId,
-          certificateTitle,
-          body.note ?? null,
-        ]
-      );
-      const cert = certRows[0];
+          recipientUserId: body.recipientUserId,
+          issuerUserId: callerId,
+          title: certificateTitle,
+          note: body.note ?? null,
+        })
+        .returning();
       if (!cert) throw new Error("Certificate creation failed");
 
-      await tx.query(
-        `UPDATE classroom_enrolments
-            SET certificate_issued = TRUE, certificate_issued_at = NOW()
-          WHERE room_id = $1 AND user_id = $2`,
-        [roomId, body.recipientUserId]
-      );
+      await tx
+        .update(schema.classroomEnrolments)
+        .set({ certificateIssued: true, certificateIssuedAt: new Date() })
+        .where(and(eq(schema.classroomEnrolments.roomId, roomId), eq(schema.classroomEnrolments.userId, body.recipientUserId)));
 
       // Create in-app notification for the recipient
-      await tx.query(
-        `INSERT INTO notifications
-           (user_id, type, title, body, metadata)
-         VALUES ($1, 'certificate_issued', $2, $3, $4)`,
-        [
-          body.recipientUserId,
-          "Certificate Issued!",
-          `Congratulations! You've received a Learning Certificate for "${room.name}".`,
-          JSON.stringify({
-            referenceId: cert.id,
-            roomId,
-            roomName: room.name,
-            issuerId: callerId,
-            certificateTitle,
-          }),
-        ]
+      await insertNotification(
+        tx,
+        body.recipientUserId,
+        "certificate_issued",
+        "Certificate Issued!",
+        `Congratulations! You've received a Learning Certificate for "${room.name}".`,
+        {
+          referenceId: cert.id,
+          roomId,
+          roomName: room.name,
+          issuerId: callerId,
+          certificateTitle,
+        }
       );
 
       return cert;
@@ -223,7 +208,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Send certificate email if the recipient has an email address (PRD §10 — fire-and-forget)
     if (recipient.email) {
-      const recipientName = recipient.display_name ?? recipient.username ?? "there";
+      const recipientName = recipient.displayName ?? recipient.username ?? "there";
       const issuedDate = new Date().toLocaleDateString("en-GB", {
         day: "numeric", month: "long", year: "numeric",
       });

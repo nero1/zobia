@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, gt } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import {
@@ -82,12 +83,13 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       ? (trackParam as LeaderboardTrack)
       : "main";
 
+    const orm = await getDb();
+
     // Resolve user profile fields needed for scope-specific filtering
-    const userProfileResult = await db.query<{ city: string | null; guild_id: string | null; country: string | null }>(
-      `SELECT city, guild_id, country FROM users WHERE id = $1`,
-      [auth.user.sub]
-    );
-    const userProfile = userProfileResult.rows[0];
+    const [userProfile] = await orm
+      .select({ city: schema.users.city, guildId: schema.users.guildId, country: schema.users.country })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub));
 
     // Resolve city — use param, fall back to user's city
     let city: string | null = cityParam;
@@ -101,20 +103,21 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     // Resolve guild
     let guildId: string | null = null;
     if (scope === "guild") {
-      guildId = userProfile?.guild_id ?? null;
+      guildId = userProfile?.guildId ?? null;
     }
 
     // Resolve season
     let seasonId: string | null = null;
     if (scope === "season") {
-      const seasonResult = await db.query<{ id: string }>(
-        `SELECT id FROM seasons WHERE is_active = TRUE AND ends_at > NOW() LIMIT 1`,
-        []
-      );
-      seasonId = seasonResult.rows[0]?.id ?? null;
+      const [season] = await orm
+        .select({ id: schema.seasons.id })
+        .from(schema.seasons)
+        .where(and(eq(schema.seasons.isActive, true), gt(schema.seasons.endsAt, new Date())))
+        .limit(1);
+      seasonId = season?.id ?? null;
     }
 
-    const leaderboardPage = await getLeaderboard(track, scope, city, page, db, {
+    const leaderboardPage = await getLeaderboard(track, scope, city, page, orm, {
       pageSize: limit,
       guildId: guildId ?? undefined,
       seasonId: seasonId ?? undefined,
@@ -122,7 +125,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       cursor,
     });
 
-    const userRank = await getUserRank(auth.user.sub, track, scope, db, {
+    const userRank = await getUserRank(auth.user.sub, track, scope, orm, {
       city: city ?? undefined,
       guildId: guildId ?? undefined,
       seasonId: seasonId ?? undefined,
@@ -132,11 +135,11 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     // The Plan column exposes another user's subscription tier — only
     // Moderator/Admin requesters get it back. Re-checked fresh from the DB
     // (never trusted from the JWT claim), same pattern as withAdminAuth.
-    const { rows: roleRows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-      `SELECT is_admin, is_moderator FROM users WHERE id = $1`,
-      [auth.user.sub]
-    );
-    const canSeePlan = Boolean(roleRows[0]?.is_admin || roleRows[0]?.is_moderator);
+    const [roleRow] = await orm
+      .select({ isAdmin: schema.users.isAdmin, isModerator: schema.users.isModerator })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub));
+    const canSeePlan = Boolean(roleRow?.isAdmin || roleRow?.isModerator);
     const entries = canSeePlan
       ? leaderboardPage.entries
       : leaderboardPage.entries.map(({ plan: _plan, ...rest }) => rest);

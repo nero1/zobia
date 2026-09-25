@@ -10,7 +10,8 @@
  * removed content never leaks to crawlers or logged-out visitors.
  */
 
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, asc, eq, isNull } from "drizzle-orm";
 
 export interface PublicTweet {
   id: string;
@@ -31,39 +32,73 @@ export interface PublicTweet {
   top_replies: PublicTweet[];
 }
 
-interface TweetRow {
-  id: string;
-  content: string | null;
-  image_url: string | null;
-  video_provider: "youtube" | "tiktok" | null;
-  video_url: string | null;
-  video_embed_id: string | null;
-  likes_count: number;
-  replies_count: number;
-  retweets_count: number;
-  created_at: string;
-  author_username: string;
-  author_display_name: string | null;
-  author_avatar_emoji: string | null;
-  author_avatar_url: string | null;
+function selectTweetColumns() {
+  return {
+    id: schema.tweets.id,
+    content: schema.tweets.content,
+    imageUrl: schema.tweets.imageUrl,
+    videoProvider: schema.tweets.videoProvider,
+    videoUrl: schema.tweets.videoUrl,
+    videoEmbedId: schema.tweets.videoEmbedId,
+    likesCount: schema.tweets.likesCount,
+    repliesCount: schema.tweets.repliesCount,
+    retweetsCount: schema.tweets.retweetsCount,
+    createdAt: schema.tweets.createdAt,
+    authorUsername: schema.users.username,
+    authorDisplayName: schema.users.displayName,
+    authorAvatarEmoji: schema.users.avatarEmoji,
+    authorAvatarUrl: schema.users.avatarUrl,
+  };
 }
 
-const SELECT = `
-  SELECT t.id, t.content, t.image_url, t.video_provider, t.video_url, t.video_embed_id,
-         t.likes_count, t.replies_count, t.retweets_count, t.created_at,
-         u.username AS author_username, u.display_name AS author_display_name,
-         u.avatar_emoji AS author_avatar_emoji, u.avatar_url AS author_avatar_url
-  FROM tweets t
-  JOIN users u ON u.id = t.user_id
-  WHERE t.deleted_at IS NULL AND u.deleted_at IS NULL
-`;
+interface TweetSelectRow {
+  id: string;
+  content: string | null;
+  imageUrl: string | null;
+  videoProvider: string | null;
+  videoUrl: string | null;
+  videoEmbedId: string | null;
+  likesCount: number;
+  repliesCount: number;
+  retweetsCount: number;
+  createdAt: Date;
+  authorUsername: string;
+  authorDisplayName: string | null;
+  authorAvatarEmoji: string | null;
+  authorAvatarUrl: string | null;
+}
+
+function toPublicTweet(row: TweetSelectRow): Omit<PublicTweet, "top_replies"> {
+  return {
+    id: row.id,
+    content: row.content,
+    image_url: row.imageUrl,
+    video_provider: row.videoProvider as "youtube" | "tiktok" | null,
+    video_url: row.videoUrl,
+    video_embed_id: row.videoEmbedId,
+    likes_count: row.likesCount,
+    replies_count: row.repliesCount,
+    retweets_count: row.retweetsCount,
+    created_at: row.createdAt.toISOString(),
+    author_username: row.authorUsername,
+    author_display_name: row.authorDisplayName,
+    author_avatar_emoji: row.authorAvatarEmoji,
+    author_avatar_url: row.authorAvatarUrl,
+  };
+}
 
 async function fetchTopReplies(tweetId: string): Promise<PublicTweet[]> {
-  const { rows } = await db.query<TweetRow>(
-    `${SELECT} AND t.parent_tweet_id = $1 ORDER BY t.created_at ASC LIMIT 3`,
-    [tweetId]
-  );
-  return rows.map((row) => ({ ...row, top_replies: [] }));
+  const orm = await getDb();
+  const rows = await orm
+    .select(selectTweetColumns())
+    .from(schema.tweets)
+    .innerJoin(schema.users, eq(schema.users.id, schema.tweets.userId))
+    .where(
+      and(isNull(schema.tweets.deletedAt), isNull(schema.users.deletedAt), eq(schema.tweets.parentTweetId, tweetId))
+    )
+    .orderBy(asc(schema.tweets.createdAt))
+    .limit(3);
+  return rows.map((row) => ({ ...toPublicTweet(row), top_replies: [] }));
 }
 
 /**
@@ -72,9 +107,14 @@ async function fetchTopReplies(tweetId: string): Promise<PublicTweet[]> {
  * @param tweetId  The Tweet's uuid from the URL.
  */
 export async function resolvePublicTweet(tweetId: string): Promise<PublicTweet | null> {
-  const { rows } = await db.query<TweetRow>(`${SELECT} AND t.id = $1 LIMIT 1`, [tweetId]);
-  const row = rows[0];
+  const orm = await getDb();
+  const [row] = await orm
+    .select(selectTweetColumns())
+    .from(schema.tweets)
+    .innerJoin(schema.users, eq(schema.users.id, schema.tweets.userId))
+    .where(and(isNull(schema.tweets.deletedAt), isNull(schema.users.deletedAt), eq(schema.tweets.id, tweetId)))
+    .limit(1);
   if (!row) return null;
   const top_replies = await fetchTopReplies(row.id);
-  return { ...row, top_replies };
+  return { ...toPublicTweet(row), top_replies };
 }

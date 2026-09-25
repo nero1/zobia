@@ -16,6 +16,8 @@ export const maxDuration = 10;
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { db } from "@/lib/db";
 import { validateCronSecret, checkCronIdempotency } from "@/lib/cron/auth";
 import { logger } from "@/lib/logger";
@@ -25,7 +27,8 @@ export const GET = async (req: NextRequest) => {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const didClaim = await checkCronIdempotency("cron_daily_economy_last_run", db);
+  const orm = await getDb();
+  const didClaim = await checkCronIdempotency("cron_daily_economy_last_run", orm);
   if (!didClaim) {
     return NextResponse.json({ skipped: true, reason: "Already ran today" });
   }
@@ -48,16 +51,16 @@ export const GET = async (req: NextRequest) => {
   if (utcDay === 5) {
     try {
       const { distributeCreatorFund } = await import('@/lib/creator/fund');
-      const { rows: fundRows } = await db.query<{ value: string }>(
-        `SELECT value FROM x_manifest WHERE key = 'creator_fund_balance_kobo' LIMIT 1`
-      );
+      const { rows: fundRows } = await orm.execute<{ value: string }>(sql`
+        SELECT value FROM x_manifest WHERE key = 'creator_fund_balance_kobo' LIMIT 1
+      `);
       const poolKobo = parseInt(fundRows[0]?.value ?? "0", 10);
       if (poolKobo > 0) {
         const fundResult = await distributeCreatorFund(poolKobo);
-        await db.query(
-          `INSERT INTO x_manifest (key, value) VALUES ('creator_fund_balance_kobo', '0')
-           ON CONFLICT (key) DO UPDATE SET value = '0', updated_at = NOW()`
-        );
+        await orm.execute(sql`
+          INSERT INTO x_manifest (key, value) VALUES ('creator_fund_balance_kobo', '0')
+          ON CONFLICT (key) DO UPDATE SET value = '0', updated_at = NOW()
+        `);
         results.creatorFundDistribution = { creatorsRewarded: fundResult, poolKobo };
       } else {
         results.creatorFundDistribution = { skipped: true, reason: 'Pool is empty' };
@@ -80,23 +83,30 @@ export const GET = async (req: NextRequest) => {
           let batchSize = 1000;
           while (batchSize === 1000) {
             // First collect a page of eligible user IDs (no lock yet)
-            const idParams: string[] = [plan, monthKey];
-            const cursorClause: string = lastId ? `AND id > $3` : "";
-            if (lastId) idParams.push(lastId);
-
-            const eligibleResult = await db.query<{ id: string; coin_balance: number }>(
-              `SELECT id, coin_balance FROM users
-               WHERE plan = $1 AND deleted_at IS NULL AND NOT COALESCE(is_banned, false)
-                 AND NOT EXISTS (
-                   SELECT 1 FROM coin_ledger
-                   WHERE user_id = users.id AND transaction_type = 'subscription_bonus'
-                     AND reference_id = 'plan:' || users.id::text || ':' || $2
-                 )
-                 ${cursorClause}
-               ORDER BY id ASC
-               LIMIT 1000`,
-              idParams
-            );
+            const eligibleResult: { rows: { id: string; coin_balance: number }[] } = lastId
+              ? await orm.execute<{ id: string; coin_balance: number }>(sql`
+                  SELECT id, coin_balance FROM users
+                  WHERE plan = ${plan} AND deleted_at IS NULL AND NOT COALESCE(is_banned, false)
+                    AND NOT EXISTS (
+                      SELECT 1 FROM coin_ledger
+                      WHERE user_id = users.id AND transaction_type = 'subscription_bonus'
+                        AND reference_id = 'plan:' || users.id::text || ':' || ${monthKey}
+                    )
+                    AND id > ${lastId}
+                  ORDER BY id ASC
+                  LIMIT 1000
+                `)
+              : await orm.execute<{ id: string; coin_balance: number }>(sql`
+                  SELECT id, coin_balance FROM users
+                  WHERE plan = ${plan} AND deleted_at IS NULL AND NOT COALESCE(is_banned, false)
+                    AND NOT EXISTS (
+                      SELECT 1 FROM coin_ledger
+                      WHERE user_id = users.id AND transaction_type = 'subscription_bonus'
+                        AND reference_id = 'plan:' || users.id::text || ':' || ${monthKey}
+                    )
+                  ORDER BY id ASC
+                  LIMIT 1000
+                `);
             const eligibleRows = eligibleResult.rows;
 
             batchSize = eligibleRows.length;
@@ -107,26 +117,25 @@ export const GET = async (req: NextRequest) => {
 
             // Award bonus to this batch
             const batchIds: string[] = eligibleRows.map((r: { id: string; coin_balance: number }) => r.id);
-            await db.transaction(async (tx) => {
-              await tx.query(
-                `WITH eligible AS (
-                   SELECT id, coin_balance FROM users
-                   WHERE id = ANY($1::uuid[])
-                   FOR UPDATE SKIP LOCKED
-                 ),
-                 ledger_rows AS (
-                   INSERT INTO coin_ledger
-                     (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
-                   SELECT id, $2, coin_balance, coin_balance + $2, 'subscription_bonus',
-                          'plan:' || id::text || ':' || $4, $3, NOW()
-                   FROM eligible
-                   ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-                   RETURNING user_id
-                 )
-                 UPDATE users SET coin_balance = coin_balance + $2, updated_at = NOW()
-                 WHERE id IN (SELECT user_id FROM ledger_rows)`,
-                [batchIds, bonus, `Monthly ${plan} plan bonus`, monthKey]
-              );
+            await orm.transaction(async (tx) => {
+              await tx.execute(sql`
+                WITH eligible AS (
+                  SELECT id, coin_balance FROM users
+                  WHERE id = ANY(${batchIds}::uuid[])
+                  FOR UPDATE SKIP LOCKED
+                ),
+                ledger_rows AS (
+                  INSERT INTO coin_ledger
+                    (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description, created_at)
+                  SELECT id, ${bonus}, coin_balance, coin_balance + ${bonus}, 'subscription_bonus',
+                         'plan:' || id::text || ':' || ${monthKey}, ${`Monthly ${plan} plan bonus`}, NOW()
+                  FROM eligible
+                  ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+                  RETURNING user_id
+                )
+                UPDATE users SET coin_balance = coin_balance + ${bonus}, updated_at = NOW()
+                WHERE id IN (SELECT user_id FROM ledger_rows)
+              `);
             });
           }
         }
@@ -152,50 +161,48 @@ export const GET = async (req: NextRequest) => {
       const lastMonthEnd   = new Date(Date.UTC(nowDate.getUTCFullYear(), nowDate.getUTCMonth(), 1));
       const monthKey       = lastMonthStart.toISOString().slice(0, 10);
 
-      const { rows: mauRows } = await db.query<{ room_id: string; mau_count: string }>(
-        `SELECT rm.room_id, COUNT(DISTINCT rm.user_id)::TEXT AS mau_count
-         FROM room_members rm
-         JOIN rooms r ON r.id = rm.room_id
-         WHERE r.type = 'free_open' AND r.is_active = TRUE
-           AND rm.joined_at < $2 AND (rm.left_at IS NULL OR rm.left_at >= $1)
-         GROUP BY rm.room_id`,
-        [lastMonthStart.toISOString(), lastMonthEnd.toISOString()]
-      ).catch(() => ({ rows: [] as Array<{ room_id: string; mau_count: string }> }));
+      const { rows: mauRows } = await orm.execute<{ room_id: string; mau_count: string }>(sql`
+        SELECT rm.room_id, COUNT(DISTINCT rm.user_id)::TEXT AS mau_count
+        FROM room_members rm
+        JOIN rooms r ON r.id = rm.room_id
+        WHERE r.type = 'free_open' AND r.is_active = TRUE
+          AND rm.joined_at < ${lastMonthEnd.toISOString()} AND (rm.left_at IS NULL OR rm.left_at >= ${lastMonthStart.toISOString()})
+        GROUP BY rm.room_id
+      `).catch(() => ({ rows: [] as Array<{ room_id: string; mau_count: string }> }));
 
       let snapshotted = 0, enrolled = 0;
       if (mauRows.length > 0) {
         // Batch upsert MAU snapshots
-        await db.query(
-          `INSERT INTO room_monthly_active_users (room_id, month, mau_count)
-           SELECT unnest($1::uuid[]), $2::date, unnest($3::int[])
-           ON CONFLICT (room_id, month) DO UPDATE SET mau_count = EXCLUDED.mau_count`,
-          [mauRows.map(r => r.room_id), monthKey, mauRows.map(r => parseInt(r.mau_count, 10))]
-        ).catch(() => {});
+        await orm.execute(sql`
+          INSERT INTO room_monthly_active_users (room_id, month, mau_count)
+          SELECT unnest(${mauRows.map(r => r.room_id)}::uuid[]), ${monthKey}::date, unnest(${mauRows.map(r => parseInt(r.mau_count, 10))}::int[])
+          ON CONFLICT (room_id, month) DO UPDATE SET mau_count = EXCLUDED.mau_count
+        `).catch(() => {});
         snapshotted = mauRows.length;
 
         // Enrol rooms with 500+ MAU in ad revenue share
         const eligibleRoomIds = mauRows.filter(r => parseInt(r.mau_count, 10) >= 500).map(r => r.room_id);
         if (eligibleRoomIds.length > 0) {
-          const { rows: enrolledRooms } = await db.query<{ id: string }>(
-            `UPDATE rooms SET is_ad_enrolled = TRUE, updated_at = NOW()
-             WHERE id = ANY($1::uuid[]) AND is_ad_enrolled = FALSE
-             RETURNING id`,
-            [eligibleRoomIds]
-          ).catch(() => ({ rows: [] as Array<{ id: string }> }));
+          const { rows: enrolledRooms } = await orm.execute<{ id: string }>(sql`
+            UPDATE rooms SET is_ad_enrolled = TRUE, updated_at = NOW()
+            WHERE id = ANY(${eligibleRoomIds}::uuid[]) AND is_ad_enrolled = FALSE
+            RETURNING id
+          `).catch(() => ({ rows: [] as Array<{ id: string }> }));
           enrolled = enrolledRooms.length;
 
           if (enrolledRooms.length > 0) {
             const mauMap = new Map(mauRows.map(r => [r.room_id, parseInt(r.mau_count, 10)]));
-            await db.query(
-              `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-               SELECT r.creator_id, 'ad_revenue_enrolled', 'Ad Revenue Enabled',
-                      'Your room has been enrolled in ad revenue sharing based on monthly active users.',
-                      jsonb_build_object('roomId', r.id::text, 'mauCount', sub.mau),
-                      false, NOW()
-               FROM rooms r
-               JOIN (SELECT unnest($1::uuid[]) AS room_id, unnest($2::int[]) AS mau) sub ON sub.room_id = r.id`,
-              [enrolledRooms.map(r => r.id), enrolledRooms.map(r => mauMap.get(r.id) ?? 0)]
-            ).catch(() => {});
+            const enrolledIds = enrolledRooms.map(r => r.id);
+            const enrolledMaus = enrolledRooms.map(r => mauMap.get(r.id) ?? 0);
+            await orm.execute(sql`
+              INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
+              SELECT r.creator_id, 'ad_revenue_enrolled', 'Ad Revenue Enabled',
+                     'Your room has been enrolled in ad revenue sharing based on monthly active users.',
+                     jsonb_build_object('roomId', r.id::text, 'mauCount', sub.mau),
+                     false, NOW()
+              FROM rooms r
+              JOIN (SELECT unnest(${enrolledIds}::uuid[]) AS room_id, unnest(${enrolledMaus}::int[]) AS mau) sub ON sub.room_id = r.id
+            `).catch(() => {});
           }
         }
       }
@@ -211,46 +218,42 @@ export const GET = async (req: NextRequest) => {
   try {
     if (dayOfWeek === 5) {
       const MIN_PAYOUT_KOBO = 100_000;
-      const { rows: payoutCandidates } = await db.query<{
+      const { rows: payoutCandidates } = await orm.execute<{
         creator_id: string; balance_kobo: number; recipient_code: string;
-      }>(
-        `SELECT u.id AS creator_id, u.available_earnings_kobo AS balance_kobo, u.payout_recipient_code AS recipient_code
-         FROM users u
-         WHERE u.is_creator = TRUE AND NOT COALESCE(u.is_banned, false) AND u.deleted_at IS NULL
-           AND u.payout_recipient_code IS NOT NULL
-           AND u.available_earnings_kobo >= $1
-           AND NOT EXISTS (
-             SELECT 1 FROM creator_payouts cp WHERE cp.creator_id = u.id AND cp.status IN ('awaiting_approval', 'processing')
-           )`,
-        [MIN_PAYOUT_KOBO]
-      );
+      }>(sql`
+        SELECT u.id AS creator_id, u.available_earnings_kobo AS balance_kobo, u.payout_recipient_code AS recipient_code
+        FROM users u
+        WHERE u.is_creator = TRUE AND NOT COALESCE(u.is_banned, false) AND u.deleted_at IS NULL
+          AND u.payout_recipient_code IS NOT NULL
+          AND u.available_earnings_kobo >= ${MIN_PAYOUT_KOBO}
+          AND NOT EXISTS (
+            SELECT 1 FROM creator_payouts cp WHERE cp.creator_id = u.id AND cp.status IN ('awaiting_approval', 'processing')
+          )
+      `);
 
       let payoutsInitiated = 0;
       const { checkPayoutFraud } = await import('@/lib/fraud/payouts');
       for (const candidate of payoutCandidates) {
         try {
           const idempotencyKey = `weekly_${candidate.creator_id}_${nowDate.toISOString().slice(0, 10)}`;
-          const fraudResult = await checkPayoutFraud(candidate.creator_id, candidate.balance_kobo, db);
+          const fraudResult = await checkPayoutFraud(candidate.creator_id, candidate.balance_kobo, orm);
           const status = fraudResult.forceManual ? 'awaiting_approval' : 'pending';
-          await db.transaction(async (tx) => {
-            const { rows: bankRows } = await tx.query<{ bank_name: string | null; account_number: string | null; account_name: string | null; recipient_code: string | null }>(
-              `SELECT bank_name, account_number, account_name, recipient_code
-               FROM creator_bank_accounts WHERE creator_id = $1 AND is_primary = TRUE AND deleted_at IS NULL LIMIT 1`,
-              [candidate.creator_id]
-            );
+          await orm.transaction(async (tx) => {
+            const { rows: bankRows } = await tx.execute<{ bank_name: string | null; account_number: string | null; account_name: string | null; recipient_code: string | null }>(sql`
+              SELECT bank_name, account_number, account_name, recipient_code
+              FROM creator_bank_accounts WHERE creator_id = ${candidate.creator_id} AND is_primary = TRUE AND deleted_at IS NULL LIMIT 1
+            `);
             const bankSnapshot = bankRows[0] ? { bank_name: bankRows[0].bank_name, account_number: bankRows[0].account_number, account_name: bankRows[0].account_name, recipient_code: bankRows[0].recipient_code } : null;
-            const { rowCount: payoutInsertCount } = await tx.query(
-              `INSERT INTO creator_payouts
-                 (creator_id, amount_kobo, net_kobo, gross_kobo, platform_fee_kobo, provider, status, idempotency_key, bank_account_snapshot, created_at)
-               VALUES ($1, $2, $2, $2, 0, 'paystack', $3, $4, $5, NOW())
-               ON CONFLICT (idempotency_key) DO NOTHING`,
-              [candidate.creator_id, candidate.balance_kobo, status, idempotencyKey, bankSnapshot ? JSON.stringify(bankSnapshot) : null]
-            );
+            const { rowCount: payoutInsertCount } = await tx.execute(sql`
+              INSERT INTO creator_payouts
+                (creator_id, amount_kobo, net_kobo, gross_kobo, platform_fee_kobo, provider, status, idempotency_key, bank_account_snapshot, created_at)
+              VALUES (${candidate.creator_id}, ${candidate.balance_kobo}, ${candidate.balance_kobo}, ${candidate.balance_kobo}, 0, 'paystack', ${status}, ${idempotencyKey}, ${bankSnapshot ? JSON.stringify(bankSnapshot) : null}, NOW())
+              ON CONFLICT (idempotency_key) DO NOTHING
+            `);
             if ((payoutInsertCount ?? 0) > 0) {
-              await tx.query(
-                `UPDATE users SET available_earnings_kobo = available_earnings_kobo - $1, updated_at = NOW() WHERE id = $2`,
-                [candidate.balance_kobo, candidate.creator_id]
-              );
+              await tx.execute(sql`
+                UPDATE users SET available_earnings_kobo = available_earnings_kobo - ${candidate.balance_kobo}, updated_at = NOW() WHERE id = ${candidate.creator_id}
+              `);
             }
           });
           payoutsInitiated++;
@@ -277,30 +280,41 @@ export const GET = async (req: NextRequest) => {
       const cronDate = nowDate.toISOString().slice(0, 10);
       let streakQualified = 0;
 
-      await db.transaction(async (tx) => {
-        const { rows: streakReferrals } = await tx.query<{ id: string; referrer_id: string; referred_id: string }>(
-          `SELECT r.id, r.referrer_id, r.referred_id
-           FROM referrals r JOIN users u ON u.id = r.referred_id
-           WHERE r.qualified = false AND r.tier = 1 AND u.login_streak_days >= 7 AND u.deleted_at IS NULL
-           FOR UPDATE OF r SKIP LOCKED`
-        );
+      // The SELECT ... FOR UPDATE OF r SKIP LOCKED must stay inside a
+      // transaction to hold the row lock, so it (and the matching UPDATE)
+      // run in a Drizzle transaction here. safeAwardXP/creditCoins still take
+      // a raw TransactionClient (not yet migrated to Drizzle), so they are
+      // called standalone below rather than sharing this tx — each manages
+      // its own transaction internally, matching this loop's original
+      // per-referral try/catch (an award failure here was already only
+      // logged, never rolled back against the qualified-flag UPDATE).
+      const streakReferrals = await orm.transaction(async (tx) => {
+        const { rows } = await tx.execute<{ id: string; referrer_id: string; referred_id: string }>(sql`
+          SELECT r.id, r.referrer_id, r.referred_id
+          FROM referrals r JOIN users u ON u.id = r.referred_id
+          WHERE r.qualified = false AND r.tier = 1 AND u.login_streak_days >= 7 AND u.deleted_at IS NULL
+          FOR UPDATE OF r SKIP LOCKED
+        `);
 
-        for (const referral of streakReferrals) {
-          try {
-            await tx.query(
-              `UPDATE referrals SET qualified = true, qualified_at = NOW(), coin_reward = $1, xp_reward = $2 WHERE id = $3`,
-              [coinBonus, xpBonus, referral.id]
-            );
-            await _safeXP(referral.referrer_id, xpBonus, "social", "referral_qualified_streak", `referral_streak_${referral.id}_${cronDate}`, tx);
-            if (coinBonus > 0) {
-              await creditCoins(referral.referrer_id, coinBonus, "referral_bonus", referral.id, "One-time referral bonus (7-day streak)", {}, tx);
-            }
-            streakQualified++;
-          } catch (err) {
-            logger.error({ err, referrerId: referral.referrer_id, referralId: referral.id }, "[cron/daily-economy] Referral streak qualification failed");
-          }
+        for (const referral of rows) {
+          await tx.execute(sql`
+            UPDATE referrals SET qualified = true, qualified_at = NOW(), coin_reward = ${coinBonus}, xp_reward = ${xpBonus} WHERE id = ${referral.id}
+          `);
         }
+        return rows;
       });
+
+      for (const referral of streakReferrals) {
+        try {
+          await _safeXP(referral.referrer_id, xpBonus, "social", "referral_qualified_streak", `referral_streak_${referral.id}_${cronDate}`);
+          if (coinBonus > 0) {
+            await creditCoins(referral.referrer_id, coinBonus, "referral_bonus", referral.id, "One-time referral bonus (7-day streak)", {});
+          }
+          streakQualified++;
+        } catch (err) {
+          logger.error({ err, referrerId: referral.referrer_id, referralId: referral.id }, "[cron/daily-economy] Referral streak qualification failed");
+        }
+      }
       results.referralStreakQualifying = { qualified: streakQualified };
     }
   } catch (err) {

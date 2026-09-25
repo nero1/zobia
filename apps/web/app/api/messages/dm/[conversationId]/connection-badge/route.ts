@@ -26,7 +26,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull, or } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { checkConnectionBadgeUnlock } from "@/lib/messaging/conversationScore";
@@ -34,14 +35,6 @@ import { checkConnectionBadgeUnlock } from "@/lib/messaging/conversationScore";
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface ScoreRow {
-  user_id_1: string;
-  user_id_2: string;
-  streak_days: number;
-  has_connection_badge: boolean;
-  badge_unlocked_at: string | null;
-}
 
 interface RouteParams {
   conversationId: string;
@@ -60,25 +53,37 @@ export const GET = withAuth<RouteParams>(
       // The conversationId is expected to be one of the participant UUIDs.
       // We look up the conversation_scores row where the authenticated user
       // is one of the participants.
-      const { rows } = await db.query<ScoreRow>(
-        `SELECT user_id_1, user_id_2, streak_days, has_connection_badge, badge_unlocked_at
-         FROM conversation_scores
-         WHERE (user_id_1 = $1 AND user_id_2 = $2)
-            OR (user_id_1 = $2 AND user_id_2 = $1)
-            OR (user_id_1 = $1 OR user_id_2 = $1)
-              AND (user_id_1 = $2 OR user_id_2 = $2)
-         LIMIT 1`,
-        [userId, conversationId]
-      );
+      const orm = await getDb();
+      const rows = await orm
+        .select({
+          user_id_1: schema.conversationScores.userId1,
+          user_id_2: schema.conversationScores.userId2,
+          streak_days: schema.conversationScores.streakDays,
+          has_connection_badge: schema.conversationScores.hasConnectionBadge,
+          badge_unlocked_at: schema.conversationScores.badgeUnlockedAt,
+        })
+        .from(schema.conversationScores)
+        .where(
+          or(
+            and(eq(schema.conversationScores.userId1, userId), eq(schema.conversationScores.userId2, conversationId)),
+            and(eq(schema.conversationScores.userId1, conversationId), eq(schema.conversationScores.userId2, userId)),
+            and(
+              or(eq(schema.conversationScores.userId1, userId), eq(schema.conversationScores.userId2, userId)),
+              or(eq(schema.conversationScores.userId1, conversationId), eq(schema.conversationScores.userId2, conversationId))
+            )
+          )
+        )
+        .limit(1);
 
       // If no record exists yet, return zero-state
       if (!rows[0]) {
         // Verify conversationId is a valid user UUID that the caller could DM
-        const { rows: targetRows } = await db.query<{ id: string }>(
-          `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-          [conversationId]
-        );
-        if (!targetRows[0]) throw notFound("Conversation not found");
+        const [targetRow] = await orm
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(and(eq(schema.users.id, conversationId), isNull(schema.users.deletedAt)))
+          .limit(1);
+        if (!targetRow) throw notFound("Conversation not found");
 
         return NextResponse.json({
           success: true,

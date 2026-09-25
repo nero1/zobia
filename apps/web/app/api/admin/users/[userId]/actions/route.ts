@@ -24,7 +24,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { randomBytes } from "crypto";
-import { db } from "@/lib/db";
+import { sql, type SQL } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { env } from "@/lib/env";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors";
@@ -43,7 +44,7 @@ interface AdminUserParams {
   userId: string;
 }
 
-interface TargetUser {
+interface TargetUser extends Record<string, unknown> {
   id: string;
   email: string | null;
   username: string | null;
@@ -124,20 +125,26 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
       throw badRequest("duration_hours is required for the 'suspend' action");
     }
 
-    const result = await db.transaction(async (client) => {
-      // Fetch target user (locked for update)
-      const { rows } = await client.query<TargetUser>(
-        `SELECT id, email, username, is_admin, is_suspended, is_banned, is_moderator,
-                COALESCE(is_support, false) AS is_support,
-                COALESCE(is_senior_support, false) AS is_senior_support,
-                COALESCE(is_ad_moderator, false) AS is_ad_moderator,
-                COALESCE(is_email_verified, false) AS email_verified,
-                COALESCE(require_2fa_setup, false) AS require_2fa_setup
-         FROM users
-         WHERE id = $1 AND deleted_at IS NULL
-         FOR UPDATE`,
-        [userId]
-      );
+    const orm = await getDb();
+
+    const result = await orm.transaction(async (client) => {
+      // Fetch target user (locked for update).
+      // NOTE: is_support/is_senior_support/is_ad_moderator are not present in
+      // lib/db/schema.ts (a genuine schema/DB gap — these columns exist on
+      // `users` since migrations 0001 and 0002 — reported separately), so
+      // this query is expressed via the `sql` template rather than the
+      // Drizzle query builder.
+      const { rows } = await client.execute<TargetUser>(sql`
+        SELECT id, email, username, is_admin, is_suspended, is_banned, is_moderator,
+               COALESCE(is_support, false) AS is_support,
+               COALESCE(is_senior_support, false) AS is_senior_support,
+               COALESCE(is_ad_moderator, false) AS is_ad_moderator,
+               COALESCE(is_email_verified, false) AS email_verified,
+               COALESCE(require_2fa_setup, false) AS require_2fa_setup
+        FROM users
+        WHERE id = ${userId} AND deleted_at IS NULL
+        FOR UPDATE
+      `);
 
       const target = rows[0];
       if (!target) throw notFound("User not found");
@@ -150,8 +157,11 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
         throw badRequest("Cannot perform moderation actions on admin accounts");
       }
 
-      let updateSql: string;
-      let updateParams: (string | boolean | number | null)[];
+      // Most branches touch only columns present in the Drizzle schema and
+      // are built as a plain `sql` UPDATE template, executed once below (a
+      // few — upgrade/downgrade_support, *_senior_support, *_ad_moderator —
+      // touch columns missing from lib/db/schema.ts; see the note above).
+      let updateQuery: SQL | null;
       const appliedAt = new Date().toISOString();
 
       switch (body.action) {
@@ -159,23 +169,19 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           if (target.is_banned) {
             throw conflict("User is already banned; use 'restore' first");
           }
-          const suspendedUntil = new Date(
-            Date.now() + (body.duration_hours! * 3600 * 1000)
-          ).toISOString();
+          const suspendedUntil = new Date(Date.now() + body.duration_hours! * 3600 * 1000);
 
-          updateSql = `UPDATE users
-            SET is_suspended = true, suspended_until = $1, suspension_reason = $2, updated_at = NOW()
-            WHERE id = $3`;
-          updateParams = [suspendedUntil, body.reason ?? null, userId];
+          updateQuery = sql`UPDATE users
+            SET is_suspended = true, suspended_until = ${suspendedUntil}, suspension_reason = ${body.reason ?? null}, updated_at = NOW()
+            WHERE id = ${userId}`;
           break;
         }
 
         case "ban": {
-          updateSql = `UPDATE users
+          updateQuery = sql`UPDATE users
             SET is_banned = true, is_suspended = false, suspended_until = NULL,
-                ban_reason = $1, banned_at = NOW(), updated_at = NOW()
-            WHERE id = $2`;
-          updateParams = [body.reason ?? null, userId];
+                ban_reason = ${body.reason ?? null}, banned_at = NOW(), updated_at = NOW()
+            WHERE id = ${userId}`;
           break;
         }
 
@@ -186,10 +192,8 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           // the row itself (harmless re-lock; already locked above in this
           // same transaction) and throws `conflict` if not suspended/banned.
           await restoreUserAccount(client, userId);
-          // No-op placeholder for the shared `client.query(updateSql, ...)`
-          // call below — the actual update already happened above.
-          updateSql = `SELECT 1`;
-          updateParams = [];
+          // No-op — the actual update already happened above.
+          updateQuery = null;
           break;
         }
 
@@ -197,8 +201,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           if (target.is_moderator) {
             throw conflict("User is already a moderator");
           }
-          updateSql = `UPDATE users SET is_moderator = true, updated_at = NOW() WHERE id = $1`;
-          updateParams = [userId];
+          updateQuery = sql`UPDATE users SET is_moderator = true, updated_at = NOW() WHERE id = ${userId}`;
           break;
         }
 
@@ -206,8 +209,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           if (!target.is_moderator) {
             throw conflict("User is not a moderator");
           }
-          updateSql = `UPDATE users SET is_moderator = false, updated_at = NOW() WHERE id = $1`;
-          updateParams = [userId];
+          updateQuery = sql`UPDATE users SET is_moderator = false, updated_at = NOW() WHERE id = ${userId}`;
           break;
         }
 
@@ -215,8 +217,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           if (target.is_support) {
             throw conflict("User is already support staff");
           }
-          updateSql = `UPDATE users SET is_support = true, updated_at = NOW() WHERE id = $1`;
-          updateParams = [userId];
+          updateQuery = sql`UPDATE users SET is_support = true, updated_at = NOW() WHERE id = ${userId}`;
           break;
         }
 
@@ -226,8 +227,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           }
           // Also strips senior_support — a user cannot be senior support
           // without base support/moderator/admin standing.
-          updateSql = `UPDATE users SET is_support = false, is_senior_support = false, updated_at = NOW() WHERE id = $1`;
-          updateParams = [userId];
+          updateQuery = sql`UPDATE users SET is_support = false, is_senior_support = false, updated_at = NOW() WHERE id = ${userId}`;
           break;
         }
 
@@ -238,8 +238,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           if (target.is_senior_support) {
             throw conflict("User is already senior support");
           }
-          updateSql = `UPDATE users SET is_senior_support = true, updated_at = NOW() WHERE id = $1`;
-          updateParams = [userId];
+          updateQuery = sql`UPDATE users SET is_senior_support = true, updated_at = NOW() WHERE id = ${userId}`;
           break;
         }
 
@@ -247,8 +246,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           if (!target.is_senior_support) {
             throw conflict("User is not senior support");
           }
-          updateSql = `UPDATE users SET is_senior_support = false, updated_at = NOW() WHERE id = $1`;
-          updateParams = [userId];
+          updateQuery = sql`UPDATE users SET is_senior_support = false, updated_at = NOW() WHERE id = ${userId}`;
           break;
         }
 
@@ -256,8 +254,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           if (target.is_ad_moderator) {
             throw conflict("User is already an ad moderator");
           }
-          updateSql = `UPDATE users SET is_ad_moderator = true, updated_at = NOW() WHERE id = $1`;
-          updateParams = [userId];
+          updateQuery = sql`UPDATE users SET is_ad_moderator = true, updated_at = NOW() WHERE id = ${userId}`;
           break;
         }
 
@@ -265,8 +262,7 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           if (!target.is_ad_moderator) {
             throw conflict("User is not an ad moderator");
           }
-          updateSql = `UPDATE users SET is_ad_moderator = false, updated_at = NOW() WHERE id = $1`;
-          updateParams = [userId];
+          updateQuery = sql`UPDATE users SET is_ad_moderator = false, updated_at = NOW() WHERE id = ${userId}`;
           break;
         }
 
@@ -274,21 +270,26 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
           // Null out the password hash so the account cannot log in with password,
           // then create a one-time reset token and email it to the user (PRD §20).
           const resetToken = randomBytes(32).toString("hex");
-          const tokenExpiry = new Date(Date.now() + 60 * 60 * 1000).toISOString(); // 1 hour
+          const tokenExpiry = new Date(Date.now() + 60 * 60 * 1000); // 1 hour
 
-          await client.query(
-            `INSERT INTO password_reset_tokens (user_id, token_hash, expires_at, created_at)
-             VALUES ($1, encode(sha256($2::bytea), 'hex'), $3, NOW())
-             ON CONFLICT (user_id) DO UPDATE
-               SET token_hash = encode(sha256($2::bytea), 'hex'),
-                   expires_at = $3,
-                   used_at = NULL,
-                   created_at = NOW()`,
-            [userId, resetToken, tokenExpiry]
-          );
+          await client
+            .insert(schema.passwordResetTokens)
+            .values({
+              userId,
+              tokenHash: sql`encode(sha256(${resetToken}::bytea), 'hex')`,
+              expiresAt: tokenExpiry,
+            })
+            .onConflictDoUpdate({
+              target: schema.passwordResetTokens.userId,
+              set: {
+                tokenHash: sql`encode(sha256(${resetToken}::bytea), 'hex')`,
+                expiresAt: tokenExpiry,
+                usedAt: null,
+                createdAt: sql`NOW()`,
+              },
+            });
 
-          updateSql = `UPDATE users SET password_hash = NULL, updated_at = NOW() WHERE id = $1`;
-          updateParams = [userId];
+          updateQuery = sql`UPDATE users SET password_hash = NULL, updated_at = NOW() WHERE id = ${userId}`;
 
           // Fire-and-forget email with reset link
           if (target.email) {
@@ -306,34 +307,29 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
 
         case "force_2fa": {
           // Flag the account to require 2FA setup on next login (PRD §20).
-          updateSql = `UPDATE users SET require_2fa_setup = true, totp_secret = NULL, updated_at = NOW() WHERE id = $1`;
-          updateParams = [userId];
+          updateQuery = sql`UPDATE users SET require_2fa_setup = true, totp_secret = NULL, updated_at = NOW() WHERE id = ${userId}`;
           break;
         }
 
         case "verify_account": {
           // Manually mark the user's email as verified (PRD §20).
-          updateSql = `UPDATE users SET is_email_verified = true, updated_at = NOW() WHERE id = $1`;
-          updateParams = [userId];
+          updateQuery = sql`UPDATE users SET is_email_verified = true, updated_at = NOW() WHERE id = ${userId}`;
           break;
         }
       }
 
-      await client.query(updateSql, updateParams);
+      if (updateQuery) {
+        await client.execute(updateQuery);
+      }
 
       // Log the action to the audit table
-      await client.query(
-        `INSERT INTO admin_actions
-           (admin_id, target_user_id, action, reason, duration_hours, created_at)
-         VALUES ($1, $2, $3, $4, $5, NOW())`,
-        [
-          auth.user.sub,
-          userId,
-          body.action,
-          body.reason ?? null,
-          body.duration_hours ?? null,
-        ]
-      );
+      await client.insert(schema.adminActions).values({
+        adminId: auth.user.sub,
+        targetUserId: userId,
+        action: body.action,
+        reason: body.reason ?? null,
+        durationHours: body.duration_hours ?? null,
+      });
 
       return { target, appliedAt };
     });
@@ -360,16 +356,23 @@ export const POST = withAdminAuth<AdminUserParams>(async (req, { params, auth })
     // admin decision) must explicitly restart once the account is restored.
     if (body.action === "ban") {
       try {
-        const { rows: stoppedQuests } = await db.query<{ id: string }>(
-          `UPDATE sponsored_quests
-           SET is_active = FALSE, auto_paused = TRUE,
-               pause_reason = 'Account banned', paused_at = NOW(), updated_at = NOW()
-           WHERE is_active = TRUE AND deleted_at IS NULL
-             AND (owner_user_id = $1 OR business_account_id IN (SELECT id FROM business_accounts WHERE user_id = $1))
-           RETURNING id`,
-          [userId]
-        );
-        for (const q of stoppedQuests) await syncSponsoredQuestTemplate(db, q.id);
+        const stoppedQuests = await orm
+          .update(schema.sponsoredQuests)
+          .set({
+            isActive: false,
+            autoPaused: true,
+            pauseReason: "Account banned",
+            pausedAt: new Date(),
+          })
+          .where(
+            sql`${schema.sponsoredQuests.isActive} = TRUE AND ${schema.sponsoredQuests.deletedAt} IS NULL
+              AND (${schema.sponsoredQuests.ownerUserId} = ${userId}
+                OR ${schema.sponsoredQuests.businessAccountId} IN (
+                  SELECT id FROM ${schema.businessAccounts} WHERE user_id = ${userId}
+                ))`
+          )
+          .returning({ id: schema.sponsoredQuests.id });
+        for (const q of stoppedQuests) await syncSponsoredQuestTemplate(orm, q.id);
       } catch (err) {
         logger.error({ err, userId }, "[admin:actions] Failed to pause sponsored quests on ban");
       }

@@ -11,9 +11,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
-import { db, SqlParam } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -90,10 +91,6 @@ export const PATCH = withAdminAuth<RouteParams>(
         throw badRequest("Invalid update payload", parsed.error.flatten());
       }
 
-      const updates: string[] = [];
-      const values: SqlParam[] = [brandedRoomId];
-      let idx = 2;
-
       const {
         roomId,
         brandName,
@@ -105,31 +102,44 @@ export const PATCH = withAdminAuth<RouteParams>(
         endsAt,
       } = parsed.data;
 
-      if (roomId !== undefined) { updates.push(`room_id = $${idx++}`); values.push(roomId); }
-      if (brandName !== undefined) { updates.push(`brand_name = $${idx++}`); values.push(brandName); }
-      if (brandLogoUrl !== undefined) { updates.push(`brand_logo_url = $${idx++}`); values.push(brandLogoUrl); }
-      if (sponsorBudgetCoins !== undefined) { updates.push(`sponsor_budget_coins = $${idx++}`); values.push(sponsorBudgetCoins); }
-      if (joinBonusCoins !== undefined) { updates.push(`join_bonus_coins = $${idx++}`); values.push(joinBonusCoins); }
-      if (isActive !== undefined) { updates.push(`is_active = $${idx++}`); values.push(isActive); }
-      if (startsAt !== undefined) { updates.push(`starts_at = $${idx++}`); values.push(startsAt); }
-      if (endsAt !== undefined) { updates.push(`ends_at = $${idx++}`); values.push(endsAt); }
+      const updates: Partial<typeof schema.brandedRooms.$inferInsert> = {};
+      if (roomId !== undefined) updates.roomId = roomId;
+      if (brandName !== undefined) updates.brandName = brandName;
+      if (brandLogoUrl !== undefined) updates.brandLogoUrl = brandLogoUrl;
+      if (sponsorBudgetCoins !== undefined) updates.sponsorBudgetCoins = BigInt(sponsorBudgetCoins);
+      if (joinBonusCoins !== undefined) updates.joinBonusCoins = joinBonusCoins;
+      if (isActive !== undefined) updates.isActive = isActive;
+      if (startsAt !== undefined) updates.startsAt = startsAt ? new Date(startsAt) : null;
+      if (endsAt !== undefined) updates.endsAt = endsAt ? new Date(endsAt) : null;
 
-      if (updates.length === 0) {
+      if (Object.keys(updates).length === 0) {
         throw badRequest("No fields provided to update");
       }
 
-      const { rows } = await db.query<BrandedRoomRow>(
-        `UPDATE branded_rooms
-         SET ${updates.join(", ")}
-         WHERE id = $1
-         RETURNING id, room_id, brand_name, brand_logo_url, sponsor_budget_coins,
-                   join_bonus_coins, is_active, starts_at, ends_at, created_by, created_at`,
-        values
+      const orm = await getDb();
+      const [row] = await orm
+        .update(schema.brandedRooms)
+        .set(updates)
+        .where(eq(schema.brandedRooms.id, brandedRoomId))
+        .returning();
+
+      if (!row) throw notFound("Branded room not found");
+
+      return NextResponse.json(
+        formatBrandedRoom({
+          id: row.id,
+          room_id: row.roomId,
+          brand_name: row.brandName,
+          brand_logo_url: row.brandLogoUrl,
+          sponsor_budget_coins: Number(row.sponsorBudgetCoins),
+          join_bonus_coins: row.joinBonusCoins,
+          is_active: row.isActive ?? false,
+          starts_at: row.startsAt ? row.startsAt.toISOString() : null,
+          ends_at: row.endsAt ? row.endsAt.toISOString() : null,
+          created_by: row.createdBy,
+          created_at: row.createdAt ? row.createdAt.toISOString() : new Date().toISOString(),
+        })
       );
-
-      if (!rows[0]) throw notFound("Branded room not found");
-
-      return NextResponse.json(formatBrandedRoom(rows[0]));
     } catch (err) {
       return handleApiError(err);
     }
@@ -150,12 +160,13 @@ export const DELETE = withAdminAuth<RouteParams>(
     try {
       const { brandedRoomId } = params;
 
-      const { rowCount } = await db.query(
-        `DELETE FROM branded_rooms WHERE id = $1`,
-        [brandedRoomId]
-      );
+      const orm = await getDb();
+      const deleted = await orm
+        .delete(schema.brandedRooms)
+        .where(eq(schema.brandedRooms.id, brandedRoomId))
+        .returning({ id: schema.brandedRooms.id });
 
-      if (!rowCount) throw notFound("Branded room not found");
+      if (deleted.length === 0) throw notFound("Branded room not found");
 
       return new NextResponse(null, { status: 204 });
     } catch (err) {

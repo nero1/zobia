@@ -21,9 +21,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq, sql } from "drizzle-orm";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 const StatusSchema = z.object({
   status: z.enum(["processing", "completed", "failed", "cancelled"]),
@@ -47,22 +48,25 @@ export const PATCH = withAdminAuth(
       const adminId = auth.user.sub;
       const body = await validateBody(req, StatusSchema);
 
-      const { rows } = await db.query<{
-        id: string;
-        creator_id: string;
-        gross_kobo: number;
-        net_kobo: number;
-        status: string;
-        payout_method: string;
-      }>(
-        `SELECT id, creator_id, gross_kobo, net_kobo, status, payout_method
-         FROM creator_payouts WHERE id = $1 LIMIT 1`,
-        [payoutId]
-      );
+      const orm = await getDb();
 
-      if (!rows[0]) throw notFound("Payout not found");
+      const [payout] = await orm
+        .select({
+          id: schema.creatorPayouts.id,
+          creator_id: schema.creatorPayouts.creatorId,
+          gross_kobo: schema.creatorPayouts.grossKobo,
+          net_kobo: schema.creatorPayouts.netKobo,
+          status: schema.creatorPayouts.status,
+          payout_method: schema.creatorPayouts.payoutMethod,
+        })
+        .from(schema.creatorPayouts)
+        .where(eq(schema.creatorPayouts.id, payoutId))
+        .limit(1);
 
-      const payout = rows[0];
+      if (!payout) throw notFound("Payout not found");
+
+      const grossKobo = payout.gross_kobo ?? BigInt(0);
+      const netKobo = payout.net_kobo ?? BigInt(0);
       const allowed = ALLOWED_TRANSITIONS[payout.status] ?? [];
 
       if (!allowed.includes(body.status)) {
@@ -72,53 +76,47 @@ export const PATCH = withAdminAuth(
         );
       }
 
-      await db.transaction(async (tx) => {
-        const updates: string[] = ["status = $1", "updated_at = NOW()"];
-        const queryParams: (string | number)[] = [body.status];
-        let pIdx = 2;
-
+      await orm.transaction(async (tx) => {
+        const setValues: Partial<typeof schema.creatorPayouts.$inferInsert> = {
+          status: body.status,
+          updatedAt: new Date(),
+        };
         if (body.status === "completed") {
-          updates.push(`completed_at = NOW()`);
+          setValues.completedAt = new Date();
         }
-
         if (body.note) {
-          updates.push(`rejection_reason = $${pIdx++}`);
-          queryParams.push(body.note);
+          setValues.rejectionReason = body.note;
         }
 
-        await tx.query(
-          `UPDATE creator_payouts SET ${updates.join(", ")} WHERE id = $${pIdx}`,
-          [...queryParams, payoutId]
-        );
+        await tx.update(schema.creatorPayouts).set(setValues).where(eq(schema.creatorPayouts.id, payoutId));
 
         // Restore earnings on failure or cancellation
         if (body.status === "failed" || body.status === "cancelled") {
-          await tx.query(
-            `UPDATE users
-             SET available_earnings_kobo = available_earnings_kobo + $1, updated_at = NOW()
-             WHERE id = $2`,
-            [payout.gross_kobo, payout.creator_id]
-          );
+          await tx
+            .update(schema.users)
+            .set({
+              availableEarningsKobo: sql`${schema.users.availableEarningsKobo} + ${grossKobo}`,
+              updatedAt: new Date(),
+            })
+            .where(eq(schema.users.id, payout.creator_id));
         }
       });
 
       // Audit log
-      await db
-        .query(
-          `INSERT INTO admin_audit_log
-             (admin_id, action, resource, resource_id, after_val, created_at)
-           VALUES ($1, 'payout_status_updated', 'creator_payouts', $2, $3::jsonb, NOW())`,
-          [
-            adminId,
-            payoutId,
-            JSON.stringify({
-              fromStatus: payout.status,
-              toStatus: body.status,
-              method: payout.payout_method,
-              note: body.note,
-            }),
-          ]
-        )
+      await orm
+        .insert(schema.adminAuditLog)
+        .values({
+          adminId,
+          action: "payout_status_updated",
+          resource: "creator_payouts",
+          resourceId: payoutId,
+          afterVal: {
+            fromStatus: payout.status,
+            toStatus: body.status,
+            method: payout.payout_method,
+            note: body.note,
+          },
+        })
         .catch(() => {});
 
       // Notify creator
@@ -133,26 +131,22 @@ export const PATCH = withAdminAuth(
 
       const notifBody =
         body.status === "completed"
-          ? `Your payout of ₦${(payout.net_kobo / 100).toFixed(2)} has been completed.`
+          ? `Your payout of ₦${(Number(netKobo) / 100).toFixed(2)} has been completed.`
           : body.status === "failed"
           ? "Your payout could not be completed. Your earnings have been restored to your balance."
           : body.status === "cancelled"
           ? "Your payout was cancelled. Your earnings have been restored to your balance."
           : `Your payout status has been updated to: ${body.status}.`;
 
-      await db
-        .query(
-          `INSERT INTO notifications
-             (user_id, type, title, body, metadata, created_at)
-           VALUES ($1, $2, $3, $4, $5::jsonb, NOW())`,
-          [
-            payout.creator_id,
-            `payout_${body.status}`,
-            notifTitle,
-            notifBody,
-            JSON.stringify({ payoutId, status: body.status }),
-          ]
-        )
+      await orm
+        .insert(schema.notifications)
+        .values({
+          userId: payout.creator_id,
+          type: `payout_${body.status}`,
+          title: notifTitle,
+          body: notifBody,
+          metadata: { payoutId, status: body.status },
+        })
         .catch(() => {});
 
       return NextResponse.json({
@@ -162,7 +156,7 @@ export const PATCH = withAdminAuth(
         newStatus: body.status,
         earningsRestored:
           body.status === "failed" || body.status === "cancelled"
-            ? payout.gross_kobo
+            ? Number(grossKobo)
             : undefined,
       });
     } catch (err) {

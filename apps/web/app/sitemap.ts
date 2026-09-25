@@ -17,7 +17,8 @@
  */
 
 import type { MetadataRoute } from "next";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 // Revalidate the sitemap at most once per hour so it doesn't run on every request.
 export const revalidate = 3600;
@@ -46,26 +47,31 @@ const STATIC_PAGES: MetadataRoute.Sitemap = [
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const entries: MetadataRoute.Sitemap = [...STATIC_PAGES];
+  const db = await getDb();
 
   // Public user profiles — those who haven't opted out of sitemap inclusion.
   // PRIVACY-01: use sitemap_opt_out flag instead of activity recency so users
   // can permanently opt out without being silently re-included after activity.
   // Cap reduced to 2000 to keep sitemap files under the 50 MB / 50 000 URL limit.
   try {
-    const { rows: profiles } = await db.query<{ username: string; updated_at: string }>(
-      `SELECT username, updated_at
-       FROM users
-       WHERE deleted_at IS NULL
-         AND sitemap_opt_out = FALSE
-         AND username IS NOT NULL
-       ORDER BY last_active_at DESC NULLS LAST
-       LIMIT 2000`
-    );
+    const profiles = await db
+      .select({ username: schema.users.username, updatedAt: schema.users.updatedAt })
+      .from(schema.users)
+      .where(
+        and(
+          isNull(schema.users.deletedAt),
+          eq(schema.users.sitemapOptOut, false),
+          sql`${schema.users.username} IS NOT NULL`
+        )
+      )
+      .orderBy(sql`${schema.users.lastActiveAt} DESC NULLS LAST`)
+      .limit(2000);
 
     for (const p of profiles) {
+      if (!p.username) continue;
       entries.push({
         url: `${BASE_URL}/u/${encodeURIComponent(p.username)}`,
-        lastModified: new Date(p.updated_at),
+        lastModified: p.updatedAt ?? new Date(),
         changeFrequency: "weekly",
         priority: 0.5,
       });
@@ -78,20 +84,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Served at /r/<slug> (public, SSR, crawlable). Falls back to the UUID for
   // any legacy room not yet backfilled with a slug (still resolves + 301s).
   try {
-    const { rows: rooms } = await db.query<{ id: string; slug: string | null; updated_at: string }>(
-      `SELECT id, slug, updated_at
-       FROM rooms
-       WHERE type = 'free_open'
-         AND deleted_at IS NULL
-         AND is_active = TRUE
-       ORDER BY updated_at DESC NULLS LAST
-       LIMIT 2000`
-    );
+    const rooms = await db
+      .select({ id: schema.rooms.id, slug: schema.rooms.slug, updatedAt: schema.rooms.updatedAt })
+      .from(schema.rooms)
+      .where(and(eq(schema.rooms.type, "free_open"), isNull(schema.rooms.deletedAt), eq(schema.rooms.isActive, true)))
+      .orderBy(sql`${schema.rooms.updatedAt} DESC NULLS LAST`)
+      .limit(2000);
 
     for (const r of rooms) {
       entries.push({
         url: `${BASE_URL}/r/${encodeURIComponent(r.slug ?? r.id)}`,
-        lastModified: new Date(r.updated_at),
+        lastModified: r.updatedAt ?? new Date(),
         changeFrequency: "hourly",
         priority: 0.6,
       });
@@ -102,21 +105,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Public courses (classroom rooms). Served at /c/<slug>.
   try {
-    const { rows: courses } = await db.query<{ id: string; slug: string | null; updated_at: string }>(
-      `SELECT id, slug, updated_at
-       FROM rooms
-       WHERE type = 'classroom'
-         AND deleted_at IS NULL
-         AND is_active = TRUE
-         AND is_public = TRUE
-       ORDER BY updated_at DESC NULLS LAST
-       LIMIT 2000`
-    );
+    const courses = await db
+      .select({ id: schema.rooms.id, slug: schema.rooms.slug, updatedAt: schema.rooms.updatedAt })
+      .from(schema.rooms)
+      .where(
+        and(
+          eq(schema.rooms.type, "classroom"),
+          isNull(schema.rooms.deletedAt),
+          eq(schema.rooms.isActive, true),
+          eq(schema.rooms.isPublic, true)
+        )
+      )
+      .orderBy(sql`${schema.rooms.updatedAt} DESC NULLS LAST`)
+      .limit(2000);
 
     for (const c of courses) {
       entries.push({
         url: `${BASE_URL}/c/${encodeURIComponent(c.slug ?? c.id)}`,
-        lastModified: new Date(c.updated_at),
+        lastModified: c.updatedAt ?? new Date(),
         changeFrequency: "daily",
         priority: 0.6,
       });
@@ -128,20 +134,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Public games. Served at /g/<slug>. The table may not exist on older DBs
   // (pre-0012 migration) — the catch keeps the sitemap working regardless.
   try {
-    const { rows: gameRows } = await db.query<{ slug: string; updated_at: string }>(
-      `SELECT slug, updated_at
-       FROM games
-       WHERE deleted_at IS NULL
-         AND is_active = TRUE
-         AND is_public = TRUE
-       ORDER BY updated_at DESC NULLS LAST
-       LIMIT 2000`
-    );
+    const gameRows = await db
+      .select({ slug: schema.games.slug, updatedAt: schema.games.updatedAt })
+      .from(schema.games)
+      .where(and(isNull(schema.games.deletedAt), eq(schema.games.isActive, true), eq(schema.games.isPublic, true)))
+      .orderBy(sql`${schema.games.updatedAt} DESC NULLS LAST`)
+      .limit(2000);
 
     for (const g of gameRows) {
       entries.push({
         url: `${BASE_URL}/g/${encodeURIComponent(g.slug)}`,
-        lastModified: new Date(g.updated_at),
+        lastModified: g.updatedAt ?? new Date(),
         changeFrequency: "daily",
         priority: 0.5,
       });
@@ -155,19 +158,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // resolves + 301s). The table may not exist on older DBs (pre-0040
   // migration) — the catch keeps the sitemap working regardless.
   try {
-    const { rows: questions } = await db.query<{ id: string; slug: string | null; updated_at: string }>(
-      `SELECT id, slug, updated_at
-       FROM forum_questions
-       WHERE status = 'visible'
-         AND deleted_at IS NULL
-       ORDER BY updated_at DESC NULLS LAST
-       LIMIT 2000`
-    );
+    const questions = await db
+      .select({ id: schema.forumQuestions.id, slug: schema.forumQuestions.slug, updatedAt: schema.forumQuestions.updatedAt })
+      .from(schema.forumQuestions)
+      .where(and(eq(schema.forumQuestions.status, "visible"), isNull(schema.forumQuestions.deletedAt)))
+      .orderBy(sql`${schema.forumQuestions.updatedAt} DESC NULLS LAST`)
+      .limit(2000);
 
     for (const q of questions) {
       entries.push({
         url: `${BASE_URL}/a/${encodeURIComponent(q.slug ?? q.id)}`,
-        lastModified: new Date(q.updated_at),
+        lastModified: q.updatedAt ?? new Date(),
         changeFrequency: "weekly",
         priority: 0.5,
       });
@@ -179,18 +180,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Public blogs. Served at /b/<slug>. The table may not exist on older DBs
   // (pre-0002-blogs migration) — the catch keeps the sitemap working regardless.
   try {
-    const { rows: blogRows } = await db.query<{ slug: string; updated_at: string }>(
-      `SELECT slug, updated_at
-       FROM blogs
-       WHERE deleted_at IS NULL AND status = 'active'
-       ORDER BY updated_at DESC NULLS LAST
-       LIMIT 2000`
-    );
+    const blogRows = await db
+      .select({ slug: schema.blogs.slug, updatedAt: schema.blogs.updatedAt })
+      .from(schema.blogs)
+      .where(and(isNull(schema.blogs.deletedAt), eq(schema.blogs.status, "active")))
+      .orderBy(sql`${schema.blogs.updatedAt} DESC NULLS LAST`)
+      .limit(2000);
 
     for (const b of blogRows) {
       entries.push({
         url: `${BASE_URL}/b/${encodeURIComponent(b.slug)}`,
-        lastModified: new Date(b.updated_at),
+        lastModified: b.updatedAt ?? new Date(),
         changeFrequency: "daily",
         priority: 0.5,
       });
@@ -206,18 +206,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // every other entity type here. The wikis table may not exist on older
   // DBs — the catch keeps the sitemap working regardless.
   try {
-    const { rows: wikiRows } = await db.query<{ id: string; slug: string; updated_at: string }>(
-      `SELECT id, slug, updated_at
-       FROM wikis
-       WHERE deleted_at IS NULL AND status IN ('active', 'paused')
-       ORDER BY updated_at DESC NULLS LAST
-       LIMIT 2000`
-    );
+    const wikiRows = await db
+      .select({ id: schema.wikis.id, slug: schema.wikis.slug, updatedAt: schema.wikis.updatedAt })
+      .from(schema.wikis)
+      .where(and(isNull(schema.wikis.deletedAt), sql`${schema.wikis.status} IN ('active', 'paused')`))
+      .orderBy(sql`${schema.wikis.updatedAt} DESC NULLS LAST`)
+      .limit(2000);
 
     for (const w of wikiRows) {
       entries.push({
         url: `${BASE_URL}/w/${encodeURIComponent(w.slug)}`,
-        lastModified: new Date(w.updated_at),
+        lastModified: w.updatedAt ?? new Date(),
         changeFrequency: "weekly",
         priority: 0.5,
       });
@@ -227,8 +226,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // the overall URL count in check while still surfacing a wiki's most
     // recently-updated content to crawlers.
     if (wikiRows.length > 0) {
-      const { rows: wikiPageRows } = await db.query<{ wiki_slug: string; slug: string; updated_at: string }>(
-        `SELECT * FROM (
+      const wikiPageResult = await db.execute(sql`
+        SELECT * FROM (
            SELECT w.slug AS wiki_slug, p.slug, p.updated_at,
                   ROW_NUMBER() OVER (PARTITION BY p.wiki_id ORDER BY p.updated_at DESC NULLS LAST) AS rn
            FROM wiki_pages p
@@ -238,13 +237,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
          ) ranked
          WHERE rn <= 20
          ORDER BY updated_at DESC NULLS LAST
-         LIMIT 2000`
-      );
+         LIMIT 2000
+      `);
+      const wikiPageRows = wikiPageResult.rows as unknown as Array<{ wiki_slug: string; slug: string; updated_at: string | null }>;
 
       for (const p of wikiPageRows) {
         entries.push({
           url: `${BASE_URL}/w/${encodeURIComponent(p.wiki_slug)}/${encodeURIComponent(p.slug)}`,
-          lastModified: new Date(p.updated_at),
+          lastModified: p.updated_at ? new Date(p.updated_at) : new Date(),
           changeFrequency: "monthly",
           priority: 0.45,
         });
@@ -258,18 +258,17 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // The table may not exist on older DBs (pre-0039-tweets migration) — the
   // catch keeps the sitemap working regardless.
   try {
-    const { rows: tweetRows } = await db.query<{ id: string; created_at: string }>(
-      `SELECT id, created_at
-       FROM tweets
-       WHERE deleted_at IS NULL
-       ORDER BY created_at DESC
-       LIMIT 2000`
-    );
+    const tweetRows = await db
+      .select({ id: schema.tweets.id, createdAt: schema.tweets.createdAt })
+      .from(schema.tweets)
+      .where(isNull(schema.tweets.deletedAt))
+      .orderBy(desc(schema.tweets.createdAt))
+      .limit(2000);
 
     for (const tw of tweetRows) {
       entries.push({
         url: `${BASE_URL}/t/${encodeURIComponent(tw.id)}`,
-        lastModified: new Date(tw.created_at),
+        lastModified: tw.createdAt ?? new Date(),
         changeFrequency: "daily",
         priority: 0.4,
       });
@@ -281,11 +280,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Public polls. Served at /poll/<slug>. The table may not exist on older
   // DBs (pre-0038 migration) — the catch keeps the sitemap working regardless.
   try {
-    const { rows: pollRows } = await db.query<{ slug: string; updated_at: string }>(
-      `SELECT slug, updated_at FROM polls WHERE deleted_at IS NULL AND status = 'active' ORDER BY updated_at DESC NULLS LAST LIMIT 2000`
-    );
+    const pollRows = await db
+      .select({ slug: schema.polls.slug, updatedAt: schema.polls.updatedAt })
+      .from(schema.polls)
+      .where(and(isNull(schema.polls.deletedAt), eq(schema.polls.status, "active")))
+      .orderBy(sql`${schema.polls.updatedAt} DESC NULLS LAST`)
+      .limit(2000);
     for (const p of pollRows) {
-      entries.push({ url: `${BASE_URL}/poll/${encodeURIComponent(p.slug)}`, lastModified: new Date(p.updated_at), changeFrequency: "daily", priority: 0.4 });
+      entries.push({ url: `${BASE_URL}/poll/${encodeURIComponent(p.slug)}`, lastModified: p.updatedAt ?? new Date(), changeFrequency: "daily", priority: 0.4 });
     }
   } catch {
     // Polls table absent or unavailable — skip silently
@@ -293,11 +295,14 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   // Public quizzes. Served at /quiz/<slug>.
   try {
-    const { rows: quizRows } = await db.query<{ slug: string; updated_at: string }>(
-      `SELECT slug, updated_at FROM quizzes WHERE deleted_at IS NULL AND status = 'active' ORDER BY updated_at DESC NULLS LAST LIMIT 2000`
-    );
+    const quizRows = await db
+      .select({ slug: schema.quizzes.slug, updatedAt: schema.quizzes.updatedAt })
+      .from(schema.quizzes)
+      .where(and(isNull(schema.quizzes.deletedAt), eq(schema.quizzes.status, "active")))
+      .orderBy(sql`${schema.quizzes.updatedAt} DESC NULLS LAST`)
+      .limit(2000);
     for (const q of quizRows) {
-      entries.push({ url: `${BASE_URL}/quiz/${encodeURIComponent(q.slug)}`, lastModified: new Date(q.updated_at), changeFrequency: "daily", priority: 0.4 });
+      entries.push({ url: `${BASE_URL}/quiz/${encodeURIComponent(q.slug)}`, lastModified: q.updatedAt ?? new Date(), changeFrequency: "daily", priority: 0.4 });
     }
   } catch {
     // Quizzes table absent or unavailable — skip silently
@@ -306,19 +311,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Public Business Pages. Served at /p/<slug>. The table may not exist on
   // older DBs (pre-0003-business-expansion migration) — skip silently.
   try {
-    const { rows: pageRows } = await db.query<{ slug: string; updated_at: string }>(
-      `SELECT bp.slug, bp.updated_at
-       FROM business_pages bp
-       JOIN business_accounts ba ON ba.id = bp.business_account_id
-       WHERE bp.deleted_at IS NULL AND bp.status = 'active' AND ba.status = 'active'
-       ORDER BY bp.updated_at DESC NULLS LAST
-       LIMIT 2000`
-    );
+    const pageRows = await db
+      .select({ slug: schema.businessPages.slug, updatedAt: schema.businessPages.updatedAt })
+      .from(schema.businessPages)
+      .innerJoin(schema.businessAccounts, eq(schema.businessAccounts.id, schema.businessPages.businessAccountId))
+      .where(
+        and(
+          isNull(schema.businessPages.deletedAt),
+          eq(schema.businessPages.status, "active"),
+          eq(schema.businessAccounts.status, "active")
+        )
+      )
+      .orderBy(sql`${schema.businessPages.updatedAt} DESC NULLS LAST`)
+      .limit(2000);
 
     for (const p of pageRows) {
       entries.push({
         url: `${BASE_URL}/p/${encodeURIComponent(p.slug)}`,
-        lastModified: new Date(p.updated_at),
+        lastModified: p.updatedAt ?? new Date(),
         changeFrequency: "weekly",
         priority: 0.4,
       });
@@ -331,26 +341,32 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // the short canonical /f/<slug>. The tables may not exist on older DBs
   // (pre-0016-bbforum migration) — skip silently.
   try {
-    const { rows: boardRows } = await db.query<{ slug: string; updated_at: string }>(
-      `SELECT slug, updated_at FROM bb_boards WHERE is_active = TRUE ORDER BY sort_order ASC LIMIT 500`
-    );
+    const boardRows = await db
+      .select({ slug: schema.bbBoards.slug, updatedAt: schema.bbBoards.updatedAt })
+      .from(schema.bbBoards)
+      .where(eq(schema.bbBoards.isActive, true))
+      .orderBy(schema.bbBoards.sortOrder)
+      .limit(500);
     entries.push({ url: `${BASE_URL}/forum`, lastModified: new Date(), changeFrequency: "daily", priority: 0.6 });
     for (const b of boardRows) {
       entries.push({
         url: `${BASE_URL}/forum/${encodeURIComponent(b.slug)}`,
-        lastModified: new Date(b.updated_at),
+        lastModified: b.updatedAt ?? new Date(),
         changeFrequency: "daily",
         priority: 0.5,
       });
     }
 
-    const { rows: threadRows } = await db.query<{ slug: string; updated_at: string }>(
-      `SELECT slug, updated_at FROM bb_threads WHERE deleted_at IS NULL AND status = 'visible' ORDER BY updated_at DESC NULLS LAST LIMIT 2000`
-    );
+    const threadRows = await db
+      .select({ slug: schema.bbThreads.slug, updatedAt: schema.bbThreads.updatedAt })
+      .from(schema.bbThreads)
+      .where(and(isNull(schema.bbThreads.deletedAt), eq(schema.bbThreads.status, "visible")))
+      .orderBy(sql`${schema.bbThreads.updatedAt} DESC NULLS LAST`)
+      .limit(2000);
     for (const t of threadRows) {
       entries.push({
         url: `${BASE_URL}/f/${encodeURIComponent(t.slug)}`,
-        lastModified: new Date(t.updated_at),
+        lastModified: t.updatedAt ?? new Date(),
         changeFrequency: "weekly",
         priority: 0.5,
       });
@@ -362,23 +378,37 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Help Center categories + docs. Served at /help/<category>[/<doc>]. The
   // tables may not exist on older DBs (pre-0009 migration) — skip silently.
   try {
-    const { rows: helpCategories } = await db.query<{ slug: string; updated_at: string }>(
-      `SELECT slug, updated_at FROM help_categories WHERE published = true ORDER BY updated_at DESC NULLS LAST LIMIT 500`
-    );
-    for (const c of helpCategories) {
-      entries.push({ url: `${BASE_URL}/help/${encodeURIComponent(c.slug)}`, lastModified: new Date(c.updated_at), changeFrequency: "weekly", priority: 0.5 });
+    const helpCategoryRows = await db
+      .select({ slug: schema.helpCategories.slug, updatedAt: schema.helpCategories.updatedAt })
+      .from(schema.helpCategories)
+      .where(eq(schema.helpCategories.published, true))
+      .orderBy(sql`${schema.helpCategories.updatedAt} DESC NULLS LAST`)
+      .limit(500);
+    for (const c of helpCategoryRows) {
+      entries.push({ url: `${BASE_URL}/help/${encodeURIComponent(c.slug)}`, lastModified: c.updatedAt ?? new Date(), changeFrequency: "weekly", priority: 0.5 });
     }
 
-    const { rows: helpDocs } = await db.query<{ category_slug: string; doc_slug: string; updated_at: string }>(
-      `SELECT c.slug AS category_slug, d.slug AS doc_slug, d.updated_at
-       FROM help_docs d JOIN help_categories c ON c.id = d.category_id
-       WHERE d.published = true AND c.published = true AND d.deleted_at IS NULL
-       ORDER BY d.updated_at DESC NULLS LAST LIMIT 2000`
-    );
-    for (const d of helpDocs) {
+    const helpDocRows = await db
+      .select({
+        categorySlug: schema.helpCategories.slug,
+        docSlug: schema.helpDocs.slug,
+        updatedAt: schema.helpDocs.updatedAt,
+      })
+      .from(schema.helpDocs)
+      .innerJoin(schema.helpCategories, eq(schema.helpCategories.id, schema.helpDocs.categoryId))
+      .where(
+        and(
+          eq(schema.helpDocs.published, true),
+          eq(schema.helpCategories.published, true),
+          isNull(schema.helpDocs.deletedAt)
+        )
+      )
+      .orderBy(sql`${schema.helpDocs.updatedAt} DESC NULLS LAST`)
+      .limit(2000);
+    for (const d of helpDocRows) {
       entries.push({
-        url: `${BASE_URL}/help/${encodeURIComponent(d.category_slug)}/${encodeURIComponent(d.doc_slug)}`,
-        lastModified: new Date(d.updated_at),
+        url: `${BASE_URL}/help/${encodeURIComponent(d.categorySlug)}/${encodeURIComponent(d.docSlug)}`,
+        lastModified: d.updatedAt ?? new Date(),
         changeFrequency: "monthly",
         priority: 0.55,
       });

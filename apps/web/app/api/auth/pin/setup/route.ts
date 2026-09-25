@@ -13,7 +13,7 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -76,13 +76,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Upsert: insert new PIN or update existing one
-    await db.query(
-      `INSERT INTO user_pins (user_id, pin_hash, created_at, updated_at)
-       VALUES ($1, $2, NOW(), NOW())
-       ON CONFLICT (user_id)
-       DO UPDATE SET pin_hash = $2, updated_at = NOW()`,
-      [auth.user.sub, pinHash]
-    );
+    const orm = await getDb();
+    await orm
+      .insert(schema.userPins)
+      .values({ userId: auth.user.sub, pinHash })
+      .onConflictDoUpdate({
+        target: schema.userPins.userId,
+        set: { pinHash, updatedAt: new Date() },
+      });
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {

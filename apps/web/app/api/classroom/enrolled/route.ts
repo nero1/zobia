@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -49,8 +50,9 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<EnrolledRow>(
-      `SELECT
+    const orm = await getDb();
+    const { rows } = await orm.execute<EnrolledRow & Record<string, unknown>>(sql`
+      SELECT
          r.id,
          r.slug,
          r.name AS title,
@@ -87,10 +89,9 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
          JOIN classroom_quizzes q ON q.id = a.quiz_id
          WHERE q.room_id = r.id AND a.user_id = ce.user_id
        ) qa ON TRUE
-       WHERE ce.user_id = $1 AND r.deleted_at IS NULL
-       ORDER BY GREATEST(ce.enrolled_at, ce.last_active_at, qa.last_attempt_at) DESC NULLS LAST`,
-      [userId]
-    );
+       WHERE ce.user_id = ${userId} AND r.deleted_at IS NULL
+       ORDER BY GREATEST(ce.enrolled_at, ce.last_active_at, qa.last_attempt_at) DESC NULLS LAST
+    `);
 
     const rooms = rows.map((row) => ({
       id: row.id,

@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -51,21 +52,29 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
       }
 
       // Verify the user owns this frame (it must exist as a badge_key in their user_badges)
-      const { rows } = await db.query<{ id: string }>(
-        `SELECT id FROM user_badges
-         WHERE user_id = $1 AND badge_key = $2
-         LIMIT 1`,
-        [auth.user.sub, frameId]
-      );
+      const orm = await getDb();
+      const [row] = await orm
+        .select({ id: schema.userBadges.id })
+        .from(schema.userBadges)
+        .where(
+          and(
+            eq(schema.userBadges.userId, auth.user.sub),
+            eq(schema.userBadges.badgeKey, frameId)
+          )
+        )
+        .limit(1);
 
-      if (!rows[0]) {
+      if (!row) {
         return forbidden("You do not own this frame. Earn it through Prestige progression.");
       }
     }
 
-    await db.query(
-      `UPDATE users SET active_frame_id = $1, updated_at = NOW() WHERE id = $2`,
-      [frameId, auth.user.sub]
+    // `users.active_frame_id` has no Drizzle column definition in
+    // lib/db/schema.ts, so this stays a `sql` template through the Drizzle
+    // instance instead of the query builder.
+    const orm = await getDb();
+    await orm.execute(
+      sql`UPDATE users SET active_frame_id = ${frameId}, updated_at = NOW() WHERE id = ${auth.user.sub}`
     );
 
     return NextResponse.json({
@@ -83,22 +92,25 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
 
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
-    const { rows } = await db.query<{
+    const orm = await getDb();
+    // `users.active_frame_id` has no Drizzle column definition in
+    // lib/db/schema.ts, so this stays a `sql` template through the Drizzle
+    // instance instead of the query builder.
+    const { rows } = await orm.execute<{
       active_frame_id: string | null;
       owned_frames: string[];
-    }>(
-      `SELECT
+    }>(sql`
+      SELECT
          u.active_frame_id,
          COALESCE(
-           ARRAY_AGG(ub.badge_key) FILTER (WHERE ub.badge_key = ANY($2::text[])),
+           ARRAY_AGG(ub.badge_key) FILTER (WHERE ub.badge_key = ANY(${VALID_FRAME_IDS}::text[])),
            '{}'::text[]
          ) AS owned_frames
        FROM users u
        LEFT JOIN user_badges ub ON ub.user_id = u.id
-       WHERE u.id = $1
-       GROUP BY u.active_frame_id`,
-      [auth.user.sub, VALID_FRAME_IDS]
-    );
+       WHERE u.id = ${auth.user.sub}
+       GROUP BY u.active_frame_id
+    `);
 
     return NextResponse.json({
       success: true,

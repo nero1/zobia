@@ -27,7 +27,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { withAdminAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
@@ -51,13 +52,13 @@ interface OutageAlertRow {
 
 async function computeUptime(windowDays: number, now: Date): Promise<{ uptimePercent: number; outageMinutes: number; windowDays: number }> {
   const windowStart = new Date(now.getTime() - windowDays * 24 * 3_600_000);
-  const { rows } = await db.query<OutageAlertRow>(
-    `SELECT created_at, resolved_at FROM system_alerts
+  const orm = await getDb();
+  const { rows } = await orm.execute<OutageAlertRow & Record<string, unknown>>(sql`
+    SELECT created_at, resolved_at FROM system_alerts
      WHERE priority_level = 1 AND category = 'site'
-       AND created_at < $2
-       AND (resolved_at IS NULL OR resolved_at > $1)`,
-    [windowStart.toISOString(), now.toISOString()]
-  );
+       AND created_at < ${now.toISOString()}
+       AND (resolved_at IS NULL OR resolved_at > ${windowStart.toISOString()})
+  `);
 
   let outageMs = 0;
   for (const row of rows) {
@@ -77,14 +78,14 @@ async function computeUptime(windowDays: number, now: Date): Promise<{ uptimePer
 
 async function computeAlertVolume(now: Date) {
   const dayAgo = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+  const orm = await getDb();
   const [{ rows: last24h }, { rows: active }] = await Promise.all([
-    db.query<{ priority_level: number; count: string }>(
-      `SELECT priority_level, COUNT(*)::text AS count FROM system_alerts WHERE created_at >= $1 GROUP BY priority_level`,
-      [dayAgo]
-    ),
-    db.query<{ priority_level: number; count: string }>(
-      `SELECT priority_level, COUNT(*)::text AS count FROM system_alerts WHERE resolved = false GROUP BY priority_level`
-    ),
+    orm.execute<{ priority_level: number; count: string }>(sql`
+      SELECT priority_level, COUNT(*)::text AS count FROM system_alerts WHERE created_at >= ${dayAgo} GROUP BY priority_level
+    `),
+    orm.execute<{ priority_level: number; count: string }>(sql`
+      SELECT priority_level, COUNT(*)::text AS count FROM system_alerts WHERE resolved = false GROUP BY priority_level
+    `),
   ]);
   const toMap = (rows: { priority_level: number; count: string }[]) => {
     const map: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
@@ -105,7 +106,8 @@ interface CronStateRow {
 }
 
 async function computeCronHealth(now: Date) {
-  const { rows } = await db.query<CronStateRow>(`SELECT key, value_ts, updated_at FROM cron_state ORDER BY key ASC LIMIT 100`);
+  const orm = await getDb();
+  const { rows } = await orm.execute<CronStateRow & Record<string, unknown>>(sql`SELECT key, value_ts, updated_at FROM cron_state ORDER BY key ASC LIMIT 100`);
   return rows.map((r) => {
     const lastRun = r.value_ts ?? r.updated_at;
     const ageHours = (now.getTime() - new Date(lastRun).getTime()) / 3_600_000;
@@ -145,10 +147,11 @@ interface RecentAlertRow {
 }
 
 async function computeRecentLog() {
-  const { rows } = await db.query<RecentAlertRow>(
-    `SELECT id, type, title, priority_level, category, resolved, created_at
-     FROM system_alerts ORDER BY created_at DESC LIMIT 20`
-  );
+  const orm = await getDb();
+  const { rows } = await orm.execute<RecentAlertRow & Record<string, unknown>>(sql`
+    SELECT id, type, title, priority_level, category, resolved, created_at
+     FROM system_alerts ORDER BY created_at DESC LIMIT 20
+  `);
   return rows.map((r) => ({
     id: r.id,
     type: r.type,

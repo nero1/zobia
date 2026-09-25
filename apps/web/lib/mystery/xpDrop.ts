@@ -14,7 +14,8 @@
  */
 
 import { randomInt as cryptoRandomInt, randomUUID } from "node:crypto";
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import { sql } from "drizzle-orm";
+import type { DbOrTx } from "@/lib/db/drizzle";
 import { XP_VALUES } from "@/lib/xp/engine";
 
 // ---------------------------------------------------------------------------
@@ -44,12 +45,12 @@ const MAX_XP = XP_VALUES.mystery_xp_drop_max;
  * Each award is recorded in xp_ledger with source = 'mystery_drop'.
  * Users who already received a mystery drop in the last 24 hours are skipped.
  *
- * @param db        - Active database adapter.
+ * @param db        - Active database handle (drizzle instance or tx).
  * @param batchSize - How many users to award (default 50).
  * @returns Summary of awards made.
  */
 export async function triggerMysteryXPDrop(
-  db: DatabaseAdapter,
+  db: DbOrTx,
   batchSize: number = DEFAULT_BATCH_SIZE
 ): Promise<{ totalAwarded: number; totalXP: number; recipients: string[] }> {
   // Batch ID for idempotency — prevents duplicate awards on retry (L-03)
@@ -63,36 +64,34 @@ export async function triggerMysteryXPDrop(
   // TABLESAMPLE avoids a full-table scan that ORDER BY RANDOM() would cause.
   // BUG-XP-ACTION-01: xp_ledger has no `action` column — eligibility check must
   // use `source` instead of `action` to match the actual schema.
-  const eligibleResult = await db.query<{ id: string }>(
-    `SELECT u.id
-     FROM users u TABLESAMPLE BERNOULLI(5)
-     WHERE u.deleted_at IS NULL
-       AND u.last_active_at >= $1
-       AND u.id NOT IN (
-         SELECT user_id FROM xp_ledger
-         WHERE source = 'mystery_drop'
-           AND created_at >= NOW() - INTERVAL '24 hours'
-       )
-     LIMIT $2`,
-    [activeSince, batchSize]
-  );
+  const eligibleResult = await db.execute<{ id: string }>(sql`
+    SELECT u.id
+    FROM users u TABLESAMPLE BERNOULLI(5)
+    WHERE u.deleted_at IS NULL
+      AND u.last_active_at >= ${activeSince}
+      AND u.id NOT IN (
+        SELECT user_id FROM xp_ledger
+        WHERE source = 'mystery_drop'
+          AND created_at >= NOW() - INTERVAL '24 hours'
+      )
+    LIMIT ${batchSize}
+  `);
 
   let eligibleRows = eligibleResult.rows;
   if (eligibleRows.length < Math.ceil(batchSize / 2)) {
-    const fallback = await db.query<{ id: string }>(
-      `SELECT u.id
-       FROM users u
-       WHERE u.deleted_at IS NULL
-         AND u.last_active_at >= $1
-         AND u.id NOT IN (
-           SELECT user_id FROM xp_ledger
-           WHERE source = 'mystery_drop'
-             AND created_at >= NOW() - INTERVAL '24 hours'
-         )
-       ORDER BY RANDOM()
-       LIMIT $2`,
-      [activeSince, batchSize]
-    );
+    const fallback = await db.execute<{ id: string }>(sql`
+      SELECT u.id
+      FROM users u
+      WHERE u.deleted_at IS NULL
+        AND u.last_active_at >= ${activeSince}
+        AND u.id NOT IN (
+          SELECT user_id FROM xp_ledger
+          WHERE source = 'mystery_drop'
+            AND created_at >= NOW() - INTERVAL '24 hours'
+        )
+      ORDER BY RANDOM()
+      LIMIT ${batchSize}
+    `);
     eligibleRows = fallback.rows;
   }
 
@@ -106,22 +105,21 @@ export async function triggerMysteryXPDrop(
     const referenceId = `mystery_drop:${batchId}:${id}`;
 
     try {
-      await db.transaction(async (client) => {
+      await db.transaction(async (tx) => {
         // FIX-C05/M05: atomic CTE — the UPDATE only fires when the ledger INSERT
         // actually inserts a new row (eliminates TOCTOU for concurrent CRON runs).
         // ON CONFLICT target now matches the actual partial unique index columns
         // (user_id, source, reference_id) added in migration 0003.
-        await client.query(
-          `WITH ins AS (
-             INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, reference_id, created_at)
-             VALUES ($1, $2, 'main', 'mystery_drop', $2, $3, NOW())
-             ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-             RETURNING id
-           )
-           UPDATE users SET xp_total = xp_total + $2, updated_at = NOW()
-           WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
-          [id, xpAmount, referenceId]
-        );
+        await tx.execute(sql`
+          WITH ins AS (
+            INSERT INTO xp_ledger (user_id, amount, track, source, base_amount, reference_id, created_at)
+            VALUES (${id}, ${xpAmount}, 'main', 'mystery_drop', ${xpAmount}, ${referenceId}, NOW())
+            ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+            RETURNING id
+          )
+          UPDATE users SET xp_total = xp_total + ${xpAmount}, updated_at = NOW()
+          WHERE id = ${id} AND EXISTS (SELECT 1 FROM ins)
+        `);
       });
 
       recipients.push(id);

@@ -13,21 +13,31 @@ import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getAvailableProfileThemes } from "@/lib/profile/themes";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
-    const { rows } = await db.query<{ plan: string; active_profile_theme_id: string; business_account_id: string | null }>(
-      `SELECT u.plan, u.active_profile_theme_id, ba.id AS business_account_id
-       FROM users u
-       LEFT JOIN business_accounts ba ON ba.user_id = u.id
-       WHERE u.id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
-    const user = rows[0];
+    const orm = await getDb();
+    const [user] = await orm
+      .select({
+        plan: schema.users.plan,
+        active_profile_theme_id: schema.users.activeProfileThemeId,
+        business_account_id: schema.businessAccounts.id,
+      })
+      .from(schema.users)
+      .leftJoin(schema.businessAccounts, eq(schema.businessAccounts.userId, schema.users.id))
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
     const businessTier = user?.business_account_id
-      ? (await db.query<{ tier: string }>(`SELECT tier FROM business_accounts WHERE user_id = $1 LIMIT 1`, [auth.user.sub])).rows[0]?.tier ?? null
+      ? (
+          await orm
+            .select({ tier: schema.businessAccounts.tier })
+            .from(schema.businessAccounts)
+            .where(eq(schema.businessAccounts.userId, auth.user.sub))
+            .limit(1)
+        )[0]?.tier ?? null
       : null;
 
     const themes = await getAvailableProfileThemes(auth.user.sub, user?.active_profile_theme_id ?? "classic", user?.plan ?? "free", businessTier);

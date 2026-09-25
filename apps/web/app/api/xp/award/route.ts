@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, unauthorized, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -176,28 +177,57 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const body = await validateBody(req, awardXpSchema);
 
-    const result = await db.transaction(async (client) => {
-      // 1. Lock user row for update
-      const userResult = await client.query<UserRow>(
-        `SELECT id, xp_total, legacy_score, rank_name, rank_level, rank_sublevel, city,
-                xp_social, xp_creator, xp_competitor, xp_generosity, xp_knowledge, xp_explorer,
-                prestige_cycle_boost_expires_at, gender, creator_tier, is_creator
-         FROM users
-         WHERE id = $1 AND deleted_at IS NULL
-         FOR UPDATE`,
-        [body.userId]
-      );
+    const orm = await getDb();
 
-      const user = userResult.rows[0];
-      if (!user) throw notFound(`User ${body.userId} not found`);
+    const result = await orm.transaction(async (client) => {
+      // 1. Lock user row for update
+      const userRows = await client
+        .select({
+          id: schema.users.id,
+          xp_total: schema.users.xpTotal,
+          legacy_score: schema.users.legacyScore,
+          rank_name: schema.users.rankName,
+          rank_level: schema.users.rankLevel,
+          rank_sublevel: schema.users.rankSublevel,
+          city: schema.users.city,
+          xp_social: schema.users.xpSocial,
+          xp_creator: schema.users.xpCreator,
+          xp_competitor: schema.users.xpCompetitor,
+          xp_generosity: schema.users.xpGenerosity,
+          xp_knowledge: schema.users.xpKnowledge,
+          xp_explorer: schema.users.xpExplorer,
+          prestige_cycle_boost_expires_at: schema.users.prestigeCycleBoostExpiresAt,
+          gender: schema.users.gender,
+          creator_tier: schema.users.creatorTier,
+          is_creator: schema.users.isCreator,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, body.userId), isNull(schema.users.deletedAt)))
+        .for("update");
+
+      const userRow = userRows[0];
+      if (!userRow) throw notFound(`User ${body.userId} not found`);
+      const user: UserRow = {
+        ...userRow,
+        xp_total: Number(userRow.xp_total),
+        legacy_score: Number(userRow.legacy_score),
+        xp_social: Number(userRow.xp_social),
+        xp_creator: Number(userRow.xp_creator),
+        xp_competitor: Number(userRow.xp_competitor),
+        xp_generosity: Number(userRow.xp_generosity),
+        xp_knowledge: Number(userRow.xp_knowledge),
+        xp_explorer: Number(userRow.xp_explorer),
+        prestige_cycle_boost_expires_at: userRow.prestige_cycle_boost_expires_at
+          ? userRow.prestige_cycle_boost_expires_at.toISOString()
+          : null,
+      };
 
       // Check for active XP booster in DB (overrides caller-provided value)
-      const { rows: boosterRows } = await client.query<{ id: string }>(
-        `SELECT id FROM user_xp_boosters
-         WHERE user_id = $1 AND expires_at > NOW()
-         LIMIT 1`,
-        [body.userId]
-      );
+      const boosterRows = await client
+        .select({ id: schema.userXpBoosters.id })
+        .from(schema.userXpBoosters)
+        .where(and(eq(schema.userXpBoosters.userId, body.userId), gt(schema.userXpBoosters.expiresAt, sql`NOW()`)))
+        .limit(1);
       const hasActiveXPBooster = boosterRows.length > 0;
       // Override the multiplier context with the real value
       body.multiplierContext.hasActiveXPBooster = hasActiveXPBooster;
@@ -206,36 +236,42 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       // When a flash_xp_event has been fired (fired=TRUE) and is still within
       // its window (fires_at <= NOW() <= ends_at), apply the event's multiplier
       // on top of all other multipliers. Users benefit automatically — no opt-in needed.
-      const { rows: flashRows } = await client.query<{ multiplier: string }>(
-        `SELECT multiplier::TEXT AS multiplier
-         FROM flash_xp_events
-         WHERE is_active = TRUE
-           AND fired = TRUE
-           AND fires_at <= NOW()
-           AND ends_at > NOW()
-         ORDER BY multiplier DESC
-         LIMIT 1`
-      );
+      const flashRows = await client
+        .select({ multiplier: sql<string>`${schema.flashXpEvents.multiplier}::TEXT` })
+        .from(schema.flashXpEvents)
+        .where(
+          and(
+            eq(schema.flashXpEvents.isActive, true),
+            eq(schema.flashXpEvents.fired, true),
+            sql`${schema.flashXpEvents.firesAt} <= NOW()`,
+            gt(schema.flashXpEvents.endsAt, sql`NOW()`)
+          )
+        )
+        .orderBy(desc(schema.flashXpEvents.multiplier))
+        .limit(1);
       const activeFlashMultiplier = flashRows.length > 0 ? parseFloat(flashRows[0].multiplier) : 1.0;
 
       // Check for active cultural platform_events that apply an XP multiplier.
       // Events with female_creator_only=true in metadata only apply to female creators.
-      const { rows: culturalRows } = await client.query<{
-        xp_multiplier: string;
-        metadata: Record<string, unknown>;
-      }>(
-        `SELECT xp_multiplier::TEXT AS xp_multiplier, metadata
-         FROM platform_events
-         WHERE event_type = 'cultural'
-           AND starts_at <= NOW()
-           AND ends_at > NOW()
-           AND xp_multiplier > 1
-         ORDER BY xp_multiplier DESC
-         LIMIT 5`
-      );
+      const culturalRows = await client
+        .select({
+          xp_multiplier: sql<string>`${schema.platformEvents.xpMultiplier}::TEXT`,
+          metadata: schema.platformEvents.metadata,
+        })
+        .from(schema.platformEvents)
+        .where(
+          and(
+            eq(schema.platformEvents.eventType, "cultural"),
+            sql`${schema.platformEvents.startsAt} <= NOW()`,
+            gt(schema.platformEvents.endsAt, sql`NOW()`),
+            sql`${schema.platformEvents.xpMultiplier} > 1`
+          )
+        )
+        .orderBy(desc(schema.platformEvents.xpMultiplier))
+        .limit(5);
       let activeCulturalMultiplier = 1.0;
       for (const evt of culturalRows) {
-        const meta = evt.metadata ?? {};
+        const meta = (evt.metadata as Record<string, unknown>) ?? {};
         const femaleOnly = meta.female_creator_only === true;
         if (femaleOnly) {
           const isFemaleCreator = user.gender === 'female' && user.is_creator;
@@ -282,18 +318,14 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const track = ACTION_TRACKS[body.action] ?? null;
 
       // 4. Write to xp_ledger (append-only)
-      await client.query(
+      await client.insert(schema.xpLedger).values({
         // xp_ledger has no `multiplier` column (it is derivable as amount / base_amount).
-        `INSERT INTO xp_ledger (user_id, amount, track, source, base_amount)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [
-          body.userId,
-          xpAwarded,
-          track ?? "main",
-          body.action,
-          baseXp,
-        ]
-      );
+        userId: body.userId,
+        amount: xpAwarded,
+        track: track ?? "main",
+        source: body.action,
+        baseAmount: baseXp,
+      });
 
       // 5. Compute new totals and rank
       const newXpTotal = user.xp_total + xpAwarded;
@@ -302,45 +334,49 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       const rankBefore = getRankForXP(user.xp_total);
       const rankAfter = getRankForXP(newXpTotal);
 
-      // Build SET clause for users update
-      const setClauses: string[] = [
-        "xp_total = $2",
-        "legacy_score = $3",
-        "rank_name = $4",
-        "rank_level = $5",
-        "rank_sublevel = $6",
-        "updated_at = NOW()",
-      ];
-      const params: SqlParam[] = [
-        body.userId,
-        newXpTotal,
-        newLegacyScore,
-        rankAfter.rankName,
-        rankAfter.rankNumber,
-        rankAfter.sublevel,
-      ];
-      let paramIdx = params.length + 1;
-
       // Update track XP column if applicable
       let newTrackXp: number | null = null;
       let newTrackLevel: number | null = null;
+      const trackUpdates: Partial<typeof schema.users.$inferInsert> = {};
       if (track && TRACK_COLUMN[track]) {
         const currentTrackXp = ((user as unknown) as Record<string, number>)[`xp_${track}`] ?? 0;
         newTrackXp = currentTrackXp + xpAwarded;
         const trackLevelInfo = getTrackLevelForXP(track as Parameters<typeof getTrackLevelForXP>[0], newTrackXp);
         newTrackLevel = trackLevelInfo.level;
 
-        setClauses.push(`${TRACK_COLUMN[track]} = $${paramIdx++}`);
-        params.push(newTrackXp);
-        setClauses.push(`${TRACK_LEVEL_COLUMN[track]} = $${paramIdx++}`);
-        params.push(newTrackLevel);
+        const TRACK_XP_KEY: Record<string, keyof typeof schema.users.$inferInsert> = {
+          social: "xpSocial",
+          creator: "xpCreator",
+          competitor: "xpCompetitor",
+          generosity: "xpGenerosity",
+          knowledge: "xpKnowledge",
+          explorer: "xpExplorer",
+        };
+        const TRACK_LEVEL_KEY: Record<string, keyof typeof schema.users.$inferInsert> = {
+          social: "levelSocial",
+          creator: "levelCreator",
+          competitor: "levelCompetitor",
+          generosity: "levelGenerosity",
+          knowledge: "levelKnowledge",
+          explorer: "levelExplorer",
+        };
+        (trackUpdates as Record<string, unknown>)[TRACK_XP_KEY[track]] = BigInt(newTrackXp);
+        (trackUpdates as Record<string, unknown>)[TRACK_LEVEL_KEY[track]] = newTrackLevel;
       }
 
       // 6. Atomic update of users row
-      await client.query(
-        `UPDATE users SET ${setClauses.join(", ")} WHERE id = $1`,
-        params as import("@/lib/db").SqlParam[]
-      );
+      await client
+        .update(schema.users)
+        .set({
+          xpTotal: BigInt(newXpTotal),
+          legacyScore: BigInt(newLegacyScore),
+          rankName: rankAfter.rankName,
+          rankLevel: rankAfter.rankNumber,
+          rankSublevel: rankAfter.sublevel,
+          updatedAt: sql`NOW()`,
+          ...trackUpdates,
+        })
+        .where(eq(schema.users.id, body.userId));
 
       // 7. Detect rank-up
       const didRankUp =
@@ -356,86 +392,98 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           sublevelTo: rankAfter.sublevel,
         };
         // Log the rank-up event
-        await client.query(
-          `INSERT INTO rank_up_events (user_id, rank_from, rank_to, xp_at_event)
-           VALUES ($1, $2, $3, $4)
-           ON CONFLICT DO NOTHING`,
-          [body.userId, rankBefore.rankName, rankAfter.rankName, newXpTotal]
-        ).catch(() => {});
+        await client
+          .insert(schema.rankUpEvents)
+          .values({
+            userId: body.userId,
+            rankFrom: rankBefore.rankName,
+            rankTo: rankAfter.rankName,
+            xpAtEvent: BigInt(newXpTotal),
+          })
+          .onConflictDoNothing()
+          .catch(() => {});
 
         // Notify the user of their rank-up
-        await client.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'rank_up', $2, false, NOW())`,
-          [body.userId, JSON.stringify({ from: rankBefore.rankName, to: rankAfter.rankName, sublevelTo: rankAfter.sublevel })]
-        ).catch(() => {});
+        await client
+          .insert(schema.notifications)
+          .values({
+            userId: body.userId,
+            type: "rank_up",
+            payload: { from: rankBefore.rankName, to: rankAfter.rankName, sublevelTo: rankAfter.sublevel },
+            isRead: false,
+          })
+          .catch(() => {});
 
         // Elder mentorship rank-up celebration — notify both parties (PRD §7)
-        const { rows: elderRows } = await client.query<{ elder_id: string }>(
-          `SELECT elder_id FROM elder_mentorships WHERE mentee_id = $1 AND ended_at IS NULL LIMIT 1`,
-          [body.userId]
-        ).catch(() => ({ rows: [] as Array<{ elder_id: string }> }));
+        const elderRows = await client
+          .select({ elder_id: schema.elderMentorships.elderId })
+          .from(schema.elderMentorships)
+          .where(and(eq(schema.elderMentorships.menteeId, body.userId), isNull(schema.elderMentorships.endedAt)))
+          .limit(1)
+          .catch(() => [] as Array<{ elder_id: string }>);
 
         if (elderRows[0]) {
-          const celebPayload = JSON.stringify({
+          const celebPayload = {
             menteeId: body.userId,
             elderId: elderRows[0].elder_id,
             rankTo: rankAfter.rankName,
-          });
+          };
           await Promise.all([
-            client.query(
-              `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-               VALUES ($1, 'mentee_rank_up', $2, false, NOW())`,
-              [elderRows[0].elder_id, celebPayload]
-            ).catch(() => {}),
-            client.query(
-              `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-               VALUES ($1, 'mentee_rank_up_self', $2, false, NOW())`,
-              [body.userId, celebPayload]
-            ).catch(() => {}),
+            client
+              .insert(schema.notifications)
+              .values({ userId: elderRows[0].elder_id, type: "mentee_rank_up", payload: celebPayload, isRead: false })
+              .catch(() => {}),
+            client
+              .insert(schema.notifications)
+              .values({ userId: body.userId, type: "mentee_rank_up_self", payload: celebPayload, isRead: false })
+              .catch(() => {}),
           ]);
         }
       }
 
       // 8. Update leaderboard_snapshots (upsert for main + city scopes, plus track-specific)
-      await client.query(
-        `INSERT INTO leaderboard_snapshots (user_id, track, scope, city, xp_value, updated_at)
-         VALUES ($1, 'main', 'global', NULL, $2, NOW())
-         ON CONFLICT (user_id, track, scope, city, season_id)
-         DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
-        [body.userId, newXpTotal]
-      ).catch(() => {
+      // NOTE: the actual unique index on leaderboard_snapshots (see
+      // lib/db/schema.ts) is an expression index on
+      // (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, '')),
+      // not a plain (user_id, track, scope, city, season_id) constraint — the
+      // conflict target below matches the real index so the upsert can
+      // actually take its DO UPDATE path; every call is still wrapped in
+      // .catch() exactly as before, so the outer transaction is never put at
+      // risk by this best-effort read-model write.
+      await client.execute(sql`
+        INSERT INTO leaderboard_snapshots (user_id, track, scope, city, xp_value, updated_at)
+        VALUES (${body.userId}, 'main', 'global', NULL, ${newXpTotal}, NOW())
+        ON CONFLICT (user_id, track, scope, (COALESCE(city, '')), (COALESCE(season_id::text, '')))
+        DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()
+      `).catch(() => {
         // leaderboard_snapshots may not exist yet – non-fatal
       });
 
       if (user.city) {
-        await client.query(
-          `INSERT INTO leaderboard_snapshots (user_id, track, scope, city, xp_value, updated_at)
-           VALUES ($1, 'main', 'city', $2, $3, NOW())
-           ON CONFLICT (user_id, track, scope, city, season_id)
-           DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
-          [body.userId, user.city, newXpTotal]
-        ).catch(() => {});
+        await client.execute(sql`
+          INSERT INTO leaderboard_snapshots (user_id, track, scope, city, xp_value, updated_at)
+          VALUES (${body.userId}, 'main', 'city', ${user.city}, ${newXpTotal}, NOW())
+          ON CONFLICT (user_id, track, scope, (COALESCE(city, '')), (COALESCE(season_id::text, '')))
+          DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()
+        `).catch(() => {});
       }
 
       // BUG-056: Also upsert track-specific leaderboard rows so per-track
       // leaderboards reflect the awarded XP in real time.
       if (track && TRACK_COLUMN[track] && newTrackXp !== null) {
-        await client.query(
-          `INSERT INTO leaderboard_snapshots (user_id, track, scope, city, xp_value, updated_at)
-           VALUES ($1, $2, 'global', NULL, $3, NOW())
-           ON CONFLICT (user_id, track, scope, city, season_id)
-           DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
-          [body.userId, track, newTrackXp]
-        ).catch(() => {});
+        await client.execute(sql`
+          INSERT INTO leaderboard_snapshots (user_id, track, scope, city, xp_value, updated_at)
+          VALUES (${body.userId}, ${track}, 'global', NULL, ${newTrackXp}, NOW())
+          ON CONFLICT (user_id, track, scope, (COALESCE(city, '')), (COALESCE(season_id::text, '')))
+          DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()
+        `).catch(() => {});
         if (user.city) {
-          await client.query(
-            `INSERT INTO leaderboard_snapshots (user_id, track, scope, city, xp_value, updated_at)
-             VALUES ($1, $2, 'city', $3, $4, NOW())
-             ON CONFLICT (user_id, track, scope, city, season_id)
-             DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
-            [body.userId, track, user.city, newTrackXp]
-          ).catch(() => {});
+          await client.execute(sql`
+            INSERT INTO leaderboard_snapshots (user_id, track, scope, city, xp_value, updated_at)
+            VALUES (${body.userId}, ${track}, 'city', ${user.city}, ${newTrackXp}, NOW())
+            ON CONFLICT (user_id, track, scope, (COALESCE(city, '')), (COALESCE(season_id::text, '')))
+            DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()
+          `).catch(() => {});
         }
       }
 
@@ -463,12 +511,13 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
           body.userId,
           result._trackForMilestones,
           trackLevel,
-          db
+          await getDb()
         );
         // Award sticker packs for each newly unlocked milestone
         for (const milestone of milestoneUnlocks) {
           try {
-            const awarded = await awardMilestoneStickers(body.userId, milestone.unlockKey, db);
+            const orm = await getDb();
+            const awarded = await awardMilestoneStickers(body.userId, milestone.unlockKey, orm);
             stickerPacksAwarded.push(...awarded);
           } catch {
             // Non-fatal — sticker grant failure never breaks XP award
@@ -494,41 +543,51 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
     const questStep = NEW_MEMBER_QUEST_STEP_MAP[body.action];
     if (questStep) {
-      void advanceNewMemberQuestStep(db, body.userId, questStep);
+      void advanceNewMemberQuestStep(orm, body.userId, questStep);
     }
 
     // Nemesis overtake check — fire notification if user just surpassed their nemesis (PRD §2.3)
     void (async () => {
       try {
-        const { rows: nemesisRows } = await db.query<{ nemesis_user_id: string; nemesis_xp: number }>(
-          `SELECT na.nemesis_user_id, u.xp_total AS nemesis_xp
-           FROM nemesis_assignments na
-           JOIN users u ON u.id = na.nemesis_user_id
-           WHERE na.user_id = $1 AND na.is_active = true
-           LIMIT 1`,
-          [body.userId]
-        );
+        const nemesisRows = await orm
+          .select({
+            nemesis_user_id: schema.nemesisAssignments.nemesisUserId,
+            nemesis_xp: schema.users.xpTotal,
+          })
+          .from(schema.nemesisAssignments)
+          .innerJoin(schema.users, eq(schema.users.id, schema.nemesisAssignments.nemesisUserId))
+          .where(and(eq(schema.nemesisAssignments.userId, body.userId), eq(schema.nemesisAssignments.isActive, true)))
+          .limit(1);
         if (!nemesisRows[0]) return;
 
-        const { nemesis_user_id: nemesisId, nemesis_xp: nemesisXP } = nemesisRows[0];
+        const { nemesis_user_id: nemesisId, nemesis_xp: nemesisXpRaw } = nemesisRows[0];
+        const nemesisXP = Number(nemesisXpRaw);
         const xpBefore = result.newTotal - result.xpAwarded;
         const xpAfter  = result.newTotal;
 
         // User just overtook nemesis
         if (xpBefore < nemesisXP && xpAfter >= nemesisXP) {
-          await db.query(
-            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-             VALUES ($1, 'nemesis_overtaken', $2, false, NOW())`,
-            [body.userId, JSON.stringify({ nemesisId, userXP: xpAfter, nemesisXP })]
-          ).catch(() => {});
+          await orm
+            .insert(schema.notifications)
+            .values({
+              userId: body.userId,
+              type: "nemesis_overtaken",
+              payload: { nemesisId, userXP: xpAfter, nemesisXP },
+              isRead: false,
+            })
+            .catch(() => {});
         }
         // Nemesis check: if nemesis lost their lead, notify nemesis they were overtaken
         if (xpBefore < nemesisXP && xpAfter >= nemesisXP) {
-          await db.query(
-            `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-             VALUES ($1, 'nemesis_overtook_you', $2, false, NOW())`,
-            [nemesisId, JSON.stringify({ userId: body.userId, userXP: xpAfter, nemesisXP })]
-          ).catch(() => {});
+          await orm
+            .insert(schema.notifications)
+            .values({
+              userId: nemesisId,
+              type: "nemesis_overtook_you",
+              payload: { userId: body.userId, userXP: xpAfter, nemesisXP },
+              isRead: false,
+            })
+            .catch(() => {});
         }
       } catch {
         // Nemesis check is non-fatal

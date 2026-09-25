@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
 import { sendPushNotification } from "@/lib/notifications/push";
@@ -29,21 +30,22 @@ export const PATCH = withAuth(
       const { orderId } = await params;
       const userId = auth.user.sub;
       const body = await validateBody(req, trackingSchema);
+      const orm = await getDb();
 
-      const { rows: orderRows } = await db.query<{
-        id: string;
-        creator_id: string;
-        buyer_id: string;
-        status: string;
-        tracking_updates: unknown;
-      }>(
-        `SELECT id, creator_id, buyer_id, status, tracking_updates
-         FROM merch_orders WHERE id = $1 LIMIT 1`,
-        [orderId]
-      );
+      const orderRows = await orm
+        .select({
+          id: schema.merchOrders.id,
+          creatorId: schema.merchOrders.creatorId,
+          buyerId: schema.merchOrders.buyerId,
+          status: schema.merchOrders.status,
+          trackingUpdates: schema.merchOrders.trackingUpdates,
+        })
+        .from(schema.merchOrders)
+        .where(eq(schema.merchOrders.id, orderId))
+        .limit(1);
       const order = orderRows[0];
       if (!order) throw notFound("Order not found");
-      if (order.creator_id !== userId) throw forbidden("Only the seller can update this order");
+      if (order.creatorId !== userId) throw forbidden("Only the seller can update this order");
       if (order.status !== "shipped") {
         throw conflict("Tracking updates can only be added to orders in 'shipped' status");
       }
@@ -54,24 +56,27 @@ export const PATCH = withAuth(
         timestamp: new Date().toISOString(),
       };
 
-      await db.query(
-        `UPDATE merch_orders
-         SET tracking_updates = tracking_updates || $1::jsonb,
-             updated_at = NOW()
-         WHERE id = $2`,
-        [JSON.stringify(newEntry), orderId]
-      );
+      await orm
+        .update(schema.merchOrders)
+        .set({
+          trackingUpdates: sql`${schema.merchOrders.trackingUpdates} || ${JSON.stringify(newEntry)}::jsonb`,
+          updatedAt: sql`NOW()`,
+        })
+        .where(eq(schema.merchOrders.id, orderId));
 
       // Notify buyer
       void (async () => {
         try {
-          await db.query(
-            `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
-             VALUES ($1, 'order_tracking_update', 'Order update', $2, $3, NOW())`,
-            [order.buyer_id, body.note, JSON.stringify({ orderId })]
-          );
+          await orm.insert(schema.notifications).values({
+            userId: order.buyerId,
+            type: "order_tracking_update",
+            title: "Order update",
+            body: body.note,
+            metadata: { orderId },
+            isRead: false,
+          });
           await sendPushNotification(
-            order.buyer_id,
+            order.buyerId,
             "Order update",
             body.note,
             { action: `/merch/order/${orderId}`, priority: "normal" }

@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getBalance, getLedgerEntries } from "@/lib/economy/coins";
 import { getStarBalance, getStarLedgerEntries } from "@/lib/economy/stars";
 
@@ -67,11 +68,14 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Fetch user row (xp_total + plan), balances, and ledger entries in parallel
+    const orm = await getDb();
     const [userRow, coins, stars, coinLedgerPage, starLedgerPage] = await Promise.all([
-      db.query<{ xp_total: number; plan: string | null }>(
-        `SELECT xp_total, plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      ).then((r) => r.rows[0] ?? { xp_total: 0, plan: null }),
+      orm
+        .select({ xp_total: schema.users.xpTotal, plan: schema.users.plan })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .limit(1)
+        .then((r) => r[0] ?? { xp_total: BigInt(0), plan: null }),
       getBalance(userId).catch(() => 0),
       getStarBalance(userId).catch(() => 0),
       getLedgerEntries(userId, limit, undefined, coinCursor).catch(() => ({ entries: [], nextCursor: null })),
@@ -112,7 +116,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     return NextResponse.json({
       coins,
       stars,
-      xp: userRow.xp_total ?? 0,
+      xp: Number(userRow.xp_total ?? 0),
       plan: userRow.plan ?? null,
       transactions,
       starTransactions,

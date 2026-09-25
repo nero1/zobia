@@ -16,7 +16,8 @@
  *   ends_at reached      → set is_active=false (multiplier stops)
  */
 
-import { db } from "@/lib/db";
+import { and, desc, eq, gt, lte, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 
 // ---------------------------------------------------------------------------
@@ -59,63 +60,69 @@ interface FlashXPEventRow {
  */
 export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult> {
   const result: FlashXPLifecycleResult = { announced: 0, fired: 0, expired: 0 };
-  const now = new Date().toISOString();
+  const now = new Date();
+  const db = await getDb();
 
   // Phase 1: Announce — announced_at reached, not yet sent notification
   try {
-    const { rows: toAnnounce } = await db.query<{
-      id: string; name: string; multiplier: string; fires_at: string; ends_at: string;
-    }>(
-      `SELECT id, name, multiplier::TEXT AS multiplier, fires_at, ends_at
-       FROM flash_xp_events
-       WHERE is_active = TRUE
-         AND announced_at <= $1
-         AND announcement_notification_sent = FALSE
-         AND fires_at > $1`,
-      [now]
-    );
+    const toAnnounce = await db
+      .select({
+        id: schema.flashXpEvents.id,
+        name: schema.flashXpEvents.name,
+        multiplier: sql<string>`${schema.flashXpEvents.multiplier}::TEXT`,
+        firesAt: schema.flashXpEvents.firesAt,
+        endsAt: schema.flashXpEvents.endsAt,
+      })
+      .from(schema.flashXpEvents)
+      .where(
+        and(
+          eq(schema.flashXpEvents.isActive, true),
+          lte(schema.flashXpEvents.announcedAt, now),
+          eq(schema.flashXpEvents.announcementNotificationSent, false),
+          gt(schema.flashXpEvents.firesAt, now)
+        )
+      );
 
     for (const evt of toAnnounce) {
       // Atomically claim the announcement with optimistic lock
-      const { rowCount } = await db.query(
-        `UPDATE flash_xp_events
-         SET announcement_notification_sent = TRUE, notification_sent_at = NOW()
-         WHERE id = $1 AND announcement_notification_sent = FALSE`,
-        [evt.id]
-      );
-      if (!rowCount || rowCount === 0) continue;
+      const claimed = await db
+        .update(schema.flashXpEvents)
+        .set({ announcementNotificationSent: true, notificationSentAt: new Date() })
+        .where(
+          and(eq(schema.flashXpEvents.id, evt.id), eq(schema.flashXpEvents.announcementNotificationSent, false))
+        )
+        .returning({ id: schema.flashXpEvents.id });
+      if (claimed.length === 0) continue;
 
       // FIX-C03: include reference_id in INSERT so the ON CONFLICT target is valid
       const announceTimeStr = new Intl.DateTimeFormat("en", {
         timeZone: "Africa/Lagos",
         hour: "2-digit",
         minute: "2-digit",
-      }).format(new Date(evt.ends_at));
-      await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, reference_id, created_at)
-         SELECT id,
-                'flash_xp_announced',
-                '⚡ Flash XP Event Coming!',
-                $1,
-                $2::jsonb,
-                FALSE,
-                $3,
-                NOW()
-         FROM users
-         WHERE deleted_at IS NULL
-           AND last_active_at > NOW() - INTERVAL '30 days'
-         ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-        [
-          `Double XP is happening sometime before ${announceTimeStr} today! Stay active.`,
-          JSON.stringify({
-            eventId: evt.id,
-            name: evt.name,
-            multiplier: parseFloat(evt.multiplier),
-            windowEnd: evt.ends_at,
-          }),
-          `flash_xp:${evt.id}:announced`,
-        ]
-      ).catch(() => {});
+      }).format(evt.endsAt ? new Date(evt.endsAt) : now);
+
+      await db
+        .execute(sql`
+          INSERT INTO notifications (user_id, type, title, body, metadata, is_read, reference_id, created_at)
+          SELECT id,
+                 'flash_xp_announced',
+                 '⚡ Flash XP Event Coming!',
+                 ${`Double XP is happening sometime before ${announceTimeStr} today! Stay active.`},
+                 ${JSON.stringify({
+                   eventId: evt.id,
+                   name: evt.name,
+                   multiplier: parseFloat(evt.multiplier),
+                   windowEnd: evt.endsAt,
+                 })}::jsonb,
+                 FALSE,
+                 ${`flash_xp:${evt.id}:announced`},
+                 NOW()
+          FROM users
+          WHERE deleted_at IS NULL
+            AND last_active_at > NOW() - INTERVAL '30 days'
+          ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+        `)
+        .catch(() => {});
       result.announced++;
     }
   } catch {
@@ -124,24 +131,31 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
 
   // Phase 2: Fire — fires_at reached, not yet marked fired
   try {
-    const { rows: toFire } = await db.query<{
-      id: string; name: string; multiplier: string; fires_at: string; ends_at: string;
-    }>(
-      `SELECT id, name, multiplier::TEXT AS multiplier, fires_at, ends_at
-       FROM flash_xp_events
-       WHERE is_active = TRUE
-         AND fired = FALSE
-         AND fires_at <= $1
-         AND ends_at > $1`,
-      [now]
-    );
+    const toFire = await db
+      .select({
+        id: schema.flashXpEvents.id,
+        name: schema.flashXpEvents.name,
+        multiplier: sql<string>`${schema.flashXpEvents.multiplier}::TEXT`,
+        firesAt: schema.flashXpEvents.firesAt,
+        endsAt: schema.flashXpEvents.endsAt,
+      })
+      .from(schema.flashXpEvents)
+      .where(
+        and(
+          eq(schema.flashXpEvents.isActive, true),
+          eq(schema.flashXpEvents.fired, false),
+          lte(schema.flashXpEvents.firesAt, now),
+          gt(schema.flashXpEvents.endsAt, now)
+        )
+      );
 
     for (const evt of toFire) {
-      const { rowCount } = await db.query(
-        `UPDATE flash_xp_events SET fired = TRUE, updated_at = NOW() WHERE id = $1 AND fired = FALSE`,
-        [evt.id]
-      );
-      if (!rowCount || rowCount === 0) continue;
+      const claimed = await db
+        .update(schema.flashXpEvents)
+        .set({ fired: true, updatedAt: new Date() })
+        .where(and(eq(schema.flashXpEvents.id, evt.id), eq(schema.flashXpEvents.fired, false)))
+        .returning({ id: schema.flashXpEvents.id });
+      if (claimed.length === 0) continue;
       // Invalidate cache so the new active event is picked up immediately
       await invalidateFlashXPCache();
 
@@ -150,42 +164,48 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
         timeZone: "Africa/Lagos",
         hour: "2-digit",
         minute: "2-digit",
-      }).format(new Date(evt.ends_at));
-      await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, reference_id, created_at)
-         SELECT id,
-                'flash_xp_live',
-                $1,
-                $2,
-                $3::jsonb,
-                FALSE,
-                $4,
-                NOW()
-         FROM users
-         WHERE deleted_at IS NULL
-           AND last_active_at > NOW() - INTERVAL '7 days'
-         ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-        [
-          `⚡ ${evt.name} is LIVE NOW!`,
-          `${evt.multiplier}× XP until ${liveTimeStr}. Go earn!`,
-          JSON.stringify({
-            eventId: evt.id,
-            name: evt.name,
-            multiplier: parseFloat(evt.multiplier),
-            endsAt: evt.ends_at,
-          }),
-          `flash_xp:${evt.id}:live`,
-        ]
-      ).catch(() => {});
+      }).format(evt.endsAt ? new Date(evt.endsAt) : now);
+
+      await db
+        .execute(sql`
+          INSERT INTO notifications (user_id, type, title, body, metadata, is_read, reference_id, created_at)
+          SELECT id,
+                 'flash_xp_live',
+                 ${`⚡ ${evt.name} is LIVE NOW!`},
+                 ${`${evt.multiplier}× XP until ${liveTimeStr}. Go earn!`},
+                 ${JSON.stringify({
+                   eventId: evt.id,
+                   name: evt.name,
+                   multiplier: parseFloat(evt.multiplier),
+                   endsAt: evt.endsAt,
+                 })}::jsonb,
+                 FALSE,
+                 ${`flash_xp:${evt.id}:live`},
+                 NOW()
+          FROM users
+          WHERE deleted_at IS NULL
+            AND last_active_at > NOW() - INTERVAL '7 days'
+          ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+        `)
+        .catch(() => {});
 
       // Upsert into platform_events for the events calendar
-      await db.query(
-        `INSERT INTO platform_events
-           (name, description, event_type, xp_multiplier, starts_at, ends_at, is_active, metadata, created_at, updated_at)
-         VALUES ($1, 'Double XP event', 'flash_xp', $2::numeric, $3, $4, TRUE, jsonb_build_object('source_flash_xp_id', $5::text), NOW(), NOW())
-         ON CONFLICT (name, starts_at) DO NOTHING`,
-        [evt.name, evt.multiplier, evt.fires_at, evt.ends_at, evt.id]
-      ).catch(() => {});
+      await db
+        .insert(schema.platformEvents)
+        .values({
+          name: evt.name,
+          description: "Double XP event",
+          eventType: "flash_xp",
+          xpMultiplier: evt.multiplier,
+          startsAt: evt.firesAt ?? now,
+          endsAt: evt.endsAt,
+          isActive: true,
+          metadata: { source_flash_xp_id: evt.id },
+        })
+        .onConflictDoNothing({
+          target: [schema.platformEvents.name, schema.platformEvents.startsAt],
+        })
+        .catch(() => {});
 
       result.fired++;
     }
@@ -195,16 +215,17 @@ export async function advanceFlashXPLifecycle(): Promise<FlashXPLifecycleResult>
 
   // Phase 3: Expire — ends_at reached
   try {
-    const { rows: toExpire } = await db.query<{ id: string }>(
-      `SELECT id FROM flash_xp_events WHERE is_active = TRUE AND ends_at <= $1`,
-      [now]
-    );
+    const toExpire = await db
+      .select({ id: schema.flashXpEvents.id })
+      .from(schema.flashXpEvents)
+      .where(and(eq(schema.flashXpEvents.isActive, true), lte(schema.flashXpEvents.endsAt, now)));
 
     for (const evt of toExpire) {
-      await db.query(
-        `UPDATE flash_xp_events SET is_active = FALSE, updated_at = NOW() WHERE id = $1`,
-        [evt.id]
-      ).catch(() => {});
+      await db
+        .update(schema.flashXpEvents)
+        .set({ isActive: false, updatedAt: new Date() })
+        .where(eq(schema.flashXpEvents.id, evt.id))
+        .catch(() => {});
       // Invalidate cache so the expired event stops being served
       await invalidateFlashXPCache();
       result.expired++;
@@ -251,6 +272,28 @@ export async function checkAndApplyFlashXP(
     return { finalXP: 0, flashActive: false, eventName: null, multiplier: 1.0 };
   }
 
+  const fetchActiveEventFromDb = async (): Promise<FlashXPEventRow | null> => {
+    const db = await getDb();
+    const [row] = await db
+      .select({
+        id: schema.flashXpEvents.id,
+        name: schema.flashXpEvents.name,
+        multiplier: sql<string>`${schema.flashXpEvents.multiplier}::TEXT`,
+      })
+      .from(schema.flashXpEvents)
+      .where(
+        and(
+          lte(schema.flashXpEvents.firesAt, sql`NOW()`),
+          gt(schema.flashXpEvents.endsAt, sql`NOW()`),
+          eq(schema.flashXpEvents.isActive, true),
+          eq(schema.flashXpEvents.fired, true)
+        )
+      )
+      .orderBy(desc(schema.flashXpEvents.multiplier))
+      .limit(1);
+    return row ?? null;
+  };
+
   // Try cache first
   let activeEvent: FlashXPEventRow | null = null;
   try {
@@ -260,17 +303,7 @@ export async function checkAndApplyFlashXP(
       activeEvent = cached === "NONE" ? null : (JSON.parse(cached) as FlashXPEventRow);
     } else {
       // Cache miss — query the DB and populate the cache
-      const { rows } = await db.query<FlashXPEventRow>(
-        `SELECT id, name, multiplier::TEXT AS multiplier
-         FROM flash_xp_events
-         WHERE fires_at <= NOW()
-           AND ends_at > NOW()
-           AND is_active = TRUE
-           AND fired = TRUE
-         ORDER BY multiplier DESC
-         LIMIT 1`
-      );
-      activeEvent = rows[0] ?? null;
+      activeEvent = await fetchActiveEventFromDb();
       await redis.set(
         FLASH_XP_CACHE_KEY,
         activeEvent ? JSON.stringify(activeEvent) : "NONE",
@@ -281,17 +314,7 @@ export async function checkAndApplyFlashXP(
   } catch {
     // Cache failure is non-fatal — fall back to a direct DB query
     try {
-      const { rows } = await db.query<FlashXPEventRow>(
-        `SELECT id, name, multiplier::TEXT AS multiplier
-         FROM flash_xp_events
-         WHERE fires_at <= NOW()
-           AND ends_at > NOW()
-           AND is_active = TRUE
-           AND fired = TRUE
-         ORDER BY multiplier DESC
-         LIMIT 1`
-      );
-      activeEvent = rows[0] ?? null;
+      activeEvent = await fetchActiveEventFromDb();
     } catch {
       // If DB also fails, skip the flash multiplier rather than breaking XP awards
       return { finalXP: baseXP, flashActive: false, eventName: null, multiplier: 1.0 };

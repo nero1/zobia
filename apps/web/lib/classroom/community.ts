@@ -9,8 +9,8 @@
  * not deleted, not self-liking, ...).
  */
 
-import { db } from "@/lib/db";
-import type { SqlParam, TransactionClient } from "@/lib/db/interface";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { badRequest, conflict, forbidden, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 import { insertNotification, insertNotificationBatch } from "@/lib/notifications/insert";
@@ -22,8 +22,6 @@ import {
   type PointsAwardResult,
 } from "@/lib/classroom/gamification";
 import type { ClassroomRecord, ClassroomViewer } from "@/lib/classroom/access";
-
-type Queryable = Pick<TransactionClient, "query">;
 
 export interface ClassroomAuthor {
   id: string;
@@ -68,14 +66,14 @@ export interface ClassroomCommentView {
   canDelete: boolean;
 }
 
-interface AuthorRow {
+type AuthorRow = {
   author_id: string;
   username: string;
   display_name: string | null;
   avatar_emoji: string;
   avatar_url: string | null;
   author_is_moderator: boolean;
-}
+};
 
 async function authorLevels(roomId: string, rows: AuthorRow[]): Promise<Map<string, number>> {
   return getLevelsForUsers(
@@ -124,17 +122,24 @@ interface PostRow extends AuthorRow {
   last_activity_at: string;
 }
 
-const POST_SELECT = `
-  SELECT p.id, p.category, p.title, p.body, p.is_pinned, p.is_locked, p.is_hidden,
-         p.like_count, p.comment_count, p.created_at, p.updated_at, p.last_activity_at,
-         p.author_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url,
-         (cm.id IS NOT NULL) AS author_is_moderator,
-         (l.id IS NOT NULL) AS liked_by_me
+/** Base FROM/JOIN clause shared by listPosts and getPost, as a raw fragment so
+ * the hand-tuned WHERE/ORDER logic below can stay identical to the original. */
+function postSelectFragment(viewerId: string | null) {
+  return sql`
     FROM classroom_posts p
     JOIN users u ON u.id = p.author_id
     LEFT JOIN classroom_moderators cm
            ON cm.room_id = p.room_id AND cm.user_id = p.author_id AND cm.status = 'active'
-    LEFT JOIN classroom_likes l ON l.post_id = p.id AND l.user_id = $2
+    LEFT JOIN classroom_likes l ON l.post_id = p.id AND l.user_id = ${viewerId}
+  `;
+}
+
+const POST_COLUMNS_SQL = sql`
+  p.id, p.category, p.title, p.body, p.is_pinned, p.is_locked, p.is_hidden,
+  p.like_count, p.comment_count, p.created_at, p.updated_at, p.last_activity_at,
+  p.author_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url,
+  (cm.id IS NOT NULL) AS author_is_moderator,
+  (l.id IS NOT NULL) AS liked_by_me
 `;
 
 function toPostView(
@@ -172,50 +177,45 @@ export async function listPosts(
 ): Promise<{ posts: ClassroomPostView[]; nextCursor: string | null }> {
   const limit = Math.min(Math.max(q.limit ?? 20, 1), 50);
   const sort = q.sort ?? "activity";
-  const params: SqlParam[] = [classroom.id, viewer.userId];
-  const where = ["p.room_id = $1", "p.deleted_at IS NULL"];
+  const orm = await getDb();
+
+  const where = [sql`p.room_id = ${classroom.id}`, sql`p.deleted_at IS NULL`];
   // Hidden posts stay visible to moderators (so they can be restored) and to
   // their own author; everyone else never sees them.
   if (!viewer.can.managePosts) {
-    params.push(viewer.userId);
-    where.push(`(p.is_hidden = FALSE OR p.author_id = $${params.length})`);
+    where.push(sql`(p.is_hidden = FALSE OR p.author_id = ${viewer.userId})`);
   }
   if (q.category) {
-    params.push(q.category);
-    where.push(`p.category = $${params.length}`);
+    where.push(sql`p.category = ${q.category}`);
   }
 
   const orderExpr =
     sort === "new"
-      ? "date_trunc('milliseconds', p.created_at)"
+      ? sql`date_trunc('milliseconds', p.created_at)`
       : sort === "top"
-        ? "p.like_count"
-        : "date_trunc('milliseconds', p.last_activity_at)";
+        ? sql`p.like_count`
+        : sql`date_trunc('milliseconds', p.last_activity_at)`;
   // Cursor = "<pinned 0|1>|<sort value>|<id>" — opaque to clients.
   if (q.cursor) {
     const [pinnedStr, sortVal, id] = q.cursor.split("|");
     if (pinnedStr === undefined || sortVal === undefined || !id) throw badRequest("Invalid cursor");
     const pinned = pinnedStr === "1";
-    params.push(pinned, sort === "top" ? Number(sortVal) : sortVal, id);
-    const a = params.length - 2;
-    const b = params.length - 1;
-    const c = params.length;
-    // Timestamps are compared at millisecond precision — the cursor carries an
-    // ISO string, which cannot represent Postgres' microseconds.
-    const cast = sort === "top" ? "::int" : "::timestamptz";
+    const sortValTyped = sort === "top" ? Number(sortVal) : sortVal;
+    const cast = sort === "top" ? sql`::int` : sql`::timestamptz`;
     where.push(
-      `(p.is_pinned < $${a} OR (p.is_pinned = $${a} AND (${orderExpr} < $${b}${cast} OR (${orderExpr} = $${b}${cast} AND p.id < $${c}::uuid))))`
+      sql`(p.is_pinned < ${pinned} OR (p.is_pinned = ${pinned} AND (${orderExpr} < ${sortValTyped}${cast} OR (${orderExpr} = ${sortValTyped}${cast} AND p.id < ${id}::uuid))))`
     );
   }
-  params.push(limit + 1);
 
-  const { rows } = await db.query<PostRow>(
-    `${POST_SELECT}
-     WHERE ${where.join(" AND ")}
-     ORDER BY p.is_pinned DESC, ${orderExpr} DESC, p.id DESC
-     LIMIT $${params.length}`,
-    params
-  );
+  const whereSql = sql.join(where, sql` AND `);
+  const query = sql`
+    SELECT ${POST_COLUMNS_SQL}
+    ${postSelectFragment(viewer.userId)}
+    WHERE ${whereSql}
+    ORDER BY p.is_pinned DESC, ${orderExpr} DESC, p.id DESC
+    LIMIT ${limit + 1}
+  `;
+  const rows = (await orm.execute(query)).rows as unknown as PostRow[];
 
   const page = rows.slice(0, limit);
   const levels = await authorLevels(classroom.id, page);
@@ -235,10 +235,14 @@ export async function getPost(
   viewer: ClassroomViewer,
   postId: string
 ): Promise<ClassroomPostView> {
-  const { rows } = await db.query<PostRow>(
-    `${POST_SELECT} WHERE p.id = $1 AND p.room_id = $3 AND p.deleted_at IS NULL LIMIT 1`,
-    [postId, viewer.userId, classroom.id]
-  );
+  const orm = await getDb();
+  const query = sql`
+    SELECT ${POST_COLUMNS_SQL}
+    ${postSelectFragment(viewer.userId)}
+    WHERE p.id = ${postId} AND p.room_id = ${classroom.id} AND p.deleted_at IS NULL
+    LIMIT 1
+  `;
+  const rows = (await orm.execute(query)).rows as unknown as PostRow[];
   const row = rows[0];
   if (!row) throw notFound("Post not found");
   if (row.is_hidden && !viewer.can.managePosts && row.author_id !== viewer.userId) {
@@ -278,20 +282,26 @@ export async function createPost(
 ): Promise<ClassroomPostView> {
   if (!viewer.userId) throw forbidden();
   const category = resolveCategory(classroom, input.category, viewer);
+  const userId = viewer.userId;
 
-  const post = await db.transaction(async (tx) => {
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO classroom_posts (room_id, author_id, category, title, body, created_at, updated_at, last_activity_at)
-       VALUES ($1, $2, $3, $4, $5, NOW(), NOW(), NOW())
-       RETURNING id`,
-      [classroom.id, viewer.userId, category, input.title?.trim() || null, input.body.trim()]
-    );
-    const id = rows[0]!.id;
-    await tx.query(
-      `UPDATE classroom_enrolments SET last_active_at = NOW() WHERE room_id = $1 AND user_id = $2`,
-      [classroom.id, viewer.userId]
-    );
-    await evaluateBadges(classroom.id, viewer.userId!, {}, ["posts"], tx);
+  const orm = await getDb();
+  const post = await orm.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(schema.classroomPosts)
+      .values({
+        roomId: classroom.id,
+        authorId: userId,
+        category,
+        title: input.title?.trim() || null,
+        body: input.body.trim(),
+      })
+      .returning({ id: schema.classroomPosts.id });
+    const id = row!.id;
+    await tx
+      .update(schema.classroomEnrolments)
+      .set({ lastActiveAt: new Date() })
+      .where(and(eq(schema.classroomEnrolments.roomId, classroom.id), eq(schema.classroomEnrolments.userId, userId)));
+    await evaluateBadges(classroom.id, userId, {}, ["posts"], tx);
     return id;
   });
 
@@ -311,51 +321,37 @@ export async function updatePost(
   postId: string,
   patch: Partial<PostInput> & { isPinned?: boolean; isLocked?: boolean; isHidden?: boolean }
 ): Promise<ClassroomPostView> {
-  const { rows } = await db.query<{ author_id: string }>(
-    `SELECT author_id FROM classroom_posts WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL`,
-    [postId, classroom.id]
-  );
-  const row = rows[0];
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ authorId: schema.classroomPosts.authorId })
+    .from(schema.classroomPosts)
+    .where(and(eq(schema.classroomPosts.id, postId), eq(schema.classroomPosts.roomId, classroom.id), sql`${schema.classroomPosts.deletedAt} IS NULL`));
   if (!row) throw notFound("Post not found");
-  const isAuthor = row.author_id === viewer.userId;
+  const isAuthor = row.authorId === viewer.userId;
 
-  const sets: string[] = [];
-  const params: SqlParam[] = [postId];
+  const set: Record<string, unknown> = {};
   const contentEdit = patch.body !== undefined || patch.title !== undefined || patch.category !== undefined;
   if (contentEdit) {
     if (!isAuthor || !classroom.isActive) throw forbidden("Only the author can edit this post.", "CLASSROOM_FORBIDDEN");
-    if (patch.body !== undefined) {
-      params.push(patch.body.trim());
-      sets.push(`body = $${params.length}`);
-    }
-    if (patch.title !== undefined) {
-      params.push(patch.title?.trim() || null);
-      sets.push(`title = $${params.length}`);
-    }
-    if (patch.category !== undefined) {
-      params.push(resolveCategory(classroom, patch.category, viewer));
-      sets.push(`category = $${params.length}`);
-    }
+    if (patch.body !== undefined) set.body = patch.body.trim();
+    if (patch.title !== undefined) set.title = patch.title?.trim() || null;
+    if (patch.category !== undefined) set.category = resolveCategory(classroom, patch.category, viewer);
   }
   const modEdit = patch.isPinned !== undefined || patch.isLocked !== undefined || patch.isHidden !== undefined;
   if (modEdit) {
     if (!viewer.can.managePosts) throw forbidden("Only the creator or a moderator can do this.", "CLASSROOM_FORBIDDEN");
-    if (patch.isPinned !== undefined) {
-      params.push(patch.isPinned);
-      sets.push(`is_pinned = $${params.length}`);
-    }
-    if (patch.isLocked !== undefined) {
-      params.push(patch.isLocked);
-      sets.push(`is_locked = $${params.length}`);
-    }
+    if (patch.isPinned !== undefined) set.isPinned = patch.isPinned;
+    if (patch.isLocked !== undefined) set.isLocked = patch.isLocked;
     if (patch.isHidden !== undefined) {
-      params.push(patch.isHidden, patch.isHidden ? viewer.userId : null);
-      sets.push(`is_hidden = $${params.length - 1}`, `hidden_by = $${params.length}`, `hidden_at = ${patch.isHidden ? "NOW()" : "NULL"}`);
+      set.isHidden = patch.isHidden;
+      set.hiddenBy = patch.isHidden ? viewer.userId : null;
+      set.hiddenAt = patch.isHidden ? new Date() : null;
     }
   }
-  if (sets.length === 0) throw badRequest("Nothing to update");
+  if (Object.keys(set).length === 0) throw badRequest("Nothing to update");
+  set.updatedAt = new Date();
 
-  await db.query(`UPDATE classroom_posts SET ${sets.join(", ")}, updated_at = NOW() WHERE id = $1`, params);
+  await orm.update(schema.classroomPosts).set(set).where(eq(schema.classroomPosts.id, postId));
   if (modEdit) {
     logger.info(
       { roomId: classroom.id, postId, moderatorId: viewer.userId, patch: { isPinned: patch.isPinned, isLocked: patch.isLocked, isHidden: patch.isHidden } },
@@ -366,25 +362,24 @@ export async function updatePost(
 }
 
 export async function deletePost(classroom: ClassroomRecord, viewer: ClassroomViewer, postId: string): Promise<void> {
-  const { rows } = await db.query<{ author_id: string }>(
-    `SELECT author_id FROM classroom_posts WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL`,
-    [postId, classroom.id]
-  );
-  const row = rows[0];
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ authorId: schema.classroomPosts.authorId })
+    .from(schema.classroomPosts)
+    .where(and(eq(schema.classroomPosts.id, postId), eq(schema.classroomPosts.roomId, classroom.id), sql`${schema.classroomPosts.deletedAt} IS NULL`));
   if (!row) throw notFound("Post not found");
-  if (row.author_id !== viewer.userId && !viewer.can.managePosts) {
+  if (row.authorId !== viewer.userId && !viewer.can.managePosts) {
     throw forbidden("You can't delete this post.", "CLASSROOM_FORBIDDEN");
   }
-  await db.transaction(async (tx) => {
-    await tx.query(`UPDATE classroom_posts SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [postId]);
+  await orm.transaction(async (tx) => {
+    await tx.update(schema.classroomPosts).set({ deletedAt: new Date(), updatedAt: new Date() }).where(eq(schema.classroomPosts.id, postId));
     // Close any open reports against the post — the content is gone.
-    await tx.query(
-      `UPDATE classroom_reports SET status = 'resolved_removed', resolved_by = $2, resolved_at = NOW()
-        WHERE post_id = $1 AND status = 'pending'`,
-      [postId, viewer.userId]
-    );
+    await tx
+      .update(schema.classroomReports)
+      .set({ status: "resolved_removed", resolvedBy: viewer.userId, resolvedAt: new Date() })
+      .where(and(eq(schema.classroomReports.postId, postId), eq(schema.classroomReports.status, "pending")));
   });
-  if (row.author_id !== viewer.userId) {
+  if (row.authorId !== viewer.userId) {
     logger.info({ roomId: classroom.id, postId, moderatorId: viewer.userId }, "[classroom:moderation] post deleted by moderator");
   }
 }
@@ -393,7 +388,7 @@ export async function deletePost(classroom: ClassroomRecord, viewer: ClassroomVi
 // Comments
 // ---------------------------------------------------------------------------
 
-interface CommentRow extends AuthorRow {
+type CommentRow = AuthorRow & {
   id: string;
   post_id: string;
   parent_id: string | null;
@@ -402,7 +397,7 @@ interface CommentRow extends AuthorRow {
   like_count: number;
   liked_by_me: boolean;
   created_at: string;
-}
+};
 
 export async function listComments(
   classroom: ClassroomRecord,
@@ -411,14 +406,10 @@ export async function listComments(
 ): Promise<ClassroomCommentView[]> {
   // Visibility of the post itself is re-checked (hidden posts 404 for non-mods).
   await getPost(classroom, viewer, postId);
-  const params: SqlParam[] = [postId, viewer.userId, classroom.id];
-  let hiddenFilter = "";
-  if (!viewer.can.managePosts) {
-    params.push(viewer.userId);
-    hiddenFilter = `AND (c.is_hidden = FALSE OR c.author_id = $${params.length})`;
-  }
-  const { rows } = await db.query<CommentRow>(
-    `SELECT c.id, c.post_id, c.parent_id, c.body, c.is_hidden, c.like_count, c.created_at,
+  const orm = await getDb();
+  const hiddenFilter = viewer.can.managePosts ? sql`` : sql`AND (c.is_hidden = FALSE OR c.author_id = ${viewer.userId})`;
+  const { rows } = await orm.execute<CommentRow>(sql`
+    SELECT c.id, c.post_id, c.parent_id, c.body, c.is_hidden, c.like_count, c.created_at,
             c.author_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url,
             (cm.id IS NOT NULL) AS author_is_moderator,
             (l.id IS NOT NULL) AS liked_by_me
@@ -426,12 +417,11 @@ export async function listComments(
        JOIN users u ON u.id = c.author_id
        LEFT JOIN classroom_moderators cm
               ON cm.room_id = c.room_id AND cm.user_id = c.author_id AND cm.status = 'active'
-       LEFT JOIN classroom_likes l ON l.comment_id = c.id AND l.user_id = $2
-      WHERE c.post_id = $1 AND c.room_id = $3 AND c.deleted_at IS NULL ${hiddenFilter}
+       LEFT JOIN classroom_likes l ON l.comment_id = c.id AND l.user_id = ${viewer.userId}
+      WHERE c.post_id = ${postId} AND c.room_id = ${classroom.id} AND c.deleted_at IS NULL ${hiddenFilter}
       ORDER BY c.created_at ASC
-      LIMIT 500`,
-    params
-  );
+      LIMIT 500
+  `);
   const levels = await authorLevels(classroom.id, rows);
   return rows.map((r) => ({
     id: r.id,
@@ -454,48 +444,63 @@ export async function createComment(
   input: { body: string; parentId?: string | null }
 ): Promise<ClassroomCommentView> {
   if (!viewer.userId) throw forbidden();
-  const commentId = await db.transaction(async (tx) => {
-    const { rows: postRows } = await tx.query<{ author_id: string; is_locked: boolean; is_hidden: boolean; title: string | null }>(
-      `SELECT author_id, is_locked, is_hidden, title FROM classroom_posts
-        WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [postId, classroom.id]
-    );
-    const post = postRows[0];
-    if (!post || (post.is_hidden && !viewer.can.managePosts)) throw notFound("Post not found");
-    if (post.is_locked && !viewer.can.managePosts) throw forbidden("Comments are closed on this post.", "CLASSROOM_POST_LOCKED");
+  const userId = viewer.userId;
+  const orm = await getDb();
+  const commentId = await orm.transaction(async (tx) => {
+    const [post] = await tx
+      .select({
+        authorId: schema.classroomPosts.authorId,
+        isLocked: schema.classroomPosts.isLocked,
+        isHidden: schema.classroomPosts.isHidden,
+        title: schema.classroomPosts.title,
+      })
+      .from(schema.classroomPosts)
+      .where(and(eq(schema.classroomPosts.id, postId), eq(schema.classroomPosts.roomId, classroom.id), sql`${schema.classroomPosts.deletedAt} IS NULL`))
+      .for("update");
+    if (!post || (post.isHidden && !viewer.can.managePosts)) throw notFound("Post not found");
+    if (post.isLocked && !viewer.can.managePosts) throw forbidden("Comments are closed on this post.", "CLASSROOM_POST_LOCKED");
 
+    let parentId = input.parentId ?? null;
     let parentAuthor: string | null = null;
-    if (input.parentId) {
-      const { rows: parentRows } = await tx.query<{ author_id: string; parent_id: string | null }>(
-        `SELECT author_id, parent_id FROM classroom_post_comments
-          WHERE id = $1 AND post_id = $2 AND deleted_at IS NULL`,
-        [input.parentId, postId]
-      );
-      const parent = parentRows[0];
+    if (parentId) {
+      const [parent] = await tx
+        .select({ authorId: schema.classroomPostComments.authorId, parentId: schema.classroomPostComments.parentId })
+        .from(schema.classroomPostComments)
+        .where(
+          and(
+            eq(schema.classroomPostComments.id, parentId),
+            eq(schema.classroomPostComments.postId, postId),
+            sql`${schema.classroomPostComments.deletedAt} IS NULL`
+          )
+        );
       if (!parent) throw badRequest("The comment you're replying to no longer exists.");
       // One level of threading: replies to a reply attach to its top-level parent.
-      if (parent.parent_id) input.parentId = parent.parent_id;
-      parentAuthor = parent.author_id;
+      if (parent.parentId) parentId = parent.parentId;
+      parentAuthor = parent.authorId;
     }
 
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO classroom_post_comments (post_id, room_id, author_id, parent_id, body, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-       RETURNING id`,
-      [postId, classroom.id, viewer.userId, input.parentId ?? null, input.body.trim()]
-    );
-    await tx.query(
-      `UPDATE classroom_posts SET comment_count = comment_count + 1, last_activity_at = NOW() WHERE id = $1`,
-      [postId]
-    );
-    await tx.query(
-      `UPDATE classroom_enrolments SET last_active_at = NOW() WHERE room_id = $1 AND user_id = $2`,
-      [classroom.id, viewer.userId]
-    );
+    const [inserted] = await tx
+      .insert(schema.classroomPostComments)
+      .values({
+        postId,
+        roomId: classroom.id,
+        authorId: userId,
+        parentId,
+        body: input.body.trim(),
+      })
+      .returning({ id: schema.classroomPostComments.id });
+    await tx
+      .update(schema.classroomPosts)
+      .set({ commentCount: sql`${schema.classroomPosts.commentCount} + 1`, lastActivityAt: new Date() })
+      .where(eq(schema.classroomPosts.id, postId));
+    await tx
+      .update(schema.classroomEnrolments)
+      .set({ lastActiveAt: new Date() })
+      .where(and(eq(schema.classroomEnrolments.roomId, classroom.id), eq(schema.classroomEnrolments.userId, userId)));
 
     const notifyIds = new Set<string>();
-    if (post.author_id !== viewer.userId) notifyIds.add(post.author_id);
-    if (parentAuthor && parentAuthor !== viewer.userId) notifyIds.add(parentAuthor);
+    if (post.authorId !== userId) notifyIds.add(post.authorId);
+    if (parentAuthor && parentAuthor !== userId) notifyIds.add(parentAuthor);
     for (const uid of notifyIds) {
       await insertNotification(
         tx,
@@ -506,7 +511,7 @@ export async function createComment(
         { roomId: classroom.id, classroomSlug: classroom.slug, postId }
       );
     }
-    return rows[0]!.id;
+    return inserted!.id;
   });
 
   const all = await listComments(classroom, viewer, postId);
@@ -516,34 +521,46 @@ export async function createComment(
 }
 
 export async function deleteComment(classroom: ClassroomRecord, viewer: ClassroomViewer, commentId: string): Promise<void> {
-  await db.transaction(async (tx) => {
-    const { rows } = await tx.query<{ author_id: string; post_id: string }>(
-      `SELECT author_id, post_id FROM classroom_post_comments
-        WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [commentId, classroom.id]
-    );
-    const row = rows[0];
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ authorId: schema.classroomPostComments.authorId, postId: schema.classroomPostComments.postId })
+      .from(schema.classroomPostComments)
+      .where(
+        and(
+          eq(schema.classroomPostComments.id, commentId),
+          eq(schema.classroomPostComments.roomId, classroom.id),
+          sql`${schema.classroomPostComments.deletedAt} IS NULL`
+        )
+      )
+      .for("update");
     if (!row) throw notFound("Comment not found");
-    if (row.author_id !== viewer.userId && !viewer.can.managePosts) {
+    if (row.authorId !== viewer.userId && !viewer.can.managePosts) {
       throw forbidden("You can't delete this comment.", "CLASSROOM_FORBIDDEN");
     }
     // Soft-delete the comment and its replies; keep comment_count accurate.
-    const { rows: gone } = await tx.query<{ id: string }>(
-      `UPDATE classroom_post_comments SET deleted_at = NOW(), updated_at = NOW()
-        WHERE (id = $1 OR parent_id = $1) AND deleted_at IS NULL
-        RETURNING id`,
-      [commentId]
-    );
-    await tx.query(
-      `UPDATE classroom_posts SET comment_count = GREATEST(comment_count - $2, 0) WHERE id = $1`,
-      [row.post_id, gone.length]
-    );
-    await tx.query(
-      `UPDATE classroom_reports SET status = 'resolved_removed', resolved_by = $2, resolved_at = NOW()
-        WHERE comment_id = ANY($1::uuid[]) AND status = 'pending'`,
-      [gone.map((g) => g.id), viewer.userId]
-    );
-    if (row.author_id !== viewer.userId) {
+    const gone = await tx
+      .update(schema.classroomPostComments)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(
+        and(
+          sql`(${schema.classroomPostComments.id} = ${commentId} OR ${schema.classroomPostComments.parentId} = ${commentId})`,
+          sql`${schema.classroomPostComments.deletedAt} IS NULL`
+        )
+      )
+      .returning({ id: schema.classroomPostComments.id });
+    await tx
+      .update(schema.classroomPosts)
+      .set({ commentCount: sql`GREATEST(${schema.classroomPosts.commentCount} - ${gone.length}, 0)` })
+      .where(eq(schema.classroomPosts.id, row.postId));
+    const goneIds = gone.map((g) => g.id);
+    if (goneIds.length > 0) {
+      await tx
+        .update(schema.classroomReports)
+        .set({ status: "resolved_removed", resolvedBy: viewer.userId, resolvedAt: new Date() })
+        .where(and(sql`${schema.classroomReports.commentId} = ANY(${goneIds}::uuid[])`, eq(schema.classroomReports.status, "pending")));
+    }
+    if (row.authorId !== viewer.userId) {
       logger.info({ roomId: classroom.id, commentId, moderatorId: viewer.userId }, "[classroom:moderation] comment deleted by moderator");
     }
   });
@@ -556,13 +573,24 @@ export async function setCommentHidden(
   hidden: boolean
 ): Promise<void> {
   if (!viewer.can.managePosts) throw forbidden("Only the creator or a moderator can do this.", "CLASSROOM_FORBIDDEN");
-  const { rowCount } = await db.query(
-    `UPDATE classroom_post_comments
-        SET is_hidden = $3, hidden_by = $4, hidden_at = ${hidden ? "NOW()" : "NULL"}, updated_at = NOW()
-      WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL`,
-    [commentId, classroom.id, hidden, hidden ? viewer.userId : null]
-  );
-  if (rowCount === 0) throw notFound("Comment not found");
+  const orm = await getDb();
+  const result = await orm
+    .update(schema.classroomPostComments)
+    .set({
+      isHidden: hidden,
+      hiddenBy: hidden ? viewer.userId : null,
+      hiddenAt: hidden ? new Date() : null,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(schema.classroomPostComments.id, commentId),
+        eq(schema.classroomPostComments.roomId, classroom.id),
+        sql`${schema.classroomPostComments.deletedAt} IS NULL`
+      )
+    )
+    .returning({ id: schema.classroomPostComments.id });
+  if (result.length === 0) throw notFound("Comment not found");
   logger.info({ roomId: classroom.id, commentId, moderatorId: viewer.userId, hidden }, "[classroom:moderation] comment visibility changed");
 }
 
@@ -579,39 +607,42 @@ export async function setLike(
   liked: boolean
 ): Promise<{ liked: boolean; likeCount: number }> {
   if (!viewer.userId) throw forbidden();
-  const table = target.kind === "post" ? "classroom_posts" : "classroom_post_comments";
-  const col = target.kind === "post" ? "post_id" : "comment_id";
   const userId = viewer.userId;
+  const isPost = target.kind === "post";
+  const table = isPost ? schema.classroomPosts : schema.classroomPostComments;
+  const likeCol = isPost ? schema.classroomLikes.postId : schema.classroomLikes.commentId;
 
   let award: PointsAwardResult | null = null;
-  const result = await db.transaction(async (tx) => {
-    const { rows: targetRows } = await tx.query<{ author_id: string; like_count: number; is_hidden: boolean }>(
-      `SELECT author_id, like_count, is_hidden FROM ${table}
-        WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [target.id, classroom.id]
-    );
-    const row = targetRows[0];
-    if (!row || (row.is_hidden && !viewer.can.managePosts)) throw notFound("Not found");
-    const selfLike = row.author_id === userId;
+  const orm = await getDb();
+  const result = await orm.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ authorId: table.authorId, likeCount: table.likeCount, isHidden: table.isHidden })
+      .from(table)
+      .where(and(eq(table.id, target.id), eq(table.roomId, classroom.id), sql`${table.deletedAt} IS NULL`))
+      .for("update");
+    if (!row || (row.isHidden && !viewer.can.managePosts)) throw notFound("Not found");
+    const selfLike = row.authorId === userId;
 
     if (liked) {
-      const { rows: ins } = await tx.query<{ id: string }>(
-        `INSERT INTO classroom_likes (room_id, user_id, ${col}, created_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT DO NOTHING
-         RETURNING id`,
-        [classroom.id, userId, target.id]
-      );
-      if (ins.length === 0) return { liked: true, likeCount: row.like_count };
-      const { rows: upd } = await tx.query<{ like_count: number }>(
-        `UPDATE ${table} SET like_count = like_count + 1 WHERE id = $1 RETURNING like_count`,
-        [target.id]
-      );
+      const likeValues = isPost
+        ? { roomId: classroom.id, userId, postId: target.id }
+        : { roomId: classroom.id, userId, commentId: target.id };
+      const ins = await tx
+        .insert(schema.classroomLikes)
+        .values(likeValues)
+        .onConflictDoNothing()
+        .returning({ id: schema.classroomLikes.id });
+      if (ins.length === 0) return { liked: true, likeCount: row.likeCount };
+      const [upd] = await tx
+        .update(table)
+        .set({ likeCount: sql`${table.likeCount} + 1` })
+        .where(eq(table.id, target.id))
+        .returning({ likeCount: table.likeCount });
       if (!selfLike) {
         award = await awardClassroomPoints(
           {
             roomId: classroom.id,
-            userId: row.author_id,
+            userId: row.authorId,
             source: "like_received",
             referenceId: `like:${ins[0]!.id}`,
             // Stable across like/unlike/like so the global XP bonus is earned once per liker+target.
@@ -621,30 +652,31 @@ export async function setLike(
           tx
         );
       }
-      return { liked: true, likeCount: upd[0]?.like_count ?? row.like_count + 1 };
+      return { liked: true, likeCount: upd?.likeCount ?? row.likeCount + 1 };
     }
 
-    const { rows: del } = await tx.query<{ id: string }>(
-      `DELETE FROM classroom_likes WHERE user_id = $1 AND ${col} = $2 RETURNING id`,
-      [userId, target.id]
-    );
-    if (del.length === 0) return { liked: false, likeCount: row.like_count };
-    const { rows: upd } = await tx.query<{ like_count: number }>(
-      `UPDATE ${table} SET like_count = GREATEST(like_count - 1, 0) WHERE id = $1 RETURNING like_count`,
-      [target.id]
-    );
+    const del = await tx
+      .delete(schema.classroomLikes)
+      .where(and(eq(schema.classroomLikes.userId, userId), eq(likeCol, target.id)))
+      .returning({ id: schema.classroomLikes.id });
+    if (del.length === 0) return { liked: false, likeCount: row.likeCount };
+    const [upd] = await tx
+      .update(table)
+      .set({ likeCount: sql`GREATEST(${table.likeCount} - 1, 0)` })
+      .where(eq(table.id, target.id))
+      .returning({ likeCount: table.likeCount });
     if (!selfLike) {
       await awardClassroomPoints(
         {
           roomId: classroom.id,
-          userId: row.author_id,
+          userId: row.authorId,
           source: "like_removed",
           referenceId: `unlike:${del[0]!.id}`,
         },
         tx
       );
     }
-    return { liked: false, likeCount: upd[0]?.like_count ?? Math.max(row.like_count - 1, 0) };
+    return { liked: false, likeCount: upd?.likeCount ?? Math.max(row.likeCount - 1, 0) };
   });
 
   fireKnowledgeBonuses([award]);
@@ -676,36 +708,53 @@ export async function createReport(
   input: { target: LikeTarget; reason: ReportReason; details?: string | null }
 ): Promise<{ reported: true }> {
   if (!viewer.userId) throw forbidden();
-  const table = input.target.kind === "post" ? "classroom_posts" : "classroom_post_comments";
-  const col = input.target.kind === "post" ? "post_id" : "comment_id";
+  const userId = viewer.userId;
+  const isPost = input.target.kind === "post";
+  const table = isPost ? schema.classroomPosts : schema.classroomPostComments;
+  const reportCol = isPost ? schema.classroomReports.postId : schema.classroomReports.commentId;
 
-  await db.transaction(async (tx) => {
-    const { rows } = await tx.query<{ author_id: string }>(
-      `SELECT author_id FROM ${table} WHERE id = $1 AND room_id = $2 AND deleted_at IS NULL`,
-      [input.target.id, classroom.id]
-    );
-    const row = rows[0];
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ authorId: table.authorId })
+      .from(table)
+      .where(and(eq(table.id, input.target.id), eq(table.roomId, classroom.id), sql`${table.deletedAt} IS NULL`));
     if (!row) throw notFound("Not found");
-    if (row.author_id === viewer.userId) throw badRequest("You can't report your own content.");
+    if (row.authorId === userId) throw badRequest("You can't report your own content.");
 
-    const { rows: ins } = await tx.query<{ id: string }>(
-      `INSERT INTO classroom_reports (room_id, reporter_id, ${col}, reason, details, status, created_at)
-       VALUES ($1, $2, $3, $4, $5, 'pending', NOW())
-       ON CONFLICT DO NOTHING
-       RETURNING id`,
-      [classroom.id, viewer.userId, input.target.id, input.reason, input.details?.trim() || null]
-    );
+    const reportValues = isPost
+      ? {
+          roomId: classroom.id,
+          reporterId: userId,
+          postId: input.target.id,
+          reason: input.reason,
+          details: input.details?.trim() || null,
+          status: "pending" as const,
+        }
+      : {
+          roomId: classroom.id,
+          reporterId: userId,
+          commentId: input.target.id,
+          reason: input.reason,
+          details: input.details?.trim() || null,
+          status: "pending" as const,
+        };
+    const ins = await tx
+      .insert(schema.classroomReports)
+      .values(reportValues)
+      .onConflictDoNothing()
+      .returning({ id: schema.classroomReports.id });
     if (ins.length === 0) throw conflict("You've already reported this.", "CLASSROOM_ALREADY_REPORTED");
 
-    const { rows: countRows } = await tx.query<{ n: string }>(
-      `SELECT COUNT(*)::text AS n FROM classroom_reports WHERE ${col} = $1 AND status = 'pending'`,
-      [input.target.id]
-    );
-    if (Number(countRows[0]?.n ?? 0) >= ESCALATION_THRESHOLD) {
-      await tx.query(
-        `UPDATE classroom_reports SET escalated = TRUE WHERE ${col} = $1 AND status = 'pending'`,
-        [input.target.id]
-      );
+    const [{ n }] = await tx
+      .select({ n: sql<string>`COUNT(*)` })
+      .from(schema.classroomReports)
+      .where(and(eq(reportCol, input.target.id), eq(schema.classroomReports.status, "pending")));
+    if (Number(n ?? 0) >= ESCALATION_THRESHOLD) {
+      await tx
+        .update(schema.classroomReports)
+        .set({ escalated: true })
+        .where(and(eq(reportCol, input.target.id), eq(schema.classroomReports.status, "pending")));
     }
   });
   return { reported: true };
@@ -729,7 +778,7 @@ export interface ClassroomReportView {
   };
 }
 
-interface ReportRow {
+type ReportRow = {
   id: string;
   reason: string;
   details: string | null;
@@ -748,7 +797,7 @@ interface ReportRow {
   room_id?: string;
   room_name?: string;
   room_slug?: string | null;
-}
+};
 
 export const REPORT_SELECT = `
   SELECT r.id, r.reason, r.details, r.status, r.escalated, r.created_at,
@@ -791,13 +840,14 @@ export function toReportView(r: ReportRow): ClassroomReportView & { room?: { id:
 export type { ReportRow };
 
 export async function listReports(classroomId: string, status: "pending" | "resolved"): Promise<ClassroomReportView[]> {
-  const { rows } = await db.query<ReportRow>(
-    `${REPORT_SELECT}
-     WHERE r.room_id = $1 AND ${status === "pending" ? "r.status = 'pending'" : "r.status <> 'pending'"}
+  const orm = await getDb();
+  const statusFilter = status === "pending" ? sql`r.status = 'pending'` : sql`r.status <> 'pending'`;
+  const { rows } = await orm.execute<ReportRow>(sql`
+    ${sql.raw(REPORT_SELECT)}
+     WHERE r.room_id = ${classroomId} AND ${statusFilter}
      ORDER BY r.created_at DESC
-     LIMIT 200`,
-    [classroomId]
-  );
+     LIMIT 200
+  `);
   return rows.map(toReportView);
 }
 
@@ -809,47 +859,45 @@ export async function listReports(classroomId: string, status: "pending" | "reso
 export async function resolveReport(
   params: { reportId: string; roomId: string | null; action: "remove" | "dismiss"; resolverId: string; note?: string | null }
 ): Promise<void> {
-  await db.transaction(async (tx) => {
-    const args: SqlParam[] = [params.reportId];
-    let roomFilter = "";
-    if (params.roomId) {
-      args.push(params.roomId);
-      roomFilter = "AND room_id = $2";
-    }
-    const { rows } = await tx.query<{ id: string; post_id: string | null; comment_id: string | null; status: string }>(
-      `SELECT id, post_id, comment_id, status FROM classroom_reports WHERE id = $1 ${roomFilter} FOR UPDATE`,
-      args
-    );
-    const report = rows[0];
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const roomFilter = params.roomId ? eq(schema.classroomReports.roomId, params.roomId) : undefined;
+    const [report] = await tx
+      .select({
+        id: schema.classroomReports.id,
+        postId: schema.classroomReports.postId,
+        commentId: schema.classroomReports.commentId,
+        status: schema.classroomReports.status,
+      })
+      .from(schema.classroomReports)
+      .where(roomFilter ? and(eq(schema.classroomReports.id, params.reportId), roomFilter) : eq(schema.classroomReports.id, params.reportId))
+      .for("update");
     if (!report) throw notFound("Report not found");
     if (report.status !== "pending") throw conflict("This report was already resolved.", "CLASSROOM_REPORT_RESOLVED");
 
     if (params.action === "remove") {
-      if (report.post_id) {
-        await tx.query(
-          `UPDATE classroom_posts SET is_hidden = TRUE, hidden_by = $2, hidden_at = NOW(), updated_at = NOW() WHERE id = $1`,
-          [report.post_id, params.resolverId]
-        );
-      } else if (report.comment_id) {
-        await tx.query(
-          `UPDATE classroom_post_comments SET is_hidden = TRUE, hidden_by = $2, hidden_at = NOW(), updated_at = NOW() WHERE id = $1`,
-          [report.comment_id, params.resolverId]
-        );
+      if (report.postId) {
+        await tx
+          .update(schema.classroomPosts)
+          .set({ isHidden: true, hiddenBy: params.resolverId, hiddenAt: new Date(), updatedAt: new Date() })
+          .where(eq(schema.classroomPosts.id, report.postId));
+      } else if (report.commentId) {
+        await tx
+          .update(schema.classroomPostComments)
+          .set({ isHidden: true, hiddenBy: params.resolverId, hiddenAt: new Date(), updatedAt: new Date() })
+          .where(eq(schema.classroomPostComments.id, report.commentId));
       }
-      const col = report.post_id ? "post_id" : "comment_id";
-      await tx.query(
-        `UPDATE classroom_reports
-            SET status = 'resolved_removed', resolved_by = $2, resolved_at = NOW(), resolution_note = $3
-          WHERE ${col} = $1 AND status = 'pending'`,
-        [report.post_id ?? report.comment_id, params.resolverId, params.note ?? null]
-      );
+      const reportCol = report.postId ? schema.classroomReports.postId : schema.classroomReports.commentId;
+      const targetId = report.postId ?? report.commentId!;
+      await tx
+        .update(schema.classroomReports)
+        .set({ status: "resolved_removed", resolvedBy: params.resolverId, resolvedAt: new Date(), resolutionNote: params.note ?? null })
+        .where(and(eq(reportCol, targetId), eq(schema.classroomReports.status, "pending")));
     } else {
-      await tx.query(
-        `UPDATE classroom_reports
-            SET status = 'resolved_dismissed', resolved_by = $2, resolved_at = NOW(), resolution_note = $3
-          WHERE id = $1`,
-        [report.id, params.resolverId, params.note ?? null]
-      );
+      await tx
+        .update(schema.classroomReports)
+        .set({ status: "resolved_dismissed", resolvedBy: params.resolverId, resolvedAt: new Date(), resolutionNote: params.note ?? null })
+        .where(eq(schema.classroomReports.id, report.id));
     }
   });
   logger.info({ reportId: params.reportId, roomId: params.roomId, action: params.action, resolverId: params.resolverId }, "[classroom:moderation] report resolved");
@@ -866,15 +914,20 @@ export async function notifyMembers(
   title: string,
   body: string,
   extra: Record<string, unknown> = {},
-  client: Queryable = db
+  client?: DbOrTx
 ): Promise<void> {
-  const { rows } = await client.query<{ user_id: string }>(
-    `SELECT user_id FROM classroom_enrolments WHERE room_id = $1 AND ($2::uuid IS NULL OR user_id <> $2::uuid)`,
-    [classroom.id, excludeUserId]
-  );
+  const orm = client ?? (await getDb());
+  const rows = await orm
+    .select({ userId: schema.classroomEnrolments.userId })
+    .from(schema.classroomEnrolments)
+    .where(
+      excludeUserId
+        ? and(eq(schema.classroomEnrolments.roomId, classroom.id), sql`${schema.classroomEnrolments.userId} <> ${excludeUserId}::uuid`)
+        : eq(schema.classroomEnrolments.roomId, classroom.id)
+    );
   await insertNotificationBatch(
-    client,
-    rows.map((r) => r.user_id),
+    orm,
+    rows.map((r) => r.userId),
     type,
     title,
     body,

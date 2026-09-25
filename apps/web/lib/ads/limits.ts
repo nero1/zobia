@@ -8,7 +8,8 @@
  * trip beyond what loadManifest() already does.
  */
 
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getManifestValue, loadManifest } from "@/lib/manifest";
 
 export type AdsLevel = "full" | "reduced" | "none";
@@ -112,26 +113,26 @@ export interface AdvertiserEligibility {
 export async function checkAdvertiserEligibility(userId: string): Promise<AdvertiserEligibility> {
   const config = await getAdsAdminConfig();
 
-  const { rows } = await db.query<{
-    id: string | null;
-    tier: string | null;
-    verified: boolean | null;
-    status: string | null;
-    kyc_tier: number;
-    plan: string;
-    rank_level: number;
-  }>(
-    `SELECT ba.id, ba.tier, ba.verified, ba.status, u.kyc_tier, COALESCE(u.plan, 'free') AS plan, COALESCE(u.rank_level, 1) AS rank_level
-     FROM users u
-     LEFT JOIN business_accounts ba ON ba.user_id = u.id
-     WHERE u.id = $1 LIMIT 1`,
-    [userId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: schema.businessAccounts.id,
+      tier: schema.businessAccounts.tier,
+      verified: schema.businessAccounts.verified,
+      status: schema.businessAccounts.status,
+      kycTier: schema.users.kycTier,
+      plan: schema.users.plan,
+      rankLevel: schema.users.rankLevel,
+    })
+    .from(schema.users)
+    .leftJoin(schema.businessAccounts, eq(schema.businessAccounts.userId, schema.users.id))
+    .where(eq(schema.users.id, userId))
+    .limit(1);
   const row = rows[0];
   if (!row) return { eligible: false, reason: "Account not found.", canAdvertiseAsPersonal: false, canAdvertiseAsBusiness: false };
 
   const hasUsableBusinessAccount = !!row.id && row.status === "active" && row.verified === true;
-  const isPaidOrBusiness = row.plan !== "free" || hasUsableBusinessAccount;
+  const isPaidOrBusiness = (row.plan ?? "free") !== "free" || hasUsableBusinessAccount;
 
   let eligible = false;
   let reason: string | undefined;
@@ -153,16 +154,16 @@ export async function checkAdvertiserEligibility(userId: string): Promise<Advert
     if (!config.allowFreeAccounts) {
       eligible = false;
       reason = "Placing ads is currently limited to paid or Business accounts.";
-    } else if (row.rank_level < config.minLevelFreeAccounts) {
+    } else if (row.rankLevel < config.minLevelFreeAccounts) {
       eligible = false;
-      reason = `Placing ads requires account level ${config.minLevelFreeAccounts}+ (you're level ${row.rank_level}).`;
+      reason = `Placing ads requires account level ${config.minLevelFreeAccounts}+ (you're level ${row.rankLevel}).`;
     }
-  } else if (eligible && isPaidOrBusiness && config.enforceMinLevelPaidBusiness && row.rank_level < config.minLevelPaidBusiness) {
+  } else if (eligible && isPaidOrBusiness && config.enforceMinLevelPaidBusiness && row.rankLevel < config.minLevelPaidBusiness) {
     eligible = false;
-    reason = `Placing ads requires account level ${config.minLevelPaidBusiness}+ (you're level ${row.rank_level}).`;
+    reason = `Placing ads requires account level ${config.minLevelPaidBusiness}+ (you're level ${row.rankLevel}).`;
   }
 
-  const failedOnKyc = eligible && config.requireKyc && (row.kyc_tier ?? 0) < config.minKycTier;
+  const failedOnKyc = eligible && config.requireKyc && (row.kycTier ?? 0) < config.minKycTier;
   if (failedOnKyc) {
     eligible = false;
     reason = `Placing ads requires identity verification (KYC Tier ${config.minKycTier}+). Complete KYC verification first.`;
@@ -172,7 +173,7 @@ export async function checkAdvertiserEligibility(userId: string): Promise<Advert
   // when personal accounts aren't allowed at all — otherwise it's an option,
   // not a requirement.
   const needsBusinessAccount = !hasUsableBusinessAccount && !config.allowPersonalAccounts;
-  const needsKyc = config.requireKyc && (row.kyc_tier ?? 0) < config.minKycTier;
+  const needsKyc = config.requireKyc && (row.kycTier ?? 0) < config.minKycTier;
 
   return {
     eligible,
@@ -191,10 +192,12 @@ export async function checkAdvertiserEligibility(userId: string): Promise<Advert
 
 /** Business account owned by this user, regardless of ad eligibility (used for read/list routes). */
 export async function getOwnBusinessAccountId(userId: string): Promise<string | null> {
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ id: schema.businessAccounts.id })
+    .from(schema.businessAccounts)
+    .where(eq(schema.businessAccounts.userId, userId))
+    .limit(1);
   return rows[0]?.id ?? null;
 }
 

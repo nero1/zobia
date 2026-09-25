@@ -11,7 +11,8 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
+import { sql } from "drizzle-orm";
 
 export interface ForumCategoryOption {
   id: string;
@@ -23,14 +24,15 @@ export interface ForumCategoryOption {
 
 export const GET = withAuth(async (_req: NextRequest) => {
   try {
-    const { rows } = await db.query<{ id: string; slug: string; name: string; icon_emoji: string; question_count: string }>(
-      `SELECT c.id, c.slug, c.name, c.icon_emoji,
+    const orm = await getDb();
+    const { rows } = await orm.execute<{ id: string; slug: string; name: string; icon_emoji: string; question_count: string }>(sql`
+       SELECT c.id, c.slug, c.name, c.icon_emoji,
               COUNT(q.id) FILTER (WHERE q.status = 'visible' AND q.deleted_at IS NULL) AS question_count
        FROM forum_categories c
        LEFT JOIN forum_questions q ON q.category_id = c.id
        GROUP BY c.id
-       ORDER BY c.sort_order ASC, c.name ASC`
-    );
+       ORDER BY c.sort_order ASC, c.name ASC
+    `);
     const categories: ForumCategoryOption[] = rows.map((r) => ({
       id: r.id,
       slug: r.slug,

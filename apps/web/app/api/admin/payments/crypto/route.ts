@@ -18,7 +18,7 @@ import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { writeAuditLog } from "@/lib/audit/auditLog";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { invalidateManifestCache } from "@/lib/manifest";
 import { SUPPORTED_CURRENCIES } from "@/lib/payments/crypto/tokens";
 import {
@@ -83,23 +83,29 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const body = await validateBody(req, PatchSchema);
 
+    const orm = await getDb();
+
     if (body.discounts) {
       const existing = await getAllCryptoDiscounts();
       const merged = { ...existing, ...body.discounts };
-      await db.query(
-        `INSERT INTO x_manifest (key, value, updated_at) VALUES ('payment_crypto_discounts', $1, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-        [JSON.stringify(merged)]
-      );
+      await orm
+        .insert(schema.xManifest)
+        .values({ key: "payment_crypto_discounts", value: JSON.stringify(merged), updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: schema.xManifest.key,
+          set: { value: JSON.stringify(merged), updatedAt: new Date() },
+        });
       await invalidateManifestCache();
     }
 
     if (typeof body.refreshMinutes === "number") {
-      await db.query(
-        `INSERT INTO x_manifest (key, value, updated_at) VALUES ('payment_crypto_price_refresh_minutes', $1, NOW())
-         ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-        [String(body.refreshMinutes)]
-      );
+      await orm
+        .insert(schema.xManifest)
+        .values({ key: "payment_crypto_price_refresh_minutes", value: String(body.refreshMinutes), updatedAt: new Date() })
+        .onConflictDoUpdate({
+          target: schema.xManifest.key,
+          set: { value: String(body.refreshMinutes), updatedAt: new Date() },
+        });
       await invalidateManifestCache();
     }
 

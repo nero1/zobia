@@ -18,9 +18,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 
 interface AdminPayoutRow {
   id: string;
@@ -64,39 +65,33 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
     }
 
     // Build dynamic WHERE clauses
-    const conditions: string[] = [];
-    const params: (string | number | boolean)[] = [];
-    let paramIndex = 1;
+    const conditions = [];
 
     if (status !== "all") {
-      conditions.push(`cp.status = $${paramIndex++}`);
-      params.push(status);
+      conditions.push(sql`cp.status = ${status}`);
     }
     if (method) {
-      conditions.push(`cp.payout_method = $${paramIndex++}`);
-      params.push(method);
+      conditions.push(sql`cp.payout_method = ${method}`);
     }
     if (region) {
-      conditions.push(`cp.region = $${paramIndex++}`);
-      params.push(region);
+      conditions.push(sql`cp.region = ${region}`);
     }
     if (appealPending) {
-      conditions.push(`cp.appeal_status = 'pending'`);
+      conditions.push(sql`cp.appeal_status = 'pending'`);
     }
 
     // Keyset cursor condition — sort is (gross_kobo DESC, created_at ASC, id ASC)
     if (cursor) {
       conditions.push(
-        `(cp.gross_kobo < $${paramIndex} OR (cp.gross_kobo = $${paramIndex} AND (cp.created_at > $${paramIndex + 1} OR (cp.created_at = $${paramIndex + 1} AND cp.id > $${paramIndex + 2}))))`
+        sql`(cp.gross_kobo < ${cursor.grossKobo} OR (cp.gross_kobo = ${cursor.grossKobo} AND (cp.created_at > ${cursor.createdAt} OR (cp.created_at = ${cursor.createdAt} AND cp.id > ${cursor.id}))))`
       );
-      params.push(cursor.grossKobo, cursor.createdAt, cursor.id);
-      paramIndex += 3;
     }
 
-    const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+    const whereClause = conditions.length > 0 ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
 
-    const { rows } = await db.query<AdminPayoutRow>(
-      `SELECT cp.id, cp.creator_id,
+    const orm = await getDb();
+    const { rows } = await orm.execute<AdminPayoutRow & Record<string, unknown>>(sql`
+      SELECT cp.id, cp.creator_id,
               u.username AS creator_username, u.email AS creator_email,
               cp.gross_kobo, cp.net_kobo, cp.platform_fee_kobo,
               cp.status, cp.payout_method, cp.region,
@@ -106,11 +101,10 @@ export const GET = withAdminAuth(async (req: NextRequest, _ctx) => {
               cp.created_at, cp.approved_at
        FROM creator_payouts cp
        JOIN users u ON u.id = cp.creator_id
-       ${where}
+       ${whereClause}
        ORDER BY cp.gross_kobo DESC, cp.created_at ASC, cp.id ASC
-       LIMIT $${paramIndex++}`,
-      [...params, limit]
-    );
+       LIMIT ${limit}
+    `);
 
     const lastRow = rows[rows.length - 1];
     const nextCursor =

@@ -20,7 +20,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, inArray, isNull, ne } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -51,18 +52,6 @@ const crossReferenceSchema = z.object({
     .min(1, "At least one phone number is required")
     .max(MAX_PHONE_NUMBERS, `Maximum ${MAX_PHONE_NUMBERS} phone numbers per request`),
 });
-
-// ---------------------------------------------------------------------------
-// DB row type
-// ---------------------------------------------------------------------------
-
-interface UserMatchRow {
-  user_id: string;
-  username: string;
-  display_name: string | null;
-  avatar_emoji: string | null;
-  phone_number: string;
-}
 
 // ---------------------------------------------------------------------------
 // Response type
@@ -109,28 +98,31 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Query users whose stored phone_number matches any submitted number.
-    // The caller is excluded ($2) to avoid surfacing themselves.
+    // The caller is excluded to avoid surfacing themselves.
     // Results are capped at MAX_RESULTS to prevent bulk enumeration.
-    const { rows } = await db.query<UserMatchRow>(
-      `SELECT
-         u.id           AS user_id,
-         u.username,
-         u.display_name,
-         u.avatar_emoji,
-         u.phone_number
-       FROM users u
-       WHERE u.deleted_at IS NULL
-         AND u.phone_number = ANY($1::text[])
-         AND u.id != $2
-       LIMIT $3`,
-      [phoneNumbers, callerId, MAX_RESULTS]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        userId: schema.users.id,
+        username: schema.users.username,
+        displayName: schema.users.displayName,
+        avatarEmoji: schema.users.avatarEmoji,
+      })
+      .from(schema.users)
+      .where(
+        and(
+          isNull(schema.users.deletedAt),
+          inArray(schema.users.phoneNumber, phoneNumbers),
+          ne(schema.users.id, callerId)
+        )
+      )
+      .limit(MAX_RESULTS);
 
     const contacts: ZobiaContactResult[] = rows.map((row) => ({
-      userId: row.user_id,
+      userId: row.userId,
       username: row.username,
-      displayName: row.display_name ?? row.username,
-      avatarEmoji: row.avatar_emoji ?? "👤",
+      displayName: row.displayName ?? row.username,
+      avatarEmoji: row.avatarEmoji ?? "👤",
       phoneNumber: "[matched]",
     }));
 

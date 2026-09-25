@@ -11,9 +11,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
-import { db, SqlParam } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 // ---------------------------------------------------------------------------
 // Validation
@@ -32,19 +33,6 @@ const PatchBannerSchema = z.object({
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface BannerRow {
-  id: string;
-  sponsor_name: string;
-  sponsor_logo_url: string | null;
-  cta_text: string;
-  cta_url: string;
-  starts_at: string;
-  ends_at: string;
-  is_active: boolean;
-  impressions: number;
-  created_at: string;
-}
 
 interface RouteParams {
   bannerId: string;
@@ -71,51 +59,45 @@ export const PATCH = withAdminAuth<RouteParams>(
         throw badRequest(parsed.error.errors.map((e) => e.message).join(", "));
       }
 
-      const updates: string[] = [];
-      const values: SqlParam[] = [bannerId];
-      let idx = 2;
-
       const { isActive, sponsorName, sponsorLogoUrl, ctaText, ctaUrl, startsAt, endsAt } =
         parsed.data;
 
-      if (isActive !== undefined) { updates.push(`is_active = $${idx++}`); values.push(isActive); }
-      if (sponsorName !== undefined) { updates.push(`sponsor_name = $${idx++}`); values.push(sponsorName); }
-      if (sponsorLogoUrl !== undefined) { updates.push(`sponsor_logo_url = $${idx++}`); values.push(sponsorLogoUrl); }
-      if (ctaText !== undefined) { updates.push(`cta_text = $${idx++}`); values.push(ctaText); }
-      if (ctaUrl !== undefined) { updates.push(`cta_url = $${idx++}`); values.push(ctaUrl); }
-      if (startsAt !== undefined) { updates.push(`starts_at = $${idx++}`); values.push(startsAt); }
-      if (endsAt !== undefined) { updates.push(`ends_at = $${idx++}`); values.push(endsAt); }
+      const updates: Partial<typeof schema.sponsoredLeaderboardBanners.$inferInsert> = {};
+      if (isActive !== undefined) updates.isActive = isActive;
+      if (sponsorName !== undefined) updates.sponsorName = sponsorName;
+      if (sponsorLogoUrl !== undefined) updates.sponsorLogoUrl = sponsorLogoUrl;
+      if (ctaText !== undefined) updates.ctaText = ctaText;
+      if (ctaUrl !== undefined) updates.ctaUrl = ctaUrl;
+      if (startsAt !== undefined) updates.startsAt = new Date(startsAt);
+      if (endsAt !== undefined) updates.endsAt = new Date(endsAt);
 
-      if (updates.length === 0) {
+      if (Object.keys(updates).length === 0) {
         throw badRequest("No fields provided to update");
       }
 
-      const { rows } = await db.query<BannerRow>(
-        `UPDATE sponsored_leaderboard_banners
-         SET ${updates.join(", ")}
-         WHERE id = $1
-         RETURNING id, sponsor_name, sponsor_logo_url, cta_text, cta_url,
-                   starts_at, ends_at, is_active, impressions, created_at`,
-        values
-      );
+      const orm = await getDb();
+      const [row] = await orm
+        .update(schema.sponsoredLeaderboardBanners)
+        .set(updates)
+        .where(eq(schema.sponsoredLeaderboardBanners.id, bannerId))
+        .returning();
 
-      if (!rows[0]) throw notFound("Banner not found");
+      if (!row) throw notFound("Banner not found");
 
-      const row = rows[0];
       return NextResponse.json({
         success: true,
         data: {
           banner: {
             id: row.id,
-            sponsorName: row.sponsor_name,
-            sponsorLogoUrl: row.sponsor_logo_url,
-            ctaText: row.cta_text,
-            ctaUrl: row.cta_url,
-            startsAt: row.starts_at,
-            endsAt: row.ends_at,
-            isActive: row.is_active,
+            sponsorName: row.sponsorName,
+            sponsorLogoUrl: row.sponsorLogoUrl,
+            ctaText: row.ctaText,
+            ctaUrl: row.ctaUrl,
+            startsAt: row.startsAt,
+            endsAt: row.endsAt,
+            isActive: row.isActive,
             impressions: row.impressions,
-            createdAt: row.created_at,
+            createdAt: row.createdAt,
           },
         },
         error: null,
@@ -135,12 +117,13 @@ export const DELETE = withAdminAuth<RouteParams>(
     try {
       const { bannerId } = params;
 
-      const { rowCount } = await db.query(
-        `DELETE FROM sponsored_leaderboard_banners WHERE id = $1`,
-        [bannerId]
-      );
+      const orm = await getDb();
+      const deleted = await orm
+        .delete(schema.sponsoredLeaderboardBanners)
+        .where(eq(schema.sponsoredLeaderboardBanners.id, bannerId))
+        .returning({ id: schema.sponsoredLeaderboardBanners.id });
 
-      if (!rowCount) throw notFound("Banner not found");
+      if (deleted.length === 0) throw notFound("Banner not found");
 
       return NextResponse.json({
         success: true,

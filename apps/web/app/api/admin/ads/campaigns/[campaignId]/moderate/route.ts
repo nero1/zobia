@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -35,11 +36,18 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }: Ctx
     const { campaignId } = await params;
     const body = await validateBody(req, bodySchema);
 
-    const { rows } = await db.query<{ id: string; name: string; created_by: string; moderation_status: string }>(
-      `SELECT id, name, created_by, moderation_status FROM ad_campaigns WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [campaignId]
-    );
-    const campaign = rows[0];
+    const orm = await getDb();
+
+    const [campaign] = await orm
+      .select({
+        id: schema.adCampaigns.id,
+        name: schema.adCampaigns.name,
+        created_by: schema.adCampaigns.createdBy,
+        moderation_status: schema.adCampaigns.moderationStatus,
+      })
+      .from(schema.adCampaigns)
+      .where(and(eq(schema.adCampaigns.id, campaignId), isNull(schema.adCampaigns.deletedAt)))
+      .limit(1);
     if (!campaign) throw notFound("Ad campaign not found");
     if (campaign.moderation_status !== "pending") {
       throw badRequest(`Campaign is already ${campaign.moderation_status}.`);
@@ -48,27 +56,29 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }: Ctx
     const approve = body.action === "approve";
     await moderateCampaign(campaignId, approve, auth.user.sub, body.reason ?? null);
 
-    await db
-      .query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-         VALUES ($1, 'ad_campaign_moderated', $2, $3, $4::jsonb, false, NOW())`,
-        [
-          campaign.created_by,
-          approve ? "Ad campaign approved" : "Ad campaign rejected",
-          approve
-            ? `Your ad campaign "${campaign.name}" is now approved and ready to activate.`
-            : `Your ad campaign "${campaign.name}" was rejected.${body.reason ? ` Reason: ${body.reason}` : ""}`,
-          JSON.stringify({ campaignId, moderationStatus: approve ? "approved" : "rejected" }),
-        ]
-      )
+    await orm
+      .insert(schema.notifications)
+      .values({
+        userId: campaign.created_by,
+        type: "ad_campaign_moderated",
+        title: approve ? "Ad campaign approved" : "Ad campaign rejected",
+        body: approve
+          ? `Your ad campaign "${campaign.name}" is now approved and ready to activate.`
+          : `Your ad campaign "${campaign.name}" was rejected.${body.reason ? ` Reason: ${body.reason}` : ""}`,
+        metadata: { campaignId, moderationStatus: approve ? "approved" : "rejected" },
+        isRead: false,
+      })
       .catch(() => {});
 
-    await db
-      .query(
-        `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, after_val, created_at)
-         VALUES ($1, $2, 'ad_campaign', $3, $4::jsonb, NOW())`,
-        [auth.user.sub, `ad_campaign_${body.action}`, campaignId, JSON.stringify({ reason: body.reason ?? null })]
-      )
+    await orm
+      .insert(schema.adminAuditLog)
+      .values({
+        adminId: auth.user.sub,
+        action: `ad_campaign_${body.action}`,
+        resource: "ad_campaign",
+        resourceId: campaignId,
+        afterVal: { reason: body.reason ?? null },
+      })
       .catch(() => {});
 
     return NextResponse.json({ success: true, data: { campaignId, moderationStatus: approve ? "approved" : "rejected" }, error: null });

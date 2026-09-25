@@ -20,7 +20,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { generateUniqueSlug } from "@/lib/slug";
 import { insertNotificationBatch } from "@/lib/notifications/insert";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
@@ -43,31 +44,6 @@ const GRADUATION_XP = 50;
 const CEREMONY_DURATION_HOURS = 2;
 
 // ---------------------------------------------------------------------------
-// DB row types
-// ---------------------------------------------------------------------------
-
-interface ClassroomRoomRow {
-  id: string;
-  name: string;
-  type: string;
-  creator_id: string;
-  is_active: boolean;
-  end_date: string | null;
-}
-
-interface EnrolledStudentRow {
-  user_id: string;
-}
-
-interface PassedQuizStudentRow {
-  user_id: string;
-}
-
-interface NewRoomRow {
-  id: string;
-}
-
-// ---------------------------------------------------------------------------
 // POST /api/classroom/[roomId]/graduate
 // ---------------------------------------------------------------------------
 
@@ -82,6 +58,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const { roomId } = await params as { roomId: string };
     const callerId = auth.user.sub;
+    const orm = await getDb();
 
     // -----------------------------------------------------------------------
     // 1. Verify room exists, is a classroom, and caller is the creator
@@ -89,15 +66,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // rooms has no `end_date` column (this used to SELECT it, so every
     // graduation request 500'd) — a classroom ends at ends_at, or at the end
     // of its class_end_date.
-    const { rows: roomRows } = await db.query<ClassroomRoomRow>(
-      `SELECT id, name, type, creator_id, is_active,
-              COALESCE(ends_at, (class_end_date + 1)::timestamptz) AS end_date
-       FROM rooms
-       WHERE id = $1 AND deleted_at IS NULL`,
-      [roomId]
-    );
+    const [room] = await orm
+      .select({
+        id: schema.rooms.id,
+        name: schema.rooms.name,
+        type: schema.rooms.type,
+        creator_id: schema.rooms.creatorId,
+        is_active: schema.rooms.isActive,
+        end_date: sql<string | null>`COALESCE(${schema.rooms.endsAt}, (${schema.rooms.classEndDate} + 1)::timestamptz)`,
+      })
+      .from(schema.rooms)
+      .where(and(eq(schema.rooms.id, roomId), isNull(schema.rooms.deletedAt)))
+      .limit(1);
 
-    const room = roomRows[0];
     if (!room) throw notFound("Classroom room not found");
     if (room.type !== "classroom") {
       throw badRequest("This endpoint is only for classroom rooms");
@@ -113,30 +94,29 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("This classroom has no end date — graduation cannot be triggered");
     }
 
-    const { rows: timeRows } = await db.query<{ has_ended: boolean }>(
-      `SELECT ($1::timestamptz <= NOW()) AS has_ended`,
-      [room.end_date]
-    );
-    if (!timeRows[0]?.has_ended) {
+    const hasEnded = new Date(room.end_date).getTime() <= Date.now();
+    if (!hasEnded) {
       throw badRequest("This classroom has not ended yet — graduation cannot be triggered before the end date");
     }
 
     // -----------------------------------------------------------------------
     // 3. Guard against duplicate ceremonies
     // -----------------------------------------------------------------------
-    const { rows: existingRows } = await db.query<{ id: string }>(
-      `SELECT id
-       FROM rooms
-       WHERE type = 'drop'
-         AND deleted_at IS NULL
-         AND metadata->>'graduation_for' = $1
-       LIMIT 1`,
-      [roomId]
-    );
-    if (existingRows.length > 0) {
+    const [existingCeremony] = await orm
+      .select({ id: schema.rooms.id })
+      .from(schema.rooms)
+      .where(
+        and(
+          eq(schema.rooms.type, "drop"),
+          isNull(schema.rooms.deletedAt),
+          sql`${schema.rooms.metadata}->>'graduation_for' = ${roomId}`
+        )
+      )
+      .limit(1);
+    if (existingCeremony) {
       return NextResponse.json(
         {
-          ceremonyRoomId: existingRows[0]!.id,
+          ceremonyRoomId: existingCeremony.id,
           studentCount: 0,
           xpAwarded: 0,
           alreadyCreated: true,
@@ -148,10 +128,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // -----------------------------------------------------------------------
     // 4. Fetch enrolled students
     // -----------------------------------------------------------------------
-    const { rows: enrolRows } = await db.query<EnrolledStudentRow>(
-      `SELECT user_id FROM classroom_enrolments WHERE room_id = $1`,
-      [roomId]
-    );
+    const enrolRows = await orm
+      .select({ user_id: schema.classroomEnrolments.userId })
+      .from(schema.classroomEnrolments)
+      .where(eq(schema.classroomEnrolments.roomId, roomId));
     const enrolledUserIds = enrolRows.map((r) => r.user_id);
     const studentCount = enrolledUserIds.length;
 
@@ -160,15 +140,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // -----------------------------------------------------------------------
     let xpEligibleUserIds: string[] = [];
     if (enrolledUserIds.length > 0) {
-      const { rows: quizRows } = await db.query<PassedQuizStudentRow>(
-        `SELECT DISTINCT qa.user_id
-         FROM classroom_quiz_attempts qa
-         JOIN classroom_quizzes q ON q.id = qa.quiz_id
-         WHERE q.room_id = $1
-           AND qa.passed = TRUE
-           AND qa.user_id = ANY($2::uuid[])`,
-        [roomId, enrolledUserIds]
-      );
+      const quizRows = await orm
+        .selectDistinct({ user_id: schema.classroomQuizAttempts.userId })
+        .from(schema.classroomQuizAttempts)
+        .innerJoin(schema.classroomQuizzes, eq(schema.classroomQuizzes.id, schema.classroomQuizAttempts.quizId))
+        .where(
+          and(
+            eq(schema.classroomQuizzes.roomId, roomId),
+            eq(schema.classroomQuizAttempts.passed, true),
+            inArray(schema.classroomQuizAttempts.userId, enrolledUserIds)
+          )
+        );
       xpEligibleUserIds = quizRows.map((r) => r.user_id);
     }
 
@@ -181,26 +163,28 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // ceremony room previously had none, so this INSERT always failed.
     const ceremonySlug = await generateUniqueSlug("room", `graduation ${room.name}`, randomUUID());
 
-    const ceremonyRoomId = await db.transaction(async (tx) => {
+    const ceremonyRoomId = await orm.transaction(async (tx) => {
       // Create the graduation Drop Room
       const dropEndsAt = new Date(
         Date.now() + CEREMONY_DURATION_HOURS * 60 * 60 * 1000
-      ).toISOString();
-
-      const { rows: newRoomRows } = await tx.query<NewRoomRow>(
-        `INSERT INTO rooms
-           (name, type, creator_id, is_active, metadata, drop_starts_at, drop_ends_at, slug, is_public, category, cover_emoji)
-         VALUES ($1, 'drop', $2, TRUE, $3::jsonb, NOW(), $4::timestamptz, $5, TRUE, 'Education', '🎓')
-         RETURNING id`,
-        [
-          `Graduation: ${room.name}`,
-          room.creator_id,
-          JSON.stringify({ graduation_for: roomId, ceremony: true }),
-          dropEndsAt,
-          ceremonySlug,
-        ]
       );
-      const newRoom = newRoomRows[0];
+
+      const [newRoom] = await tx
+        .insert(schema.rooms)
+        .values({
+          name: `Graduation: ${room.name}`,
+          type: "drop",
+          creatorId: room.creator_id,
+          isActive: true,
+          metadata: { graduation_for: roomId, ceremony: true },
+          dropStartsAt: new Date(),
+          dropEndsAt,
+          slug: ceremonySlug,
+          isPublic: true,
+          category: "Education",
+          coverEmoji: "🎓",
+        })
+        .returning({ id: schema.rooms.id });
       if (!newRoom) throw new Error("Failed to create graduation Drop Room");
 
       const newCeremonyRoomId = newRoom.id;

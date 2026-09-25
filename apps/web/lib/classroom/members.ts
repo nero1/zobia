@@ -10,8 +10,9 @@
  * Revoking keeps the row (status = 'removed') for the audit trail.
  */
 
-import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db/interface";
+import { and, eq, sql } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { badRequest, conflict, notFound } from "@/lib/api/errors";
 import { logger } from "@/lib/logger";
 import { insertNotification } from "@/lib/notifications/insert";
@@ -34,7 +35,7 @@ export interface ClassroomMemberView {
   lessonsCompleted: number;
 }
 
-interface MemberRow {
+type MemberRow = {
   user_id: string;
   username: string;
   display_name: string | null;
@@ -49,48 +50,47 @@ interface MemberRow {
   points: string | null;
   level: number | null;
   lessons_completed: string;
-}
+};
 
 export async function listMembers(
   classroomId: string,
   opts: { search?: string | null; filter?: "all" | "moderators" | "paid" | "muted"; limit?: number; offset?: number }
 ): Promise<{ members: ClassroomMemberView[]; total: number }> {
-  const params: SqlParam[] = [classroomId];
-  const where = ["ce.room_id = $1", "u.deleted_at IS NULL"];
+  const orm = await getDb();
+  const where = [sql`ce.room_id = ${classroomId}`, sql`u.deleted_at IS NULL`];
   if (opts.search && opts.search.trim()) {
-    params.push(`%${opts.search.trim().replace(/[%_\\]/g, (m) => `\\${m}`)}%`);
-    where.push(`(u.username ILIKE $${params.length} OR u.display_name ILIKE $${params.length})`);
+    const pattern = `%${opts.search.trim().replace(/[%_\\]/g, (m) => `\\${m}`)}%`;
+    where.push(sql`(u.username ILIKE ${pattern} OR u.display_name ILIKE ${pattern})`);
   }
-  if (opts.filter === "moderators") where.push("cm.id IS NOT NULL");
-  if (opts.filter === "paid") where.push("ce.paid = TRUE");
-  if (opts.filter === "muted") where.push("ce.muted_until > NOW()");
+  if (opts.filter === "moderators") where.push(sql`cm.id IS NOT NULL`);
+  if (opts.filter === "paid") where.push(sql`ce.paid = TRUE`);
+  if (opts.filter === "muted") where.push(sql`ce.muted_until > NOW()`);
 
   const limit = Math.min(Math.max(opts.limit ?? 50, 1), 100);
   const offset = Math.max(opts.offset ?? 0, 0);
 
-  const joins = `
+  const joinsSql = sql`
     FROM classroom_enrolments ce
     JOIN users u ON u.id = ce.user_id
     LEFT JOIN classroom_moderators cm
            ON cm.room_id = ce.room_id AND cm.user_id = ce.user_id AND cm.status = 'active' AND cm.is_moderator = TRUE`;
-  const whereSql = `WHERE ${where.join(" AND ")}`;
+  const whereSql = sql.join(where, sql` AND `);
 
   const [{ rows }, { rows: countRows }] = await Promise.all([
-    db.query<MemberRow>(
-      `SELECT ce.user_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url,
+    orm.execute<MemberRow>(sql`
+      SELECT ce.user_id, u.username, u.display_name, u.avatar_emoji, u.avatar_url,
               ce.paid, ce.enrolled_at, ce.last_active_at, ce.completed_at, ce.muted_until,
               (cm.id IS NOT NULL) AS is_moderator,
               mp.points::text AS points, mp.level,
               (SELECT COUNT(*) FROM classroom_lesson_completions lc
                 WHERE lc.room_id = ce.room_id AND lc.user_id = ce.user_id)::text AS lessons_completed
-       ${joins}
+       ${joinsSql}
        LEFT JOIN classroom_member_points mp ON mp.room_id = ce.room_id AND mp.user_id = ce.user_id
-       ${whereSql}
+       WHERE ${whereSql}
        ORDER BY (cm.id IS NOT NULL) DESC, COALESCE(mp.points, 0) DESC, ce.enrolled_at ASC
-       LIMIT ${limit} OFFSET ${offset}`,
-      params
-    ),
-    db.query<{ n: string }>(`SELECT COUNT(*)::text AS n ${joins} ${whereSql}`, params),
+       LIMIT ${limit} OFFSET ${offset}
+    `),
+    orm.execute<{ n: string }>(sql`SELECT COUNT(*)::text AS n ${joinsSql} WHERE ${whereSql}`),
   ]);
 
   return {
@@ -128,30 +128,36 @@ export interface ClassroomModeratorView {
 }
 
 export async function listModerators(classroomId: string): Promise<ClassroomModeratorView[]> {
-  const { rows } = await db.query<{
-    user_id: string;
-    username: string;
-    display_name: string | null;
-    avatar_emoji: string;
-    moderator_granted_at: string | null;
-    granted_by_username: string | null;
-  }>(
-    `SELECT cm.user_id, u.username, u.display_name, u.avatar_emoji, cm.moderator_granted_at,
-            gb.username AS granted_by_username
-       FROM classroom_moderators cm
-       JOIN users u ON u.id = cm.user_id
-       LEFT JOIN users gb ON gb.id = cm.moderator_granted_by
-      WHERE cm.room_id = $1 AND cm.status = 'active' AND cm.is_moderator = TRUE
-      ORDER BY cm.moderator_granted_at ASC NULLS LAST`,
-    [classroomId]
-  );
+  const orm = await getDb();
+  const gb = alias(schema.users, "gb");
+  const rows = await orm
+    .select({
+      userId: schema.classroomModerators.userId,
+      username: schema.users.username,
+      displayName: schema.users.displayName,
+      avatarEmoji: schema.users.avatarEmoji,
+      moderatorGrantedAt: schema.classroomModerators.moderatorGrantedAt,
+      grantedByUsername: gb.username,
+    })
+    .from(schema.classroomModerators)
+    .innerJoin(schema.users, eq(schema.users.id, schema.classroomModerators.userId))
+    .leftJoin(gb, eq(gb.id, schema.classroomModerators.moderatorGrantedBy))
+    .where(
+      and(
+        eq(schema.classroomModerators.roomId, classroomId),
+        eq(schema.classroomModerators.status, "active"),
+        eq(schema.classroomModerators.isModerator, true)
+      )
+    )
+    .orderBy(sql`${schema.classroomModerators.moderatorGrantedAt} ASC NULLS LAST`);
+
   return rows.map((r) => ({
-    userId: r.user_id,
+    userId: r.userId,
     username: r.username,
-    displayName: r.display_name ?? r.username,
-    avatarEmoji: r.avatar_emoji,
-    grantedAt: r.moderator_granted_at ? new Date(r.moderator_granted_at).toISOString() : null,
-    grantedBy: r.granted_by_username,
+    displayName: r.displayName ?? r.username,
+    avatarEmoji: r.avatarEmoji,
+    grantedAt: r.moderatorGrantedAt ? new Date(r.moderatorGrantedAt).toISOString() : null,
+    grantedBy: r.grantedByUsername,
   }));
 }
 
@@ -161,39 +167,56 @@ export const MAX_CLASSROOM_MODERATORS = 20;
 export async function grantModerator(classroom: ClassroomRecord, targetUserId: string, grantedBy: string): Promise<void> {
   if (targetUserId === classroom.creatorId) throw badRequest("The creator already has full control of this classroom.");
 
-  await db.transaction(async (tx) => {
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
     // Only enrolled members (paid or free) can be moderators.
-    const { rows: enrolRows } = await tx.query<{ id: string }>(
-      `SELECT ce.id FROM classroom_enrolments ce
-         JOIN users u ON u.id = ce.user_id AND u.deleted_at IS NULL
-        WHERE ce.room_id = $1 AND ce.user_id = $2`,
-      [classroom.id, targetUserId]
-    );
-    if (!enrolRows[0]) throw badRequest("Only members of this classroom can be made moderators.", "CLASSROOM_NOT_MEMBER");
+    const [enrolRow] = await tx
+      .select({ id: schema.classroomEnrolments.id })
+      .from(schema.classroomEnrolments)
+      .innerJoin(schema.users, and(eq(schema.users.id, schema.classroomEnrolments.userId), sql`${schema.users.deletedAt} IS NULL`))
+      .where(and(eq(schema.classroomEnrolments.roomId, classroom.id), eq(schema.classroomEnrolments.userId, targetUserId)));
+    if (!enrolRow) throw badRequest("Only members of this classroom can be made moderators.", "CLASSROOM_NOT_MEMBER");
 
     // Serialise concurrent grants on the classroom so the cap holds.
-    await tx.query(`SELECT id FROM rooms WHERE id = $1 FOR UPDATE`, [classroom.id]);
-    const { rows: countRows } = await tx.query<{ n: string }>(
-      `SELECT COUNT(*)::text AS n FROM classroom_moderators
-        WHERE room_id = $1 AND status = 'active' AND is_moderator = TRUE AND user_id <> $2`,
-      [classroom.id, targetUserId]
-    );
-    if (Number(countRows[0]?.n ?? 0) >= MAX_CLASSROOM_MODERATORS) {
+    await tx.select({ id: schema.rooms.id }).from(schema.rooms).where(eq(schema.rooms.id, classroom.id)).for("update");
+    const [{ n }] = await tx
+      .select({ n: sql<string>`COUNT(*)` })
+      .from(schema.classroomModerators)
+      .where(
+        and(
+          eq(schema.classroomModerators.roomId, classroom.id),
+          eq(schema.classroomModerators.status, "active"),
+          eq(schema.classroomModerators.isModerator, true),
+          sql`${schema.classroomModerators.userId} <> ${targetUserId}::uuid`
+        )
+      );
+    if (Number(n ?? 0) >= MAX_CLASSROOM_MODERATORS) {
       throw conflict(`A classroom can have at most ${MAX_CLASSROOM_MODERATORS} moderators.`, "CLASSROOM_MODERATOR_LIMIT");
     }
 
-    const { rows } = await tx.query<{ inserted: boolean }>(
-      `INSERT INTO classroom_moderators
-         (room_id, user_id, role, is_moderator, moderator_granted_by, moderator_granted_at, status, created_at, updated_at)
-       VALUES ($1, $2, 'moderator', TRUE, $3, NOW(), 'active', NOW(), NOW())
-       ON CONFLICT (room_id, user_id) DO UPDATE
-         SET is_moderator = TRUE, status = 'active',
-             moderator_granted_by = EXCLUDED.moderator_granted_by,
-             moderator_granted_at = NOW(), updated_at = NOW()
-         WHERE classroom_moderators.status <> 'active' OR classroom_moderators.is_moderator = FALSE
-       RETURNING TRUE AS inserted`,
-      [classroom.id, targetUserId, grantedBy]
-    );
+    const rows = await tx
+      .insert(schema.classroomModerators)
+      .values({
+        roomId: classroom.id,
+        userId: targetUserId,
+        role: "moderator",
+        isModerator: true,
+        moderatorGrantedBy: grantedBy,
+        moderatorGrantedAt: new Date(),
+        status: "active",
+      })
+      .onConflictDoUpdate({
+        target: [schema.classroomModerators.roomId, schema.classroomModerators.userId],
+        set: {
+          isModerator: true,
+          status: "active",
+          moderatorGrantedBy: sql`excluded.moderator_granted_by`,
+          moderatorGrantedAt: new Date(),
+          updatedAt: new Date(),
+        },
+        setWhere: sql`${schema.classroomModerators.status} <> 'active' OR ${schema.classroomModerators.isModerator} = FALSE`,
+      })
+      .returning({ inserted: sql<boolean>`TRUE` });
     if (!rows[0]) throw conflict("This member is already a moderator.", "CLASSROOM_ALREADY_MODERATOR");
 
     await insertNotification(
@@ -209,13 +232,19 @@ export async function grantModerator(classroom: ClassroomRecord, targetUserId: s
 }
 
 export async function revokeModerator(classroom: ClassroomRecord, targetUserId: string, revokedBy: string): Promise<void> {
-  const { rowCount } = await db.query(
-    `UPDATE classroom_moderators
-        SET is_moderator = FALSE, status = 'removed', updated_at = NOW()
-      WHERE room_id = $1 AND user_id = $2 AND status = 'active'`,
-    [classroom.id, targetUserId]
-  );
-  if (rowCount === 0) throw notFound("Moderator not found");
+  const orm = await getDb();
+  const result = await orm
+    .update(schema.classroomModerators)
+    .set({ isModerator: false, status: "removed", updatedAt: new Date() })
+    .where(
+      and(
+        eq(schema.classroomModerators.roomId, classroom.id),
+        eq(schema.classroomModerators.userId, targetUserId),
+        eq(schema.classroomModerators.status, "active")
+      )
+    )
+    .returning({ id: schema.classroomModerators.id });
+  if (result.length === 0) throw notFound("Moderator not found");
   logger.info({ roomId: classroom.id, targetUserId, revokedBy }, "[classroom:moderators] moderator revoked");
 }
 
@@ -232,24 +261,33 @@ export async function setMemberMute(
   if (targetUserId === classroom.creatorId) throw badRequest("The creator can't be muted.");
   if (targetUserId === actor.userId) throw badRequest("You can't mute yourself.");
 
+  const orm = await getDb();
+
   // Moderators can't mute each other — only the creator (or staff) can.
   if (!actor.isCreatorOrStaff) {
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM classroom_moderators WHERE room_id = $1 AND user_id = $2 AND status = 'active'`,
-      [classroom.id, targetUserId]
-    );
-    if (rows[0]) throw badRequest("Only the creator can mute a moderator.");
+    const [row] = await orm
+      .select({ id: schema.classroomModerators.id })
+      .from(schema.classroomModerators)
+      .where(
+        and(
+          eq(schema.classroomModerators.roomId, classroom.id),
+          eq(schema.classroomModerators.userId, targetUserId),
+          eq(schema.classroomModerators.status, "active")
+        )
+      );
+    if (row) throw badRequest("Only the creator can mute a moderator.");
   }
 
-  const { rows } = await db.query<{ muted_until: string | null }>(
-    `UPDATE classroom_enrolments
-        SET muted_until = CASE WHEN $3::int IS NULL THEN NULL ELSE NOW() + ($3::int * INTERVAL '1 hour') END,
-            muted_by = CASE WHEN $3::int IS NULL THEN NULL ELSE $4::uuid END
-      WHERE room_id = $1 AND user_id = $2
-      RETURNING muted_until`,
-    [classroom.id, targetUserId, durationHours, actor.userId]
-  );
+  const mutedUntilExpr =
+    durationHours === null ? sql`NULL` : sql`NOW() + (${durationHours}::int * INTERVAL '1 hour')`;
+  const mutedByExpr = durationHours === null ? sql`NULL` : sql`${actor.userId}::uuid`;
+
+  const rows = await orm
+    .update(schema.classroomEnrolments)
+    .set({ mutedUntil: mutedUntilExpr, mutedBy: mutedByExpr })
+    .where(and(eq(schema.classroomEnrolments.roomId, classroom.id), eq(schema.classroomEnrolments.userId, targetUserId)))
+    .returning({ mutedUntil: schema.classroomEnrolments.mutedUntil });
   if (!rows[0]) throw notFound("Member not found");
   logger.info({ roomId: classroom.id, targetUserId, actorId: actor.userId, durationHours }, "[classroom:members] mute updated");
-  return { mutedUntil: rows[0].muted_until ? new Date(rows[0].muted_until).toISOString() : null };
+  return { mutedUntil: rows[0].mutedUntil ? new Date(rows[0].mutedUntil).toISOString() : null };
 }

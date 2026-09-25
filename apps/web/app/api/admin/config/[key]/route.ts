@@ -25,7 +25,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { invalidateManifestCache } from "@/lib/manifest";
 import {
   withAdminAuth,
@@ -132,41 +133,51 @@ export const PUT = withAdminAuth(
       const { key } = await params as { key: string };
       const body = await validateBody(req, updateConfigSchema);
 
+      const orm = await getDb();
+
       // Verify key exists in x_manifest, OR allow creating new session_ttl_ keys.
-      const existing = await db.query<ManifestKeyRow>(
-        `SELECT key, value, description FROM x_manifest WHERE key = $1 LIMIT 1`,
-        [key]
-      );
-      const isNewSessionTtlKey = existing.rows.length === 0 && key.startsWith("session_ttl_");
-      if (existing.rows.length === 0 && !isNewSessionTtlKey) {
+      const existingRows = await orm
+        .select({
+          key: schema.xManifest.key,
+          value: schema.xManifest.value,
+          description: schema.xManifest.description,
+        })
+        .from(schema.xManifest)
+        .where(eq(schema.xManifest.key, key))
+        .limit(1);
+      const isNewSessionTtlKey = existingRows.length === 0 && key.startsWith("session_ttl_");
+      if (existingRows.length === 0 && !isNewSessionTtlKey) {
         throw badRequest(`Unknown manifest key: '${key}'.`, "UNKNOWN_MANIFEST_KEY");
       }
 
-      const previousValue = existing.rows[0]?.value ?? null;
+      const previousValue = existingRows[0]?.value ?? null;
       const sanitizedValue = sanitizeManifestValue(key, body.value);
 
       // Upsert the manifest value. This is the write that must succeed for the
       // save to count — kept in its own transaction so a failure in the
       // best-effort audit-log insert below can never poison/roll it back.
-      await db.transaction(async (client) => {
-        await client.query(
-          `INSERT INTO x_manifest (key, value, updated_at)
-           VALUES ($1, $2, NOW())
-           ON CONFLICT (key) DO UPDATE SET value = $2, updated_at = NOW()`,
-          [key, sanitizedValue]
-        );
+      await orm.transaction(async (tx) => {
+        await tx
+          .insert(schema.xManifest)
+          .values({ key, value: sanitizedValue })
+          .onConflictDoUpdate({
+            target: schema.xManifest.key,
+            set: { value: sanitizedValue, updatedAt: new Date() },
+          });
       });
 
       // Log the change to the audit table on a separate connection/transaction
       // (best-effort; table may not exist in all environments). A failure here
       // must never undo the manifest write above.
       try {
-        await db.query(
-          `INSERT INTO admin_audit_log
-             (admin_id, action, resource, resource_id, before_val, after_val, created_at)
-           VALUES ($1, 'update_manifest', 'x_manifest', $2, $3::jsonb, $4::jsonb, NOW())`,
-          [auth.user.sub, key, JSON.stringify(previousValue), JSON.stringify(sanitizedValue)]
-        );
+        await orm.insert(schema.adminAuditLog).values({
+          adminId: auth.user.sub,
+          action: "update_manifest",
+          resource: "x_manifest",
+          resourceId: key,
+          beforeVal: previousValue,
+          afterVal: sanitizedValue,
+        });
       } catch (auditErr) {
         logger.error({ err: auditErr, key }, "[admin:config] Failed to write admin_audit_log entry (non-fatal)");
       }

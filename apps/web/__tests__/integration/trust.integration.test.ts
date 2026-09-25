@@ -11,11 +11,13 @@
  * Requires: TEST_DATABASE_URL
  */
 
+import { drizzle } from "drizzle-orm/node-postgres";
+import type { PoolClient } from "pg";
+import type { DbOrTx } from "@/lib/db/drizzle";
 import {
   integrationSetup,
   createTestTransaction,
   closeTestPool,
-  wrapClient,
 } from "./setup";
 import {
   createUser,
@@ -24,6 +26,23 @@ import {
   getUserById,
 } from "./helpers";
 import { calculateTrustScore } from "@/lib/trust/trustScore";
+import { schema } from "@/lib/db/schema";
+
+/**
+ * calculateTrustScore now takes a Drizzle `DbOrTx` handle rather than the old
+ * raw `DatabaseAdapter`. Wrap the test's PoolClient (which is already inside
+ * an open transaction from createTestTransaction()) in a Drizzle instance so
+ * the function's reads/writes participate in the same transaction and get
+ * rolled back by the test's own rollback() call.
+ */
+function drizzleClient(client: PoolClient): DbOrTx {
+  // drizzle-orm's node-postgres driver types `drizzle(pool, ...)` and
+  // `drizzle(poolClient, ...)` as structurally distinct (their `$client`
+  // generic differs), even though both work identically at runtime since
+  // both expose the same `.query()` interface Drizzle actually calls. Cast
+  // to `DbOrTx` (the type every migrated function accepts) to match.
+  return drizzle(client, { schema }) as unknown as DbOrTx;
+}
 
 let dbAvailable = false;
 
@@ -41,7 +60,7 @@ describe("Trust score gating [integration]", () => {
     const { client, rollback } = await createTestTransaction();
     try {
       const user = await createUser(client, { isVerified: true });
-      const db = wrapClient(client) as Parameters<typeof calculateTrustScore>[1];
+      const db = drizzleClient(client);
 
       const score = await calculateTrustScore(user.id, db);
 
@@ -63,7 +82,7 @@ describe("Trust score gating [integration]", () => {
     try {
       const reporter = await createUser(client);
       const target = await createUser(client);
-      const db = wrapClient(client) as Parameters<typeof calculateTrustScore>[1];
+      const db = drizzleClient(client);
 
       const baseScore = await calculateTrustScore(target.id, db);
 
@@ -87,7 +106,7 @@ describe("Trust score gating [integration]", () => {
     try {
       const admin = await createUser(client);
       const target = await createUser(client);
-      const db = wrapClient(client) as Parameters<typeof calculateTrustScore>[1];
+      const db = drizzleClient(client);
 
       const baseScore = await calculateTrustScore(target.id, db);
 
@@ -109,7 +128,7 @@ describe("Trust score gating [integration]", () => {
     const { client, rollback } = await createTestTransaction();
     try {
       const user = await createUser(client, { isBanned: true });
-      const db = wrapClient(client) as Parameters<typeof calculateTrustScore>[1];
+      const db = drizzleClient(client);
 
       const score = await calculateTrustScore(user.id, db);
       expect(score).toBe(0);
@@ -123,7 +142,7 @@ describe("Trust score gating [integration]", () => {
     const { client, rollback } = await createTestTransaction();
     try {
       const user = await createUser(client, { isVerified: true });
-      const db = wrapClient(client) as Parameters<typeof calculateTrustScore>[1];
+      const db = drizzleClient(client);
 
       // Add many completed payments to push score up
       for (let i = 0; i < 20; i++) {
@@ -145,7 +164,7 @@ describe("Trust score gating [integration]", () => {
     if (!dbAvailable) return;
     const { client, rollback } = await createTestTransaction();
     try {
-      const db = wrapClient(client) as Parameters<typeof calculateTrustScore>[1];
+      const db = drizzleClient(client);
       const nonExistentId = "00000000-0000-0000-0000-000000000001";
 
       await expect(calculateTrustScore(nonExistentId, db)).rejects.toThrow(/user not found/i);

@@ -11,10 +11,11 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 
 // ---------------------------------------------------------------------------
 // Severity ordering for recommendations
@@ -57,20 +58,20 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { params, a
     const validStatuses = ["pending", "resolved", "escalated", "dismissed", "all"];
     const safeStatus = validStatuses.includes(status) ? status : "pending";
 
-    const params: (string | number)[] = [limit + 1];
-    let whereClause = `1=1`;
+    const conditions = [sql`1=1`];
 
     if (safeStatus !== "all") {
-      params.push(safeStatus);
-      whereClause += ` AND r.status = $${params.length}`;
+      conditions.push(sql`r.status = ${safeStatus}`);
     }
 
     if (cursor) {
-      params.push(cursor);
-      whereClause += ` AND r.id < $${params.length}`;
+      conditions.push(sql`r.id < ${cursor}`);
     }
 
-    const { rows } = await db.query<{
+    const whereClause = sql.join(conditions, sql` AND `);
+
+    const orm = await getDb();
+    const { rows } = await orm.execute<{
       id: string;
       reporter_id: string;
       reporter_username: string;
@@ -98,8 +99,8 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { params, a
       /** moderation_actions.id for the (unreversed) action that resolved this report, if any — needed to call the reverse endpoint. */
       action_id: string | null;
       action_type: string | null;
-    }>(
-      `SELECT
+    }>(sql`
+      SELECT
          r.id,
          r.reporter_id,
          reporter.username    AS reporter_username,
@@ -115,7 +116,7 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { params, a
          r.ai_confidence,
          r.ai_recommendation,
          r.ai_provider,
-         (${SEVERITY_CASE}) AS severity,
+         (${sql.raw(SEVERITY_CASE)}) AS severity,
          r.created_at,
          r.resolved_at,
          r.resolved_by,
@@ -134,9 +135,8 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { params, a
        ) action ON true
        WHERE ${whereClause}
        ORDER BY severity DESC, r.ai_confidence DESC NULLS LAST, r.created_at DESC
-       LIMIT $1`,
-      params
-    );
+       LIMIT ${limit + 1}
+    `);
 
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;

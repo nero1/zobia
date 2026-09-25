@@ -22,22 +22,24 @@
  * indefinitely — that keeps the hot table small while preserving history.
  */
 
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 
 const AUDIT_RETENTION_DAYS = 365;
 const PRUNE_BATCH_SIZE = 5_000;
 
 async function pruneTable(table: "admin_audit_log" | "audit_log"): Promise<number> {
-  const { rowCount } = await db.query(
-    `DELETE FROM ${table}
-     WHERE id IN (
-       SELECT id FROM ${table}
-       WHERE created_at < NOW() - INTERVAL '${AUDIT_RETENTION_DAYS} days'
-       LIMIT ${PRUNE_BATCH_SIZE}
+  const db = await getDb();
+  const tbl = table === "admin_audit_log" ? schema.adminAuditLog : schema.auditLog;
+  const result = await db.delete(tbl).where(
+    sql`${tbl.id} IN (
+       SELECT id FROM ${tbl}
+       WHERE ${tbl.createdAt} < NOW() - INTERVAL '${sql.raw(String(AUDIT_RETENTION_DAYS))} days'
+       LIMIT ${sql.raw(String(PRUNE_BATCH_SIZE))}
      )`
   );
-  return rowCount ?? 0;
+  return result.rowCount ?? 0;
 }
 
 /** Prune both audit tables. Never throws — logs and returns partial results on failure. */

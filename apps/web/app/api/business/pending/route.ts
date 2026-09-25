@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -34,14 +35,35 @@ interface PendingPaymentRow {
 }
 
 async function findPendingBusinessPayment(userId: string): Promise<PendingPaymentRow | null> {
-  const { rows } = await db.query<PendingPaymentRow>(
-    `SELECT id, created_at, metadata FROM payments
-     WHERE user_id = $1 AND payment_type = 'business_upgrade' AND status = 'pending'
-       AND metadata->>'itemType' IN ('business_signup', 'business_upgrade', 'business_renewal')
-     ORDER BY created_at DESC LIMIT 1`,
-    [userId]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: schema.payments.id,
+      createdAt: schema.payments.createdAt,
+      metadata: schema.payments.metadata,
+    })
+    .from(schema.payments)
+    .where(
+      and(
+        eq(schema.payments.userId, userId),
+        eq(schema.payments.paymentType, "business_upgrade"),
+        eq(schema.payments.status, "pending"),
+        inArray(sql<string>`${schema.payments.metadata}->>'itemType'`, [
+          "business_signup",
+          "business_upgrade",
+          "business_renewal",
+        ])
+      )
+    )
+    .orderBy(desc(schema.payments.createdAt))
+    .limit(1);
+  const row = rows[0];
+  if (!row) return null;
+  return {
+    id: row.id,
+    created_at: row.createdAt ? row.createdAt.toISOString() : "",
+    metadata: row.metadata as PendingPaymentRow["metadata"],
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -82,16 +104,18 @@ export const DELETE = withAuth(async (_req: NextRequest, { auth }) => {
     const pending = await findPendingBusinessPayment(userId);
     if (!pending) throw notFound("No pending business payment to cancel");
 
-    await db.query(`UPDATE payments SET status = 'cancelled', updated_at = NOW() WHERE id = $1`, [pending.id]);
+    const orm = await getDb();
+    await orm
+      .update(schema.payments)
+      .set({ status: "cancelled", updatedAt: new Date() })
+      .where(eq(schema.payments.id, pending.id));
 
     const businessAccountId = pending.metadata?.businessAccountId;
     if (pending.metadata?.itemType === "business_upgrade" && businessAccountId) {
-      await db.query(
-        `UPDATE business_accounts
-         SET pending_tier = NULL, pending_payment_ref = NULL, updated_at = NOW()
-         WHERE id = $1`,
-        [businessAccountId]
-      );
+      await orm
+        .update(schema.businessAccounts)
+        .set({ pendingTier: null, pendingPaymentRef: null, updatedAt: new Date() })
+        .where(eq(schema.businessAccounts.id, businessAccountId));
     }
 
     return NextResponse.json({ success: true, data: { cancelled: true }, error: null });

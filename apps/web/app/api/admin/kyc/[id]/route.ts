@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -57,19 +58,19 @@ export const GET = withModeratorOrAdminAuth<{ id: string }>(
     try {
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
-      const { rows } = await db.query<SubmissionDetailRow>(
-        `SELECT k.*, u.username, u.display_name, u.email
-         FROM kyc_submissions k JOIN users u ON u.id = k.user_id
-         WHERE k.id = $1`,
-        [params.id]
-      );
+      const orm = await getDb();
+
+      const { rows } = await orm.execute<SubmissionDetailRow & Record<string, unknown>>(sql`
+        SELECT k.*, u.username, u.display_name, u.email
+        FROM kyc_submissions k JOIN users u ON u.id = k.user_id
+        WHERE k.id = ${params.id}
+      `);
       const submission = rows[0];
       if (!submission) throw notFound("KYC submission not found");
 
-      const { rows: docs } = await db.query<{ id: string; doc_type: string; storage_key: string; created_at: string }>(
-        `SELECT id, doc_type, storage_key, created_at FROM kyc_documents WHERE submission_id = $1 ORDER BY created_at ASC`,
-        [params.id]
-      );
+      const { rows: docs } = await orm.execute<{ id: string; doc_type: string; storage_key: string; created_at: string } & Record<string, unknown>>(sql`
+        SELECT id, doc_type, storage_key, created_at FROM kyc_documents WHERE submission_id = ${params.id} ORDER BY created_at ASC
+      `);
 
       const documents = await Promise.all(
         docs.map(async (d) => ({

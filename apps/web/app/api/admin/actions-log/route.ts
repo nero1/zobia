@@ -24,7 +24,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { and, desc, eq, gte, inArray, lt, lte, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -56,63 +57,29 @@ const reverseActionSchema = z.object({
 
 interface ActionLogRow {
   id: string;
-  action_type: string;
+  action_type: string | null;
   user_id: string | null;
   username: string | null;
   display_name: string | null;
   description: string | null;
   metadata: string | null;
   source_table: string;
-  created_at: string;
-  reversed_at: string | null;
+  created_at: Date | string | null;
+  reversed_at: Date | string | null;
   reversed_by: string | null;
   reversal_note: string | null;
 }
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Filter options
 // ---------------------------------------------------------------------------
 
-/**
- * Build a parameterized WHERE fragment for common date/user/cursor filters,
- * using the given column prefix.
- */
-function buildFilters(
-  prefix: string,
-  opts: {
-    actionType?: string;
-    userId?: string;
-    startDate?: string;
-    endDate?: string;
-    cursor?: string;
-  }
-): { clauses: string[]; params: SqlParam[] } {
-  const clauses: string[] = [];
-  const params: SqlParam[] = [];
-  let idx = 1;
-
-  if (opts.actionType) {
-    clauses.push(`${prefix}.action_type = $${idx++}`);
-    params.push(opts.actionType);
-  }
-  if (opts.userId) {
-    clauses.push(`${prefix}.user_id = $${idx++}`);
-    params.push(opts.userId);
-  }
-  if (opts.startDate) {
-    clauses.push(`${prefix}.created_at >= $${idx++}`);
-    params.push(opts.startDate);
-  }
-  if (opts.endDate) {
-    clauses.push(`${prefix}.created_at <= $${idx++}`);
-    params.push(opts.endDate);
-  }
-  if (opts.cursor) {
-    clauses.push(`${prefix}.created_at < $${idx++}`);
-    params.push(opts.cursor);
-  }
-
-  return { clauses, params };
+interface FilterOpts {
+  actionType?: string;
+  userId?: string;
+  startDate?: string;
+  endDate?: string;
+  cursor?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -125,7 +92,7 @@ function buildFilters(
  * Reads from:
  *  - moderation_actions (actor_type='automated')
  *  - notifications (type in ['mystery_xp_drop', 'rank_change', 'guild_war_resolved'])
- *  - automated_actions_log (if the table exists)
+ *  - automated_actions_log
  *
  * Results are merged in application memory and sorted by created_at DESC.
  */
@@ -136,7 +103,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     const query = validateSearchParams(req.nextUrl.searchParams, listQuerySchema);
     const fetchLimit = query.limit + 1; // over-fetch by 1 to detect hasMore
 
-    const filterOpts = {
+    const filterOpts: FilterOpts = {
       actionType: query.type,
       userId: query.userId,
       startDate: query.startDate,
@@ -144,129 +111,117 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
       cursor: query.cursor,
     };
 
+    const orm = await getDb();
+
     // ------------------------------------------------------------------
     // Query 1: moderation_actions (actor_type = 'automated')
     // ------------------------------------------------------------------
-    const { clauses: modClauses, params: modParams } = buildFilters("ma", {
-      userId: filterOpts.userId,
-      startDate: filterOpts.startDate,
-      endDate: filterOpts.endDate,
-      cursor: filterOpts.cursor,
-      // actionType maps to action_type on this table — include if set
-      actionType: filterOpts.actionType,
-    });
-    const modWhere = modClauses.length > 0 ? `AND ${modClauses.join(" AND ")}` : "";
-    modParams.push(fetchLimit);
+    const ma = schema.moderationActions;
+    const modConditions = [eq(ma.actorType, "automated")];
+    if (filterOpts.actionType) modConditions.push(eq(ma.actionType, filterOpts.actionType));
+    if (filterOpts.userId) modConditions.push(eq(ma.targetUserId, filterOpts.userId));
+    if (filterOpts.startDate) modConditions.push(gte(ma.createdAt, new Date(filterOpts.startDate)));
+    if (filterOpts.endDate) modConditions.push(lte(ma.createdAt, new Date(filterOpts.endDate)));
+    if (filterOpts.cursor) modConditions.push(lt(ma.createdAt, new Date(filterOpts.cursor)));
 
-    const { rows: modRows } = await db.query<ActionLogRow>(
-      `SELECT
-         ma.id,
-         ma.action_type,
-         ma.target_user_id AS user_id,
-         u.username,
-         u.display_name,
-         ma.reason AS description,
-         ma.metadata::text AS metadata,
-         'moderation_actions' AS source_table,
-         ma.created_at,
-         ma.reversed_at,
-         ma.reversed_by,
-         ma.reversal_note
-       FROM moderation_actions ma
-       LEFT JOIN users u ON u.id = ma.target_user_id
-       WHERE ma.actor_type = 'automated'
-         ${modWhere}
-       ORDER BY ma.created_at DESC
-       LIMIT $${modParams.length}`,
-      modParams
-    ).catch(() => ({ rows: [] as ActionLogRow[] }));
+    const modRows: ActionLogRow[] = await orm
+      .select({
+        id: ma.id,
+        action_type: ma.actionType,
+        user_id: ma.targetUserId,
+        username: schema.users.username,
+        display_name: schema.users.displayName,
+        description: ma.reason,
+        metadata: sql<string>`${ma.metadata}::text`,
+        source_table: sql<string>`'moderation_actions'`,
+        created_at: ma.createdAt,
+        reversed_at: ma.reversedAt,
+        reversed_by: ma.reversedBy,
+        reversal_note: ma.reversalNote,
+      })
+      .from(ma)
+      .leftJoin(schema.users, eq(schema.users.id, ma.targetUserId))
+      .where(and(...modConditions))
+      .orderBy(desc(ma.createdAt))
+      .limit(fetchLimit)
+      .catch(() => [] as ActionLogRow[]);
 
     // ------------------------------------------------------------------
-    // Query 2: automated_actions_log (may not exist — graceful fallback)
+    // Query 2: automated_actions_log
     // ------------------------------------------------------------------
-    const { clauses: autoClauses, params: autoParams } = buildFilters("aal", filterOpts);
-    const autoWhere = autoClauses.length > 0 ? `WHERE ${autoClauses.join(" AND ")}` : "";
-    autoParams.push(fetchLimit);
+    const aal = schema.automatedActionsLog;
+    const autoConditions = [];
+    if (filterOpts.actionType) autoConditions.push(eq(aal.actionType, filterOpts.actionType));
+    if (filterOpts.userId) autoConditions.push(eq(aal.userId, filterOpts.userId));
+    if (filterOpts.startDate) autoConditions.push(gte(aal.createdAt, new Date(filterOpts.startDate)));
+    if (filterOpts.endDate) autoConditions.push(lte(aal.createdAt, new Date(filterOpts.endDate)));
+    if (filterOpts.cursor) autoConditions.push(lt(aal.createdAt, new Date(filterOpts.cursor)));
 
-    const { rows: autoRows } = await db.query<ActionLogRow>(
-      `SELECT
-         aal.id,
-         aal.action_type,
-         aal.user_id,
-         u.username,
-         u.display_name,
-         aal.description,
-         aal.metadata::text AS metadata,
-         'automated_actions_log' AS source_table,
-         aal.created_at,
-         aal.reversed_at,
-         aal.reversed_by,
-         aal.reverse_note AS reversal_note
-       FROM automated_actions_log aal
-       LEFT JOIN users u ON u.id = aal.user_id
-       ${autoWhere}
-       ORDER BY aal.created_at DESC
-       LIMIT $${autoParams.length}`,
-      autoParams
-    ).catch(() => ({ rows: [] as ActionLogRow[] }));
+    const autoRows: ActionLogRow[] = await orm
+      .select({
+        id: aal.id,
+        action_type: aal.actionType,
+        user_id: aal.userId,
+        username: schema.users.username,
+        display_name: schema.users.displayName,
+        description: aal.description,
+        metadata: sql<string>`${aal.metadata}::text`,
+        source_table: sql<string>`'automated_actions_log'`,
+        created_at: aal.createdAt,
+        reversed_at: aal.reversedAt,
+        reversed_by: aal.reversedBy,
+        reversal_note: aal.reverseNote,
+      })
+      .from(aal)
+      .leftJoin(schema.users, eq(schema.users.id, aal.userId))
+      .where(autoConditions.length > 0 ? and(...autoConditions) : undefined)
+      .orderBy(desc(aal.createdAt))
+      .limit(fetchLimit)
+      .catch(() => [] as ActionLogRow[]);
 
     // ------------------------------------------------------------------
     // Query 3: notifications (relevant automated-action types)
     // ------------------------------------------------------------------
     const NOTIF_TYPES = ["mystery_xp_drop", "rank_change", "guild_war_resolved"];
-    const notifClauses: string[] = [`n.type = ANY($1::text[])`];
-    const notifParams: SqlParam[] = [NOTIF_TYPES];
-    let notifIdx = 2;
+    const n = schema.notifications;
+    let skipNotifQuery = false;
+    const notifConditions = [inArray(n.type, NOTIF_TYPES)];
 
-    // If a specific type filter was requested, only include if it's in our list
     if (filterOpts.actionType) {
       if (!NOTIF_TYPES.includes(filterOpts.actionType)) {
-        // The requested type is not a notification type — skip this query
-        notifClauses.push("false");
+        skipNotifQuery = true;
       } else {
-        notifClauses.push(`n.type = $${notifIdx++}`);
-        notifParams.push(filterOpts.actionType);
+        notifConditions.push(eq(n.type, filterOpts.actionType));
       }
     }
-    if (filterOpts.userId) {
-      notifClauses.push(`n.user_id = $${notifIdx++}`);
-      notifParams.push(filterOpts.userId);
-    }
-    if (filterOpts.startDate) {
-      notifClauses.push(`n.created_at >= $${notifIdx++}`);
-      notifParams.push(filterOpts.startDate);
-    }
-    if (filterOpts.endDate) {
-      notifClauses.push(`n.created_at <= $${notifIdx++}`);
-      notifParams.push(filterOpts.endDate);
-    }
-    if (filterOpts.cursor) {
-      notifClauses.push(`n.created_at < $${notifIdx++}`);
-      notifParams.push(filterOpts.cursor);
-    }
-    notifParams.push(fetchLimit);
+    if (filterOpts.userId) notifConditions.push(eq(n.userId, filterOpts.userId));
+    if (filterOpts.startDate) notifConditions.push(gte(n.createdAt, new Date(filterOpts.startDate)));
+    if (filterOpts.endDate) notifConditions.push(lte(n.createdAt, new Date(filterOpts.endDate)));
+    if (filterOpts.cursor) notifConditions.push(lt(n.createdAt, new Date(filterOpts.cursor)));
 
-    const { rows: notifRows } = await db.query<ActionLogRow>(
-      `SELECT
-         n.id,
-         n.type AS action_type,
-         n.user_id,
-         u.username,
-         u.display_name,
-         (n.payload->>'message') AS description,
-         n.payload::text AS metadata,
-         'notifications' AS source_table,
-         n.created_at,
-         NULL::timestamptz AS reversed_at,
-         NULL::uuid AS reversed_by,
-         NULL::text AS reversal_note
-       FROM notifications n
-       LEFT JOIN users u ON u.id = n.user_id
-       WHERE ${notifClauses.join(" AND ")}
-       ORDER BY n.created_at DESC
-       LIMIT $${notifIdx}`,
-      notifParams
-    ).catch(() => ({ rows: [] as ActionLogRow[] }));
+    const notifRows: ActionLogRow[] = skipNotifQuery
+      ? []
+      : await orm
+          .select({
+            id: n.id,
+            action_type: n.type,
+            user_id: n.userId,
+            username: schema.users.username,
+            display_name: schema.users.displayName,
+            description: sql<string | null>`(${n.payload}->>'message')`,
+            metadata: sql<string>`${n.payload}::text`,
+            source_table: sql<string>`'notifications'`,
+            created_at: n.createdAt,
+            reversed_at: sql<null>`NULL::timestamptz`,
+            reversed_by: sql<null>`NULL::uuid`,
+            reversal_note: sql<null>`NULL::text`,
+          })
+          .from(n)
+          .leftJoin(schema.users, eq(schema.users.id, n.userId))
+          .where(and(...notifConditions))
+          .orderBy(desc(n.createdAt))
+          .limit(fetchLimit)
+          .catch(() => [] as ActionLogRow[]);
 
     // ------------------------------------------------------------------
     // Merge, sort, and paginate
@@ -274,7 +229,7 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     const allRows: ActionLogRow[] = [...modRows, ...autoRows, ...notifRows];
     allRows.sort(
       (a, b) =>
-        new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        new Date(b.created_at as string).getTime() - new Date(a.created_at as string).getTime()
     );
 
     const hasMore = allRows.length > query.limit;
@@ -325,18 +280,25 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     const body = await validateBody(req, reverseActionSchema);
     const adminId = auth.user.sub;
 
+    const orm = await getDb();
+
     // Try to reverse in moderation_actions first
-    const { rows: modRows } = await db.query<{ id: string }>(
-      `UPDATE moderation_actions
-       SET reversed_at = NOW(),
-           reversed_by = $1,
-           reversal_note = $2,
-           updated_at = NOW()
-       WHERE id = $3
-         AND reversed_at IS NULL
-       RETURNING id`,
-      [adminId, body.note, body.actionId]
-    ).catch(() => ({ rows: [] as { id: string }[] }));
+    const modRows = await orm
+      .update(schema.moderationActions)
+      .set({
+        reversedAt: new Date(),
+        reversedBy: adminId,
+        reversalNote: body.note,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(schema.moderationActions.id, body.actionId),
+          sql`${schema.moderationActions.reversedAt} IS NULL`
+        )
+      )
+      .returning({ id: schema.moderationActions.id })
+      .catch(() => [] as { id: string }[]);
 
     if (modRows.length > 0) {
       return NextResponse.json({
@@ -353,17 +315,22 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     }
 
     // Try automated_actions_log as fallback
-    const { rows: autoRows } = await db.query<{ id: string }>(
-      `UPDATE automated_actions_log
-       SET reversed_at = NOW(),
-           reversed_by = $1,
-           reverse_note = $2,
-           updated_at = NOW()
-       WHERE id = $3
-         AND reversed_at IS NULL
-       RETURNING id`,
-      [adminId, body.note, body.actionId]
-    ).catch(() => ({ rows: [] as { id: string }[] }));
+    const autoRows = await orm
+      .update(schema.automatedActionsLog)
+      .set({
+        reversedAt: new Date(),
+        reversedBy: adminId,
+        reverseNote: body.note,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(schema.automatedActionsLog.id, body.actionId),
+          sql`${schema.automatedActionsLog.reversedAt} IS NULL`
+        )
+      )
+      .returning({ id: schema.automatedActionsLog.id })
+      .catch(() => [] as { id: string }[]);
 
     if (autoRows.length > 0) {
       return NextResponse.json({

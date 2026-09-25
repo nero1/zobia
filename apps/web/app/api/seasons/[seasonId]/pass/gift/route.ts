@@ -17,12 +17,14 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { debitCoins } from "@/lib/economy/coins";
 import { safeAwardXP } from "@/lib/xp/safeAwardXP";
+import { insertNotification } from "@/lib/notifications/insert";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -38,29 +40,6 @@ const GENEROSITY_XP_FOR_PASS_GIFT = 300;
 const giftPassSchema = z.object({
   recipientUserId: z.string().uuid("recipientUserId must be a valid UUID"),
 });
-
-// ---------------------------------------------------------------------------
-// Row types
-// ---------------------------------------------------------------------------
-
-interface SeasonRow {
-  id: string;
-  name: string;
-  is_active: boolean;
-  pass_price_coins: number;
-  ends_at: string;
-}
-
-interface SeasonPassRow {
-  id: string;
-  user_id: string;
-  season_id: string;
-  is_paid: boolean;
-  season_xp: number;
-  season_rank: number | null;
-  purchased_at: string | null;
-  created_at: string;
-}
 
 // ---------------------------------------------------------------------------
 // POST /api/seasons/[seasonId]/pass/gift
@@ -89,41 +68,45 @@ export const POST = withAuth(
         throw badRequest("Cannot gift a season pass to yourself");
       }
 
+      const orm = await getDb();
+
       // Verify recipient exists and is active
-      const { rows: recipientRows } = await db.query<{
-        id: string;
-        username: string;
-        display_name: string | null;
-      }>(
-        `SELECT id, username, display_name
-         FROM users
-         WHERE id = $1 AND deleted_at IS NULL
-         LIMIT 1`,
-        [recipientUserId]
-      );
+      const [recipient] = await orm
+        .select({
+          id: schema.users.id,
+          username: schema.users.username,
+          displayName: schema.users.displayName,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, recipientUserId), isNull(schema.users.deletedAt)))
+        .limit(1);
 
-      if (!recipientRows[0]) throw notFound("Recipient not found");
-      const recipient = recipientRows[0];
+      if (!recipient) throw notFound("Recipient not found");
 
-      const result = await db.transaction(async (tx) => {
+      const result = await orm.transaction(async (tx) => {
         // 1. Lock and verify season
-        const { rows: seasonRows } = await tx.query<SeasonRow>(
-          `SELECT id, name, is_active, pass_price_coins, ends_at
-           FROM seasons WHERE id = $1 FOR UPDATE`,
-          [seasonId]
-        );
-        const season = seasonRows[0];
+        const [season] = await tx
+          .select({
+            id: schema.seasons.id,
+            name: schema.seasons.name,
+            isActive: schema.seasons.isActive,
+            passPriceCoins: schema.seasons.passPriceCoins,
+            endsAt: schema.seasons.endsAt,
+          })
+          .from(schema.seasons)
+          .where(eq(schema.seasons.id, seasonId))
+          .for("update");
         if (!season) throw notFound("Season not found");
-        if (!season.is_active || new Date(season.ends_at) <= new Date()) {
+        if (!season.isActive || new Date(season.endsAt) <= new Date()) {
           throw badRequest("Season is no longer active", "SEASON_ENDED");
         }
 
         // 2. Check recipient doesn't already have paid pass
-        const { rows: existingPass } = await tx.query<{ is_paid: boolean }>(
-          `SELECT is_paid FROM user_season_passes WHERE user_id = $1 AND season_id = $2`,
-          [recipientUserId, seasonId]
-        );
-        if (existingPass[0]?.is_paid) {
+        const [existingPass] = await tx
+          .select({ isPaid: schema.userSeasonPasses.isPaid })
+          .from(schema.userSeasonPasses)
+          .where(and(eq(schema.userSeasonPasses.userId, recipientUserId), eq(schema.userSeasonPasses.seasonId, seasonId)));
+        if (existingPass?.isPaid) {
           throw conflict(
             "This user already owns the paid pass for this season",
             "PASS_ALREADY_OWNED"
@@ -135,7 +118,7 @@ export const POST = withAuth(
         // the same season to different recipients doesn't collide.
         await debitCoins(
           senderId,
-          season.pass_price_coins,
+          season.passPriceCoins,
           "season_pass_gift",
           `season_pass_gift:${seasonId}:${senderId}:${recipientUserId}`,
           `Gifted Season Pass (${season.name}) to @${recipient.username}`,
@@ -144,15 +127,14 @@ export const POST = withAuth(
         );
 
         // 4. Upsert paid pass for recipient
-        const { rows: passRows } = await tx.query<SeasonPassRow>(
-          `INSERT INTO user_season_passes
-             (user_id, season_id, is_paid, season_xp, purchased_at, created_at)
-           VALUES ($1, $2, TRUE, 0, NOW(), NOW())
-           ON CONFLICT (user_id, season_id) DO UPDATE
-             SET is_paid = TRUE, purchased_at = NOW(), updated_at = NOW()
-           RETURNING id, user_id, season_id, is_paid, season_xp, season_rank, purchased_at, created_at`,
-          [recipientUserId, seasonId]
-        );
+        const [pass] = await tx
+          .insert(schema.userSeasonPasses)
+          .values({ userId: recipientUserId, seasonId, isPaid: true, seasonXp: BigInt(0), purchasedAt: new Date() })
+          .onConflictDoUpdate({
+            target: [schema.userSeasonPasses.userId, schema.userSeasonPasses.seasonId],
+            set: { isPaid: true, purchasedAt: new Date(), updatedAt: new Date() },
+          })
+          .returning();
 
         // 5. Award Generosity Track XP to sender via the canonical safeAwardXP
         // path (writes xp_ledger with the required base_amount + updates the
@@ -167,30 +149,39 @@ export const POST = withAuth(
         ).catch(() => {});
 
         // 6. Notify recipient
-        const { rows: senderRows } = await tx.query<{ username: string }>(
-          `SELECT username FROM users WHERE id = $1 LIMIT 1`,
-          [senderId]
-        );
-        const senderUsername = senderRows[0]?.username ?? "Someone";
+        const [sender] = await tx
+          .select({ username: schema.users.username })
+          .from(schema.users)
+          .where(eq(schema.users.id, senderId))
+          .limit(1);
+        const senderUsername = sender?.username ?? "Someone";
 
-        await tx.query(
-          `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-           VALUES ($1, 'season_pass_gifted', $2, false, NOW())`,
-          [
-            recipientUserId,
-            JSON.stringify({
-              seasonId,
-              seasonName: season.name,
-              fromUserId: senderId,
-              fromUsername: senderUsername,
-              message: `@${senderUsername} gifted you the paid Season Pass for ${season.name}!`,
-            }),
-          ]
+        await insertNotification(
+          tx,
+          recipientUserId,
+          "season_pass_gifted",
+          "Season Pass Gifted",
+          `@${senderUsername} gifted you the paid Season Pass for ${season.name}!`,
+          {
+            seasonId,
+            seasonName: season.name,
+            fromUserId: senderId,
+            fromUsername: senderUsername,
+          }
         ).catch(() => {});
 
         return {
-          pass: passRows[0],
-          coinsSpent: season.pass_price_coins,
+          pass: {
+            id: pass.id,
+            user_id: pass.userId,
+            season_id: pass.seasonId,
+            is_paid: pass.isPaid,
+            season_xp: Number(pass.seasonXp),
+            season_rank: pass.seasonRank,
+            purchased_at: pass.purchasedAt,
+            created_at: pass.createdAt,
+          },
+          coinsSpent: season.passPriceCoins,
           xpAwarded: GENEROSITY_XP_FOR_PASS_GIFT,
           recipient: {
             id: recipient.id,

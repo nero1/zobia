@@ -9,9 +9,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, forbidden, notFound, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { raiseAlert } from "@/lib/alerts/dispatch";
 
@@ -34,22 +35,23 @@ export const POST = withAuth(
       const { payoutId } = params;
       const body = await validateBody(req, AppealSchema);
 
-      const { rows } = await db.query<{
-        id: string;
-        creator_id: string;
-        status: string;
-        appeal_status: string | null;
-      }>(
-        `SELECT id, creator_id, status, appeal_status
-         FROM creator_payouts WHERE id = $1 LIMIT 1`,
-        [payoutId]
-      );
+      const orm = await getDb();
+      const rows = await orm
+        .select({
+          id: schema.creatorPayouts.id,
+          creatorId: schema.creatorPayouts.creatorId,
+          status: schema.creatorPayouts.status,
+          appealStatus: schema.creatorPayouts.appealStatus,
+        })
+        .from(schema.creatorPayouts)
+        .where(eq(schema.creatorPayouts.id, payoutId))
+        .limit(1);
 
       if (!rows[0]) throw notFound("Payout not found");
 
       const payout = rows[0];
 
-      if (payout.creator_id !== userId) {
+      if (payout.creatorId !== userId) {
         throw forbidden("You do not have access to this payout");
       }
 
@@ -60,25 +62,25 @@ export const POST = withAuth(
         );
       }
 
-      if (payout.appeal_status === "pending") {
+      if (payout.appealStatus === "pending") {
         throw badRequest(
           "You already have a pending appeal for this payout.",
           "APPEAL_ALREADY_PENDING"
         );
       }
 
-      await db.query(
-        `UPDATE creator_payouts
-         SET appeal_reason = $1,
-             appeal_status = 'pending',
-             appeal_submitted_at = NOW(),
-             updated_at = NOW()
-         WHERE id = $2`,
-        [body.reason, payoutId]
-      );
+      await orm
+        .update(schema.creatorPayouts)
+        .set({
+          appealReason: body.reason,
+          appealStatus: "pending",
+          appealSubmittedAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.creatorPayouts.id, payoutId));
 
       // Notify admin via system_alert
-      await raiseAlert(db, {
+      await raiseAlert(orm, {
         type: "payout_appeal",
         category: "financial",
         priorityLevel: 4,

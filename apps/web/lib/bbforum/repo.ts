@@ -13,10 +13,25 @@
  * Business rules (eligibility, rewards, moderation, pot/treasury payouts,
  * image cost charging) live in lib/bbforum/service.ts, which calls into
  * this module for persistence.
+ *
+ * DRIZZLE MIGRATION NOTES:
+ *  - None of `bb_boards`, `bb_threads`, `bb_posts`, `bb_post_reactions` or
+ *    `bb_pot_claims` have Drizzle table definitions in lib/db/schema.ts, so
+ *    every query here is a `sql` template run through the Drizzle instance
+ *    (`getDb()`) instead of the query builder. Flagged for the schema owner.
+ *  - `createThread` accepts an optional `outerTx` so lib/bbforum/service.ts
+ *    can share ONE Drizzle transaction across its own
+ *    `debitCoins`/`chargeImageCost` calls and this insert. `generateUniqueSlug`
+ *    (lib/slug.ts, out of this migration's scope) still takes the legacy
+ *    `Queryable` shape, so the slug is generated before the transaction
+ *    opens (an unlocked read, same as lib/quizzes/service.ts's and
+ *    lib/polls/service.ts's create flows) rather than under `FOR UPDATE`
+ *    inside it — a negligible race window on identical titles, accepted
+ *    elsewhere in this codebase for the same reason.
  */
 
-import { db } from "@/lib/db";
-import type { TransactionClient, SqlParam } from "@/lib/db/interface";
+import { getDb, type DbOrTx } from "@/lib/db/drizzle";
+import { sql } from "drizzle-orm";
 import { generateUniqueSlug } from "@/lib/slug";
 import { notFound, forbidden } from "@/lib/api/errors";
 
@@ -92,12 +107,12 @@ export interface PostWithAuthor extends PostRow {
 
 /** Top-level boards, each with its direct sub-boards nested. */
 export async function listBoardTree(): Promise<(BoardRow & { subBoards: BoardRow[] })[]> {
-  const { rows } = await db.query<BoardRow>(
-    `SELECT * FROM bb_boards WHERE is_active = true ORDER BY sort_order ASC, name ASC`
-  );
-  const topLevel = rows.filter((b) => !b.parent_id);
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`SELECT * FROM bb_boards WHERE is_active = true ORDER BY sort_order ASC, name ASC`);
+  const boards = rows as unknown as BoardRow[];
+  const topLevel = boards.filter((b) => !b.parent_id);
   const byParent = new Map<string, BoardRow[]>();
-  for (const b of rows) {
+  for (const b of boards) {
     if (!b.parent_id) continue;
     const list = byParent.get(b.parent_id) ?? [];
     list.push(b);
@@ -107,13 +122,15 @@ export async function listBoardTree(): Promise<(BoardRow & { subBoards: BoardRow
 }
 
 export async function getBoardBySlug(slug: string): Promise<BoardRow | null> {
-  const { rows } = await db.query<BoardRow>(`SELECT * FROM bb_boards WHERE slug = $1 AND is_active = true LIMIT 1`, [slug]);
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`SELECT * FROM bb_boards WHERE slug = ${slug} AND is_active = true LIMIT 1`);
+  return (rows[0] as unknown as BoardRow) ?? null;
 }
 
 export async function getBoardById(id: string): Promise<BoardRow | null> {
-  const { rows } = await db.query<BoardRow>(`SELECT * FROM bb_boards WHERE id = $1 LIMIT 1`, [id]);
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`SELECT * FROM bb_boards WHERE id = ${id} LIMIT 1`);
+  return (rows[0] as unknown as BoardRow) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -121,8 +138,9 @@ export async function getBoardById(id: string): Promise<BoardRow | null> {
 // ---------------------------------------------------------------------------
 
 export async function listAllBoardsAdmin(): Promise<BoardRow[]> {
-  const { rows } = await db.query<BoardRow>(`SELECT * FROM bb_boards ORDER BY sort_order ASC, name ASC`);
-  return rows;
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`SELECT * FROM bb_boards ORDER BY sort_order ASC, name ASC`);
+  return rows as unknown as BoardRow[];
 }
 
 export async function createBoard(input: {
@@ -133,45 +151,42 @@ export async function createBoard(input: {
   sortOrder: number;
 }): Promise<BoardRow> {
   const slug = await generateUniqueSlug("bb_board", input.name, crypto.randomUUID());
-  const { rows } = await db.query<BoardRow>(
-    `INSERT INTO bb_boards (parent_id, slug, name, description, icon_emoji, sort_order)
-     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-    [input.parentId, slug, input.name.trim(), input.description?.trim() || null, input.iconEmoji, input.sortOrder]
-  );
-  return rows[0];
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`
+    INSERT INTO bb_boards (parent_id, slug, name, description, icon_emoji, sort_order)
+    VALUES (${input.parentId}, ${slug}, ${input.name.trim()}, ${input.description?.trim() || null}, ${input.iconEmoji}, ${input.sortOrder})
+    RETURNING *
+  `);
+  return rows[0] as unknown as BoardRow;
 }
 
 export async function updateBoard(
   id: string,
   patch: Partial<{ name: string; description: string | null; iconEmoji: string; sortOrder: number; isActive: boolean; parentId: string | null }>
 ): Promise<BoardRow> {
-  const sets: string[] = [];
-  const params: SqlParam[] = [];
-  let i = 1;
-  if (patch.name !== undefined) { sets.push(`name = $${i++}`); params.push(patch.name.trim()); }
-  if (patch.description !== undefined) { sets.push(`description = $${i++}`); params.push(patch.description); }
-  if (patch.iconEmoji !== undefined) { sets.push(`icon_emoji = $${i++}`); params.push(patch.iconEmoji); }
-  if (patch.sortOrder !== undefined) { sets.push(`sort_order = $${i++}`); params.push(patch.sortOrder); }
-  if (patch.isActive !== undefined) { sets.push(`is_active = $${i++}`); params.push(patch.isActive); }
-  if (patch.parentId !== undefined) { sets.push(`parent_id = $${i++}`); params.push(patch.parentId); }
+  const sets: ReturnType<typeof sql>[] = [];
+  if (patch.name !== undefined) sets.push(sql`name = ${patch.name.trim()}`);
+  if (patch.description !== undefined) sets.push(sql`description = ${patch.description}`);
+  if (patch.iconEmoji !== undefined) sets.push(sql`icon_emoji = ${patch.iconEmoji}`);
+  if (patch.sortOrder !== undefined) sets.push(sql`sort_order = ${patch.sortOrder}`);
+  if (patch.isActive !== undefined) sets.push(sql`is_active = ${patch.isActive}`);
+  if (patch.parentId !== undefined) sets.push(sql`parent_id = ${patch.parentId}`);
   if (sets.length === 0) {
     const existing = await getBoardById(id);
     if (!existing) throw notFound("Board not found");
     return existing;
   }
-  sets.push(`updated_at = NOW()`);
-  params.push(id);
-  const { rows } = await db.query<BoardRow>(
-    `UPDATE bb_boards SET ${sets.join(", ")} WHERE id = $${i} RETURNING *`,
-    params
-  );
+  sets.push(sql`updated_at = NOW()`);
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`UPDATE bb_boards SET ${sql.join(sets, sql`, `)} WHERE id = ${id} RETURNING *`);
   if (!rows[0]) throw notFound("Board not found");
-  return rows[0];
+  return rows[0] as unknown as BoardRow;
 }
 
 export async function deleteBoard(id: string): Promise<void> {
-  const { rowCount } = await db.query(`DELETE FROM bb_boards WHERE id = $1`, [id]);
-  if (!rowCount) throw notFound("Board not found");
+  const orm = await getDb();
+  const result = await orm.execute(sql`DELETE FROM bb_boards WHERE id = ${id}`);
+  if (!result.rowCount) throw notFound("Board not found");
 }
 
 // ---------------------------------------------------------------------------
@@ -185,58 +200,58 @@ export interface ThreadListPage {
 }
 
 export async function listThreadsInBoard(boardId: string, limit = 30, cursor: string | null = null): Promise<ThreadListPage> {
-  const params: (string | number)[] = [boardId, limit + 1];
-  let cursorClause = "";
-  if (cursor) {
-    params.push(cursor);
-    cursorClause = `AND t.last_reply_at < $${params.length}`;
-  }
-  const { rows } = await db.query<ThreadRow>(
-    `SELECT t.* FROM bb_threads t
-     WHERE t.board_id = $1 AND t.deleted_at IS NULL ${cursorClause}
-     ORDER BY t.is_pinned DESC, t.last_reply_at DESC
-     LIMIT $2`,
-    params
-  );
-  const hasMore = rows.length > limit;
-  const threads = hasMore ? rows.slice(0, limit) : rows;
+  const orm = await getDb();
+  const cursorClause = cursor ? sql`AND t.last_reply_at < ${cursor}` : sql``;
+  const { rows } = await orm.execute(sql`
+    SELECT t.* FROM bb_threads t
+    WHERE t.board_id = ${boardId} AND t.deleted_at IS NULL ${cursorClause}
+    ORDER BY t.is_pinned DESC, t.last_reply_at DESC
+    LIMIT ${limit + 1}
+  `);
+  const allRows = rows as unknown as ThreadRow[];
+  const hasMore = allRows.length > limit;
+  const threads = hasMore ? allRows.slice(0, limit) : allRows;
   return { threads, hasMore, nextCursor: hasMore ? threads[threads.length - 1].last_reply_at : null };
 }
 
 export async function getThreadBySlug(slug: string): Promise<ThreadRow | null> {
-  const { rows } = await db.query<ThreadRow>(`SELECT * FROM bb_threads WHERE slug = $1 AND deleted_at IS NULL LIMIT 1`, [slug]);
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`SELECT * FROM bb_threads WHERE slug = ${slug} AND deleted_at IS NULL LIMIT 1`);
+  return (rows[0] as unknown as ThreadRow) ?? null;
 }
 
 export async function getThreadById(id: string): Promise<ThreadRow | null> {
-  const { rows } = await db.query<ThreadRow>(`SELECT * FROM bb_threads WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [id]);
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`SELECT * FROM bb_threads WHERE id = ${id} AND deleted_at IS NULL LIMIT 1`);
+  return (rows[0] as unknown as ThreadRow) ?? null;
 }
 
 export async function listPostsInThread(threadId: string, viewerId: string | null = null): Promise<PostWithAuthor[]> {
-  const { rows } = await db.query<PostWithAuthor>(
-    `SELECT p.*, u.username AS author_username, u.display_name AS author_display_name, u.avatar_emoji AS author_avatar_emoji,
-            qp.body AS quoted_body, qp.content_format AS quoted_content_format,
-            qu.username AS quoted_author_username, qu.display_name AS quoted_author_display_name,
-            (SELECT r.emoji FROM bb_post_reactions r WHERE r.post_id = p.id AND r.user_id = $2) AS my_reaction
-     FROM bb_posts p
-     JOIN users u ON u.id = p.author_id
-     LEFT JOIN bb_posts qp ON qp.id = p.quoted_post_id AND qp.deleted_at IS NULL
-     LEFT JOIN users qu ON qu.id = qp.author_id
-     WHERE p.thread_id = $1 AND p.deleted_at IS NULL
-     ORDER BY p.created_at ASC`,
-    [threadId, viewerId]
-  );
-  return rows;
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`
+    SELECT p.*, u.username AS author_username, u.display_name AS author_display_name, u.avatar_emoji AS author_avatar_emoji,
+           qp.body AS quoted_body, qp.content_format AS quoted_content_format,
+           qu.username AS quoted_author_username, qu.display_name AS quoted_author_display_name,
+           (SELECT r.emoji FROM bb_post_reactions r WHERE r.post_id = p.id AND r.user_id = ${viewerId}) AS my_reaction
+    FROM bb_posts p
+    JOIN users u ON u.id = p.author_id
+    LEFT JOIN bb_posts qp ON qp.id = p.quoted_post_id AND qp.deleted_at IS NULL
+    LEFT JOIN users qu ON qu.id = qp.author_id
+    WHERE p.thread_id = ${threadId} AND p.deleted_at IS NULL
+    ORDER BY p.created_at ASC
+  `);
+  return rows as unknown as PostWithAuthor[];
 }
 
 export async function getPostById(id: string): Promise<PostRow | null> {
-  const { rows } = await db.query<PostRow>(`SELECT * FROM bb_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [id]);
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`SELECT * FROM bb_posts WHERE id = ${id} AND deleted_at IS NULL LIMIT 1`);
+  return (rows[0] as unknown as PostRow) ?? null;
 }
 
 export async function incrementThreadViewCount(threadId: string): Promise<void> {
-  await db.query(`UPDATE bb_threads SET view_count = view_count + 1 WHERE id = $1`, [threadId]);
+  const orm = await getDb();
+  await orm.execute(sql`UPDATE bb_threads SET view_count = view_count + 1 WHERE id = ${threadId}`);
 }
 
 export interface CreateThreadInput {
@@ -253,44 +268,45 @@ export interface CreateThreadInput {
 /**
  * Create a new thread with its first post (the OP), atomically.
  *
- * Accepts an optional outer transaction client so the caller (service layer)
- * can charge the pot-funding/image-cost debits in the SAME transaction as
- * the insert — e.g. `db.transaction(tx => { await debitCoins(..., tx); return createThread(input, tx); })`.
+ * Accepts an optional outer transaction so the caller (service layer) can
+ * charge the pot-funding/image-cost debits in the SAME transaction as the
+ * insert — e.g. `orm.transaction(tx => { await debitCoins(..., tx); return createThread(input, tx); })`.
+ * See the module DRIZZLE MIGRATION NOTES above for why the slug is
+ * generated before the transaction opens rather than under `FOR UPDATE`.
  */
-export async function createThread(input: CreateThreadInput, outerTx?: TransactionClient): Promise<ThreadRow> {
+export async function createThread(input: CreateThreadInput, outerTx?: DbOrTx): Promise<ThreadRow> {
   const potPerClaim = Math.max(0, input.potPerClaimCredits ?? 0);
   const potMaxClaims = Math.max(0, input.potMaxClaims ?? 0);
   const potTotal = potPerClaim * potMaxClaims;
 
-  const run = async (tx: TransactionClient) => {
-    const { rows: boardRows } = await tx.query<{ id: string }>(`SELECT id FROM bb_boards WHERE id = $1 AND is_active = true FOR UPDATE`, [input.boardId]);
-    if (!boardRows[0]) throw notFound("Board not found");
+  const slug = await generateUniqueSlug("bb_thread", input.title, crypto.randomUUID());
 
-    const slug = await generateUniqueSlug("bb_thread", input.title, crypto.randomUUID(), tx);
+  const run = async (tx: DbOrTx) => {
+    const { rows: boardRows } = await tx.execute(sql`SELECT id FROM bb_boards WHERE id = ${input.boardId} AND is_active = true FOR UPDATE`);
+    if (!(boardRows as unknown as { id: string }[])[0]) throw notFound("Board not found");
 
-    const { rows: threadRows } = await tx.query<ThreadRow>(
-      `INSERT INTO bb_threads (board_id, author_id, title, slug, content_format, image_url, pot_total_credits, pot_per_claim_credits, pot_max_claims)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING *`,
-      [input.boardId, input.authorId, input.title.trim(), slug, input.contentFormat, input.imageUrl ?? null, potTotal, potPerClaim, potMaxClaims]
-    );
-    const thread = threadRows[0];
+    const { rows: threadRows } = await tx.execute(sql`
+      INSERT INTO bb_threads (board_id, author_id, title, slug, content_format, image_url, pot_total_credits, pot_per_claim_credits, pot_max_claims)
+      VALUES (${input.boardId}, ${input.authorId}, ${input.title.trim()}, ${slug}, ${input.contentFormat}, ${input.imageUrl ?? null}, ${potTotal}, ${potPerClaim}, ${potMaxClaims})
+      RETURNING *
+    `);
+    const thread = (threadRows as unknown as ThreadRow[])[0];
 
-    await tx.query(
-      `INSERT INTO bb_posts (thread_id, author_id, body, content_format, image_url, is_op)
-       VALUES ($1, $2, $3, $4, $5, true)`,
-      [thread.id, input.authorId, input.body.trim(), input.contentFormat, input.imageUrl ?? null]
-    );
+    await tx.execute(sql`
+      INSERT INTO bb_posts (thread_id, author_id, body, content_format, image_url, is_op)
+      VALUES (${thread.id}, ${input.authorId}, ${input.body.trim()}, ${input.contentFormat}, ${input.imageUrl ?? null}, true)
+    `);
 
-    await tx.query(
-      `UPDATE bb_boards SET thread_count = thread_count + 1, post_count = post_count + 1, last_post_at = NOW(), updated_at = NOW() WHERE id = $1`,
-      [input.boardId]
-    );
+    await tx.execute(sql`
+      UPDATE bb_boards SET thread_count = thread_count + 1, post_count = post_count + 1, last_post_at = NOW(), updated_at = NOW() WHERE id = ${input.boardId}
+    `);
 
     return thread;
   };
 
-  return outerTx ? run(outerTx) : db.transaction(run);
+  if (outerTx) return run(outerTx);
+  const orm = await getDb();
+  return orm.transaction(run);
 }
 
 export interface CreateReplyInput {
@@ -311,42 +327,31 @@ export interface CreateReplyInput {
  * none) alongside the created post.
  */
 export async function createReply(input: CreateReplyInput): Promise<{ post: PostRow; potClaimedCredits: number }> {
-  return db.transaction(async (tx) => {
-    const { rows: threadRows } = await tx.query<ThreadRow>(
-      `SELECT * FROM bb_threads WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-      [input.threadId]
-    );
-    const thread = threadRows[0];
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const { rows: threadRows } = await tx.execute(sql`SELECT * FROM bb_threads WHERE id = ${input.threadId} AND deleted_at IS NULL FOR UPDATE`);
+    const thread = threadRows[0] as unknown as ThreadRow | undefined;
     if (!thread) throw notFound("Thread not found");
     if (thread.is_locked) throw forbidden("This thread is locked.", "BBFORUM_THREAD_LOCKED");
 
     let quotedPostId: string | null = null;
     if (input.quotedPostId) {
-      const { rows: qRows } = await tx.query<{ id: string }>(
-        `SELECT id FROM bb_posts WHERE id = $1 AND thread_id = $2 AND deleted_at IS NULL LIMIT 1`,
-        [input.quotedPostId, input.threadId]
-      );
-      quotedPostId = qRows[0]?.id ?? null;
+      const { rows: qRows } = await tx.execute(sql`SELECT id FROM bb_posts WHERE id = ${input.quotedPostId} AND thread_id = ${input.threadId} AND deleted_at IS NULL LIMIT 1`);
+      quotedPostId = (qRows[0] as unknown as { id: string } | undefined)?.id ?? null;
     }
 
-    const { rows: postRows } = await tx.query<PostRow>(
-      `INSERT INTO bb_posts (thread_id, author_id, body, content_format, image_url, quoted_post_id)
-       VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
-      [input.threadId, input.authorId, input.body.trim(), input.contentFormat, input.imageUrl ?? null, quotedPostId]
-    );
+    const { rows: postRows } = await tx.execute(sql`
+      INSERT INTO bb_posts (thread_id, author_id, body, content_format, image_url, quoted_post_id)
+      VALUES (${input.threadId}, ${input.authorId}, ${input.body.trim()}, ${input.contentFormat}, ${input.imageUrl ?? null}, ${quotedPostId}) RETURNING *
+    `);
+    const post = postRows[0] as unknown as PostRow;
 
-    await tx.query(
-      `UPDATE bb_threads SET reply_count = reply_count + 1, last_reply_at = NOW(), updated_at = NOW() WHERE id = $1`,
-      [input.threadId]
-    );
-    await tx.query(
-      `UPDATE bb_boards SET post_count = post_count + 1, last_post_at = NOW(), updated_at = NOW() WHERE id = $1`,
-      [thread.board_id]
-    );
+    await tx.execute(sql`UPDATE bb_threads SET reply_count = reply_count + 1, last_reply_at = NOW(), updated_at = NOW() WHERE id = ${input.threadId}`);
+    await tx.execute(sql`UPDATE bb_boards SET post_count = post_count + 1, last_post_at = NOW(), updated_at = NOW() WHERE id = ${thread.board_id}`);
 
-    const potClaimedCredits = await tryClaimPot(tx, input.threadId, postRows[0].id, input.authorId);
+    const potClaimedCredits = await tryClaimPot(tx, input.threadId, post.id, input.authorId);
 
-    return { post: postRows[0], potClaimedCredits };
+    return { post, potClaimedCredits };
   });
 }
 
@@ -355,48 +360,50 @@ export async function createReply(input: CreateReplyInput): Promise<{ post: Post
 // ---------------------------------------------------------------------------
 
 export async function updatePostBody(postId: string, body: string, contentFormat: ContentFormat): Promise<PostRow> {
-  const { rows } = await db.query<PostRow>(
-    `UPDATE bb_posts SET body = $2, content_format = $3, edited_at = NOW(), updated_at = NOW()
-     WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
-    [postId, body.trim(), contentFormat]
-  );
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`
+    UPDATE bb_posts SET body = ${body.trim()}, content_format = ${contentFormat}, edited_at = NOW(), updated_at = NOW()
+    WHERE id = ${postId} AND deleted_at IS NULL RETURNING *
+  `);
   if (!rows[0]) throw notFound("Post not found");
-  return rows[0];
+  return rows[0] as unknown as PostRow;
 }
 
 export async function deletePost(postId: string): Promise<void> {
-  const { rows } = await db.query<{ thread_id: string; is_op: boolean }>(
-    `UPDATE bb_posts SET status = 'removed', deleted_at = NOW(), updated_at = NOW()
-     WHERE id = $1 AND deleted_at IS NULL RETURNING thread_id, is_op`,
-    [postId]
-  );
-  const post = rows[0];
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`
+    UPDATE bb_posts SET status = 'removed', deleted_at = NOW(), updated_at = NOW()
+    WHERE id = ${postId} AND deleted_at IS NULL RETURNING thread_id, is_op
+  `);
+  const post = rows[0] as unknown as { thread_id: string; is_op: boolean } | undefined;
   if (!post) throw notFound("Post not found");
   if (post.is_op) {
     // Deleting the OP soft-deletes the whole thread — mirrors deleteQuestion in Answers.
-    await db.query(`UPDATE bb_threads SET status = 'removed', deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [post.thread_id]);
+    await orm.execute(sql`UPDATE bb_threads SET status = 'removed', deleted_at = NOW(), updated_at = NOW() WHERE id = ${post.thread_id}`);
   } else {
-    await db.query(`UPDATE bb_threads SET reply_count = GREATEST(reply_count - 1, 0) WHERE id = $1`, [post.thread_id]);
+    await orm.execute(sql`UPDATE bb_threads SET reply_count = GREATEST(reply_count - 1, 0) WHERE id = ${post.thread_id}`);
   }
 }
 
 export async function updateThreadTitle(threadId: string, title: string): Promise<ThreadRow> {
-  const { rows } = await db.query<ThreadRow>(
-    `UPDATE bb_threads SET title = $2, edited_at = NOW(), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL RETURNING *`,
-    [threadId, title.trim()]
-  );
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`
+    UPDATE bb_threads SET title = ${title.trim()}, edited_at = NOW(), updated_at = NOW() WHERE id = ${threadId} AND deleted_at IS NULL RETURNING *
+  `);
   if (!rows[0]) throw notFound("Thread not found");
-  return rows[0];
+  return rows[0] as unknown as ThreadRow;
 }
 
 export async function setThreadLocked(threadId: string, locked: boolean): Promise<void> {
-  const { rowCount } = await db.query(`UPDATE bb_threads SET is_locked = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, [threadId, locked]);
-  if (!rowCount) throw notFound("Thread not found");
+  const orm = await getDb();
+  const result = await orm.execute(sql`UPDATE bb_threads SET is_locked = ${locked}, updated_at = NOW() WHERE id = ${threadId} AND deleted_at IS NULL`);
+  if (!result.rowCount) throw notFound("Thread not found");
 }
 
 export async function setThreadPinned(threadId: string, pinned: boolean): Promise<void> {
-  const { rowCount } = await db.query(`UPDATE bb_threads SET is_pinned = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, [threadId, pinned]);
-  if (!rowCount) throw notFound("Thread not found");
+  const orm = await getDb();
+  const result = await orm.execute(sql`UPDATE bb_threads SET is_pinned = ${pinned}, updated_at = NOW() WHERE id = ${threadId} AND deleted_at IS NULL`);
+  if (!result.rowCount) throw notFound("Thread not found");
 }
 
 // ---------------------------------------------------------------------------
@@ -404,37 +411,34 @@ export async function setThreadPinned(threadId: string, pinned: boolean): Promis
 // ---------------------------------------------------------------------------
 
 export async function toggleReaction(postId: string, userId: string, emoji: string): Promise<{ reactionCount: number; myReaction: string | null }> {
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows: postRows } = await tx.query<{ id: string }>(`SELECT id FROM bb_posts WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`, [postId]);
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const { rows: postRows } = await tx.execute(sql`SELECT id FROM bb_posts WHERE id = ${postId} AND deleted_at IS NULL FOR UPDATE`);
     if (!postRows[0]) throw notFound("Post not found");
 
-    const { rows: existingRows } = await tx.query<{ emoji: string }>(
-      `SELECT emoji FROM bb_post_reactions WHERE post_id = $1 AND user_id = $2 FOR UPDATE`,
-      [postId, userId]
-    );
-    const existing = existingRows[0]?.emoji ?? null;
+    const { rows: existingRows } = await tx.execute(sql`SELECT emoji FROM bb_post_reactions WHERE post_id = ${postId} AND user_id = ${userId} FOR UPDATE`);
+    const existing = (existingRows[0] as unknown as { emoji: string } | undefined)?.emoji ?? null;
 
     let delta = 0;
     let myReaction: string | null;
     if (existing === emoji) {
-      await tx.query(`DELETE FROM bb_post_reactions WHERE post_id = $1 AND user_id = $2`, [postId, userId]);
+      await tx.execute(sql`DELETE FROM bb_post_reactions WHERE post_id = ${postId} AND user_id = ${userId}`);
       delta = -1;
       myReaction = null;
     } else if (existing === null) {
-      await tx.query(`INSERT INTO bb_post_reactions (post_id, user_id, emoji) VALUES ($1, $2, $3)`, [postId, userId, emoji]);
+      await tx.execute(sql`INSERT INTO bb_post_reactions (post_id, user_id, emoji) VALUES (${postId}, ${userId}, ${emoji})`);
       delta = 1;
       myReaction = emoji;
     } else {
-      await tx.query(`UPDATE bb_post_reactions SET emoji = $3, created_at = NOW() WHERE post_id = $1 AND user_id = $2`, [postId, userId, emoji]);
+      await tx.execute(sql`UPDATE bb_post_reactions SET emoji = ${emoji}, created_at = NOW() WHERE post_id = ${postId} AND user_id = ${userId}`);
       myReaction = emoji;
     }
 
-    const { rows: updated } = await tx.query<{ reaction_count: number }>(
-      `UPDATE bb_posts SET reaction_count = GREATEST(reaction_count + $2, 0) WHERE id = $1 RETURNING reaction_count`,
-      [postId, delta]
-    );
+    const { rows: updated } = await tx.execute(sql`
+      UPDATE bb_posts SET reaction_count = GREATEST(reaction_count + ${delta}, 0) WHERE id = ${postId} RETURNING reaction_count
+    `);
 
-    return { reactionCount: updated[0].reaction_count, myReaction };
+    return { reactionCount: (updated[0] as unknown as { reaction_count: number }).reaction_count, myReaction };
   });
 }
 
@@ -450,34 +454,32 @@ export async function toggleReaction(postId: string, userId: string, emoji: stri
  * the claims-count increment and the reply are atomic together.
  */
 export async function tryClaimPot(
-  tx: TransactionClient,
+  tx: DbOrTx,
   threadId: string,
   postId: string,
   userId: string
 ): Promise<number> {
-  const { rows: threadRows } = await tx.query<{
+  const { rows: threadRows } = await tx.execute(sql`
+    SELECT pot_per_claim_credits, pot_max_claims, pot_claims_count, author_id
+    FROM bb_threads WHERE id = ${threadId} FOR UPDATE
+  `);
+  const thread = threadRows[0] as unknown as {
     pot_per_claim_credits: number;
     pot_max_claims: number;
     pot_claims_count: number;
     author_id: string;
-  }>(
-    `SELECT pot_per_claim_credits, pot_max_claims, pot_claims_count, author_id
-     FROM bb_threads WHERE id = $1 FOR UPDATE`,
-    [threadId]
-  );
-  const thread = threadRows[0];
+  } | undefined;
   if (!thread) return 0;
   if (thread.author_id === userId) return 0; // OP can't claim their own pot
   if (thread.pot_max_claims <= 0 || thread.pot_claims_count >= thread.pot_max_claims) return 0;
 
-  const { rowCount } = await tx.query(
-    `INSERT INTO bb_pot_claims (thread_id, post_id, user_id, amount_credits) VALUES ($1, $2, $3, $4)
-     ON CONFLICT (thread_id, user_id) DO NOTHING`,
-    [threadId, postId, userId, thread.pot_per_claim_credits]
-  );
-  if (!rowCount) return 0; // already claimed
+  const result = await tx.execute(sql`
+    INSERT INTO bb_pot_claims (thread_id, post_id, user_id, amount_credits) VALUES (${threadId}, ${postId}, ${userId}, ${thread.pot_per_claim_credits})
+    ON CONFLICT (thread_id, user_id) DO NOTHING
+  `);
+  if (!result.rowCount) return 0; // already claimed
 
-  await tx.query(`UPDATE bb_threads SET pot_claims_count = pot_claims_count + 1 WHERE id = $1`, [threadId]);
+  await tx.execute(sql`UPDATE bb_threads SET pot_claims_count = pot_claims_count + 1 WHERE id = ${threadId}`);
   return thread.pot_per_claim_credits;
 }
 
@@ -491,17 +493,18 @@ export interface ExpiredPotRow {
 }
 
 export async function listExpiredUnclaimedPots(inactivityDays: number): Promise<ExpiredPotRow[]> {
-  const { rows } = await db.query<ExpiredPotRow>(
-    `SELECT id, author_id, pot_total_credits, pot_per_claim_credits, pot_claims_count
-     FROM bb_threads
-     WHERE deleted_at IS NULL AND pot_refunded_at IS NULL
-       AND pot_total_credits > (pot_per_claim_credits * pot_claims_count)
-       AND last_reply_at < NOW() - ($1 * INTERVAL '1 day')`,
-    [inactivityDays]
-  );
-  return rows;
+  const orm = await getDb();
+  const { rows } = await orm.execute(sql`
+    SELECT id, author_id, pot_total_credits, pot_per_claim_credits, pot_claims_count
+    FROM bb_threads
+    WHERE deleted_at IS NULL AND pot_refunded_at IS NULL
+      AND pot_total_credits > (pot_per_claim_credits * pot_claims_count)
+      AND last_reply_at < NOW() - (${inactivityDays} * INTERVAL '1 day')
+  `);
+  return rows as unknown as ExpiredPotRow[];
 }
 
 export async function markPotRefunded(threadId: string): Promise<void> {
-  await db.query(`UPDATE bb_threads SET pot_refunded_at = NOW() WHERE id = $1`, [threadId]);
+  const orm = await getDb();
+  await orm.execute(sql`UPDATE bb_threads SET pot_refunded_at = NOW() WHERE id = ${threadId}`);
 }

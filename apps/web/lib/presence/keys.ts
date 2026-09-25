@@ -30,7 +30,8 @@
  * legitimately stays in Redis.
  */
 
-import { db } from "@/lib/db";
+import { and, gt, inArray, isNotNull, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 /**
  * How recently a user must have been seen to count as "online".
@@ -67,14 +68,19 @@ export async function isUserOnline(userId: string): Promise<boolean> {
 export async function getOnlineUserIds(userIds: string[]): Promise<Set<string>> {
   if (userIds.length === 0) return new Set();
   try {
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM users
-       WHERE id = ANY($1)
-         AND deleted_at IS NULL
-         AND last_active_at IS NOT NULL
-         AND last_active_at > NOW() - ($2 || ' milliseconds')::interval`,
-      [userIds, String(ONLINE_WINDOW_MS)]
-    );
+    const orm = await getDb();
+    const cutoff = new Date(Date.now() - ONLINE_WINDOW_MS);
+    const rows = await orm
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(
+        and(
+          inArray(schema.users.id, userIds),
+          isNull(schema.users.deletedAt),
+          isNotNull(schema.users.lastActiveAt),
+          gt(schema.users.lastActiveAt, cutoff)
+        )
+      );
     return new Set(rows.map((r) => r.id));
   } catch {
     // Fail open — treat everyone as offline so notifications still go out.

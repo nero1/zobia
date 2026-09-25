@@ -40,6 +40,7 @@ import {
   type ResolvedModal,
 } from "@/lib/announcements/engine";
 import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 
 interface AppLayoutProps {
   children: React.ReactNode;
@@ -81,9 +82,10 @@ async function resolveAnnouncements(checkCouncilMembership: boolean): Promise<{
       gender: null as string | null,
     };
 
+    const orm = await getDb();
     const [resolvedBanner, resolvedModal, councilRows] = await Promise.all([
-      getActiveBannerForUser(userId, announcementUser, db).catch(() => null),
-      getActiveModalForUser(userId, announcementUser, db).catch(() => null),
+      getActiveBannerForUser(userId, announcementUser, orm).catch(() => null),
+      getActiveModalForUser(userId, announcementUser, orm).catch(() => null),
       // Only queried when the current route is actually gated by council
       // membership (see FEATURE_ROUTES below) — keeps this off every other page.
       checkCouncilMembership

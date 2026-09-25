@@ -22,7 +22,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { count, desc, eq } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -36,25 +38,6 @@ const updateNoteSchema = z.object({
   action: z.enum(["approve", "reject", "escalate"]),
   adminComment: z.string().max(1000).optional(),
 });
-
-// ---------------------------------------------------------------------------
-// DB row types
-// ---------------------------------------------------------------------------
-
-interface CommunityNoteRow {
-  id: string;
-  author_id: string;
-  author_username: string | null;
-  target_id: string;
-  target_type: string;
-  content: string;
-  status: string;
-  reviewed_by: string | null;
-  reviewer_username: string | null;
-  admin_comment: string | null;
-  created_at: string;
-  reviewed_at: string | null;
-}
 
 // ---------------------------------------------------------------------------
 // GET /api/admin/community-notes
@@ -74,40 +57,45 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("Invalid status filter", "INVALID_STATUS");
     }
 
-    const whereStatus =
-      status === "all" ? "" : `WHERE cn.status = '${status}'`;
+    const orm = await getDb();
+    const cn = schema.communityNotes;
+    const author = alias(schema.users, "author");
+    const reviewer = alias(schema.users, "reviewer");
+    const statusFilter = status === "all" ? undefined : eq(cn.status, status);
 
-    const { rows } = await db.query<CommunityNoteRow>(
-      `SELECT cn.id,
-              cn.author_id,
-              author.username         AS author_username,
-              cn.target_id,
-              cn.target_type,
-              cn.content,
-              cn.status,
-              cn.reviewed_by,
-              reviewer.username       AS reviewer_username,
-              cn.admin_comment,
-              cn.created_at,
-              cn.reviewed_at
-       FROM community_notes cn
-       LEFT JOIN users author   ON author.id   = cn.author_id
-       LEFT JOIN users reviewer ON reviewer.id = cn.reviewed_by
-       ${whereStatus}
-       ORDER BY cn.created_at DESC
-       LIMIT $1 OFFSET $2`,
-      [limit, offset]
-    );
+    const rows = await orm
+      .select({
+        id: cn.id,
+        author_id: cn.authorId,
+        author_username: author.username,
+        target_id: cn.targetId,
+        target_type: cn.targetType,
+        content: cn.content,
+        status: cn.status,
+        reviewed_by: cn.reviewedBy,
+        reviewer_username: reviewer.username,
+        admin_comment: cn.adminComment,
+        created_at: cn.createdAt,
+        reviewed_at: cn.reviewedAt,
+      })
+      .from(cn)
+      .leftJoin(author, eq(author.id, cn.authorId))
+      .leftJoin(reviewer, eq(reviewer.id, cn.reviewedBy))
+      .where(statusFilter)
+      .orderBy(desc(cn.createdAt))
+      .limit(limit)
+      .offset(offset);
 
-    const { rows: countRows } = await db.query<{ total: string }>(
-      `SELECT COUNT(*)::TEXT AS total FROM community_notes cn ${whereStatus}`
-    );
+    const [{ total: totalRaw }] = await orm
+      .select({ total: count() })
+      .from(cn)
+      .where(statusFilter);
 
     return NextResponse.json({
       success: true,
       data: {
         notes: rows,
-        total: parseInt(countRows[0]?.total ?? "0", 10),
+        total: Number(totalRaw ?? 0),
         limit,
         offset,
       },
@@ -127,13 +115,16 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
 
     const body = await validateBody(req, updateNoteSchema);
 
-    // Fetch the note to ensure it exists and is in a reviewable state
-    const { rows: noteRows } = await db.query<{ id: string; status: string }>(
-      `SELECT id, status FROM community_notes WHERE id = $1 LIMIT 1`,
-      [body.noteId]
-    );
+    const orm = await getDb();
+    const cn = schema.communityNotes;
 
-    const note = noteRows[0];
+    // Fetch the note to ensure it exists and is in a reviewable state
+    const [note] = await orm
+      .select({ id: cn.id, status: cn.status })
+      .from(cn)
+      .where(eq(cn.id, body.noteId))
+      .limit(1);
+
     if (!note) {
       throw notFound("Community note not found");
     }
@@ -152,18 +143,17 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
         ? "rejected"
         : "escalated";
 
-    const { rows: updatedRows } = await db.query<{ id: string; status: string; reviewed_at: string }>(
-      `UPDATE community_notes
-       SET status       = $1,
-           reviewed_by  = $2,
-           admin_comment = $3,
-           reviewed_at  = NOW()
-       WHERE id = $4
-       RETURNING id, status, reviewed_at`,
-      [newStatus, auth.user.sub, body.adminComment ?? null, body.noteId]
-    );
+    const [updated] = await orm
+      .update(cn)
+      .set({
+        status: newStatus,
+        reviewedBy: auth.user.sub,
+        adminComment: body.adminComment ?? null,
+        reviewedAt: new Date(),
+      })
+      .where(eq(cn.id, body.noteId))
+      .returning({ id: cn.id, status: cn.status, reviewed_at: cn.reviewedAt });
 
-    const updated = updatedRows[0];
     if (!updated) {
       throw new Error("Failed to update community note");
     }

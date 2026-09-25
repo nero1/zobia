@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, ilike, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, forbidden } from "@/lib/api/errors";
 import { meetsMinimumTrust } from "@/lib/trust/trustScore";
@@ -46,36 +47,10 @@ const createGuildSchema = z.object({
 // GET /api/guilds
 // ---------------------------------------------------------------------------
 
-interface GuildRow {
-  id: string;
-  name: string;
-  crest_emoji: string;
-  description: string | null;
-  city: string | null;
-  country: string;
-  captain_id: string;
-  tier: string;
-  guild_xp: number;
-  member_count: number;
-  treasury_balance: number;
-  treasury_cap: number;
-  recruitment_type: string;
-  wars_won: number;
-  wars_lost: number;
-  is_active: boolean;
-  created_at: string;
-}
-
 /**
  * Browse guilds with optional filters.
  * Supports city, tier, and open_only query params.
  */
-interface EligibilityRow {
-  rank_level: number;
-  trust_score: number;
-  coin_balance: number;
-  guild_id: string | null;
-}
 
 /**
  * Whether the current user can create a guild right now, and why not if not —
@@ -86,31 +61,37 @@ interface EligibilityRow {
 async function getCreateEligibility(userId: string) {
   const manifest = await loadManifest();
   const minLevel = manifest.guilds.minLevelToCreate;
+  const orm = await getDb();
 
-  const { rows } = await db.query<EligibilityRow>(
-    `SELECT COALESCE(rank_level, 1) AS rank_level, COALESCE(trust_score, 50) AS trust_score,
-            COALESCE(coin_balance, 0) AS coin_balance, guild_id
-     FROM users WHERE id = $1 AND deleted_at IS NULL`,
-    [userId]
-  );
+  const rows = await orm
+    .select({
+      rankLevel: sql<number>`COALESCE(${schema.users.rankLevel}, 1)`,
+      trustScore: sql<number>`COALESCE(${schema.users.trustScore}, 50)`,
+      coinBalance: sql<string>`COALESCE(${schema.users.coinBalance}, 0)`,
+      guildId: schema.users.guildId,
+    })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+    .limit(1);
   const row = rows[0];
   if (!row) {
     return { canCreate: false, minLevel, currentLevel: 1, minTrustScore: 30, currentTrustScore: 0, costCoins: GUILD_CREATION_COST_COINS, currentCoinBalance: 0, alreadyInGuild: false };
   }
 
-  const trusted = await meetsMinimumTrust(userId, "guild_creation", db);
-  const alreadyInGuild = row.guild_id !== null;
-  const hasLevel = row.rank_level >= minLevel;
-  const hasCoins = row.coin_balance >= GUILD_CREATION_COST_COINS;
+  const trusted = await meetsMinimumTrust(userId, "guild_creation", orm);
+  const coinBalance = Number(row.coinBalance);
+  const alreadyInGuild = row.guildId !== null;
+  const hasLevel = row.rankLevel >= minLevel;
+  const hasCoins = coinBalance >= GUILD_CREATION_COST_COINS;
 
   return {
     canCreate: !alreadyInGuild && hasLevel && trusted && hasCoins,
     minLevel,
-    currentLevel: row.rank_level,
+    currentLevel: row.rankLevel,
     minTrustScore: 30,
-    currentTrustScore: row.trust_score,
+    currentTrustScore: row.trustScore,
     costCoins: GUILD_CREATION_COST_COINS,
-    currentCoinBalance: row.coin_balance,
+    currentCoinBalance: coinBalance,
     alreadyInGuild,
   };
 }
@@ -145,55 +126,68 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       }
     }
 
-    const conditions: string[] = ["g.is_active = TRUE"];
-    const queryParams: (string | number | boolean)[] = [];
-    let paramIdx = 1;
+    const orm = await getDb();
+    const conditions = [eq(schema.guilds.isActive, true)];
 
     if (city) {
-      conditions.push(`g.city ILIKE $${paramIdx++}`);
-      queryParams.push(`%${city}%`);
+      conditions.push(ilike(schema.guilds.city, `%${city}%`));
     }
     if (tier) {
-      conditions.push(`g.tier = $${paramIdx++}`);
-      queryParams.push(tier);
+      conditions.push(eq(schema.guilds.tier, tier));
     }
     if (openOnly) {
-      conditions.push(`g.recruitment_type = 'open'`);
+      conditions.push(eq(schema.guilds.recruitmentType, "open"));
     }
 
     // Cursor condition: guilds with lower (created_at, id) than the cursor
     if (cursorData) {
-      conditions.push(`(g.created_at, g.id) < ($${paramIdx++}, $${paramIdx++})`);
-      queryParams.push(cursorData.created_at, cursorData.id);
+      conditions.push(
+        sql`(${schema.guilds.createdAt}, ${schema.guilds.id}) < (${cursorData.created_at}::timestamptz, ${cursorData.id}::uuid)`
+      );
     }
 
-    const whereClause = `WHERE ${conditions.join(" AND ")}`;
-
-    const result = await db.query<GuildRow>(
-      `SELECT g.id, g.name, g.crest_emoji, g.description, g.city, g.country,
-              g.captain_id, g.tier, g.guild_xp, g.member_count, g.treasury_balance,
-              g.treasury_cap, g.recruitment_type, g.wars_won, g.wars_lost,
-              g.is_active, g.created_at
-       FROM guilds g
-       ${whereClause}
-       ORDER BY g.guild_xp DESC, g.id DESC
-       LIMIT $${paramIdx}`,
-      [...queryParams, limit]
-    );
+    const result = await orm
+      .select({
+        id: schema.guilds.id,
+        name: schema.guilds.name,
+        crestEmoji: schema.guilds.crestEmoji,
+        description: schema.guilds.description,
+        city: schema.guilds.city,
+        country: schema.guilds.country,
+        captainId: schema.guilds.captainId,
+        tier: schema.guilds.tier,
+        guildXp: schema.guilds.guildXp,
+        memberCount: schema.guilds.memberCount,
+        treasuryBalance: schema.guilds.treasuryBalance,
+        treasuryCap: schema.guilds.treasuryCap,
+        recruitmentType: schema.guilds.recruitmentType,
+        warsWon: schema.guilds.warsWon,
+        warsLost: schema.guilds.warsLost,
+        isActive: schema.guilds.isActive,
+        createdAt: schema.guilds.createdAt,
+      })
+      .from(schema.guilds)
+      .where(and(...conditions))
+      .orderBy(desc(schema.guilds.guildXp), desc(schema.guilds.id))
+      .limit(limit);
 
     // Produce the next cursor from the last item returned, if the page is full.
-    const lastItem = result.rows[result.rows.length - 1];
+    const lastItem = result[result.length - 1];
     const nextCursor =
-      lastItem && result.rows.length === limit
+      lastItem && result.length === limit
         ? Buffer.from(
-            JSON.stringify({ created_at: lastItem.created_at, id: lastItem.id })
+            JSON.stringify({
+              created_at:
+                lastItem.createdAt instanceof Date ? lastItem.createdAt.toISOString() : lastItem.createdAt,
+              id: lastItem.id,
+            })
           ).toString("base64")
         : null;
 
     return NextResponse.json({
       success: true,
       data: {
-        items: result.rows,
+        items: result,
         hasMore: nextCursor !== null,
         nextCursor,
       },
@@ -221,11 +215,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Level gate: minimum account level required to found a guild (admin-configurable)
     const manifest = await loadManifest();
     const minLevel = manifest.guilds.minLevelToCreate;
-    const levelRow = await db.query<{ rank_level: number }>(
-      `SELECT COALESCE(rank_level, 1) AS rank_level FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [userId]
-    );
-    const currentLevel = levelRow.rows[0]?.rank_level ?? 1;
+    const orm = await getDb();
+    const levelRow = await orm
+      .select({ rankLevel: sql<number>`COALESCE(${schema.users.rankLevel}, 1)` })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    const currentLevel = levelRow[0]?.rankLevel ?? 1;
     if (currentLevel < minLevel) {
       throw forbidden(
         `Reach level ${minLevel} to found a guild. You are level ${currentLevel}.`,
@@ -235,85 +231,94 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Trust gate: guild_creation requires minimum trust score of 30
-    const trusted = await meetsMinimumTrust(userId, "guild_creation", db);
+    const trusted = await meetsMinimumTrust(userId, "guild_creation", orm);
     if (!trusted) {
       throw forbidden("Your account trust score is too low to create a guild. Build your reputation first.", "GUILD_CREATION_TRUST_TOO_LOW");
     }
 
-    const result = await db.transaction(async (client) => {
+    const result = await orm.transaction(async (tx) => {
       // 1. Check user doesn't already belong to a guild
-      const memberCheck = await client.query<{ guild_id: string }>(
-        `SELECT guild_id FROM guild_members WHERE user_id = $1 LIMIT 1`,
-        [userId]
-      );
-      if (memberCheck.rows.length > 0) {
+      const memberCheck = await tx
+        .select({ guildId: schema.guildMembers.guildId })
+        .from(schema.guildMembers)
+        .where(eq(schema.guildMembers.userId, userId))
+        .limit(1);
+      if (memberCheck.length > 0) {
         throw badRequest("You already belong to a guild", "ALREADY_IN_GUILD");
       }
 
       // 2. Lock user row and check coin balance
-      const userRow = await client.query<{ coin_balance: number }>(
-        `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-        [userId]
-      );
-      if (!userRow.rows[0]) throw badRequest("User not found");
+      const userRows = await tx
+        .select({ coinBalance: schema.users.coinBalance })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .for("update");
+      if (!userRows[0]) throw badRequest("User not found");
 
-      const { coin_balance } = userRow.rows[0];
-      if (coin_balance < GUILD_CREATION_COST_COINS) {
+      const coinBalance = Number(userRows[0].coinBalance);
+      if (coinBalance < GUILD_CREATION_COST_COINS) {
         throw forbidden(
           `Insufficient coins. Guild creation costs ${GUILD_CREATION_COST_COINS} coins.`,
           "INSUFFICIENT_COINS",
-          { cost: GUILD_CREATION_COST_COINS, balance: coin_balance }
+          { cost: GUILD_CREATION_COST_COINS, balance: coinBalance }
         );
       }
 
       // 3. Deduct coins from user
-      const newBalance = coin_balance - GUILD_CREATION_COST_COINS;
-      await client.query(
-        `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-        [newBalance, userId]
-      );
+      const newBalance = coinBalance - GUILD_CREATION_COST_COINS;
+      await tx
+        .update(schema.users)
+        .set({ coinBalance: BigInt(newBalance), updatedAt: sql`NOW()` })
+        .where(eq(schema.users.id, userId));
 
       // 4. Record coin transaction in ledger
-      await client.query(
-        `INSERT INTO coin_ledger (user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
-         VALUES ($1, $2, $3, $4, 'guild_creation', 'Guild creation fee', NOW())`,
-        [userId, -GUILD_CREATION_COST_COINS, coin_balance, newBalance]
-      );
+      await tx.insert(schema.coinLedger).values({
+        userId,
+        amount: BigInt(-GUILD_CREATION_COST_COINS),
+        balanceBefore: BigInt(coinBalance),
+        balanceAfter: BigInt(newBalance),
+        transactionType: "guild_creation",
+        description: "Guild creation fee",
+      });
 
       // 5. Create guild
-      const guildResult = await client.query<{ id: string }>(
-        `INSERT INTO guilds (name, crest_emoji, description, city, country, captain_id,
-                             tier, guild_xp, member_count, treasury_balance, treasury_cap,
-                             recruitment_type, wars_won, wars_lost, is_active, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6,
-                 'bronze_1', 0, 1, 0, 10000,
-                 $7, 0, 0, TRUE, NOW(), NOW())
-         RETURNING id`,
-        [
-          body.name,
-          body.crestEmoji,
-          body.description ?? null,
-          body.city ?? null,
-          body.country,
-          userId,
-          body.recruitmentType,
-        ]
-      );
+      const guildResult = await tx
+        .insert(schema.guilds)
+        .values({
+          name: body.name,
+          crestEmoji: body.crestEmoji,
+          description: body.description ?? null,
+          city: body.city ?? null,
+          country: body.country,
+          captainId: userId,
+          tier: "bronze_1",
+          guildXp: BigInt(0),
+          memberCount: 1,
+          treasuryBalance: BigInt(0),
+          treasuryCap: BigInt(10000),
+          recruitmentType: body.recruitmentType,
+          warsWon: 0,
+          warsLost: 0,
+          isActive: true,
+        })
+        .returning({ id: schema.guilds.id });
 
-      const guildId = guildResult.rows[0].id;
+      const guildId = guildResult[0].id;
 
       // 6. Create captain guild_member record
-      await client.query(
-        `INSERT INTO guild_members (guild_id, user_id, role, contribution_score, war_points_total, joined_at)
-         VALUES ($1, $2, 'captain', 0, 0, NOW())`,
-        [guildId, userId]
-      );
+      await tx.insert(schema.guildMembers).values({
+        guildId,
+        userId,
+        role: "captain",
+        contributionScore: 0,
+        warPointsTotal: 0,
+      });
 
       // 7. Update user's guild_id
-      await client.query(
-        `UPDATE users SET guild_id = $1, updated_at = NOW() WHERE id = $2`,
-        [guildId, userId]
-      );
+      await tx
+        .update(schema.users)
+        .set({ guildId, updatedAt: sql`NOW()` })
+        .where(eq(schema.users.id, userId));
 
       return { guildId, coinsDeducted: GUILD_CREATION_COST_COINS, newCoinBalance: newBalance };
     });

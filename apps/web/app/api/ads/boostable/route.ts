@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { requireFeatureEnabled } from "@/lib/manifest";
@@ -46,11 +47,13 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       return NextResponse.json({ success: true, data: { boostable: false, reason: "Content not found" }, error: null });
     }
 
-    const { rows: callerRows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-      `SELECT is_admin, is_moderator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [auth.user.sub]
-    );
-    const isStaff = !!(callerRows[0]?.is_admin || callerRows[0]?.is_moderator);
+    const orm = await getDb();
+    const callerRows = await orm
+      .select({ isAdmin: schema.users.isAdmin, isModerator: schema.users.isModerator })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)))
+      .limit(1);
+    const isStaff = !!(callerRows[0]?.isAdmin || callerRows[0]?.isModerator);
     const ownsContent = content.ownerId === auth.user.sub;
 
     if (!ownsContent && !isStaff) {

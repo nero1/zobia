@@ -1,17 +1,47 @@
 /**
  * Unit tests for game play-session score validation (anti-cheat guards that
- * run before any DB write). The DB is mocked so no connection is made.
+ * run before any DB write).
+ *
+ * lib/games/sessions.ts has been migrated to Drizzle ORM (getDb() / the
+ * query builder / raw `sql` escape hatches) instead of the raw `@/lib/db`
+ * adapter. Rather than hand-mock every query shape, these tests back a
+ * *real* `drizzle-orm/node-postgres` instance with a fake `pg`-shaped
+ * client whose `query()` is a jest.fn. Every query the module issues still
+ * goes through real Drizzle query compilation — exactly like production —
+ * and lands on `mockQuery` as plain SQL text + params (see
+ * lib/seasons/__tests__/seasonEngine.test.ts for the same pattern).
  */
 
-const mockQuery = jest.fn();
-const mockTransaction = jest.fn();
+import { drizzle } from "drizzle-orm/node-postgres";
+import { schema } from "@/lib/db/schema";
+import type { DbOrTx } from "@/lib/db/drizzle";
 
-jest.mock("@/lib/db", () => ({
-  db: {
-    query: (...a: unknown[]) => mockQuery(...a),
-    transaction: (...a: unknown[]) => mockTransaction(...a),
+const mockQuery = jest.fn();
+
+const fakeClient = {
+  query: (queryConfig: unknown, params?: unknown[]) => {
+    const text = typeof queryConfig === "string" ? queryConfig : (queryConfig as { text: string }).text;
+    return mockQuery(text, params);
   },
-}));
+};
+
+// `as any` on the client sidesteps drizzle-orm's `$client: Pool` typing
+// (a real Pool isn't needed at runtime — drizzle only ever calls
+// `client.query()` for a non-Pool client, including inside transactions).
+const mockDb = drizzle(fakeClient as any, { schema }) as unknown as DbOrTx;
+
+jest.mock("@/lib/db/drizzle", () => {
+  const actual = jest.requireActual("@/lib/db/drizzle");
+  return {
+    ...actual,
+    getDb: async () => mockDb,
+  };
+});
+
+// sessions.ts does not import `@/lib/db` (the raw adapter) directly, but
+// other modules in the require graph may — keep this mocked defensively so
+// no test accidentally opens a real connection.
+jest.mock("@/lib/db", () => ({ db: {} }));
 
 // Stub modules that would otherwise pull in env/redis at import time.
 jest.mock("@/lib/env", () => ({ env: { NODE_ENV: "test" } }));
@@ -56,7 +86,7 @@ function makeGame(overrides: Partial<GameConfigRow> = {}): GameConfigRow {
 describe("finalizeScore validation", () => {
   beforeEach(() => {
     mockQuery.mockReset();
-    mockTransaction.mockReset();
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
   });
 
   it("rejects a negative score before touching the DB", async () => {
@@ -74,8 +104,10 @@ describe("finalizeScore validation", () => {
   });
 
   it("rejects when the play session nonce is unknown", async () => {
-    // Passes validation, then the play lookup returns no rows → not found.
-    mockQuery.mockResolvedValueOnce({ rows: [] });
+    // Passes validation, then the play lookup (raw `sql` SELECT against
+    // game_plays) returns no rows → not found. The default mockQuery
+    // resolution above already returns an empty result set for every query,
+    // so no extra dispatch is needed here.
     await expect(
       finalizeScore("user-1", "11111111-1111-1111-1111-111111111111", 500, makeGame())
     ).rejects.toThrow(/not found/i);

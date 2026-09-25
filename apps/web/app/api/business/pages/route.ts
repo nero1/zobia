@@ -16,14 +16,15 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, ne, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { generateUniqueSlug } from "@/lib/slug";
 import { getBusinessPageLimit } from "@/lib/business/limits";
-import { listBusinessPagesForAccount, countActiveBusinessPages } from "@/lib/business/repo";
+import { listBusinessPagesForAccount } from "@/lib/business/repo";
 
 const createPageSchema = z.object({
   name: z.string().min(2).max(120),
@@ -33,11 +34,17 @@ const createPageSchema = z.object({
 });
 
 async function getOwnBusinessAccount(userId: string): Promise<{ id: string; tier: string; status: string } | null> {
-  const { rows } = await db.query<{ id: string; tier: string; status: string }>(
-    `SELECT id, tier, status FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      id: schema.businessAccounts.id,
+      tier: schema.businessAccounts.tier,
+      status: schema.businessAccounts.status,
+    })
+    .from(schema.businessAccounts)
+    .where(eq(schema.businessAccounts.userId, userId))
+    .limit(1);
+  return row ?? null;
 }
 
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
@@ -86,26 +93,51 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     // of the count-check + insert so concurrent creates for the same
     // account serialise (mirrors the atomic-reservation pattern used by
     // business signup's pending-payment guard).
-    const { rows } = await db.transaction(async (tx) => {
-      await tx.query(`SELECT id FROM business_accounts WHERE id = $1 FOR UPDATE`, [account.id]);
-      const used = await countActiveBusinessPages(account.id, tx);
-      if (used >= limit) {
+    const orm = await getDb();
+    const newPageId = await orm.transaction(async (tx) => {
+      await tx
+        .select({ id: schema.businessAccounts.id })
+        .from(schema.businessAccounts)
+        .where(eq(schema.businessAccounts.id, account.id))
+        .for("update");
+
+      const [{ count }] = await tx
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(schema.businessPages)
+        .where(
+          and(
+            eq(schema.businessPages.businessAccountId, account.id),
+            isNull(schema.businessPages.deletedAt),
+            ne(schema.businessPages.status, "deactivated")
+          )
+        );
+
+      if (count >= limit) {
         throw forbidden(
           `Your ${account.tier} plan allows up to ${limit} Business Pages. Upgrade your tier or delete a page to free a slot.`,
           "BUSINESS_PAGE_LIMIT_REACHED"
         );
       }
-      return tx.query<{ id: string }>(
-        `INSERT INTO business_pages
-           (id, business_account_id, slug, name, bio, avatar_url, cover_image_url, status, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', NOW(), NOW())
-         RETURNING id`,
-        [pageId, account.id, slug, body.name.trim(), body.bio?.trim() || null, body.avatarUrl || null, body.coverImageUrl || null]
-      );
+
+      const [inserted] = await tx
+        .insert(schema.businessPages)
+        .values({
+          id: pageId,
+          businessAccountId: account.id,
+          slug,
+          name: body.name.trim(),
+          bio: body.bio?.trim() || null,
+          avatarUrl: body.avatarUrl || null,
+          coverImageUrl: body.coverImageUrl || null,
+          status: "active",
+        })
+        .returning({ id: schema.businessPages.id });
+
+      return inserted.id;
     });
 
     return NextResponse.json(
-      { success: true, data: { pageId: rows[0].id, slug }, error: null },
+      { success: true, data: { pageId: newPageId, slug }, error: null },
       { status: 201 }
     );
   } catch (err) {

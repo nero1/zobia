@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -48,8 +49,9 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
-    const { rows } = await db.query<OwnedQuestRow>(
-      `SELECT sq.id, sq.brand_name, sq.title, sq.description, sq.reward_coins,
+    const orm = await getDb();
+    const result = await orm.execute<OwnedQuestRow & Record<string, unknown>>(sql`
+      SELECT sq.id, sq.brand_name, sq.title, sq.description, sq.reward_coins,
               sq.is_active, sq.moderation_status, sq.moderation_reason,
               sq.auto_paused, sq.pause_reason, sq.flag_status, sq.is_daily_quest_eligible,
               sq.starts_at, sq.ends_at, sq.deadline, sq.total_budget_credits, sq.spent_credits,
@@ -59,13 +61,12 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
               COUNT(sqa.id) FILTER (WHERE sqa.status = 'approved')::int AS approved_count
        FROM sponsored_quests sq
        LEFT JOIN sponsored_quest_applications sqa ON sqa.quest_id = sq.id
-       WHERE sq.owner_user_id = $1 AND sq.deleted_at IS NULL
+       WHERE sq.owner_user_id = ${auth.user.sub} AND sq.deleted_at IS NULL
        GROUP BY sq.id
-       ORDER BY sq.created_at DESC`,
-      [auth.user.sub]
-    );
+       ORDER BY sq.created_at DESC
+    `);
 
-    return NextResponse.json({ success: true, data: { quests: rows }, error: null });
+    return NextResponse.json({ success: true, data: { quests: result.rows }, error: null });
   } catch (err) {
     return handleApiError(err);
   }

@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, conflict, forbidden } from "@/lib/api/errors";
 import { getTrackLevelForXP } from "@/lib/xp/engine";
@@ -23,15 +24,17 @@ const MIN_COMPETITOR_LEVEL_FOR_CHALLENGE = 40;
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // Enforce Competitor Track Level 40 gate (PRD §7)
-    const { rows: xpRows } = await db.query<{ xp_competitor: number }>(
-      `SELECT xp_competitor FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [userId]
-    );
+    const xpRows = await orm
+      .select({ xpCompetitor: schema.users.xpCompetitor })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!xpRows[0]) throw notFound("User not found");
 
-    const competitorXP = xpRows[0].xp_competitor ?? 0;
+    const competitorXP = Number(xpRows[0].xpCompetitor ?? 0);
     const competitorTrackInfo = getTrackLevelForXP("competitor", competitorXP);
     if (competitorTrackInfo.level < MIN_COMPETITOR_LEVEL_FOR_CHALLENGE) {
       throw forbidden(
@@ -42,44 +45,54 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Get current active nemesis
-    const { rows: nemesisRows } = await db.query<{ nemesis_id: string }>(
-      `SELECT nemesis_user_id AS nemesis_id FROM nemesis_assignments
-       WHERE user_id = $1 AND is_active = true
-       ORDER BY assigned_at DESC LIMIT 1`,
-      [userId]
-    );
-    const nemesisId = nemesisRows[0]?.nemesis_id;
+    const nemesisRows = await orm
+      .select({ nemesisId: schema.nemesisAssignments.nemesisUserId })
+      .from(schema.nemesisAssignments)
+      .where(and(eq(schema.nemesisAssignments.userId, userId), eq(schema.nemesisAssignments.isActive, true)))
+      .orderBy(desc(schema.nemesisAssignments.assignedAt))
+      .limit(1);
+    const nemesisId = nemesisRows[0]?.nemesisId;
     if (!nemesisId) throw notFound("No active nemesis to challenge");
 
     // Check no challenge already active
-    const { rows: existingRows } = await db.query<{ id: string }>(
-      `SELECT id FROM nemesis_challenges
-       WHERE challenger_id = $1 AND expires_at > NOW() AND status = 'pending'
-       LIMIT 1`,
-      [userId]
-    );
+    const existingRows = await orm
+      .select({ id: schema.nemesisChallenges.id })
+      .from(schema.nemesisChallenges)
+      .where(
+        and(
+          eq(schema.nemesisChallenges.challengerId, userId),
+          gt(schema.nemesisChallenges.expiresAt, sql`NOW()`),
+          eq(schema.nemesisChallenges.status, "pending")
+        )
+      )
+      .limit(1);
     if (existingRows.length > 0) {
       throw conflict("You already have a pending challenge", "CHALLENGE_ALREADY_ACTIVE");
     }
 
-    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-    await db.query(
-      `INSERT INTO nemesis_challenges (challenger_id, challenged_id, status, expires_at, created_at)
-       VALUES ($1, $2, 'pending', $3, NOW())`,
-      [userId, nemesisId, expiresAt]
-    );
+    await orm.insert(schema.nemesisChallenges).values({
+      challengerId: userId,
+      challengedId: nemesisId,
+      status: "pending",
+      expiresAt,
+    });
 
     // Notify the challenged user (fire-and-forget)
-    db.query(
-      `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-       VALUES ($1, 'nemesis_challenge', $2, false, NOW())`,
-      [nemesisId, JSON.stringify({ challenger_id: userId, expires_at: expiresAt })]
-    ).catch(() => {});
+    orm
+      .insert(schema.notifications)
+      .values({
+        userId: nemesisId,
+        type: "nemesis_challenge",
+        payload: { challenger_id: userId, expires_at: expiresAt.toISOString() },
+        isRead: false,
+      })
+      .catch(() => {});
 
     return NextResponse.json({
       success: true,
-      data: { challengeSent: true, expiresAt },
+      data: { challengeSent: true, expiresAt: expiresAt.toISOString() },
       error: null,
     });
   } catch (err) {

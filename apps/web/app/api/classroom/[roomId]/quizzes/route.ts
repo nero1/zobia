@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -51,23 +52,6 @@ const createQuizSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-interface QuizRow {
-  id: string;
-  room_id: string;
-  creator_id: string;
-  title: string;
-  description: string | null;
-  xp_reward: number;
-  pass_score: number;
-  is_active: boolean;
-  created_at: string;
-  question_count: string;
-}
-
-// ---------------------------------------------------------------------------
 // GET /api/classroom/:roomId/quizzes
 // ---------------------------------------------------------------------------
 
@@ -81,18 +65,32 @@ export const GET = withAuth<{ roomId: string }>(
       }
       const roomId = classroom.id;
 
-      const { rows } = await db.query<QuizRow & { my_score: number | null; my_passed: boolean | null }>(
-        `SELECT
-           cq.id, cq.room_id, cq.creator_id, cq.title, cq.description,
-           cq.xp_reward, cq.pass_score, cq.is_active, cq.created_at,
-           (SELECT COUNT(*) FROM classroom_quiz_questions cqq WHERE cqq.quiz_id = cq.id)::TEXT AS question_count,
-           a.score AS my_score, a.passed AS my_passed
-         FROM classroom_quizzes cq
-         LEFT JOIN classroom_quiz_attempts a ON a.quiz_id = cq.id AND a.user_id = $2
-         WHERE cq.room_id = $1 AND cq.is_active = TRUE
-         ORDER BY cq.created_at DESC`,
-        [roomId, auth.user.sub]
-      );
+      const orm = await getDb();
+      const rows = await orm
+        .select({
+          id: schema.classroomQuizzes.id,
+          room_id: schema.classroomQuizzes.roomId,
+          creator_id: schema.classroomQuizzes.creatorId,
+          title: schema.classroomQuizzes.title,
+          description: schema.classroomQuizzes.description,
+          xp_reward: schema.classroomQuizzes.xpReward,
+          pass_score: schema.classroomQuizzes.passScore,
+          is_active: schema.classroomQuizzes.isActive,
+          created_at: schema.classroomQuizzes.createdAt,
+          question_count: sql<string>`(SELECT COUNT(*) FROM classroom_quiz_questions cqq WHERE cqq.quiz_id = ${schema.classroomQuizzes.id})::TEXT`,
+          my_score: schema.classroomQuizAttempts.score,
+          my_passed: schema.classroomQuizAttempts.passed,
+        })
+        .from(schema.classroomQuizzes)
+        .leftJoin(
+          schema.classroomQuizAttempts,
+          and(
+            eq(schema.classroomQuizAttempts.quizId, schema.classroomQuizzes.id),
+            eq(schema.classroomQuizAttempts.userId, auth.user.sub)
+          )
+        )
+        .where(and(eq(schema.classroomQuizzes.roomId, roomId), eq(schema.classroomQuizzes.isActive, true)))
+        .orderBy(desc(schema.classroomQuizzes.createdAt));
 
       const quizzes = rows.map((q) => ({
         ...q,
@@ -130,25 +128,28 @@ export const POST = withAuth(
       const userId = auth.user.sub;
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
 
+      const orm = await getDb();
+
       // Verify caller is the room creator
-      const { rows: roomRows } = await db.query<{ creator_id: string; type: string }>(
-        `SELECT creator_id, type FROM rooms WHERE id = $1 AND is_active = TRUE LIMIT 1`,
-        [roomId]
-      );
-      if (!roomRows[0]) throw notFound("Room not found");
-      if (roomRows[0].creator_id !== userId) {
+      const [room] = await orm
+        .select({ creatorId: schema.rooms.creatorId, type: schema.rooms.type })
+        .from(schema.rooms)
+        .where(and(eq(schema.rooms.id, roomId), eq(schema.rooms.isActive, true)))
+        .limit(1);
+      if (!room) throw notFound("Room not found");
+      if (room.creatorId !== userId) {
         throw forbidden("Only the room creator can create quizzes");
       }
-      if (roomRows[0].type !== "classroom") {
+      if (room.type !== "classroom") {
         throw forbidden("Quizzes can only be created in classroom rooms");
       }
 
       // Enforce Knowledge Track Level 40 gate (PRD §7)
-      const { rows: xpRows } = await db.query<{ xp_knowledge: number }>(
-        `SELECT xp_knowledge FROM users WHERE id = $1`,
-        [userId]
-      );
-      const creatorKnowledgeXP = xpRows[0]?.xp_knowledge ?? 0;
+      const [xpRow] = await orm
+        .select({ xpKnowledge: schema.users.xpKnowledge })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId));
+      const creatorKnowledgeXP = Number(xpRow?.xpKnowledge ?? 0);
       const knowledgeTrackInfo = getTrackLevelForXP("knowledge", creatorKnowledgeXP);
       if (knowledgeTrackInfo.level < MIN_KNOWLEDGE_LEVEL_FOR_QUIZZES) {
         throw forbidden(
@@ -158,44 +159,35 @@ export const POST = withAuth(
 
       const body = await validateBody(req, createQuizSchema);
 
-      const result = await db.transaction(async (tx) => {
+      const result = await orm.transaction(async (tx) => {
         // Insert quiz
-        const { rows: quizRows } = await tx.query<{ id: string }>(
-          `INSERT INTO classroom_quizzes
-             (room_id, creator_id, title, description, xp_reward, pass_score, is_active, created_at, updated_at)
-           VALUES ($1, $2, $3, $4, $5, $6, TRUE, NOW(), NOW())
-           RETURNING id`,
-          [
+        const [quiz] = await tx
+          .insert(schema.classroomQuizzes)
+          .values({
             roomId,
-            userId,
-            body.title,
-            body.description ?? null,
-            body.xp_reward,
-            body.pass_score,
-          ]
-        );
-        const quizId = quizRows[0].id;
+            creatorId: userId,
+            title: body.title,
+            description: body.description ?? null,
+            xpReward: body.xp_reward,
+            passScore: body.pass_score,
+            isActive: true,
+          })
+          .returning({ id: schema.classroomQuizzes.id });
+        const quizId = quiz.id;
 
         // Insert questions
-        for (let i = 0; i < body.questions.length; i++) {
-          const q = body.questions[i];
-          await tx.query(
-            `INSERT INTO classroom_quiz_questions
-               (quiz_id, question, option_a, option_b, option_c, option_d,
-                correct_option, position, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())`,
-            [
-              quizId,
-              q.question,
-              q.option_a,
-              q.option_b,
-              q.option_c,
-              q.option_d,
-              q.correct_option,
-              i,
-            ]
-          );
-        }
+        await tx.insert(schema.classroomQuizQuestions).values(
+          body.questions.map((q, i) => ({
+            quizId,
+            question: q.question,
+            optionA: q.option_a,
+            optionB: q.option_b,
+            optionC: q.option_c,
+            optionD: q.option_d,
+            correctOption: q.correct_option,
+            position: i,
+          }))
+        );
 
         return { quizId, questionCount: body.questions.length };
       });

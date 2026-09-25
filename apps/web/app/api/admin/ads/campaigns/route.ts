@@ -12,11 +12,11 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import type { AdCampaignRow } from "@/lib/ads/repo";
 
 const createSchema = z.object({
   name: z.string().min(3).max(150),
@@ -31,17 +31,24 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }: { auth: Admi
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const moderationStatus = req.nextUrl.searchParams.get("moderationStatus");
 
-    const { rows } = await db.query<AdCampaignRow & { advertiser_name: string | null }>(
-      `SELECT c.*, COALESCE(ba.business_name, 'Zobia (Admin)') AS advertiser_name
-       FROM ad_campaigns c
-       LEFT JOIN business_accounts ba ON ba.id = c.business_account_id
-       WHERE c.deleted_at IS NULL ${moderationStatus ? "AND c.moderation_status = $1" : ""}
-       ORDER BY c.created_at DESC
-       LIMIT 200`,
-      moderationStatus ? [moderationStatus] : []
-    );
+    const orm = await getDb();
+    const conditions = [isNull(schema.adCampaigns.deletedAt)];
+    if (moderationStatus) conditions.push(eq(schema.adCampaigns.moderationStatus, moderationStatus));
 
-    return NextResponse.json({ success: true, data: { campaigns: rows }, error: null });
+    const rows = await orm
+      .select({
+        campaign: schema.adCampaigns,
+        advertiser_name: sql<string>`COALESCE(${schema.businessAccounts.businessName}, 'Zobia (Admin)')`,
+      })
+      .from(schema.adCampaigns)
+      .leftJoin(schema.businessAccounts, eq(schema.businessAccounts.id, schema.adCampaigns.businessAccountId))
+      .where(and(...conditions))
+      .orderBy(desc(schema.adCampaigns.createdAt))
+      .limit(200);
+
+    const campaigns = rows.map((r) => ({ ...r.campaign, advertiser_name: r.advertiser_name }));
+
+    return NextResponse.json({ success: true, data: { campaigns }, error: null });
   } catch (err) {
     return handleApiError(err);
   }
@@ -52,16 +59,26 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }: { auth: Adm
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const body = await validateBody(req, createSchema);
 
-    const { rows } = await db.query<AdCampaignRow>(
-      `INSERT INTO ad_campaigns
-         (owner_type, created_by, name, objective, status, moderation_status, moderation_mode,
-          moderated_by, moderated_at, cpm_credits, total_budget_credits, target_plans)
-       VALUES ('admin', $1, $2, $3, 'draft', 'approved', 'manual', $1, NOW(), COALESCE($4, 500), $5, $6)
-       RETURNING *`,
-      [auth.user.sub, body.name, body.objective, body.cpmCredits ?? null, body.totalBudgetCredits, body.targetPlans ?? null]
-    );
+    const orm = await getDb();
+    const [campaign] = await orm
+      .insert(schema.adCampaigns)
+      .values({
+        ownerType: "admin",
+        createdBy: auth.user.sub,
+        name: body.name,
+        objective: body.objective,
+        status: "draft",
+        moderationStatus: "approved",
+        moderationMode: "manual",
+        moderatedBy: auth.user.sub,
+        moderatedAt: new Date(),
+        cpmCredits: body.cpmCredits != null ? String(body.cpmCredits) : "500",
+        totalBudgetCredits: String(body.totalBudgetCredits),
+        targetPlans: body.targetPlans ?? null,
+      })
+      .returning();
 
-    return NextResponse.json({ success: true, data: { campaign: rows[0] }, error: null }, { status: 201 });
+    return NextResponse.json({ success: true, data: { campaign }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

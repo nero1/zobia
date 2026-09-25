@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, count, eq, gt, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -35,10 +36,12 @@ const addReactionSchema = z.object({
 // ---------------------------------------------------------------------------
 
 async function getMoment(momentId: string): Promise<{ id: string } | null> {
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM moments WHERE id = $1 AND expires_at > NOW() LIMIT 1`,
-    [momentId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ id: schema.moments.id })
+    .from(schema.moments)
+    .where(and(eq(schema.moments.id, momentId), gt(schema.moments.expiresAt, sql`NOW()`)))
+    .limit(1);
   return rows[0] ?? null;
 }
 
@@ -63,45 +66,45 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const moment = await getMoment(momentId);
     if (!moment) throw notFound("Moment not found or expired");
 
+    const orm = await getDb();
+
     // Upsert reaction (one reaction per user per moment — toggle emoji)
-    await db.query(
-      `INSERT INTO moment_reactions (moment_id, user_id, emoji, created_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (moment_id, user_id)
-       DO UPDATE SET emoji = $3, created_at = NOW()`,
-      [momentId, userId, emoji]
-    );
+    await orm
+      .insert(schema.momentReactions)
+      .values({ momentId, userId, emoji })
+      .onConflictDoUpdate({
+        target: [schema.momentReactions.momentId, schema.momentReactions.userId],
+        set: { emoji, createdAt: sql`NOW()` },
+      });
 
     // Refresh cached reaction counts on the moment row
-    await db.query(
-      `UPDATE moments
-       SET reactions_count = (
-         SELECT COUNT(*) FROM moment_reactions WHERE moment_id = $1
-       )
-       WHERE id = $1`,
-      [momentId]
-    ).catch(() => {});
+    await orm
+      .update(schema.moments)
+      .set({
+        reactionsCount: sql`(SELECT COUNT(*) FROM ${schema.momentReactions} WHERE ${schema.momentReactions.momentId} = ${momentId})`,
+      })
+      .where(eq(schema.moments.id, momentId))
+      .catch(() => {});
 
     // Return updated reaction summary
-    const { rows: summary } = await db.query<{ emoji: string; count: string; user_reacted: boolean }>(
-      `SELECT
-         mr.emoji,
-         COUNT(*) AS count,
-         BOOL_OR(mr.user_id = $2) AS user_reacted
-       FROM moment_reactions mr
-       WHERE mr.moment_id = $1
-       GROUP BY mr.emoji
-       ORDER BY count DESC`,
-      [momentId, userId]
-    );
+    const summary = await orm
+      .select({
+        emoji: schema.momentReactions.emoji,
+        count: count(),
+        userReacted: sql<boolean>`BOOL_OR(${schema.momentReactions.userId} = ${userId})`,
+      })
+      .from(schema.momentReactions)
+      .where(eq(schema.momentReactions.momentId, momentId))
+      .groupBy(schema.momentReactions.emoji)
+      .orderBy(sql`count(*) DESC`);
 
     return NextResponse.json({
       success: true,
       data: {
         reactions: summary.map((r) => ({
           emoji: r.emoji,
-          count: parseInt(String(r.count), 10),
-          userReacted: r.user_reacted,
+          count: Number(r.count),
+          userReacted: r.userReacted,
         })),
       },
       error: null,
@@ -125,20 +128,20 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
     const moment = await getMoment(momentId);
     if (!moment) throw notFound("Moment not found or expired");
 
-    await db.query(
-      `DELETE FROM moment_reactions WHERE moment_id = $1 AND user_id = $2`,
-      [momentId, userId]
-    );
+    const orm = await getDb();
+
+    await orm
+      .delete(schema.momentReactions)
+      .where(and(eq(schema.momentReactions.momentId, momentId), eq(schema.momentReactions.userId, userId)));
 
     // Refresh cached count
-    await db.query(
-      `UPDATE moments
-       SET reactions_count = (
-         SELECT COUNT(*) FROM moment_reactions WHERE moment_id = $1
-       )
-       WHERE id = $1`,
-      [momentId]
-    ).catch(() => {});
+    await orm
+      .update(schema.moments)
+      .set({
+        reactionsCount: sql`(SELECT COUNT(*) FROM ${schema.momentReactions} WHERE ${schema.momentReactions.momentId} = ${momentId})`,
+      })
+      .where(eq(schema.moments.id, momentId))
+      .catch(() => {});
 
     return NextResponse.json({ success: true, data: null, error: null });
   } catch (err) {

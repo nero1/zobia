@@ -6,7 +6,8 @@
  * reusing lib/plans/eligibility.ts's plan/prestige allow-list convention.
  */
 
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { loadManifest } from "@/lib/manifest";
 import { isPlanEligible } from "@/lib/plans/eligibility";
 
@@ -32,16 +33,17 @@ export async function getTicketEligibility(userId: string): Promise<TicketEligib
   const manifest = await loadManifest();
 
   try {
-    const { rows } = await db.query<{ plan: string; prestige_count: number }>(
-      `SELECT plan, prestige_count FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    const user = rows[0];
+    const orm = await getDb();
+    const [user] = await orm
+      .select({ plan: schema.users.plan, prestigeCount: schema.users.prestigeCount })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!user) {
       return { freeAccess: false, costCredits: 0, costStars: 0, blocked: true };
     }
 
-    const freeAccess = isPlanEligible(user.plan, user.prestige_count ?? 0, manifest.support.eligiblePlans);
+    const freeAccess = isPlanEligible(user.plan, user.prestigeCount ?? 0, manifest.support.eligiblePlans);
     const costCredits = manifest.support.ticketCostCredits;
     const costStars = manifest.support.ticketCostStars;
 

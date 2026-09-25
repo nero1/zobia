@@ -9,14 +9,10 @@
  * instead of duplicating it.
  */
 
-import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
+import { sql, eq } from "drizzle-orm";
+import type { DbOrTx } from "@/lib/db/drizzle";
+import { schema } from "@/lib/db/schema";
 import { conflict, notFound } from "@/lib/api/errors";
-
-interface RestorableUser {
-  id: string;
-  is_suspended: boolean;
-  is_banned: boolean;
-}
 
 /**
  * Lift a suspension or ban on a user account. Must run against a user row
@@ -28,26 +24,26 @@ interface RestorableUser {
  * that themselves since the audit reason/actor differs (a direct admin
  * action vs. an appeal approval).
  */
-export async function restoreUserAccount(
-  client: TransactionClient | DatabaseAdapter,
-  userId: string
-): Promise<void> {
-  const { rows } = await client.query<RestorableUser>(
-    `SELECT id, is_suspended, is_banned FROM users WHERE id = $1 FOR UPDATE`,
-    [userId]
+export async function restoreUserAccount(client: DbOrTx, userId: string): Promise<void> {
+  const rows = await client.execute(
+    sql`SELECT id, is_suspended, is_banned FROM ${schema.users} WHERE id = ${userId} FOR UPDATE`
   );
-  const target = rows[0];
+  const target = rows.rows[0] as { id: string; is_suspended: boolean; is_banned: boolean } | undefined;
   if (!target) throw notFound("User not found");
   if (!target.is_suspended && !target.is_banned) {
     throw conflict("User is not suspended or banned");
   }
 
-  await client.query(
-    `UPDATE users
-     SET is_suspended = false, is_banned = false,
-         suspended_until = NULL, suspension_reason = NULL,
-         ban_reason = NULL, banned_at = NULL, updated_at = NOW()
-     WHERE id = $1`,
-    [userId]
-  );
+  await client
+    .update(schema.users)
+    .set({
+      isSuspended: false,
+      isBanned: false,
+      suspendedUntil: null,
+      suspensionReason: null,
+      banReason: null,
+      bannedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.users.id, userId));
 }

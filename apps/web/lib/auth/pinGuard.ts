@@ -19,7 +19,7 @@
 
 import { redis } from "@/lib/redis";
 import { logger } from "@/lib/logger";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { raiseAlert } from "@/lib/alerts/dispatch";
 
 /** TTL in seconds for the pin_ok key after a successful PIN verification. */
@@ -61,6 +61,7 @@ export async function requirePinVerified(userId: string, sessionId: string): Pro
   } catch (err) {
     // Fail closed on Redis outage — do not allow sensitive operations
     logger.error({ err, userId, sessionId }, "[pinGuard] Redis unavailable — failing closed");
+    const db = await getDb();
     await raiseAlert(db, {
       type: "redis_unavailable",
       category: "infra",

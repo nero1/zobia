@@ -20,6 +20,8 @@ export const maxDuration = 30;
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { db } from "@/lib/db";
 import { validateCronSecret } from "@/lib/cron/auth";
 import { loadManifest } from "@/lib/manifest";
@@ -30,7 +32,7 @@ import type { AlertPriorityLevel } from "@/lib/alerts/types";
 
 const BATCH_LIMIT = 50;
 
-interface DueAlertRow {
+interface DueAlertRow extends Record<string, unknown> {
   id: string;
   priority_level: AlertPriorityLevel;
   title: string;
@@ -47,6 +49,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const orm = await getDb();
   const now = new Date();
   let escalated = 0;
   const errors: string[] = [];
@@ -56,15 +59,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // -------------------------------------------------------------------------
   try {
     const manifest = await loadManifest();
-    const { rows: dueAlerts } = await db.query<DueAlertRow>(
-      `SELECT id, priority_level, title, message, notify_admin, notify_mods,
-              escalation_stage, escalation_cycle, escalation_phase
-       FROM system_alerts
-       WHERE resolved = false AND escalation_complete = false AND next_escalation_at <= $1
-       ORDER BY next_escalation_at ASC
-       LIMIT $2`,
-      [now.toISOString(), BATCH_LIMIT]
-    );
+    const { rows: dueAlerts } = await orm.execute<DueAlertRow>(sql`
+      SELECT id, priority_level, title, message, notify_admin, notify_mods,
+             escalation_stage, escalation_cycle, escalation_phase
+      FROM system_alerts
+      WHERE resolved = false AND escalation_complete = false AND next_escalation_at <= ${now.toISOString()}
+      ORDER BY next_escalation_at ASC
+      LIMIT ${BATCH_LIMIT}
+    `);
 
     for (const alert of dueAlerts) {
       try {
@@ -76,13 +78,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
         );
 
         // Advance state BEFORE sending so an overlapping run can't double-fire.
-        await db.query(
-          `UPDATE system_alerts
-           SET escalation_stage = $2, escalation_cycle = $3, escalation_phase = $4,
-               next_escalation_at = $5, escalation_complete = $6
-           WHERE id = $1 AND next_escalation_at <= $7`,
-          [alert.id, state.stage, state.cycle, state.phase, nextAt, nextAt === null, now.toISOString()]
-        );
+        await orm.execute(sql`
+          UPDATE system_alerts
+          SET escalation_stage = ${state.stage}, escalation_cycle = ${state.cycle}, escalation_phase = ${state.phase},
+              next_escalation_at = ${nextAt}, escalation_complete = ${nextAt === null}
+          WHERE id = ${alert.id} AND next_escalation_at <= ${now.toISOString()}
+        `);
 
         await notifyForAlert(alert.id, alert.priority_level, alert.title, alert.message, alert.notify_admin, alert.notify_mods, state.stage);
         escalated++;
@@ -101,13 +102,13 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const manifest = await loadManifest();
     const threshold = manifest.alerting.reportSpike.level2VelocityThreshold;
     if (threshold > 0) {
-      const { rows } = await db.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM moderation_report_reporters
-         WHERE created_at > NOW() - INTERVAL '1 hour'`
-      );
+      const { rows } = await orm.execute<{ count: string }>(sql`
+        SELECT COUNT(*)::text AS count FROM moderation_report_reporters
+        WHERE created_at > NOW() - INTERVAL '1 hour'
+      `);
       const reportsLastHour = parseInt(rows[0]?.count ?? "0", 10);
       if (reportsLastHour >= threshold) {
-        await raiseAlert(db, {
+        await raiseAlert(orm, {
           type: "report_velocity_spike",
           category: "moderation",
           priorityLevel: 2,

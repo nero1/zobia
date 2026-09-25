@@ -10,7 +10,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, gt, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { getUserRank, type LeaderboardTrack } from "@/lib/leaderboards/engine";
@@ -39,30 +40,31 @@ const ALL_TRACKS: LeaderboardTrack[] = [
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // Fetch user context (city, guild)
-    const userResult = await db.query<{ city: string | null; guild_id: string | null }>(
-      `SELECT city, guild_id FROM users WHERE id = $1 AND deleted_at IS NULL`,
-      [userId]
-    );
-    const user = userResult.rows[0];
+    const [user] = await orm
+      .select({ city: schema.users.city, guildId: schema.users.guildId })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)));
     const city = user?.city ?? null;
-    const guildId = user?.guild_id ?? null;
+    const guildId = user?.guildId ?? null;
 
     // Active season
-    const seasonResult = await db.query<{ id: string }>(
-      `SELECT id FROM seasons WHERE is_active = TRUE AND ends_at > NOW() LIMIT 1`,
-      []
-    );
-    const seasonId = seasonResult.rows[0]?.id ?? null;
+    const [season] = await orm
+      .select({ id: schema.seasons.id })
+      .from(schema.seasons)
+      .where(and(eq(schema.seasons.isActive, true), gt(schema.seasons.endsAt, new Date())))
+      .limit(1);
+    const seasonId = season?.id ?? null;
 
     // Fetch ranks across all tracks in parallel
     const rankPromises = ALL_TRACKS.map(async (track) => {
       const [globalRank, cityRank, guildRank, seasonRank] = await Promise.all([
-        getUserRank(userId, track, "global", db),
-        city ? getUserRank(userId, track, "city", db, { city }) : Promise.resolve(null),
-        guildId ? getUserRank(userId, track, "guild", db, { guildId }) : Promise.resolve(null),
-        seasonId ? getUserRank(userId, track, "season", db, { seasonId }) : Promise.resolve(null),
+        getUserRank(userId, track, "global", orm),
+        city ? getUserRank(userId, track, "city", orm, { city }) : Promise.resolve(null),
+        guildId ? getUserRank(userId, track, "guild", orm, { guildId }) : Promise.resolve(null),
+        seasonId ? getUserRank(userId, track, "season", orm, { seasonId }) : Promise.resolve(null),
       ]);
 
       return {

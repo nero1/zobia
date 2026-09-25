@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -56,15 +57,15 @@ interface CouncilIdeaRow {
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
-    const { rows } = await db.query<CouncilIdeaRow>(
-      `SELECT pci.id, pci.author_id, u.username AS author_username,
+    const orm = await getDb();
+    const { rows } = await orm.execute<CouncilIdeaRow & Record<string, unknown>>(sql`
+       SELECT pci.id, pci.author_id, u.username AS author_username,
               pci.title, pci.description, pci.votes, pci.status, pci.created_at,
-              (pci.metadata->'voter_ids' ? $1) AS has_voted
+              (pci.metadata->'voter_ids' ? ${userId}) AS has_voted
        FROM platform_council_ideas pci
        JOIN users u ON u.id = pci.author_id
-       ORDER BY pci.votes DESC, pci.created_at DESC`,
-      [userId]
-    );
+       ORDER BY pci.votes DESC, pci.created_at DESC
+    `);
 
     return NextResponse.json({
       success: true,
@@ -86,35 +87,48 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
 
     // Verify caller is a council member
-    const { rows: memberRows } = await db.query<{ id: string }>(
-      `SELECT id FROM platform_council_members
-       WHERE user_id = $1 AND left_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    if (!memberRows[0]) {
+    const orm = await getDb();
+    const [memberRow] = await orm
+      .select({ id: schema.platformCouncilMembers.id })
+      .from(schema.platformCouncilMembers)
+      .where(and(eq(schema.platformCouncilMembers.userId, userId), isNull(schema.platformCouncilMembers.leftAt)))
+      .limit(1);
+    if (!memberRow) {
       throw forbidden("Only Platform Council members can submit ideas");
     }
 
     const body = await validateBody(req, submitIdeaSchema);
 
-    const { rows: usernameRows } = await db.query<{ username: string }>(
-      `SELECT username FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const [usernameRow] = await orm
+      .select({ username: schema.users.username })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
 
-    const { rows } = await db.query<Omit<CouncilIdeaRow, "author_username" | "has_voted">>(
-      `INSERT INTO platform_council_ideas
-         (author_id, title, description, votes, status, created_at)
-       VALUES ($1, $2, $3, 0, 'open', NOW())
-       RETURNING id, author_id, title, description, votes, status, created_at`,
-      [userId, body.title, body.description]
-    );
+    const [inserted] = await orm
+      .insert(schema.platformCouncilIdeas)
+      .values({
+        authorId: userId,
+        title: body.title,
+        description: body.description,
+        votes: 0,
+        status: "open",
+      })
+      .returning({
+        id: schema.platformCouncilIdeas.id,
+        author_id: schema.platformCouncilIdeas.authorId,
+        title: schema.platformCouncilIdeas.title,
+        description: schema.platformCouncilIdeas.description,
+        votes: schema.platformCouncilIdeas.votes,
+        status: schema.platformCouncilIdeas.status,
+        created_at: schema.platformCouncilIdeas.createdAt,
+      });
 
     const idea: CouncilIdeaRow = {
-      ...rows[0],
-      author_username: usernameRows[0]?.username ?? "",
+      ...inserted,
+      author_username: usernameRow?.username ?? "",
       has_voted: false,
-    };
+    } as unknown as CouncilIdeaRow;
 
     return NextResponse.json(
       { success: true, data: { idea }, error: null },

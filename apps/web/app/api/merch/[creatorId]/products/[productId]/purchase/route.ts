@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, ne, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -67,6 +68,7 @@ export const POST = withAuth(
       }
 
       const body = await validateBody(req, purchaseSchema);
+      const orm = await getDb();
 
       // Reject partner fulfillment (Coming Soon)
       if (body.fulfillmentMethod === "partner") {
@@ -77,43 +79,38 @@ export const POST = withAuth(
       }
 
       // Fetch creator tier and store settings for revenue share + fulfillment
-      const { rows: creatorRows } = await db.query<{
-        creator_tier: string | null;
-        store_default_fulfillment: string;
-      }>(
-        `SELECT u.creator_tier,
-                COALESCE(ms.default_fulfillment_method, 'manual') AS store_default_fulfillment
-         FROM users u
-         LEFT JOIN merch_stores ms ON ms.creator_id = u.id
-         WHERE u.id = $1 AND u.deleted_at IS NULL LIMIT 1`,
-        [creatorId]
-      );
-      const creatorTier = creatorRows[0]?.creator_tier ?? null;
-      const storeFulfillment = creatorRows[0]?.store_default_fulfillment ?? "manual";
+      const creatorRows = await orm
+        .select({
+          creatorTier: schema.users.creatorTier,
+          storeDefaultFulfillment: schema.merchStores.defaultFulfillmentMethod,
+        })
+        .from(schema.users)
+        .leftJoin(schema.merchStores, eq(schema.merchStores.creatorId, schema.users.id))
+        .where(and(eq(schema.users.id, creatorId), isNull(schema.users.deletedAt)))
+        .limit(1);
+      const creatorTier = creatorRows[0]?.creatorTier ?? null;
+      const storeFulfillment = creatorRows[0]?.storeDefaultFulfillment ?? "manual";
 
-      const result = await db.transaction(async (tx) => {
+      const result = await orm.transaction(async (tx) => {
         // Fetch product with store verification
-        const { rows: productRows } = await tx.query<{
-          id: string;
-          store_id: string;
-          name: string;
-          price_kobo: string;
-          is_active: boolean;
-          stock: number | null;
-          product_type: string;
-          referral_enabled: boolean;
-        }>(
-          `SELECT mp.id, mp.store_id, mp.name, mp.price_kobo::TEXT AS price_kobo,
-                  mp.is_active, mp.stock, mp.product_type, mp.referral_enabled
-           FROM merch_products mp
-           JOIN merch_stores ms ON ms.id = mp.store_id
-           WHERE mp.id = $1 AND ms.creator_id = $2
-           FOR UPDATE`,
-          [productId, creatorId]
-        );
+        const productRows = await tx
+          .select({
+            id: schema.merchProducts.id,
+            storeId: schema.merchProducts.storeId,
+            name: schema.merchProducts.name,
+            priceKobo: schema.merchProducts.priceKobo,
+            isActive: schema.merchProducts.isActive,
+            stock: schema.merchProducts.stock,
+            productType: schema.merchProducts.productType,
+            referralEnabled: schema.merchProducts.referralEnabled,
+          })
+          .from(schema.merchProducts)
+          .innerJoin(schema.merchStores, eq(schema.merchStores.id, schema.merchProducts.storeId))
+          .where(and(eq(schema.merchProducts.id, productId), eq(schema.merchStores.creatorId, creatorId)))
+          .for("update");
         if (!productRows[0]) throw notFound("Product not found");
         const product = productRows[0];
-        if (!product.is_active) throw notFound("Product is no longer available");
+        if (!product.isActive) throw notFound("Product is no longer available");
 
         // Check stock
         if (product.stock !== null && product.stock <= 0) {
@@ -121,62 +118,63 @@ export const POST = withAuth(
         }
 
         // Physical products require shipping details
-        if (product.product_type === "physical") {
+        if (product.productType === "physical") {
           if (!body.shippingName || !body.shippingAddress || !body.shippingCity || !body.shippingCountry) {
             throw badRequest("Shipping name, address, city, and country are required for physical products");
           }
         }
 
         // Convert price: kobo / 100 = coins
-        const priceKobo = parseInt(product.price_kobo, 10);
+        const priceKobo = Number(product.priceKobo);
         const priceCoins = Math.ceil(priceKobo / 100);
 
         // Check duplicate purchase for digital products
-        if (product.product_type === "digital") {
-          const { rows: existingOrder } = await tx.query<{ id: string }>(
-            `SELECT id FROM merch_orders
-             WHERE product_id = $1 AND buyer_id = $2
-               AND status != 'refunded'
-             LIMIT 1`,
-            [productId, userId]
-          );
+        if (product.productType === "digital") {
+          const existingOrder = await tx
+            .select({ id: schema.merchOrders.id })
+            .from(schema.merchOrders)
+            .where(
+              and(
+                eq(schema.merchOrders.productId, productId),
+                eq(schema.merchOrders.buyerId, userId),
+                ne(schema.merchOrders.status, "refunded")
+              )
+            )
+            .limit(1);
           if (existingOrder.length > 0) {
             throw conflict("You already own this digital product");
           }
         }
 
         // Fetch and lock buyer's coin balance
-        const { rows: userRows } = await tx.query<{ coin_balance: number }>(
-          `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-          [userId]
-        );
+        const userRows = await tx
+          .select({ coinBalance: schema.users.coinBalance })
+          .from(schema.users)
+          .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+          .for("update");
         if (!userRows[0]) throw notFound("User not found");
-        const { coin_balance } = userRows[0];
+        const coinBalance = Number(userRows[0].coinBalance);
 
-        if (coin_balance < priceCoins) {
+        if (coinBalance < priceCoins) {
           throw forbidden(`Insufficient coins. This item costs ${priceCoins} coins.`);
         }
 
         // Deduct coins from buyer
-        const newBalance = coin_balance - priceCoins;
-        await tx.query(
-          `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-          [newBalance, userId]
-        );
+        const newBalance = coinBalance - priceCoins;
+        await tx
+          .update(schema.users)
+          .set({ coinBalance: BigInt(newBalance), updatedAt: sql`NOW()` })
+          .where(eq(schema.users.id, userId));
 
         // Log coin transaction
-        await tx.query(
-          `INSERT INTO coin_ledger
-             (user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
-           VALUES ($1, $2, $3, $4, 'merch_purchase', $5, NOW())`,
-          [
-            userId,
-            -priceCoins,
-            coin_balance,
-            newBalance,
-            `Purchased merch: ${product.name}`,
-          ]
-        );
+        await tx.insert(schema.coinLedger).values({
+          userId,
+          amount: BigInt(-priceCoins),
+          balanceBefore: BigInt(coinBalance),
+          balanceAfter: BigInt(newBalance),
+          transactionType: "merch_purchase",
+          description: `Purchased merch: ${product.name}`,
+        });
 
         // Calculate creator share and platform fee (85% for Icon, 80% otherwise)
         const effectiveSharePct = creatorTier === 'icon' ? 85 : CREATOR_SHARE_PCT;
@@ -185,93 +183,93 @@ export const POST = withAuth(
 
         // Physical products: pending until delivered + confirmed
         // Digital products: completed immediately
-        const isPhysical = product.product_type === "physical";
+        const isPhysical = product.productType === "physical";
         const orderStatus = isPhysical ? "pending" : "completed";
         const fulfillmentMethod = isPhysical ? (body.fulfillmentMethod ?? storeFulfillment) : null;
 
         // Create merch order (with optional shipping details for physical products)
-        const { rows: orderRows } = await tx.query<{ id: string }>(
-          `INSERT INTO merch_orders
-             (product_id, buyer_id, creator_id, amount_kobo, creator_share_kobo,
-              platform_fee_kobo, status, fulfillment_method,
-              shipping_name, shipping_address, shipping_city, shipping_country,
-              created_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
-           RETURNING id`,
-          [
+        const orderRows = await tx
+          .insert(schema.merchOrders)
+          .values({
             productId,
-            userId,
+            buyerId: userId,
             creatorId,
-            priceKobo,
-            creatorShareKobo,
-            platformFeeKobo,
-            orderStatus,
+            amountKobo: BigInt(priceKobo),
+            creatorShareKobo: BigInt(creatorShareKobo),
+            platformFeeKobo: BigInt(platformFeeKobo),
+            status: orderStatus,
             fulfillmentMethod,
-            body.shippingName ?? null,
-            body.shippingAddress ?? null,
-            body.shippingCity ?? null,
-            body.shippingCountry ?? null,
-          ]
-        );
+            shippingName: body.shippingName ?? null,
+            shippingAddress: body.shippingAddress ?? null,
+            shippingCity: body.shippingCity ?? null,
+            shippingCountry: body.shippingCountry ?? null,
+          })
+          .returning({ id: schema.merchOrders.id });
         const orderId = orderRows[0].id;
 
         // Credit creator earnings immediately for digital; defer to confirm-receipt for physical
         if (!isPhysical) {
-          await tx.query(
-            `INSERT INTO creator_earnings
-               (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id, created_at)
-             VALUES ($1, 'merch', $2, $3, $4, $5, NOW())`,
-            [creatorId, priceKobo, platformFeeKobo, creatorShareKobo, orderId]
-          );
-          await tx.query(
-            `UPDATE users SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
-                              updated_at = NOW() WHERE id = $2`,
-            [creatorShareKobo, creatorId]
-          );
+          await tx.insert(schema.creatorEarnings).values({
+            creatorId,
+            sourceType: "merch",
+            grossAmountKobo: BigInt(priceKobo),
+            platformFeeKobo: BigInt(platformFeeKobo),
+            netAmountKobo: BigInt(creatorShareKobo),
+            referenceId: orderId,
+          });
+          await tx
+            .update(schema.users)
+            .set({
+              availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${creatorShareKobo}`,
+              updatedAt: sql`NOW()`,
+            })
+            .where(eq(schema.users.id, creatorId));
         }
 
         // Decrement stock if limited
         if (product.stock !== null) {
-          await tx.query(
-            `UPDATE merch_products SET stock = stock - 1 WHERE id = $1`,
-            [productId]
-          );
+          await tx
+            .update(schema.merchProducts)
+            .set({ stock: sql`${schema.merchProducts.stock} - 1` })
+            .where(eq(schema.merchProducts.id, productId));
         }
 
         // Digital-item referral commission (standard tier1/tier2 rates).
         // Physical items are deferred to confirm-receipt since the order can
         // still be refunded/disputed before then.
-        if (!isPhysical && product.referral_enabled) {
-          const digitalReferralsEnabled = await getManifestValue("market_referral_digital_enabled", tx);
+        if (!isPhysical && product.referralEnabled) {
+          const digitalReferralsEnabled = await getManifestValue("market_referral_digital_enabled", tx as never);
           if (digitalReferralsEnabled === "true") {
-            await awardMerchDigitalReferralCommission(tx, userId, priceKobo, orderId).catch((err) => {
+            await awardMerchDigitalReferralCommission(tx as never, userId, priceKobo, orderId).catch((err) => {
               logger.error({ err, orderId }, "[merch] Digital referral commission failed (non-fatal)");
             });
           }
         }
 
         // Award XP to buyer
-        await tx.query(
-          `UPDATE users
-           SET xp_total = xp_total + $1,
-               xp_social = xp_social + $1,
-               updated_at = NOW()
-           WHERE id = $2`,
-          [XP_AWARD_MERCH_PURCHASE, userId]
-        );
+        await tx
+          .update(schema.users)
+          .set({
+            xpTotal: sql`${schema.users.xpTotal} + ${XP_AWARD_MERCH_PURCHASE}`,
+            xpSocial: sql`${schema.users.xpSocial} + ${XP_AWARD_MERCH_PURCHASE}`,
+            updatedAt: sql`NOW()`,
+          })
+          .where(eq(schema.users.id, userId));
 
-        await tx.query(
-          `INSERT INTO xp_ledger
-             (user_id, amount, track, source, base_amount, reference_id, created_at)
-           VALUES ($1, $2, 'social', 'merch_purchase', $2, $3, NOW())`,
-          [userId, XP_AWARD_MERCH_PURCHASE, orderId]
-        );
+        await tx.insert(schema.xpLedger).values({
+          userId,
+          amount: XP_AWARD_MERCH_PURCHASE,
+          track: "social",
+          source: "merch_purchase",
+          baseAmount: XP_AWARD_MERCH_PURCHASE,
+          referenceId: orderId,
+        });
 
         return {
           orderId,
           productId,
           productName: product.name,
-          productType: product.product_type,
+          productType: product.productType,
           orderStatus,
           fulfillmentMethod,
           priceCoins,
@@ -283,7 +281,7 @@ export const POST = withAuth(
         };
       });
 
-      void triggerActivityQuestProgress(userId, "market_purchase", db);
+      void triggerActivityQuestProgress(userId, "market_purchase", orm);
 
       // Notify seller — in-app, push, and email (fire-and-forget, non-blocking)
       const shippingDesc = result.productType === 'physical' && body.shippingCity
@@ -292,16 +290,14 @@ export const POST = withAuth(
       void (async () => {
         try {
           // 1. In-app notification
-          await db.query(
-            `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
-             VALUES ($1, 'new_merch_order', $2, $3, $4, NOW())`,
-            [
-              creatorId,
-              `New order: ${result.productName}`,
-              `You have a new order for "${result.productName}"${shippingDesc}.`,
-              JSON.stringify({ orderId: result.orderId, productId, buyerId: userId }),
-            ]
-          );
+          await orm.insert(schema.notifications).values({
+            userId: creatorId,
+            type: "new_merch_order",
+            title: `New order: ${result.productName}`,
+            body: `You have a new order for "${result.productName}"${shippingDesc}.`,
+            metadata: { orderId: result.orderId, productId, buyerId: userId },
+            isRead: false,
+          });
           // 2. Push notification
           await sendPushNotification(
             creatorId,
@@ -310,10 +306,11 @@ export const POST = withAuth(
             { action: '/creator/orders', priority: 'high' }
           );
           // 3. Email notification
-          const { rows: creatorEmailRows } = await db.query<{ email: string }>(
-            `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-            [creatorId]
-          );
+          const creatorEmailRows = await orm
+            .select({ email: schema.users.email })
+            .from(schema.users)
+            .where(and(eq(schema.users.id, creatorId), isNull(schema.users.deletedAt)))
+            .limit(1);
           const creatorEmail = creatorEmailRows[0]?.email;
           if (creatorEmail) {
             await sendEmail(

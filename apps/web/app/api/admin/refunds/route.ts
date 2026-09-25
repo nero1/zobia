@@ -24,7 +24,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -97,47 +98,68 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     let refunds: RefundRow[] = [];
     let total = 0;
 
+    const orm = await getDb();
+
     try {
-      const whereStatus =
+      const statusCondition =
         status === "all"
-          ? ""
+          ? sql`TRUE`
           : status === "processed"
-          ? "WHERE r.status = 'processed'"
-          : "WHERE r.status = 'pending'";
+          ? sql`${schema.refunds.status} = 'processed'`
+          : sql`${schema.refunds.status} = 'pending'`;
 
-      const { rows } = await db.query<RefundRow>(
-        `SELECT r.id, r.user_id, u.username, r.amount_coins, r.reason,
-                r.reference_id, r.status, r.processed_by, r.created_at, r.processed_at
-         FROM refunds r
-         LEFT JOIN users u ON u.id = r.user_id
-         ${whereStatus}
-         ORDER BY r.created_at DESC
-         LIMIT $1 OFFSET $2`,
-        [limit, offset]
+      const rows = await orm
+        .select({
+          id: schema.refunds.id,
+          user_id: schema.refunds.userId,
+          username: schema.users.username,
+          amount_coins: schema.refunds.amountCoins,
+          reason: schema.refunds.reason,
+          reference_id: schema.refunds.referenceId,
+          status: schema.refunds.status,
+          processed_by: schema.refunds.processedBy,
+          created_at: schema.refunds.createdAt,
+          processed_at: schema.refunds.processedAt,
+        })
+        .from(schema.refunds)
+        .leftJoin(schema.users, eq(schema.users.id, schema.refunds.userId))
+        .where(statusCondition)
+        .orderBy(sql`${schema.refunds.createdAt} DESC`)
+        .limit(limit)
+        .offset(offset);
+
+      const { rows: countRows } = await orm.execute<{ total: string }>(
+        sql`SELECT COUNT(*)::TEXT AS total FROM refunds r WHERE ${statusCondition}`
       );
 
-      const { rows: countRows } = await db.query<{ total: string }>(
-        `SELECT COUNT(*)::TEXT AS total FROM refunds r ${whereStatus}`
-      );
-
-      refunds = rows;
+      refunds = rows.map((r) => ({
+        ...r,
+        amount_coins: Number(r.amount_coins),
+        created_at: r.created_at ? r.created_at.toISOString() : "",
+        processed_at: r.processed_at ? r.processed_at.toISOString() : null,
+      })) as unknown as RefundRow[];
       total = parseInt(countRows[0]?.total ?? "0", 10);
     } catch {
       // refunds table probably does not exist yet — surface recent purchases as
       // refund candidates so the page is still useful.
-      const { rows } = await db.query<CoinLedgerRow>(
-        `SELECT cl.id, cl.user_id, u.username, cl.amount, cl.description, cl.created_at
-         FROM coin_ledger cl
-         LEFT JOIN users u ON u.id = cl.user_id
-         WHERE cl.transaction_type = 'purchase'
-           AND cl.amount > 0
-         ORDER BY cl.created_at DESC
-         LIMIT $1 OFFSET $2`,
-        [limit, offset]
-      );
+      const rows = await orm
+        .select({
+          id: schema.coinLedger.id,
+          user_id: schema.coinLedger.userId,
+          username: schema.users.username,
+          amount: schema.coinLedger.amount,
+          description: schema.coinLedger.description,
+          created_at: schema.coinLedger.createdAt,
+        })
+        .from(schema.coinLedger)
+        .leftJoin(schema.users, eq(schema.users.id, schema.coinLedger.userId))
+        .where(sql`${schema.coinLedger.transactionType} = 'purchase' AND ${schema.coinLedger.amount} > 0`)
+        .orderBy(sql`${schema.coinLedger.createdAt} DESC`)
+        .limit(limit)
+        .offset(offset);
 
-      const { rows: countRows } = await db.query<{ total: string }>(
-        `SELECT COUNT(*)::TEXT AS total
+      const { rows: countRows } = await orm.execute<{ total: string }>(
+        sql`SELECT COUNT(*)::TEXT AS total
          FROM coin_ledger
          WHERE transaction_type = 'purchase' AND amount > 0`
       );
@@ -146,12 +168,12 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
         id: r.id,
         user_id: r.user_id,
         username: r.username,
-        amount_coins: r.amount,
+        amount_coins: Number(r.amount),
         reason: r.description ?? "Purchase (refund candidate)",
         reference_id: r.id,
         status: "pending",
         processed_by: null,
-        created_at: r.created_at,
+        created_at: r.created_at ? r.created_at.toISOString() : "",
         processed_at: null,
       }));
       total = parseInt(countRows[0]?.total ?? "0", 10);
@@ -176,68 +198,78 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
 
     const body = await validateBody(req, createRefundSchema);
 
-    // 1. Verify the user exists and fetch current balance
-    const { rows: userRows } = await db.query<UserRow>(
-      `SELECT id, username, coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [body.userId]
-    );
+    const orm = await getDb();
 
-    const user = userRows[0];
+    // 1. Verify the user exists and fetch current balance
+    const [user] = await orm
+      .select({ id: schema.users.id, username: schema.users.username, coin_balance: schema.users.coinBalance })
+      .from(schema.users)
+      .where(sql`${schema.users.id} = ${body.userId} AND ${schema.users.deletedAt} IS NULL`)
+      .limit(1);
+
     if (!user) {
       throw notFound("User not found");
     }
 
-    if (user.coin_balance < body.amountCoins) {
+    if (user.coin_balance < BigInt(body.amountCoins)) {
       throw badRequest(
         `User only has ${user.coin_balance} coins — cannot refund ${body.amountCoins}`
       );
     }
 
     // 2. Execute all writes in a transaction
-    const result = await db.transaction(async (tx) => {
+    const result = await orm.transaction(async (tx) => {
       // Deduct the refund amount from the user's coin balance
-      const { rows: updatedUser } = await tx.query<{ coin_balance: number }>(
-        `UPDATE users
-         SET coin_balance = coin_balance - $1,
-             updated_at   = NOW()
-         WHERE id = $2
-         RETURNING coin_balance`,
-        [body.amountCoins, body.userId]
-      );
+      const [updatedUser] = await tx
+        .update(schema.users)
+        .set({
+          coinBalance: sql`${schema.users.coinBalance} - ${body.amountCoins}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.users.id, body.userId))
+        .returning({ coinBalance: schema.users.coinBalance });
 
-      const newBalance = updatedUser[0]?.coin_balance ?? 0;
+      const newBalance = updatedUser?.coinBalance ?? BigInt(0);
 
-      const balanceBefore = newBalance + body.amountCoins;
+      const balanceBefore = newBalance + BigInt(body.amountCoins);
 
       // Record in coin_ledger as a refund (negative amount = deduction)
-      const { rows: ledgerRows } = await tx.query<{ id: string }>(
-        `INSERT INTO coin_ledger
-           (user_id, amount, balance_before, balance_after, transaction_type, description, created_at)
-         VALUES ($1, $2, $3, $4, 'refund', $5, NOW())
-         RETURNING id`,
-        [body.userId, -body.amountCoins, balanceBefore, newBalance, `Refund: ${body.reason}`]
-      );
+      const [ledgerRow] = await tx
+        .insert(schema.coinLedger)
+        .values({
+          userId: body.userId,
+          amount: BigInt(-body.amountCoins),
+          balanceBefore,
+          balanceAfter: newBalance,
+          transactionType: "refund",
+          description: `Refund: ${body.reason}`,
+        })
+        .returning({ id: schema.coinLedger.id });
 
-      const ledgerId = ledgerRows[0]?.id;
+      const ledgerId = ledgerRow?.id;
 
       // Insert into refunds table; ignore if table does not exist
       let refundId: string | null = null;
       try {
-        const { rows: refundRows } = await tx.query<{ id: string }>(
-          `INSERT INTO refunds
-             (user_id, amount_coins, reason, reference_id, status, processed_by, created_at, processed_at)
-           VALUES ($1, $2, $3, $4, 'processed', $5, NOW(), NOW())
-           ON CONFLICT DO NOTHING
-           RETURNING id`,
-          [body.userId, body.amountCoins, body.reason, body.referenceId, auth.user.sub]
-        );
-        refundId = refundRows[0]?.id ?? ledgerId ?? null;
+        const [refundRow] = await tx
+          .insert(schema.refunds)
+          .values({
+            userId: body.userId,
+            amountCoins: BigInt(body.amountCoins),
+            reason: body.reason,
+            referenceId: body.referenceId,
+            status: "processed",
+            processedBy: auth.user.sub,
+            processedAt: new Date(),
+          })
+          .returning({ id: schema.refunds.id });
+        refundId = refundRow?.id ?? ledgerId ?? null;
       } catch {
         // refunds table may not exist; fall back to ledger id
         refundId = ledgerId ?? null;
       }
 
-      return { refundId, newBalance };
+      return { refundId, newBalance: Number(newBalance) };
     });
 
     return NextResponse.json(

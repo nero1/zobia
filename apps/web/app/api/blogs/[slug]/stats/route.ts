@@ -18,7 +18,8 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug, getBlogStatsTotals, getBlogPostStatsBreakdown, getBlogDailyStats } from "@/lib/blogs/repo";
 import { isUserModeratorOrAdmin } from "@/lib/blogs/service";
 import { getStatsTier } from "@/lib/blogs/limits";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 export const GET = withAuth<{ slug: string }>(async (_req: NextRequest, { params, auth }) => {
   try {
@@ -31,8 +32,13 @@ export const GET = withAuth<{ slug: string }>(async (_req: NextRequest, { params
       throw forbidden("Only the blog owner or a moderator can view stats.");
     }
 
-    const { rows } = await db.query<{ plan: string }>(`SELECT plan FROM users WHERE id = $1 LIMIT 1`, [blog.owner_id]);
-    const tier = getStatsTier(rows[0]?.plan ?? "free");
+    const orm = await getDb();
+    const [userRow] = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(eq(schema.users.id, blog.owner_id))
+      .limit(1);
+    const tier = getStatsTier(userRow?.plan ?? "free");
 
     const totals = await getBlogStatsTotals(blog.id);
     const data: Record<string, unknown> = { tier, totals };

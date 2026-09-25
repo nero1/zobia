@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody, validateSearchParams } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -152,8 +153,8 @@ interface MessageRow {
 interface MemberRow {
   role: string;
   is_muted: boolean;
-  muted_until: string | null;
-  left_at: string | null;
+  muted_until: Date | null;
+  left_at: Date | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -168,29 +169,36 @@ async function getCallerMembership(
   roomId: string,
   userId: string
 ): Promise<MemberRow | null> {
-  const { rows } = await db.query<MemberRow>(
-    `SELECT role, is_muted, muted_until, left_at
-     FROM room_members
-     WHERE room_id = $1 AND user_id = $2`,
-    [roomId, userId]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      role: schema.roomMembers.role,
+      is_muted: schema.roomMembers.isMuted,
+      muted_until: schema.roomMembers.mutedUntil,
+      left_at: schema.roomMembers.leftAt,
+    })
+    .from(schema.roomMembers)
+    .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, userId)));
+  return row ?? null;
 }
 
 /**
  * Count how many messages the user has sent in this room today (for XP cap).
  */
 async function countTodayMessages(roomId: string, userId: string): Promise<number> {
-  const { rows } = await db.query<{ cnt: string }>(
-    `SELECT COUNT(*) AS cnt
-     FROM room_messages
-     WHERE room_id = $1
-       AND sender_id = $2
-       AND is_pending_approval = FALSE
-       AND created_at >= CURRENT_DATE`,
-    [roomId, userId]
-  );
-  return parseInt(rows[0]?.cnt ?? "0", 10);
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ cnt: sql<string>`COUNT(*)` })
+    .from(schema.roomMessages)
+    .where(
+      and(
+        eq(schema.roomMessages.roomId, roomId),
+        eq(schema.roomMessages.senderId, userId),
+        eq(schema.roomMessages.isPendingApproval, false),
+        sql`${schema.roomMessages.createdAt} >= CURRENT_DATE`
+      )
+    );
+  return parseInt(row?.cnt ?? "0", 10);
 }
 
 /**
@@ -246,20 +254,18 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
 
     // Fetch room
-    const { rows: roomRows } = await db.query<{
-      type: string;
-      creator_id: string;
-      is_active: boolean;
-      is_suspended: boolean;
-      is_banned: boolean;
-    }>(
-      `SELECT type, creator_id, is_active,
-              COALESCE(is_suspended, FALSE) AS is_suspended,
-              COALESCE(is_banned, FALSE) AS is_banned
-       FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-    const room = roomRows[0];
+    const orm = await getDb();
+    const [room] = await orm
+      .select({
+        type: schema.rooms.type,
+        creator_id: schema.rooms.creatorId,
+        is_active: schema.rooms.isActive,
+        is_suspended: schema.rooms.isSuspended,
+        is_banned: schema.rooms.isBanned,
+      })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
     if (!room || !room.is_active) throw notFound("Room not found");
     if (room.is_banned) throw forbidden("This room has been permanently banned");
     if (room.is_suspended) throw forbidden("This room is currently suspended");
@@ -284,46 +290,36 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       limit = 3;
     }
 
-    const conditions: string[] = [
-      "m.room_id = $1",
-      "m.is_deleted = FALSE",
+    const conditions: ReturnType<typeof sql>[] = [
+      sql`m.room_id = ${roomId}`,
+      sql`m.is_deleted = FALSE`,
       // Moments expire after 24 hours (PRD §5 — Zobia Moments)
-      "(m.message_type != 'moment' OR m.created_at > NOW() - INTERVAL '24 hours')",
+      sql`(m.message_type != 'moment' OR m.created_at > NOW() - INTERVAL '24 hours')`,
       // Hide messages awaiting moderator approval (BUG-RM01)
-      "(m.is_pending_approval = FALSE OR m.is_pending_approval IS NULL)",
+      sql`(m.is_pending_approval = FALSE OR m.is_pending_approval IS NULL)`,
     ];
-    const queryArgs: SqlParam[] = [roomId];
-    let paramIdx = 2;
 
     // Delta mode takes precedence over cursor pagination: return only messages
     // newer than the client's latest known timestamp, oldest-first.
     const deltaMode = !!queryParams.after;
     if (deltaMode) {
-      conditions.push(`m.created_at >= $${paramIdx}::timestamptz`);
-      queryArgs.push(queryParams.after as string);
-      paramIdx += 1;
+      conditions.push(sql`m.created_at >= ${queryParams.after}::timestamptz`);
     } else if (queryParams.cursor) {
       // Parse compound cursor: "ISO_TIMESTAMP__UUID"
       const parts = queryParams.cursor.split('__');
       const cursorTs = parts[0] ?? null;
       const cursorId = parts[1] ?? null;
       if (cursorTs && cursorId) {
-        conditions.push(`(m.created_at, m.id) < ($${paramIdx}::timestamptz, $${paramIdx + 1}::uuid)`);
-        queryArgs.push(cursorTs);
-        queryArgs.push(cursorId);
-        paramIdx += 2;
+        conditions.push(sql`(m.created_at, m.id) < (${cursorTs}::timestamptz, ${cursorId}::uuid)`);
       }
     }
 
-    queryArgs.push(limit);
-    const limitParam = paramIdx;
-
     const orderClause = deltaMode
-      ? "m.created_at ASC"
-      : "(m.is_pinned AND (m.pin_expires_at IS NULL OR m.pin_expires_at > NOW())) DESC NULLS LAST, m.created_at DESC";
+      ? sql`m.created_at ASC`
+      : sql`(m.is_pinned AND (m.pin_expires_at IS NULL OR m.pin_expires_at > NOW())) DESC NULLS LAST, m.created_at DESC`;
 
-    const { rows: messages } = await db.query<MessageRow>(
-      `SELECT
+    const { rows: messages } = await orm.execute<MessageRow & Record<string, unknown>>(sql`
+      SELECT
          m.id,
          m.room_id,
          m.sender_id,
@@ -356,11 +352,10 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
          ORDER BY created_at DESC
          LIMIT 1
        ) rg ON TRUE
-       WHERE ${conditions.join(" AND ")}
+       WHERE ${sql.join(conditions, sql` AND `)}
        ORDER BY ${orderClause}
-       LIMIT $${limitParam}`,
-      queryArgs
-    );
+       LIMIT ${limit}
+    `);
 
     // Cursor pagination only applies to the backlog query, not delta polling.
     const lastMsg = messages[messages.length - 1];
@@ -402,22 +397,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     let body = await validateBody(req, sendMessageSchema);
 
     // Fetch room (including moderation_rules for automod enforcement)
-    const { rows: roomRows } = await db.query<{
-      type: string;
-      creator_id: string;
-      is_active: boolean;
-      is_suspended: boolean;
-      is_banned: boolean;
-      moderation_rules: unknown;
-    }>(
-      `SELECT type, creator_id, is_active,
-              COALESCE(is_suspended, FALSE) AS is_suspended,
-              COALESCE(is_banned, FALSE) AS is_banned,
-              moderation_rules
-       FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-    const room = roomRows[0];
+    const orm = await getDb();
+    const [room] = await orm
+      .select({
+        type: schema.rooms.type,
+        creator_id: schema.rooms.creatorId,
+        is_active: schema.rooms.isActive,
+        is_suspended: schema.rooms.isSuspended,
+        is_banned: schema.rooms.isBanned,
+        moderation_rules: schema.rooms.moderationRules,
+      })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
     if (!room || !room.is_active) throw notFound("Room not found");
     if (room.is_banned) throw forbidden("This room has been permanently banned");
     if (room.is_suspended) throw forbidden("This room is currently suspended");
@@ -438,32 +430,23 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Check account-level suspension or ban before allowing any post.
     // Also fetch profile fields here so we can build the realtime payload later
     // without an extra round-trip.
-    const { rows: senderStatusRows } = await db.query<{
-      username: string;
-      display_name: string | null;
-      avatar_emoji: string;
-      is_creator: boolean;
-      is_verified: boolean;
-      prestige_count: number;
-      xp_total: string;
-      is_suspended: boolean;
-      is_banned: boolean;
-      suspended_until: string | null;
-      plan: Plan;
-    }>(
-      `SELECT username, display_name, avatar_emoji,
-              COALESCE(is_creator, false) AS is_creator,
-              COALESCE(is_verified, false) AS is_verified,
-              COALESCE(prestige_count, 0) AS prestige_count,
-              COALESCE(xp_total, 0) AS xp_total,
-              COALESCE(is_suspended, false) AS is_suspended,
-              COALESCE(is_banned, false) AS is_banned,
-              suspended_until,
-              COALESCE(plan, 'free') AS plan
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    const senderStatus = senderStatusRows[0];
+    const [senderStatus] = await orm
+      .select({
+        username: schema.users.username,
+        display_name: schema.users.displayName,
+        avatar_emoji: schema.users.avatarEmoji,
+        is_creator: schema.users.isCreator,
+        is_verified: schema.users.isVerified,
+        prestige_count: schema.users.prestigeCount,
+        xp_total: schema.users.xpTotal,
+        is_suspended: schema.users.isSuspended,
+        is_banned: schema.users.isBanned,
+        suspended_until: schema.users.suspendedUntil,
+        plan: schema.users.plan,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (senderStatus?.is_banned) {
       throw forbidden("Your account has been banned");
     }
@@ -480,7 +463,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Expo client all receive identical fields (fixes blank "@undefined"
     // bubbles that appeared when the raw snake_case DB row was returned).
     const toClientMessage = (
-      row: { id: string; sender_id: string; message_type: string; created_at: string; metadata?: unknown | null },
+      row: { id: string; sender_id: string; message_type: string; created_at: string | Date; metadata?: unknown | null },
       msgContent: string
     ): Message => {
       const meta = (row.metadata as Record<string, unknown> | null) ?? {};
@@ -493,9 +476,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         senderIsCreator: Boolean(senderStatus?.is_creator),
         senderIsVerified: Boolean(senderStatus?.is_verified),
         senderPrestigeCount: senderStatus?.prestige_count ?? 0,
-        senderXpTotal: senderStatus?.xp_total ?? "0",
+        senderXpTotal: senderStatus?.xp_total?.toString() ?? "0",
         content: msgContent ?? "",
-        createdAt: row.created_at,
+        createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : row.created_at,
         message_type: row.message_type,
         giftEmoji: typeof meta.giftEmoji === "string" ? meta.giftEmoji : undefined,
         giftAmount: typeof meta.giftAmount === "number" ? meta.giftAmount : undefined,
@@ -529,15 +512,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // Slow-mode: enforce minimum gap between the user's last two messages
       const slowModeSecs = Number(modRules.slowModeSeconds ?? 0);
       if (slowModeSecs > 0) {
-        const { rows: lastMsgRows } = await db.query<{ created_at: string }>(
-          `SELECT created_at FROM room_messages
-           WHERE room_id = $1 AND sender_id = $2 AND is_deleted = FALSE
-           ORDER BY created_at DESC LIMIT 1`,
-          [roomId, userId]
-        );
-        if (lastMsgRows[0]) {
+        const [lastMsgRow] = await orm
+          .select({ created_at: schema.roomMessages.createdAt })
+          .from(schema.roomMessages)
+          .where(and(eq(schema.roomMessages.roomId, roomId), eq(schema.roomMessages.senderId, userId), eq(schema.roomMessages.isDeleted, false)))
+          .orderBy(desc(schema.roomMessages.createdAt))
+          .limit(1);
+        if (lastMsgRow) {
           const secondsSinceLast =
-            (Date.now() - new Date(lastMsgRows[0].created_at).getTime()) / 1000;
+            (Date.now() - new Date(lastMsgRow.created_at as Date).getTime()) / 1000;
           if (secondsSinceLast < slowModeSecs) {
             throw badRequest(
               `Slow mode is active. Wait ${Math.ceil(slowModeSecs - secondsSinceLast)} seconds.`
@@ -549,13 +532,13 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // New-member posting hold: users who joined within N hours cannot post
       const holdHours = Number(modRules.newMemberPostHoldHours ?? 0);
       if (holdHours > 0 && membership) {
-        const { rows: joinRows } = await db.query<{ joined_at: string }>(
-          `SELECT joined_at FROM room_members WHERE room_id = $1 AND user_id = $2`,
-          [roomId, userId]
-        );
-        if (joinRows[0]) {
+        const [joinRow] = await orm
+          .select({ joined_at: schema.roomMembers.joinedAt })
+          .from(schema.roomMembers)
+          .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, userId)));
+        if (joinRow) {
           const hoursSinceJoin =
-            (Date.now() - new Date(joinRows[0].joined_at).getTime()) / 3_600_000;
+            (Date.now() - new Date(joinRow.joined_at as Date).getTime()) / 3_600_000;
           if (hoursSinceJoin < holdHours) {
             throw forbidden(
               `New members must wait ${holdHours} hour${holdHours !== 1 ? "s" : ""} before posting.`
@@ -585,16 +568,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Layer-1 auto-moderation: bot detection, duplicate detection, profanity filter
     if (!isAdmin && body.messageType === "text") {
-      const { rows: senderRows } = await db.query<{ is_verified: boolean; trust_score: number }>(
-        `SELECT is_verified, COALESCE(trust_score, 50) AS trust_score FROM users WHERE id = $1`,
-        [userId]
-      );
-      const sender = senderRows[0] ?? { is_verified: false, trust_score: 50 };
+      const [senderRow] = await orm
+        .select({
+          is_verified: schema.users.isVerified,
+          trust_score: sql<number>`COALESCE(${schema.users.trustScore}, 50)`,
+        })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId))
+        .limit(1);
+      const sender = senderRow ?? { is_verified: false, trust_score: 50 };
       const modResult = await applyAutoModeration(
         { content: body.content, senderId: userId, roomId },
         { id: roomId },
-        { id: userId, is_verified: sender.is_verified, trust_score: sender.trust_score },
-        db
+        { id: userId, is_verified: sender.is_verified ?? false, trust_score: sender.trust_score },
+        orm
       );
       if (modResult.blocked) {
         throw badRequest(
@@ -627,10 +614,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Validate that the reply target belongs to the same room (BUG-MSG01)
     if (body.replyToMessageId) {
-      const { rows: replyRows } = await db.query<{ id: string }>(
-        `SELECT id FROM room_messages WHERE id = $1 AND room_id = $2 AND is_deleted = FALSE LIMIT 1`,
-        [body.replyToMessageId, roomId]
-      );
+      const replyRows = await orm
+        .select({ id: schema.roomMessages.id })
+        .from(schema.roomMessages)
+        .where(
+          and(
+            eq(schema.roomMessages.id, body.replyToMessageId),
+            eq(schema.roomMessages.roomId, roomId),
+            eq(schema.roomMessages.isDeleted, false)
+          )
+        )
+        .limit(1);
       if (replyRows.length === 0) {
         throw badRequest("Reply target message not found in this room");
       }
@@ -639,27 +633,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // OFFLINE-IDEMP-GAP: mirrors the DM route's existing-row check so offline-queued
     // room messages retried on reconnect (Expo sync queue / PWA) don't create duplicates.
     if (body.idempotencyKey) {
-      const { rows: dupRows } = await db.query<{ id: string }>(
-        `SELECT id FROM room_messages WHERE sender_id = $1 AND idempotency_key = $2 LIMIT 1`,
-        [userId, body.idempotencyKey]
-      );
-      if (dupRows[0]) {
-        const { rows: existingRows } = await db.query<{
-          id: string;
-          sender_id: string;
-          content: string | null;
-          message_type: string;
-          metadata: unknown | null;
-          created_at: string;
-        }>(
-          `SELECT id, sender_id, content, message_type, metadata, created_at
-           FROM room_messages WHERE id = $1 LIMIT 1`,
-          [dupRows[0].id]
-        );
-        const existing = existingRows[0];
+      const [dupRow] = await orm
+        .select({ id: schema.roomMessages.id })
+        .from(schema.roomMessages)
+        .where(and(eq(schema.roomMessages.senderId, userId), eq(schema.roomMessages.idempotencyKey, body.idempotencyKey)))
+        .limit(1);
+      if (dupRow) {
+        const [existing] = await orm
+          .select({
+            id: schema.roomMessages.id,
+            sender_id: schema.roomMessages.senderId,
+            content: schema.roomMessages.content,
+            message_type: schema.roomMessages.messageType,
+            metadata: schema.roomMessages.metadata,
+            created_at: schema.roomMessages.createdAt,
+          })
+          .from(schema.roomMessages)
+          .where(eq(schema.roomMessages.id, dupRow.id))
+          .limit(1);
         if (existing) {
           return NextResponse.json(
-            { message: toClientMessage(existing, existing.content ?? "") },
+            { message: toClientMessage({ ...existing, created_at: existing.created_at ?? new Date() }, existing.content ?? "") },
             { status: 200 }
           );
         }
@@ -690,51 +684,46 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Persist message and update room counter atomically
-    const { rows: msgRows } = await db.transaction(async (tx) => {
-      const { rows } = await tx.query(
-        `INSERT INTO room_messages
-           (room_id, sender_id, content, message_type, metadata, reply_to_message_id,
-            is_pending_approval, idempotency_key)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-         RETURNING *`,
-        [
+    const [message] = await orm.transaction(async (tx) => {
+      const inserted = await tx
+        .insert(schema.roomMessages)
+        .values({
           roomId,
-          userId,
+          senderId: userId,
           content,
-          body.messageType,
-          metadataToStore ? JSON.stringify(metadataToStore) : null,
-          body.replyToMessageId ?? null,
-          requiresApproval,
-          body.idempotencyKey ?? null,
-        ]
-      );
+          messageType: body.messageType,
+          metadata: metadataToStore,
+          replyToMessageId: body.replyToMessageId ?? null,
+          isPendingApproval: requiresApproval,
+          idempotencyKey: body.idempotencyKey ?? null,
+        })
+        .returning();
 
       // Increment room's total_messages only for immediately-approved messages.
       // Pending messages (requiresApproval = true) are hidden until a moderator
       // approves them, so we must not count them here (BUG-10 / FIX-E2).
       if (!requiresApproval) {
-        await tx.query(
-          `UPDATE rooms
-           SET total_messages = total_messages + 1, updated_at = NOW()
-           WHERE id = $1`,
-          [roomId]
-        );
+        await tx
+          .update(schema.rooms)
+          .set({ totalMessages: sql`${schema.rooms.totalMessages} + 1`, updatedAt: new Date() })
+          .where(eq(schema.rooms.id, roomId));
       }
 
-      return { rows };
+      return inserted;
     });
-
-    const message = msgRows[0] as {
-      id: string;
-      sender_id: string;
-      created_at: string;
-      message_type: string;
-      metadata?: unknown | null;
-    };
 
     // Canonical camelCase payload returned to the sender AND broadcast to other
     // clients, so an optimistic render and the realtime echo are byte-identical.
-    const clientMessage = toClientMessage(message, content ?? "");
+    const clientMessage = toClientMessage(
+      {
+        id: message.id,
+        sender_id: message.senderId,
+        message_type: message.messageType,
+        created_at: message.createdAt as Date,
+        metadata: message.metadata,
+      },
+      content ?? ""
+    );
 
     // BUG-18: count AFTER insert so the cap is inclusive of the current message
     const todayMsgCount = await countTodayMessages(roomId, userId);
@@ -742,7 +731,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Award XP only if the message doesn't need moderator approval first.
     // When requiresApproval is true, XP is awarded by the moderation approve action.
     if (!requiresApproval) {
-      maybeAwardMessageXP(message.id, userId, todayMsgCount, senderStatus?.plan ?? 'free')
+      maybeAwardMessageXP(message.id, userId, todayMsgCount, (senderStatus?.plan ?? 'free') as Plan)
         .then((xp) => {
           if (xp > 0) {
             return publishRealtimeEvent(`user:${userId}`, "reward_earned", {
@@ -752,8 +741,9 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           }
         })
         .catch(() => {});
-      void triggerActivityQuestProgress(userId, "messages", db);
-      void advanceNewMemberQuestStep(db, userId, "send_message");
+      const orm = await getDb();
+      void triggerActivityQuestProgress(userId, "messages", orm);
+      void advanceNewMemberQuestStep(orm, userId, "send_message");
     }
 
     // Publish to realtime provider (non-blocking — never delays the HTTP response)
@@ -765,20 +755,21 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       void (async () => {
         const usernames = parseMentions(content);
         if (usernames.length === 0) return;
-        const [{ rows: roomRows }, { rows: mentionRows }] = await Promise.all([
-          db.query<{ name: string }>(`SELECT name FROM rooms WHERE id = $1`, [roomId]),
-          db.query<{ id: string }>(
-            `SELECT u.id FROM users u
-             JOIN room_members rm
-               ON rm.user_id = u.id AND rm.room_id = $1 AND rm.left_at IS NULL
-             WHERE LOWER(u.username) = ANY($2) AND u.id <> $3`,
-            [roomId, usernames, userId],
-          ),
+        const [[roomNameRow], mentionRows] = await Promise.all([
+          orm.select({ name: schema.rooms.name }).from(schema.rooms).where(eq(schema.rooms.id, roomId)).limit(1),
+          orm
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .innerJoin(
+              schema.roomMembers,
+              and(eq(schema.roomMembers.userId, schema.users.id), eq(schema.roomMembers.roomId, roomId), isNull(schema.roomMembers.leftAt))
+            )
+            .where(and(sql`LOWER(${schema.users.username}) = ANY(${usernames})`, sql`${schema.users.id} <> ${userId}`)),
         ]);
         await notifyRoomMentions({
           mentionedUserIds: mentionRows.map((r) => r.id),
           senderName: senderStatus.username || "Someone",
-          roomName: roomRows[0]?.name ?? "Room",
+          roomName: roomNameRow?.name ?? "Room",
           text: content,
           roomId,
         });

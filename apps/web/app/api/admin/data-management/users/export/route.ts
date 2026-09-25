@@ -20,7 +20,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Readable, PassThrough } from "node:stream";
 import { z } from "zod";
 import ExcelJS from "exceljs";
-import { db, type SqlParam } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -35,6 +35,9 @@ import {
 } from "@/lib/admin/userExport";
 
 const BATCH_SIZE = 5000;
+
+/** A value that can safely be passed as a SQL parameter. */
+type SqlParam = string | number | boolean | null | Date | Buffer | SqlParam[];
 
 const bodySchema = z.object({
   format: z.enum(["csv", "tsv", "xlsx", "txt"]),
@@ -63,6 +66,7 @@ function formatCell(field: ExportField, value: unknown): string | number | boole
 
 /** Fetch one page of matching users, keyset-paginated. Returns rows + whether more remain. */
 async function fetchBatch(
+  pool: import("pg").Pool,
   selectCols: string,
   whereClauses: string[],
   baseParams: SqlParam[],
@@ -80,7 +84,7 @@ async function fetchBatch(
   }
 
   const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
-  const { rows } = await db.query<UserRow>(
+  const { rows } = await pool.query<UserRow>(
     `SELECT ${selectCols}, u.created_at AS __cursor_created_at, u.id AS __cursor_id
      FROM users u
      ${where}
@@ -106,6 +110,9 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     const body = await validateBody(req, bodySchema);
     const fields = body.fields as ExportField[];
     const filters = body.filters ?? {};
+
+    const orm = await getDb();
+    const pool = orm.$client;
 
     const selectCols = fields.map((f) => `${FIELD_TO_COLUMN[f]} AS "${f}"`).join(", ");
 
@@ -133,7 +140,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       (async () => {
         try {
           if (isLeaderboardTop1) {
-            const { rows } = await db.query<UserRow>(
+            const { rows } = await pool.query<UserRow>(
               `SELECT ${selectCols} FROM users u WHERE ${whereClauses.join(" AND ")} ORDER BY u.xp_total DESC LIMIT 1`,
               filterParams
             );
@@ -144,7 +151,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
             let cursor: { createdAt: string; id: string } | null = null;
             let hasMore = true;
             while (hasMore) {
-              const batch = await fetchBatch(selectCols, whereClauses, filterParams, cursor, nextParamIdx);
+              const batch = await fetchBatch(pool, selectCols, whereClauses, filterParams, cursor, nextParamIdx);
               for (const row of batch.rows) {
                 sheet.addRow(fields.map((f) => formatCell(f, row[f]))).commit();
               }
@@ -176,7 +183,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
       (async () => {
         try {
           if (isLeaderboardTop1) {
-            const { rows } = await db.query<UserRow>(
+            const { rows } = await pool.query<UserRow>(
               `SELECT ${selectCols} FROM users u WHERE ${whereClauses.join(" AND ")} ORDER BY u.xp_total DESC LIMIT 1`,
               filterParams
             );
@@ -185,7 +192,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
             let cursor: { createdAt: string; id: string } | null = null;
             let hasMore = true;
             while (hasMore) {
-              const batch = await fetchBatch(selectCols, whereClauses, filterParams, cursor, nextParamIdx);
+              const batch = await fetchBatch(pool, selectCols, whereClauses, filterParams, cursor, nextParamIdx);
               for (const row of batch.rows) plainWriter.writeLine(formatCell(onlyField, row[onlyField]) as string | null);
               hasMore = batch.hasMore;
               cursor = batch.last;
@@ -213,7 +220,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
     (async () => {
       try {
         if (isLeaderboardTop1) {
-          const { rows } = await db.query<UserRow>(
+          const { rows } = await pool.query<UserRow>(
             `SELECT ${selectCols} FROM users u WHERE ${whereClauses.join(" AND ")} ORDER BY u.xp_total DESC LIMIT 1`,
             filterParams
           );
@@ -224,7 +231,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
           let cursor: { createdAt: string; id: string } | null = null;
           let hasMore = true;
           while (hasMore) {
-            const batch = await fetchBatch(selectCols, whereClauses, filterParams, cursor, nextParamIdx);
+            const batch = await fetchBatch(pool, selectCols, whereClauses, filterParams, cursor, nextParamIdx);
             for (const row of batch.rows) {
               writer.writeRow(fields.map((f) => formatCell(f, row[f])));
             }

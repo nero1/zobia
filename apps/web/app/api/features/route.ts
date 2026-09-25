@@ -8,11 +8,12 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, eq } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { loadManifest, getManifestValue } from "@/lib/manifest";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getAllowedPlans as getJsonManifestList, isPlanEligible as userEligibleForFeature, allEligibilityOptionsExcept } from "@/lib/plans/eligibility";
 
 export const GET = withAuth(async (req: NextRequest, { auth }) => {
@@ -20,22 +21,30 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
     const manifest = await loadManifest();
+    const orm = await getDb();
 
-    const [twoFaRaw, twoFaModsRaw, userRow] = await Promise.all([
+    const [twoFaRaw, twoFaModsRaw, userRows] = await Promise.all([
       getManifestValue("auth_2fa_enabled"),
       getManifestValue("auth_2fa_required_for_mods"),
-      db.query<{ plan: string; prestige_count: number; is_admin: boolean; is_moderator: boolean; business_tier: string | null }>(
-        `SELECT COALESCE(u.plan,'free') AS plan, COALESCE(u.prestige_count,0) AS prestige_count,
-                COALESCE(u.is_admin, false) AS is_admin, COALESCE(u.is_moderator, false) AS is_moderator,
-                ba.tier AS business_tier
-         FROM users u
-         LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
-         WHERE u.id = $1 LIMIT 1`,
-        [auth.user.sub]
-      ).catch(() => ({ rows: [] as Array<{ plan: string; prestige_count: number; is_admin: boolean; is_moderator: boolean; business_tier: string | null }> })),
+      orm
+        .select({
+          plan: schema.users.plan,
+          prestige_count: schema.users.prestigeCount,
+          is_admin: schema.users.isAdmin,
+          is_moderator: schema.users.isModerator,
+          business_tier: schema.businessAccounts.tier,
+        })
+        .from(schema.users)
+        .leftJoin(
+          schema.businessAccounts,
+          and(eq(schema.businessAccounts.userId, schema.users.id), eq(schema.businessAccounts.status, "active"))
+        )
+        .where(eq(schema.users.id, auth.user.sub))
+        .limit(1)
+        .catch(() => [] as Array<{ plan: string; prestige_count: number; is_admin: boolean; is_moderator: boolean; business_tier: string | null }>),
     ]);
 
-    const user = userRow.rows[0] ?? { plan: "free", prestige_count: 0, is_admin: false, is_moderator: false, business_tier: null };
+    const user = userRows[0] ?? { plan: "free", prestige_count: 0, is_admin: false, is_moderator: false, business_tier: null };
     const eligibilityContext = { businessTier: user.business_tier, isAdmin: user.is_admin, isModerator: user.is_moderator };
 
     const [lockAllowed, hideAllowed, noFrAllowed, hideableSections, onlineStatusAllowed] = await Promise.all([

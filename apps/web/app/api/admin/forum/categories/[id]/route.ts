@@ -11,9 +11,10 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { and, eq, isNull, count } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 interface Ctx {
   params: Promise<{ id: string }>;
@@ -34,19 +35,25 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { params }: Ctx) => 
     if (!parsed.success) throw badRequest("Invalid request body", parsed.error.flatten());
     if (Object.keys(parsed.data).length === 0) throw badRequest("No fields to update");
 
-    const { rows } = await db.query(
-      `UPDATE forum_categories
-       SET name = COALESCE($2, name),
-           description = CASE WHEN $3::text IS NOT NULL THEN NULLIF($3, '') ELSE description END,
-           icon_emoji = COALESCE($4, icon_emoji),
-           sort_order = COALESCE($5, sort_order),
-           updated_at = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [id, parsed.data.name ?? null, parsed.data.description ?? null, parsed.data.iconEmoji ?? null, parsed.data.sortOrder ?? null]
-    );
-    if (!rows[0]) throw notFound("Category not found");
-    return NextResponse.json({ success: true, data: { category: rows[0] }, error: null });
+    // Preserves the original SQL's CASE semantics: description is only
+    // touched when a non-null string (including "") was actually sent —
+    // an explicit `null` (like an omitted field) leaves the column as-is.
+    const updates: Partial<typeof schema.forumCategories.$inferInsert> = { updatedAt: new Date() };
+    if (parsed.data.name !== undefined) updates.name = parsed.data.name;
+    if (parsed.data.description !== undefined && parsed.data.description !== null) {
+      updates.description = parsed.data.description === "" ? null : parsed.data.description;
+    }
+    if (parsed.data.iconEmoji !== undefined) updates.iconEmoji = parsed.data.iconEmoji;
+    if (parsed.data.sortOrder !== undefined) updates.sortOrder = parsed.data.sortOrder;
+
+    const orm = await getDb();
+    const [row] = await orm
+      .update(schema.forumCategories)
+      .set(updates)
+      .where(eq(schema.forumCategories.id, id))
+      .returning();
+    if (!row) throw notFound("Category not found");
+    return NextResponse.json({ success: true, data: { category: row }, error: null });
   } catch (err) {
     return handleApiError(err);
   }
@@ -55,16 +62,20 @@ export const PATCH = withAdminAuth(async (req: NextRequest, { params }: Ctx) => 
 export const DELETE = withAdminAuth(async (_req: NextRequest, { params }: Ctx) => {
   try {
     const { id } = await params;
-    const { rows: countRows } = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM forum_questions WHERE category_id = $1 AND deleted_at IS NULL`,
-      [id]
-    );
-    if (Number(countRows[0]?.count ?? 0) > 0) {
+    const orm = await getDb();
+    const [countRow] = await orm
+      .select({ count: count() })
+      .from(schema.forumQuestions)
+      .where(and(eq(schema.forumQuestions.categoryId, id), isNull(schema.forumQuestions.deletedAt)));
+    if ((countRow?.count ?? 0) > 0) {
       throw badRequest("Move or delete this category's questions before deleting it.", "CATEGORY_HAS_QUESTIONS");
     }
 
-    const { rowCount } = await db.query(`DELETE FROM forum_categories WHERE id = $1`, [id]);
-    if (!rowCount) throw notFound("Category not found");
+    const deleted = await orm
+      .delete(schema.forumCategories)
+      .where(eq(schema.forumCategories.id, id))
+      .returning({ id: schema.forumCategories.id });
+    if (deleted.length === 0) throw notFound("Category not found");
     return NextResponse.json({ success: true, data: { id }, error: null });
   } catch (err) {
     return handleApiError(err);

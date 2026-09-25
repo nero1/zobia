@@ -22,7 +22,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 
@@ -58,6 +60,34 @@ interface SpotlightRow {
   admin_username: string | null;
 }
 
+async function fetchSpotlightRow(orm: Awaited<ReturnType<typeof getDb>>, id: string) {
+  const creator = alias(schema.users, "creator");
+  const admin = alias(schema.users, "admin");
+  const cs = schema.creatorSpotlights;
+
+  const [row] = await orm
+    .select({
+      id: cs.id,
+      creator_id: cs.creatorId,
+      month_year: cs.monthYear,
+      blurb: cs.blurb,
+      is_active: cs.isActive,
+      created_at: cs.createdAt,
+      created_by: cs.createdBy,
+      creator_username: creator.username,
+      creator_display_name: creator.displayName,
+      creator_avatar_url: creator.avatarUrl,
+      admin_username: admin.username,
+    })
+    .from(cs)
+    .leftJoin(creator, eq(creator.id, cs.creatorId))
+    .leftJoin(admin, eq(admin.id, cs.createdBy))
+    .where(eq(cs.id, id))
+    .limit(1);
+
+  return row;
+}
+
 // ---------------------------------------------------------------------------
 // GET /api/admin/creator-spotlight
 // ---------------------------------------------------------------------------
@@ -69,24 +99,29 @@ interface SpotlightRow {
  */
 export const GET = withAdminAuth(async (_req: NextRequest) => {
   try {
-    const { rows } = await db.query<SpotlightRow>(
-      `SELECT
-         cs.id,
-         cs.creator_id,
-         cs.month_year,
-         cs.blurb,
-         cs.is_active,
-         cs.created_at,
-         cs.created_by,
-         u.username        AS creator_username,
-         u.display_name    AS creator_display_name,
-         u.avatar_url      AS creator_avatar_url,
-         a.username        AS admin_username
-       FROM creator_spotlights cs
-       LEFT JOIN users u ON u.id = cs.creator_id
-       LEFT JOIN users a ON a.id = cs.created_by
-       ORDER BY cs.month_year DESC`
-    );
+    const orm = await getDb();
+    const creator = alias(schema.users, "creator");
+    const admin = alias(schema.users, "admin");
+    const cs = schema.creatorSpotlights;
+
+    const rows = await orm
+      .select({
+        id: cs.id,
+        creator_id: cs.creatorId,
+        month_year: cs.monthYear,
+        blurb: cs.blurb,
+        is_active: cs.isActive,
+        created_at: cs.createdAt,
+        created_by: cs.createdBy,
+        creator_username: creator.username,
+        creator_display_name: creator.displayName,
+        creator_avatar_url: creator.avatarUrl,
+        admin_username: admin.username,
+      })
+      .from(cs)
+      .leftJoin(creator, eq(creator.id, cs.creatorId))
+      .leftJoin(admin, eq(admin.id, cs.createdBy))
+      .orderBy(desc(cs.monthYear));
 
     return NextResponse.json({ spotlights: rows }, { status: 200 });
   } catch (err) {
@@ -114,31 +149,33 @@ export const POST = withAdminAuth(async (req: NextRequest, ctx) => {
   try {
     const body = await validateBody(req, createSpotlightSchema);
 
-    // Validate creator user exists
-    const { rows: userRows } = await db.query<{
-      id: string;
-      username: string;
-      display_name: string | null;
-      avatar_url: string | null;
-    }>(
-      `SELECT id, username, display_name, avatar_url
-       FROM users
-       WHERE id = $1 AND deleted_at IS NULL
-       LIMIT 1`,
-      [body.creatorId]
-    );
+    const orm = await getDb();
+    const cs = schema.creatorSpotlights;
 
-    if (!userRows[0]) {
+    // Validate creator user exists
+    const [creatorUser] = await orm
+      .select({
+        id: schema.users.id,
+        username: schema.users.username,
+        display_name: schema.users.displayName,
+        avatar_url: schema.users.avatarUrl,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, body.creatorId), isNull(schema.users.deletedAt)))
+      .limit(1);
+
+    if (!creatorUser) {
       throw notFound(`User ${body.creatorId} does not exist`);
     }
 
     // Check for existing spotlight for this month
-    const { rows: existing } = await db.query<{ id: string }>(
-      `SELECT id FROM creator_spotlights WHERE month_year = $1 LIMIT 1`,
-      [body.monthYear]
-    );
+    const [existing] = await orm
+      .select({ id: cs.id })
+      .from(cs)
+      .where(eq(cs.monthYear, body.monthYear))
+      .limit(1);
 
-    if (existing[0]) {
+    if (existing) {
       throw badRequest(
         `A spotlight already exists for ${body.monthYear}. Only one spotlight is allowed per month.`,
         "MONTH_ALREADY_SPOTLIGHTED"
@@ -152,54 +189,30 @@ export const POST = withAdminAuth(async (req: NextRequest, ctx) => {
     const isActive = body.monthYear === currentMonthYear;
 
     // Run deactivation + insert in a transaction
-    const { rows: inserted } = await db.query<{ id: string }>(
-      `
-      WITH deactivate AS (
-        UPDATE creator_spotlights
-        SET    is_active = FALSE
-        WHERE  is_active = TRUE
-          AND  $1 = TRUE
-      )
-      INSERT INTO creator_spotlights
-        (creator_id, month_year, blurb, is_active, created_by)
-      VALUES
-        ($2, $3, $4, $1, $5)
-      RETURNING id
-      `,
-      [
-        isActive,
-        body.creatorId,
-        body.monthYear,
-        body.blurb ?? null,
-        ctx.auth.user.sub,
-      ]
-    );
+    const newId = await orm.transaction(async (tx) => {
+      if (isActive) {
+        await tx.update(cs).set({ isActive: false }).where(eq(cs.isActive, true));
+      }
 
-    const newId = inserted[0]?.id;
-    if (!newId) throw new Error("Insert did not return an id");
+      const [inserted] = await tx
+        .insert(cs)
+        .values({
+          creatorId: body.creatorId,
+          monthYear: body.monthYear,
+          blurb: body.blurb ?? null,
+          isActive,
+          createdBy: ctx.auth.user.sub,
+        })
+        .returning({ id: cs.id });
+
+      if (!inserted?.id) throw new Error("Insert did not return an id");
+      return inserted.id;
+    });
 
     // Fetch the full row with joins
-    const { rows: fullRows } = await db.query<SpotlightRow>(
-      `SELECT
-         cs.id,
-         cs.creator_id,
-         cs.month_year,
-         cs.blurb,
-         cs.is_active,
-         cs.created_at,
-         cs.created_by,
-         u.username        AS creator_username,
-         u.display_name    AS creator_display_name,
-         u.avatar_url      AS creator_avatar_url,
-         a.username        AS admin_username
-       FROM creator_spotlights cs
-       LEFT JOIN users u ON u.id = cs.creator_id
-       LEFT JOIN users a ON a.id = cs.created_by
-       WHERE cs.id = $1`,
-      [newId]
-    );
+    const fullRow = await fetchSpotlightRow(orm, newId);
 
-    return NextResponse.json({ spotlight: fullRows[0] }, { status: 201 });
+    return NextResponse.json({ spotlight: fullRow }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

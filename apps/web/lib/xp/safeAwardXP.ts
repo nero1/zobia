@@ -8,8 +8,8 @@
  * A nightly CRON step retries rows with retry_count < 5.
  */
 
-import type { DatabaseAdapter, TransactionClient } from "@/lib/db/interface";
-import { db as globalDb } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 import { upsertLeaderboardSnapshot } from "@/lib/leaderboards/engine";
 import type { LeaderboardTrack } from "@/lib/leaderboards/engine";
@@ -89,9 +89,9 @@ export async function safeAwardXP(
   track: XPTrack,
   source: string,
   referenceId?: string | null,
-  dbClient?: DatabaseAdapter | TransactionClient
+  dbClient?: DbOrTx
 ): Promise<void> {
-  const client = dbClient ?? globalDb;
+  const client = dbClient ?? (await getDb());
 
   try {
     const col = TRACK_COLUMN[track];
@@ -100,25 +100,29 @@ export async function safeAwardXP(
     const SAFE_XP_COLS = new Set(Object.values(TRACK_COLUMN));
     if (!SAFE_XP_COLS.has(col)) throw new Error(`[safeAwardXP] Unsafe XP track column: ${col}`);
 
-    const trackSelectExpr = col === "xp_total" ? "" : `, ${col}`;
+    const trackSelectExpr = col === "xp_total" ? sql`` : sql.raw(`, ${col}`);
+    const trackUpdateExpr = col === "xp_total" ? sql`` : sql.raw(`${col} = COALESCE(${col}, 0) + ${amount},`);
 
     // BUG-01: single CTE — UPDATE only fires when INSERT actually inserts a row
     // BUG-02: RETURNING xp_total (and track column) so we can update leaderboard_snapshots
-    const { rows } = await (client as DatabaseAdapter).query<{ id: string; xp_total: number; city: string | null } & Record<string, unknown>>(
-      `WITH ins AS (
-         INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-         VALUES ($1, $2, $3, $4, $5, $2, NOW())
-         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-         RETURNING id
-       )
-       UPDATE users
-         SET xp_total = xp_total + $2,
-             ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
-             updated_at = NOW()
-       WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
-       RETURNING id, xp_total, city${trackSelectExpr}`,
-      [userId, amount, track, source, referenceId ?? null]
-    );
+    // Kept as a raw parameterized `sql` template (CTE + conditional RETURNING
+    // isn't cleanly expressible via the Drizzle query builder) rather than
+    // db.query — this still goes through the Drizzle client/pool.
+    const result = await client.execute<{ id: string; xp_total: number; city: string | null } & Record<string, unknown>>(sql`
+      WITH ins AS (
+        INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+        VALUES (${userId}, ${amount}, ${track}, ${source}, ${referenceId ?? null}, ${amount}, NOW())
+        ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+        RETURNING id
+      )
+      UPDATE users
+        SET xp_total = xp_total + ${amount},
+            ${trackUpdateExpr}
+            updated_at = NOW()
+      WHERE id = ${userId} AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
+      RETURNING id, xp_total, city${trackSelectExpr}
+    `);
+    const rows = result.rows;
 
     // BUG-02: update leaderboard snapshot whenever XP is awarded.
     // BUG-LB-01: also upsert city-scoped snapshot when the user has a city set.
@@ -160,24 +164,29 @@ export async function safeAwardXP(
         const rankAfter = getRankForXP(xpTotal);
         const didRankUp = rankAfter.rankName !== rankBefore.rankName || rankAfter.sublevel !== rankBefore.sublevel;
         if (didRankUp) {
-          await (client as DatabaseAdapter).query(
-            `UPDATE users SET rank_name = $2, rank_sublevel = $3 WHERE id = $1`,
-            [userId, rankAfter.rankName, rankAfter.sublevel]
-          ).catch((err) => {
-            logger.warn({ err, userId }, "[safeAwardXP] rank_name/rank_sublevel sync failed after rank-up");
-          });
+          await client
+            .update(schema.users)
+            .set({ rankName: rankAfter.rankName, rankSublevel: rankAfter.sublevel })
+            .where(eq(schema.users.id, userId))
+            .catch((err) => {
+              logger.warn({ err, userId }, "[safeAwardXP] rank_name/rank_sublevel sync failed after rank-up");
+            });
 
           // Notification + realtime celebration only fire once the award is
           // durably committed (mirrors the xp_meta quest trigger below) —
           // never from inside a caller-supplied transaction that might roll back.
           if (!dbClient) {
-            globalDb.query(
-              `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-               VALUES ($1, 'rank_up', $2, false, NOW())`,
-              [userId, JSON.stringify({ from: rankBefore.rankName, to: rankAfter.rankName, sublevelTo: rankAfter.sublevel })]
-            ).catch((err) => {
-              logger.warn({ err, userId }, "[safeAwardXP] rank_up notification insert failed");
-            });
+            client
+              .insert(schema.notifications)
+              .values({
+                userId,
+                type: "rank_up",
+                payload: { from: rankBefore.rankName, to: rankAfter.rankName, sublevelTo: rankAfter.sublevel },
+                isRead: false,
+              })
+              .catch((err) => {
+                logger.warn({ err, userId }, "[safeAwardXP] rank_up notification insert failed");
+              });
             publishRealtimeEvent(`user:${userId}`, "reward_earned", {
               type: "rank_up",
               rankFrom: rankBefore.rankName,
@@ -199,7 +208,7 @@ export async function safeAwardXP(
       if (amount > 0 && !dbClient && !XP_META_EXCLUDED_SOURCES.has(source)) {
         import("@/lib/quests/questEngine")
           .then(({ triggerActivityQuestProgress }) =>
-            triggerActivityQuestProgress(userId, "xp_meta", globalDb, amount)
+            triggerActivityQuestProgress(userId, "xp_meta", client, amount)
           )
           .catch((err) => {
             logger.warn({ err, userId, source }, "[safeAwardXP] xp_meta quest trigger failed (non-fatal)");
@@ -216,15 +225,16 @@ export async function safeAwardXP(
     // entry describing XP that was never actually lost.
     // Callers that provide a transaction client are responsible for error handling.
     if (!dbClient) {
-      await globalDb.query(
-        `INSERT INTO failed_xp_awards
-           (user_id, amount, track, source, reference_id, error_message, failed_at, retry_count)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW(), 0)
-         ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-        [userId, amount, track, source, referenceId ?? null, errorMessage]
-      ).catch((dlqErr) => {
-        logger.error({ userId, source }, `[safeAwardXP] Failed to write to DLQ: ${dlqErr}`);
-      });
+      await client
+        .execute(sql`
+          INSERT INTO failed_xp_awards
+            (user_id, amount, track, source, reference_id, error_message, failed_at, retry_count)
+          VALUES (${userId}, ${amount}, ${track}, ${source}, ${referenceId ?? null}, ${errorMessage}, NOW(), 0)
+          ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+        `)
+        .catch((dlqErr) => {
+          logger.error({ userId, source }, `[safeAwardXP] Failed to write to DLQ: ${dlqErr}`);
+        });
     } else {
       // Rethrow when caller provided a transaction client so the outer transaction
       // can roll back cleanly and the caller knows the award failed.
@@ -304,8 +314,9 @@ export async function retryFailedXPAwards(): Promise<{
     retry_count: number;
   }> = [];
 
-  await globalDb.transaction(async (lockTx) => {
-    const result = await lockTx.query<{
+  const orm = await getDb();
+  await orm.transaction(async (lockTx) => {
+    const result = await lockTx.execute<{
       id: string;
       user_id: string;
       amount: number;
@@ -313,17 +324,16 @@ export async function retryFailedXPAwards(): Promise<{
       source: string;
       reference_id: string | null;
       retry_count: number;
-    }>(
-      `SELECT id, user_id, amount, track, source, reference_id, retry_count
-       FROM failed_xp_awards
-       WHERE resolved_at IS NULL
-         AND retry_count < $1
-         AND (last_retried_at IS NULL
-              OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
-       LIMIT 100
-       FOR UPDATE SKIP LOCKED`,
-      [MAX_RETRIES]
-    );
+    }>(sql`
+      SELECT id, user_id, amount, track, source, reference_id, retry_count
+      FROM failed_xp_awards
+      WHERE resolved_at IS NULL
+        AND retry_count < ${MAX_RETRIES}
+        AND (last_retried_at IS NULL
+             OR last_retried_at < NOW() - (POWER(2, retry_count) * INTERVAL '1 minute'))
+      LIMIT 100
+      FOR UPDATE SKIP LOCKED
+    `);
     rows = result.rows;
 
     // Process each row inside the same transaction that holds the lock so the
@@ -347,23 +357,24 @@ export async function retryFailedXPAwards(): Promise<{
       let retryXpTotal: number | null = null;
       let retryTrackXP: number | null = null;
       let retryCity: string | null = null;
-      const retryTrackSelectExpr = col === "xp_total" ? "" : `, ${col}`;
+      const retryTrackSelectExpr = col === "xp_total" ? sql`` : sql.raw(`, ${col}`);
+      const retryTrackUpdateExpr = col === "xp_total" ? sql`` : sql.raw(`${col} = COALESCE(${col}, 0) + ${row.amount},`);
 
-      const { rows: retryRows } = await lockTx.query<{ xp_total: number; city: string | null } & Record<string, unknown>>(
-        `WITH ins AS (
-           INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-           VALUES ($1, $2, $3, $4, $5, $2, NOW())
-           ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-           RETURNING id
-         )
-         UPDATE users
-           SET xp_total = xp_total + $2,
-               ${col === "xp_total" ? "" : `${col} = COALESCE(${col}, 0) + $2,`}
-               updated_at = NOW()
-         WHERE id = $1 AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
-         RETURNING xp_total, city${retryTrackSelectExpr}`,
-        [row.user_id, row.amount, row.track, row.source, effectiveRef]
-      );
+      const retryResult = await lockTx.execute<{ xp_total: number; city: string | null } & Record<string, unknown>>(sql`
+        WITH ins AS (
+          INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
+          VALUES (${row.user_id}, ${row.amount}, ${row.track}, ${row.source}, ${effectiveRef}, ${row.amount}, NOW())
+          ON CONFLICT (user_id, source, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+          RETURNING id
+        )
+        UPDATE users
+          SET xp_total = xp_total + ${row.amount},
+              ${retryTrackUpdateExpr}
+              updated_at = NOW()
+        WHERE id = ${row.user_id} AND deleted_at IS NULL AND EXISTS (SELECT 1 FROM ins)
+        RETURNING xp_total, city${retryTrackSelectExpr}
+      `);
+      const retryRows = retryResult.rows;
 
       if (retryRows[0]) {
         retryXpTotal = Number(retryRows[0].xp_total);
@@ -371,10 +382,10 @@ export async function retryFailedXPAwards(): Promise<{
         retryCity = retryRows[0].city ?? null;
       }
 
-      await lockTx.query(
-        `UPDATE failed_xp_awards SET resolved_at = NOW() WHERE id = $1`,
-        [row.id]
-      );
+      await lockTx
+        .update(schema.failedXpAwards)
+        .set({ resolvedAt: new Date() })
+        .where(eq(schema.failedXpAwards.id, row.id));
 
       // BUG-02: update leaderboard snapshot after successful retry.
       // BUG-LB-01: also upsert city-scoped snapshot when user has a city.
@@ -409,17 +420,18 @@ export async function retryFailedXPAwards(): Promise<{
       const newRetryCount = row.retry_count + 1;
       // Use lockTx so the retry_count update is part of the same transaction
       // that holds the FOR UPDATE SKIP LOCKED lock.
-      await lockTx.query(
-        `UPDATE failed_xp_awards
-         SET retry_count = $1, last_retried_at = NOW(),
-             error_message = $2
-         WHERE id = $3`,
-        [newRetryCount, err instanceof Error ? err.message : String(err), row.id]
-      );
+      await lockTx
+        .update(schema.failedXpAwards)
+        .set({
+          retryCount: newRetryCount,
+          lastRetriedAt: new Date(),
+          errorMessage: err instanceof Error ? err.message : String(err),
+        })
+        .where(eq(schema.failedXpAwards.id, row.id));
 
       if (newRetryCount >= MAX_RETRIES) {
         permanentlyFailed++;
-        await raiseAlert(globalDb, {
+        await raiseAlert(orm, {
           type: "xp_award_permanent_failure",
           category: "infra",
           priorityLevel: 4,

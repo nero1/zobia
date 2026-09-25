@@ -27,7 +27,8 @@ import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, conflict } from "@/lib/api/errors";
 import { creditCoins } from "@/lib/economy/coins";
 import { creditStars } from "@/lib/economy/stars";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import {
   EXPECTED_PACKAGE_NAME,
@@ -135,19 +136,18 @@ async function verifyAndActivateSubscription(
   if (!subConfig) throw badRequest(`Unknown subscription productId: ${productId}`);
 
   const referenceId = `iap:sub:${purchaseToken}`;
+  const orm = await getDb();
 
   // Idempotency check
-  const { rows: existing } = await db.query<{ id: string }>(
-    `SELECT id FROM coin_ledger WHERE reference_id = $1 LIMIT 1`,
-    [referenceId]
-  );
-  if (existing.length > 0) {
+  const [existingRow] = await orm
+    .select({ id: schema.coinLedger.id })
+    .from(schema.coinLedger)
+    .where(eq(schema.coinLedger.referenceId, referenceId))
+    .limit(1);
+  if (existingRow) {
     // Already processed — return current plan state
-    const { rows: u } = await db.query<{ plan: string }>(
-      `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 LIMIT 1`,
-      [userId]
-    );
-    return { plan: u[0]?.plan ?? subConfig.plan, coinsGranted: 0 };
+    const [u] = await orm.select({ plan: schema.users.plan }).from(schema.users).where(eq(schema.users.id, userId)).limit(1);
+    return { plan: u?.plan ?? subConfig.plan, coinsGranted: 0 };
   }
 
   // Verify with Google Play subscriptions API (different endpoint from products)
@@ -164,24 +164,23 @@ async function verifyAndActivateSubscription(
   // stacked/double-billed subscriptions, alongside the client-side `group`
   // registration in apps/android/src/lib/payments/googlePlay.ts that already
   // tells Play Billing these products are mutually exclusive.
-  const { rows: priorSubRows } = await db.query<{ product_id: string; purchase_token: string }>(
-    `SELECT metadata->>'productId' AS product_id, metadata->>'purchaseToken' AS purchase_token
-     FROM coin_ledger
-     WHERE user_id = $1 AND transaction_type = 'subscription_bonus'
-       AND metadata->>'purchaseToken' IS NOT NULL
-       AND metadata->>'productId' IS DISTINCT FROM $2
-     ORDER BY created_at DESC
-     LIMIT 1`,
-    [userId, productId]
-  );
-  const priorSub = priorSubRows[0];
+  const priorSubResult = await orm.execute<{ product_id: string; purchase_token: string } & Record<string, unknown>>(sql`
+    SELECT metadata->>'productId' AS product_id, metadata->>'purchaseToken' AS purchase_token
+    FROM coin_ledger
+    WHERE user_id = ${userId} AND transaction_type = 'subscription_bonus'
+      AND metadata->>'purchaseToken' IS NOT NULL
+      AND metadata->>'productId' IS DISTINCT FROM ${productId}
+    ORDER BY created_at DESC
+    LIMIT 1
+  `);
+  const priorSub = priorSubResult.rows[0];
 
   // Activate plan and credit monthly coin bonus atomically (BUG-FIN-17: single transaction)
-  await db.transaction(async (tx) => {
-    await tx.query(
-      `UPDATE users SET plan = $1, plan_activated_at = NOW(), updated_at = NOW() WHERE id = $2`,
-      [subConfig.plan, userId]
-    );
+  await orm.transaction(async (tx) => {
+    await tx
+      .update(schema.users)
+      .set({ plan: subConfig.plan, planActivatedAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.users.id, userId));
 
     // Credit the monthly coin bonus only when the configured amount is positive —
     // a 0-coin bonus config would insert a no-op ledger row and wastes a write.

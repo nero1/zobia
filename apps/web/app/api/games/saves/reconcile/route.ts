@@ -17,12 +17,13 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { and, eq, isNull } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { assertGamesEnabled } from "@/lib/games/config";
 import { getSlotLimitInfo, reconcileSavesForUser } from "@/lib/games/saves";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 const reconcileSchema = z.object({
   deleteIds: z.array(z.string().uuid()).max(50).optional(),
@@ -35,10 +36,12 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     const body = await validateBody(req, reconcileSchema);
 
-    const { rows: userRows } = await db.query<{ plan: string }>(
-      `SELECT plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [auth.user.sub]
-    );
+    const orm = await getDb();
+    const userRows = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)))
+      .limit(1);
     const plan = userRows[0]?.plan ?? "free";
     const { limit, count } = await getSlotLimitInfo(auth.user.sub, plan);
 

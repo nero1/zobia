@@ -16,7 +16,7 @@ import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateL
 import { getBlogBySlug, getBlogPostBySlug, listBlogComments } from "@/lib/blogs/repo";
 import { addComment, isUserModeratorOrAdmin } from "@/lib/blogs/service";
 import { isCaptchaSurfaceEnabled, verifyCaptcha } from "@/lib/security/captcha";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const createSchema = z.object({
@@ -60,7 +60,8 @@ export const POST = withAuth<{ slug: string; postSlug: string }>(async (req: Nex
     }
 
     const result = await addComment({ postId: post.id, authorId: auth.user.sub, parentCommentId: body.parentCommentId, body: body.body });
-    void triggerActivityQuestProgress(auth.user.sub, "blog_comment", db);
+    const orm = await getDb();
+    void triggerActivityQuestProgress(auth.user.sub, "blog_comment", orm);
     return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);

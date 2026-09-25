@@ -28,7 +28,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, sql } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, conflict, badRequest } from "@/lib/api/errors";
 import { creditCoins } from "@/lib/economy/coins";
@@ -108,17 +109,24 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<UserQuestRow>(
-      `SELECT id, user_id, quest_type, progress, completed, completed_at,
-              COALESCE(reward_claimed, completed) AS reward_claimed,
-              created_at, updated_at
-       FROM new_member_quests
-       WHERE user_id = $1 AND quest_type = 'new_member'
-       LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const [row] = await orm
+      .select({
+        id: schema.newMemberQuests.id,
+        user_id: schema.newMemberQuests.userId,
+        quest_type: schema.newMemberQuests.questType,
+        progress: schema.newMemberQuests.progress,
+        completed: schema.newMemberQuests.completed,
+        completed_at: schema.newMemberQuests.completedAt,
+        reward_claimed: sql<boolean>`COALESCE(${schema.newMemberQuests.rewardClaimed}, ${schema.newMemberQuests.completed})`,
+        created_at: schema.newMemberQuests.createdAt,
+        updated_at: schema.newMemberQuests.updatedAt,
+      })
+      .from(schema.newMemberQuests)
+      .where(and(eq(schema.newMemberQuests.userId, userId), eq(schema.newMemberQuests.questType, "new_member")))
+      .limit(1);
 
-    if (!rows[0]) {
+    if (!row) {
       // Quest record not found — return empty progress (user predates the feature)
       const defaultSteps: QuestStep[] = [
         { id: "send_message",   label: "Send a message",          completed: false },
@@ -140,7 +148,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       });
     }
 
-    const progress = parseProgress(rows[0].progress);
+    const progress = parseProgress(row.progress as QuestProgress | string);
     const { currentStep, allComplete } = computeQuestState(progress.steps);
 
     return NextResponse.json({
@@ -149,7 +157,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         step: currentStep,
         steps: progress.steps,
         allComplete,
-        rewardClaimed: rows[0].reward_claimed ?? rows[0].completed,
+        rewardClaimed: row.reward_claimed ?? row.completed,
       },
       error: null,
     });
@@ -176,15 +184,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const result = await db.transaction(async (client) => {
+    const orm = await getDb();
+    const result = await orm.transaction(async (client) => {
       // 1. Lock the quest row
-      const { rows } = await client.query<UserQuestRow>(
-        `SELECT id, progress, completed, COALESCE(reward_claimed, completed) AS reward_claimed
-         FROM new_member_quests
-         WHERE user_id = $1 AND quest_type = 'new_member'
-         FOR UPDATE`,
-        [userId]
-      );
+      const { rows } = await client.execute<UserQuestRow & Record<string, unknown>>(sql`
+        SELECT id, progress, completed, COALESCE(reward_claimed, completed) AS reward_claimed
+        FROM new_member_quests
+        WHERE user_id = ${userId} AND quest_type = 'new_member'
+        FOR UPDATE
+      `);
 
       if (!rows[0]) {
         throw badRequest("New Member Quest not found for this user", "QUEST_NOT_FOUND");
@@ -205,19 +213,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
 
       // 4. Award XP — insert into xp_ledger and update users.xp_total
-      await client.query(
-        `INSERT INTO xp_ledger
-           (user_id, amount, track, source, base_amount, created_at)
-         VALUES ($1, $2, 'main', 'new_member_quest', $2, NOW())`,
-        [userId, NEW_MEMBER_QUEST_XP_REWARD]
-      );
+      await client.execute(sql`
+        INSERT INTO xp_ledger
+          (user_id, amount, track, source, base_amount, created_at)
+        VALUES (${userId}, ${NEW_MEMBER_QUEST_XP_REWARD}, 'main', 'new_member_quest', ${NEW_MEMBER_QUEST_XP_REWARD}, NOW())
+      `);
 
-      await client.query(
-        `UPDATE users
-         SET xp_total = COALESCE(xp_total, 0) + $1, updated_at = NOW()
-         WHERE id = $2`,
-        [NEW_MEMBER_QUEST_XP_REWARD, userId]
-      );
+      await client.execute(sql`
+        UPDATE users
+        SET xp_total = COALESCE(xp_total, 0) + ${NEW_MEMBER_QUEST_XP_REWARD}, updated_at = NOW()
+        WHERE id = ${userId}
+      `);
 
       // 5. Credit coins atomically (creditCoins handles SELECT FOR UPDATE internally)
       await creditCoins(
@@ -231,12 +237,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
 
       // 6. Mark quest as complete and reward claimed
-      await client.query(
-        `UPDATE new_member_quests
-         SET completed = TRUE, reward_claimed = TRUE, completed_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [quest.id]
-      );
+      await client.execute(sql`
+        UPDATE new_member_quests
+        SET completed = TRUE, reward_claimed = TRUE, completed_at = NOW(), updated_at = NOW()
+        WHERE id = ${quest.id}
+      `);
 
       return {
         coinsGranted: NEW_MEMBER_QUEST_COIN_REWARD,

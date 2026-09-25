@@ -15,7 +15,9 @@
  *          permanent failures (DeviceNotRegistered, MessageTooBig, etc.).
  */
 
-import { db } from "@/lib/db";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
+import { sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { atomicIncrWithTtl } from "@/lib/redis/helpers";
 import { logger } from "@/lib/logger";
@@ -198,7 +200,8 @@ async function sendExpoBatch(
       const text = await response.text().catch(() => "(unreadable)");
       logger.error({ status: response.status, recipientCount: messages.length }, `[push] Expo API returned ${response.status}: ${text}`);
       // BUG-12: write system_alert so ops can detect silent notification loss
-      await raiseAlert(db, {
+      const orm = await getDb();
+      await raiseAlert(orm, {
         type: "push_notification_batch_failed",
         category: "infra",
         priorityLevel: 4,
@@ -232,19 +235,12 @@ async function sendExpoBatch(
 
     // Persist tickets for stage 2 polling (best-effort, don't fail the send)
     if (ticketsToSave.length > 0) {
-      const values = ticketsToSave
-        .map((_, idx) => `($${idx * 3 + 1}, $${idx * 3 + 2}, $${idx * 3 + 3})`)
-        .join(", ");
-      const params = ticketsToSave.flatMap((t) => [t.userId, t.ticketId, t.token]);
-      await db
-        .query(
-          `INSERT INTO push_tickets (user_id, ticket_id, token) VALUES ${values}
-           ON CONFLICT (ticket_id) DO NOTHING`,
-          params
-        )
-        .catch((err) =>
-          logger.error({ err }, "[push] Failed to persist push tickets")
-        );
+      const orm = await getDb();
+      await orm
+        .insert(schema.pushTickets)
+        .values(ticketsToSave.map((t) => ({ userId: t.userId, ticketId: t.ticketId, token: t.token })))
+        .onConflictDoNothing({ target: schema.pushTickets.ticketId })
+        .catch((err: unknown) => logger.error({ err }, "[push] Failed to persist push tickets"));
     }
   } catch (err) {
     logger.error({ err }, "[push] Failed to send Expo push batch");
@@ -263,10 +259,8 @@ async function purgeStaleTokens(tokens: Set<string>): Promise<void> {
   if (tokens.size === 0) return;
   const list = [...tokens];
   try {
-    await db.query(
-      `DELETE FROM user_push_tokens WHERE token = ANY($1)`,
-      [list]
-    );
+    const orm = await getDb();
+    await orm.delete(schema.userPushTokens).where(inArray(schema.userPushTokens.token, list));
     logger.info({ count: list.length }, "[push] Purged stale push tokens");
   } catch (err) {
     logger.error({ err }, "[push] Failed to purge stale tokens");
@@ -306,37 +300,35 @@ export async function pollPushReceipts(): Promise<number> {
   }
 
   let totalResolved = 0;
+  const orm = await getDb();
 
   try {
     // Fetch pending tickets old enough for Expo to have a receipt
-    const { rows: pendingTickets } = await db.query<{
-      id: string;
-      user_id: string;
-      ticket_id: string;
-      token: string | null;
-    }>(
-      `SELECT id, user_id, ticket_id, token
-       FROM push_tickets
-       WHERE status = 'pending'
-         AND created_at < NOW() - INTERVAL '15 minutes'
-       ORDER BY created_at ASC
-       LIMIT 1000`
-    );
+    const pendingTickets = await orm
+      .select({
+        id: schema.pushTickets.id,
+        userId: schema.pushTickets.userId,
+        ticketId: schema.pushTickets.ticketId,
+        token: schema.pushTickets.token,
+      })
+      .from(schema.pushTickets)
+      .where(and(eq(schema.pushTickets.status, "pending"), sql`${schema.pushTickets.createdAt} < NOW() - INTERVAL '15 minutes'`))
+      .orderBy(schema.pushTickets.createdAt)
+      .limit(1000);
 
     if (pendingTickets.length === 0) {
       // Still run cleanup even when no tickets are pending (BUG-PUSH-01)
-      await db.query(
-        `DELETE FROM push_tickets
-         WHERE resolved_at IS NOT NULL
-           AND resolved_at < NOW() - INTERVAL '30 days'`
-      ).catch((err) => logger.error({ err }, "[push] Failed to purge resolved push_tickets"));
+      await orm
+        .delete(schema.pushTickets)
+        .where(and(sql`${schema.pushTickets.resolvedAt} IS NOT NULL`, sql`${schema.pushTickets.resolvedAt} < NOW() - INTERVAL '30 days'`))
+        .catch((err: unknown) => logger.error({ err }, "[push] Failed to purge resolved push_tickets"));
       return 0;
     }
 
     // Poll in batches of 100 (Expo limit)
     for (let i = 0; i < pendingTickets.length; i += EXPO_BATCH_SIZE) {
       const batch = pendingTickets.slice(i, i + EXPO_BATCH_SIZE);
-      const ticketIds = batch.map((r) => r.ticket_id);
+      const ticketIds = batch.map((r) => r.ticketId);
 
       try {
         const response = await fetch(EXPO_RECEIPTS_URL, {
@@ -360,7 +352,7 @@ export async function pollPushReceipts(): Promise<number> {
         const staleTokens = new Set<string>();
 
         for (const ticket of batch) {
-          const receipt = result.data?.[ticket.ticket_id];
+          const receipt = result.data?.[ticket.ticketId];
           if (!receipt) continue;
 
           if (receipt.status === "ok") {
@@ -374,11 +366,11 @@ export async function pollPushReceipts(): Promise<number> {
               if (ticket.token) {
                 staleTokens.add(ticket.token);
               } else {
-                logger.warn({ ticketId: ticket.ticket_id }, "[push/receipts] Ticket has no stored token; cannot purge specific device");
+                logger.warn({ ticketId: ticket.ticketId }, "[push/receipts] Ticket has no stored token; cannot purge specific device");
               }
             } else {
               errorDetails.push({ id: ticket.id, errCode });
-              logger.error({ ticketId: ticket.ticket_id, errCode, message: receipt.message }, "[push/receipts] Delivery error for ticket");
+              logger.error({ ticketId: ticket.ticketId, errCode, message: receipt.message }, "[push/receipts] Delivery error for ticket");
             }
             totalResolved++;
           }
@@ -386,33 +378,25 @@ export async function pollPushReceipts(): Promise<number> {
 
         // Batch updates — one query per outcome group instead of one per ticket
         if (okIds.length > 0) {
-          await db.query(
-            `UPDATE push_tickets
-             SET status = 'ok', checked_at = NOW(), resolved_at = NOW()
-             WHERE id = ANY($1::uuid[])`,
-            [okIds]
-          );
+          await orm
+            .update(schema.pushTickets)
+            .set({ status: "ok", checkedAt: new Date(), resolvedAt: new Date() })
+            .where(inArray(schema.pushTickets.id, okIds));
         }
         if (deviceNotRegisteredIds.length > 0) {
-          await db.query(
-            `UPDATE push_tickets
-             SET status = 'device_not_registered',
-                 error_code = 'DeviceNotRegistered',
-                 checked_at = NOW(),
-                 resolved_at = NOW()
-             WHERE id = ANY($1::uuid[])`,
-            [deviceNotRegisteredIds]
-          );
+          await orm
+            .update(schema.pushTickets)
+            .set({ status: "device_not_registered", errorCode: "DeviceNotRegistered", checkedAt: new Date(), resolvedAt: new Date() })
+            .where(inArray(schema.pushTickets.id, deviceNotRegisteredIds));
         }
         if (errorDetails.length > 0) {
           // PUSH-02: store per-ticket error_code so ops can triage non-DeviceNotRegistered failures
-          await db.query(
-            `UPDATE push_tickets SET status = 'error', error_code = v.err_code,
+          await orm.execute(sql`
+            UPDATE push_tickets SET status = 'error', error_code = v.err_code,
                  checked_at = NOW(), resolved_at = NOW()
-             FROM (SELECT unnest($1::uuid[]) AS id, unnest($2::text[]) AS err_code) v
-             WHERE push_tickets.id = v.id`,
-            [errorDetails.map((e) => e.id), errorDetails.map((e) => e.errCode)]
-          );
+             FROM (SELECT unnest(${errorDetails.map((e) => e.id)}::uuid[]) AS id, unnest(${errorDetails.map((e) => e.errCode)}::text[]) AS err_code) v
+             WHERE push_tickets.id = v.id
+          `);
         }
 
         if (staleTokens.size > 0) {
@@ -431,11 +415,10 @@ export async function pollPushReceipts(): Promise<number> {
   // BUG-010 FIX: purge resolved push_tickets older than 30 days so the table
   // doesn't grow unbounded. Tickets are small rows but accumulate at the rate
   // of every notification sent; without a purge the table becomes a hot GC target.
-  await db.query(
-    `DELETE FROM push_tickets
-     WHERE resolved_at IS NOT NULL
-       AND resolved_at < NOW() - INTERVAL '30 days'`
-  ).catch((err) => logger.error({ err }, "[push] Failed to purge resolved push_tickets"));
+  await orm
+    .delete(schema.pushTickets)
+    .where(and(sql`${schema.pushTickets.resolvedAt} IS NOT NULL`, sql`${schema.pushTickets.resolvedAt} < NOW() - INTERVAL '30 days'`))
+    .catch((err: unknown) => logger.error({ err }, "[push] Failed to purge resolved push_tickets"));
 
   return totalResolved;
 }
@@ -479,13 +462,22 @@ export async function sendPushNotification(
 
     // Fetch active tokens for the user. ORDER BY last_seen_at DESC so that when
     // we deduplicate by device_id we keep the most recently seen token per device.
-    const { rows } = await db.query<PushTokenRow>(
-      `SELECT token, device_id, last_seen_at, platform FROM user_push_tokens
-       WHERE user_id = $1
-         AND (last_seen_at IS NULL OR last_seen_at > NOW() - INTERVAL '90 days')
-       ORDER BY last_seen_at DESC NULLS LAST`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        token: schema.userPushTokens.token,
+        device_id: schema.userPushTokens.deviceId,
+        last_seen_at: schema.userPushTokens.lastSeenAt,
+        platform: schema.userPushTokens.platform,
+      })
+      .from(schema.userPushTokens)
+      .where(
+        and(
+          eq(schema.userPushTokens.userId, userId),
+          or(isNull(schema.userPushTokens.lastSeenAt), sql`${schema.userPushTokens.lastSeenAt} > NOW() - INTERVAL '90 days'`)
+        )
+      )
+      .orderBy(sql`${schema.userPushTokens.lastSeenAt} DESC NULLS LAST`);
 
     if (rows.length === 0) return; // No push tokens registered — silently skip
 
@@ -497,7 +489,7 @@ export async function sendPushNotification(
     // user with N legacy rows without device_id doesn't receive N notifications.
     const seenDeviceIds = new Set<string>();
     const seenTokens = new Set<string>();
-    const dedupedRows = rows.filter((r) => {
+    const dedupedRows: PushTokenRow[] = rows.filter((r) => {
       if (!r.device_id) {
         if (seenTokens.has(r.token)) return false;
         seenTokens.add(r.token);
@@ -506,7 +498,7 @@ export async function sendPushNotification(
       if (seenDeviceIds.has(r.device_id)) return false;
       seenDeviceIds.add(r.device_id);
       return true;
-    });
+    }) as unknown as PushTokenRow[];
 
     const { sound, priority } = resolveExpoPriority(options?.priority);
 
@@ -629,13 +621,22 @@ export async function sendPushNotificationBatch(
 
     // Fetch active tokens for all users — excludes stale/abandoned devices.
     // ORDER BY last_seen_at DESC so deduplication by device_id keeps the most recent token.
-    const { rows } = await db.query<{ user_id: string; token: string; device_id: string | null; platform: string | null }>(
-      `SELECT user_id, token, device_id, platform FROM user_push_tokens
-       WHERE user_id = ANY($1)
-         AND (last_seen_at IS NULL OR last_seen_at > NOW() - INTERVAL '90 days')
-       ORDER BY last_seen_at DESC NULLS LAST`,
-      [userIds]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        user_id: schema.userPushTokens.userId,
+        token: schema.userPushTokens.token,
+        device_id: schema.userPushTokens.deviceId,
+        platform: schema.userPushTokens.platform,
+      })
+      .from(schema.userPushTokens)
+      .where(
+        and(
+          inArray(schema.userPushTokens.userId, userIds),
+          or(isNull(schema.userPushTokens.lastSeenAt), sql`${schema.userPushTokens.lastSeenAt} > NOW() - INTERVAL '90 days'`)
+        )
+      )
+      .orderBy(sql`${schema.userPushTokens.lastSeenAt} DESC NULLS LAST`);
 
     // Build a userId → token[] map with device_id deduplication (mirrors sendPushNotification).
     // A user who reinstalled without unregistering gets multiple tokens for the same physical

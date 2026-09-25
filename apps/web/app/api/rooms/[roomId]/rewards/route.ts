@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound, badRequest } from "@/lib/api/errors";
 import { requireFeatureEnabled, loadManifest } from "@/lib/manifest";
@@ -49,12 +50,14 @@ const FundRewardSchema = z.discriminatedUnion("rewardAction", [
 // ---------------------------------------------------------------------------
 
 async function loadRoom(roomId: string): Promise<{ id: string; creator_id: string }> {
-  const { rows } = await db.query<{ id: string; creator_id: string }>(
-    `SELECT id, creator_id FROM rooms WHERE id = $1 AND is_active = TRUE LIMIT 1`,
-    [roomId]
-  );
-  if (!rows[0]) throw notFound("Room not found");
-  return rows[0];
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ id: schema.rooms.id, creator_id: schema.rooms.creatorId })
+    .from(schema.rooms)
+    .where(and(eq(schema.rooms.id, roomId), eq(schema.rooms.isActive, true)))
+    .limit(1);
+  if (!row) throw notFound("Room not found");
+  return row;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,11 +105,13 @@ export const POST = withAuth(
         );
       }
 
-      const { rows: userRows } = await db.query<{ xp_total: number }>(
-        `SELECT COALESCE(xp_total, 0) AS xp_total FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      const rankNumber = getRankForXP(userRows[0]?.xp_total ?? 0).rankNumber;
+      const orm = await getDb();
+      const [userRow] = await orm
+        .select({ xp_total: schema.users.xpTotal })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .limit(1);
+      const rankNumber = getRankForXP(Number(userRow?.xp_total ?? 0)).rankNumber;
       if (rankNumber < manifest.roomCustomRewards.minOwnerLevel) {
         throw forbidden(
           `You must reach Level ${manifest.roomCustomRewards.minOwnerLevel} to create a room reward.`,

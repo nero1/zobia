@@ -9,10 +9,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
-import type { SqlParam } from "@/lib/db/interface";
 
 const updateSchema = z.object({
   isAdminFeatured: z.boolean().optional(),
@@ -27,29 +27,22 @@ export const PATCH = withAdminAuth(
       const { productId } = await params;
       const body = await validateBody(req, updateSchema);
 
-      const sets: string[] = [];
-      const values: SqlParam[] = [];
-      if (body.isAdminFeatured !== undefined) {
-        values.push(body.isAdminFeatured);
-        sets.push(`is_admin_featured = $${values.length}`);
-      }
-      if (body.isSponsored !== undefined) {
-        values.push(body.isSponsored);
-        sets.push(`is_sponsored = $${values.length}`);
-      }
+      const updates: Partial<typeof schema.merchProducts.$inferInsert> = {};
+      if (body.isAdminFeatured !== undefined) updates.isAdminFeatured = body.isAdminFeatured;
+      if (body.isSponsored !== undefined) updates.isSponsored = body.isSponsored;
       if (body.sponsoredUntil !== undefined) {
-        values.push(body.sponsoredUntil);
-        sets.push(`sponsored_until = $${values.length}`);
+        updates.sponsoredUntil = body.sponsoredUntil === null ? null : new Date(body.sponsoredUntil);
       }
-      if (sets.length === 0) throw badRequest("No fields to update");
-      values.push(productId);
+      if (Object.keys(updates).length === 0) throw badRequest("No fields to update");
+      updates.updatedAt = new Date();
 
-      const { rows } = await db.query(
-        `UPDATE merch_products SET ${sets.join(", ")}, updated_at = NOW()
-         WHERE id = $${values.length} RETURNING id`,
-        values
-      );
-      if (!rows[0]) throw notFound("Product not found");
+      const orm = await getDb();
+      const [row] = await orm
+        .update(schema.merchProducts)
+        .set(updates)
+        .where(eq(schema.merchProducts.id, productId))
+        .returning({ id: schema.merchProducts.id });
+      if (!row) throw notFound("Product not found");
 
       return NextResponse.json({ success: true, data: { id: productId }, error: null });
     } catch (err) {

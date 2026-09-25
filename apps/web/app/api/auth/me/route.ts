@@ -4,7 +4,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { verifyAccessToken, extractBearerToken } from '@/lib/auth/jwt';
 import { getSession, ACCESS_TOKEN_COOKIE } from '@/lib/auth/session';
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from '@/lib/security/rateLimit';
-import { db } from '@/lib/db';
+import { getDb, schema } from '@/lib/db/drizzle';
+import { eq } from 'drizzle-orm';
 
 export async function GET(req: NextRequest) {
   // IP-level rate limit before any token work — prevents unauthenticated polling
@@ -35,11 +36,15 @@ export async function GET(req: NextRequest) {
     // identity endpoint client pages use for role-gated UI (e.g. the
     // leaderboards Plan column, and the /gate44/support/* client-side
     // "who am I" checks used alongside the middleware edge pre-filter).
-    const { rows } = await db.query<{ is_moderator: boolean; is_support: boolean; is_senior_support: boolean }>(
-      `SELECT is_moderator, COALESCE(is_support, false) AS is_support, COALESCE(is_senior_support, false) AS is_senior_support
-       FROM users WHERE id = $1`,
-      [payload.sub]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        isModerator: schema.users.isModerator,
+        isSupport: schema.users.isSupport,
+        isSeniorSupport: schema.users.isSeniorSupport,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, payload.sub));
 
     return NextResponse.json({
       user: {
@@ -47,9 +52,9 @@ export async function GET(req: NextRequest) {
         email: payload.email,
         username: payload.username,
         is_admin: payload.is_admin,
-        is_moderator: rows[0]?.is_moderator ?? false,
-        is_support: rows[0]?.is_support ?? false,
-        is_senior_support: rows[0]?.is_senior_support ?? false,
+        is_moderator: rows[0]?.isModerator ?? false,
+        is_support: rows[0]?.isSupport ?? false,
+        is_senior_support: rows[0]?.isSeniorSupport ?? false,
         // Set only while an admin is impersonating this account — see
         // lib/auth/session.ts createSession() and components/admin/ImpersonationBanner.tsx.
         impersonatedBy: payload.impersonated_by ?? null,

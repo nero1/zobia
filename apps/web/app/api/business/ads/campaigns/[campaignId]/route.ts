@@ -13,7 +13,8 @@ import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
+import { insertNotification } from "@/lib/notifications/insert";
 import { getOwnCampaign, listCreatives, setCampaignRunState } from "@/lib/ads/repo";
 
 interface Ctx {
@@ -55,15 +56,14 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: Ctx) =>
     // funded (lib/ads/serve.ts gates on spent_credits < total_budget_credits).
     // Notify the advertiser so this isn't a silent no-op.
     if (state === "active" && Number(campaign.total_budget_credits) - Number(campaign.spent_credits) <= 0) {
-      await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, is_read, created_at)
-         VALUES ($1, 'ad_campaign_unfunded', 'Ad campaign needs funding',
-                 $2, $3::jsonb, false, NOW())`,
-        [
-          auth.user.sub,
-          `"${campaign.name}" is approved and active, but your Ad Wallet has no funds — it won't start running until you fund it.`,
-          JSON.stringify({ campaignId: campaign.id }),
-        ]
+      const orm = await getDb();
+      await insertNotification(
+        orm,
+        auth.user.sub,
+        "ad_campaign_unfunded",
+        "Ad campaign needs funding",
+        `"${campaign.name}" is approved and active, but your Ad Wallet has no funds — it won't start running until you fund it.`,
+        { campaignId: campaign.id }
       ).catch(() => {});
     }
 

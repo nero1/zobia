@@ -16,7 +16,8 @@ import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug, listBlogPosts } from "@/lib/blogs/repo";
 import { createPost } from "@/lib/blogs/service";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { eq } from "drizzle-orm";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const listQuerySchema = z.object({
@@ -70,8 +71,13 @@ export const POST = withAuth<{ slug: string }>(async (req: NextRequest, { auth, 
     if (!blog) throw notFound("Blog not found");
 
     const body = await validateBody(req, createSchema);
-    const { rows } = await db.query<{ plan: string }>(`SELECT plan FROM users WHERE id = $1 LIMIT 1`, [auth.user.sub]);
-    const plan = rows[0]?.plan ?? "free";
+    const orm = await getDb();
+    const [userRow] = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
+    const plan = userRow?.plan ?? "free";
 
     const result = await createPost({
       blogId: blog.id,
@@ -89,7 +95,7 @@ export const POST = withAuth<{ slug: string }>(async (req: NextRequest, { auth, 
       status: body.status,
     });
     if (body.status === "published") {
-      void triggerActivityQuestProgress(auth.user.sub, "blog_publish", db);
+      void triggerActivityQuestProgress(auth.user.sub, "blog_publish", orm);
     }
     return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });
   } catch (err) {

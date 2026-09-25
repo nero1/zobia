@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, or } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 import { getConversationScore } from "@/lib/messaging/conversationScore";
@@ -49,16 +50,15 @@ export const GET = withAuth(async (
     const userId = auth.user.sub;
 
     // Verify user is a participant in this conversation
-    const { rows: convRows } = await db.query<{
-      user_id_1: string;
-      user_id_2: string;
-    }>(
-      `SELECT user_id_1, user_id_2
-       FROM dm_conversations
-       WHERE id = $1
-       LIMIT 1`,
-      [conversationId]
-    );
+    const orm = await getDb();
+    const convRows = await orm
+      .select({
+        user_id_1: schema.dmConversations.userId1,
+        user_id_2: schema.dmConversations.userId2,
+      })
+      .from(schema.dmConversations)
+      .where(eq(schema.dmConversations.id, conversationId))
+      .limit(1);
 
     if (convRows.length === 0) {
       return NextResponse.json({ success: true, data: [], error: null });
@@ -75,16 +75,18 @@ export const GET = withAuth(async (
     const score = await getConversationScore(userId, otherId);
 
     // Fetch persisted unlock timestamps from dm_score_sticker_unlocks
-    const { rows: unlockRows } = await db.query<{
-      pack_name: string;
-      unlocked_at: string;
-    }>(
-      `SELECT pack_name, unlocked_at
-       FROM dm_score_sticker_unlocks
-       WHERE (user_id_1 = $1 AND user_id_2 = $2)
-          OR (user_id_1 = $2 AND user_id_2 = $1)`,
-      [conv.user_id_1, conv.user_id_2]
-    );
+    const unlockRows = await orm
+      .select({
+        pack_name: schema.dmScoreStickerUnlocks.packName,
+        unlocked_at: schema.dmScoreStickerUnlocks.unlockedAt,
+      })
+      .from(schema.dmScoreStickerUnlocks)
+      .where(
+        or(
+          and(eq(schema.dmScoreStickerUnlocks.userId1, conv.user_id_1), eq(schema.dmScoreStickerUnlocks.userId2, conv.user_id_2)),
+          and(eq(schema.dmScoreStickerUnlocks.userId1, conv.user_id_2), eq(schema.dmScoreStickerUnlocks.userId2, conv.user_id_1))
+        )
+      );
 
     const persistedUnlocks = new Map(
       unlockRows.map((r) => [r.pack_name, r.unlocked_at])
@@ -92,7 +94,8 @@ export const GET = withAuth(async (
 
     const unlocks: StickerUnlock[] = SCORE_UNLOCKS.map((su) => {
       const isUnlocked = score.score >= su.threshold;
-      const unlockedAt = persistedUnlocks.get(su.packName) ?? null;
+      const unlockedAtDate = persistedUnlocks.get(su.packName) ?? null;
+      const unlockedAt = unlockedAtDate ? unlockedAtDate.toISOString() : null;
       return {
         packName: su.packName,
         packDescription: su.packDescription,

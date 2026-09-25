@@ -8,6 +8,8 @@
 import { safeFetch } from "@/lib/security/ssrf";
 import { getManifestValue } from "@/lib/manifest";
 import { logger } from "@/lib/logger";
+import { schema, type DbOrTx } from "@/lib/db/drizzle";
+import { and, eq } from "drizzle-orm";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -158,17 +160,23 @@ export type EmailNotificationType =
 async function isEmailTypeEnabledForUser(
   userId: string,
   type: string,
-  db: import("@/lib/db/interface").DatabaseAdapter
+  db: DbOrTx
 ): Promise<boolean> {
   if (!type) return true;
   if (type === "security") return true; // security emails always sent
 
   try {
-    const { rows } = await db.query<{ is_enabled: boolean }>(
-      `SELECT is_enabled FROM user_email_preferences WHERE user_id = $1 AND notification_type = $2 LIMIT 1`,
-      [userId, type]
-    );
-    return rows.length === 0 || rows[0].is_enabled;
+    const rows = await db
+      .select({ isEnabled: schema.userEmailPreferences.isEnabled })
+      .from(schema.userEmailPreferences)
+      .where(
+        and(
+          eq(schema.userEmailPreferences.userId, userId),
+          eq(schema.userEmailPreferences.notificationType, type)
+        )
+      )
+      .limit(1);
+    return rows.length === 0 || rows[0].isEnabled;
   } catch {
     return true;
   }
@@ -192,8 +200,9 @@ export async function sendEmail(
   }
 
   if (userId && notificationType) {
-    const { db } = await import("@/lib/db");
-    if (!(await isEmailTypeEnabledForUser(userId, notificationType, db))) return;
+    const { getDb } = await import("@/lib/db/drizzle");
+    const orm = await getDb();
+    if (!(await isEmailTypeEnabledForUser(userId, notificationType, orm))) return;
   }
 
   await postToMailgun({ to, subject, text, html });
@@ -215,11 +224,12 @@ export async function sendEmailBatch(
   if (emails.length === 0) return;
   if (!(await isPlatformEmailEnabled())) return;
 
-  const { db } = await import("@/lib/db");
+  const { getDb } = await import("@/lib/db/drizzle");
+  const orm = await getDb();
   for (let i = 0; i < emails.length; i++) {
     const email = emails[i];
     if (email.userId && email.notificationType) {
-      if (!(await isEmailTypeEnabledForUser(email.userId, email.notificationType, db))) {
+      if (!(await isEmailTypeEnabledForUser(email.userId, email.notificationType, orm))) {
         continue;
       }
     }

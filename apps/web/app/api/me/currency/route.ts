@@ -15,9 +15,10 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getUserRegion } from "@/lib/currency/region";
 import { getUsdToNgnRate } from "@/lib/payments/crypto/settings";
@@ -51,10 +52,11 @@ export const PATCH = withAuth(async (req: NextRequest, { auth }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const body = await validateBody(req, PatchSchema);
-    await db.query(`UPDATE users SET currency_preference = $1 WHERE id = $2`, [
-      body.currencyPreference,
-      auth.user.sub,
-    ]);
+    const orm = await getDb();
+    await orm
+      .update(schema.users)
+      .set({ currencyPreference: body.currencyPreference })
+      .where(eq(schema.users.id, auth.user.sub));
     const region = await getUserRegion(auth.user.sub, req);
     return NextResponse.json({ success: true, data: { currency: region.currency }, error: null });
   } catch (err) {

@@ -8,11 +8,12 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, eq } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { assertGamesEnabled } from "@/lib/games/config";
 import { getActiveGameBySlug } from "@/lib/games/repo";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 export const GET = withAuth(
   async (_req: NextRequest, { params, auth }: { params: { slug: string }; auth: { user: { sub: string } } }) => {
@@ -22,22 +23,25 @@ export const GET = withAuth(
       const game = await getActiveGameBySlug(params.slug);
       if (!game) throw notFound("Game not found.");
 
-      const [ratingResult, playResult] = await Promise.all([
-        db.query<{ rating: number }>(
-          `SELECT rating FROM game_ratings WHERE game_id = $1 AND user_id = $2 LIMIT 1`,
-          [game.id, auth.user.sub]
-        ),
-        db.query<{ exists: boolean }>(
-          `SELECT EXISTS(SELECT 1 FROM game_best_scores WHERE game_id = $1 AND user_id = $2) AS exists`,
-          [game.id, auth.user.sub]
-        ),
+      const orm = await getDb();
+      const [ratingRows, playRows] = await Promise.all([
+        orm
+          .select({ rating: schema.gameRatings.rating })
+          .from(schema.gameRatings)
+          .where(and(eq(schema.gameRatings.gameId, game.id), eq(schema.gameRatings.userId, auth.user.sub)))
+          .limit(1),
+        orm
+          .select({ gameId: schema.gameBestScores.gameId })
+          .from(schema.gameBestScores)
+          .where(and(eq(schema.gameBestScores.gameId, game.id), eq(schema.gameBestScores.userId, auth.user.sub)))
+          .limit(1),
       ]);
 
       return NextResponse.json({
         success: true,
         data: {
-          yourRating: ratingResult.rows[0]?.rating ?? null,
-          hasPlayed: playResult.rows[0]?.exists ?? false,
+          yourRating: ratingRows[0]?.rating ?? null,
+          hasPlayed: playRows.length > 0,
         },
         error: null,
       });

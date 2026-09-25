@@ -22,7 +22,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import {
@@ -85,28 +86,29 @@ interface GiftDropRow {
  */
 export const GET = withAdminAuth(async (_req: NextRequest) => {
   try {
-    const { rows } = await db.query<GiftDropRow>(
-      `SELECT
-         mgd.id,
-         mgd.gift_item_id,
-         mgd.title,
-         mgd.available_from,
-         mgd.available_until,
-         mgd.announced_at,
-         mgd.is_active,
-         mgd.created_at,
-         gi.name  AS gift_item_name,
-         gi.is_retired AS gift_item_retired
-       FROM monthly_gift_drops mgd
-       LEFT JOIN gift_items gi ON gi.id = mgd.gift_item_id
-       ORDER BY mgd.available_from DESC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.monthlyGiftDrops.id,
+        gift_item_id: schema.monthlyGiftDrops.giftItemId,
+        title: schema.monthlyGiftDrops.title,
+        available_from: schema.monthlyGiftDrops.availableFrom,
+        available_until: schema.monthlyGiftDrops.availableUntil,
+        announced_at: schema.monthlyGiftDrops.announcedAt,
+        is_active: schema.monthlyGiftDrops.isActive,
+        created_at: schema.monthlyGiftDrops.createdAt,
+        gift_item_name: schema.giftItems.name,
+        gift_item_retired: schema.giftItems.isRetired,
+      })
+      .from(schema.monthlyGiftDrops)
+      .leftJoin(schema.giftItems, eq(schema.giftItems.id, schema.monthlyGiftDrops.giftItemId))
+      .orderBy(sql`${schema.monthlyGiftDrops.availableFrom} DESC`);
 
     // Annotate each drop with its status category
     const now = new Date();
     const drops = rows.map((row) => {
-      const from = new Date(row.available_from);
-      const until = new Date(row.available_until);
+      const from = row.available_from;
+      const until = row.available_until;
 
       let status: "active" | "upcoming" | "past" | "scheduled";
       if (row.is_active && from <= now && until > now) {
@@ -152,10 +154,12 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
 
     let giftItemId: string;
 
+    const orm = await getDb();
+
     if (body.newGift) {
       // Create the gift item inline, reusing the same insert logic as
       // POST /api/admin/gifts, then schedule the drop against it.
-      const gift = await createGiftItem(body.newGift, db);
+      const gift = await createGiftItem(body.newGift, orm);
       giftItemId = gift.id;
     } else {
       // The Zod refinement above guarantees giftItemId is set when newGift is not.
@@ -164,34 +168,32 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
       }
 
       // Validate gift item exists and is not retired
-      const { rows: itemRows } = await db.query<{
-        id: string;
-        name: string;
-        is_retired: boolean;
-      }>(
-        `SELECT id, name, is_retired FROM gift_items WHERE id = $1 LIMIT 1`,
-        [body.giftItemId]
-      );
+      const [item] = await orm
+        .select({ id: schema.giftItems.id, name: schema.giftItems.name, is_retired: schema.giftItems.isRetired })
+        .from(schema.giftItems)
+        .where(eq(schema.giftItems.id, body.giftItemId))
+        .limit(1);
 
-      if (!itemRows[0]) {
+      if (!item) {
         throw badRequest(`Gift item ${body.giftItemId} does not exist`);
       }
-      if (itemRows[0].is_retired) {
+      if (item.is_retired) {
         throw badRequest("Cannot schedule a drop for a retired gift item");
       }
-      giftItemId = itemRows[0].id;
+      giftItemId = item.id;
     }
 
     // Check for overlapping active drops
-    const { rows: overlap } = await db.query<{ count: string }>(
-      `SELECT COUNT(*) AS count
-       FROM monthly_gift_drops
-       WHERE is_active = TRUE
-         OR (available_from <= $2 AND available_until >= $1)`,
-      [startAt.toISOString(), new Date(startAt.getTime() + 48 * 60 * 60 * 1000).toISOString()]
-    );
+    const windowEnd = new Date(startAt.getTime() + 48 * 60 * 60 * 1000);
+    const [overlap] = await orm
+      .select({ count: sql<string>`COUNT(*)` })
+      .from(schema.monthlyGiftDrops)
+      .where(
+        sql`${schema.monthlyGiftDrops.isActive} = TRUE
+          OR (${schema.monthlyGiftDrops.availableFrom} <= ${windowEnd} AND ${schema.monthlyGiftDrops.availableUntil} >= ${startAt})`
+      );
 
-    if (parseInt(overlap[0]?.count ?? "0") > 0) {
+    if (parseInt(overlap?.count ?? "0") > 0) {
       throw badRequest(
         "A gift drop already exists that overlaps this time window"
       );
@@ -200,7 +202,7 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
     const drop: MonthlyGiftDrop = await scheduleMonthlyGiftDrop(
       giftItemId,
       startAt,
-      db
+      orm
     );
 
     return NextResponse.json({ drop }, { status: 201 });

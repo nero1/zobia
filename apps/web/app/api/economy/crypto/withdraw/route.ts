@@ -18,7 +18,8 @@ import { randomUUID } from "crypto";
 import { z } from "zod";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getCryptoPayoutsEnabled, getCryptoPayoutMode, getCryptoPayoutThreshold } from "@/lib/payments/crypto/payouts";
 import { getToken } from "@/lib/payments/crypto/tokens";
@@ -44,11 +45,13 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const currency = body.currency as CryptoCurrency;
     const token = getToken(currency);
 
-    const { rows: walletRows } = await db.query<{ address: string }>(
-      `SELECT address FROM user_crypto_wallets WHERE user_id = $1 AND chain = $2 LIMIT 1`,
-      [userId, token.chain]
-    );
-    if (!walletRows[0]) {
+    const orm = await getDb();
+    const [walletRow] = await orm
+      .select({ address: schema.userCryptoWallets.address })
+      .from(schema.userCryptoWallets)
+      .where(and(eq(schema.userCryptoWallets.userId, userId), eq(schema.userCryptoWallets.chain, token.chain)))
+      .limit(1);
+    if (!walletRow) {
       throw badRequest(
         `Add a ${token.chain === "bsc" ? "BNB Smart Chain" : "Solana"} wallet address before withdrawing ${currency}.`,
         "NO_WALLET_ADDRESS"
@@ -57,12 +60,13 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     const threshold = await getCryptoPayoutThreshold(currency);
 
-    const payoutId = await db.transaction(async (tx) => {
-      const { rows: balRows } = await tx.query<{ balance_base_units: string }>(
-        `SELECT balance_base_units FROM creator_crypto_balances WHERE user_id = $1 AND currency = $2 FOR UPDATE`,
-        [userId, currency]
-      );
-      const balance = BigInt(balRows[0]?.balance_base_units ?? "0");
+    const payoutId = await orm.transaction(async (tx) => {
+      const [balRow] = await tx
+        .select({ balance_base_units: schema.creatorCryptoBalances.balanceBaseUnits })
+        .from(schema.creatorCryptoBalances)
+        .where(and(eq(schema.creatorCryptoBalances.userId, userId), eq(schema.creatorCryptoBalances.currency, currency)))
+        .for("update");
+      const balance = BigInt(balRow?.balance_base_units ?? "0");
       if (balance < threshold) {
         throw badRequest(
           `Your ${currency} balance is below the minimum withdrawal threshold.`,
@@ -70,23 +74,32 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
         );
       }
 
-      await tx.query(
-        `UPDATE creator_crypto_balances SET balance_base_units = balance_base_units - $1, updated_at = NOW()
-         WHERE user_id = $2 AND currency = $3`,
-        [balance.toString(), userId, currency]
-      );
+      await tx
+        .update(schema.creatorCryptoBalances)
+        .set({
+          balanceBaseUnits: sql`${schema.creatorCryptoBalances.balanceBaseUnits} - ${balance.toString()}`,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(schema.creatorCryptoBalances.userId, userId), eq(schema.creatorCryptoBalances.currency, currency)));
 
       const idempotencyKey = `crypto_payout:${userId}:${currency}:${randomUUID()}`;
-      const { rows: payoutRows } = await tx.query<{ id: string }>(
-        `INSERT INTO creator_payouts
-           (creator_id, amount_kobo, provider, payout_method, wallet_address_snapshot,
-            crypto_currency, crypto_chain, crypto_amount_base_units, status,
-            requires_manual_approval, idempotency_key, created_at)
-         VALUES ($1, 0, 'crypto', 'crypto', $2, $3, $4, $5, 'pending', TRUE, $6, NOW())
-         RETURNING id`,
-        [userId, walletRows[0].address, currency, token.chain, balance.toString(), idempotencyKey]
-      );
-      return payoutRows[0]?.id;
+      const [payoutRow] = await tx
+        .insert(schema.creatorPayouts)
+        .values({
+          creatorId: userId,
+          amountKobo: BigInt(0),
+          provider: "crypto",
+          payoutMethod: "crypto",
+          walletAddressSnapshot: walletRow.address,
+          cryptoCurrency: currency,
+          cryptoChain: token.chain,
+          cryptoAmountBaseUnits: balance.toString(),
+          status: "pending",
+          requiresManualApproval: true,
+          idempotencyKey,
+        })
+        .returning({ id: schema.creatorPayouts.id });
+      return payoutRow?.id;
     });
 
     writeAuditLog({

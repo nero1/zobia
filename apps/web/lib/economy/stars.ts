@@ -11,8 +11,8 @@
  */
 
 import Decimal from "decimal.js";
-import type { TransactionClient } from "@/lib/db/interface";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import type { StarLedgerEntry } from "@zobia/types";
 
 // ---------------------------------------------------------------------------
@@ -50,6 +50,34 @@ export type StarTransactionType =
 // ---------------------------------------------------------------------------
 
 /**
+ * Maps a Drizzle star_ledger row (camelCase, bigint columns) onto the shared
+ * `StarLedgerEntry` shape, which callers across the codebase read via both
+ * camelCase AND snake_case keys — both are populated here so no caller
+ * outside this migration batch is broken by the raw-SQL -> Drizzle swap.
+ */
+function toStarLedgerEntry(row: typeof schema.starLedger.$inferSelect): StarLedgerEntry {
+  const amount = Number(row.amount);
+  const balanceBefore = Number(row.balanceBefore);
+  const balanceAfter = Number(row.balanceAfter);
+  return {
+    id: row.id,
+    userId: row.userId,
+    user_id: row.userId,
+    amount,
+    balanceBefore,
+    balance_before: balanceBefore,
+    balanceAfter,
+    balance_after: balanceAfter,
+    transactionType: row.transactionType,
+    transaction_type: row.transactionType,
+    referenceId: row.referenceId ?? undefined,
+    reference_id: row.referenceId ?? undefined,
+    description: row.description ?? undefined,
+    createdAt: row.createdAt ? row.createdAt.toISOString() : undefined,
+  };
+}
+
+/**
  * Lock and return a user's current star balance within a transaction.
  *
  * @param userId - The user's UUID
@@ -57,18 +85,16 @@ export type StarTransactionType =
  * @returns Current star balance as Decimal
  * @throws If user row is not found
  */
-async function lockAndGetStarBalance(
-  userId: string,
-  tx: TransactionClient
-): Promise<Decimal> {
-  const { rows } = await tx.query<{ star_balance: string }>(
-    `SELECT star_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-    [userId]
-  );
+async function lockAndGetStarBalance(userId: string, tx: DbOrTx): Promise<Decimal> {
+  const rows = await tx
+    .select({ starBalance: schema.users.starBalance })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+    .for("update");
   if (!rows[0]) {
     throw new Error(`[stars] User not found: ${userId}`);
   }
-  return new Decimal(rows[0].star_balance);
+  return new Decimal(rows[0].starBalance.toString());
 }
 
 /**
@@ -81,7 +107,7 @@ async function lockAndGetStarBalance(
  * retried request never double-credits/debits stars.
  */
 async function writeStarLedgerEntry(
-  tx: TransactionClient,
+  tx: DbOrTx,
   userId: string,
   amount: Decimal,
   balanceBefore: Decimal,
@@ -90,32 +116,37 @@ async function writeStarLedgerEntry(
   referenceId: string | null,
   description: string | null
 ): Promise<{ entry: StarLedgerEntry; inserted: boolean }> {
-  const { rows } = await tx.query<StarLedgerEntry>(
-    `INSERT INTO star_ledger
-       (user_id, amount, balance_before, balance_after,
-        transaction_type, reference_id, description)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)
-     ON CONFLICT (user_id, transaction_type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
-     RETURNING *`,
-    [
+  const inserted = await tx
+    .insert(schema.starLedger)
+    .values({
       userId,
-      amount.toFixed(0),
-      balanceBefore.toFixed(0),
-      balanceAfter.toFixed(0),
-      type,
-      referenceId ?? null,
-      description ?? null,
-    ]
-  );
-  if (rows[0]) return { entry: rows[0], inserted: true };
+      amount: BigInt(amount.toFixed(0)),
+      balanceBefore: BigInt(balanceBefore.toFixed(0)),
+      balanceAfter: BigInt(balanceAfter.toFixed(0)),
+      transactionType: type,
+      referenceId: referenceId ?? null,
+      description: description ?? null,
+    })
+    .onConflictDoNothing({
+      target: [schema.starLedger.userId, schema.starLedger.transactionType, schema.starLedger.referenceId],
+      where: sql`${schema.starLedger.referenceId} IS NOT NULL`,
+    })
+    .returning();
 
-  const { rows: existing } = await tx.query<StarLedgerEntry>(
-    `SELECT * FROM star_ledger
-     WHERE user_id = $1 AND transaction_type = $2 AND reference_id = $3
-     LIMIT 1`,
-    [userId, type, referenceId]
-  );
-  return { entry: existing[0], inserted: false };
+  if (inserted[0]) return { entry: toStarLedgerEntry(inserted[0]), inserted: true };
+
+  const existing = await tx
+    .select()
+    .from(schema.starLedger)
+    .where(
+      and(
+        eq(schema.starLedger.userId, userId),
+        eq(schema.starLedger.transactionType, type),
+        eq(schema.starLedger.referenceId, referenceId as string)
+      )
+    )
+    .limit(1);
+  return { entry: toStarLedgerEntry(existing[0]), inserted: false };
 }
 
 /**
@@ -125,19 +156,24 @@ async function writeStarLedgerEntry(
  * since moved.
  */
 async function findExistingStarLedgerEntry(
-  tx: TransactionClient,
+  tx: DbOrTx,
   userId: string,
   type: StarTransactionType,
   referenceId: string | null
 ): Promise<StarLedgerEntry | null> {
   if (!referenceId) return null;
-  const { rows } = await tx.query<StarLedgerEntry>(
-    `SELECT * FROM star_ledger
-     WHERE user_id = $1 AND transaction_type = $2 AND reference_id = $3
-     LIMIT 1`,
-    [userId, type, referenceId]
-  );
-  return rows[0] ?? null;
+  const rows = await tx
+    .select()
+    .from(schema.starLedger)
+    .where(
+      and(
+        eq(schema.starLedger.userId, userId),
+        eq(schema.starLedger.transactionType, type),
+        eq(schema.starLedger.referenceId, referenceId)
+      )
+    )
+    .limit(1);
+  return rows[0] ? toStarLedgerEntry(rows[0]) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -162,14 +198,14 @@ export async function creditStars(
   type: StarTransactionType,
   referenceId: string | null = null,
   description: string | null = null,
-  txClient?: TransactionClient
+  txClient?: DbOrTx
 ): Promise<StarLedgerEntry> {
   const dec = new Decimal(amount);
   if (!dec.isInteger() || dec.lte(0)) {
     throw new Error(`[stars] creditStars: amount must be a positive integer, got ${amount}`);
   }
 
-  const run = async (tx: TransactionClient): Promise<StarLedgerEntry> => {
+  const run = async (tx: DbOrTx): Promise<StarLedgerEntry> => {
     const dup = await findExistingStarLedgerEntry(tx, userId, type, referenceId);
     if (dup) return dup;
 
@@ -181,17 +217,18 @@ export async function creditStars(
     );
 
     if (inserted) {
-      await tx.query(
-        `UPDATE users SET star_balance = $1, updated_at = NOW() WHERE id = $2`,
-        [balanceAfter.toFixed(0), userId]
-      );
+      await tx
+        .update(schema.users)
+        .set({ starBalance: BigInt(balanceAfter.toFixed(0)), updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
     }
 
     return entry;
   };
 
   if (txClient) return run(txClient);
-  return db.transaction(run);
+  const orm = await getDb();
+  return orm.transaction(run);
 }
 
 /**
@@ -214,14 +251,14 @@ export async function debitStars(
   type: StarTransactionType,
   referenceId: string | null = null,
   description: string | null = null,
-  txClient?: TransactionClient
+  txClient?: DbOrTx
 ): Promise<StarLedgerEntry> {
   const dec = new Decimal(amount);
   if (!dec.isInteger() || dec.lte(0)) {
     throw new Error(`[stars] debitStars: amount must be a positive integer, got ${amount}`);
   }
 
-  const run = async (tx: TransactionClient): Promise<StarLedgerEntry> => {
+  const run = async (tx: DbOrTx): Promise<StarLedgerEntry> => {
     const dup = await findExistingStarLedgerEntry(tx, userId, type, referenceId);
     if (dup) return dup;
 
@@ -241,17 +278,18 @@ export async function debitStars(
     );
 
     if (inserted) {
-      await tx.query(
-        `UPDATE users SET star_balance = $1, updated_at = NOW() WHERE id = $2`,
-        [balanceAfter.toFixed(0), userId]
-      );
+      await tx
+        .update(schema.users)
+        .set({ starBalance: BigInt(balanceAfter.toFixed(0)), updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
     }
 
     return entry;
   };
 
   if (txClient) return run(txClient);
-  return db.transaction(run);
+  const orm = await getDb();
+  return orm.transaction(run);
 }
 
 /**
@@ -263,15 +301,16 @@ export async function debitStars(
  */
 export async function getStarBalance(
   userId: string,
-  txClient?: TransactionClient
+  txClient?: DbOrTx
 ): Promise<number> {
-  const query = txClient ?? db;
-  const { rows } = await query.query<{ star_balance: string }>(
-    `SELECT star_balance FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [userId]
-  );
+  const client = txClient ?? (await getDb());
+  const rows = await client
+    .select({ starBalance: schema.users.starBalance })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+    .limit(1);
   if (!rows[0]) throw new Error(`[stars] User not found: ${userId}`);
-  return new Decimal(rows[0].star_balance).toNumber();
+  return new Decimal(rows[0].starBalance.toString()).toNumber();
 }
 
 /**
@@ -287,7 +326,7 @@ export async function getStarBalance(
 export async function canAffordStars(
   userId: string,
   amount: number,
-  txClient?: TransactionClient
+  txClient?: DbOrTx
 ): Promise<boolean> {
   const balance = await getStarBalance(userId, txClient);
   return new Decimal(balance).gte(new Decimal(amount));
@@ -314,34 +353,31 @@ export interface StarLedgerPage {
 export async function getStarLedgerEntries(
   userId: string,
   limit: number = 20,
-  txClient?: TransactionClient,
+  txClient?: DbOrTx,
   cursor?: StarLedgerCursor | null
 ): Promise<StarLedgerPage> {
-  const query = txClient ?? db;
-  const params: (string | number)[] = [userId, limit];
-  let cursorClause = "";
+  const client = txClient ?? (await getDb());
 
+  const conditions = [eq(schema.starLedger.userId, userId)];
   if (cursor) {
-    cursorClause = `AND (created_at, id) < ($3::timestamptz, $4::uuid)`;
-    params.push(cursor.createdAt, cursor.id);
+    conditions.push(
+      sql`(${schema.starLedger.createdAt}, ${schema.starLedger.id}) < (${cursor.createdAt}::timestamptz, ${cursor.id}::uuid)`
+    );
   }
 
-  const { rows } = await query.query<StarLedgerEntry>(
-    `SELECT id, user_id, amount, balance_before, balance_after,
-            transaction_type, reference_id, description, created_at
-     FROM star_ledger
-     WHERE user_id = $1
-       ${cursorClause}
-     ORDER BY created_at DESC, id DESC
-     LIMIT $2`,
-    params
-  );
+  const rows = await client
+    .select()
+    .from(schema.starLedger)
+    .where(and(...conditions))
+    .orderBy(desc(schema.starLedger.createdAt), desc(schema.starLedger.id))
+    .limit(limit);
 
+  const entries = rows.map(toStarLedgerEntry);
   const lastRow = rows[rows.length - 1];
   const nextCursor: StarLedgerCursor | null =
     rows.length === limit && lastRow
-      ? { createdAt: String(lastRow.created_at), id: lastRow.id }
+      ? { createdAt: lastRow.createdAt ? lastRow.createdAt.toISOString() : "", id: lastRow.id }
       : null;
 
-  return { entries: rows, nextCursor };
+  return { entries, nextCursor };
 }

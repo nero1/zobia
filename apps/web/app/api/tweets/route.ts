@@ -20,7 +20,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql, type SQL } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -32,28 +33,32 @@ import { createTweet, parseTweetVideo, TWEETS_HARD_CHAR_CAP } from "@/lib/tweets
 // ---------------------------------------------------------------------------
 
 /** Plain tweet/reply row — no retweet attribution. */
-const TWEET_COLUMNS = `
-  t.id, t.user_id, t.parent_tweet_id, u.username, u.avatar_emoji, u.avatar_url,
-  u.is_verified, u.prestige_count, u.xp_total,
-  t.content, t.image_url, t.video_provider, t.video_url, t.video_embed_id,
-  t.is_pinned, t.likes_count, t.replies_count, t.retweets_count, t.created_at,
-  (EXISTS (SELECT 1 FROM tweet_likes tl WHERE tl.tweet_id = t.id AND tl.user_id = $1)) AS liked,
-  (EXISTS (SELECT 1 FROM tweet_retweets tr2 WHERE tr2.tweet_id = t.id AND tr2.user_id = $1)) AS retweeted,
-  NULL::uuid AS retweeted_by_id, NULL::text AS retweeted_by_username, NULL::text AS retweet_quote_content,
-  t.created_at AS activity_at
-`;
+function tweetColumns(userId: string): SQL {
+  return sql`
+    t.id, t.user_id, t.parent_tweet_id, u.username, u.avatar_emoji, u.avatar_url,
+    u.is_verified, u.prestige_count, u.xp_total,
+    t.content, t.image_url, t.video_provider, t.video_url, t.video_embed_id,
+    t.is_pinned, t.likes_count, t.replies_count, t.retweets_count, t.created_at,
+    (EXISTS (SELECT 1 FROM tweet_likes tl WHERE tl.tweet_id = t.id AND tl.user_id = ${userId})) AS liked,
+    (EXISTS (SELECT 1 FROM tweet_retweets tr2 WHERE tr2.tweet_id = t.id AND tr2.user_id = ${userId})) AS retweeted,
+    NULL::uuid AS retweeted_by_id, NULL::text AS retweeted_by_username, NULL::text AS retweet_quote_content,
+    t.created_at AS activity_at
+  `;
+}
 
 /** A retweet, attributed to the retweeter, carrying the original tweet's content. */
-const RETWEET_COLUMNS = `
-  t.id, t.user_id, t.parent_tweet_id, u.username, u.avatar_emoji, u.avatar_url,
-  u.is_verified, u.prestige_count, u.xp_total,
-  t.content, t.image_url, t.video_provider, t.video_url, t.video_embed_id,
-  false AS is_pinned, t.likes_count, t.replies_count, t.retweets_count, t.created_at,
-  (EXISTS (SELECT 1 FROM tweet_likes tl WHERE tl.tweet_id = t.id AND tl.user_id = $1)) AS liked,
-  (EXISTS (SELECT 1 FROM tweet_retweets tr2 WHERE tr2.tweet_id = t.id AND tr2.user_id = $1)) AS retweeted,
-  rt.user_id AS retweeted_by_id, ru.username AS retweeted_by_username, rt.quote_content AS retweet_quote_content,
-  rt.created_at AS activity_at
-`;
+function retweetColumns(userId: string): SQL {
+  return sql`
+    t.id, t.user_id, t.parent_tweet_id, u.username, u.avatar_emoji, u.avatar_url,
+    u.is_verified, u.prestige_count, u.xp_total,
+    t.content, t.image_url, t.video_provider, t.video_url, t.video_embed_id,
+    false AS is_pinned, t.likes_count, t.replies_count, t.retweets_count, t.created_at,
+    (EXISTS (SELECT 1 FROM tweet_likes tl WHERE tl.tweet_id = t.id AND tl.user_id = ${userId})) AS liked,
+    (EXISTS (SELECT 1 FROM tweet_retweets tr2 WHERE tr2.tweet_id = t.id AND tr2.user_id = ${userId})) AS retweeted,
+    rt.user_id AS retweeted_by_id, ru.username AS retweeted_by_username, rt.quote_content AS retweet_quote_content,
+    rt.created_at AS activity_at
+  `;
+}
 
 // ---------------------------------------------------------------------------
 // GET /api/tweets
@@ -68,52 +73,54 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     const tab = params.get("tab") ?? "foryou";
     const cursor = params.get("cursor");
     const limit = Math.min(parseInt(params.get("limit") ?? "20", 10) || 20, 50);
+    const orm = await getDb();
 
     // ---- Reply thread: chronological (oldest first) -----------------------
     if (parentTweetId) {
-      const { rows } = await db.query(
-        `SELECT ${TWEET_COLUMNS}
+      const result = await orm.execute(sql`
+         SELECT ${tweetColumns(userId)}
          FROM tweets t JOIN users u ON u.id = t.user_id
-         WHERE t.parent_tweet_id = $2 AND t.deleted_at IS NULL
-           ${cursor ? "AND t.created_at > $4" : ""}
+         WHERE t.parent_tweet_id = ${parentTweetId} AND t.deleted_at IS NULL
+           ${cursor ? sql`AND t.created_at > ${cursor}` : sql``}
          ORDER BY t.created_at ASC
-         LIMIT $3`,
-        cursor ? [userId, parentTweetId, limit, cursor] : [userId, parentTweetId, limit]
-      );
+         LIMIT ${limit}
+      `);
+      const rows = result.rows;
       const nextCursor = rows.length === limit ? rows[rows.length - 1].created_at : null;
       return NextResponse.json({ success: true, data: { tweets: rows, nextCursor }, error: null });
     }
 
     // ---- Profile mode: a single author's tweets + retweets, pinned first --
     if (authorId) {
-      const { rows: pinnedRows } = cursor
-        ? { rows: [] as Record<string, unknown>[] }
-        : await db.query(
-            `SELECT ${TWEET_COLUMNS}
-             FROM tweets t JOIN users u ON u.id = t.user_id
-             WHERE t.user_id = $2 AND t.deleted_at IS NULL AND t.is_pinned = true AND t.parent_tweet_id IS NULL
-             LIMIT 1`,
-            [userId, authorId]
-          );
+      const pinnedRows = cursor
+        ? ([] as Record<string, unknown>[])
+        : (
+            await orm.execute(sql`
+              SELECT ${tweetColumns(userId)}
+              FROM tweets t JOIN users u ON u.id = t.user_id
+              WHERE t.user_id = ${authorId} AND t.deleted_at IS NULL AND t.is_pinned = true AND t.parent_tweet_id IS NULL
+              LIMIT 1
+            `)
+          ).rows;
 
-      const { rows } = await db.query(
-        `SELECT * FROM (
-           SELECT ${TWEET_COLUMNS}
+      const result = await orm.execute(sql`
+         SELECT * FROM (
+           SELECT ${tweetColumns(userId)}
            FROM tweets t JOIN users u ON u.id = t.user_id
-           WHERE t.user_id = $2 AND t.deleted_at IS NULL AND t.is_pinned = false AND t.parent_tweet_id IS NULL
+           WHERE t.user_id = ${authorId} AND t.deleted_at IS NULL AND t.is_pinned = false AND t.parent_tweet_id IS NULL
            UNION ALL
-           SELECT ${RETWEET_COLUMNS}
+           SELECT ${retweetColumns(userId)}
            FROM tweet_retweets rt
            JOIN tweets t ON t.id = rt.tweet_id AND t.deleted_at IS NULL
            JOIN users u ON u.id = t.user_id
            JOIN users ru ON ru.id = rt.user_id
-           WHERE rt.user_id = $2
+           WHERE rt.user_id = ${authorId}
          ) feed
-         WHERE ${cursor ? "activity_at < $4" : "TRUE"}
+         WHERE ${cursor ? sql`activity_at < ${cursor}` : sql`TRUE`}
          ORDER BY activity_at DESC
-         LIMIT $3`,
-        cursor ? [userId, authorId, limit, cursor] : [userId, authorId, limit]
-      );
+         LIMIT ${limit}
+      `);
+      const rows = result.rows;
 
       const tweets = [...pinnedRows, ...rows];
       const nextCursor = rows.length === limit ? rows[rows.length - 1].activity_at : null;
@@ -122,17 +129,17 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
 
     // ---- Mentions: tweets/replies that @mention the caller, newest first --
     if (tab === "mentions") {
-      const { rows } = await db.query(
-        `SELECT ${TWEET_COLUMNS}
+      const result = await orm.execute(sql`
+         SELECT ${tweetColumns(userId)}
          FROM tweet_mentions tm
          JOIN tweets t ON t.id = tm.tweet_id AND t.deleted_at IS NULL
          JOIN users u ON u.id = t.user_id
-         WHERE tm.mentioned_user_id = $1
-           ${cursor ? "AND t.created_at < $3" : ""}
+         WHERE tm.mentioned_user_id = ${userId}
+           ${cursor ? sql`AND t.created_at < ${cursor}` : sql``}
          ORDER BY t.created_at DESC
-         LIMIT $2`,
-        cursor ? [userId, limit, cursor] : [userId, limit]
-      );
+         LIMIT ${limit}
+      `);
+      const rows = result.rows;
       const nextCursor = rows.length === limit ? rows[rows.length - 1].created_at : null;
       return NextResponse.json({ success: true, data: { tweets: rows, nextCursor }, error: null });
     }
@@ -140,19 +147,19 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
     // ---- Friends: accepted friendships (either direction) — tweets AND
     // retweets by any friend, newest first, retweets attributed "X retweeted".
     if (tab === "friends") {
-      const { rows } = await db.query(
-        `SELECT * FROM (
-           SELECT ${TWEET_COLUMNS}
+      const result = await orm.execute(sql`
+         SELECT * FROM (
+           SELECT ${tweetColumns(userId)}
            FROM tweets t JOIN users u ON u.id = t.user_id
            WHERE t.deleted_at IS NULL AND t.parent_tweet_id IS NULL
              AND EXISTS (
                SELECT 1 FROM friendships f
                WHERE f.status = 'accepted'
-                 AND ((f.requester_id = $1 AND f.addressee_id = t.user_id)
-                   OR (f.addressee_id = $1 AND f.requester_id = t.user_id))
+                 AND ((f.requester_id = ${userId} AND f.addressee_id = t.user_id)
+                   OR (f.addressee_id = ${userId} AND f.requester_id = t.user_id))
              )
            UNION ALL
-           SELECT ${RETWEET_COLUMNS}
+           SELECT ${retweetColumns(userId)}
            FROM tweet_retweets rt
            JOIN tweets t ON t.id = rt.tweet_id AND t.deleted_at IS NULL
            JOIN users u ON u.id = t.user_id
@@ -160,40 +167,40 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
            WHERE EXISTS (
              SELECT 1 FROM friendships f
              WHERE f.status = 'accepted'
-               AND ((f.requester_id = $1 AND f.addressee_id = rt.user_id)
-                 OR (f.addressee_id = $1 AND f.requester_id = rt.user_id))
+               AND ((f.requester_id = ${userId} AND f.addressee_id = rt.user_id)
+                 OR (f.addressee_id = ${userId} AND f.requester_id = rt.user_id))
            )
          ) feed
-         WHERE ${cursor ? "activity_at < $3" : "TRUE"}
+         WHERE ${cursor ? sql`activity_at < ${cursor}` : sql`TRUE`}
          ORDER BY activity_at DESC
-         LIMIT $2`,
-        cursor ? [userId, limit, cursor] : [userId, limit]
-      );
+         LIMIT ${limit}
+      `);
+      const rows = result.rows;
       const nextCursor = rows.length === limit ? rows[rows.length - 1].activity_at : null;
       return NextResponse.json({ success: true, data: { tweets: rows, nextCursor }, error: null });
     }
 
     // ---- Following: one-directional follows — tweets AND retweets --------
     if (tab === "following") {
-      const { rows } = await db.query(
-        `SELECT * FROM (
-           SELECT ${TWEET_COLUMNS}
+      const result = await orm.execute(sql`
+         SELECT * FROM (
+           SELECT ${tweetColumns(userId)}
            FROM tweets t JOIN users u ON u.id = t.user_id
            WHERE t.deleted_at IS NULL AND t.parent_tweet_id IS NULL
-             AND EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = $1 AND fo.following_id = t.user_id)
+             AND EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = ${userId} AND fo.following_id = t.user_id)
            UNION ALL
-           SELECT ${RETWEET_COLUMNS}
+           SELECT ${retweetColumns(userId)}
            FROM tweet_retweets rt
            JOIN tweets t ON t.id = rt.tweet_id AND t.deleted_at IS NULL
            JOIN users u ON u.id = t.user_id
            JOIN users ru ON ru.id = rt.user_id
-           WHERE EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = $1 AND fo.following_id = rt.user_id)
+           WHERE EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = ${userId} AND fo.following_id = rt.user_id)
          ) feed
-         WHERE ${cursor ? "activity_at < $3" : "TRUE"}
+         WHERE ${cursor ? sql`activity_at < ${cursor}` : sql`TRUE`}
          ORDER BY activity_at DESC
-         LIMIT $2`,
-        cursor ? [userId, limit, cursor] : [userId, limit]
-      );
+         LIMIT ${limit}
+      `);
+      const rows = result.rows;
       const nextCursor = rows.length === limit ? rows[rows.length - 1].activity_at : null;
       return NextResponse.json({ success: true, data: { tweets: rows, nextCursor }, error: null });
     }
@@ -215,28 +222,28 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       }
     }
 
-    const { rows } = await db.query(
-      `WITH scored AS (
-         SELECT ${TWEET_COLUMNS},
+    const result = await orm.execute(sql`
+       WITH scored AS (
+         SELECT ${tweetColumns(userId)},
            (t.likes_count::float / POWER(EXTRACT(EPOCH FROM (NOW() - t.created_at)) / 3600.0 + 2, 1.5))
            * (CASE WHEN (
                 EXISTS (
                   SELECT 1 FROM friendships f
                   WHERE f.status = 'accepted'
-                    AND ((f.requester_id = $1 AND f.addressee_id = t.user_id)
-                      OR (f.addressee_id = $1 AND f.requester_id = t.user_id))
+                    AND ((f.requester_id = ${userId} AND f.addressee_id = t.user_id)
+                      OR (f.addressee_id = ${userId} AND f.requester_id = t.user_id))
                 )
-                OR EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = $1 AND fo.following_id = t.user_id)
+                OR EXISTS (SELECT 1 FROM follows fo WHERE fo.follower_id = ${userId} AND fo.following_id = t.user_id)
               ) THEN 1.5 ELSE 1.0 END) AS score
          FROM tweets t JOIN users u ON u.id = t.user_id
          WHERE t.deleted_at IS NULL AND t.parent_tweet_id IS NULL
        )
        SELECT * FROM scored
-       WHERE $3::float8 IS NULL OR (score, id) < ($3::float8, $4::uuid)
+       WHERE ${cursorScore}::float8 IS NULL OR (score, id) < (${cursorScore}::float8, ${cursorId}::uuid)
        ORDER BY score DESC, id DESC
-       LIMIT $2`,
-      [userId, limit, cursorScore, cursorId]
-    );
+       LIMIT ${limit}
+    `);
+    const rows = result.rows;
 
     const nextCursor =
       rows.length === limit

@@ -28,7 +28,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -62,13 +63,14 @@ interface RoomCtx {
 }
 
 async function requireAdminOrMod(userId: string) {
-  const { rows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-    `SELECT is_admin, COALESCE(is_moderator, FALSE) AS is_moderator
-     FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [userId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ is_admin: schema.users.isAdmin, is_moderator: schema.users.isModerator })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+    .limit(1);
   if (!rows[0]) throw forbidden("User not found");
-  return rows[0];
+  return { is_admin: rows[0].is_admin, is_moderator: rows[0].is_moderator ?? false };
 }
 
 export const PATCH = withAuth(async (req: NextRequest, { params, auth }: RoomCtx) => {
@@ -89,77 +91,108 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: RoomCtx
       throw forbidden("Administrator access required for this action");
     }
 
+    const orm = await getDb();
+
     // Verify room exists
-    const { rows: roomRows } = await db.query<{ id: string; name: string }>(
-      `SELECT id, name FROM rooms WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [roomId]
-    );
+    const roomRows = await orm
+      .select({ id: schema.rooms.id, name: schema.rooms.name })
+      .from(schema.rooms)
+      .where(and(eq(schema.rooms.id, roomId), isNull(schema.rooms.deletedAt)))
+      .limit(1);
     if (!roomRows[0]) throw notFound("Room not found");
 
-    let updateSql = "";
-    const updateValues: SqlParam[] = [];
-
+    // NOTE: `rooms` in the Drizzle schema (lib/db/schema.ts) has no
+    // is_suspended / suspended_at / suspended_by / suspension_reason /
+    // is_banned / banned_at / banned_by / flagged_at / flagged_by /
+    // flag_reason / monetization_disabled / admin_notes columns, even though
+    // this route (pre-migration) already read/wrote them — a pre-existing
+    // schema/route mismatch, reported rather than silently added to the
+    // shared schema. These moderation actions are therefore expressed via
+    // Drizzle's `sql` template (parameterised, injection-safe) instead of
+    // the type-checked query builder; `update_details`/`set_active`/
+    // `set_inactive` use the query builder since their columns do exist.
     switch (body.action) {
       case "set_active":
-        updateSql = `is_active = TRUE, is_suspended = FALSE, updated_at = NOW()`;
+        await orm
+          .update(schema.rooms)
+          .set({ isActive: true, updatedAt: new Date() })
+          .where(eq(schema.rooms.id, roomId));
+        await orm.execute(sql`UPDATE rooms SET is_suspended = FALSE WHERE id = ${roomId}`);
         break;
 
       case "set_inactive":
-        updateSql = `is_active = FALSE, updated_at = NOW()`;
+        await orm
+          .update(schema.rooms)
+          .set({ isActive: false, updatedAt: new Date() })
+          .where(eq(schema.rooms.id, roomId));
         break;
 
       case "suspend":
-        updateSql = `is_suspended = TRUE, suspended_at = NOW(), suspended_by = $2, suspension_reason = $3, is_active = FALSE, updated_at = NOW()`;
-        updateValues.push(auth.user.sub, body.reason);
+        await orm.execute(sql`
+          UPDATE rooms
+          SET is_suspended = TRUE, suspended_at = NOW(), suspended_by = ${auth.user.sub},
+              suspension_reason = ${body.reason}, is_active = FALSE, updated_at = NOW()
+          WHERE id = ${roomId}
+        `);
         break;
 
       case "unsuspend":
-        updateSql = `is_suspended = FALSE, suspended_at = NULL, suspended_by = NULL, suspension_reason = NULL, is_active = TRUE, updated_at = NOW()`;
+        await orm.execute(sql`
+          UPDATE rooms
+          SET is_suspended = FALSE, suspended_at = NULL, suspended_by = NULL,
+              suspension_reason = NULL, is_active = TRUE, updated_at = NOW()
+          WHERE id = ${roomId}
+        `);
         break;
 
       case "ban":
-        updateSql = `is_banned = TRUE, banned_at = NOW(), banned_by = $2, is_active = FALSE, is_suspended = FALSE, updated_at = NOW()`;
-        updateValues.push(auth.user.sub);
+        await orm.execute(sql`
+          UPDATE rooms
+          SET is_banned = TRUE, banned_at = NOW(), banned_by = ${auth.user.sub},
+              is_active = FALSE, is_suspended = FALSE, updated_at = NOW()
+          WHERE id = ${roomId}
+        `);
         break;
 
       case "flag":
-        updateSql = `flagged_at = NOW(), flagged_by = $2, flag_reason = $3, updated_at = NOW()`;
-        updateValues.push(auth.user.sub, body.reason);
+        await orm.execute(sql`
+          UPDATE rooms
+          SET flagged_at = NOW(), flagged_by = ${auth.user.sub}, flag_reason = ${body.reason}, updated_at = NOW()
+          WHERE id = ${roomId}
+        `);
         break;
 
       case "unflag":
-        updateSql = `flagged_at = NULL, flagged_by = NULL, flag_reason = NULL, updated_at = NOW()`;
+        await orm.execute(sql`
+          UPDATE rooms
+          SET flagged_at = NULL, flagged_by = NULL, flag_reason = NULL, updated_at = NOW()
+          WHERE id = ${roomId}
+        `);
         break;
 
       case "disable_monetization":
-        updateSql = `monetization_disabled = TRUE, updated_at = NOW()`;
+        await orm.execute(sql`UPDATE rooms SET monetization_disabled = TRUE, updated_at = NOW() WHERE id = ${roomId}`);
         break;
 
       case "enable_monetization":
-        updateSql = `monetization_disabled = FALSE, updated_at = NOW()`;
+        await orm.execute(sql`UPDATE rooms SET monetization_disabled = FALSE, updated_at = NOW() WHERE id = ${roomId}`);
         break;
 
       case "update_details": {
-        const setParts: string[] = ["updated_at = NOW()"];
-        let idx = 2;
-        if (body.name !== undefined)        { setParts.push(`name = $${idx++}`);        updateValues.push(body.name); }
-        if (body.description !== undefined) { setParts.push(`description = $${idx++}`); updateValues.push(body.description); }
-        if (body.type !== undefined)        { setParts.push(`type = $${idx++}`);        updateValues.push(body.type); }
-        if (body.max_members !== undefined) { setParts.push(`max_members = $${idx++}`); updateValues.push(body.max_members); }
-        if (body.creator_id !== undefined)  { setParts.push(`creator_id = $${idx++}`); updateValues.push(body.creator_id); }
-        updateSql = setParts.join(", ");
+        const setValues: Partial<typeof schema.rooms.$inferInsert> = { updatedAt: new Date() };
+        if (body.name !== undefined) setValues.name = body.name;
+        if (body.description !== undefined) setValues.description = body.description;
+        if (body.type !== undefined) setValues.type = body.type;
+        if (body.max_members !== undefined) setValues.maxMembers = body.max_members;
+        if (body.creator_id !== undefined) setValues.creatorId = body.creator_id;
+        await orm.update(schema.rooms).set(setValues).where(eq(schema.rooms.id, roomId));
         break;
       }
 
       case "add_admin_notes":
-        updateSql = `admin_notes = $2, updated_at = NOW()`;
-        updateValues.push(body.notes);
+        await orm.execute(sql`UPDATE rooms SET admin_notes = ${body.notes}, updated_at = NOW() WHERE id = ${roomId}`);
         break;
     }
-
-    // Build parameterised query: $1 is always roomId
-    const allValues = [roomId, ...updateValues];
-    await db.query(`UPDATE rooms SET ${updateSql} WHERE id = $1`, allValues);
 
     return NextResponse.json({ success: true, data: { roomId, action: body.action } });
   } catch (err) {
@@ -174,23 +207,27 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }: RoomCt
     const { roomId } = await params;
     if (!UUID_RE.test(roomId)) throw badRequest("roomId must be a valid UUID");
 
+    const orm = await getDb();
+
     // Only full admins can hard-delete rooms
-    const { rows: userRows } = await db.query<{ is_admin: boolean }>(
-      `SELECT is_admin FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [auth.user.sub]
-    );
+    const userRows = await orm
+      .select({ is_admin: schema.users.isAdmin })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!userRows[0]?.is_admin) throw forbidden("Administrator access required");
 
-    const { rows: roomRows } = await db.query<{ id: string }>(
-      `SELECT id FROM rooms WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [roomId]
-    );
+    const roomRows = await orm
+      .select({ id: schema.rooms.id })
+      .from(schema.rooms)
+      .where(and(eq(schema.rooms.id, roomId), isNull(schema.rooms.deletedAt)))
+      .limit(1);
     if (!roomRows[0]) throw notFound("Room not found");
 
-    await db.query(
-      `UPDATE rooms SET deleted_at = NOW(), is_active = FALSE, updated_at = NOW() WHERE id = $1`,
-      [roomId]
-    );
+    await orm
+      .update(schema.rooms)
+      .set({ deletedAt: new Date(), isActive: false, updatedAt: new Date() })
+      .where(eq(schema.rooms.id, roomId));
 
     return NextResponse.json({ success: true, data: { roomId, deleted: true } });
   } catch (err) {

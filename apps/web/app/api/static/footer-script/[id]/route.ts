@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { normalizeFooterScriptContent } from "@/lib/admin/footerScriptNormalize";
 
 export async function GET(
@@ -28,12 +29,14 @@ export async function GET(
   }
 
   try {
-    const { rows } = await db.query<{ content: string; is_active: boolean }>(
-      `SELECT content, is_active FROM footer_scripts WHERE id = $1 LIMIT 1`,
-      [id]
-    );
+    const db = await getDb();
+    const rows = await db
+      .select({ content: schema.footerScripts.content, isActive: schema.footerScripts.isActive })
+      .from(schema.footerScripts)
+      .where(eq(schema.footerScripts.id, id))
+      .limit(1);
 
-    if (!rows[0] || !rows[0].is_active) {
+    if (!rows[0] || !rows[0].isActive) {
       return new NextResponse("Not Found", { status: 404 });
     }
 

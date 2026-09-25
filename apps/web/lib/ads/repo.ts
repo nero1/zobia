@@ -16,13 +16,25 @@
  */
 
 import Decimal from "decimal.js";
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { eq, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { debitAdWallet, creditAdWallet } from "@/lib/economy/adWallet";
 import { classifyAdCreative, classifyAdCreativeImage } from "@/lib/moderation/aiClassifier";
 import { getAdModerationModeFor, getAdAiAutoApproveThreshold, getDefaultCpmCredits, getAdsAdminConfig } from "@/lib/ads/limits";
 import { raiseAlert } from "@/lib/alerts/dispatch";
 import { logger } from "@/lib/logger";
+
+// ---------------------------------------------------------------------------
+// NOTE (schema gap): ad_ai_escalations has no corresponding pgTable in
+// lib/db/schema.ts. ad_campaigns, ad_creatives, ad_coupons,
+// ad_coupon_redemptions and ad_campaign_daily_stats WERE missing too but have
+// since been added — most queries against those tables in this file still
+// run through Drizzle's `sql` tagged template via `.execute()` rather than
+// the query builder for now (still the shared Drizzle-wrapped pg.Pool, still
+// fully parameterised); a follow-up can swap them to the fluent builder.
+// bb_threads was already raw-SQL/unmodeled before this migration (see
+// getBoostableContentSummary's "forum_thread" case) and remains so.
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,30 +137,16 @@ export interface CreateCampaignInput {
 export async function createCampaign(input: CreateCampaignInput): Promise<AdCampaignRow> {
   const cpm = await getDefaultCpmCredits();
   const advertiserUserId = input.advertiserType === "personal" ? input.createdBy : null;
-  const { rows } = await db.query<AdCampaignRow>(
-    `INSERT INTO ad_campaigns
+  const orm = await getDb();
+  const result = await orm.execute<AdCampaignRow & Record<string, unknown>>(sql`
+    INSERT INTO ad_campaigns
        (owner_type, business_account_id, business_page_id, created_by, advertiser_type,
         advertiser_user_id, name, objective, status, moderation_status, cpm_credits,
         target_plans, boosted_content_type, boosted_content_id, start_at, end_at)
-     VALUES ('business', $1, $2, $3, $4, $5, $6, $7, 'draft', 'pending', $8, $9, $10, $11, $12, $13)
-     RETURNING *`,
-    [
-      input.businessAccountId,
-      input.businessPageId,
-      input.createdBy,
-      input.advertiserType,
-      advertiserUserId,
-      input.name,
-      input.objective,
-      cpm,
-      input.targetPlans ?? null,
-      input.boostedContentType ?? null,
-      input.boostedContentId ?? null,
-      input.startAt ?? null,
-      input.endAt ?? null,
-    ]
-  );
-  return rows[0];
+     VALUES ('business', ${input.businessAccountId}, ${input.businessPageId}, ${input.createdBy}, ${input.advertiserType}, ${advertiserUserId}, ${input.name}, ${input.objective}, 'draft', 'pending', ${cpm}, ${input.targetPlans ?? null}, ${input.boostedContentType ?? null}, ${input.boostedContentId ?? null}, ${input.startAt ?? null}, ${input.endAt ?? null})
+     RETURNING *
+  `);
+  return result.rows[0];
 }
 
 // ---------------------------------------------------------------------------
@@ -179,108 +177,116 @@ export async function getBoostableContentSummary(
   contentType: BoostableContentType,
   contentId: string
 ): Promise<BoostableContentSummary | null> {
+  const orm = await getDb();
   switch (contentType) {
     case "moment": {
-      const { rows } = await db.query<{ user_id: string; content: string; media_url: string | null }>(
-        `SELECT user_id, content, media_url FROM moments WHERE id = $1 LIMIT 1`,
-        [contentId]
-      );
+      const rows = await orm
+        .select({ user_id: schema.moments.userId, content: schema.moments.content, media_url: schema.moments.mediaUrl })
+        .from(schema.moments)
+        .where(eq(schema.moments.id, contentId))
+        .limit(1);
       const r = rows[0];
       if (!r) return null;
       return { ownerId: r.user_id, title: "Moment", body: r.content, imageUrl: r.media_url };
     }
     case "tweet": {
-      const { rows } = await db.query<{ user_id: string; content: string | null; image_url: string | null }>(
-        `SELECT user_id, content, image_url FROM tweets WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [contentId]
-      );
+      const rows = await orm
+        .select({ user_id: schema.tweets.userId, content: schema.tweets.content, image_url: schema.tweets.imageUrl })
+        .from(schema.tweets)
+        .where(and(eq(schema.tweets.id, contentId), sql`${schema.tweets.deletedAt} IS NULL`))
+        .limit(1);
       const r = rows[0];
       if (!r) return null;
       return { ownerId: r.user_id, title: "Tweet", body: r.content, imageUrl: r.image_url };
     }
     case "blog_post": {
-      const { rows } = await db.query<{ author_id: string; title: string; excerpt: string | null; featured_image_url: string | null }>(
-        `SELECT author_id, title, excerpt, featured_image_url FROM blog_posts WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [contentId]
-      );
+      const rows = await orm
+        .select({ author_id: schema.blogPosts.authorId, title: schema.blogPosts.title, excerpt: schema.blogPosts.excerpt, featured_image_url: schema.blogPosts.featuredImageUrl })
+        .from(schema.blogPosts)
+        .where(and(eq(schema.blogPosts.id, contentId), sql`${schema.blogPosts.deletedAt} IS NULL`))
+        .limit(1);
       const r = rows[0];
       if (!r) return null;
       return { ownerId: r.author_id, title: r.title, body: r.excerpt, imageUrl: r.featured_image_url };
     }
     case "forum_thread": {
       // bb_threads — raw-SQL table (migration 0001_consolidated_schema.sql), not in schema.ts.
-      const { rows } = await db.query<{ author_id: string; title: string }>(
-        `SELECT author_id, title FROM bb_threads WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [contentId]
+      const result = await orm.execute<{ author_id: string; title: string }>(
+        sql`SELECT author_id, title FROM bb_threads WHERE id = ${contentId} AND deleted_at IS NULL LIMIT 1`
       );
-      const r = rows[0];
+      const r = result.rows[0];
       if (!r) return null;
       return { ownerId: r.author_id, title: r.title, body: null, imageUrl: null };
     }
     case "forum_question": {
-      const { rows } = await db.query<{ author_id: string; title: string; body: string }>(
-        `SELECT author_id, title, body FROM forum_questions WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [contentId]
-      );
+      const rows = await orm
+        .select({ author_id: schema.forumQuestions.authorId, title: schema.forumQuestions.title, body: schema.forumQuestions.body })
+        .from(schema.forumQuestions)
+        .where(and(eq(schema.forumQuestions.id, contentId), sql`${schema.forumQuestions.deletedAt} IS NULL`))
+        .limit(1);
       const r = rows[0];
       if (!r) return null;
       return { ownerId: r.author_id, title: r.title, body: r.body, imageUrl: null };
     }
     case "room":
     case "classroom": {
-      const { rows } = await db.query<{ creator_id: string; name: string; description: string | null; cover_image_url: string | null }>(
-        `SELECT creator_id, name, description, cover_image_url FROM rooms WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [contentId]
-      );
+      const rows = await orm
+        .select({ creator_id: schema.rooms.creatorId, name: schema.rooms.name, description: schema.rooms.description, cover_image_url: schema.rooms.coverImageUrl })
+        .from(schema.rooms)
+        .where(and(eq(schema.rooms.id, contentId), sql`${schema.rooms.deletedAt} IS NULL`))
+        .limit(1);
       const r = rows[0];
       if (!r) return null;
       return { ownerId: r.creator_id, title: r.name, body: r.description, imageUrl: r.cover_image_url };
     }
     case "wiki_page": {
-      const { rows } = await db.query<{ created_by: string; title: string }>(
-        `SELECT created_by, title FROM wiki_pages WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [contentId]
-      );
+      const rows = await orm
+        .select({ created_by: schema.wikiPages.createdBy, title: schema.wikiPages.title })
+        .from(schema.wikiPages)
+        .where(and(eq(schema.wikiPages.id, contentId), sql`${schema.wikiPages.deletedAt} IS NULL`))
+        .limit(1);
       const r = rows[0];
       if (!r) return null;
       return { ownerId: r.created_by, title: r.title, body: null, imageUrl: null };
     }
     case "game": {
-      const { rows } = await db.query<{ creator_id: string | null; name: string; description: string | null; cover_image_url: string | null }>(
-        `SELECT creator_id, name, description, cover_image_url FROM games WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [contentId]
-      );
+      const rows = await orm
+        .select({ creator_id: schema.games.creatorId, name: schema.games.name, description: schema.games.description, cover_image_url: schema.games.coverImageUrl })
+        .from(schema.games)
+        .where(and(eq(schema.games.id, contentId), sql`${schema.games.deletedAt} IS NULL`))
+        .limit(1);
       const r = rows[0];
       if (!r) return null;
       return { ownerId: r.creator_id, title: r.name, body: r.description, imageUrl: r.cover_image_url };
     }
     case "business_page_post": {
-      const { rows } = await db.query<{ owner_id: string; title: string; body: string; image_url: string | null }>(
-        `SELECT ba.user_id AS owner_id, p.title, p.body, p.image_url
-         FROM business_page_posts p
-         JOIN business_pages bp ON bp.id = p.page_id
-         JOIN business_accounts ba ON ba.id = bp.business_account_id
-         WHERE p.id = $1 AND p.deleted_at IS NULL LIMIT 1`,
-        [contentId]
-      );
+      const rows = await orm
+        .select({ owner_id: schema.businessAccounts.userId, title: schema.businessPagePosts.title, body: schema.businessPagePosts.body, image_url: schema.businessPagePosts.imageUrl })
+        .from(schema.businessPagePosts)
+        .innerJoin(schema.businessPages, eq(schema.businessPages.id, schema.businessPagePosts.pageId))
+        .innerJoin(schema.businessAccounts, eq(schema.businessAccounts.id, schema.businessPages.businessAccountId))
+        .where(and(eq(schema.businessPagePosts.id, contentId), sql`${schema.businessPagePosts.deletedAt} IS NULL`))
+        .limit(1);
       const r = rows[0];
       if (!r) return null;
       return { ownerId: r.owner_id, title: r.title, body: r.body, imageUrl: r.image_url };
     }
     case "poll": {
-      const { rows } = await db.query<{ creator_id: string; title: string; description: string | null }>(
-        `SELECT creator_id, title, description FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [contentId]
-      );
+      const rows = await orm
+        .select({ creator_id: schema.polls.creatorId, title: schema.polls.title, description: schema.polls.description })
+        .from(schema.polls)
+        .where(and(eq(schema.polls.id, contentId), sql`${schema.polls.deletedAt} IS NULL`))
+        .limit(1);
       const r = rows[0];
       if (!r) return null;
       return { ownerId: r.creator_id, title: r.title, body: r.description, imageUrl: null };
     }
     case "quiz": {
-      const { rows } = await db.query<{ creator_id: string; title: string; description: string | null }>(
-        `SELECT creator_id, title, description FROM quizzes WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [contentId]
-      );
+      const rows = await orm
+        .select({ creator_id: schema.quizzes.creatorId, title: schema.quizzes.title, description: schema.quizzes.description })
+        .from(schema.quizzes)
+        .where(and(eq(schema.quizzes.id, contentId), sql`${schema.quizzes.deletedAt} IS NULL`))
+        .limit(1);
       const r = rows[0];
       if (!r) return null;
       return { ownerId: r.creator_id, title: r.title, body: r.description, imageUrl: null };
@@ -361,50 +367,40 @@ export async function createContentBoostCampaign(
  * purely "which identity is displayed", never "who controls this campaign".
  */
 export async function getOwnCampaign(campaignId: string, userId: string): Promise<AdCampaignRow | null> {
-  const { rows } = await db.query<AdCampaignRow>(
-    `SELECT * FROM ad_campaigns WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL LIMIT 1`,
-    [campaignId, userId]
+  const orm = await getDb();
+  const result = await orm.execute<AdCampaignRow & Record<string, unknown>>(
+    sql`SELECT * FROM ad_campaigns WHERE id = ${campaignId} AND created_by = ${userId} AND deleted_at IS NULL LIMIT 1`
   );
-  return rows[0] ?? null;
+  return result.rows[0] ?? null;
 }
 
 export async function listOwnCampaigns(userId: string): Promise<AdCampaignRow[]> {
-  const { rows } = await db.query<AdCampaignRow>(
-    `SELECT * FROM ad_campaigns WHERE created_by = $1 AND deleted_at IS NULL ORDER BY created_at DESC`,
-    [userId]
+  const orm = await getDb();
+  const result = await orm.execute<AdCampaignRow & Record<string, unknown>>(
+    sql`SELECT * FROM ad_campaigns WHERE created_by = ${userId} AND deleted_at IS NULL ORDER BY created_at DESC`
   );
-  return rows;
+  return result.rows;
 }
 
 export async function addCreative(
   campaignId: string,
   input: { placementKey: string; format: AdCreativeFormat; size: AdSize; title?: string; body?: string; imageUrl?: string; clickUrl?: string; ctaLabel?: string }
 ): Promise<AdCreativeRow> {
-  const { rows } = await db.query<AdCreativeRow>(
-    `INSERT INTO ad_creatives (campaign_id, placement_key, format, size, title, body, image_url, click_url, cta_label)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
-     RETURNING *`,
-    [
-      campaignId,
-      input.placementKey,
-      input.format,
-      input.size,
-      input.title ?? null,
-      input.body ?? null,
-      input.imageUrl ?? null,
-      input.clickUrl ?? null,
-      input.ctaLabel ?? null,
-    ]
-  );
-  return rows[0];
+  const orm = await getDb();
+  const result = await orm.execute<AdCreativeRow & Record<string, unknown>>(sql`
+    INSERT INTO ad_creatives (campaign_id, placement_key, format, size, title, body, image_url, click_url, cta_label)
+     VALUES (${campaignId},${input.placementKey},${input.format},${input.size},${input.title ?? null},${input.body ?? null},${input.imageUrl ?? null},${input.clickUrl ?? null},${input.ctaLabel ?? null})
+     RETURNING *
+  `);
+  return result.rows[0];
 }
 
 export async function listCreatives(campaignId: string): Promise<AdCreativeRow[]> {
-  const { rows } = await db.query<AdCreativeRow>(
-    `SELECT * FROM ad_creatives WHERE campaign_id = $1 ORDER BY created_at ASC`,
-    [campaignId]
+  const orm = await getDb();
+  const result = await orm.execute<AdCreativeRow & Record<string, unknown>>(
+    sql`SELECT * FROM ad_creatives WHERE campaign_id = ${campaignId} ORDER BY created_at ASC`
   );
-  return rows;
+  return result.rows;
 }
 
 /**
@@ -429,17 +425,17 @@ export async function submitCampaignForModeration(
   campaign: AdCampaignRow,
   advertiserName: string
 ): Promise<{ moderationStatus: "pending" | "approved"; reason: string | null }> {
-  const { rows: creativeRows } = await db.query<{ id: string; title: string | null; body: string | null; click_url: string | null; format: string; image_url: string | null }>(
-    `SELECT id, title, body, click_url, format, image_url FROM ad_creatives WHERE campaign_id = $1 ORDER BY created_at ASC`,
-    [campaign.id]
+  const orm = await getDb();
+  const creativeResult = await orm.execute<{ id: string; title: string | null; body: string | null; click_url: string | null; format: string; image_url: string | null }>(
+    sql`SELECT id, title, body, click_url, format, image_url FROM ad_creatives WHERE campaign_id = ${campaign.id} ORDER BY created_at ASC`
   );
+  const creativeRows = creativeResult.rows;
 
   // No creatives yet (e.g. draft campaign submitted before adding one) —
   // nothing to review; fall back to the manual queue rather than auto-approving.
   if (creativeRows.length === 0) {
-    await db.query(
-      `UPDATE ad_campaigns SET status = 'pending_review', moderation_status = 'pending', moderation_mode = 'manual', moderation_reason = 'No creatives submitted yet.', updated_at = NOW() WHERE id = $1`,
-      [campaign.id]
+    await orm.execute(
+      sql`UPDATE ad_campaigns SET status = 'pending_review', moderation_status = 'pending', moderation_mode = 'manual', moderation_reason = 'No creatives submitted yet.', updated_at = NOW() WHERE id = ${campaign.id}`
     );
     return { moderationStatus: "pending", reason: "No creatives submitted yet." };
   }
@@ -494,28 +490,26 @@ export async function submitCampaignForModeration(
     reason = reasons.join(" | ").slice(0, 500);
   }
 
-  await db.query(
-    `UPDATE ad_campaigns
-     SET status = 'pending_review', moderation_status = $1, moderation_mode = $2, moderation_reason = $3,
-         ai_confidence = $4, ai_escalated = $5, updated_at = NOW()
-     WHERE id = $6`,
-    [moderationStatus, mode, reason, minConfidence, anyNeedsHumanReview, campaign.id]
-  );
+  await orm.execute(sql`
+    UPDATE ad_campaigns
+     SET status = 'pending_review', moderation_status = ${moderationStatus}, moderation_mode = ${mode}, moderation_reason = ${reason},
+         ai_confidence = ${minConfidence}, ai_escalated = ${anyNeedsHumanReview}, updated_at = NOW()
+     WHERE id = ${campaign.id}
+  `);
 
   if (moderationStatus === "approved") {
-    await db.query(`UPDATE ad_campaigns SET status = 'approved', moderated_at = NOW() WHERE id = $1`, [campaign.id]);
+    await orm.execute(sql`UPDATE ad_campaigns SET status = 'approved', moderated_at = NOW() WHERE id = ${campaign.id}`);
   }
 
   for (const insert of escalationInserts) {
-    await db.query(
-      `INSERT INTO ad_ai_escalations (campaign_id, creative_id, image_url, deepseek_result, gemini_result)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [campaign.id, insert.creativeId, insert.imageUrl, JSON.stringify(insert.deepseekResult), JSON.stringify(insert.geminiResult)]
-    );
+    await orm.execute(sql`
+      INSERT INTO ad_ai_escalations (campaign_id, creative_id, image_url, deepseek_result, gemini_result)
+       VALUES (${campaign.id}, ${insert.creativeId}, ${insert.imageUrl}, ${JSON.stringify(insert.deepseekResult)}, ${JSON.stringify(insert.geminiResult)})
+    `);
   }
 
   if (anyNeedsHumanReview) {
-    await raiseAlert(db, {
+    await raiseAlert(orm, {
       type: "ad_image_ai_escalated",
       category: "moderation",
       priorityLevel: 6,
@@ -536,20 +530,20 @@ export async function moderateCampaign(
   adminId: string,
   reason: string | null
 ): Promise<void> {
-  await db.query(
-    `UPDATE ad_campaigns
-     SET moderation_status = $1, status = $2, moderation_reason = $3, moderated_by = $4, moderated_at = NOW(), updated_at = NOW(), ai_escalated = false
-     WHERE id = $5`,
-    [approve ? "approved" : "rejected", approve ? "approved" : "rejected", reason, adminId, campaignId]
-  );
+  const orm = await getDb();
+  const status = approve ? "approved" : "rejected";
+  await orm.execute(sql`
+    UPDATE ad_campaigns
+     SET moderation_status = ${status}, status = ${status}, moderation_reason = ${reason}, moderated_by = ${adminId}, moderated_at = NOW(), updated_at = NOW(), ai_escalated = false
+     WHERE id = ${campaignId}
+  `);
   // A direct admin decision on the whole campaign supersedes any pending
   // per-image AI escalation for it — clear the queue entry so it doesn't
   // linger as "pending" after the campaign itself is already resolved.
-  await db.query(
-    `UPDATE ad_ai_escalations SET status = $1, reviewed_by = $2, reviewed_at = NOW(), review_note = 'Resolved via campaign-level moderation decision.'
-     WHERE campaign_id = $3 AND status = 'pending'`,
-    [approve ? "approved" : "rejected", adminId, campaignId]
-  );
+  await orm.execute(sql`
+    UPDATE ad_ai_escalations SET status = ${status}, reviewed_by = ${adminId}, reviewed_at = NOW(), review_note = 'Resolved via campaign-level moderation decision.'
+     WHERE campaign_id = ${campaignId} AND status = 'pending'
+  `);
 }
 
 /** Advertiser starts/pauses/stops a campaign that has already cleared moderation. */
@@ -558,14 +552,14 @@ export async function setCampaignRunState(
   userId: string,
   state: "active" | "paused" | "stopped"
 ): Promise<AdCampaignRow | null> {
-  const { rows } = await db.query<AdCampaignRow>(
-    `UPDATE ad_campaigns
-     SET status = $1, updated_at = NOW()
-     WHERE id = $2 AND created_by = $3 AND moderation_status = 'approved' AND deleted_at IS NULL
-     RETURNING *`,
-    [state, campaignId, userId]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const result = await orm.execute<AdCampaignRow & Record<string, unknown>>(sql`
+    UPDATE ad_campaigns
+     SET status = ${state}, updated_at = NOW()
+     WHERE id = ${campaignId} AND created_by = ${userId} AND moderation_status = 'approved' AND deleted_at IS NULL
+     RETURNING *
+  `);
+  return result.rows[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -586,12 +580,12 @@ export async function fundCampaign(
     throw new Error("[ads] fundCampaign: amountCredits must be a positive integer");
   }
 
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows } = await tx.query<AdCampaignRow>(
-      `SELECT * FROM ad_campaigns WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [campaignId, userId]
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const selectResult = await tx.execute<AdCampaignRow & Record<string, unknown>>(
+      sql`SELECT * FROM ad_campaigns WHERE id = ${campaignId} AND created_by = ${userId} AND deleted_at IS NULL FOR UPDATE`
     );
-    const campaign = rows[0];
+    const campaign = selectResult.rows[0];
     if (!campaign) throw new Error("Campaign not found");
 
     await debitAdWallet(
@@ -604,11 +598,10 @@ export async function fundCampaign(
       tx
     );
 
-    const { rows: updated } = await tx.query<AdCampaignRow>(
-      `UPDATE ad_campaigns SET total_budget_credits = total_budget_credits + $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-      [amount.toFixed(0), campaignId]
+    const updateResult = await tx.execute<AdCampaignRow & Record<string, unknown>>(
+      sql`UPDATE ad_campaigns SET total_budget_credits = total_budget_credits + ${amount.toFixed(0)} , updated_at = NOW() WHERE id = ${campaignId} RETURNING *`
     );
-    return updated[0];
+    return updateResult.rows[0];
   });
 }
 
@@ -617,12 +610,12 @@ export async function refundUnspentBudget(
   userId: string,
   campaignId: string
 ): Promise<number> {
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows } = await tx.query<AdCampaignRow>(
-      `SELECT * FROM ad_campaigns WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [campaignId, userId]
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const selectResult = await tx.execute<AdCampaignRow & Record<string, unknown>>(
+      sql`SELECT * FROM ad_campaigns WHERE id = ${campaignId} AND created_by = ${userId} AND deleted_at IS NULL FOR UPDATE`
     );
-    const campaign = rows[0];
+    const campaign = selectResult.rows[0];
     if (!campaign) throw new Error("Campaign not found");
 
     const remaining = new Decimal(campaign.total_budget_credits).minus(campaign.spent_credits);
@@ -637,9 +630,8 @@ export async function refundUnspentBudget(
       { campaignId },
       tx
     );
-    await tx.query(
-      `UPDATE ad_campaigns SET total_budget_credits = spent_credits, status = 'stopped', updated_at = NOW() WHERE id = $1`,
-      [campaignId]
+    await tx.execute(
+      sql`UPDATE ad_campaigns SET total_budget_credits = spent_credits, status = 'stopped', updated_at = NOW() WHERE id = ${campaignId}`
     );
     return remaining.toNumber();
   });
@@ -662,32 +654,33 @@ export async function refundUnspentBudget(
  */
 export async function stampLapsedAdvertiserGrace(): Promise<number> {
   const graceDays = (await getAdsAdminConfig()).advertiserGraceDays;
-  const { rowCount } = await db.query(
-    `UPDATE ad_campaigns c
-     SET advertiser_grace_until = NOW() + ($1 || ' days')::interval, updated_at = NOW()
+  const orm = await getDb();
+  const result = await orm.execute(sql`
+    UPDATE ad_campaigns c
+     SET advertiser_grace_until = NOW() + (${graceDays} || ' days')::interval, updated_at = NOW()
      FROM business_accounts ba
      WHERE c.business_account_id = ba.id
        AND c.advertiser_type IN ('business_account', 'business_page')
        AND c.status IN ('active', 'paused')
        AND c.deleted_at IS NULL
        AND c.advertiser_grace_until IS NULL
-       AND NOT (ba.status = 'active' AND ba.verified = true)`,
-    [graceDays]
-  );
-  return rowCount ?? 0;
+       AND NOT (ba.status = 'active' AND ba.verified = true)
+  `);
+  return result.rowCount ?? 0;
 }
 
 /** Stop any campaign whose advertiser grace period has expired. */
 export async function stopExpiredGraceCampaigns(): Promise<number> {
-  const { rowCount } = await db.query(
-    `UPDATE ad_campaigns
+  const orm = await getDb();
+  const result = await orm.execute(sql`
+    UPDATE ad_campaigns
      SET status = 'stopped', updated_at = NOW()
      WHERE advertiser_grace_until IS NOT NULL
        AND advertiser_grace_until < NOW()
        AND status IN ('active', 'paused')
-       AND deleted_at IS NULL`
-  );
-  return rowCount ?? 0;
+       AND deleted_at IS NULL
+  `);
+  return result.rowCount ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -711,23 +704,22 @@ export async function redeemCoupon(
   campaignId: string,
   code: string
 ): Promise<{ creditsApplied: number }> {
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows: couponRows } = await tx.query<AdCouponRow>(
-      `SELECT * FROM ad_coupons WHERE code = $1 AND is_active = true FOR UPDATE`,
-      [code.trim().toUpperCase()]
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const couponResult = await tx.execute<AdCouponRow & Record<string, unknown>>(
+      sql`SELECT * FROM ad_coupons WHERE code = ${code.trim().toUpperCase()} AND is_active = true FOR UPDATE`
     );
-    const coupon = couponRows[0];
+    const coupon = couponResult.rows[0];
     if (!coupon) throw new Error("Invalid or inactive coupon code");
     if (coupon.expires_at && new Date(coupon.expires_at) < new Date()) throw new Error("Coupon has expired");
     if (coupon.max_redemptions != null && coupon.redemptions_count >= coupon.max_redemptions) {
       throw new Error("Coupon redemption limit reached");
     }
 
-    const { rows: campaignRows } = await tx.query<AdCampaignRow>(
-      `SELECT * FROM ad_campaigns WHERE id = $1 AND created_by = $2 AND deleted_at IS NULL FOR UPDATE`,
-      [campaignId, userId]
+    const campaignResult = await tx.execute<AdCampaignRow & Record<string, unknown>>(
+      sql`SELECT * FROM ad_campaigns WHERE id = ${campaignId} AND created_by = ${userId} AND deleted_at IS NULL FOR UPDATE`
     );
-    const campaign = campaignRows[0];
+    const campaign = campaignResult.rows[0];
     if (!campaign) throw new Error("Campaign not found");
 
     if (new Decimal(campaign.total_budget_credits).lt(coupon.min_budget_credits)) {
@@ -744,17 +736,15 @@ export async function redeemCoupon(
 
     // Idempotent per (coupon, campaign) via the unique constraint — a retried
     // redemption attempt fails cleanly instead of double-crediting the budget.
-    await tx.query(
-      `INSERT INTO ad_coupon_redemptions (coupon_id, campaign_id, user_id, credits_applied)
-       VALUES ($1,$2,$3,$4)`,
-      [coupon.id, campaignId, userId, creditsApplied.toFixed(0)]
-    );
+    await tx.execute(sql`
+      INSERT INTO ad_coupon_redemptions (coupon_id, campaign_id, user_id, credits_applied)
+       VALUES (${coupon.id},${campaignId},${userId},${creditsApplied.toFixed(0)})
+    `);
 
-    await tx.query(`UPDATE ad_coupons SET redemptions_count = redemptions_count + 1 WHERE id = $1`, [coupon.id]);
-    await tx.query(
-      `UPDATE ad_campaigns SET total_budget_credits = total_budget_credits + $1, updated_at = NOW() WHERE id = $2`,
-      [creditsApplied.toFixed(0), campaignId]
-    );
+    await tx.execute(sql`UPDATE ad_coupons SET redemptions_count = redemptions_count + 1 WHERE id = ${coupon.id}`);
+    await tx.execute(sql`
+      UPDATE ad_campaigns SET total_budget_credits = total_budget_credits + ${creditsApplied.toFixed(0)}, updated_at = NOW() WHERE id = ${campaignId}
+    `);
 
     return { creditsApplied: creditsApplied.toNumber() };
   });
@@ -772,25 +762,25 @@ export interface AdDailyStatRow {
 }
 
 export async function getCampaignDailyStats(campaignId: string, days: number): Promise<AdDailyStatRow[]> {
-  const { rows } = await db.query<AdDailyStatRow>(
-    `SELECT date, impressions, clicks, spend_credits FROM ad_campaign_daily_stats
-     WHERE campaign_id = $1 AND date >= (CURRENT_DATE - $2::int)
-     ORDER BY date ASC`,
-    [campaignId, days]
-  );
-  return rows;
+  const orm = await getDb();
+  const result = await orm.execute<AdDailyStatRow & Record<string, unknown>>(sql`
+    SELECT date, impressions, clicks, spend_credits FROM ad_campaign_daily_stats
+     WHERE campaign_id = ${campaignId} AND date >= (CURRENT_DATE - ${days}::int)
+     ORDER BY date ASC
+  `);
+  return result.rows;
 }
 
 export async function getCampaignTotals(userId: string): Promise<{ impressions: number; clicks: number; spend_credits: string }> {
-  const { rows } = await db.query<{ impressions: string; clicks: string; spend_credits: string }>(
-    `SELECT COALESCE(SUM(s.impressions),0)::text AS impressions,
+  const orm = await getDb();
+  const result = await orm.execute<{ impressions: string; clicks: string; spend_credits: string }>(sql`
+    SELECT COALESCE(SUM(s.impressions),0)::text AS impressions,
             COALESCE(SUM(s.clicks),0)::text AS clicks,
             COALESCE(SUM(c.spent_credits),0)::text AS spend_credits
      FROM ad_campaigns c
      LEFT JOIN ad_campaign_daily_stats s ON s.campaign_id = c.id
-     WHERE c.created_by = $1 AND c.deleted_at IS NULL`,
-    [userId]
-  );
-  const r = rows[0];
+     WHERE c.created_by = ${userId} AND c.deleted_at IS NULL
+  `);
+  const r = result.rows[0];
   return { impressions: Number(r?.impressions ?? 0), clicks: Number(r?.clicks ?? 0), spend_credits: r?.spend_credits ?? "0" };
 }

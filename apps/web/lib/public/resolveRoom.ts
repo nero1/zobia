@@ -14,7 +14,8 @@
  * content.
  */
 
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { looksLikeUuid } from "@zobia/shared/utils";
 import { lookupSlugRedirect } from "@/lib/slug";
 
@@ -39,26 +40,47 @@ export interface ResolvedRoom {
   canonicalRedirectSlug: string | null;
 }
 
-const SELECT = `
-  SELECT r.id, r.slug, r.name, r.description, r.type, r.cover_image_url,
-         r.created_at, r.updated_at, u.username AS creator_username
-  FROM rooms r
-  LEFT JOIN users u ON u.id = r.creator_id
-  WHERE r.deleted_at IS NULL
-    AND r.is_active = TRUE
-    AND r.type = ANY($2::text[])
-`;
-
 async function queryBy(
   column: "slug" | "id",
   value: string,
   types: string[]
 ): Promise<PublicRoom | null> {
-  const { rows } = await db.query<PublicRoom>(
-    `${SELECT} AND r.${column} = $1 LIMIT 1`,
-    [value, types]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      id: schema.rooms.id,
+      slug: schema.rooms.slug,
+      name: schema.rooms.name,
+      description: schema.rooms.description,
+      type: schema.rooms.type,
+      coverImageUrl: schema.rooms.coverImageUrl,
+      createdAt: schema.rooms.createdAt,
+      updatedAt: schema.rooms.updatedAt,
+      creatorUsername: schema.users.username,
+    })
+    .from(schema.rooms)
+    .leftJoin(schema.users, eq(schema.users.id, schema.rooms.creatorId))
+    .where(
+      and(
+        isNull(schema.rooms.deletedAt),
+        eq(schema.rooms.isActive, true),
+        inArray(schema.rooms.type, types),
+        column === "slug" ? eq(schema.rooms.slug, value) : eq(schema.rooms.id, value)
+      )
+    )
+    .limit(1);
+  if (!row) return null;
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    type: row.type,
+    cover_image_url: row.coverImageUrl,
+    created_at: row.createdAt ? row.createdAt.toISOString() : new Date().toISOString(),
+    updated_at: row.updatedAt ? row.updatedAt.toISOString() : new Date().toISOString(),
+    creator_username: row.creatorUsername,
+  };
 }
 
 /**

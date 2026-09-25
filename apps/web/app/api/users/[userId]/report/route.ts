@@ -15,7 +15,7 @@ import { z } from "zod";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { classifyReport, type ReportType } from "@/lib/moderation/aiClassifier";
 import { REASON_LABEL_TO_TYPE } from "@/lib/moderation/reportReasons";
 
@@ -40,12 +40,14 @@ export const POST = withAuth<UserParams>(async (req: NextRequest, { params, auth
     const body = bodySchema.parse(await req.json());
     const reportType: ReportType = REASON_LABEL_TO_TYPE[body.reason] ?? "other";
 
-    await db.query(
-      `INSERT INTO moderation_reports
-         (reporter_id, reported_user_id, report_type, description, status, created_at)
-       VALUES ($1, $2, $3, $4, 'pending', NOW())`,
-      [auth.user.sub, userId, reportType, body.reason]
-    );
+    const db = await getDb();
+    await db.insert(schema.moderationReports).values({
+      reporterId: auth.user.sub,
+      reportedUserId: userId,
+      reportType,
+      description: body.reason,
+      status: "pending",
+    });
 
     // Non-blocking AI classification
     classifyReport(body.reason, reportType).catch(() => {});

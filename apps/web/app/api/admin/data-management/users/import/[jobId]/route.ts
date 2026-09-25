@@ -22,12 +22,12 @@ export const runtime = 'nodejs';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, or, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { writeAuditLog } from "@/lib/audit/auditLog";
-import type { TransactionClient } from "@/lib/db/interface";
 
 const BATCH_SIZE = 500;
 
@@ -56,12 +56,12 @@ function pick(row: Record<string, unknown>, ...keys: string[]): unknown {
 }
 
 /** Find a unique username by appending a numeric suffix if the base is taken (mirrors the OAuth callback's pattern). */
-async function uniqueUsername(tx: TransactionClient, base: string): Promise<string> {
+async function uniqueUsername(tx: DbOrTx, base: string): Promise<string> {
   const safeBase = String(base).replace(/[^a-z0-9_]/gi, "").slice(0, 30).toLowerCase() || "user";
-  const { rows } = await tx.query<{ username: string }>(
-    `SELECT username FROM users WHERE username = $1 OR username ~ ('^' || $1 || '[0-9]+$')`,
-    [safeBase]
-  );
+  const rows = await tx
+    .select({ username: schema.users.username })
+    .from(schema.users)
+    .where(sql`${schema.users.username} = ${safeBase} OR ${schema.users.username} ~ ('^' || ${safeBase} || '[0-9]+$')`);
   const taken = new Set(rows.map((r) => r.username));
   if (!taken.has(safeBase)) return safeBase;
   for (let i = 2; i < 10_000; i++) {
@@ -77,7 +77,7 @@ interface RowOutcome {
 }
 
 async function processRow(
-  tx: TransactionClient,
+  tx: DbOrTx,
   rawLine: string,
   dedupeStrategy: "skip" | "overwrite"
 ): Promise<RowOutcome> {
@@ -97,17 +97,16 @@ async function processRow(
   }
 
   // Dedupe lookup: match by email OR username OR id.
-  const conditions: string[] = [];
-  const params: (string)[] = [];
-  let idx = 1;
-  if (id) { conditions.push(`id = $${idx++}`); params.push(id); }
-  if (email) { conditions.push(`email = $${idx++}`); params.push(email); }
-  if (username) { conditions.push(`username = $${idx++}`); params.push(username); }
+  const conditions = [];
+  if (id) conditions.push(eq(schema.users.id, id));
+  if (email) conditions.push(eq(schema.users.email, email));
+  if (username) conditions.push(eq(schema.users.username, username));
 
-  const { rows: existingRows } = await tx.query<{ id: string; is_admin: boolean }>(
-    `SELECT id, is_admin FROM users WHERE ${conditions.join(" OR ")} LIMIT 1`,
-    params
-  );
+  const existingRows = await tx
+    .select({ id: schema.users.id, isAdmin: schema.users.isAdmin })
+    .from(schema.users)
+    .where(or(...conditions))
+    .limit(1);
   const existing = existingRows[0];
 
   if (existing) {
@@ -125,19 +124,19 @@ async function processRow(
     const avatarEmoji = pick(parsed, "avatar_emoji", "avatarEmoji") as string | undefined;
     const isVerified = pick(parsed, "is_verified", "isVerified") as boolean | undefined;
 
-    await tx.query(
-      `UPDATE users SET
-         display_name = COALESCE($2, display_name),
-         plan         = COALESCE($3, plan),
-         city         = COALESCE($4, city),
-         country      = COALESCE($5, country),
-         bio          = COALESCE($6, bio),
-         avatar_emoji = COALESCE($7, avatar_emoji),
-         is_verified  = COALESCE($8, is_verified),
-         updated_at   = NOW()
-       WHERE id = $1`,
-      [existing.id, displayName ?? null, plan ?? null, city ?? null, country ?? null, bio ?? null, avatarEmoji ?? null, isVerified ?? null]
-    );
+    await tx
+      .update(schema.users)
+      .set({
+        displayName: sql`COALESCE(${displayName ?? null}, ${schema.users.displayName})`,
+        plan: sql`COALESCE(${plan ?? null}, ${schema.users.plan})`,
+        city: sql`COALESCE(${city ?? null}, ${schema.users.city})`,
+        country: sql`COALESCE(${country ?? null}, ${schema.users.country})`,
+        bio: sql`COALESCE(${bio ?? null}, ${schema.users.bio})`,
+        avatarEmoji: sql`COALESCE(${avatarEmoji ?? null}, ${schema.users.avatarEmoji})`,
+        isVerified: sql`COALESCE(${isVerified ?? null}, ${schema.users.isVerified})`,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.users.id, existing.id));
     return { status: "imported" };
   }
 
@@ -156,22 +155,18 @@ async function processRow(
   for (let attempt = 0; attempt < 3; attempt++) {
     const candidateUsername = await uniqueUsername(tx, baseUsername);
     try {
-      await tx.query(
-        `INSERT INTO users
-           (username, email, display_name, avatar_url, password_hash, totp_secret,
-            plan, is_email_verified, onboarding_completed, is_admin, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, false, NOW(), NOW())`,
-        [
-          candidateUsername,
-          email ?? null,
-          displayName,
-          avatarUrl ?? null,
-          passwordHash ?? null,
-          totpSecret ?? null,
-          plan,
-          isEmailVerified,
-        ]
-      );
+      await tx.insert(schema.users).values({
+        username: candidateUsername,
+        email: email ?? null,
+        displayName,
+        avatarUrl: avatarUrl ?? null,
+        passwordHash: passwordHash ?? null,
+        totpSecret: totpSecret ?? null,
+        plan,
+        isEmailVerified,
+        onboardingCompleted: false,
+        isAdmin: false,
+      });
       return { status: "imported" };
     } catch (insertErr) {
       const pgErr = insertErr as { code?: string };
@@ -183,11 +178,29 @@ async function processRow(
 }
 
 async function loadJob(jobId: string): Promise<ImportJobRow | null> {
-  const { rows } = await db.query<ImportJobRow>(
-    `SELECT * FROM admin_data_import_jobs WHERE id = $1 LIMIT 1`,
-    [jobId]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select()
+    .from(schema.adminDataImportJobs)
+    .where(eq(schema.adminDataImportJobs.id, jobId))
+    .limit(1);
+  if (!row) return null;
+  return {
+    id: row.id,
+    admin_id: row.adminId,
+    filename: row.filename,
+    dedupe_strategy: row.dedupeStrategy as "skip" | "overwrite",
+    raw_data: row.rawData,
+    total_rows: row.totalRows,
+    processed_rows: row.processedRows,
+    imported_count: row.importedCount,
+    skipped_count: row.skippedCount,
+    error_count: row.errorCount,
+    status: row.status as ImportJobRow["status"],
+    errors: row.errors as Array<{ line: number; message: string }>,
+    created_at: row.createdAt.toISOString(),
+    updated_at: row.updatedAt.toISOString(),
+  };
 }
 
 const paramsSchema = z.object({ jobId: z.string().uuid() });
@@ -243,7 +256,8 @@ export const POST = withAdminAuth<{ jobId: string }>(async (_req, { params, auth
     let errored = 0;
     const newErrors: Array<{ line: number; message: string }> = [];
 
-    await db.transaction(async (tx) => {
+    const orm = await getDb();
+    await orm.transaction(async (tx) => {
       for (let i = 0; i < batch.length; i++) {
         const lineNumber = start + i + 1;
         const outcome = await processRow(tx, batch[i], job.dedupe_strategy);
@@ -258,26 +272,18 @@ export const POST = withAdminAuth<{ jobId: string }>(async (_req, { params, auth
       const processedRows = start + batch.length;
       const isDone = processedRows >= job.total_rows;
 
-      await tx.query(
-        `UPDATE admin_data_import_jobs SET
-           processed_rows = $2,
-           imported_count = imported_count + $3,
-           skipped_count  = skipped_count + $4,
-           error_count    = error_count + $5,
-           errors         = errors || $6::jsonb,
-           status         = $7,
-           updated_at     = NOW()
-         WHERE id = $1`,
-        [
-          jobId,
+      await tx
+        .update(schema.adminDataImportJobs)
+        .set({
           processedRows,
-          imported,
-          skipped,
-          errored,
-          JSON.stringify(newErrors),
-          isDone ? "completed" : "processing",
-        ]
-      );
+          importedCount: sql`${schema.adminDataImportJobs.importedCount} + ${imported}`,
+          skippedCount: sql`${schema.adminDataImportJobs.skippedCount} + ${skipped}`,
+          errorCount: sql`${schema.adminDataImportJobs.errorCount} + ${errored}`,
+          errors: sql`${schema.adminDataImportJobs.errors} || ${JSON.stringify(newErrors)}::jsonb`,
+          status: isDone ? "completed" : "processing",
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.adminDataImportJobs.id, jobId));
     });
 
     const updated = await loadJob(jobId);

@@ -16,10 +16,15 @@ export const dynamic = 'force-dynamic';
  *
  * After the user completes payment on Paystack, the webhook (economy/webhooks/paystack)
  * marks the payment as 'completed' and the user can then call /rooms/[roomId]/join.
+ *
+ * NOTE: this endpoint only initiates a card payment (Paystack) — there is no
+ * coin-balance decrement or row-locking here. The pending `payments` row is
+ * activated by the Paystack webhook once payment completes.
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -29,19 +34,6 @@ import {
 } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { initializePayment } from "@/lib/payments/paystack";
-
-// ---------------------------------------------------------------------------
-// DB row types
-// ---------------------------------------------------------------------------
-
-interface DropRoomRow {
-  id: string;
-  type: string;
-  name: string;
-  entry_fee_ngn: number | null;
-  drop_ends_at: string | null;
-  is_active: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // POST /api/rooms/[roomId]/pay-entry
@@ -55,70 +47,77 @@ export const POST = withAuth(async (
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
     const { roomId } = await params as { roomId: string };
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // 1. Fetch room
-    const { rows: roomRows } = await db.query<DropRoomRow>(
-      `SELECT id, type, name, entry_fee_ngn, drop_ends_at, is_active
-       FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-    const room = roomRows[0];
-    if (!room || !room.is_active) throw notFound("Room not found");
+    const [room] = await orm
+      .select({
+        id: schema.rooms.id,
+        type: schema.rooms.type,
+        name: schema.rooms.name,
+        entryFeeNgn: schema.rooms.entryFeeNgn,
+        dropEndsAt: schema.rooms.dropEndsAt,
+        isActive: schema.rooms.isActive,
+      })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId));
+    if (!room || !room.isActive) throw notFound("Room not found");
     if (room.type !== "drop") throw badRequest("This room does not require an entry payment");
-    if (!room.entry_fee_ngn || room.entry_fee_ngn <= 0) {
+    if (!room.entryFeeNgn || room.entryFeeNgn <= 0) {
       throw badRequest("This Drop room has no entry fee");
     }
 
     // 2. Check session is still open
-    if (room.drop_ends_at && new Date(room.drop_ends_at) < new Date()) {
+    if (room.dropEndsAt && new Date(room.dropEndsAt) < new Date()) {
       throw badRequest("This Drop room session has ended");
     }
 
     // 3. Idempotency: check if already paid
-    const { rows: existingPayment } = await db.query<{ id: string }>(
-      `SELECT id FROM payments
-       WHERE user_id = $1
-         AND reference_id = $2
-         AND payment_type = 'room_entry'
-         AND status = 'completed'
-       LIMIT 1`,
-      [userId, roomId]
-    );
-    if (existingPayment.length > 0) {
+    const [existingPayment] = await orm
+      .select({ id: schema.payments.id })
+      .from(schema.payments)
+      .where(and(
+        eq(schema.payments.userId, userId),
+        eq(schema.payments.referenceId, roomId),
+        eq(schema.payments.paymentType, 'room_entry'),
+        eq(schema.payments.status, 'completed'),
+      ))
+      .limit(1);
+    if (existingPayment) {
       throw conflict("You have already paid for this room. Call /join to enter.");
     }
 
     // 4. Fetch user email for Paystack
-    const { rows: userRows } = await db.query<{ email: string | null }>(
-      `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    const userEmail = userRows[0]?.email ?? `${userId}@zobia.social`;
+    const [userRow] = await orm
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), sql`${schema.users.deletedAt} IS NULL`))
+      .limit(1);
+    const userEmail = userRow?.email ?? `${userId}@zobia.social`;
 
     // 5. Compute amount in kobo (NGN × 100)
-    const amountKobo = room.entry_fee_ngn * 100;
+    const entryFeeNgn = Number(room.entryFeeNgn);
+    const amountKobo = entryFeeNgn * 100;
     const paymentRef = `dropentr-${roomId.replace(/-/g, "").slice(0, 12)}-${userId.replace(/-/g, "").slice(0, 8)}-${Date.now()}`;
 
     // 6. Create pending payment record. `provider` is NOT NULL with no default —
     // omitting it (as this INSERT used to) failed every Drop-room card payment.
-    await db.query(
-      `INSERT INTO payments
-         (user_id, reference_id, provider, provider_reference, payment_type, amount_kobo, currency,
-          status, metadata, created_at)
-       VALUES ($1, $2, 'paystack', $3, 'room_entry', $4, 'NGN', 'pending', $5::jsonb, NOW())`,
-      [
-        userId,
+    await orm.insert(schema.payments).values({
+      userId,
+      referenceId: roomId,
+      provider: 'paystack',
+      providerReference: paymentRef,
+      paymentType: 'room_entry',
+      amountKobo: BigInt(amountKobo),
+      currency: 'NGN',
+      status: 'pending',
+      metadata: {
         roomId,
-        paymentRef,
-        amountKobo,
-        JSON.stringify({
-          roomId,
-          roomName: room.name,
-          userId,
-          itemType: "room_entry",
-        }),
-      ]
-    );
+        roomName: room.name,
+        userId,
+        itemType: "room_entry",
+      },
+    });
 
     // 7. Initiate Paystack payment
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
@@ -144,7 +143,7 @@ export const POST = withAuth(async (
         data: {
           paymentRef,
           paymentUrl: paymentData.authorization_url,
-          amountNgn: room.entry_fee_ngn,
+          amountNgn: entryFeeNgn,
           roomName: room.name,
         },
         error: null,

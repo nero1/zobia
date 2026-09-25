@@ -12,13 +12,14 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getThreadBySlug, listPostsInThread, incrementThreadViewCount, setThreadLocked, setThreadPinned, getPostById } from "@/lib/bbforum/repo";
 import { editThreadTitle, deletePost, isUserModeratorOrAdmin } from "@/lib/bbforum/service";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 export const GET = async (_req: Request, { params }: { params: Promise<{ slug: string }> }) => {
   try {
@@ -27,16 +28,20 @@ export const GET = async (_req: Request, { params }: { params: Promise<{ slug: s
     const thread = await getThreadBySlug(slug);
     if (!thread) throw notFound("Thread not found");
 
+    const orm = await getDb();
     const [posts, boardRows] = await Promise.all([
       listPostsInThread(thread.id),
-      db.query<{ slug: string; name: string }>(`SELECT slug, name FROM bb_boards WHERE id = $1`, [thread.board_id]),
+      orm
+        .select({ slug: schema.bbBoards.slug, name: schema.bbBoards.name })
+        .from(schema.bbBoards)
+        .where(eq(schema.bbBoards.id, thread.board_id)),
     ]);
 
     void incrementThreadViewCount(thread.id).catch(() => {});
 
     return NextResponse.json({
       success: true,
-      data: { thread, posts, board: boardRows.rows[0] ?? null },
+      data: { thread, posts, board: boardRows[0] ?? null },
       error: null,
     });
   } catch (err) {

@@ -14,7 +14,8 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug, getBlogDailyStats } from "@/lib/blogs/repo";
 import { isUserModeratorOrAdmin } from "@/lib/blogs/service";
 import { getStatsTier } from "@/lib/blogs/limits";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 function toCsv(rows: Awaited<ReturnType<typeof getBlogDailyStats>>): string {
   const header = "date,post_title,views,likes,comments,unlock_count,unlock_credits";
@@ -34,8 +35,13 @@ export const GET = withAuth<{ slug: string }>(async (_req: NextRequest, { params
       throw forbidden("Only the blog owner or a moderator can export stats.");
     }
 
-    const { rows } = await db.query<{ plan: string }>(`SELECT plan FROM users WHERE id = $1 LIMIT 1`, [blog.owner_id]);
-    const tier = getStatsTier(rows[0]?.plan ?? "free");
+    const orm = await getDb();
+    const [userRow] = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(eq(schema.users.id, blog.owner_id))
+      .limit(1);
+    const tier = getStatsTier(userRow?.plan ?? "free");
     if (tier !== "detailed_export") {
       throw forbidden("Exporting stats requires the Pro or Max plan.", "BLOG_STATS_EXPORT_REQUIRES_UPGRADE");
     }

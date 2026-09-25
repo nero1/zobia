@@ -18,7 +18,9 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db, SqlParam } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { eq, and, isNull } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -81,8 +83,9 @@ interface RoomHealthRow {
  */
 async function fetchAvgSessionTimeMinutes(creatorId: string): Promise<number | null> {
   try {
-    const { rows } = await db.query<{ avg_minutes: string }>(
-      `WITH session_bounds AS (
+    const orm = await getDb();
+    const { rows } = await orm.execute<{ avg_minutes: string } & Record<string, unknown>>(sql`
+       WITH session_bounds AS (
          SELECT
            rm.sender_id,
            rm.room_id,
@@ -92,16 +95,15 @@ async function fetchAvgSessionTimeMinutes(creatorId: string): Promise<number | n
            EXTRACT(EPOCH FROM (MAX(rm.created_at) - MIN(rm.created_at))) / 60 AS duration_minutes
          FROM room_messages rm
          JOIN rooms r ON r.id = rm.room_id
-         WHERE r.creator_id = $1
+         WHERE r.creator_id = ${creatorId}
            AND rm.created_at >= NOW() - INTERVAL '30 days'
            AND rm.deleted_at IS NULL
          GROUP BY rm.sender_id, rm.room_id, DATE(rm.created_at)
          HAVING COUNT(*) >= 2
        )
        SELECT ROUND(AVG(duration_minutes))::TEXT AS avg_minutes
-       FROM session_bounds`,
-      [creatorId]
-    );
+       FROM session_bounds
+    `);
     const val = rows[0]?.avg_minutes;
     if (!val) return null;
     const parsed = parseInt(val, 10);
@@ -122,21 +124,17 @@ async function fetchRevenueByStream(
   creatorId: string,
   since: string | null
 ): Promise<Record<string, number>> {
-  const conditions = ["creator_id = $1"];
-  const args: SqlParam[] = [creatorId];
+  const orm = await getDb();
+  const whereClause = since
+    ? sql`creator_id = ${creatorId} AND created_at >= ${since}`
+    : sql`creator_id = ${creatorId}`;
 
-  if (since) {
-    conditions.push(`created_at >= $2`);
-    args.push(since);
-  }
-
-  const { rows } = await db.query<RevenueRow>(
-    `SELECT source_type, SUM(net_amount_kobo)::int AS total_kobo
+  const { rows } = await orm.execute<RevenueRow & Record<string, unknown>>(sql`
+     SELECT source_type, SUM(net_amount_kobo)::int AS total_kobo
      FROM creator_earnings
-     WHERE ${conditions.join(" AND ")}
-     GROUP BY source_type`,
-    args
-  );
+     WHERE ${whereClause}
+     GROUP BY source_type
+  `);
 
   const result: Record<string, number> = {};
   for (const row of rows) {
@@ -162,11 +160,13 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const creatorId = auth.user.sub;
 
     // Verify creator status
-    const { rows: userRows } = await db.query<{ is_creator: boolean }>(
-      `SELECT is_creator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [creatorId]
-    );
-    if (!userRows[0]?.is_creator) {
+    const orm = await getDb();
+    const [userRow] = await orm
+      .select({ is_creator: schema.users.isCreator })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, creatorId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    if (!userRow?.is_creator) {
       throw forbidden("Creator account required to access the dashboard");
     }
 
@@ -209,20 +209,19 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       Object.values(map).reduce((a, b) => a + b, 0);
 
     // Member stats across all creator rooms
-    const { rows: memberRows } = await db.query<MemberStatsRow>(
-      `SELECT
+    const { rows: memberRows } = await orm.execute<MemberStatsRow & Record<string, unknown>>(sql`
+       SELECT
          SUM(r.member_count)::int               AS total_members,
          (SELECT COUNT(DISTINCT rm2.user_id)::int
           FROM room_members rm2
           JOIN rooms r2 ON r2.id = rm2.room_id
           JOIN room_messages m2 ON m2.sender_id = rm2.user_id AND m2.room_id = r2.id
-          WHERE r2.creator_id = $1
+          WHERE r2.creator_id = ${creatorId}
             AND m2.created_at > NOW() - INTERVAL '7 days')
          AS active_members_7d
        FROM rooms r
-       WHERE r.creator_id = $1 AND r.is_active = TRUE`,
-      [creatorId]
-    );
+       WHERE r.creator_id = ${creatorId} AND r.is_active = TRUE
+    `);
 
     const memberStats = memberRows[0] ?? { total_members: 0, active_members_7d: 0 };
 
@@ -236,8 +235,8 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         : 0;
 
     // Top 5 gifters (lifetime)
-    const { rows: topGifters } = await db.query<TopGifterRow>(
-      `SELECT
+    const { rows: topGifters } = await orm.execute<TopGifterRow & Record<string, unknown>>(sql`
+       SELECT
          g.sender_id   AS user_id,
          u.username,
          u.display_name,
@@ -246,41 +245,37 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
        FROM gifts g
        JOIN rooms r ON r.id = g.room_id
        JOIN users u ON u.id = g.sender_id
-       WHERE r.creator_id = $1
+       WHERE r.creator_id = ${creatorId}
        GROUP BY g.sender_id, u.username, u.display_name, u.avatar_emoji
        ORDER BY total_coins DESC
-       LIMIT 5`,
-      [creatorId]
-    );
+       LIMIT 5
+    `);
 
     // Quest performance (sponsored quests)
-    const { rows: questRows } = await db.query<QuestRow>(
-      `SELECT
+    const { rows: questRows } = await orm.execute<QuestRow & Record<string, unknown>>(sql`
+       SELECT
          COUNT(*) FILTER (WHERE status = 'completed')::int AS completed,
          COUNT(*) FILTER (WHERE status = 'pending')::int   AS pending
        FROM sponsored_quests
-       WHERE creator_id = $1`,
-      [creatorId]
-    );
+       WHERE creator_id = ${creatorId}
+    `);
     const questPerformance = questRows[0] ?? { completed: 0, pending: 0 };
 
     // Payout history (last 10)
-    const { rows: payouts } = await db.query<PayoutRow>(
-      `SELECT id, amount_kobo, status, provider, created_at, processed_at
+    const { rows: payouts } = await orm.execute<PayoutRow & Record<string, unknown>>(sql`
+       SELECT id, amount_kobo, status, provider, created_at, processed_at
        FROM creator_payouts
-       WHERE creator_id = $1
+       WHERE creator_id = ${creatorId}
        ORDER BY created_at DESC
-       LIMIT 10`,
-      [creatorId]
-    );
+       LIMIT 10
+    `);
 
     // Average room health score
-    const { rows: healthRows } = await db.query<RoomHealthRow>(
-      `SELECT COALESCE(AVG(health_score), 100)::int AS avg_health
+    const { rows: healthRows } = await orm.execute<RoomHealthRow & Record<string, unknown>>(sql`
+       SELECT COALESCE(AVG(health_score), 100)::int AS avg_health
        FROM rooms
-       WHERE creator_id = $1 AND is_active = TRUE`,
-      [creatorId]
-    );
+       WHERE creator_id = ${creatorId} AND is_active = TRUE
+    `);
     const roomHealthScore = healthRows[0]?.avg_health ?? 100;
 
     const dashboard = {

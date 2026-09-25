@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -51,51 +52,47 @@ export const POST = withAuth(
 
       const body = await validateBody(req, attemptSchema);
 
-      const result = await db.transaction(async (tx) => {
+      const orm = await getDb();
+      const result = await orm.transaction(async (tx) => {
         // Verify enrolment in the classroom
-        const { rows: enrolRows } = await tx.query<{ id: string }>(
-          `SELECT id FROM classroom_enrolments
-           WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
-          [roomId, userId]
-        );
-        if (!enrolRows[0]) {
+        const [enrolment] = await tx
+          .select({ id: schema.classroomEnrolments.id })
+          .from(schema.classroomEnrolments)
+          .where(and(eq(schema.classroomEnrolments.roomId, roomId), eq(schema.classroomEnrolments.userId, userId)))
+          .limit(1);
+        if (!enrolment) {
           throw forbidden("You must be enrolled in this classroom to take quizzes");
         }
 
         // Fetch quiz details
-        const { rows: quizRows } = await tx.query<{
-          id: string;
-          xp_reward: number;
-          pass_score: number;
-          is_active: boolean;
-        }>(
-          `SELECT id, xp_reward, pass_score, is_active
-           FROM classroom_quizzes
-           WHERE id = $1 AND room_id = $2 LIMIT 1`,
-          [quizId, roomId]
-        );
-        if (!quizRows[0]) throw notFound("Quiz not found");
-        if (!quizRows[0].is_active) throw notFound("Quiz is no longer active");
-        const quiz = quizRows[0];
+        const [quiz] = await tx
+          .select({
+            id: schema.classroomQuizzes.id,
+            xpReward: schema.classroomQuizzes.xpReward,
+            passScore: schema.classroomQuizzes.passScore,
+            isActive: schema.classroomQuizzes.isActive,
+          })
+          .from(schema.classroomQuizzes)
+          .where(and(eq(schema.classroomQuizzes.id, quizId), eq(schema.classroomQuizzes.roomId, roomId)))
+          .limit(1);
+        if (!quiz) throw notFound("Quiz not found");
+        if (!quiz.isActive) throw notFound("Quiz is no longer active");
 
         // Check not already attempted
-        const { rows: existingAttempt } = await tx.query<{ id: string }>(
-          `SELECT id FROM classroom_quiz_attempts
-           WHERE quiz_id = $1 AND user_id = $2 LIMIT 1`,
-          [quizId, userId]
-        );
-        if (existingAttempt.length > 0) {
+        const [existingAttempt] = await tx
+          .select({ id: schema.classroomQuizAttempts.id })
+          .from(schema.classroomQuizAttempts)
+          .where(and(eq(schema.classroomQuizAttempts.quizId, quizId), eq(schema.classroomQuizAttempts.userId, userId)))
+          .limit(1);
+        if (existingAttempt) {
           throw conflict("You have already submitted an attempt for this quiz");
         }
 
         // Fetch all questions for grading
-        const { rows: questions } = await tx.query<{
-          id: string;
-          correct_option: string;
-        }>(
-          `SELECT id, correct_option FROM classroom_quiz_questions WHERE quiz_id = $1`,
-          [quizId]
-        );
+        const questions = await tx
+          .select({ id: schema.classroomQuizQuestions.id, correctOption: schema.classroomQuizQuestions.correctOption })
+          .from(schema.classroomQuizQuestions)
+          .where(eq(schema.classroomQuizQuestions.quizId, quizId));
 
         if (questions.length === 0) {
           throw notFound("Quiz has no questions");
@@ -105,29 +102,35 @@ export const POST = withAuth(
         let correctCount = 0;
         for (const question of questions) {
           const submitted = body.answers[question.id];
-          if (submitted && submitted === question.correct_option) {
+          if (submitted && submitted === question.correctOption) {
             correctCount++;
           }
         }
 
         const score = Math.round((correctCount / questions.length) * 100);
-        const passed = score >= quiz.pass_score;
-        const xpAwarded = passed ? quiz.xp_reward : 0;
+        const passed = score >= quiz.passScore;
+        const xpAwarded = passed ? quiz.xpReward : 0;
 
         // Insert attempt record — ON CONFLICT guards against concurrent duplicate
         // submissions racing past the SELECT check above (IMP-IDMP-02).
-        const { rows: attemptRows } = await tx.query<{ id: string }>(
-          `INSERT INTO classroom_quiz_attempts
-             (quiz_id, user_id, score, passed, answers, xp_awarded, completed_at)
-           VALUES ($1, $2, $3, $4, $5, $6, NOW())
-           ON CONFLICT (quiz_id, user_id) DO NOTHING
-           RETURNING id`,
-          [quizId, userId, score, passed, JSON.stringify(body.answers), xpAwarded]
-        );
-        if (!attemptRows[0]) {
+        const [attempt] = await tx
+          .insert(schema.classroomQuizAttempts)
+          .values({
+            quizId,
+            userId,
+            score,
+            passed,
+            answers: body.answers,
+            xpAwarded,
+          })
+          .onConflictDoNothing({
+            target: [schema.classroomQuizAttempts.quizId, schema.classroomQuizAttempts.userId],
+          })
+          .returning({ id: schema.classroomQuizAttempts.id });
+        if (!attempt) {
           throw conflict("You have already submitted an attempt for this quiz");
         }
-        const attemptId = attemptRows[0].id;
+        const attemptId = attempt.id;
 
         // Award XP if passed. safeAwardXP is the canonical XP-award path — it
         // writes the xp_ledger row (with the required NOT NULL base_amount),
@@ -141,10 +144,10 @@ export const POST = withAuth(
         // (and a perfect score earns the Quiz Ace badge). Idempotent per quiz.
         let classroomPointsAwarded = 0;
         if (passed) {
-          const { rows: roomRows } = await tx.query<{ slug: string | null; name: string }>(
-            `SELECT slug, name FROM rooms WHERE id = $1`,
-            [roomId]
-          );
+          const [room] = await tx
+            .select({ slug: schema.rooms.slug, name: schema.rooms.name })
+            .from(schema.rooms)
+            .where(eq(schema.rooms.id, roomId));
           const award = await awardClassroomPoints(
             {
               roomId,
@@ -152,15 +155,15 @@ export const POST = withAuth(
               source: "quiz_passed",
               referenceId: quizId,
               badgeSignals: { perfectQuiz: score === 100 },
-              classroom: { slug: roomRows[0]?.slug ?? null, name: roomRows[0]?.name ?? "" },
+              classroom: { slug: room?.slug ?? null, name: room?.name ?? "" },
             },
             tx
           );
           classroomPointsAwarded = award.awarded;
-          await tx.query(
-            `UPDATE classroom_enrolments SET last_active_at = NOW() WHERE room_id = $1 AND user_id = $2`,
-            [roomId, userId]
-          );
+          await tx
+            .update(schema.classroomEnrolments)
+            .set({ lastActiveAt: new Date() })
+            .where(and(eq(schema.classroomEnrolments.roomId, roomId), eq(schema.classroomEnrolments.userId, userId)));
         }
 
         return {

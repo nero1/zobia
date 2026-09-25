@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -77,18 +78,16 @@ export const POST = withAuth(
       await enforceRateLimit(userId, "user", RATE_LIMITS.apiWrite);
 
       // 1. Verify caller is a Verified+ creator
-      const creatorResult = await db.query<CreatorRow>(
-        `SELECT is_creator, creator_tier
-         FROM users
-         WHERE id = $1 AND deleted_at IS NULL
-         LIMIT 1`,
-        [userId]
-      );
-      const creator = creatorResult.rows[0];
+      const orm = await getDb();
+      const [creator] = await orm
+        .select({ is_creator: schema.users.isCreator, creator_tier: schema.users.creatorTier })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .limit(1);
       if (!creator?.is_creator) {
         throw forbidden("Creator account required");
       }
-      const hasL20Unlock = await hasTrackUnlock(userId, "creator_verified_badge_quest_marketplace", db);
+      const hasL20Unlock = await hasTrackUnlock(userId, "creator_verified_badge_quest_marketplace", orm);
       if (!creator.creator_tier || (!ELIGIBLE_TIERS.has(creator.creator_tier) && !hasL20Unlock)) {
         throw forbidden(
           "Verified tier or Creator Track Level 20 is required to apply for sponsored quests"
@@ -96,26 +95,29 @@ export const POST = withAuth(
       }
 
       // 2. Fetch the quest and verify it's active and deadline not passed
-      const questResult = await db.query<SponsoredQuestRow>(
-        `SELECT id, is_active, deadline, max_applications
-         FROM sponsored_quests
-         WHERE id = $1`,
-        [questId]
-      );
-      const quest = questResult.rows[0];
+      const [quest] = await orm
+        .select({
+          id: schema.sponsoredQuests.id,
+          is_active: schema.sponsoredQuests.isActive,
+          deadline: schema.sponsoredQuests.deadline,
+          max_applications: schema.sponsoredQuests.maxApplications,
+        })
+        .from(schema.sponsoredQuests)
+        .where(eq(schema.sponsoredQuests.id, questId))
+        .limit(1);
       if (!quest) throw notFound("Sponsored quest not found");
       if (!quest.is_active) throw badRequest("This sponsored quest is no longer active");
-      if (new Date(quest.deadline) < new Date()) {
+      if (!quest.deadline || new Date(quest.deadline) < new Date()) {
         throw badRequest("The deadline for this sponsored quest has passed");
       }
 
       // 3. Check max_applications limit
-      const appCountResult = await db.query<{ count: number }>(
-        `SELECT COUNT(*)::int AS count FROM sponsored_quest_applications WHERE quest_id = $1`,
-        [questId]
-      );
-      const currentCount = appCountResult.rows[0]?.count ?? 0;
-      if (currentCount >= quest.max_applications) {
+      const [appCountRow] = await orm
+        .select({ count: sql<number>`COUNT(*)::int` })
+        .from(schema.sponsoredQuestApplications)
+        .where(eq(schema.sponsoredQuestApplications.questId, questId));
+      const currentCount = appCountRow?.count ?? 0;
+      if (quest.max_applications != null && currentCount >= quest.max_applications) {
         throw conflict(
           "This sponsored quest has reached its maximum number of applications",
           "MAX_APPLICATIONS_REACHED"
@@ -123,13 +125,17 @@ export const POST = withAuth(
       }
 
       // 4. Prevent duplicate application
-      const dupCheck = await db.query<{ id: string }>(
-        `SELECT id FROM sponsored_quest_applications
-         WHERE quest_id = $1 AND creator_id = $2
-         LIMIT 1`,
-        [questId, userId]
-      );
-      if (dupCheck.rows.length > 0) {
+      const [dupRow] = await orm
+        .select({ id: schema.sponsoredQuestApplications.id })
+        .from(schema.sponsoredQuestApplications)
+        .where(
+          and(
+            eq(schema.sponsoredQuestApplications.questId, questId),
+            eq(schema.sponsoredQuestApplications.creatorId, userId)
+          )
+        )
+        .limit(1);
+      if (dupRow) {
         throw conflict(
           "You have already applied for this sponsored quest",
           "ALREADY_APPLIED"
@@ -139,23 +145,32 @@ export const POST = withAuth(
       const body = await validateBody(req, applySchema);
 
       // Verify the room belongs to this creator
-      const roomCheck = await db.query<{ id: string }>(
-        `SELECT id FROM rooms WHERE id = $1 AND creator_id = $2 AND is_active = TRUE LIMIT 1`,
-        [body.roomId, userId]
-      );
-      if (!roomCheck.rows[0]) {
+      const [roomRow] = await orm
+        .select({ id: schema.rooms.id })
+        .from(schema.rooms)
+        .where(
+          and(
+            eq(schema.rooms.id, body.roomId),
+            eq(schema.rooms.creatorId, userId),
+            eq(schema.rooms.isActive, true)
+          )
+        )
+        .limit(1);
+      if (!roomRow) {
         throw badRequest("Room not found or does not belong to your creator account");
       }
 
       // 5. Insert application — use 'applied' so complete route can find it
-      const insertResult = await db.query<{ id: string }>(
-        `INSERT INTO sponsored_quest_applications
-           (quest_id, creator_id, room_id, status, applied_at)
-         VALUES ($1, $2, $3, 'applied', NOW())
-         RETURNING id`,
-        [questId, userId, body.roomId]
-      );
-      const application = insertResult.rows[0];
+      const [application] = await orm
+        .insert(schema.sponsoredQuestApplications)
+        .values({
+          questId,
+          creatorId: userId,
+          roomId: body.roomId,
+          status: "applied",
+          appliedAt: new Date(),
+        })
+        .returning({ id: schema.sponsoredQuestApplications.id });
 
       return NextResponse.json(
         {

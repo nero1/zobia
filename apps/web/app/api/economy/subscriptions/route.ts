@@ -15,45 +15,16 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, conflict, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { initializePayment } from "@/lib/payments";
 import { serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
 import { randomUUID } from "crypto";
 import { env } from "@/lib/env";
 import { enforcePaymentContext, getUserIsNigeria } from "@/lib/payments/contextSettings";
 import { grantFreePayment } from "@/lib/payments/freeGrant";
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-type Plan = "free" | "plus" | "pro" | "max";
-
-interface SubscriptionRow {
-  id: string;
-  user_id: string;
-  plan: Plan;
-  billing_period: "monthly" | "annual";
-  status: "active" | "cancelled" | "past_due" | "trialing";
-  starts_at: string;
-  ends_at: string | null;
-  cancelled_at: string | null;
-  provider: string | null;
-  provider_subscription_id: string | null;
-  created_at: string;
-}
-
-interface SubscriptionPlanRow {
-  id: string;
-  plan: Plan;
-  name: string;
-  price_kobo: number;
-  currency: string;
-  interval: "monthly" | "annual";
-  is_active: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // GET handler
@@ -67,51 +38,67 @@ interface SubscriptionPlanRow {
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
+    const orm = await getDb();
 
-    const { rows } = await db.query<SubscriptionRow>(
-      `SELECT id, user_id, plan, billing_period, status, starts_at,
-              ends_at, cancelled_at, provider, provider_subscription_id, created_at
-       FROM subscriptions
-       WHERE user_id = $1 AND status IN ('active', 'cancelled')
-       ORDER BY created_at DESC
-       LIMIT 1`,
-      [userId]
-    );
+    const rows = await orm
+      .select({
+        id: schema.subscriptions.id,
+        userId: schema.subscriptions.userId,
+        plan: schema.subscriptions.plan,
+        billingPeriod: schema.subscriptions.billingPeriod,
+        status: schema.subscriptions.status,
+        startsAt: schema.subscriptions.startsAt,
+        endsAt: schema.subscriptions.endsAt,
+        cancelledAt: schema.subscriptions.cancelledAt,
+        provider: schema.subscriptions.provider,
+        providerSubscriptionId: schema.subscriptions.providerSubscriptionId,
+        createdAt: schema.subscriptions.createdAt,
+      })
+      .from(schema.subscriptions)
+      .where(and(eq(schema.subscriptions.userId, userId), inArray(schema.subscriptions.status, ["active", "cancelled"])))
+      .orderBy(desc(schema.subscriptions.createdAt))
+      .limit(1);
 
     const subscription = rows[0] ?? null;
 
     // Also return available plans for the subscribe flow
-    const { rows: plans } = await db.query<SubscriptionPlanRow>(
-      `SELECT id, plan, name, price_kobo, currency, interval, is_active
-       FROM subscription_plans
-       WHERE is_active = TRUE
-       ORDER BY price_kobo ASC`
-    );
+    const plans = await orm
+      .select({
+        id: schema.subscriptionPlans.id,
+        plan: schema.subscriptionPlans.plan,
+        name: schema.subscriptionPlans.name,
+        priceKobo: schema.subscriptionPlans.priceKobo,
+        currency: schema.subscriptionPlans.currency,
+        interval: schema.subscriptionPlans.interval,
+      })
+      .from(schema.subscriptionPlans)
+      .where(eq(schema.subscriptionPlans.isActive, true))
+      .orderBy(schema.subscriptionPlans.priceKobo);
 
     return NextResponse.json({
       currentSubscription: subscription
         ? {
             id: subscription.id,
             plan: subscription.plan,
-            interval: subscription.billing_period,
+            interval: subscription.billingPeriod,
             status: subscription.status,
-            currentPeriodStart: subscription.starts_at,
-            currentPeriodEnd: subscription.ends_at,
-            cancelledAt: subscription.cancelled_at,
+            currentPeriodStart: subscription.startsAt,
+            currentPeriodEnd: subscription.endsAt,
+            cancelledAt: subscription.cancelledAt,
             // "google_play" | "paystack" | "crypto" — Android uses this to
             // route cancellation through the Play Store subscription center
             // instead of our own DELETE, since only Play can actually stop
             // a Play-billed recurring charge (see routes/settings/subscription.tsx).
             provider: subscription.provider,
-            providerSubscriptionId: subscription.provider_subscription_id,
-            createdAt: subscription.created_at,
+            providerSubscriptionId: subscription.providerSubscriptionId,
+            createdAt: subscription.createdAt,
           }
         : null,
       availablePlans: plans.map((p) => ({
         id: p.id,
         plan: p.plan,
         name: p.name,
-        priceKobo: p.price_kobo,
+        priceKobo: Number(p.priceKobo),
         currency: p.currency,
         interval: p.interval,
       })),
@@ -161,52 +148,65 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const body = await validateBody(req, SubscribeSchema);
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // Resolve plan — either by planId or by plan+billingCycle
-    let planQuery: string;
-    let planParams: string[];
-    if (body.planId) {
-      planQuery = `SELECT id, plan, name, price_kobo, currency, interval, is_active
-                   FROM subscription_plans WHERE id = $1 LIMIT 1`;
-      planParams = [body.planId];
-    } else {
-      // PRD §3: annual = 10×monthly price (2 months free)
-      planQuery = `SELECT id, plan, name, price_kobo, currency, interval, is_active
-                   FROM subscription_plans
-                   WHERE plan = $1 AND interval = $2 AND is_active = TRUE
-                   LIMIT 1`;
-      planParams = [body.plan!, body.billingCycle!];
-    }
+    const planWhere = body.planId
+      ? eq(schema.subscriptionPlans.id, body.planId)
+      : and(
+          eq(schema.subscriptionPlans.plan, body.plan!),
+          eq(schema.subscriptionPlans.interval, body.billingCycle!),
+          eq(schema.subscriptionPlans.isActive, true)
+        );
 
-    const { rows: planRows } = await db.query<SubscriptionPlanRow>(planQuery, planParams);
+    const planRows = await orm
+      .select({
+        id: schema.subscriptionPlans.id,
+        plan: schema.subscriptionPlans.plan,
+        name: schema.subscriptionPlans.name,
+        priceKobo: schema.subscriptionPlans.priceKobo,
+        currency: schema.subscriptionPlans.currency,
+        interval: schema.subscriptionPlans.interval,
+        isActive: schema.subscriptionPlans.isActive,
+      })
+      .from(schema.subscriptionPlans)
+      .where(planWhere)
+      .limit(1);
 
     if (!planRows[0]) {
       throw notFound("Subscription plan not found");
     }
 
-    const plan = planRows[0];
+    const planRow = planRows[0];
+    const plan = { ...planRow, priceKobo: Number(planRow.priceKobo) };
 
-    if (!plan.is_active) {
+    if (!plan.isActive) {
       throw badRequest("This subscription plan is not currently available");
     }
 
     // Check if user already has an active subscription to this plan
-    const { rows: existing } = await db.query<{ id: string }>(
-      `SELECT id FROM subscriptions
-       WHERE user_id = $1 AND plan = $2 AND status = 'active'
-       LIMIT 1`,
-      [userId, plan.plan]
-    );
+    const existing = await orm
+      .select({ id: schema.subscriptions.id })
+      .from(schema.subscriptions)
+      .where(
+        and(
+          eq(schema.subscriptions.userId, userId),
+          eq(schema.subscriptions.plan, plan.plan),
+          eq(schema.subscriptions.status, "active")
+        )
+      )
+      .limit(1);
 
     if (existing[0]) {
       throw conflict("You already have an active subscription to this plan", "ALREADY_SUBSCRIBED");
     }
 
     // Load user email
-    const { rows: userRows } = await db.query<{ email: string | null; username: string }>(
-      `SELECT email, username FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const userRows = await orm
+      .select({ email: schema.users.email, username: schema.users.username })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
 
     if (!userRows[0]) {
       throw badRequest("User not found");
@@ -235,7 +235,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       await grantFreePayment({
         userId,
         paymentType: "subscription",
-        amountKobo: plan.price_kobo,
+        amountKobo: plan.priceKobo,
         currency: plan.currency,
         idempotencyKey,
         metadata: metadata as never,
@@ -244,14 +244,14 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         paymentUrl: "",
         paymentReference: idempotencyKey,
         free: true,
-        plan: { id: plan.id, plan: plan.plan, name: plan.name, priceKobo: plan.price_kobo, currency: plan.currency, interval: plan.interval },
+        plan: { id: plan.id, plan: plan.plan, name: plan.name, priceKobo: plan.priceKobo, currency: plan.currency, interval: plan.interval },
       });
     }
 
     const provider = decision.provider;
 
     const paymentResult = await initializePayment(
-      plan.price_kobo,
+      plan.priceKobo,
       plan.currency,
       email,
       idempotencyKey,
@@ -264,26 +264,21 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const computed = provider === "crypto" ? (paymentResult.raw as ComputedAmount) : null;
 
     // Store pending payment
-    await db.query(
-      `INSERT INTO payments
-         (user_id, payment_type, amount_kobo, currency, provider, status,
-          idempotency_key, provider_reference, metadata, chain, token_symbol, wallet_address, expected_token_amount)
-       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7, $8, $9, $10, $11, $12)`,
-      [
-        userId,
-        'subscription',
-        plan.price_kobo,
-        plan.currency,
-        provider,
-        idempotencyKey,
-        paymentResult.providerReference,
-        JSON.stringify(metadataWithUrl),
-        computed?.chain ?? null,
-        computed?.currency ?? null,
-        computed?.receivingAddress ?? null,
-        computed ? computed.expectedBaseUnits.toString() : null,
-      ]
-    );
+    await orm.insert(schema.payments).values({
+      userId,
+      paymentType: "subscription",
+      amountKobo: planRow.priceKobo,
+      currency: plan.currency,
+      provider,
+      status: "pending",
+      idempotencyKey,
+      providerReference: paymentResult.providerReference,
+      metadata: metadataWithUrl,
+      chain: computed?.chain ?? null,
+      tokenSymbol: computed?.currency ?? null,
+      walletAddress: computed?.receivingAddress ?? null,
+      expectedTokenAmount: computed ? computed.expectedBaseUnits.toString() : null,
+    });
 
     return NextResponse.json({
       paymentUrl: paymentResult.paymentUrl,
@@ -293,7 +288,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         id: plan.id,
         plan: plan.plan,
         name: plan.name,
-        priceKobo: plan.price_kobo,
+        priceKobo: plan.priceKobo,
         currency: plan.currency,
         interval: plan.interval,
       },

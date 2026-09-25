@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden } from "@/lib/api/errors";
 
@@ -28,21 +29,23 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
     const body = await validateBody(req, CrestSchema);
 
-    // Only Hall of Fame users (prestige_count >= 10) may set a custom crest
-    const { rows } = await db.query<{ prestige_count: number }>(
-      `SELECT COALESCE(prestige_count, 0) AS prestige_count
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const db = await getDb();
 
-    if (!rows[0] || rows[0].prestige_count < 10) {
+    // Only Hall of Fame users (prestige_count >= 10) may set a custom crest
+    const [row] = await db
+      .select({ prestigeCount: schema.users.prestigeCount })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
+
+    if (!row || (row.prestigeCount ?? 0) < 10) {
       throw forbidden("Custom crests are exclusively available to Hall of Fame users (Prestige 10).", "HOF_REQUIRED");
     }
 
-    await db.query(
-      `UPDATE users SET custom_crest = $1, updated_at = NOW() WHERE id = $2`,
-      [body.crest, userId]
-    );
+    await db
+      .update(schema.users)
+      .set({ customCrest: body.crest, updatedAt: new Date() })
+      .where(eq(schema.users.id, userId));
 
     return NextResponse.json({
       success: true,
@@ -58,17 +61,21 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<{ custom_crest: string | null; prestige_count: number }>(
-      `SELECT custom_crest, COALESCE(prestige_count, 0) AS prestige_count
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const db = await getDb();
+    const [row] = await db
+      .select({
+        customCrest: schema.users.customCrest,
+        prestigeCount: schema.users.prestigeCount,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
 
     return NextResponse.json({
       success: true,
       data: {
-        customCrest: rows[0]?.custom_crest ?? null,
-        eligible: (rows[0]?.prestige_count ?? 0) >= 10,
+        customCrest: row?.customCrest ?? null,
+        eligible: (row?.prestigeCount ?? 0) >= 10,
       },
       error: null,
     });

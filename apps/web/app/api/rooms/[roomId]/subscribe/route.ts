@@ -21,7 +21,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, and, gt, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -82,13 +83,18 @@ async function hasActiveSubscription(
   roomId: string,
   userId: string
 ): Promise<boolean> {
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM room_subscriptions
-     WHERE room_id = $1 AND user_id = $2 AND status = 'active' AND expires_at > NOW()
-     LIMIT 1`,
-    [roomId, userId]
-  );
-  return rows.length > 0;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ id: schema.roomSubscriptions.id })
+    .from(schema.roomSubscriptions)
+    .where(and(
+      eq(schema.roomSubscriptions.roomId, roomId),
+      eq(schema.roomSubscriptions.userId, userId),
+      eq(schema.roomSubscriptions.status, 'active'),
+      gt(schema.roomSubscriptions.expiresAt, sql`NOW()`),
+    ))
+    .limit(1);
+  return !!row;
 }
 
 /**
@@ -101,7 +107,7 @@ async function hasActiveSubscription(
  * @param referenceId - Reference ID (subscription record ID)
  */
 async function creditCreatorEarnings(
-  tx: Awaited<Parameters<Parameters<typeof db.transaction>[0]>[0]>,
+  tx: DbOrTx,
   creatorId: string,
   grossKobo: number,
   referenceId: string,
@@ -110,20 +116,22 @@ async function creditCreatorEarnings(
   const netKobo = Math.floor((grossKobo * creatorSharePercent) / 100);
   const platformFeeKobo = grossKobo - netKobo;
 
-  await tx.query(
-    `INSERT INTO creator_earnings
-       (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
-     VALUES ($1, 'subscription', $2, $3, $4, $5)`,
-    [creatorId, grossKobo, platformFeeKobo, netKobo, referenceId]
-  );
+  await tx.insert(schema.creatorEarnings).values({
+    creatorId,
+    sourceType: 'subscription',
+    grossAmountKobo: BigInt(grossKobo),
+    platformFeeKobo: BigInt(platformFeeKobo),
+    netAmountKobo: BigInt(netKobo),
+    referenceId,
+  });
   // Increment available balance so manual payout route sees the accrual
-  await tx.query(
-    `UPDATE users
-     SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
-         updated_at = NOW()
-     WHERE id = $2`,
-    [netKobo, creatorId]
-  );
+  await tx
+    .update(schema.users)
+    .set({
+      availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${netKobo}`,
+      updatedAt: sql`NOW()`,
+    })
+    .where(eq(schema.users.id, creatorId));
 }
 
 // ---------------------------------------------------------------------------
@@ -146,16 +154,22 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const { roomId } = await params as { roomId: string };
     const userId = auth.user.sub;
     const body = await validateBody(req, subscribeSchema);
+    const orm = await getDb();
 
     // Fetch room (join creator_tier for revenue share calculation)
-    const { rows: roomRows } = await db.query<RoomRow>(
-      `SELECT r.id, r.type, r.creator_id, u.creator_tier, r.is_active, r.subscription_price_ngn
-       FROM rooms r
-       JOIN users u ON u.id = r.creator_id
-       WHERE r.id = $1`,
-      [roomId]
-    );
-    const room = roomRows[0];
+    const [room] = await orm
+      .select({
+        id: schema.rooms.id,
+        type: schema.rooms.type,
+        creator_id: schema.rooms.creatorId,
+        creator_tier: schema.users.creatorTier,
+        is_active: schema.rooms.isActive,
+        subscription_price_ngn: schema.rooms.subscriptionPriceNgn,
+      })
+      .from(schema.rooms)
+      .innerJoin(schema.users, eq(schema.users.id, schema.rooms.creatorId))
+      .where(eq(schema.rooms.id, roomId));
+
     if (!room || !room.is_active) throw notFound("Room not found");
     if (room.type !== "vip") {
       throw badRequest("This endpoint is only for VIP rooms");
@@ -172,18 +186,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw conflict("You already have an active subscription to this room");
     }
 
-    const grossKobo = room.subscription_price_ngn * 100; // NGN to kobo
-    const expiresAt = new Date(
+    const subscriptionPriceNgn = Number(room.subscription_price_ngn);
+    const grossKobo = subscriptionPriceNgn * 100; // NGN to kobo
+    const expiresAtDate = new Date(
       Date.now() + SUBSCRIPTION_DAYS * 24 * 60 * 60 * 1000
-    ).toISOString();
+    );
 
     if (body.paymentMethod === "card") {
       // Fetch user email for payment provider
-      const { rows: emailRows } = await db.query<{ email: string }>(
-        `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      const email = emailRows[0]?.email;
+      const [emailRow] = await orm
+        .select({ email: schema.users.email })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), sql`${schema.users.deletedAt} IS NULL`))
+        .limit(1);
+      const email = emailRow?.email;
       if (!email) throw notFound("User not found");
 
       const idempotencyKey = `room-sub-${userId}-${roomId}-${Date.now()}`;
@@ -206,20 +222,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
 
       // Persist the pending payment record so the webhook can activate it
-      await db.query(
-        `INSERT INTO payments
-           (user_id, payment_type, amount_kobo, currency, status,
-            idempotency_key, provider_reference, payment_url, metadata)
-         VALUES ($1, 'room_subscription', $2, 'NGN', 'pending', $3, $4, $5, $6)`,
-        [
-          userId,
-          grossKobo,
-          idempotencyKey,
-          paymentResult.providerReference,
-          paymentResult.paymentUrl,
-          JSON.stringify(metadata),
-        ]
-      );
+      await orm.insert(schema.payments).values({
+        userId,
+        paymentType: 'room_subscription',
+        amountKobo: BigInt(grossKobo),
+        currency: 'NGN',
+        status: 'pending',
+        idempotencyKey,
+        providerReference: paymentResult.providerReference,
+        paymentUrl: paymentResult.paymentUrl,
+        metadata,
+        provider: 'paystack',
+      });
 
       return NextResponse.json(
         {
@@ -232,19 +246,19 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Naira → coins at 1 NGN = 1 coin (platform configures actual rate via manifest)
-    const requiredCoins = room.subscription_price_ngn;
+    const requiredCoins = subscriptionPriceNgn;
 
-    const subscription = await db.transaction(async (tx) => {
+    const subscription = await orm.transaction(async (tx) => {
       // Balance payment — lock the row inside the transaction so concurrent
       // requests cannot both pass the balance check and overdraft the account.
-      const { rows: userRows } = await tx.query<{ coin_balance: number }>(
-        `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-        [userId]
-      );
-      const user = userRows[0];
+      const [user] = await tx
+        .select({ coinBalance: schema.users.coinBalance })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), sql`${schema.users.deletedAt} IS NULL`))
+        .for('update');
       if (!user) throw notFound("User not found");
 
-      if (user.coin_balance < requiredCoins) {
+      if (user.coinBalance < BigInt(requiredCoins)) {
         throw badRequest(
           `Insufficient balance. You need ${requiredCoins} coins for this subscription.`,
           "INSUFFICIENT_COINS"
@@ -252,37 +266,37 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
 
       // Debit coins
-      await tx.query(
-        `UPDATE users
-         SET coin_balance = coin_balance - $1, updated_at = NOW()
-         WHERE id = $2`,
-        [requiredCoins, userId]
-      );
+      await tx
+        .update(schema.users)
+        .set({ coinBalance: sql`${schema.users.coinBalance} - ${requiredCoins}`, updatedAt: sql`NOW()` })
+        .where(eq(schema.users.id, userId));
 
-      await tx.query(
-        `INSERT INTO coin_ledger
-           (user_id, amount, balance_before, balance_after, transaction_type, reference_id, description)
-         VALUES ($1, $2, $3, $4, 'subscription', $5, $6)`,
-        [
-          userId,
-          -requiredCoins,
-          user.coin_balance,
-          user.coin_balance - requiredCoins,
-          roomId,
-          `VIP room subscription: ${roomId}`,
-        ]
-      );
+      const balanceBefore = user.coinBalance;
+      const balanceAfter = user.coinBalance - BigInt(requiredCoins);
+
+      await tx.insert(schema.coinLedger).values({
+        userId,
+        amount: BigInt(-requiredCoins),
+        balanceBefore,
+        balanceAfter,
+        transactionType: 'subscription',
+        referenceId: roomId,
+        description: `VIP room subscription: ${roomId}`,
+      });
 
       // Create subscription record
-      const { rows: subRows } = await tx.query<{ id: string }>(
-        `INSERT INTO room_subscriptions
-           (room_id, user_id, status, amount_kobo, started_at, expires_at)
-         VALUES ($1, $2, 'active', $3, NOW(), $4)
-         RETURNING *`,
-        [roomId, userId, grossKobo, expiresAt]
-      );
+      const [sub] = await tx
+        .insert(schema.roomSubscriptions)
+        .values({
+          roomId,
+          userId,
+          status: 'active',
+          amountKobo: BigInt(grossKobo),
+          startedAt: sql`NOW()`,
+          expiresAt: expiresAtDate,
+        })
+        .returning();
 
-      const sub = subRows[0];
       if (!sub) throw new Error("Subscription creation failed");
 
       // Credit creator earnings (85% for Icon creators, 80% otherwise)
@@ -290,26 +304,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       await creditCreatorEarnings(tx, room.creator_id, grossKobo, sub.id, creatorShare);
 
       // Join room if not already a member; RETURNING tells us if a new row was inserted.
-      const { rows: memberRows } = await tx.query<{ room_id: string }>(
-        `INSERT INTO room_members (room_id, user_id, role, joined_at)
-         VALUES ($1, $2, 'member', NOW())
-         ON CONFLICT (room_id, user_id) DO NOTHING
-         RETURNING room_id`,
-        [roomId, userId]
-      );
+      const insertedMember = await tx
+        .insert(schema.roomMembers)
+        .values({ roomId, userId, role: 'member', joinedAt: sql`NOW()` })
+        .onConflictDoNothing()
+        .returning({ roomId: schema.roomMembers.roomId });
 
       // Only increment member_count when the INSERT actually added a new row.
-      if (memberRows[0]) {
-        await tx.query(
-          `UPDATE rooms SET member_count = member_count + 1, updated_at = NOW() WHERE id = $1`,
-          [roomId]
-        );
+      if (insertedMember[0]) {
+        await tx
+          .update(schema.rooms)
+          .set({ memberCount: sql`${schema.rooms.memberCount} + 1`, updatedAt: sql`NOW()` })
+          .where(eq(schema.rooms.id, roomId));
       }
 
       return sub;
     });
 
-    return NextResponse.json({ subscription }, { status: 201 });
+    return NextResponse.json(
+      { subscription: { ...subscription, amountKobo: Number(subscription.amountKobo ?? 0) } },
+      { status: 201 }
+    );
   } catch (err) {
     return handleApiError(err);
   }

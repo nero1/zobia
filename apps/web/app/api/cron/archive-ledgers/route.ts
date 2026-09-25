@@ -19,7 +19,8 @@ export const maxDuration = 300;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { validateCronSecret } from "@/lib/cron/auth";
 import { getManifestValue } from "@/lib/manifest";
 import { logger } from "@/lib/logger";
@@ -31,40 +32,45 @@ interface ArchiveResult {
   archived: number;
 }
 
+// Table/column names are dynamic (this function is reused for several
+// ledger tables), so the batch-select/insert/delete steps genuinely can't
+// be expressed through Drizzle's typed query builder. We use its `sql`
+// template (with `sql.raw` for identifiers, kept out of any user input —
+// callers below only ever pass fixed literal strings) instead of the
+// legacy raw-SQL adapter, still against the same pg.Pool/transaction.
 async function archiveTable(
   sourceTable: string,
-  archiveTable: string,
+  archiveTableName: string,
   columns: string,
   cutoff: Date
 ): Promise<number> {
+  const orm = await getDb();
   let totalArchived = 0;
 
   while (true) {
-    const result = await db.transaction(async (tx) => {
-      const { rows: sourceRows } = await tx.query<{ id: string }>(
-        `SELECT id FROM ${sourceTable}
-         WHERE created_at < $1
-         LIMIT $2
-         FOR UPDATE SKIP LOCKED`,
-        [cutoff.toISOString(), BATCH_SIZE]
-      );
+    const result = await orm.transaction(async (tx) => {
+      const selectResult = await tx.execute(sql`
+        SELECT id FROM ${sql.raw(sourceTable)}
+        WHERE created_at < ${cutoff.toISOString()}
+        LIMIT ${BATCH_SIZE}
+        FOR UPDATE SKIP LOCKED
+      `);
+      const sourceRows = selectResult.rows as unknown as { id: string }[];
 
       if (sourceRows.length === 0) return 0;
 
       const ids = sourceRows.map((r) => r.id);
 
-      await tx.query(
-        `INSERT INTO ${archiveTable} (${columns}, archived_at)
-         SELECT ${columns}, NOW()
-         FROM ${sourceTable}
-         WHERE id = ANY($1::uuid[])`,
-        [ids]
-      );
+      await tx.execute(sql`
+        INSERT INTO ${sql.raw(archiveTableName)} (${sql.raw(columns)}, archived_at)
+        SELECT ${sql.raw(columns)}, NOW()
+        FROM ${sql.raw(sourceTable)}
+        WHERE id = ANY(${ids}::uuid[])
+      `);
 
-      await tx.query(
-        `DELETE FROM ${sourceTable} WHERE id = ANY($1::uuid[])`,
-        [ids]
-      );
+      await tx.execute(sql`
+        DELETE FROM ${sql.raw(sourceTable)} WHERE id = ANY(${ids}::uuid[])
+      `);
 
       return sourceRows.length;
     });

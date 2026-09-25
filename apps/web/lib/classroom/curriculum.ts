@@ -15,8 +15,8 @@
 
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { badRequest, notFound } from "@/lib/api/errors";
 import { CLASSROOM_MAX_LEVEL } from "@/lib/classroom/levels";
 import { sanitizeBlogPostHtml } from "@/lib/security/htmlSanitizer";
@@ -142,28 +142,31 @@ export function viewModules(
 export async function saveModules(
   roomId: string,
   modules: CurriculumModule[],
-  client: Pick<TransactionClient, "query"> = db
+  client?: DbOrTx
 ): Promise<void> {
   if (modules.length > MAX_MODULES) throw badRequest(`A classroom can have at most ${MAX_MODULES} modules`);
-  await client.query(
-    `UPDATE rooms
-        SET curriculum = CASE
-              WHEN curriculum IS NULL OR jsonb_typeof(curriculum) <> 'object'
-                THEN jsonb_build_object('modules', $1::jsonb)
-              ELSE jsonb_set(curriculum, '{modules}', $1::jsonb)
-            END,
-            updated_at = NOW()
-      WHERE id = $2`,
-    [JSON.stringify(modules), roomId]
-  );
+  const orm = client ?? (await getDb());
+  const modulesJson = JSON.stringify(modules);
+  await orm
+    .update(schema.rooms)
+    .set({
+      curriculum: sql`CASE
+              WHEN ${schema.rooms.curriculum} IS NULL OR jsonb_typeof(${schema.rooms.curriculum}) <> 'object'
+                THEN jsonb_build_object('modules', ${modulesJson}::jsonb)
+              ELSE jsonb_set(${schema.rooms.curriculum}, '{modules}', ${modulesJson}::jsonb)
+            END`,
+      updatedAt: new Date(),
+    })
+    .where(eq(schema.rooms.id, roomId));
 }
 
 export async function getCompletedModuleIds(roomId: string, userId: string): Promise<Set<string>> {
-  const { rows } = await db.query<{ module_id: string }>(
-    `SELECT module_id FROM classroom_lesson_completions WHERE room_id = $1 AND user_id = $2`,
-    [roomId, userId]
-  );
-  return new Set(rows.map((r) => r.module_id));
+  const orm = await getDb();
+  const rows = await orm
+    .select({ moduleId: schema.classroomLessonCompletions.moduleId })
+    .from(schema.classroomLessonCompletions)
+    .where(and(eq(schema.classroomLessonCompletions.roomId, roomId), eq(schema.classroomLessonCompletions.userId, userId)));
+  return new Set(rows.map((r) => r.moduleId));
 }
 
 export interface LessonCompletionResult {
@@ -188,41 +191,52 @@ export async function completeLesson(
     classroom: { slug: string | null; name: string };
   }
 ): Promise<LessonCompletionResult> {
-  return db.transaction(async (tx) => {
-    const { rows: roomRows } = await tx.query<{ curriculum: unknown }>(
-      `SELECT curriculum FROM rooms WHERE id = $1 FOR SHARE`,
-      [params.roomId]
-    );
-    const modules = parseModules(roomRows[0]?.curriculum);
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const [roomRow] = await tx
+      .select({ curriculum: schema.rooms.curriculum })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, params.roomId))
+      .for("share");
+    const modules = parseModules(roomRow?.curriculum);
     const mod = modules.find((m) => m.id === params.moduleId);
     if (!mod) throw notFound("Lesson not found");
     if (!params.fullAccess && (mod.unlockLevel ?? 1) > params.memberLevel) {
       throw badRequest(`This lesson unlocks at level ${mod.unlockLevel}`, "CLASSROOM_LESSON_LOCKED");
     }
 
-    const { rows: ins } = await tx.query<{ module_id: string }>(
-      `INSERT INTO classroom_lesson_completions (room_id, user_id, module_id, completed_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (room_id, user_id, module_id) DO NOTHING
-       RETURNING module_id`,
-      [params.roomId, params.userId, params.moduleId]
-    );
+    const ins = await tx
+      .insert(schema.classroomLessonCompletions)
+      .values({ roomId: params.roomId, userId: params.userId, moduleId: params.moduleId })
+      .onConflictDoNothing({
+        target: [
+          schema.classroomLessonCompletions.roomId,
+          schema.classroomLessonCompletions.userId,
+          schema.classroomLessonCompletions.moduleId,
+        ],
+      })
+      .returning({ moduleId: schema.classroomLessonCompletions.moduleId });
     const newlyCompleted = ins.length > 0;
 
     const moduleIds = modules.map((m) => m.id);
-    const { rows: countRows } = await tx.query<{ n: string }>(
-      `SELECT COUNT(*)::text AS n FROM classroom_lesson_completions
-        WHERE room_id = $1 AND user_id = $2 AND module_id = ANY($3::text[])`,
-      [params.roomId, params.userId, moduleIds]
-    );
-    const completedCount = Number(countRows[0]?.n ?? 0);
+    const [countRow] = await tx
+      .select({ n: sql<string>`COUNT(*)` })
+      .from(schema.classroomLessonCompletions)
+      .where(
+        and(
+          eq(schema.classroomLessonCompletions.roomId, params.roomId),
+          eq(schema.classroomLessonCompletions.userId, params.userId),
+          sql`${schema.classroomLessonCompletions.moduleId} = ANY(${moduleIds}::text[])`
+        )
+      );
+    const completedCount = Number(countRow?.n ?? 0);
 
     const awards: PointsAwardResult[] = [];
     if (newlyCompleted) {
-      await tx.query(
-        `UPDATE classroom_enrolments SET last_active_at = NOW() WHERE room_id = $1 AND user_id = $2`,
-        [params.roomId, params.userId]
-      );
+      await tx
+        .update(schema.classroomEnrolments)
+        .set({ lastActiveAt: new Date() })
+        .where(and(eq(schema.classroomEnrolments.roomId, params.roomId), eq(schema.classroomEnrolments.userId, params.userId)));
       awards.push(
         await awardClassroomPoints(
           {
@@ -250,11 +264,10 @@ export async function completeLesson(
             tx
           )
         );
-        await tx.query(
-          `UPDATE classroom_enrolments SET completed_at = COALESCE(completed_at, NOW())
-            WHERE room_id = $1 AND user_id = $2`,
-          [params.roomId, params.userId]
-        );
+        await tx
+          .update(schema.classroomEnrolments)
+          .set({ completedAt: sql`COALESCE(${schema.classroomEnrolments.completedAt}, NOW())` })
+          .where(and(eq(schema.classroomEnrolments.roomId, params.roomId), eq(schema.classroomEnrolments.userId, params.userId)));
       }
     }
 
@@ -270,8 +283,14 @@ export async function completeLesson(
 
 /** Un-mark a lesson (does not claw back points — completions are a progress aid). */
 export async function uncompleteLesson(roomId: string, userId: string, moduleId: string): Promise<void> {
-  await db.query(
-    `DELETE FROM classroom_lesson_completions WHERE room_id = $1 AND user_id = $2 AND module_id = $3`,
-    [roomId, userId, moduleId]
-  );
+  const orm = await getDb();
+  await orm
+    .delete(schema.classroomLessonCompletions)
+    .where(
+      and(
+        eq(schema.classroomLessonCompletions.roomId, roomId),
+        eq(schema.classroomLessonCompletions.userId, userId),
+        eq(schema.classroomLessonCompletions.moduleId, moduleId)
+      )
+    );
 }

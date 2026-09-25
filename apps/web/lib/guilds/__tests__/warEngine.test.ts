@@ -1,34 +1,66 @@
 /**
  * Unit tests for the guild war engine.
  *
- * Database is fully mocked. jest.useFakeTimers() is used where Final Hour
- * detection depends on wall-clock time.
+ * lib/guilds/warEngine.ts has been migrated to Drizzle ORM (db.execute /
+ * db.transaction with the `sql` tagged template) instead of the raw
+ * `@/lib/db` adapter. Rather than hand-mock every call shape, these tests
+ * back a *real* `drizzle-orm/node-postgres` instance with a fake
+ * `pg`-shaped client whose `query()` is a jest.fn. Every query the engine
+ * issues still goes through real Drizzle compilation — exactly like
+ * production — and lands on `mockQuery` as plain SQL text + params, which
+ * tests dispatch on the same way the old raw-adapter tests dispatched on
+ * `db.query`'s SQL string (see lib/quests/__tests__/questEngine.test.ts and
+ * lib/seasons/__tests__/seasonEngine.test.ts for the same pattern).
  */
 
 // ---------------------------------------------------------------------------
-// Mock @/lib/db
+// Build a real Drizzle instance backed by a mock client. warEngine.ts takes
+// its `db: DbOrTx` param directly (it does not call getDb() internally), so
+// tests pass `mockDb` straight into each function under test.
 // ---------------------------------------------------------------------------
 
-jest.mock('@/lib/db', () => ({
-  db: {
-    query: jest.fn(),
-    transaction: jest.fn(),
-    healthCheck: jest.fn().mockResolvedValue(true),
-    close: jest.fn().mockResolvedValue(undefined),
+import { drizzle } from "drizzle-orm/node-postgres";
+import { schema } from "@/lib/db/schema";
+
+const mockQuery = jest.fn();
+
+const fakeClient = {
+  query: (queryConfig: unknown, params?: unknown[]) => {
+    const text = typeof queryConfig === "string" ? queryConfig : (queryConfig as { text: string }).text;
+    return mockQuery(text, params);
   },
-}));
+};
+
+// `as any` on the client sidesteps drizzle-orm's `$client: Pool` typing
+// (a real Pool isn't needed at runtime — drizzle only ever calls
+// `client.query()` for a non-Pool client, including inside transactions).
+const mockDb = drizzle(fakeClient as any, { schema }) as any;
 
 // findWarOpponent reads the war cooldown override via getManifestValue,
-// which (on a cache miss) falls back to a raw `db.query` call of its own —
-// mocking it directly keeps the mocked db.query call sequence limited to
-// the calls warEngine.ts itself makes, rather than needing every test to
-// also account for the manifest lookup's internal query.
+// which (on a cache miss) falls back to a raw db call of its own — mocking
+// it directly keeps the mocked query call sequence limited to the calls
+// warEngine.ts itself makes, rather than needing every test to also
+// account for the manifest lookup's internal query.
 jest.mock('@/lib/manifest', () => ({
   getManifestValue: jest.fn().mockResolvedValue(null),
 }));
 
+const mockCreditCoins = jest.fn().mockResolvedValue({});
+jest.mock('@/lib/economy/coins', () => ({
+  creditCoins: (...args: unknown[]) => mockCreditCoins(...args),
+}));
+
+const mockSafeAwardXP = jest.fn().mockResolvedValue(undefined);
+jest.mock('@/lib/xp/safeAwardXP', () => ({
+  safeAwardXP: (...args: unknown[]) => mockSafeAwardXP(...args),
+}));
+
+// warEngine.ts does not import `@/lib/db` (the raw adapter) directly, but
+// keep it mocked defensively so no test accidentally opens a real connection.
+jest.mock('@/lib/db', () => ({ db: {} }));
+
 // ---------------------------------------------------------------------------
-// Imports
+// Imports (after mocks)
 // ---------------------------------------------------------------------------
 
 import {
@@ -40,37 +72,17 @@ import {
   WAR_DURATION_HOURS,
   WAR_COOLDOWN_HOURS,
 } from '@/lib/guilds/warEngine';
-import type { DatabaseAdapter, TransactionClient } from '@/lib/db/interface';
-import { db as globalDb } from '@/lib/db';
 
 // ---------------------------------------------------------------------------
 // Setup
 // ---------------------------------------------------------------------------
 
 beforeEach(() => {
-  (globalDb.query as jest.Mock).mockReset();
-  (globalDb.query as jest.Mock).mockResolvedValue({ rows: [], rowCount: 0 });
-  (globalDb.transaction as jest.Mock).mockReset();
+  mockQuery.mockReset();
+  mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
+  mockCreditCoins.mockClear();
+  mockSafeAwardXP.mockClear();
 });
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function buildMockDb(overrides: Partial<DatabaseAdapter> = {}): DatabaseAdapter {
-  return {
-    query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-    transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-      const mockTx: TransactionClient = {
-        query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-      };
-      return fn(mockTx);
-    }),
-    healthCheck: jest.fn().mockResolvedValue(true),
-    close: jest.fn().mockResolvedValue(undefined),
-    ...overrides,
-  };
-}
 
 // ---------------------------------------------------------------------------
 // calculateWarPoints
@@ -152,35 +164,25 @@ describe('War engine constants', () => {
 // ---------------------------------------------------------------------------
 
 describe('findWarOpponent', () => {
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
   it('returns null when the declaring guild is not found', async () => {
-    const mockDb = buildMockDb({
-      query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-    });
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
 
     const result = await findWarOpponent('nonexistent-guild', mockDb);
     expect(result).toBeNull();
   });
 
   it('returns null when no eligible opponents exist', async () => {
-    let callCount = 0;
-    const mockDb = buildMockDb({
-      query: jest.fn().mockImplementation(async (sql: string) => {
-        callCount++;
-        if (sql.includes('SELECT id, guild_xp, city FROM guilds')) {
-          return { rows: [{ id: 'guild-a', guild_xp: 10000, city: 'Lagos' }], rowCount: 1 };
-        }
-        // Candidate query (BUG-026 fix merged the busy-guild check into this
-        // single query via a NOT EXISTS ... guild_wars subquery — so it must
-        // be matched before any broader 'guild_wars' substring check).
-        if (sql.includes('SELECT g.id FROM guilds g')) {
-          return { rows: [], rowCount: 0 };
-        }
-        return { rows: [], rowCount: 0 };
-      }),
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('SELECT id, guild_xp, city FROM guilds')) {
+        return Promise.resolve({ rows: [{ id: 'guild-a', guild_xp: 10000, city: 'Lagos' }], rowCount: 1 });
+      }
+      // Candidate query (BUG-026 fix merged the busy-guild check into this
+      // single query via a NOT EXISTS ... guild_wars subquery — so it must
+      // be matched before any broader 'guild_wars' substring check).
+      if (text.includes('SELECT g.id FROM guilds g')) {
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
 
     const result = await findWarOpponent('guild-a', mockDb);
@@ -190,16 +192,14 @@ describe('findWarOpponent', () => {
   it('returns an opponent guild within ±15% XP range', async () => {
     const selfXP = 10000;
 
-    const mockDb = buildMockDb({
-      query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT id, guild_xp, city FROM guilds')) {
-          return { rows: [{ id: 'guild-a', guild_xp: selfXP, city: null }], rowCount: 1 };
-        }
-        if (sql.includes('SELECT g.id FROM guilds g')) {
-          return { rows: [{ id: 'guild-b' }], rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
-      }),
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('SELECT id, guild_xp, city FROM guilds')) {
+        return Promise.resolve({ rows: [{ id: 'guild-a', guild_xp: selfXP, city: null }], rowCount: 1 });
+      }
+      if (text.includes('SELECT g.id FROM guilds g')) {
+        return Promise.resolve({ rows: [{ id: 'guild-b' }], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
 
     const result = await findWarOpponent('guild-a', mockDb);
@@ -207,30 +207,27 @@ describe('findWarOpponent', () => {
   });
 
   it('does not return the declaring guild as its own opponent', async () => {
-    // Self-exclusion happens SQL-side via `g.id != $N` (N = the last
-    // parameter, right after selfXP) rather than post-filtering in JS —
-    // assert the declaring guild's id is threaded through as that param.
+    // Self-exclusion happens SQL-side via `g.id != $N` (N = 1, the first
+    // interpolation in the candidate query) rather than post-filtering in JS.
     let candidateSql: string | undefined;
     let candidateParams: unknown[] | undefined;
-    const mockDb = buildMockDb({
-      query: jest.fn().mockImplementation(async (sql: string, params?: unknown[]) => {
-        if (sql.includes('SELECT id, guild_xp, city FROM guilds')) {
-          return { rows: [{ id: 'guild-a', guild_xp: 5000, city: null }], rowCount: 1 };
-        }
-        if (sql.includes('SELECT g.id FROM guilds g')) {
-          candidateSql = sql;
-          candidateParams = params;
-          return { rows: [], rowCount: 0 };
-        }
-        return { rows: [], rowCount: 0 };
-      }),
+    mockQuery.mockImplementation((text: string, params?: unknown[]) => {
+      if (text.includes('SELECT id, guild_xp, city FROM guilds')) {
+        return Promise.resolve({ rows: [{ id: 'guild-a', guild_xp: 5000, city: null }], rowCount: 1 });
+      }
+      if (text.includes('SELECT g.id FROM guilds g')) {
+        candidateSql = text;
+        candidateParams = params;
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
 
     const result = await findWarOpponent('guild-a', mockDb);
     expect(result).toBeNull();
     expect(candidateSql).toContain('g.id !=');
-    // No city on self, so params = [minXP, maxXP, cooldownHours, selfXP, guildId]
-    expect(candidateParams?.[candidateParams!.length - 1]).toBe('guild-a');
+    // No city on self, so params = [guildId, minXP, maxXP, cooldownHours, selfXP]
+    expect(candidateParams?.[0]).toBe('guild-a');
   });
 
   it('does not return a guild that is currently at war', async () => {
@@ -238,17 +235,15 @@ describe('findWarOpponent', () => {
     // NOT EXISTS subquery baked into the candidate SQL itself, not a
     // separate query or JS-side filter — assert the subquery is present.
     let candidateSql: string | undefined;
-    const mockDb = buildMockDb({
-      query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT id, guild_xp, city FROM guilds')) {
-          return { rows: [{ id: 'guild-a', guild_xp: 5000, city: null }], rowCount: 1 };
-        }
-        if (sql.includes('SELECT g.id FROM guilds g')) {
-          candidateSql = sql;
-          return { rows: [], rowCount: 0 };
-        }
-        return { rows: [], rowCount: 0 };
-      }),
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('SELECT id, guild_xp, city FROM guilds')) {
+        return Promise.resolve({ rows: [{ id: 'guild-a', guild_xp: 5000, city: null }], rowCount: 1 });
+      }
+      if (text.includes('SELECT g.id FROM guilds g')) {
+        candidateSql = text;
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
 
     const result = await findWarOpponent('guild-a', mockDb);
@@ -263,68 +258,59 @@ describe('findWarOpponent', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveWar', () => {
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
   it('throws when war is not found', async () => {
-    const mockDb = buildMockDb({
-      query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-    });
+    mockQuery.mockResolvedValue({ rows: [], rowCount: 0 });
     await expect(resolveWar('nonexistent-war', mockDb)).rejects.toThrow('War not found');
   });
 
   it('throws when war is already completed', async () => {
-    // resolveWar reads the war row via client.query() inside db.transaction(),
-    // not via the outer db.query(), so the war row must be mocked on the
-    // transaction's client.
-    const mockTx: TransactionClient = {
-      query: jest.fn().mockResolvedValue({
-        rows: [{
-          id: 'war-1',
-          challenger_guild_id: 'guild-a',
-          defender_guild_id: 'guild-b',
-          status: 'completed',
-          challenger_points: 100,
-          defender_points: 50,
-          winner_guild_id: 'guild-a',
-          starts_at: new Date().toISOString(),
-          ends_at: new Date().toISOString(),
-          final_hour_starts_at: new Date().toISOString(),
-        }],
-        rowCount: 1,
-      }),
-    };
-    const mockDb = buildMockDb({
-      transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        return fn(mockTx);
-      }),
+    // The war row is claimed via an atomic `UPDATE ... RETURNING *`
+    // (BUG-071/ZB-07 idempotency fix); the RETURNING row itself carries the
+    // war's current status, so returning a 'completed' row here is enough
+    // to exercise the already-resolved guard.
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('UPDATE guild_wars') && text.includes('RETURNING')) {
+        return Promise.resolve({
+          rows: [{
+            id: 'war-1',
+            challenger_guild_id: 'guild-a',
+            defender_guild_id: 'guild-b',
+            status: 'completed',
+            challenger_points: 100,
+            defender_points: 50,
+            winner_guild_id: 'guild-a',
+            starts_at: new Date().toISOString(),
+            ends_at: new Date().toISOString(),
+            final_hour_starts_at: new Date().toISOString(),
+          }],
+          rowCount: 1,
+        });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
     await expect(resolveWar('war-1', mockDb)).rejects.toThrow('already resolved');
   });
 
   it('throws when war is cancelled', async () => {
-    const mockTx: TransactionClient = {
-      query: jest.fn().mockResolvedValue({
-        rows: [{
-          id: 'war-1',
-          challenger_guild_id: 'guild-a',
-          defender_guild_id: 'guild-b',
-          status: 'cancelled',
-          challenger_points: 0,
-          defender_points: 0,
-          winner_guild_id: null,
-          starts_at: new Date().toISOString(),
-          ends_at: new Date().toISOString(),
-          final_hour_starts_at: new Date().toISOString(),
-        }],
-        rowCount: 1,
-      }),
-    };
-    const mockDb = buildMockDb({
-      transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        return fn(mockTx);
-      }),
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('UPDATE guild_wars') && text.includes('RETURNING')) {
+        return Promise.resolve({
+          rows: [{
+            id: 'war-1',
+            challenger_guild_id: 'guild-a',
+            defender_guild_id: 'guild-b',
+            status: 'cancelled',
+            challenger_points: 0,
+            defender_points: 0,
+            winner_guild_id: null,
+            starts_at: new Date().toISOString(),
+            ends_at: new Date().toISOString(),
+            final_hour_starts_at: new Date().toISOString(),
+          }],
+          rowCount: 1,
+        });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
     await expect(resolveWar('war-1', mockDb)).rejects.toThrow('already resolved');
   });
@@ -343,28 +329,14 @@ describe('resolveWar', () => {
       final_hour_starts_at: new Date(Date.now() - 3600000 - 1000).toISOString(),
     };
 
-    const mockTx: TransactionClient = {
-      query: jest.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
-    };
-
-    // The war row is claimed via an atomic `UPDATE ... RETURNING *`
-    // (BUG-071/ZB-07 idempotency fix) rather than a separate SELECT, and
-    // winning-guild member rows are read via client.query() too — both
-    // inside the transaction.
-    (mockTx.query as jest.Mock).mockImplementation(async (sql: string) => {
-      if (sql.includes('UPDATE guild_wars') && sql.includes('RETURNING')) {
-        return { rows: [warRow], rowCount: 1 };
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('UPDATE guild_wars') && text.includes('RETURNING')) {
+        return Promise.resolve({ rows: [warRow], rowCount: 1 });
       }
-      if (sql.includes('FROM guild_members gm')) {
-        return { rows: [{ user_id: 'member-1', war_points: 0 }], rowCount: 1 };
+      if (text.includes('FROM guild_members gm')) {
+        return Promise.resolve({ rows: [{ user_id: 'member-1', war_points: 0 }], rowCount: 1 });
       }
-      return { rows: [], rowCount: 0 };
-    });
-
-    const mockDb = buildMockDb({
-      transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        return fn(mockTx);
-      }),
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
 
     const result = await resolveWar('war-1', mockDb);
@@ -386,19 +358,11 @@ describe('resolveWar', () => {
       final_hour_starts_at: new Date(Date.now() - 3600000 - 1000).toISOString(),
     };
 
-    const mockTx: TransactionClient = {
-      query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('UPDATE guild_wars') && sql.includes('RETURNING')) {
-          return { rows: [warRow], rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
-      }),
-    };
-
-    const mockDb = buildMockDb({
-      transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        return fn(mockTx);
-      }),
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('UPDATE guild_wars') && text.includes('RETURNING')) {
+        return Promise.resolve({ rows: [warRow], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
 
     const result = await resolveWar('war-2', mockDb);
@@ -420,19 +384,11 @@ describe('resolveWar', () => {
       final_hour_starts_at: new Date(Date.now() - 3600000 - 1000).toISOString(),
     };
 
-    const mockTx: TransactionClient = {
-      query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('UPDATE guild_wars') && sql.includes('RETURNING')) {
-          return { rows: [warRow], rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
-      }),
-    };
-
-    const mockDb = buildMockDb({
-      transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        return fn(mockTx);
-      }),
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('UPDATE guild_wars') && text.includes('RETURNING')) {
+        return Promise.resolve({ rows: [warRow], rowCount: 1 });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
 
     const result = await resolveWar('war-3', mockDb);
@@ -447,28 +403,17 @@ describe('resolveWar', () => {
 // ---------------------------------------------------------------------------
 
 describe('distributeWarRewards', () => {
-  afterEach(() => {
-    jest.clearAllMocks();
-  });
-
   it('does nothing when there are no member contributions', async () => {
-    const mockTx: TransactionClient = {
-      query: jest.fn().mockImplementation(async (sql: string) => {
-        if (sql.includes('SELECT wc.user_id')) {
-          return { rows: [], rowCount: 0 };
-        }
-        return { rows: [], rowCount: 0 };
-      }),
-    };
-
-    const mockDb = buildMockDb({
-      transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        return fn(mockTx);
-      }),
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('SELECT wc.user_id')) {
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
 
     // Should not throw
     await expect(distributeWarRewards('war-1', 'guild-a', mockDb)).resolves.toBeUndefined();
+    expect(mockCreditCoins).not.toHaveBeenCalled();
   });
 
   it('allocates 30% of the pool to the top contributor', async () => {
@@ -481,40 +426,19 @@ describe('distributeWarRewards', () => {
       { user_id: 'user-3', guild_id: 'guild-a', war_points: 200, username: 'charlie' },
     ];
 
-    const updateQueries: Array<{ sql: string; params: unknown[] }> = [];
-    const mockTx: TransactionClient = {
-      query: jest.fn().mockImplementation(async (sql: string, params: unknown[]) => {
-        if (sql.includes('SELECT wc.user_id')) {
-          return { rows: members, rowCount: members.length };
-        }
-        if (sql.includes('SELECT coin_balance FROM users')) {
-          return { rows: [{ coin_balance: '0' }], rowCount: 1 };
-        }
-        if (sql.includes('INSERT INTO coin_ledger')) {
-          return { rows: [{ id: 'lid', user_id: params[0], amount: params[1], balance_before: params[2], balance_after: params[3], transaction_type: params[4], reference_id: params[5] ?? null, description: params[6] ?? null, metadata: null, created_at: new Date().toISOString() }], rowCount: 1 };
-        }
-        if (sql.includes('UPDATE users SET coin_balance')) {
-          updateQueries.push({ sql, params });
-        }
-        return { rows: [], rowCount: 0 };
-      }),
-    };
-
-    const mockDb = buildMockDb({
-      transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        return fn(mockTx);
-      }),
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('SELECT wc.user_id')) {
+        return Promise.resolve({ rows: members, rowCount: members.length });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
 
     await distributeWarRewards('war-1', 'guild-a', mockDb);
 
-    // First UPDATE should be for user-1 with 600 coins (30% of 2000).
-    // creditCoins writes balanceAfter as a string via Decimal#toFixed, and
-    // params are [balanceAfter, userId].
-    const firstUpdate = updateQueries[0];
-    expect(firstUpdate).toBeDefined();
-    expect(firstUpdate.params[0]).toBe(String(expectedTopShare));
-    expect(firstUpdate.params[1]).toBe('user-1');
+    const call = mockCreditCoins.mock.calls.find((c) => c[0] === 'user-1');
+    expect(call).toBeDefined();
+    expect(call![1]).toBe(expectedTopShare);
+    expect(call![2]).toBe('war_reward');
   });
 
   it('allocates 20% of the pool to the second contributor', async () => {
@@ -526,38 +450,18 @@ describe('distributeWarRewards', () => {
       { user_id: 'user-2', guild_id: 'guild-a', war_points: 500, username: 'bob' },
     ];
 
-    const updateQueries: Array<{ sql: string; params: unknown[] }> = [];
-    const mockTx: TransactionClient = {
-      query: jest.fn().mockImplementation(async (sql: string, params: unknown[]) => {
-        if (sql.includes('SELECT wc.user_id')) {
-          return { rows: members, rowCount: members.length };
-        }
-        if (sql.includes('SELECT coin_balance FROM users')) {
-          return { rows: [{ coin_balance: '0' }], rowCount: 1 };
-        }
-        if (sql.includes('INSERT INTO coin_ledger')) {
-          return { rows: [{ id: 'lid', user_id: params[0], amount: params[1], balance_before: params[2], balance_after: params[3], transaction_type: params[4], reference_id: params[5] ?? null, description: params[6] ?? null, metadata: null, created_at: new Date().toISOString() }], rowCount: 1 };
-        }
-        if (sql.includes('UPDATE users SET coin_balance')) {
-          updateQueries.push({ sql, params });
-        }
-        return { rows: [], rowCount: 0 };
-      }),
-    };
-
-    const mockDb = buildMockDb({
-      transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        return fn(mockTx);
-      }),
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('SELECT wc.user_id')) {
+        return Promise.resolve({ rows: members, rowCount: members.length });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
 
     await distributeWarRewards('war-1', 'guild-a', mockDb);
 
-    // Second UPDATE should be for user-2 with 400 coins (20% of 2000)
-    const secondUpdate = updateQueries[1];
-    expect(secondUpdate).toBeDefined();
-    expect(secondUpdate.params[0]).toBe(String(expectedSecondShare));
-    expect(secondUpdate.params[1]).toBe('user-2');
+    const call = mockCreditCoins.mock.calls.find((c) => c[0] === 'user-2');
+    expect(call).toBeDefined();
+    expect(call![1]).toBe(expectedSecondShare);
   });
 
   it('queues top contributor bonus XP for rank-1 member', async () => {
@@ -565,25 +469,11 @@ describe('distributeWarRewards', () => {
       { user_id: 'user-1', guild_id: 'guild-a', war_points: 999, username: 'alice' },
     ];
 
-    const mockTx: TransactionClient = {
-      query: jest.fn().mockImplementation(async (sql: string, params: unknown[]) => {
-        if (sql.includes('SELECT wc.user_id')) {
-          return { rows: members, rowCount: members.length };
-        }
-        if (sql.includes('SELECT coin_balance FROM users')) {
-          return { rows: [{ coin_balance: '0' }], rowCount: 1 };
-        }
-        if (sql.includes('INSERT INTO coin_ledger')) {
-          return { rows: [{ id: 'lid', user_id: params[0], amount: params[1], balance_before: params[2], balance_after: params[3], transaction_type: params[4], reference_id: params[5] ?? null, description: params[6] ?? null, metadata: null, created_at: new Date().toISOString() }], rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
-      }),
-    };
-
-    const mockDb = buildMockDb({
-      transaction: jest.fn().mockImplementation(async (fn: (tx: TransactionClient) => Promise<unknown>) => {
-        return fn(mockTx);
-      }),
+    mockQuery.mockImplementation((text: string) => {
+      if (text.includes('SELECT wc.user_id')) {
+        return Promise.resolve({ rows: members, rowCount: members.length });
+      }
+      return Promise.resolve({ rows: [], rowCount: 0 });
     });
 
     // distributeWarRewards defers XP awards via pendingXPAwards so the caller

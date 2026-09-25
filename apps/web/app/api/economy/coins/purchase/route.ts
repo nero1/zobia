@@ -19,9 +19,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { and, eq, gt, isNull, isNotNull, or, sql } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { initializePayment } from "@/lib/payments";
 import { serializeComputedAmount, type ComputedAmount } from "@/lib/payments/crypto";
@@ -58,26 +59,6 @@ const PurchaseSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// Row types
-// ---------------------------------------------------------------------------
-
-interface StoreItemRow {
-  id: string;
-  name: string;
-  item_type: string;
-  price_kobo: number;
-  currency: string;
-  coins_granted: number;
-  is_active: boolean;
-}
-
-interface UserRow {
-  id: string;
-  email: string | null;
-  username: string;
-}
-
-// ---------------------------------------------------------------------------
 // Route handler
 // ---------------------------------------------------------------------------
 
@@ -93,14 +74,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, PurchaseSchema);
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // 1. Load the pack from the database
-    const { rows: packRows } = await db.query<StoreItemRow>(
-      `SELECT id, name, item_type, price_kobo, currency, coins_granted, is_active
-       FROM store_items
-       WHERE id = $1 AND item_type IN ('coin_pack', 'star_pack') LIMIT 1`,
-      [body.packId]
-    );
+    const packRows = await orm
+      .select({
+        id: schema.storeItems.id,
+        name: schema.storeItems.name,
+        itemType: schema.storeItems.itemType,
+        priceKobo: schema.storeItems.priceKobo,
+        currency: schema.storeItems.currency,
+        coinsGranted: schema.storeItems.coinsGranted,
+        isActive: schema.storeItems.isActive,
+      })
+      .from(schema.storeItems)
+      .where(
+        and(
+          eq(schema.storeItems.id, body.packId),
+          or(eq(schema.storeItems.itemType, "coin_pack"), eq(schema.storeItems.itemType, "star_pack"))
+        )
+      )
+      .limit(1);
 
     if (!packRows[0]) {
       throw notFound("Coin pack not found");
@@ -108,15 +102,16 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const pack = packRows[0];
 
-    if (!pack.is_active) {
+    if (!pack.isActive) {
       throw badRequest("This pack is currently unavailable");
     }
 
     // 2. Load the user's email (needed by Paystack)
-    const { rows: userRows } = await db.query<UserRow>(
-      `SELECT id, email, username FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const userRows = await orm
+      .select({ id: schema.users.id, email: schema.users.email, username: schema.users.username })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
 
     if (!userRows[0]) {
       throw badRequest("User not found");
@@ -135,24 +130,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // Only return cached data when provider_reference is set — otherwise the payment is still
     // being initialised by a concurrent request and we should wait for it to resolve rather
     // than returning null payment details.
-    const { rows: existingRows } = await db.query<{
-      payment_url: string;
-      provider_reference: string;
-    }>(
-      `SELECT metadata->>'payment_url' AS payment_url, provider_reference
-       FROM payments
-       WHERE idempotency_key = $1
-         AND status = 'pending'
-         AND provider_reference IS NOT NULL
-         AND created_at > NOW() - INTERVAL '10 minutes'
-       LIMIT 1`,
-      [idempotencyKey]
-    );
+    const existingRows = await orm
+      .select({
+        metadata: schema.payments.metadata,
+        providerReference: schema.payments.providerReference,
+      })
+      .from(schema.payments)
+      .where(
+        and(
+          eq(schema.payments.idempotencyKey, idempotencyKey),
+          eq(schema.payments.status, "pending"),
+          isNotNull(schema.payments.providerReference),
+          gt(schema.payments.createdAt, sql`NOW() - INTERVAL '10 minutes'`)
+        )
+      )
+      .limit(1);
 
     if (existingRows[0]) {
+      const existingMetadata = (existingRows[0].metadata ?? {}) as Record<string, unknown>;
       return NextResponse.json({
-        paymentUrl: existingRows[0].payment_url,
-        paymentReference: existingRows[0].provider_reference,
+        paymentUrl: existingMetadata.payment_url,
+        paymentReference: existingRows[0].providerReference,
         reused: true,
       });
     }
@@ -163,16 +161,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     // for this pack type — never trust the client's requested provider/currency
     // without re-checking it here (a client could otherwise bypass the
     // gate44/payments toggles by calling this API directly).
-    const contextKey = pack.item_type === "star_pack" ? "star_purchase" : "coin_purchase";
+    const contextKey = pack.itemType === "star_pack" ? "star_purchase" : "coin_purchase";
     const isNigeria = await getUserIsNigeria(userId);
     const decision = await enforcePaymentContext(contextKey, isNigeria, body.paymentProvider, body.cryptoCurrency);
+
+    const priceKobo = Number(pack.priceKobo);
 
     const metadata = {
       userId,
       packId: pack.id,
       packName: pack.name,
-      coinsGranted: pack.coins_granted,
-      itemType: pack.item_type,
+      coinsGranted: pack.coinsGranted,
+      itemType: pack.itemType,
       destination: body.destination,
       ...(!decision.isFree && decision.provider === "crypto" ? { cryptoCurrency: decision.cryptoCurrency } : {}),
     };
@@ -182,7 +182,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       await grantFreePayment({
         userId,
         paymentType: "coin_purchase",
-        amountKobo: pack.price_kobo,
+        amountKobo: priceKobo,
         currency: pack.currency,
         idempotencyKey,
         metadata: metadata as never,
@@ -191,7 +191,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
         paymentUrl: "",
         paymentReference: idempotencyKey,
         free: true,
-        pack: { id: pack.id, name: pack.name, coinsGranted: pack.coins_granted, priceKobo: pack.price_kobo, currency: pack.currency },
+        pack: { id: pack.id, name: pack.name, coinsGranted: pack.coinsGranted, priceKobo, currency: pack.currency },
       });
     }
 
@@ -201,23 +201,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     //    succeeds). This ensures that if the provider call succeeds but our subsequent DB
     //    UPDATE fails, we still have an auditable record of the attempt rather than an
     //    untracked real payment with no local record.
-    const { rows: insertRows } = await db.query<{ id: string }>(
-      `INSERT INTO payments
-         (user_id, payment_type, amount_kobo, currency, provider, status,
-          idempotency_key, metadata)
-       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
-       ON CONFLICT (idempotency_key) DO NOTHING
-       RETURNING id`,
-      [
+    const insertRows = await orm
+      .insert(schema.payments)
+      .values({
         userId,
-        'coin_purchase',
-        pack.price_kobo,
-        pack.currency,
+        paymentType: "coin_purchase",
+        amountKobo: pack.priceKobo,
+        currency: pack.currency,
         provider,
+        status: "pending",
         idempotencyKey,
-        JSON.stringify(metadata),
-      ]
-    );
+        metadata,
+      })
+      .onConflictDoNothing({ target: schema.payments.idempotencyKey })
+      .returning({ id: schema.payments.id });
 
     const paymentDbId = insertRows[0]?.id;
 
@@ -225,7 +222,7 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     let paymentResult: { paymentUrl: string; providerReference: string; raw: unknown };
     try {
       paymentResult = await initializePayment(
-        pack.price_kobo,
+        priceKobo,
         pack.currency,
         email,
         idempotencyKey,
@@ -236,22 +233,27 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     } catch (providerErr) {
       // Provider call failed — mark the record so it is not retried as 'pending'
       if (paymentDbId) {
-        await db.query(
-          `UPDATE payments SET status = 'failed', updated_at = NOW() WHERE id = $1`,
-          [paymentDbId]
-        ).catch(() => {});
+        await orm
+          .update(schema.payments)
+          .set({ status: "failed", updatedAt: sql`NOW()` })
+          .where(eq(schema.payments.id, paymentDbId))
+          .catch(() => {});
       }
       throw providerErr;
     }
 
     // 7. Stamp the provider reference and payment URL onto the record
     const metadataWithUrl = { ...metadata, payment_url: paymentResult.paymentUrl };
-    await db.query(
-      `UPDATE payments
-       SET provider_reference = $1, metadata = $2, updated_at = NOW()
-       WHERE id = $3`,
-      [paymentResult.providerReference, JSON.stringify(metadataWithUrl), paymentDbId]
-    );
+    if (paymentDbId) {
+      await orm
+        .update(schema.payments)
+        .set({
+          providerReference: paymentResult.providerReference,
+          metadata: metadataWithUrl,
+          updatedAt: sql`NOW()`,
+        })
+        .where(eq(schema.payments.id, paymentDbId));
+    }
 
     if (provider === "crypto" && paymentDbId) {
       const { applyCryptoComputedAmount } = await import("@/lib/payments/crypto");
@@ -265,8 +267,8 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       pack: {
         id: pack.id,
         name: pack.name,
-        coinsGranted: pack.coins_granted,
-        priceKobo: pack.price_kobo,
+        coinsGranted: pack.coinsGranted,
+        priceKobo,
         currency: pack.currency,
       },
     });

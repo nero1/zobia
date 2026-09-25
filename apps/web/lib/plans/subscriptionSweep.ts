@@ -23,7 +23,8 @@
  * it does not invent an expiry timer independent of the subscription record.
  */
 
-import { db } from "@/lib/db";
+import { and, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 import {
   PERSONAL_GRACE_PLANS,
@@ -70,27 +71,31 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
     groupChatsDeactivated: 0,
   };
 
+  const orm = await getDb();
+
   // -------------------------------------------------------------------
   // Personal: active -> grace (subscription did not renew)
   // -------------------------------------------------------------------
   for (const plan of PERSONAL_GRACE_PLANS) {
     const days = await getGracePeriodDays("personal", plan);
-    const { rows } = await db.query<{ user_id: string }>(
-      `UPDATE subscriptions
-       SET status = 'grace', grace_period_ends_at = NOW() + ($1 || ' days')::interval, updated_at = NOW()
-       WHERE plan = $2 AND status = 'active' AND ends_at < NOW()
-       RETURNING user_id`,
-      [String(days), plan]
-    );
+    const rows = await orm
+      .update(schema.subscriptions)
+      .set({
+        status: "grace",
+        gracePeriodEndsAt: sql`NOW() + (${String(days)} || ' days')::interval`,
+        updatedAt: sql`NOW()`,
+      })
+      .where(and(eq(schema.subscriptions.plan, plan), eq(schema.subscriptions.status, "active"), lt(schema.subscriptions.endsAt, sql`NOW()`)))
+      .returning({ userId: schema.subscriptions.userId });
     if (rows.length === 0) continue;
 
-    const userIds = rows.map((r) => r.user_id);
+    const userIds = rows.map((r) => r.userId);
     result.personalLapsedToGrace += userIds.length;
 
-    await db.query(
-      `UPDATE users SET plan = 'free', updated_at = NOW() WHERE id = ANY($1::uuid[]) AND plan = $2`,
-      [userIds, plan]
-    );
+    await orm
+      .update(schema.users)
+      .set({ plan: "free", updatedAt: sql`NOW()` })
+      .where(and(inArray(schema.users.id, userIds), eq(schema.users.plan, plan)));
 
     const savedGamesPreserved = await isFeaturePreservedDuringGrace("personal", plan, "saved_games");
     if (!savedGamesPreserved) {
@@ -102,32 +107,31 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
   // Personal: grace -> lapsed (grace period elapsed — purge preserved data)
   // -------------------------------------------------------------------
   {
-    const { rows } = await db.query<{ user_id: string; plan: string }>(
-      `UPDATE subscriptions
-       SET status = 'lapsed', updated_at = NOW()
-       WHERE status = 'grace' AND grace_period_ends_at < NOW()
-       RETURNING user_id, plan`
-    );
+    const rows = await orm
+      .update(schema.subscriptions)
+      .set({ status: "lapsed", updatedAt: sql`NOW()` })
+      .where(and(eq(schema.subscriptions.status, "grace"), lt(schema.subscriptions.gracePeriodEndsAt, sql`NOW()`)))
+      .returning({ userId: schema.subscriptions.userId, plan: schema.subscriptions.plan });
     result.personalGraceExpired = rows.length;
 
     const freeLimit = await getSaveSlotLimit("free");
     for (const row of rows) {
       try {
         if (await isFeaturePreservedDuringGrace("personal", row.plan, "saved_games")) {
-          const deleted = await reconcileSavesForUser(row.user_id, freeLimit);
+          const deleted = await reconcileSavesForUser(row.userId, freeLimit);
           if (deleted.length > 0) result.personalSavesPurgedAfterGrace++;
         }
       } catch (err) {
-        logger.error({ err, userId: row.user_id }, "[subscriptionSweep] Failed to purge post-grace saves");
+        logger.error({ err, userId: row.userId }, "[subscriptionSweep] Failed to purge post-grace saves");
       }
 
       try {
         if (!(await isFeaturePreservedDuringGrace("personal", row.plan, "group_chats"))) {
-          const deactivated = await deactivateGroupsForUser(row.user_id);
+          const deactivated = await deactivateGroupsForUser(row.userId);
           if (deactivated > 0) result.groupChatsDeactivated += deactivated;
         }
       } catch (err) {
-        logger.error({ err, userId: row.user_id }, "[subscriptionSweep] Failed to deactivate group chats");
+        logger.error({ err, userId: row.userId }, "[subscriptionSweep] Failed to deactivate group chats");
       }
     }
   }
@@ -139,25 +143,29 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
   // than the personal `subscriptions` table, which is unique-per-user and
   // would collide with a business owner's own personal plan row).
   // -------------------------------------------------------------------
+  // NOTE: `business_accounts.current_period_ends_at` referenced below is not
+  // present on `schema.businessAccounts` in lib/db/schema.ts (schema/DB
+  // mismatch — reported upstream), so this uses Drizzle's `sql` tag directly
+  // rather than the query builder for these two statements.
   for (const tier of BUSINESS_GRACE_TIERS) {
     const days = await getGracePeriodDays("business", tier);
-    const { rowCount } = await db.query(
-      `UPDATE business_accounts
-       SET status = 'grace', grace_period_ends_at = NOW() + ($1 || ' days')::interval, updated_at = NOW()
-       WHERE tier = $2 AND status = 'active'
-         AND current_period_ends_at IS NOT NULL AND current_period_ends_at < NOW()`,
-      [String(days), tier]
-    );
-    result.businessLapsedToGrace += rowCount ?? 0;
+    const updateResult = await orm.execute(sql`
+      UPDATE business_accounts
+      SET status = 'grace', grace_period_ends_at = NOW() + (${String(days)} || ' days')::interval, updated_at = NOW()
+      WHERE tier = ${tier} AND status = 'active'
+        AND current_period_ends_at IS NOT NULL AND current_period_ends_at < NOW()
+    `);
+    result.businessLapsedToGrace += updateResult.rowCount ?? 0;
   }
 
   {
-    const { rows } = await db.query<{ id: string; user_id: string; tier: string }>(
-      `UPDATE business_accounts
-       SET status = 'lapsed', updated_at = NOW()
-       WHERE status = 'grace' AND grace_period_ends_at < NOW()
-       RETURNING id, user_id, tier`
-    );
+    const graceResult = await orm.execute<{ id: string; user_id: string; tier: string }>(sql`
+      UPDATE business_accounts
+      SET status = 'lapsed', updated_at = NOW()
+      WHERE status = 'grace' AND grace_period_ends_at < NOW()
+      RETURNING id, user_id, tier
+    `);
+    const rows = graceResult.rows;
     result.businessGraceExpired = rows.length;
 
     for (const row of rows) {
@@ -174,15 +182,18 @@ export async function sweepSubscriptions(): Promise<SubscriptionSweepResult> {
       // pause running Sponsored Quests, same "must be explicitly restarted"
       // rule as the tier-downgrade path (lib/business/downgradeSweep.ts).
       try {
-        const { rows: stoppedQuests } = await db.query<{ id: string }>(
-          `UPDATE sponsored_quests
-           SET is_active = FALSE, auto_paused = TRUE,
-               pause_reason = 'Business subscription lapsed', paused_at = NOW(), updated_at = NOW()
-           WHERE business_account_id = $1 AND is_active = TRUE AND deleted_at IS NULL
-           RETURNING id`,
-          [row.id]
-        );
-        for (const q of stoppedQuests) await syncSponsoredQuestTemplate(db, q.id);
+        // NOTE: `sponsored_quests.updated_at` is not present on
+        // `schema.sponsoredQuests` in lib/db/schema.ts (schema/DB mismatch —
+        // reported upstream), so this uses Drizzle's `sql` tag directly for
+        // this one statement rather than the query builder.
+        const stoppedQuestsResult = await orm.execute<{ id: string }>(sql`
+          UPDATE sponsored_quests
+          SET is_active = FALSE, auto_paused = TRUE,
+              pause_reason = 'Business subscription lapsed', paused_at = NOW(), updated_at = NOW()
+          WHERE business_account_id = ${row.id} AND is_active = TRUE AND deleted_at IS NULL
+          RETURNING id
+        `);
+        for (const q of stoppedQuestsResult.rows) await syncSponsoredQuestTemplate(orm, q.id);
       } catch (err) {
         logger.error({ err, businessAccountId: row.id }, "[subscriptionSweep] Failed to pause sponsored quests on lapse");
       }

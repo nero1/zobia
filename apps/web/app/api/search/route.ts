@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql, type SQL } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -69,20 +70,20 @@ const PER_BRANCH_CAP = 100;
  * Each branch is parenthesized so its own ORDER BY/LIMIT applies only to
  * that branch, not to the outer UNION ALL.
  */
-function branchFor(type: SearchContentType): string {
+function branchFor(type: SearchContentType, likePattern: string, since: Date | null): SQL {
   switch (type) {
     case "people":
-      return `
+      return sql`
         (SELECT 'people' AS type, u.id::text AS id, u.display_name AS title,
                u.bio AS snippet, NULL::text AS thumbnail_url,
                ('/u/' || u.username) AS url, u.created_at AS published_at
         FROM users u
         WHERE u.deleted_at IS NULL AND u.is_banned = false
-          AND (u.username ILIKE $1 OR u.display_name ILIKE $1 OR u.bio ILIKE $1)
-          AND ($2::timestamptz IS NULL OR u.created_at >= $2)
+          AND (u.username ILIKE ${likePattern} OR u.display_name ILIKE ${likePattern} OR u.bio ILIKE ${likePattern})
+          AND (${since}::timestamptz IS NULL OR u.created_at >= ${since})
         ORDER BY u.created_at DESC LIMIT ${PER_BRANCH_CAP})`;
     case "blogs":
-      return `
+      return sql`
         (SELECT 'blogs' AS type, p.id::text AS id, p.title AS title,
                p.excerpt AS snippet, p.featured_image_url AS thumbnail_url,
                ('/b/' || b.slug || '/' || p.slug) AS url, p.published_at AS published_at
@@ -90,11 +91,11 @@ function branchFor(type: SearchContentType): string {
         JOIN blogs b ON b.id = p.blog_id
         WHERE p.deleted_at IS NULL AND p.status = 'published'
           AND b.deleted_at IS NULL AND b.status = 'active'
-          AND (p.title ILIKE $1 OR p.excerpt ILIKE $1)
-          AND ($2::timestamptz IS NULL OR p.published_at >= $2)
+          AND (p.title ILIKE ${likePattern} OR p.excerpt ILIKE ${likePattern})
+          AND (${since}::timestamptz IS NULL OR p.published_at >= ${since})
         ORDER BY p.published_at DESC LIMIT ${PER_BRANCH_CAP})`;
     case "wikis":
-      return `
+      return sql`
         (SELECT 'wikis' AS type, wp.id::text AS id, wp.title AS title,
                NULL::text AS snippet, NULL::text AS thumbnail_url,
                ('/w/' || w.slug || '/' || wp.slug) AS url, wp.created_at AS published_at
@@ -102,28 +103,28 @@ function branchFor(type: SearchContentType): string {
         JOIN wikis w ON w.id = wp.wiki_id
         WHERE wp.deleted_at IS NULL AND wp.status = 'published'
           AND w.deleted_at IS NULL AND w.status = 'active'
-          AND wp.title ILIKE $1
-          AND ($2::timestamptz IS NULL OR wp.created_at >= $2)
+          AND wp.title ILIKE ${likePattern}
+          AND (${since}::timestamptz IS NULL OR wp.created_at >= ${since})
         ORDER BY wp.created_at DESC LIMIT ${PER_BRANCH_CAP})`;
     case "answers":
-      return `
+      return sql`
         (SELECT 'answers' AS type, q.id::text AS id, q.title AS title,
                q.body AS snippet, NULL::text AS thumbnail_url,
                ('/a/' || COALESCE(q.slug, q.id::text)) AS url, q.created_at AS published_at
         FROM forum_questions q
         WHERE q.deleted_at IS NULL AND q.status = 'visible'
-          AND (q.title ILIKE $1 OR q.body ILIKE $1)
-          AND ($2::timestamptz IS NULL OR q.created_at >= $2)
+          AND (q.title ILIKE ${likePattern} OR q.body ILIKE ${likePattern})
+          AND (${since}::timestamptz IS NULL OR q.created_at >= ${since})
         ORDER BY q.created_at DESC LIMIT ${PER_BRANCH_CAP})`;
     case "games":
-      return `
+      return sql`
         (SELECT 'games' AS type, g.id::text AS id, g.name AS title,
                g.tagline AS snippet, g.cover_image_url AS thumbnail_url,
                ('/g/' || g.slug) AS url, g.created_at AS published_at
         FROM games g
         WHERE g.deleted_at IS NULL AND g.is_public = true AND g.is_active = true
-          AND (g.name ILIKE $1 OR g.tagline ILIKE $1 OR g.description ILIKE $1)
-          AND ($2::timestamptz IS NULL OR g.created_at >= $2)
+          AND (g.name ILIKE ${likePattern} OR g.tagline ILIKE ${likePattern} OR g.description ILIKE ${likePattern})
+          AND (${since}::timestamptz IS NULL OR g.created_at >= ${since})
         ORDER BY g.created_at DESC LIMIT ${PER_BRANCH_CAP})`;
   }
 }
@@ -155,23 +156,21 @@ export const GET = withAuth(async (req: NextRequest, { auth }) => {
       : "all";
 
     const offset = Math.max(0, parseInt(searchParams.get("offset") ?? "0", 10) || 0);
+    const since = sinceDate(range);
 
-    const query = `
+    const branches = types.map((t) => branchFor(t, likePattern, since));
+    const query = sql`
       SELECT * FROM (
-        ${types.map(branchFor).join("\n        UNION ALL\n")}
+        ${sql.join(branches, sql`\n        UNION ALL\n`)}
       ) results
       ORDER BY published_at DESC
-      LIMIT $3 OFFSET $4`;
+      LIMIT ${PAGE_SIZE + 1} OFFSET ${offset}`;
 
     // Fetch one extra row to know whether a "Load more" is warranted without
     // a separate COUNT(*) query (COUNT over a multi-branch UNION ALL LIKE
     // scan is expensive and we don't need an exact total, just "is there more").
-    const { rows } = await db.query<SearchResultRow>(query, [
-      likePattern,
-      sinceDate(range),
-      PAGE_SIZE + 1,
-      offset,
-    ]);
+    const orm = await getDb();
+    const { rows } = await orm.execute<SearchResultRow & Record<string, unknown>>(query);
 
     const hasMore = rows.length > PAGE_SIZE;
     const results = rows.slice(0, PAGE_SIZE);

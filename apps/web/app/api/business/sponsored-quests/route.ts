@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { requireFeatureEnabled, getManifestValue } from "@/lib/manifest";
 import { handleApiError, notFound, forbidden, badRequest } from "@/lib/api/errors";
@@ -79,11 +80,17 @@ interface SponsoredQuestBusinessRow {
 }
 
 async function getOwnBusinessAccount(userId: string): Promise<{ id: string; tier: string; business_name: string } | null> {
-  const { rows } = await db.query<{ id: string; tier: string; business_name: string }>(
-    `SELECT id, tier, business_name FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-    [userId]
-  );
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      id: schema.businessAccounts.id,
+      tier: schema.businessAccounts.tier,
+      business_name: schema.businessAccounts.businessName,
+    })
+    .from(schema.businessAccounts)
+    .where(eq(schema.businessAccounts.userId, userId))
+    .limit(1);
+  return row ?? null;
 }
 
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
@@ -94,20 +101,40 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
     const account = await getOwnBusinessAccount(auth.user.sub);
     if (!account) throw notFound("Business account not found");
 
-    const { rows } = await db.query<SponsoredQuestBusinessRow>(
-      `SELECT sq.id, sq.title, sq.description, sq.reward_coins, sq.max_applications, sq.deadline,
-              sq.is_active, sq.moderation_status, sq.moderation_reason, sq.business_page_id, sq.created_at,
-              sq.is_daily_quest_eligible, sq.starts_at, sq.ends_at, sq.total_budget_credits,
-              sq.spent_credits, sq.daily_budget_credits, sq.cpm_credits, sq.estimated_reach,
-              sq.impressions_count, sq.auto_paused, sq.pause_reason,
-              COUNT(sqa.id)::int AS application_count
-       FROM sponsored_quests sq
-       LEFT JOIN sponsored_quest_applications sqa ON sqa.quest_id = sq.id
-       WHERE sq.business_account_id = $1 AND sq.deleted_at IS NULL
-       GROUP BY sq.id
-       ORDER BY sq.created_at DESC`,
-      [account.id]
-    );
+    const orm = await getDb();
+    const sq = schema.sponsoredQuests;
+    const sqa = schema.sponsoredQuestApplications;
+    const rows = await orm
+      .select({
+        id: sq.id,
+        title: sq.title,
+        description: sq.description,
+        reward_coins: sq.rewardCoins,
+        max_applications: sq.maxApplications,
+        deadline: sq.deadline,
+        is_active: sq.isActive,
+        moderation_status: sq.moderationStatus,
+        moderation_reason: sq.moderationReason,
+        business_page_id: sq.businessPageId,
+        created_at: sq.createdAt,
+        is_daily_quest_eligible: sq.isDailyQuestEligible,
+        starts_at: sq.startsAt,
+        ends_at: sq.endsAt,
+        total_budget_credits: sq.totalBudgetCredits,
+        spent_credits: sq.spentCredits,
+        daily_budget_credits: sq.dailyBudgetCredits,
+        cpm_credits: sq.cpmCredits,
+        estimated_reach: sq.estimatedReach,
+        impressions_count: sq.impressionsCount,
+        auto_paused: sq.autoPaused,
+        pause_reason: sq.pauseReason,
+        application_count: sql<number>`COUNT(${sqa.id})::int`,
+      })
+      .from(sq)
+      .leftJoin(sqa, eq(sqa.questId, sq.id))
+      .where(and(eq(sq.businessAccountId, account.id), isNull(sq.deletedAt)))
+      .groupBy(sq.id)
+      .orderBy(desc(sq.createdAt));
 
     return NextResponse.json({ success: true, data: { quests: rows }, error: null });
   } catch (err) {
@@ -146,12 +173,23 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       }
     }
 
-    const { rows: pageRows } = await db.query<{ id: string; name: string; avatar_url: string | null }>(
-      `SELECT id, name, avatar_url FROM business_pages
-       WHERE id = $1 AND business_account_id = $2 AND deleted_at IS NULL AND status = 'active' LIMIT 1`,
-      [body.businessPageId, account.id]
-    );
-    const page = pageRows[0];
+    const orm = await getDb();
+    const [page] = await orm
+      .select({
+        id: schema.businessPages.id,
+        name: schema.businessPages.name,
+        avatar_url: schema.businessPages.avatarUrl,
+      })
+      .from(schema.businessPages)
+      .where(
+        and(
+          eq(schema.businessPages.id, body.businessPageId),
+          eq(schema.businessPages.businessAccountId, account.id),
+          isNull(schema.businessPages.deletedAt),
+          eq(schema.businessPages.status, "active")
+        )
+      )
+      .limit(1);
     if (!page) throw badRequest("businessPageId must reference one of your active Business Pages");
 
     const mode = await getSponsoredQuestModerationMode();
@@ -175,64 +213,57 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
       ? estimateSponsoredQuestReach(body.totalBudgetCredits, cpmCredits, durationDays).totalImpressions
       : null;
 
-    const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO sponsored_quests
-         (brand_name, brand_logo_url, title, description, requirements,
-          reward_coins, creator_share_percent, platform_share_percent,
-          max_applications, deadline, min_creator_tier, is_active,
-          business_account_id, business_page_id, submitted_by,
-          moderation_status, moderation_reason, created_at,
-          is_daily_quest_eligible, starts_at, ends_at, pricing_model,
-          total_budget_credits, daily_budget_credits, cpm_credits,
-          estimated_reach, funded_by_user_id, target_action, target_value)
-       VALUES ($1,$2,$3,$4,$5,$6,70,30,$7,$8,'verified',$9,$10,$11,$12,$13,$14,NOW(),
-               $15,$16,$17,'hybrid',$18,$19,$20,$21,$22,$23,$24)
-       RETURNING id`,
-      [
-        page.name,
-        page.avatar_url,
-        body.title,
-        body.description,
-        body.requirements,
-        body.rewardCoins,
-        body.maxApplications,
-        body.deadline,
-        moderationStatus === "approved",
-        account.id,
-        page.id,
-        auth.user.sub,
+    const [inserted] = await orm
+      .insert(schema.sponsoredQuests)
+      .values({
+        brandName: page.name,
+        brandLogoUrl: page.avatar_url,
+        title: body.title,
+        description: body.description,
+        requirements: body.requirements,
+        rewardCoins: body.rewardCoins,
+        creatorSharePercent: 70,
+        platformSharePercent: 30,
+        maxApplications: body.maxApplications,
+        deadline: new Date(body.deadline),
+        minCreatorTier: "verified",
+        isActive: moderationStatus === "approved",
+        businessAccountId: account.id,
+        businessPageId: page.id,
+        submittedBy: auth.user.sub,
         moderationStatus,
         moderationReason,
-        body.isDailyQuestEligible,
-        body.startsAt ?? null,
-        body.endsAt ?? null,
-        body.totalBudgetCredits,
-        body.dailyBudgetCredits ?? null,
-        cpmCredits,
+        isDailyQuestEligible: body.isDailyQuestEligible,
+        startsAt: body.startsAt ? new Date(body.startsAt) : null,
+        endsAt: body.endsAt ? new Date(body.endsAt) : null,
+        pricingModel: "hybrid",
+        totalBudgetCredits: String(body.totalBudgetCredits),
+        dailyBudgetCredits: body.dailyBudgetCredits != null ? String(body.dailyBudgetCredits) : null,
+        cpmCredits: String(cpmCredits),
         estimatedReach,
-        auth.user.sub,
-        body.targetAction ?? null,
-        body.targetValue ?? null,
-      ]
-    );
+        fundedByUserId: auth.user.sub,
+        targetAction: body.targetAction ?? null,
+        targetValue: body.targetValue ?? null,
+      })
+      .returning({ id: schema.sponsoredQuests.id });
 
     if (body.isDailyQuestEligible && moderationStatus === "approved") {
-      await syncSponsoredQuestTemplate(db, rows[0].id);
+      await syncSponsoredQuestTemplate(orm, inserted.id);
     }
 
     if (moderationStatus === "pending") {
-      await raiseAlert(db, {
+      await raiseAlert(orm, {
         type: "sponsored_quest_pending_review",
         category: "moderation",
         priorityLevel: 6,
         title: "Sponsored Quest pending review",
         message: `Business "${account.business_name}" submitted a Sponsored Quest ("${body.title}") pending moderation.`,
-        metadata: { questId: rows[0].id, businessAccountId: account.id },
+        metadata: { questId: inserted.id, businessAccountId: account.id },
       }).catch((err) => logger.error({ err }, "[business/sponsored-quests] failed to write system_alert"));
     }
 
     return NextResponse.json(
-      { success: true, data: { questId: rows[0].id, moderationStatus }, error: null },
+      { success: true, data: { questId: inserted.id, moderationStatus }, error: null },
       { status: 201 }
     );
   } catch (err) {

@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -57,11 +58,12 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     if (!content) throw notFound("Content not found");
 
     // Ownership check — the caller must own the content, or be admin/mod.
-    const { rows: callerRows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-      `SELECT is_admin, is_moderator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [auth.user.sub]
-    );
-    const caller = callerRows[0];
+    const orm = await getDb();
+    const [caller] = await orm
+      .select({ is_admin: schema.users.isAdmin, is_moderator: schema.users.isModerator })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, auth.user.sub), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!caller) throw notFound("User not found");
     const isStaff = !!(caller.is_admin || caller.is_moderator);
     const ownsContent = content.ownerId === auth.user.sub;
@@ -74,11 +76,12 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     // makes the resulting campaign "in-house boosted" (ranking tier 5).
     let isInHouse = isStaff;
     if (!isInHouse && content.ownerId) {
-      const { rows: authorRows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-        `SELECT is_admin, is_moderator FROM users WHERE id = $1 LIMIT 1`,
-        [content.ownerId]
-      );
-      isInHouse = !!(authorRows[0]?.is_admin || authorRows[0]?.is_moderator);
+      const [authorRow] = await orm
+        .select({ is_admin: schema.users.isAdmin, is_moderator: schema.users.isModerator })
+        .from(schema.users)
+        .where(eq(schema.users.id, content.ownerId))
+        .limit(1);
+      isInHouse = !!(authorRow?.is_admin || authorRow?.is_moderator);
     }
 
     const eligibility = await checkAdvertiserEligibility(auth.user.sub);
@@ -102,11 +105,12 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     });
     if (!result) throw notFound("Content not found");
 
-    const { rows: nameRows } = await db.query<{ display_name: string }>(
-      `SELECT display_name FROM users WHERE id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
-    const moderation = await submitCampaignForModeration(result.campaign, nameRows[0]?.display_name ?? "Zobia user");
+    const [nameRow] = await orm
+      .select({ display_name: schema.users.displayName })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
+    const moderation = await submitCampaignForModeration(result.campaign, nameRow?.display_name ?? "Zobia user");
 
     return NextResponse.json(
       {

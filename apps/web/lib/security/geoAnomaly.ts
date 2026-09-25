@@ -15,7 +15,7 @@
  */
 
 import { redis } from "@/lib/redis";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { raiseAlert } from "@/lib/alerts/dispatch";
 
 // ---------------------------------------------------------------------------
@@ -140,6 +140,7 @@ export async function recordAndCheckAnomaly(
     // Log admin alert only when the threshold is reached — inserting on every
     // anomaly floods the table for mobile users with dynamic IPs (OPS-02).
     if (count >= ANOMALY_THRESHOLD) {
+      const db = await getDb();
       await raiseAlert(db, {
         type: "geo_anomaly",
         category: "security",

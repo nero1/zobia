@@ -28,7 +28,8 @@
  * commits, regardless of who triggered the deletion.
  */
 
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { invalidateAllSessions } from "@/lib/auth/session";
 import { storage } from "@/lib/storage";
 
@@ -48,46 +49,50 @@ export async function anonymizeUserAccount(
 ): Promise<void> {
   let kycStorageKeys: string[] = [];
 
-  await db.transaction(async (tx) => {
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
     // Soft delete: anonymise public-facing fields but KEEP identifiers (email,
     // google_id, etc.) so the user can reactivate within the 30-day grace
     // period by logging in again. PII identifiers are only wiped by the
     // scheduled purge job after pending_deletion_at.
-    await tx.query(
-      `UPDATE users
-       SET display_name    = 'Deleted User',
-           bio             = NULL,
-           avatar_emoji    = '👤',
-           city            = NULL,
-           push_token      = NULL,
-           pin_hash        = NULL,
-           deleted_at      = NOW(),
-           updated_at      = NOW()
-       WHERE id = $1 AND deleted_at IS NULL`,
-      [userId]
-    );
+    await tx
+      .update(schema.users)
+      .set({
+        displayName: "Deleted User",
+        bio: null,
+        avatarEmoji: "👤",
+        city: null,
+        pushToken: null,
+        pinHash: null,
+        deletedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)));
 
     // Hard-delete payment PII — bank accounts and wallet addresses are PII
     // that cannot be retained; payout records preserve accounting data via snapshots.
-    await tx.query(`DELETE FROM creator_bank_accounts WHERE creator_id = $1`, [userId]);
-    await tx.query(`DELETE FROM creator_wallet_addresses WHERE creator_id = $1`, [userId]);
-    await tx.query(`DELETE FROM creator_kyc WHERE creator_id = $1`, [userId]).catch(() => {});
+    await tx.delete(schema.creatorBankAccounts).where(eq(schema.creatorBankAccounts.creatorId, userId));
+    await tx.delete(schema.creatorWalletAddresses).where(eq(schema.creatorWalletAddresses.creatorId, userId));
+    await tx
+      .delete(schema.creatorKyc)
+      .where(eq(schema.creatorKyc.creatorId, userId))
+      .catch(() => {});
 
     // Hard-delete identity KYC PII (Tiers 1-3) — BVN digits, encrypted ID
     // numbers, full legal names, uploaded document storage keys. Collect
     // storage keys before deleting so we can purge the underlying objects
     // after the transaction commits.
-    const { rows: docRows } = await tx.query<{ storage_key: string }>(
-      `SELECT storage_key FROM kyc_documents WHERE user_id = $1`,
-      [userId]
-    );
-    kycStorageKeys = docRows.map((r) => r.storage_key);
+    const docRows = await tx
+      .select({ storageKey: schema.kycDocuments.storageKey })
+      .from(schema.kycDocuments)
+      .where(eq(schema.kycDocuments.userId, userId));
+    kycStorageKeys = docRows.map((r) => r.storageKey);
 
     // Cascades to kyc_documents rows attached to a submission via
     // ON DELETE CASCADE; the second delete below catches any documents
     // uploaded but never attached to a submission.
-    await tx.query(`DELETE FROM kyc_submissions WHERE user_id = $1`, [userId]);
-    await tx.query(`DELETE FROM kyc_documents WHERE user_id = $1`, [userId]);
+    await tx.delete(schema.kycSubmissions).where(eq(schema.kycSubmissions.userId, userId));
+    await tx.delete(schema.kycDocuments).where(eq(schema.kycDocuments.userId, userId));
   });
 
   if (kycStorageKeys.length > 0) {

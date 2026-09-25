@@ -9,7 +9,8 @@
  * the corresponding sticker pack automatically.
  */
 
-import type { DatabaseAdapter } from "@/lib/db";
+import { schema, type DbOrTx } from "@/lib/db/drizzle";
+import { and, count, eq, sql } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -95,13 +96,13 @@ export const MILESTONE_STICKER_GRANTS: MilestonePackGrant[] = [
  *
  * @param userId    - The user to award packs to
  * @param unlockKey - The milestone unlock key just granted
- * @param db        - Active database adapter
+ * @param db        - Active Drizzle db handle or transaction
  * @returns Names of packs awarded (empty array if none matched or already owned)
  */
 export async function awardMilestoneStickers(
   userId: string,
   unlockKey: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<string[]> {
   const grant = MILESTONE_STICKER_GRANTS.find((g) => g.unlockKey === unlockKey);
   if (!grant) return [];
@@ -110,41 +111,44 @@ export async function awardMilestoneStickers(
 
   try {
     // Check whether the user already owns a pack with this name
-    const { rows: existing } = await db.query<{ id: string }>(
-      `SELECT sp.id
-       FROM user_sticker_packs usp
-       JOIN sticker_packs sp ON sp.id = usp.pack_id
-       WHERE usp.user_id = $1 AND sp.name = $2
-       LIMIT 1`,
-      [userId, grant.packName]
-    );
+    const existing = await db
+      .select({ id: schema.stickerPacks.id })
+      .from(schema.userStickerPacks)
+      .innerJoin(schema.stickerPacks, eq(schema.stickerPacks.id, schema.userStickerPacks.packId))
+      .where(and(eq(schema.userStickerPacks.userId, userId), eq(schema.stickerPacks.name, grant.packName)))
+      .limit(1);
 
     if (existing.length > 0) return []; // already owned
 
     // Find or create the sticker pack
     let packId: string;
-    const { rows: packRows } = await db.query<{ id: string }>(
-      "SELECT id FROM sticker_packs WHERE name = $1 LIMIT 1",
-      [grant.packName]
-    );
+    const packRows = await db
+      .select({ id: schema.stickerPacks.id })
+      .from(schema.stickerPacks)
+      .where(eq(schema.stickerPacks.name, grant.packName))
+      .limit(1);
 
     if (packRows.length > 0) {
       packId = packRows[0].id;
     } else {
-      const { rows: newPack } = await db.query<{ id: string }>(
-        `INSERT INTO sticker_packs
-           (name, description, pack_type, coin_price)
-         VALUES ($1, $2, 'earnable', 0)
-         ON CONFLICT (name) DO NOTHING
-         RETURNING id`,
-        [grant.packName, grant.packDescription]
-      );
+      const newPack = await db
+        .insert(schema.stickerPacks)
+        .values({
+          name: grant.packName,
+          description: grant.packDescription,
+          packType: "earnable",
+          coinPrice: 0,
+        })
+        .onConflictDoNothing({ target: schema.stickerPacks.name })
+        .returning({ id: schema.stickerPacks.id });
+
       if (!newPack[0]) {
         // Concurrent insert won the race — fetch the row that was inserted instead.
-        const { rows: racedRows } = await db.query<{ id: string }>(
-          "SELECT id FROM sticker_packs WHERE name = $1 LIMIT 1",
-          [grant.packName]
-        );
+        const racedRows = await db
+          .select({ id: schema.stickerPacks.id })
+          .from(schema.stickerPacks)
+          .where(eq(schema.stickerPacks.name, grant.packName))
+          .limit(1);
         if (!racedRows[0]) return []; // should never happen
         packId = racedRows[0].id;
       } else {
@@ -153,12 +157,10 @@ export async function awardMilestoneStickers(
     }
 
     // Grant the pack to the user
-    await db.query(
-      `INSERT INTO user_sticker_packs (user_id, pack_id)
-       VALUES ($1, $2)
-       ON CONFLICT (user_id, pack_id) DO NOTHING`,
-      [userId, packId]
-    );
+    await db
+      .insert(schema.userStickerPacks)
+      .values({ userId, packId })
+      .onConflictDoNothing({ target: [schema.userStickerPacks.userId, schema.userStickerPacks.packId] });
 
     awarded.push(grant.packName);
 
@@ -184,25 +186,24 @@ const COLLECTOR_BADGE_THRESHOLDS = [1, 3, 5, 10] as const;
  */
 export async function checkStickerCollectorBadges(
   userId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<void> {
   // Count total packs owned by the user
-  const { rows: countRows } = await db.query<{ count: string }>(
-    `SELECT COUNT(*)::text AS count FROM user_sticker_packs WHERE user_id = $1`,
-    [userId]
-  );
-  const totalPacks = parseInt(countRows[0]?.count ?? "0");
+  const countRows = await db
+    .select({ count: count() })
+    .from(schema.userStickerPacks)
+    .where(eq(schema.userStickerPacks.userId, userId));
+  const totalPacks = countRows[0]?.count ?? 0;
   if (totalPacks === 0) return;
 
   for (const threshold of COLLECTOR_BADGE_THRESHOLDS) {
     if (totalPacks >= threshold) {
       const badgeKey = `sticker_collector_${threshold}`;
-      await db.query(
-        `INSERT INTO user_badges (user_id, badge_key, awarded_at)
-         VALUES ($1, $2, NOW())
-         ON CONFLICT (user_id, badge_key) DO NOTHING`,
-        [userId, badgeKey]
-      ).catch(() => {}); // Non-fatal if user_badges table doesn't have this key
+      await db
+        .insert(schema.userBadges)
+        .values({ userId, badgeKey, awardedAt: sql`NOW()` })
+        .onConflictDoNothing({ target: [schema.userBadges.userId, schema.userBadges.badgeKey] })
+        .catch(() => {}); // Non-fatal if user_badges table doesn't have this key
     }
   }
 }

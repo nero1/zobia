@@ -10,13 +10,19 @@ export const dynamic = 'force-dynamic';
  *     manifest.groupChatInvite.anyMemberCanInvite (null = use the manifest default)
  *   grant:  string[] — user ids to grant can_invite
  *   revoke: string[] — user ids to revoke can_invite
+ *
+ * NOTE: `group_chats.allow_any_member_invite` and `group_chat_members.can_invite`
+ * are not present in lib/db/schema.ts (schema/DB mismatch — reported upstream,
+ * same gap documented in lib/plans/groupChatSweep.ts), so this uses Drizzle's
+ * `sql` tag directly rather than the query builder.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
+import { sql } from 'drizzle-orm';
 import { withAuth, validateBody } from '@/lib/api/middleware';
 import { forbidden, notFound } from '@/lib/api/errors';
-import { db } from '@/lib/db';
+import { getDb } from '@/lib/db/drizzle';
 
 const bodySchema = z.object({
   anyMemberCanInvite: z.union([z.boolean(), z.null()]).optional(),
@@ -31,40 +37,36 @@ export const PATCH = withAuth(async (
   const userId = auth.user.sub;
   const { groupId } = await params;
   const body = await validateBody(req, bodySchema);
+  const orm = await getDb();
 
-  const { rows: memberRows } = await db.query<{ role: string }>(
-    'SELECT role FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',
-    [groupId, userId],
-  );
-  if (!memberRows[0] || memberRows[0].role !== 'admin') throw forbidden('Admin only');
+  const memberResult = await orm.execute<{ role: string }>(sql`
+    SELECT role FROM group_chat_members WHERE group_chat_id = ${groupId} AND user_id = ${userId}
+  `);
+  if (!memberResult.rows[0] || memberResult.rows[0].role !== 'admin') throw forbidden('Admin only');
 
-  const { rows: groupRows } = await db.query<{ id: string }>(
-    'SELECT id FROM group_chats WHERE id = $1',
-    [groupId],
-  );
-  if (!groupRows[0]) throw notFound('Group not found');
+  const groupResult = await orm.execute<{ id: string }>(sql`
+    SELECT id FROM group_chats WHERE id = ${groupId}
+  `);
+  if (!groupResult.rows[0]) throw notFound('Group not found');
 
   if (body.anyMemberCanInvite !== undefined) {
-    await db.query(
-      'UPDATE group_chats SET allow_any_member_invite = $1, updated_at = NOW() WHERE id = $2',
-      [body.anyMemberCanInvite, groupId],
-    );
+    await orm.execute(sql`
+      UPDATE group_chats SET allow_any_member_invite = ${body.anyMemberCanInvite}, updated_at = NOW() WHERE id = ${groupId}
+    `);
   }
 
   if (body.grant?.length) {
-    await db.query(
-      `UPDATE group_chat_members SET can_invite = TRUE
-       WHERE group_chat_id = $1 AND user_id = ANY($2::uuid[])`,
-      [groupId, body.grant],
-    );
+    await orm.execute(sql`
+      UPDATE group_chat_members SET can_invite = TRUE
+      WHERE group_chat_id = ${groupId} AND user_id = ANY(${body.grant}::uuid[])
+    `);
   }
 
   if (body.revoke?.length) {
-    await db.query(
-      `UPDATE group_chat_members SET can_invite = FALSE
-       WHERE group_chat_id = $1 AND user_id = ANY($2::uuid[])`,
-      [groupId, body.revoke],
-    );
+    await orm.execute(sql`
+      UPDATE group_chat_members SET can_invite = FALSE
+      WHERE group_chat_id = ${groupId} AND user_id = ANY(${body.revoke}::uuid[])
+    `);
   }
 
   return NextResponse.json({ success: true });

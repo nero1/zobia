@@ -18,7 +18,8 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getBlogBySlug, getBlogPostBySlug } from "@/lib/blogs/repo";
 import { updatePost, deletePost, isUserModeratorOrAdmin } from "@/lib/blogs/service";
 import { sanitizeBlogPostHtml, plainTextToBlogPostHtml } from "@/lib/security/htmlSanitizer";
-import { db } from "@/lib/db";
+import { eq, and } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 const updateSchema = z.object({
   title: z.string().trim().min(2).max(200).optional(),
@@ -57,12 +58,15 @@ export const GET = withAuth<{ slug: string; postSlug: string }>(async (_req: Nex
     let bodyHtml = post.body_html;
     let previewWordCount: number | null = null;
 
+    const orm = await getDb();
+
     if (post.is_paywalled && post.paywall_credits_cost > 0 && !isAuthor && !isMod) {
-      const { rows } = await db.query<{ exists: boolean }>(
-        `SELECT EXISTS(SELECT 1 FROM blog_post_unlocks WHERE post_id = $1 AND user_id = $2) AS exists`,
-        [post.id, auth.user.sub]
-      );
-      if (!rows[0]?.exists) {
+      const [unlockRow] = await orm
+        .select({ id: schema.blogPostUnlocks.id })
+        .from(schema.blogPostUnlocks)
+        .where(and(eq(schema.blogPostUnlocks.postId, post.id), eq(schema.blogPostUnlocks.userId, auth.user.sub)))
+        .limit(1);
+      if (!unlockRow) {
         locked = true;
         const preview = previewHtml(post.body_markdown, post.word_count, (post as { content_format?: string }).content_format ?? "markdown");
         bodyHtml = preview.html;
@@ -70,10 +74,11 @@ export const GET = withAuth<{ slug: string; postSlug: string }>(async (_req: Nex
       }
     }
 
-    const { rows: likeRows } = await db.query<{ exists: boolean }>(
-      `SELECT EXISTS(SELECT 1 FROM blog_post_likes WHERE post_id = $1 AND user_id = $2) AS exists`,
-      [post.id, auth.user.sub]
-    );
+    const [likeRow] = await orm
+      .select({ id: schema.blogPostLikes.id })
+      .from(schema.blogPostLikes)
+      .where(and(eq(schema.blogPostLikes.postId, post.id), eq(schema.blogPostLikes.userId, auth.user.sub)))
+      .limit(1);
 
     return NextResponse.json({
       success: true,
@@ -82,7 +87,7 @@ export const GET = withAuth<{ slug: string; postSlug: string }>(async (_req: Nex
         locked,
         previewWordCount,
         isAuthor,
-        isLiked: !!likeRows[0]?.exists,
+        isLiked: !!likeRow,
         blog: { slug: blog.slug, title: blog.title, hideAuthorInfo: blog.hide_author_info },
       },
       error: null,
@@ -101,8 +106,13 @@ export const PATCH = withAuth<{ slug: string; postSlug: string }>(async (req: Ne
     if (!post) throw notFound("Post not found");
 
     const body = await validateBody(req, updateSchema);
-    const { rows } = await db.query<{ plan: string }>(`SELECT plan FROM users WHERE id = $1 LIMIT 1`, [auth.user.sub]);
-    await updatePost(post.id, auth.user.sub, rows[0]?.plan ?? "free", body);
+    const orm = await getDb();
+    const [userRow] = await orm
+      .select({ plan: schema.users.plan })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
+    await updatePost(post.id, auth.user.sub, userRow?.plan ?? "free", body);
     return NextResponse.json({ success: true, data: { updated: true }, error: null });
   } catch (err) {
     return handleApiError(err);

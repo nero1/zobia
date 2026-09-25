@@ -22,7 +22,9 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, and, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { insertNotification } from "@/lib/notifications/insert";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -46,18 +48,19 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const body = await validateBody(req, approveSchema);
 
+    const orm = await getDb();
+
     // Fetch application
-    const { rows: appRows } = await db.query<{
-      id: string;
-      creator_id: string;
-      quest_id: string;
-      status: string;
-    }>(
-      `SELECT id, creator_id, quest_id, status
-       FROM sponsored_quest_applications
-       WHERE id = $1 LIMIT 1`,
-      [body.applicationId]
-    );
+    const appRows = await orm
+      .select({
+        id: schema.sponsoredQuestApplications.id,
+        creatorId: schema.sponsoredQuestApplications.creatorId,
+        questId: schema.sponsoredQuestApplications.questId,
+        status: schema.sponsoredQuestApplications.status,
+      })
+      .from(schema.sponsoredQuestApplications)
+      .where(eq(schema.sponsoredQuestApplications.id, body.applicationId))
+      .limit(1);
     const app = appRows[0];
     if (!app) throw notFound("Application not found");
     if (app.status !== "completed") {
@@ -65,22 +68,19 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     }
 
     if (body.action === "reject") {
-      await db.query(
-        `UPDATE sponsored_quest_applications
-         SET status = 'rejected', updated_at = NOW()
-         WHERE id = $1`,
-        [body.applicationId]
-      );
+      await orm
+        .update(schema.sponsoredQuestApplications)
+        .set({ status: "rejected", updatedAt: new Date() })
+        .where(eq(schema.sponsoredQuestApplications.id, body.applicationId));
 
       // Notify creator of rejection
-      db.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-         VALUES ($1, 'sponsored_quest_rejected', $2::jsonb, FALSE, NOW())`,
-        [app.creator_id, JSON.stringify({
-          questId: app.quest_id,
-          applicationId: app.id,
-          reason: body.rejectionReason ?? null,
-        })]
+      insertNotification(
+        orm,
+        app.creatorId,
+        "sponsored_quest_rejected",
+        "Sponsored quest application rejected",
+        `Your sponsored quest application was not approved.${body.rejectionReason ? ` Reason: ${body.rejectionReason}` : ""}`,
+        { questId: app.questId, applicationId: app.id, reason: body.rejectionReason ?? null }
       ).catch(() => {});
 
       return NextResponse.json({
@@ -91,91 +91,81 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
     }
 
     // APPROVE: calculate and credit payout
-    const { rows: questRows } = await db.query<{
-      id: string;
-      title: string;
-      reward_coins: number;
-      creator_share_percent: number;
-    }>(
-      `SELECT id, title, reward_coins, creator_share_percent
-       FROM sponsored_quests WHERE id = $1 LIMIT 1`,
-      [app.quest_id]
-    );
+    const questRows = await orm
+      .select({
+        id: schema.sponsoredQuests.id,
+        title: schema.sponsoredQuests.title,
+        rewardCoins: schema.sponsoredQuests.rewardCoins,
+        creatorSharePercent: schema.sponsoredQuests.creatorSharePercent,
+      })
+      .from(schema.sponsoredQuests)
+      .where(eq(schema.sponsoredQuests.id, app.questId))
+      .limit(1);
     const quest = questRows[0];
     if (!quest) throw notFound("Quest not found");
 
-    const payoutCoins = Math.floor(
-      quest.reward_coins * (quest.creator_share_percent / 100)
-    );
+    const rewardCoins = quest.rewardCoins ?? 0;
+    const payoutCoins = Math.floor(rewardCoins * (quest.creatorSharePercent / 100));
 
-    await db.transaction(async (tx) => {
+    await orm.transaction(async (tx) => {
       // Lock creator row
-      const { rows: creatorRows } = await tx.query<{ coin_balance: number }>(
-        `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-        [app.creator_id]
-      );
+      const creatorRows = await tx
+        .select({ coinBalance: schema.users.coinBalance })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, app.creatorId), isNull(schema.users.deletedAt)))
+        .for("update");
       if (!creatorRows[0]) throw new Error("Creator not found");
 
-      const before = creatorRows[0].coin_balance;
-      const after = before + payoutCoins;
+      const before = creatorRows[0].coinBalance;
+      const after = before + BigInt(payoutCoins);
 
       // Credit coins
-      await tx.query(
-        `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-        [after, app.creator_id]
-      );
+      await tx.update(schema.users).set({ coinBalance: after, updatedAt: new Date() }).where(eq(schema.users.id, app.creatorId));
 
       // Ledger entry
-      await tx.query(
-        `INSERT INTO coin_ledger
-           (user_id, amount, balance_before, balance_after, transaction_type,
-            reference_id, description, created_at)
-         VALUES ($1, $2, $3, $4, 'sponsored_quest_payout', $5,
-                 $6, NOW())`,
-        [
-          app.creator_id,
-          payoutCoins,
-          before,
-          after,
-          app.quest_id,
-          `Sponsored quest payout: ${quest.title}`,
-        ]
-      );
+      await tx.insert(schema.coinLedger).values({
+        userId: app.creatorId,
+        amount: BigInt(payoutCoins),
+        balanceBefore: before,
+        balanceAfter: after,
+        transactionType: "sponsored_quest_payout",
+        referenceId: app.questId,
+        description: `Sponsored quest payout: ${quest.title}`,
+      });
 
       // Record creator earnings (coins → kobo: 1 coin = 100 kobo)
-      const grossKobo = quest.reward_coins * 100;
-      const netKobo = payoutCoins * 100;
+      const grossKobo = BigInt(rewardCoins) * BigInt(100);
+      const netKobo = BigInt(payoutCoins) * BigInt(100);
       const platformFeeKobo = grossKobo - netKobo;
-      await tx.query(
-        `INSERT INTO creator_earnings
-           (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo,
-            reference_id, created_at)
-         VALUES ($1, 'sponsored_quest', $2, $3, $4, $5, NOW())`,
-        [app.creator_id, grossKobo, platformFeeKobo, netKobo, app.id]
-      );
+      await tx.insert(schema.creatorEarnings).values({
+        creatorId: app.creatorId,
+        sourceType: "sponsored_quest",
+        grossAmountKobo: grossKobo,
+        platformFeeKobo,
+        netAmountKobo: netKobo,
+        referenceId: app.id,
+      });
 
       // Mark application as paid
-      await tx.query(
-        `UPDATE sponsored_quest_applications
-         SET status = 'paid',
-             payout_coins = $1,
-             approved_at  = NOW(),
-             paid_at      = NOW(),
-             updated_at   = NOW()
-         WHERE id = $2`,
-        [payoutCoins, app.id]
-      );
+      await tx
+        .update(schema.sponsoredQuestApplications)
+        .set({
+          status: "paid",
+          payoutCoins,
+          approvedAt: new Date(),
+          paidAt: new Date(),
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.sponsoredQuestApplications.id, app.id));
 
       // Notify creator
-      await tx.query(
-        `INSERT INTO notifications (user_id, type, payload, is_read, created_at)
-         VALUES ($1, 'sponsored_quest_paid', $2::jsonb, FALSE, NOW())`,
-        [app.creator_id, JSON.stringify({
-          questId: app.quest_id,
-          questTitle: quest.title,
-          payoutCoins,
-          applicationId: app.id,
-        })]
+      await insertNotification(
+        tx,
+        app.creatorId,
+        "sponsored_quest_paid",
+        "Sponsored quest payout received",
+        `You've been paid ${payoutCoins} coins for "${quest.title}".`,
+        { questId: app.questId, questTitle: quest.title, payoutCoins, applicationId: app.id }
       ).catch(() => {});
     });
 
@@ -186,7 +176,7 @@ export const POST = withAdminAuth(async (req: NextRequest, { params, auth }) => 
           applicationId: app.id,
           status: "paid",
           payoutCoins,
-          creatorId: app.creator_id,
+          creatorId: app.creatorId,
           message: `${payoutCoins} coins credited to creator.`,
         },
         error: null,

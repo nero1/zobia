@@ -20,7 +20,8 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { verifyPayment } from "@/lib/payments/paystack";
 import { processChargeSuccess } from "@/lib/payments/paystackWebhookHandler";
@@ -35,11 +36,12 @@ export const POST = withAuth<{ roomId: string }>(async (_req: NextRequest, { par
     const userId = auth.user.sub;
 
     const reference = classroomPaymentReference(roomId, userId);
-    const { rows } = await db.query<{ status: string; metadata: Record<string, unknown> }>(
-      `SELECT status, metadata FROM payments WHERE provider_reference = $1 AND provider = 'paystack' LIMIT 1`,
-      [reference]
-    );
-    const payment = rows[0];
+    const orm = await getDb();
+    const [payment] = await orm
+      .select({ status: schema.payments.status, metadata: schema.payments.metadata })
+      .from(schema.payments)
+      .where(and(eq(schema.payments.providerReference, reference), eq(schema.payments.provider, "paystack")))
+      .limit(1);
     if (!payment) throw notFound("No pending payment found for this classroom");
 
     if (payment.status === "completed") {
@@ -54,7 +56,7 @@ export const POST = withAuth<{ roomId: string }>(async (_req: NextRequest, { par
         amount: result.amount,
         currency: result.currency,
         customer: { email: "" },
-        metadata: payment.metadata,
+        metadata: payment.metadata as Record<string, unknown>,
         paid_at: new Date().toISOString(),
       } as Parameters<typeof processChargeSuccess>[0]);
       return NextResponse.json({ success: true, data: { status: "completed" }, error: null });

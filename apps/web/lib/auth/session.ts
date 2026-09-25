@@ -16,7 +16,8 @@
 
 import { redis } from "@/lib/redis";
 import { memGet, memSet, memDel } from "@/lib/cache/memory";
-import { db } from "@/lib/db";
+import { eq, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import {
   signAccessToken,
   signRefreshToken,
@@ -231,12 +232,19 @@ export async function createSession(
   let is_senior_support = false;
   let is_ad_moderator = false;
   try {
-    const { rows: staffRows } = await db.query<{ is_support: boolean; is_senior_support: boolean; is_ad_moderator: boolean }>(
-      `SELECT COALESCE(is_support, false) AS is_support, COALESCE(is_senior_support, false) AS is_senior_support,
-              COALESCE(is_ad_moderator, false) AS is_ad_moderator
-       FROM users WHERE id = $1 LIMIT 1`,
-      [user.id]
-    );
+    // NOTE (schema gap): users.is_support / is_senior_support / is_ad_moderator
+    // are not modeled in lib/db/schema.ts's `users` table — selected here as
+    // raw `sql` expressions through the shared Drizzle pool.
+    const orm = await getDb();
+    const staffRows = await orm
+      .select({
+        is_support: sql<boolean>`COALESCE(is_support, false)`,
+        is_senior_support: sql<boolean>`COALESCE(is_senior_support, false)`,
+        is_ad_moderator: sql<boolean>`COALESCE(is_ad_moderator, false)`,
+      })
+      .from(schema.users)
+      .where(eq(schema.users.id, user.id))
+      .limit(1);
     is_support = Boolean(staffRows[0]?.is_support);
     is_senior_support = Boolean(staffRows[0]?.is_senior_support);
     is_ad_moderator = Boolean(staffRows[0]?.is_ad_moderator);
@@ -298,12 +306,13 @@ export async function createSession(
   };
 
   // Record daily login for Creator Fund active-day tracking (BUG-027)
-  await db.query(
-    `INSERT INTO user_daily_logins (user_id, login_date)
-     VALUES ($1, CURRENT_DATE)
-     ON CONFLICT (user_id, login_date) DO NOTHING`,
-    [user.id]
-  ).catch(() => {}); // non-fatal
+  await (async () => {
+    const orm = await getDb();
+    return orm
+      .insert(schema.userDailyLogins)
+      .values({ userId: user.id, loginDate: sql`CURRENT_DATE` })
+      .onConflictDoNothing({ target: [schema.userDailyLogins.userId, schema.userDailyLogins.loginDate] });
+  })().catch(() => {}); // non-fatal
 
   // REDIS-COST-01: session establishment used to cost five sequential Redis
   // round-trips (SETEX, ZADD, EVAL for the TTL extension, ZRANGE, and
@@ -496,25 +505,22 @@ export async function refreshAccessToken(
   // instead relies on `downgrade_moderator` explicitly invalidating sessions
   // (there is no equivalent forced-logout wired up for is_support yet, so a
   // fresh-DB-read-on-refresh is the safer default for a newly-added claim).
-  const { rows: staffRows } = await db.query<{
-    email: string | null;
-    is_support: boolean;
-    is_senior_support: boolean;
-    is_ad_moderator: boolean;
-    is_banned: boolean;
-    is_suspended: boolean;
-    suspended_until: string | null;
-  }>(
-    `SELECT email,
-            COALESCE(is_support, false) AS is_support,
-            COALESCE(is_senior_support, false) AS is_senior_support,
-            COALESCE(is_ad_moderator, false) AS is_ad_moderator,
-            COALESCE(is_banned, false) AS is_banned,
-            COALESCE(is_suspended, false) AS is_suspended,
-            suspended_until
-     FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [session.uid]
-  );
+  // NOTE (schema gap): is_support / is_senior_support / is_ad_moderator are
+  // not modeled in lib/db/schema.ts's `users` table — selected as raw `sql`.
+  const orm = await getDb();
+  const staffRows = await orm
+    .select({
+      email: schema.users.email,
+      is_support: sql<boolean>`COALESCE(is_support, false)`,
+      is_senior_support: sql<boolean>`COALESCE(is_senior_support, false)`,
+      is_ad_moderator: sql<boolean>`COALESCE(is_ad_moderator, false)`,
+      is_banned: sql<boolean>`COALESCE(${schema.users.isBanned}, false)`,
+      is_suspended: sql<boolean>`COALESCE(${schema.users.isSuspended}, false)`,
+      suspended_until: schema.users.suspendedUntil,
+    })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, session.uid), sql`${schema.users.deletedAt} IS NULL`))
+    .limit(1);
 
   // REDIS-COST-01: the per-request `user:status:<uid>` Redis read is gone from
   // the hot path (see lib/api/middleware.ts). Token refresh is now the periodic

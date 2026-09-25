@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
@@ -33,15 +34,15 @@ interface UsernameHistoryRow {
 export const GET = withModeratorOrAdminAuth<AdminUserParams>(async (req, { params }) => {
   try {
     const { userId } = params;
-    const { rows } = await db.query<UsernameHistoryRow>(
-      `SELECT id, old_username, new_username, changed_at, redirect_enabled,
+    const orm = await getDb();
+    const { rows } = await orm.execute<UsernameHistoryRow & Record<string, unknown>>(sql`
+      SELECT id, old_username, new_username, changed_at, redirect_enabled,
               reserved_until, cost_paid_credits, cost_paid_stars
        FROM username_change_history
-       WHERE user_id = $1
+       WHERE user_id = ${userId}
        ORDER BY changed_at DESC
-       LIMIT 100`,
-      [userId]
-    );
+       LIMIT 100
+    `);
     return NextResponse.json({ success: true, data: { history: rows }, error: null });
   } catch (err) {
     return handleApiError(err);

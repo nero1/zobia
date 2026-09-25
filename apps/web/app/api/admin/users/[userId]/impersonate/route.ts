@@ -31,7 +31,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -84,12 +85,23 @@ export const POST = withAdminAuth<{ userId: string }>(
         }
       }
 
-      const { rows } = await db.query<TargetUserRow>(
-        `SELECT id, email, username, is_admin, is_moderator, is_creator,
-                onboarding_completed, deleted_at, plan, avatar_url
-         FROM users WHERE id = $1 LIMIT 1`,
-        [userId]
-      );
+      const orm = await getDb();
+      const rows = await orm
+        .select({
+          id: schema.users.id,
+          email: schema.users.email,
+          username: schema.users.username,
+          is_admin: schema.users.isAdmin,
+          is_moderator: schema.users.isModerator,
+          is_creator: schema.users.isCreator,
+          onboarding_completed: schema.users.onboardingCompleted,
+          deleted_at: schema.users.deletedAt,
+          plan: schema.users.plan,
+          avatar_url: schema.users.avatarUrl,
+        })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId))
+        .limit(1);
       const target = rows[0];
       if (!target || target.deleted_at) throw notFound("User not found");
       if (target.is_admin) throw forbidden("Cannot impersonate another admin account.");
@@ -105,16 +117,22 @@ export const POST = withAdminAuth<{ userId: string }>(
           is_admin: false,
           is_moderator: target.is_moderator,
           is_creator: target.is_creator,
-          onboarding_completed: target.onboarding_completed,
+          onboarding_completed: target.onboarding_completed ?? false,
         },
         { ip, ua, impersonatedBy: auth.user.sub }
       );
 
-      db.query(
-        `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, before_val, after_val, created_at)
-         VALUES ($1, 'impersonate_start', 'users', $2, NULL, NULL, NOW())`,
-        [auth.user.sub, target.id]
-      ).catch((err) => logger.error({ err }, "[admin:impersonate] Failed to write admin_audit_log entry (non-fatal)"));
+      orm
+        .insert(schema.adminAuditLog)
+        .values({
+          adminId: auth.user.sub,
+          action: "impersonate_start",
+          resource: "users",
+          resourceId: target.id,
+          beforeVal: null,
+          afterVal: null,
+        })
+        .catch((err) => logger.error({ err }, "[admin:impersonate] Failed to write admin_audit_log entry (non-fatal)"));
 
       if (isBearerClient) {
         return NextResponse.json({

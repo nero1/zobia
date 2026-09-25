@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, gt, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { memGet, memSet } from "@/lib/cache/memory";
@@ -57,7 +58,7 @@ const RECENTLY_ACTIVE_MS = 60 * 60 * 1000; // 1 hour
 export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
     const userId = auth.user.sub;
-    const now = new Date().toISOString();
+    const now = new Date();
 
     // Coalesce rapid repeat heartbeats from the same user on this instance.
     const throttleKey = `presence:beat:${userId}`;
@@ -67,10 +68,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // `last_active_at` is the single source of truth for presence — the
       // separate `presence:online:<uid>` Redis key it used to shadow is gone
       // (REDIS-COST-01). See lib/presence/keys.ts.
-      await db.query(
-        `UPDATE users SET last_active_at = $1, updated_at = $1 WHERE id = $2`,
-        [now, userId]
-      );
+      const orm = await getDb();
+      await orm
+        .update(schema.users)
+        .set({ lastActiveAt: now, updatedAt: now })
+        .where(eq(schema.users.id, userId));
     }
 
     return NextResponse.json({ success: true, data: { status: "online" }, error: null });
@@ -89,19 +91,32 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
  */
 export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
   try {
+    const orm = await getDb();
+
     // Count distinct users who earned XP in the last hour (PRD §2.2: "X people earned XP in the last hour")
-    const { rows } = await db.query<{ count: string }>(
-      `SELECT COUNT(DISTINCT user_id) AS count FROM xp_ledger
-       WHERE created_at > NOW() - INTERVAL '1 hour'`
-    );
-    const activeCount = parseInt(rows[0]?.count ?? "0", 10);
+    const countRows = await orm
+      .select({ count: sql<string>`COUNT(DISTINCT ${schema.xpLedger.userId})` })
+      .from(schema.xpLedger)
+      .where(gt(schema.xpLedger.createdAt, sql`NOW() - INTERVAL '1 hour'`));
+    const activeCount = parseInt(countRows[0]?.count ?? "0", 10);
 
     // Optionally return active platform event (flash XP, etc.)
-    const { rows: eventRows } = await db.query<{ id: string; name: string; xp_multiplier: number; ends_at: string }>(
-      `SELECT id, name, xp_multiplier, ends_at FROM platform_events
-       WHERE is_active = true AND starts_at <= NOW() AND ends_at > NOW()
-       LIMIT 1`
-    );
+    const eventRows = await orm
+      .select({
+        id: schema.platformEvents.id,
+        name: schema.platformEvents.name,
+        xp_multiplier: schema.platformEvents.xpMultiplier,
+        ends_at: schema.platformEvents.endsAt,
+      })
+      .from(schema.platformEvents)
+      .where(
+        and(
+          eq(schema.platformEvents.isActive, true),
+          sql`${schema.platformEvents.startsAt} <= NOW()`,
+          gt(schema.platformEvents.endsAt, sql`NOW()`)
+        )
+      )
+      .limit(1);
     const event = eventRows[0] ?? null;
 
     return NextResponse.json({

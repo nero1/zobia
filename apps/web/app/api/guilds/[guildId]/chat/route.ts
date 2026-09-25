@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -58,19 +59,22 @@ export const GET = withAuth(
       const { guildId } = await params;
       const userId = auth.user.sub;
       await enforceRateLimit(userId, 'user', RATE_LIMITS.apiRead);
+      const orm = await getDb();
 
       // Verify guild exists and user is a member
-      const { rows: memberRows } = await db.query<{ role: string }>(
-        `SELECT gm.role
-         FROM guild_members gm
-         JOIN guilds g ON g.id = gm.guild_id
-         WHERE gm.guild_id = $1
-           AND gm.user_id = $2
-           AND gm.left_at IS NULL
-           AND g.disbanded_at IS NULL
-         LIMIT 1`,
-        [guildId, userId]
-      );
+      const memberRows = await orm
+        .select({ role: schema.guildMembers.role })
+        .from(schema.guildMembers)
+        .innerJoin(schema.guilds, eq(schema.guilds.id, schema.guildMembers.guildId))
+        .where(
+          and(
+            eq(schema.guildMembers.guildId, guildId),
+            eq(schema.guildMembers.userId, userId),
+            isNull(schema.guildMembers.leftAt),
+            isNull(schema.guilds.deletedAt)
+          )
+        )
+        .limit(1);
       if (!memberRows[0]) {
         return forbidden('You must be a guild member to view guild chat');
       }
@@ -90,51 +94,38 @@ export const GET = withAuth(
         cursorId = sep > 0 ? cursorParam.slice(sep + 1) : null;
       }
 
-      const { rows: messages } = await db.query<{
-        id: string;
-        sender_id: string;
-        sender_username: string;
-        sender_display_name: string | null;
-        sender_avatar_emoji: string | null;
-        sender_rank_name: string | null;
-        content: string;
-        type: string;
-        sticker_id: string | null;
-        gif_url: string | null;
-        created_at: string;
-      }>(
-        `SELECT gm.id,
-                gm.sender_id,
-                u.username       AS sender_username,
-                u.display_name   AS sender_display_name,
-                u.avatar_emoji   AS sender_avatar_emoji,
-                u.rank_name      AS sender_rank_name,
-                gm.content,
-                gm.type,
-                gm.sticker_id,
-                gm.gif_url,
-                gm.created_at
-         FROM guild_messages gm
-         JOIN users u ON u.id = gm.sender_id
-         WHERE gm.guild_id = $1
-           AND gm.is_deleted = FALSE
-           ${cursorTs && cursorId
-             ? `AND (gm.created_at, gm.id) < ($3::timestamptz, $4::uuid)`
-             : cursorTs
-               ? `AND gm.created_at < $3::timestamptz`
-               : ''}
-         ORDER BY gm.created_at DESC, gm.id DESC
-         LIMIT $2`,
+      const cursorClause =
         cursorTs && cursorId
-          ? [guildId, limit, cursorTs, cursorId]
+          ? sql`AND (${schema.guildMessages.createdAt}, ${schema.guildMessages.id}) < (${cursorTs}::timestamptz, ${cursorId}::uuid)`
           : cursorTs
-            ? [guildId, limit, cursorTs]
-            : [guildId, limit]
-      );
+            ? sql`AND ${schema.guildMessages.createdAt} < ${cursorTs}::timestamptz`
+            : sql``;
+
+      const messages = await orm
+        .select({
+          id: schema.guildMessages.id,
+          senderId: schema.guildMessages.senderId,
+          senderUsername: schema.users.username,
+          senderDisplayName: schema.users.displayName,
+          senderAvatarEmoji: schema.users.avatarEmoji,
+          senderRankName: schema.users.rankName,
+          content: schema.guildMessages.content,
+          type: schema.guildMessages.type,
+          stickerId: schema.guildMessages.stickerId,
+          gifUrl: schema.guildMessages.gifUrl,
+          createdAt: schema.guildMessages.createdAt,
+        })
+        .from(schema.guildMessages)
+        .innerJoin(schema.users, eq(schema.users.id, schema.guildMessages.senderId))
+        .where(
+          sql`${eq(schema.guildMessages.guildId, guildId)} AND ${eq(schema.guildMessages.isDeleted, false)} ${cursorClause}`
+        )
+        .orderBy(desc(schema.guildMessages.createdAt), desc(schema.guildMessages.id))
+        .limit(limit);
 
       const lastMsg = messages[messages.length - 1];
       const nextCursor = messages.length === limit && lastMsg
-        ? `${lastMsg.created_at}_${lastMsg.id}`
+        ? `${lastMsg.createdAt instanceof Date ? lastMsg.createdAt.toISOString() : lastMsg.createdAt}_${lastMsg.id}`
         : null;
 
       return NextResponse.json({
@@ -163,77 +154,94 @@ export const POST = withAuth(
       await enforceRateLimit(userId, 'user', RATE_LIMITS.apiWrite);
 
       const body = await validateBody(req, sendMessageSchema);
+      const orm = await getDb();
 
       // Verify guild membership
-      const { rows: memberRows } = await db.query<{ role: string }>(
-        `SELECT gm.role
-         FROM guild_members gm
-         JOIN guilds g ON g.id = gm.guild_id
-         WHERE gm.guild_id = $1
-           AND gm.user_id = $2
-           AND gm.left_at IS NULL
-           AND g.disbanded_at IS NULL
-         LIMIT 1`,
-        [guildId, userId]
-      );
+      const memberRows = await orm
+        .select({ role: schema.guildMembers.role })
+        .from(schema.guildMembers)
+        .innerJoin(schema.guilds, eq(schema.guilds.id, schema.guildMembers.guildId))
+        .where(
+          and(
+            eq(schema.guildMembers.guildId, guildId),
+            eq(schema.guildMembers.userId, userId),
+            isNull(schema.guildMembers.leftAt),
+            isNull(schema.guilds.deletedAt)
+          )
+        )
+        .limit(1);
       if (!memberRows[0]) {
         return notFound('Guild not found or you are not a member');
       }
 
-      const result = await db.transaction(async (client) => {
+      const result = await orm.transaction(async (tx) => {
         // Insert message
-        const { rows: msgRows } = await client.query<{
-          id: string;
-          created_at: string;
-        }>(
-          `INSERT INTO guild_messages
-             (guild_id, sender_id, content, type, sticker_id, gif_url)
-           VALUES ($1, $2, $3, $4, $5, $6)
-           RETURNING id, created_at`,
-          [guildId, userId, body.content, body.type, body.stickerId ?? null, body.gifUrl ?? null]
-        );
+        const msgRows = await tx
+          .insert(schema.guildMessages)
+          .values({
+            guildId,
+            senderId: userId,
+            content: body.content,
+            type: body.type,
+            stickerId: body.stickerId ?? null,
+            gifUrl: body.gifUrl ?? null,
+          })
+          .returning({ id: schema.guildMessages.id, createdAt: schema.guildMessages.createdAt });
         const message = msgRows[0];
 
         // Award XP — 2 Social + 2 Competitor per message, capped daily
         const today = new Date().toISOString().slice(0, 10);
         // Count only social-track entries (one per message) to avoid double-counting
         // the concurrent competitor-track insert and firing at half the intended cap (BUG-XP-01).
-        const { rows: xpCountRows } = await client.query<{ daily_count: string }>(
-          `SELECT COUNT(*) AS daily_count
-           FROM xp_ledger
-           WHERE user_id = $1
-             AND source = 'guild_chat'
-             AND track = 'social'
-             AND created_at::date = $2::date`,
-          [userId, today]
-        );
-        const dailyCount = parseInt(xpCountRows[0]?.daily_count ?? '0');
+        const xpCountRows = await tx
+          .select({ dailyCount: sql<string>`COUNT(*)` })
+          .from(schema.xpLedger)
+          .where(
+            and(
+              eq(schema.xpLedger.userId, userId),
+              eq(schema.xpLedger.source, 'guild_chat'),
+              eq(schema.xpLedger.track, 'social'),
+              sql`${schema.xpLedger.createdAt}::date = ${today}::date`
+            )
+          );
+        const dailyCount = parseInt(xpCountRows[0]?.dailyCount ?? '0');
 
         if (dailyCount < CHAT_XP_DAILY_CAP) {
           const xpEach = CHAT_XP_PER_MESSAGE;
-          await client.query(
-            `UPDATE users
-             SET xp_total       = xp_total + $1,
-                 xp_social      = COALESCE(xp_social, 0) + $2,
-                 xp_competitor  = COALESCE(xp_competitor, 0) + $2,
-                 updated_at     = NOW()
-             WHERE id = $3`,
-            [xpEach * 2, xpEach, userId]
-          );
-          await client.query(
-            `INSERT INTO xp_ledger (user_id, amount, track, source, reference_id, base_amount, created_at)
-             VALUES
-               ($1, $2, 'social',     'guild_chat', $3, $2, NOW()),
-               ($1, $2, 'competitor', 'guild_chat', $3, $2, NOW())`,
-            [userId, xpEach, message.id]
-          );
+          await tx
+            .update(schema.users)
+            .set({
+              xpTotal: sql`${schema.users.xpTotal} + ${xpEach * 2}`,
+              xpSocial: sql`COALESCE(${schema.users.xpSocial}, 0) + ${xpEach}`,
+              xpCompetitor: sql`COALESCE(${schema.users.xpCompetitor}, 0) + ${xpEach}`,
+              updatedAt: sql`NOW()`,
+            })
+            .where(eq(schema.users.id, userId));
+          await tx.insert(schema.xpLedger).values([
+            {
+              userId,
+              amount: xpEach,
+              track: 'social',
+              source: 'guild_chat',
+              referenceId: message.id,
+              baseAmount: xpEach,
+            },
+            {
+              userId,
+              amount: xpEach,
+              track: 'competitor',
+              source: 'guild_chat',
+              referenceId: message.id,
+              baseAmount: xpEach,
+            },
+          ]);
         }
 
         return message;
       });
 
       // Record war contribution (fire-and-forget)
-      recordWarContribution(userId, 'send_message', db).catch(() => {});
+      recordWarContribution(userId, 'send_message', orm).catch(() => {});
 
       return NextResponse.json({ success: true, message: result }, { status: 201 });
     } catch (err) {

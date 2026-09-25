@@ -20,7 +20,9 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq, and, isNull, sql as drizzleSql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { insertNotification } from "@/lib/notifications/insert";
 import { withAuth } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -85,35 +87,56 @@ interface StatsRow {
 async function fetchCreatorStats(
   userId: string
 ): Promise<{ creator: CreatorRow; stats: StatsRow }> {
-  const { rows: creatorRows } = await db.query<CreatorRow>(
-    `SELECT is_creator, creator_tier, xp_creator, login_streak,
-            COALESCE(icon_creator_invitation, FALSE) AS icon_creator_invitation
-     FROM users
-     WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [userId]
-  );
+  const orm = await getDb();
+  const creatorRows = await orm
+    .select({
+      isCreator: schema.users.isCreator,
+      creatorTier: schema.users.creatorTier,
+      xpCreator: schema.users.xpCreator,
+      loginStreak: schema.users.loginStreak,
+    })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+    .limit(1);
 
-  const creator = creatorRows[0];
-  if (!creator) throw new Error("User not found");
+  const creatorRow = creatorRows[0];
+  if (!creatorRow) throw new Error("User not found");
 
-  const { rows: statRows } = await db.query<StatsRow>(
-    `SELECT
-       -- Unique members across all creator rooms (PRD §14 "Room members")
-       (SELECT COUNT(DISTINCT rm.user_id)::int
-        FROM room_members rm
-        JOIN rooms r ON r.id = rm.room_id
-        WHERE r.creator_id = $1 AND r.is_active = TRUE AND rm.left_at IS NULL)
-       AS room_members,
+  // NOTE (schema mismatch): `icon_creator_invitation` does not exist
+  // anywhere in the real database (db/migrations/*.sql) or in the Drizzle
+  // schema — the original raw SQL here (`COALESCE(icon_creator_invitation,
+  // FALSE)`) would have thrown "column does not exist" at runtime. There is
+  // currently no way to flag a creator for invitation-only Icon tier, so
+  // this always evaluates to false until that column is added upstream.
+  const creator: CreatorRow = {
+    is_creator: creatorRow.isCreator,
+    creator_tier: creatorRow.creatorTier as CreatorTierName | null,
+    xp_creator: Number(creatorRow.xpCreator),
+    login_streak: creatorRow.loginStreak,
+    icon_creator_invitation: false,
+  };
 
-       -- Lifetime gross earnings from all creator revenue sources
-       COALESCE(
-         (SELECT SUM(gross_amount_kobo) FROM creator_earnings WHERE creator_id = $1),
-         0
-       )::bigint AS total_earnings_kobo`,
-    [userId]
-  );
+  const statResult = await orm.execute<{ room_members: number; total_earnings_kobo: string }>(drizzleSql`
+    SELECT
+      -- Unique members across all creator rooms (PRD §14 "Room members")
+      (SELECT COUNT(DISTINCT rm.user_id)::int
+       FROM room_members rm
+       JOIN rooms r ON r.id = rm.room_id
+       WHERE r.creator_id = ${userId} AND r.is_active = TRUE AND rm.left_at IS NULL)
+      AS room_members,
 
-  return { creator, stats: statRows[0] ?? { room_members: 0, total_earnings_kobo: 0 } };
+      -- Lifetime gross earnings from all creator revenue sources
+      COALESCE(
+        (SELECT SUM(gross_amount_kobo) FROM creator_earnings WHERE creator_id = ${userId}),
+        0
+      )::bigint AS total_earnings_kobo
+  `);
+  const statRow = statResult.rows[0];
+  const stats: StatsRow = statRow
+    ? { room_members: statRow.room_members, total_earnings_kobo: Number(statRow.total_earnings_kobo) }
+    : { room_members: 0, total_earnings_kobo: 0 };
+
+  return { creator, stats };
 }
 
 /**
@@ -259,41 +282,40 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
+    const orm = await getDb();
+    const nextTier = tierProgress.nextTier;
+
     // Perform upgrade
-    await db.query(
-      `UPDATE users
-       SET creator_tier = $1, updated_at = NOW()
-       WHERE id = $2`,
-      [tierProgress.nextTier, userId]
-    );
+    await orm.update(schema.users).set({ creatorTier: nextTier, updatedAt: new Date() }).where(eq(schema.users.id, userId));
 
     // Award creator milestone XP
     const milestoneXp = 200;
-    await db.transaction(async (tx) => {
-      await tx.query(
-        `UPDATE users
-         SET xp_total = xp_total + $1, xp_creator = xp_creator + $1, updated_at = NOW()
-         WHERE id = $2`,
-        [milestoneXp, userId]
-      );
-      await tx.query(
-        `INSERT INTO xp_ledger
-           (user_id, amount, track, source, base_amount)
-         VALUES ($1, $2, 'creator', 'creator_milestone', $2)`,
-        [userId, milestoneXp]
-      );
+    await orm.transaction(async (tx) => {
+      await tx
+        .update(schema.users)
+        .set({
+          xpTotal: drizzleSql`${schema.users.xpTotal} + ${milestoneXp}`,
+          xpCreator: drizzleSql`${schema.users.xpCreator} + ${milestoneXp}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.users.id, userId));
+      await tx.insert(schema.xpLedger).values({
+        userId,
+        amount: milestoneXp,
+        track: "creator",
+        source: "creator_milestone",
+        baseAmount: milestoneXp,
+      });
     });
 
     // Notify user of tier upgrade
-    await db.query(
-      `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
-       VALUES ($1, 'creator_tier_upgrade', $2, $3, $4, NOW())`,
-      [
-        userId,
-        `You reached ${tierProgress.nextTier.charAt(0).toUpperCase() + tierProgress.nextTier.slice(1)} Creator! 🎉`,
-        `Congratulations! You've unlocked new creator features and a higher revenue share.`,
-        JSON.stringify({ previousTier: currentTier, newTier: tierProgress.nextTier }),
-      ]
+    await insertNotification(
+      orm,
+      userId,
+      "creator_tier_upgrade",
+      `You reached ${nextTier.charAt(0).toUpperCase() + nextTier.slice(1)} Creator! 🎉`,
+      `Congratulations! You've unlocked new creator features and a higher revenue share.`,
+      { previousTier: currentTier, newTier: nextTier }
     );
 
     return NextResponse.json(

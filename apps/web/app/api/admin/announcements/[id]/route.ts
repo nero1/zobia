@@ -18,7 +18,8 @@ import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { sanitizeAnnouncementContent } from "@/lib/security/htmlSanitizer";
-import { db, SqlParam } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull } from "drizzle-orm";
 
 const UpdateSchema = z.object({
   title: z.string().min(1).max(200).optional(),
@@ -44,20 +45,20 @@ interface DbRow {
   id: string;
   title: string | null;
   content: string;
-  content_type: string;
-  link_url?: string | null;
-  is_active: boolean;
-  target_plans: string[] | null;
-  target_roles: string[] | null;
-  target_genders: string[] | null;
-  display_order: number;
-  starts_at: string | null;
-  ends_at: string | null;
+  contentType: string;
+  linkUrl?: string | null;
+  isActive: boolean | null;
+  targetPlans: string[] | null;
+  targetRoles: string[] | null;
+  targetGenders: string[] | null;
+  displayOrder: number;
+  startsAt: Date | string | null;
+  endsAt: Date | string | null;
 }
 
 function computeStatus(row: DbRow): "active" | "inactive" | "scheduled" {
-  if (!row.is_active) return "inactive";
-  if (row.starts_at && new Date(row.starts_at).getTime() > Date.now()) return "scheduled";
+  if (!row.isActive) return "inactive";
+  if (row.startsAt && new Date(row.startsAt).getTime() > Date.now()) return "scheduled";
   return "active";
 }
 
@@ -68,32 +69,29 @@ function toApiAnnouncement(type: "modal" | "banner", row: DbRow) {
     title: row.title ?? undefined,
     content: row.content,
     status: computeStatus(row),
-    audience: { plans: row.target_plans ?? [], roles: row.target_roles ?? [], genders: row.target_genders ?? [] },
-    startAt: row.starts_at,
-    endAt: row.ends_at,
-    displayOrder: row.display_order,
+    audience: { plans: row.targetPlans ?? [], roles: row.targetRoles ?? [], genders: row.targetGenders ?? [] },
+    startAt: row.startsAt,
+    endAt: row.endsAt,
+    displayOrder: row.displayOrder,
   };
 }
 
 async function detectRowType(id: string): Promise<RowType> {
-  const { rows: mRows } = await db.query(
-    `SELECT id FROM announcement_modals WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [id]
-  );
-  if (mRows[0]) return "modal";
-  const { rows: bRows } = await db.query(
-    `SELECT id FROM announcement_banners WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [id]
-  );
-  if (bRows[0]) return "banner";
+  const orm = await getDb();
+  const [mRow] = await orm
+    .select({ id: schema.announcementModals.id })
+    .from(schema.announcementModals)
+    .where(and(eq(schema.announcementModals.id, id), isNull(schema.announcementModals.deletedAt)))
+    .limit(1);
+  if (mRow) return "modal";
+  const [bRow] = await orm
+    .select({ id: schema.announcementBanners.id })
+    .from(schema.announcementBanners)
+    .where(and(eq(schema.announcementBanners.id, id), isNull(schema.announcementBanners.deletedAt)))
+    .limit(1);
+  if (bRow) return "banner";
   return null;
 }
-
-const RETURNING_COLUMNS = `id, title, content, content_type, is_active,
-                   COALESCE(target_plans, '{}')::text[] AS target_plans,
-                   COALESCE(target_roles, '{}')::text[] AS target_roles,
-                   COALESCE(target_genders, '{}')::text[] AS target_genders,
-                   display_order, starts_at, ends_at`;
 
 async function applyUpdate(
   type: RowType,
@@ -102,36 +100,44 @@ async function applyUpdate(
 ): Promise<{ type: "modal" | "banner"; row: DbRow }> {
   if (!type) throw notFound("Announcement not found");
 
-  const table = type === "modal" ? "announcement_modals" : "announcement_banners";
-  const setClauses: string[] = ["updated_at = NOW()"];
-  const values: SqlParam[] = [];
-  let idx = 1;
+  const orm = await getDb();
 
-  if (updates.title !== undefined) { setClauses.push(`title = $${idx++}`); values.push(updates.title); }
+  const common: Record<string, unknown> = {};
+  if (updates.title !== undefined) common.title = updates.title;
   if (updates.content !== undefined) {
     const ct = updates.contentType ?? "plain";
-    setClauses.push(`content = $${idx++}`);
-    values.push(sanitizeAnnouncementContent(updates.content, ct));
+    common.content = sanitizeAnnouncementContent(updates.content, ct);
   }
-  if (updates.contentType !== undefined) { setClauses.push(`content_type = $${idx++}`); values.push(updates.contentType); }
-  if (updates.status !== undefined) { setClauses.push(`is_active = $${idx++}`); values.push(updates.status !== "inactive"); }
-  if (updates.startAt !== undefined) { setClauses.push(`starts_at = $${idx++}`); values.push(updates.startAt); }
-  if (updates.endAt !== undefined) { setClauses.push(`ends_at = $${idx++}`); values.push(updates.endAt); }
+  if (updates.contentType !== undefined) common.contentType = updates.contentType;
+  if (updates.status !== undefined) common.isActive = updates.status !== "inactive";
+  if (updates.startAt !== undefined) common.startsAt = updates.startAt ? new Date(updates.startAt) : null;
+  if (updates.endAt !== undefined) common.endsAt = updates.endAt ? new Date(updates.endAt) : null;
   // Native Postgres text[] columns — pass real JS arrays, never JSON.stringify
   // (that produced a malformed array literal and a 500 on every save).
-  if (updates.audience?.plans !== undefined) { setClauses.push(`target_plans = $${idx++}`); values.push(updates.audience.plans); }
-  if (updates.audience?.roles !== undefined) { setClauses.push(`target_roles = $${idx++}`); values.push(updates.audience.roles); }
-  if (updates.audience?.genders !== undefined) { setClauses.push(`target_genders = $${idx++}`); values.push(updates.audience.genders); }
-  if (updates.displayOrder !== undefined) { setClauses.push(`display_order = $${idx++}`); values.push(updates.displayOrder); }
-  if (type === "banner" && updates.linkUrl !== undefined) { setClauses.push(`link_url = $${idx++}`); values.push(updates.linkUrl); }
+  if (updates.audience?.plans !== undefined) common.targetPlans = updates.audience.plans;
+  if (updates.audience?.roles !== undefined) common.targetRoles = updates.audience.roles;
+  if (updates.audience?.genders !== undefined) common.targetGenders = updates.audience.genders;
+  if (updates.displayOrder !== undefined) common.displayOrder = updates.displayOrder;
 
-  values.push(id);
-  const { rows } = await db.query<DbRow>(
-    `UPDATE ${table} SET ${setClauses.join(", ")} WHERE id = $${idx} AND deleted_at IS NULL RETURNING ${RETURNING_COLUMNS}`,
-    values
-  );
-  if (!rows[0]) throw notFound("Announcement not found");
-  return { type, row: rows[0] };
+  if (type === "modal") {
+    const [row] = await orm
+      .update(schema.announcementModals)
+      .set({ ...common, updatedAt: new Date() })
+      .where(and(eq(schema.announcementModals.id, id), isNull(schema.announcementModals.deletedAt)))
+      .returning();
+    if (!row) throw notFound("Announcement not found");
+    return { type, row: row as unknown as DbRow };
+  }
+
+  const bannerSet: Record<string, unknown> = { ...common };
+  if (updates.linkUrl !== undefined) bannerSet.linkUrl = updates.linkUrl;
+  const [row] = await orm
+    .update(schema.announcementBanners)
+    .set({ ...bannerSet, updatedAt: new Date() })
+    .where(and(eq(schema.announcementBanners.id, id), isNull(schema.announcementBanners.deletedAt)))
+    .returning();
+  if (!row) throw notFound("Announcement not found");
+  return { type, row: row as unknown as DbRow };
 }
 
 // ---------------------------------------------------------------------------
@@ -195,13 +201,14 @@ export const DELETE = withAdminAuth(
       const type = await detectRowType(id);
       if (!type) throw notFound("Announcement not found");
 
-      const table = type === "modal" ? "announcement_modals" : "announcement_banners";
-      const { rows } = await db.query(
-        `UPDATE ${table} SET deleted_at = NOW(), is_active = false, updated_at = NOW()
-         WHERE id = $1 AND deleted_at IS NULL RETURNING id`,
-        [id]
-      );
-      if (!rows[0]) throw notFound("Announcement not found");
+      const orm = await getDb();
+      const table = type === "modal" ? schema.announcementModals : schema.announcementBanners;
+      const [row] = await orm
+        .update(table)
+        .set({ deletedAt: new Date(), isActive: false, updatedAt: new Date() })
+        .where(and(eq(table.id, id), isNull(table.deletedAt)))
+        .returning({ id: table.id });
+      if (!row) throw notFound("Announcement not found");
 
       return new NextResponse(null, { status: 204 });
     } catch (err) {

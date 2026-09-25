@@ -17,7 +17,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -45,12 +46,14 @@ async function mutateModules(
   roomId: string,
   fn: (modules: CurriculumModule[]) => CurriculumModule[]
 ): Promise<CurriculumModule[]> {
-  return db.transaction(async (tx) => {
-    const { rows } = await tx.query<{ curriculum: unknown }>(
-      `SELECT curriculum FROM rooms WHERE id = $1 FOR UPDATE`,
-      [roomId]
-    );
-    const next = fn(parseModules(rows[0]?.curriculum));
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const [row] = await tx
+      .select({ curriculum: schema.rooms.curriculum })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .for("update");
+    const next = fn(parseModules(row?.curriculum));
     await saveModules(roomId, next, tx);
     return next;
   });

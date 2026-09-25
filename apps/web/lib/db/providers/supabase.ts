@@ -30,7 +30,10 @@ let _pool: Pool | null = null;
  * Supabase exposes a PgBouncer pooler on port 6543 (transaction mode).
  * The DATABASE_URL should already point to that endpoint.
  */
-function getPool(): Pool {
+/**
+ * Exported so drizzle.ts can reuse the same pool instead of creating a duplicate.
+ */
+export function getPool(): Pool {
   if (!_pool) {
     _pool = new Pool({
       connectionString: env.DATABASE_URL,

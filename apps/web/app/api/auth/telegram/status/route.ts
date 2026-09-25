@@ -20,7 +20,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, RATE_LIMITS } from "@/lib/security/rateLimit";
 
@@ -56,17 +57,22 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       throw badRequest("Invalid or missing state parameter");
     }
 
-    const { rows } = await db.query<TelegramLoginStateRow>(
-      `SELECT tls.state, tls.status, tls.token, tls.user_payload, tls.created_at,
-              s.refresh_token
-       FROM telegram_login_states tls
-       LEFT JOIN sessions s ON s.user_id = tls.user_id AND s.is_active = TRUE
-       WHERE tls.state = $1
-       ORDER BY s.created_at DESC
-       LIMIT 1`,
-      [state]
-    );
+    const orm = await getDb();
+    // NOTE: `sessions` is a legacy table not modeled in the Drizzle schema
+    // (auth sessions now live in Redis — see BUG-SC-01 in lib/db/schema.ts).
+    // This LEFT JOIN is preserved as-is via raw sql; it is not expected to
+    // produce a refresh_token in practice.
+    const result = await orm.execute(sql`
+      SELECT tls.state, tls.status, tls.token, tls.user_payload, tls.created_at,
+             s.refresh_token
+      FROM telegram_login_states tls
+      LEFT JOIN sessions s ON s.user_id = tls.user_id AND s.is_active = TRUE
+      WHERE tls.state = ${state}
+      ORDER BY s.created_at DESC
+      LIMIT 1
+    `);
 
+    const rows = result.rows as unknown as TelegramLoginStateRow[];
     if (!rows[0]) {
       return NextResponse.json({ status: "not_found" }, { status: 200 });
     }
@@ -77,10 +83,11 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     const age = Date.now() - new Date(row.created_at).getTime();
     if (age > STATE_TTL_MS && row.status === "pending") {
       // Mark as expired in background
-      db.query(
-        `UPDATE telegram_login_states SET status = 'expired', updated_at = NOW() WHERE state = $1`,
-        [state]
-      ).catch(() => {});
+      orm
+        .update(schema.telegramLoginStates)
+        .set({ status: "expired", updatedAt: new Date() })
+        .where(eq(schema.telegramLoginStates.state, state))
+        .catch(() => {});
       return NextResponse.json({ status: "expired" }, { status: 200 });
     }
 

@@ -22,7 +22,8 @@ export const maxDuration = 10;
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { validateCronSecret } from "@/lib/cron/auth";
 
 // ---------------------------------------------------------------------------
@@ -33,7 +34,7 @@ const ACTIVE_WINDOW_MINUTES = 15;
 
 const TRACKS = ['main', 'social', 'creator', 'competitor', 'generosity', 'knowledge', 'explorer', 'gaming'] as const;
 
-interface ActiveUserRow {
+interface ActiveUserRow extends Record<string, unknown> {
   user_id: string;
   xp_total: number;
   xp_social: number;
@@ -55,6 +56,7 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const orm = await getDb();
   const now = new Date();
   const windowStart = new Date(now.getTime() - ACTIVE_WINDOW_MINUTES * 60 * 1000);
 
@@ -67,26 +69,25 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // -------------------------------------------------------------------------
   let activeUsers: ActiveUserRow[] = [];
   try {
-    const result = await db.query<ActiveUserRow>(
-      `SELECT DISTINCT ON (xl.user_id)
-              xl.user_id,
-              u.xp_total,
-              u.xp_social,
-              u.xp_creator,
-              u.xp_competitor,
-              u.xp_generosity,
-              u.xp_knowledge,
-              u.xp_explorer,
-              u.xp_gaming,
-              u.rank_name
-       FROM xp_ledger xl
-       JOIN users u ON u.id = xl.user_id
-       WHERE xl.created_at >= $1
-         AND COALESCE(u.is_banned, false) = false
-         AND u.deleted_at IS NULL
-       ORDER BY xl.user_id`,
-      [windowStart.toISOString()]
-    );
+    const result = await orm.execute<ActiveUserRow>(sql`
+      SELECT DISTINCT ON (xl.user_id)
+             xl.user_id,
+             u.xp_total,
+             u.xp_social,
+             u.xp_creator,
+             u.xp_competitor,
+             u.xp_generosity,
+             u.xp_knowledge,
+             u.xp_explorer,
+             u.xp_gaming,
+             u.rank_name
+      FROM xp_ledger xl
+      JOIN users u ON u.id = xl.user_id
+      WHERE xl.created_at >= ${windowStart.toISOString()}
+        AND COALESCE(u.is_banned, false) = false
+        AND u.deleted_at IS NULL
+      ORDER BY xl.user_id
+    `);
     activeUsers = result.rows;
   } catch (err) {
     errors.push(`activeUserQuery: ${String(err)}`);
@@ -104,15 +105,14 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // -------------------------------------------------------------------------
   const previousRankMap = new Map<string, number>();
   try {
-    const { rows: prevRows } = await db.query<{ user_id: string; last_notified_rank: number }>(
-      `SELECT user_id, last_notified_rank
-       FROM leaderboard_snapshots
-       WHERE user_id = ANY($1)
-         AND scope = 'global'
-         AND track = 'main'
-         AND last_notified_rank IS NOT NULL`,
-      [userIds]
-    );
+    const { rows: prevRows } = await orm.execute<{ user_id: string; last_notified_rank: number }>(sql`
+      SELECT user_id, last_notified_rank
+      FROM leaderboard_snapshots
+      WHERE user_id = ANY(${userIds}::uuid[])
+        AND scope = 'global'
+        AND track = 'main'
+        AND last_notified_rank IS NOT NULL
+    `);
     for (const row of prevRows) {
       previousRankMap.set(row.user_id, row.last_notified_rank);
     }
@@ -151,21 +151,20 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       }
     }
 
-    await db.query(
-      `INSERT INTO leaderboard_snapshots
-         (user_id, track, scope, city, season_id, xp_value, updated_at)
-       SELECT
-         unnest($1::uuid[]),
-         unnest($2::text[]),
-         'global',
-         NULL,
-         NULL,
-         unnest($3::bigint[]),
-         NOW()
-       ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
-       DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()`,
-      [batchUserIds, batchTracks, batchXps]
-    );
+    await orm.execute(sql`
+      INSERT INTO leaderboard_snapshots
+        (user_id, track, scope, city, season_id, xp_value, updated_at)
+      SELECT
+        unnest(${batchUserIds}::uuid[]),
+        unnest(${batchTracks}::text[]),
+        'global',
+        NULL,
+        NULL,
+        unnest(${batchXps}::bigint[]),
+        NOW()
+      ON CONFLICT (user_id, track, scope, COALESCE(city, ''), COALESCE(season_id::text, ''))
+      DO UPDATE SET xp_value = EXCLUDED.xp_value, updated_at = NOW()
+    `);
 
     usersUpdated = activeUsers.length;
   } catch (err) {
@@ -180,16 +179,15 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
   // One batch INSERT for rank-change notifications.
   // -------------------------------------------------------------------------
   try {
-    const { rows: rankRows } = await db.query<{ user_id: string; new_rank: number }>(
-      `WITH all_ranks AS (
-         SELECT user_id,
-                RANK() OVER (PARTITION BY scope ORDER BY xp_value DESC)::int AS new_rank
-         FROM leaderboard_snapshots
-         WHERE scope = 'global' AND track = 'main'
-       )
-       SELECT user_id, new_rank FROM all_ranks WHERE user_id = ANY($1)`,
-      [userIds]
-    );
+    const { rows: rankRows } = await orm.execute<{ user_id: string; new_rank: number }>(sql`
+      WITH all_ranks AS (
+        SELECT user_id,
+               RANK() OVER (PARTITION BY scope ORDER BY xp_value DESC)::int AS new_rank
+        FROM leaderboard_snapshots
+        WHERE scope = 'global' AND track = 'main'
+      )
+      SELECT user_id, new_rank FROM all_ranks WHERE user_id = ANY(${userIds}::uuid[])
+    `);
 
     // Separate into: all ranks to persist, and subset that needs notifications
     const updateUserIds: string[] = [];
@@ -222,13 +220,12 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
     // Batch UPDATE last_notified_rank for all active users
     if (updateUserIds.length > 0) {
-      await db.query(
-        `UPDATE leaderboard_snapshots ls
-         SET last_notified_rank = updates.rank
-         FROM (SELECT unnest($1::uuid[]) AS uid, unnest($2::int[]) AS rank) updates
-         WHERE ls.user_id = updates.uid AND ls.scope = 'global' AND ls.track = 'main'`,
-        [updateUserIds, updateRanks]
-      ).catch(() => {});
+      await orm.execute(sql`
+        UPDATE leaderboard_snapshots ls
+        SET last_notified_rank = updates.rank
+        FROM (SELECT unnest(${updateUserIds}::uuid[]) AS uid, unnest(${updateRanks}::int[]) AS rank) updates
+        WHERE ls.user_id = updates.uid AND ls.scope = 'global' AND ls.track = 'main'
+      `).catch(() => {});
     }
 
     // Batch INSERT rank-change notifications.
@@ -239,48 +236,40 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       const notifReferenceIds = notifUserIds.map(
         (uid, i) => `rank_change:${uid}:main:global:${notifTypes[i]}:${today}`
       );
-      await db.query(
-        `INSERT INTO notifications (user_id, type, title, body, metadata, reference_id, is_read, created_at)
-         SELECT sub.uid, sub.ntype,
-                CASE
-                  WHEN sub.ntype = 'leaderboard_top10_entry' THEN 'You''re in the Top 10!'
-                  WHEN sub.ntype = 'leaderboard_rank_up'     THEN 'You''re climbing the leaderboard!'
-                  WHEN sub.ntype = 'leaderboard_rank_down'   THEN 'Your leaderboard rank dropped'
-                  ELSE 'Your leaderboard rank has changed'
-                END,
-                CASE
-                  WHEN sub.is_promotion THEN
-                    'You rose from rank #' || sub.prev_rank || ' to rank #' || sub.new_rank || '. Keep it up!'
-                  ELSE
-                    'You dropped from rank #' || sub.prev_rank || ' to rank #' || sub.new_rank || '. Stay active to climb back!'
-                END,
-                jsonb_build_object(
-                  'previous_rank',  sub.prev_rank,
-                  'new_rank',       sub.new_rank,
-                  'track',          'main',
-                  'scope',          'global',
-                  'entered_top_10', sub.entered_top10
-                ),
-                sub.ref_id,
-                false, NOW()
-         FROM (SELECT unnest($1::uuid[]) AS uid,
-                      unnest($2::text[]) AS ntype,
-                      unnest($3::int[])  AS prev_rank,
-                      unnest($4::int[])  AS new_rank,
-                      unnest($5::bool[]) AS entered_top10,
-                      unnest($6::bool[]) AS is_promotion,
-                      unnest($7::text[]) AS ref_id) sub
-         ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING`,
-        [
-          notifUserIds,
-          notifTypes,
-          notifPrevRanks,
-          notifNewRanks,
-          notifTypes.map(t => t === "leaderboard_top10_entry"),
-          notifIsPromotion,
-          notifReferenceIds,
-        ]
-      ).catch(() => {});
+      const notifEnteredTop10 = notifTypes.map(t => t === "leaderboard_top10_entry");
+      await orm.execute(sql`
+        INSERT INTO notifications (user_id, type, title, body, metadata, reference_id, is_read, created_at)
+        SELECT sub.uid, sub.ntype,
+               CASE
+                 WHEN sub.ntype = 'leaderboard_top10_entry' THEN 'You''re in the Top 10!'
+                 WHEN sub.ntype = 'leaderboard_rank_up'     THEN 'You''re climbing the leaderboard!'
+                 WHEN sub.ntype = 'leaderboard_rank_down'   THEN 'Your leaderboard rank dropped'
+                 ELSE 'Your leaderboard rank has changed'
+               END,
+               CASE
+                 WHEN sub.is_promotion THEN
+                   'You rose from rank #' || sub.prev_rank || ' to rank #' || sub.new_rank || '. Keep it up!'
+                 ELSE
+                   'You dropped from rank #' || sub.prev_rank || ' to rank #' || sub.new_rank || '. Stay active to climb back!'
+               END,
+               jsonb_build_object(
+                 'previous_rank',  sub.prev_rank,
+                 'new_rank',       sub.new_rank,
+                 'track',          'main',
+                 'scope',          'global',
+                 'entered_top_10', sub.entered_top10
+               ),
+               sub.ref_id,
+               false, NOW()
+        FROM (SELECT unnest(${notifUserIds}::uuid[]) AS uid,
+                     unnest(${notifTypes}::text[]) AS ntype,
+                     unnest(${notifPrevRanks}::int[])  AS prev_rank,
+                     unnest(${notifNewRanks}::int[])  AS new_rank,
+                     unnest(${notifEnteredTop10}::bool[]) AS entered_top10,
+                     unnest(${notifIsPromotion}::bool[]) AS is_promotion,
+                     unnest(${notifReferenceIds}::text[]) AS ref_id) sub
+        ON CONFLICT (user_id, type, reference_id) WHERE reference_id IS NOT NULL DO NOTHING
+      `).catch(() => {});
     }
   } catch (err) {
     errors.push(`rankChangeNotifications: ${String(err)}`);

@@ -13,7 +13,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 const EMAIL_TYPES = [
   "marketing",
@@ -37,15 +38,14 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<{
-      notification_type: string;
-      is_enabled: boolean;
-    }>(
-      `SELECT notification_type, is_enabled
-       FROM user_email_preferences
-       WHERE user_id = $1`,
-      [userId]
-    );
+    const db = await getDb();
+    const rows = await db
+      .select({
+        notificationType: schema.userEmailPreferences.notificationType,
+        isEnabled: schema.userEmailPreferences.isEnabled,
+      })
+      .from(schema.userEmailPreferences)
+      .where(eq(schema.userEmailPreferences.userId, userId));
 
     // Build a full map with defaults (true = opted in)
     const prefs: Record<string, boolean> = {};
@@ -53,7 +53,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       prefs[type] = true; // default: opted in
     }
     for (const row of rows) {
-      prefs[row.notification_type] = row.is_enabled;
+      prefs[row.notificationType] = row.isEnabled;
     }
 
     // Security is always enabled
@@ -77,14 +77,18 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("No preferences to update");
     }
 
+    const db = await getDb();
     for (const [type, enabled] of Object.entries(updates) as [EmailType, boolean][]) {
-      await db.query(
-        `INSERT INTO user_email_preferences (user_id, notification_type, is_enabled, updated_at)
-         VALUES ($1, $2, $3, NOW())
-         ON CONFLICT (user_id, notification_type)
-         DO UPDATE SET is_enabled = $3, updated_at = NOW()`,
-        [userId, type, enabled]
-      );
+      await db
+        .insert(schema.userEmailPreferences)
+        .values({ userId, notificationType: type, isEnabled: enabled })
+        .onConflictDoUpdate({
+          target: [
+            schema.userEmailPreferences.userId,
+            schema.userEmailPreferences.notificationType,
+          ],
+          set: { isEnabled: enabled, updatedAt: new Date() },
+        });
     }
 
     return NextResponse.json({ success: true, updated: Object.keys(updates) });

@@ -13,24 +13,29 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, eq, isNull } from "drizzle-orm";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getGiftMessageConfig } from "@/lib/plans/giftMessage";
 
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows: userRows } = await db.query<{ plan: string; rank_level: number }>(
-      `SELECT COALESCE(plan, 'free') AS plan, COALESCE(rank_level, 1) AS rank_level
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    const { rows: bizRows } = await db.query<{ tier: string }>(
-      `SELECT tier FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const [userRows, bizRows] = await Promise.all([
+      orm
+        .select({ plan: schema.users.plan, rank_level: schema.users.rankLevel })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .limit(1),
+      orm
+        .select({ tier: schema.businessAccounts.tier })
+        .from(schema.businessAccounts)
+        .where(eq(schema.businessAccounts.userId, userId))
+        .limit(1),
+    ]);
 
     const config = await getGiftMessageConfig(
       userRows[0]?.plan ?? "free",

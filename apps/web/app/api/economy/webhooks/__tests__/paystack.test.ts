@@ -29,17 +29,72 @@ jest.mock('@/lib/redis', () => ({
   },
 }));
 
-const mockQuery = jest.fn();
-const mockTransaction = jest.fn();
+// ---------------------------------------------------------------------------
+// The webhook route (and the shared lib/payments/paystackWebhookHandler.ts it
+// delegates to) has been migrated to Drizzle ORM (getDb() / orm.transaction()
+// / the query builder + raw sql`` escape hatches) instead of the raw
+// `@/lib/db` adapter. Back a real `drizzle-orm/node-postgres` instance with a
+// fake pg-shaped client so every query the handler issues still goes through
+// real Drizzle query compilation — exactly like production — and lands on
+// `mockQuery` as plain SQL text + params, which tests dispatch on (see
+// lib/seasons/__tests__/seasonEngine.test.ts for the same pattern).
+// ---------------------------------------------------------------------------
 
-jest.mock('@/lib/db', () => ({
-  db: {
-    query: (...args: unknown[]) => mockQuery(...args),
-    transaction: (...args: unknown[]) => mockTransaction(...args),
-    healthCheck: jest.fn().mockResolvedValue(true),
-    close: jest.fn().mockResolvedValue(undefined),
+import { drizzle } from 'drizzle-orm/node-postgres';
+import { schema } from '@/lib/db/schema';
+import type { DbOrTx } from '@/lib/db/drizzle';
+
+const mockQuery = jest.fn();
+
+const fakeClient = {
+  query: (queryConfig: unknown, params?: unknown[]) => {
+    const text = typeof queryConfig === 'string' ? queryConfig : (queryConfig as { text: string }).text;
+    return mockQuery(text, params);
   },
+};
+
+const mockDb = drizzle(fakeClient as any, { schema }) as unknown as DbOrTx;
+
+jest.mock('@/lib/db/drizzle', () => {
+  const actual = jest.requireActual('@/lib/db/drizzle');
+  return {
+    ...actual,
+    getDb: async () => mockDb,
+  };
+});
+
+// paystackWebhookHandler.ts also touches @/lib/manifest (for the Creator Fund
+// split percent) and @/lib/alerts/dispatch (raiseAlert) on non-recoverable
+// error paths — keep both mocked defensively so no test accidentally opens a
+// real connection or depends on unrelated manifest/alerting behavior.
+jest.mock('@/lib/manifest', () => ({
+  loadManifest: jest.fn().mockResolvedValue({ payouts: { maxRetries: 5 } }),
+  getManifestValue: jest.fn().mockResolvedValue(null),
 }));
+
+jest.mock('@/lib/alerts/dispatch', () => ({
+  raiseAlert: jest.fn().mockResolvedValue(undefined),
+}));
+
+/**
+ * Build a payments row matching the column order of the idempotency SELECT
+ * in processChargeSuccess (id, status, provider, chain, tokenSymbol,
+ * expectedTokenAmount) — Drizzle's query builder returns schema-typed
+ * selects in array ("positional") row mode.
+ */
+function paymentsRow(status: string) {
+  return ['pay-1', status, 'paystack', null, null, null];
+}
+
+/** Wire up the default dispatch: idempotency SELECT on payments returns `status`. */
+function mockPaymentsStatus(status: string) {
+  mockQuery.mockImplementation((text: string) => {
+    if (text.includes('from "payments"')) {
+      return Promise.resolve({ rows: [paymentsRow(status)], rowCount: 1 });
+    }
+    return Promise.resolve({ rows: [], rowCount: 0 });
+  });
+}
 
 jest.mock('@/lib/economy/coins', () => ({
   creditCoins: jest.fn().mockResolvedValue(undefined),
@@ -123,10 +178,7 @@ describe('POST /api/economy/webhooks/paystack', () => {
     });
 
     it('returns 200 when signature is valid', async () => {
-      mockTransaction.mockImplementation(async (fn: Function) => {
-        const tx = { query: jest.fn().mockResolvedValue({ rows: [{ id: 'pay-1', status: 'pending' }], rowCount: 1 }) };
-        return fn(tx);
-      });
+      mockPaymentsStatus('pending');
 
       const req = buildRequest(CHARGE_SUCCESS_EVENT);
       const res = await POST(req);
@@ -137,12 +189,7 @@ describe('POST /api/economy/webhooks/paystack', () => {
 
   describe('charge.success — coin_pack', () => {
     it('skips processing when payment is already completed (idempotency)', async () => {
-      mockTransaction.mockImplementation(async (fn: Function) => {
-        const tx = {
-          query: jest.fn().mockResolvedValue({ rows: [{ id: 'pay-1', status: 'completed' }], rowCount: 1 }),
-        };
-        return fn(tx);
-      });
+      mockPaymentsStatus('completed');
 
       const req = buildRequest(CHARGE_SUCCESS_EVENT);
       const res = await POST(req);
@@ -152,20 +199,7 @@ describe('POST /api/economy/webhooks/paystack', () => {
     });
 
     it('credits coins when payment is new', async () => {
-      let callCount = 0;
-      mockTransaction.mockImplementation(async (fn: Function) => {
-        const tx = {
-          query: jest.fn(async (sql: string) => {
-            callCount++;
-            if (callCount === 1) {
-              // Idempotency SELECT
-              return { rows: [{ id: 'pay-1', status: 'pending' }], rowCount: 1 };
-            }
-            return { rows: [], rowCount: 1 };
-          }),
-        };
-        return fn(tx);
-      });
+      mockPaymentsStatus('pending');
 
       const req = buildRequest(CHARGE_SUCCESS_EVENT);
       const res = await POST(req);
@@ -189,13 +223,20 @@ describe('POST /api/economy/webhooks/paystack', () => {
       const res = await POST(req);
 
       expect(res.status).toBe(200);
-      expect(mockTransaction).not.toHaveBeenCalled();
+      expect(mockQuery).not.toHaveBeenCalled();
     });
   });
 
   describe('transfer events', () => {
     it('returns 200 for transfer.success and calls db update', async () => {
-      mockQuery.mockResolvedValue({ rows: [{ id: 'payout-1', status: 'processing' }], rowCount: 1 });
+      // Column order matches the creatorPayouts SELECT in processTransferEvent:
+      // id, creatorId, grossKobo, netKobo, retryCount.
+      mockQuery.mockImplementation((text: string) => {
+        if (text.includes('from "creator_payouts"')) {
+          return Promise.resolve({ rows: [['payout-1', 'creator-1', 100000, 80000, 0]], rowCount: 1 });
+        }
+        return Promise.resolve({ rows: [], rowCount: 0 });
+      });
 
       const event = {
         event: 'transfer.success',

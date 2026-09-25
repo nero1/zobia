@@ -10,12 +10,20 @@
  * and a capped creditCoins call) so a reward-award failure never rolls back
  * or blocks the user's post/vote.
  *
+ * DRIZZLE MIGRATION NOTE: `debitCoins` (lib/economy/coins.ts) has already
+ * been migrated to Drizzle (takes `DbOrTx`), so `createAnswer`'s transaction
+ * runs as a Drizzle `orm.transaction()`. `lib/slug.ts` (generateUniqueSlug)
+ * is outside this migration's file list and still takes the legacy
+ * `Queryable` adapter, but is called here with no client argument (it
+ * defaults to the legacy `db` internally), so no raw `db` handle needs to
+ * be kept in scope here.
+ *
  * @module lib/forum/service
  */
 
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { loadManifest, requireFeatureEnabled, type ZobiaManifest } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
@@ -39,12 +47,14 @@ export const MAX_ANSWER_DEPTH = 10;
  * lock questions, mark best answer on someone else's question).
  */
 export async function isUserModeratorOrAdmin(userId: string): Promise<boolean> {
-  const { rows } = await db.query<{ is_admin: boolean; is_moderator: boolean }>(
-    `SELECT is_admin, is_moderator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [userId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ isAdmin: schema.users.isAdmin, isModerator: schema.users.isModerator })
+    .from(schema.users)
+    .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+    .limit(1);
   const row = rows[0];
-  return !!(row?.is_admin || row?.is_moderator);
+  return !!(row?.isAdmin || row?.isModerator);
 }
 
 // ---------------------------------------------------------------------------
@@ -58,19 +68,20 @@ export interface ForumEligibility {
 }
 
 export async function getForumEligibility(userId: string): Promise<ForumEligibility> {
+  const orm = await getDb();
   const [manifest, userRows] = await Promise.all([
     loadManifest(),
-    db.query<{ xp_total: number; coin_balance: number }>(
-      `SELECT COALESCE(xp_total, 0) AS xp_total, COALESCE(coin_balance, 0) AS coin_balance
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    ),
+    orm
+      .select({ xpTotal: schema.users.xpTotal, coinBalance: schema.users.coinBalance })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1),
   ]);
-  const row = userRows.rows[0];
+  const row = userRows[0];
   if (!row) throw forbidden("User account not found");
   return {
-    rankNumber: getRankForXP(row.xp_total).rankNumber,
-    creditBalance: row.coin_balance,
+    rankNumber: getRankForXP(Number(row.xpTotal ?? 0)).rankNumber,
+    creditBalance: Number(row.coinBalance ?? 0),
     config: manifest.forum,
   };
 }
@@ -142,13 +153,18 @@ async function awardForumCreditsCapped(
 ): Promise<void> {
   if (amount <= 0) return;
   try {
-    const { rows } = await db.query<{ earned: string }>(
-      `SELECT COALESCE(SUM(amount), 0)::text AS earned
-       FROM coin_ledger
-       WHERE user_id = $1 AND transaction_type LIKE 'forum_%' AND amount > 0
-         AND created_at >= NOW() - INTERVAL '24 hours'`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ earned: sql<string>`COALESCE(SUM(${schema.coinLedger.amount}), 0)::text` })
+      .from(schema.coinLedger)
+      .where(
+        and(
+          eq(schema.coinLedger.userId, userId),
+          sql`${schema.coinLedger.transactionType} LIKE 'forum_%'`,
+          sql`${schema.coinLedger.amount} > 0`,
+          sql`${schema.coinLedger.createdAt} >= NOW() - INTERVAL '24 hours'`
+        )
+      );
     const earnedToday = parseInt(rows[0]?.earned ?? "0", 10);
     const headroom = dailyCapCredits - earnedToday;
     if (headroom <= 0) return;
@@ -200,10 +216,12 @@ export async function createQuestion(input: CreateQuestionInput): Promise<Create
   const eligibility = await getForumEligibility(input.userId);
   assertCanPost(eligibility);
 
+  const orm = await getDb();
+
   const mod = eligibility.config.autoModerationEnabled
     ? await applyForumAutoModeration(
         { title: input.title, body: input.body, authorId: input.userId, targetType: "forum_question" },
-        db
+        orm
       )
     : { blocked: false, reason: null, filteredTitle: input.title, filteredBody: input.body };
 
@@ -220,18 +238,19 @@ export async function createQuestion(input: CreateQuestionInput): Promise<Create
 
   const categoryId = input.categoryId?.trim() || null;
   if (categoryId) {
-    const { rows: catRows } = await db.query<{ id: string }>(
-      `SELECT id FROM forum_categories WHERE id = $1 LIMIT 1`,
-      [categoryId]
-    );
+    const catRows = await orm.select({ id: schema.forumCategories.id }).from(schema.forumCategories).where(eq(schema.forumCategories.id, categoryId)).limit(1);
     if (!catRows[0]) throw badRequest("Unknown category.", "FORUM_UNKNOWN_CATEGORY");
   }
 
-  await db.query(
-    `INSERT INTO forum_questions (id, author_id, category_id, title, slug, body, status)
-     VALUES ($1, $2, $3, $4, $5, $6, 'visible')`,
-    [questionId, input.userId, categoryId, finalTitle, slug, mod.filteredBody]
-  );
+  await orm.insert(schema.forumQuestions).values({
+    id: questionId,
+    authorId: input.userId,
+    categoryId,
+    title: finalTitle,
+    slug,
+    body: mod.filteredBody,
+    status: "visible",
+  });
 
   awardForumRewards(
     input.userId,
@@ -267,29 +286,32 @@ export async function createAnswer(input: CreateAnswerInput): Promise<CreateAnsw
   const eligibility = await getForumEligibility(input.userId);
   assertCanComment(eligibility, input.payBypass ?? false);
 
-  const { rows: qRows } = await db.query<{ id: string; is_locked: boolean; status: string }>(
-    `SELECT id, is_locked, status FROM forum_questions WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [input.questionId]
-  );
+  const orm = await getDb();
+  const qRows = await orm
+    .select({ id: schema.forumQuestions.id, isLocked: schema.forumQuestions.isLocked, status: schema.forumQuestions.status })
+    .from(schema.forumQuestions)
+    .where(and(eq(schema.forumQuestions.id, input.questionId), isNull(schema.forumQuestions.deletedAt)))
+    .limit(1);
   const question = qRows[0];
   if (!question || question.status === "removed") throw notFound("Question not found");
-  if (question.is_locked) throw forbidden("This question is locked and no longer accepting answers.", "FORUM_QUESTION_LOCKED");
+  if (question.isLocked) throw forbidden("This question is locked and no longer accepting answers.", "FORUM_QUESTION_LOCKED");
 
   let depth = 0;
   if (input.parentAnswerId) {
-    const { rows: pRows } = await db.query<{ depth: number; question_id: string }>(
-      `SELECT depth, question_id FROM forum_answers WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [input.parentAnswerId]
-    );
+    const pRows = await orm
+      .select({ depth: schema.forumAnswers.depth, questionId: schema.forumAnswers.questionId })
+      .from(schema.forumAnswers)
+      .where(and(eq(schema.forumAnswers.id, input.parentAnswerId), isNull(schema.forumAnswers.deletedAt)))
+      .limit(1);
     const parent = pRows[0];
-    if (!parent || parent.question_id !== input.questionId) throw notFound("Parent answer not found");
+    if (!parent || parent.questionId !== input.questionId) throw notFound("Parent answer not found");
     depth = Math.min(parent.depth + 1, MAX_ANSWER_DEPTH);
   }
 
   const mod = eligibility.config.autoModerationEnabled
     ? await applyForumAutoModeration(
         { body: input.body, authorId: input.userId, targetType: "forum_answer" },
-        db
+        orm
       )
     : { blocked: false, reason: null, filteredTitle: undefined, filteredBody: input.body };
 
@@ -300,7 +322,7 @@ export async function createAnswer(input: CreateAnswerInput): Promise<CreateAnsw
   const needsBypassCharge = eligibility.rankNumber < eligibility.config.minLevelToComment;
   const referenceId = `forum_comment_bypass:${input.userId}:${randomUUID()}`;
 
-  const answerId = await db.transaction(async (tx: TransactionClient) => {
+  const answerId = await orm.transaction(async (tx) => {
     if (needsBypassCharge && eligibility.config.commentBypassCostCredits > 0) {
       await debitCoins(
         input.userId,
@@ -313,21 +335,24 @@ export async function createAnswer(input: CreateAnswerInput): Promise<CreateAnsw
       );
     }
 
-    const { rows } = await tx.query<{ id: string }>(
-      `INSERT INTO forum_answers (question_id, author_id, parent_answer_id, depth, body, status)
-       VALUES ($1, $2, $3, $4, $5, 'visible')
-       RETURNING id`,
-      [input.questionId, input.userId, input.parentAnswerId ?? null, depth, mod.filteredBody]
-    );
+    const [answer] = await tx
+      .insert(schema.forumAnswers)
+      .values({
+        questionId: input.questionId,
+        authorId: input.userId,
+        parentAnswerId: input.parentAnswerId ?? null,
+        depth,
+        body: mod.filteredBody,
+        status: "visible",
+      })
+      .returning({ id: schema.forumAnswers.id });
 
-    await tx.query(
-      `UPDATE forum_questions
-       SET answer_count = answer_count + 1, last_activity_at = NOW(), updated_at = NOW()
-       WHERE id = $1`,
-      [input.questionId]
-    );
+    await tx
+      .update(schema.forumQuestions)
+      .set({ answerCount: sql`${schema.forumQuestions.answerCount} + 1`, lastActivityAt: sql`NOW()`, updatedAt: sql`NOW()` })
+      .where(eq(schema.forumQuestions.id, input.questionId));
 
-    return rows[0].id;
+    return answer.id;
   });
 
   awardForumRewards(
@@ -348,11 +373,6 @@ export async function createAnswer(input: CreateAnswerInput): Promise<CreateAnsw
 // Voting
 // ---------------------------------------------------------------------------
 
-const VOTE_TABLE: Record<ForumTargetType, "forum_questions" | "forum_answers"> = {
-  question: "forum_questions",
-  answer: "forum_answers",
-};
-
 export interface CastVoteResult {
   voteScore: number;
   myVote: -1 | 0 | 1;
@@ -365,24 +385,28 @@ export async function castVote(
   value: -1 | 1
 ): Promise<CastVoteResult> {
   await requireFeatureEnabled("forum");
-  const table = VOTE_TABLE[targetType];
   const manifest = await loadManifest();
+  const orm = await getDb();
 
-  const result = await db.transaction(async (tx: TransactionClient) => {
-    const { rows: targetRows } = await tx.query<{ id: string; author_id: string; vote_score: number }>(
-      `SELECT id, author_id, vote_score FROM ${table} WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-      [targetId]
-    );
+  const targetTable = targetType === "question" ? schema.forumQuestions : schema.forumAnswers;
+
+  const result = await orm.transaction(async (tx) => {
+    const targetRows = await tx
+      .select({ id: targetTable.id, authorId: targetTable.authorId, voteScore: targetTable.voteScore })
+      .from(targetTable)
+      .where(and(eq(targetTable.id, targetId), isNull(targetTable.deletedAt)))
+      .for("update");
     const target = targetRows[0];
     if (!target) throw notFound("Content not found");
-    if (target.author_id === userId) {
+    if (target.authorId === userId) {
       throw forbidden("You can't vote on your own post.", "FORUM_SELF_VOTE");
     }
 
-    const { rows: existingRows } = await tx.query<{ value: number }>(
-      `SELECT value FROM forum_votes WHERE target_type = $1 AND target_id = $2 AND user_id = $3 FOR UPDATE`,
-      [targetType, targetId, userId]
-    );
+    const existingRows = await tx
+      .select({ value: schema.forumVotes.value })
+      .from(schema.forumVotes)
+      .where(and(eq(schema.forumVotes.targetType, targetType), eq(schema.forumVotes.targetId, targetId), eq(schema.forumVotes.userId, userId)))
+      .for("update");
     const existing = existingRows[0]?.value ?? 0;
 
     let delta: number;
@@ -390,37 +414,34 @@ export async function castVote(
 
     if (existing === value) {
       // Toggle off — voting the same direction again removes the vote.
-      await tx.query(
-        `DELETE FROM forum_votes WHERE target_type = $1 AND target_id = $2 AND user_id = $3`,
-        [targetType, targetId, userId]
-      );
+      await tx
+        .delete(schema.forumVotes)
+        .where(and(eq(schema.forumVotes.targetType, targetType), eq(schema.forumVotes.targetId, targetId), eq(schema.forumVotes.userId, userId)));
       delta = -existing;
       myVote = 0;
     } else if (existing === 0) {
-      await tx.query(
-        `INSERT INTO forum_votes (target_type, target_id, user_id, value) VALUES ($1, $2, $3, $4)`,
-        [targetType, targetId, userId, value]
-      );
+      await tx.insert(schema.forumVotes).values({ targetType, targetId, userId, value });
       delta = value;
       myVote = value;
     } else {
-      await tx.query(
-        `UPDATE forum_votes SET value = $4 WHERE target_type = $1 AND target_id = $2 AND user_id = $3`,
-        [targetType, targetId, userId, value]
-      );
+      await tx
+        .update(schema.forumVotes)
+        .set({ value })
+        .where(and(eq(schema.forumVotes.targetType, targetType), eq(schema.forumVotes.targetId, targetId), eq(schema.forumVotes.userId, userId)));
       delta = value - existing;
       myVote = value;
     }
 
-    const { rows: updatedRows } = await tx.query<{ vote_score: number }>(
-      `UPDATE ${table} SET vote_score = vote_score + $2, updated_at = NOW() WHERE id = $1 RETURNING vote_score`,
-      [targetId, delta]
-    );
+    const updatedRows = await tx
+      .update(targetTable)
+      .set({ voteScore: sql`${targetTable.voteScore} + ${delta}`, updatedAt: sql`NOW()` })
+      .where(eq(targetTable.id, targetId))
+      .returning({ voteScore: targetTable.voteScore });
 
     return {
-      voteScore: updatedRows[0].vote_score,
+      voteScore: updatedRows[0].voteScore,
       myVote,
-      authorId: target.author_id,
+      authorId: target.authorId,
       becameUpvoted: myVote === 1 && existing !== 1,
     };
   });
@@ -450,36 +471,36 @@ export async function castVote(
 export async function toggleFavorite(userId: string, questionId: string, next: boolean): Promise<{ favoriteCount: number }> {
   await requireFeatureEnabled("forum");
 
-  return db.transaction(async (tx: TransactionClient) => {
-    const { rows: qRows } = await tx.query<{ id: string }>(
-      `SELECT id FROM forum_questions WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-      [questionId]
-    );
+  const orm = await getDb();
+  return orm.transaction(async (tx) => {
+    const qRows = await tx
+      .select({ id: schema.forumQuestions.id })
+      .from(schema.forumQuestions)
+      .where(and(eq(schema.forumQuestions.id, questionId), isNull(schema.forumQuestions.deletedAt)))
+      .for("update");
     if (!qRows[0]) throw notFound("Question not found");
 
     if (next) {
-      const { rowCount } = await tx.query(
-        `INSERT INTO forum_favorites (user_id, question_id) VALUES ($1, $2) ON CONFLICT (user_id, question_id) DO NOTHING`,
-        [userId, questionId]
-      );
-      if (rowCount && rowCount > 0) {
-        await tx.query(`UPDATE forum_questions SET favorite_count = favorite_count + 1 WHERE id = $1`, [questionId]);
+      const inserted = await tx
+        .insert(schema.forumFavorites)
+        .values({ userId, questionId })
+        .onConflictDoNothing({ target: [schema.forumFavorites.userId, schema.forumFavorites.questionId] })
+        .returning({ userId: schema.forumFavorites.userId });
+      if (inserted.length > 0) {
+        await tx.update(schema.forumQuestions).set({ favoriteCount: sql`${schema.forumQuestions.favoriteCount} + 1` }).where(eq(schema.forumQuestions.id, questionId));
       }
     } else {
-      const { rowCount } = await tx.query(
-        `DELETE FROM forum_favorites WHERE user_id = $1 AND question_id = $2`,
-        [userId, questionId]
-      );
-      if (rowCount && rowCount > 0) {
-        await tx.query(`UPDATE forum_questions SET favorite_count = GREATEST(favorite_count - 1, 0) WHERE id = $1`, [questionId]);
+      const deleted = await tx
+        .delete(schema.forumFavorites)
+        .where(and(eq(schema.forumFavorites.userId, userId), eq(schema.forumFavorites.questionId, questionId)))
+        .returning({ userId: schema.forumFavorites.userId });
+      if (deleted.length > 0) {
+        await tx.update(schema.forumQuestions).set({ favoriteCount: sql`GREATEST(${schema.forumQuestions.favoriteCount} - 1, 0)` }).where(eq(schema.forumQuestions.id, questionId));
       }
     }
 
-    const { rows } = await tx.query<{ favorite_count: number }>(
-      `SELECT favorite_count FROM forum_questions WHERE id = $1`,
-      [questionId]
-    );
-    return { favoriteCount: rows[0].favorite_count };
+    const rows = await tx.select({ favoriteCount: schema.forumQuestions.favoriteCount }).from(schema.forumQuestions).where(eq(schema.forumQuestions.id, questionId));
+    return { favoriteCount: rows[0].favoriteCount };
   });
 }
 
@@ -496,27 +517,30 @@ export async function markBestAnswer(
   await requireFeatureEnabled("forum");
   const manifest = await loadManifest();
 
-  const { rows: qRows } = await db.query<{ author_id: string }>(
-    `SELECT author_id FROM forum_questions WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [questionId]
-  );
+  const orm = await getDb();
+  const qRows = await orm
+    .select({ authorId: schema.forumQuestions.authorId })
+    .from(schema.forumQuestions)
+    .where(and(eq(schema.forumQuestions.id, questionId), isNull(schema.forumQuestions.deletedAt)))
+    .limit(1);
   const question = qRows[0];
   if (!question) throw notFound("Question not found");
-  if (question.author_id !== callerId && !callerIsModerator) {
+  if (question.authorId !== callerId && !callerIsModerator) {
     throw forbidden("Only the question author or a moderator can mark the best answer.", "FORUM_NOT_QUESTION_AUTHOR");
   }
 
-  const { rows: aRows } = await db.query<{ id: string; author_id: string }>(
-    `SELECT id, author_id FROM forum_answers WHERE id = $1 AND question_id = $2 AND deleted_at IS NULL LIMIT 1`,
-    [answerId, questionId]
-  );
+  const aRows = await orm
+    .select({ id: schema.forumAnswers.id, authorId: schema.forumAnswers.authorId })
+    .from(schema.forumAnswers)
+    .where(and(eq(schema.forumAnswers.id, answerId), eq(schema.forumAnswers.questionId, questionId), isNull(schema.forumAnswers.deletedAt)))
+    .limit(1);
   const answer = aRows[0];
   if (!answer) throw notFound("Answer not found");
 
-  await db.query(`UPDATE forum_questions SET best_answer_id = $2, updated_at = NOW() WHERE id = $1`, [questionId, answerId]);
+  await orm.update(schema.forumQuestions).set({ bestAnswerId: answerId, updatedAt: sql`NOW()` }).where(eq(schema.forumQuestions.id, questionId));
 
   awardForumRewards(
-    answer.author_id,
+    answer.authorId,
     manifest.forum.rewardXpBestAnswer,
     manifest.forum.rewardCreditsBestAnswer,
     "forum_best_answer_awarded",
@@ -532,45 +556,51 @@ export async function markBestAnswer(
 // ---------------------------------------------------------------------------
 
 export async function deleteQuestion(questionId: string, callerId: string, callerIsModerator: boolean): Promise<void> {
-  const { rows } = await db.query<{ author_id: string }>(
-    `SELECT author_id FROM forum_questions WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [questionId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ authorId: schema.forumQuestions.authorId })
+    .from(schema.forumQuestions)
+    .where(and(eq(schema.forumQuestions.id, questionId), isNull(schema.forumQuestions.deletedAt)))
+    .limit(1);
   const question = rows[0];
   if (!question) throw notFound("Question not found");
-  if (question.author_id !== callerId && !callerIsModerator) {
+  if (question.authorId !== callerId && !callerIsModerator) {
     throw forbidden("You can't delete this question.", "FORUM_NOT_AUTHOR");
   }
-  await db.query(
-    `UPDATE forum_questions SET status = 'removed', deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,
-    [questionId]
-  );
+  await orm
+    .update(schema.forumQuestions)
+    .set({ status: "removed", deletedAt: sql`NOW()`, updatedAt: sql`NOW()` })
+    .where(eq(schema.forumQuestions.id, questionId));
 }
 
 export async function deleteAnswer(answerId: string, callerId: string, callerIsModerator: boolean): Promise<void> {
-  const { rows } = await db.query<{ author_id: string; question_id: string }>(
-    `SELECT author_id, question_id FROM forum_answers WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [answerId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ authorId: schema.forumAnswers.authorId, questionId: schema.forumAnswers.questionId })
+    .from(schema.forumAnswers)
+    .where(and(eq(schema.forumAnswers.id, answerId), isNull(schema.forumAnswers.deletedAt)))
+    .limit(1);
   const answer = rows[0];
   if (!answer) throw notFound("Answer not found");
-  if (answer.author_id !== callerId && !callerIsModerator) {
+  if (answer.authorId !== callerId && !callerIsModerator) {
     throw forbidden("You can't delete this answer.", "FORUM_NOT_AUTHOR");
   }
-  await db.query(
-    `UPDATE forum_answers SET status = 'removed', deleted_at = NOW(), updated_at = NOW() WHERE id = $1`,
-    [answerId]
-  );
-  await db.query(
-    `UPDATE forum_questions SET answer_count = GREATEST(answer_count - 1, 0) WHERE id = $1`,
-    [answer.question_id]
-  );
+  await orm
+    .update(schema.forumAnswers)
+    .set({ status: "removed", deletedAt: sql`NOW()`, updatedAt: sql`NOW()` })
+    .where(eq(schema.forumAnswers.id, answerId));
+  await orm
+    .update(schema.forumQuestions)
+    .set({ answerCount: sql`GREATEST(${schema.forumQuestions.answerCount} - 1, 0)` })
+    .where(eq(schema.forumQuestions.id, answer.questionId));
 }
 
 export async function setQuestionLocked(questionId: string, locked: boolean): Promise<void> {
-  const { rowCount } = await db.query(
-    `UPDATE forum_questions SET is_locked = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`,
-    [questionId, locked]
-  );
-  if (!rowCount) throw notFound("Question not found");
+  const orm = await getDb();
+  const updated = await orm
+    .update(schema.forumQuestions)
+    .set({ isLocked: locked, updatedAt: sql`NOW()` })
+    .where(and(eq(schema.forumQuestions.id, questionId), isNull(schema.forumQuestions.deletedAt)))
+    .returning({ id: schema.forumQuestions.id });
+  if (!updated.length) throw notFound("Question not found");
 }

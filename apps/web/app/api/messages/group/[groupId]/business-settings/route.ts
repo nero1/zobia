@@ -9,22 +9,29 @@ export const dynamic = 'force-dynamic';
  * "Rejoins after leaving earn nothing" is enforced by creditCoins'
  * idempotency, not by anything here — see members/route.ts and
  * [groupId]/route.ts's maybeAwardBusinessMessageCredit().
+ *
+ * NOTE: `group_chats.is_business` / `business_join_credit_*` /
+ * `business_message_credit_*` are not present in lib/db/schema.ts's
+ * groupChats table (schema/DB mismatch — reported upstream; the same gap
+ * lib/plans/groupChatSweep.ts documents for is_deactivated), so this uses
+ * Drizzle's `sql` tag directly rather than the query builder.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
-import { db } from '@/lib/db';
+import { sql } from 'drizzle-orm';
+import { getDb } from '@/lib/db/drizzle';
 import { withAuth, validateBody } from '@/lib/api/middleware';
 import { badRequest, forbidden, notFound, handleApiError } from '@/lib/api/errors';
 
-interface GroupRow {
+type GroupRow = Record<string, unknown> & {
   is_business: boolean;
   business_join_credit_enabled: boolean;
   business_join_credit_amount: number | null;
   business_message_credit_enabled: boolean;
   business_message_credit_amount: number | null;
   business_message_credit_threshold: number | null;
-}
+};
 
 const bodySchema = z.object({
   businessJoinCreditEnabled: z.boolean().optional(),
@@ -35,19 +42,19 @@ const bodySchema = z.object({
 });
 
 async function requireBusinessGroupAdmin(groupId: string, userId: string): Promise<GroupRow> {
-  const { rows: memberRows } = await db.query<{ role: string }>(
-    'SELECT role FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2',
-    [groupId, userId],
-  );
-  if (!memberRows[0] || memberRows[0].role !== 'admin') throw forbidden('Admin only');
+  const orm = await getDb();
 
-  const { rows } = await db.query<GroupRow>(
-    `SELECT is_business, business_join_credit_enabled, business_join_credit_amount,
-            business_message_credit_enabled, business_message_credit_amount, business_message_credit_threshold
-     FROM group_chats WHERE id = $1`,
-    [groupId],
-  );
-  const group = rows[0];
+  const memberResult = await orm.execute<{ role: string }>(sql`
+    SELECT role FROM group_chat_members WHERE group_chat_id = ${groupId} AND user_id = ${userId}
+  `);
+  if (!memberResult.rows[0] || memberResult.rows[0].role !== 'admin') throw forbidden('Admin only');
+
+  const result = await orm.execute<GroupRow>(sql`
+    SELECT is_business, business_join_credit_enabled, business_join_credit_amount,
+           business_message_credit_enabled, business_message_credit_amount, business_message_credit_threshold
+    FROM group_chats WHERE id = ${groupId}
+  `);
+  const group = result.rows[0];
   if (!group) throw notFound('Group not found');
   if (!group.is_business) throw forbidden('This setting is only available for Business account groups');
   return group;
@@ -77,18 +84,27 @@ export const PATCH = withAuth(async (
 
     if (Object.keys(body).length === 0) throw badRequest('No valid fields to update');
 
-    const columnMap: Record<string, string> = {
-      businessJoinCreditEnabled: 'business_join_credit_enabled',
-      businessJoinCreditAmount: 'business_join_credit_amount',
-      businessMessageCreditEnabled: 'business_message_credit_enabled',
-      businessMessageCreditAmount: 'business_message_credit_amount',
-      businessMessageCreditThreshold: 'business_message_credit_threshold',
-    };
-    const entries = Object.entries(body).filter(([, v]) => v !== undefined);
-    const setClauses = entries.map(([k], i) => `${columnMap[k]} = $${i + 2}`).join(', ');
-    const values = [groupId, ...entries.map(([, v]) => v)];
+    const setClauses: ReturnType<typeof sql>[] = [];
+    if (body.businessJoinCreditEnabled !== undefined) {
+      setClauses.push(sql`business_join_credit_enabled = ${body.businessJoinCreditEnabled}`);
+    }
+    if (body.businessJoinCreditAmount !== undefined) {
+      setClauses.push(sql`business_join_credit_amount = ${body.businessJoinCreditAmount}`);
+    }
+    if (body.businessMessageCreditEnabled !== undefined) {
+      setClauses.push(sql`business_message_credit_enabled = ${body.businessMessageCreditEnabled}`);
+    }
+    if (body.businessMessageCreditAmount !== undefined) {
+      setClauses.push(sql`business_message_credit_amount = ${body.businessMessageCreditAmount}`);
+    }
+    if (body.businessMessageCreditThreshold !== undefined) {
+      setClauses.push(sql`business_message_credit_threshold = ${body.businessMessageCreditThreshold}`);
+    }
 
-    await db.query(`UPDATE group_chats SET ${setClauses}, updated_at = NOW() WHERE id = $1`, values);
+    const orm = await getDb();
+    await orm.execute(sql`
+      UPDATE group_chats SET ${sql.join(setClauses, sql`, `)}, updated_at = NOW() WHERE id = ${groupId}
+    `);
 
     return NextResponse.json({ success: true });
   } catch (err) {

@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
 import { sendPushNotification } from "@/lib/notifications/push";
@@ -34,48 +35,52 @@ export const PATCH = withAuth(
       const { orderId } = await params;
       const userId = auth.user.sub;
       const body = await validateBody(req, shipSchema);
+      const orm = await getDb();
 
-      const { rows: orderRows } = await db.query<{
-        id: string;
-        creator_id: string;
-        buyer_id: string;
-        status: string;
-        product_id: string;
-      }>(
-        `SELECT id, creator_id, buyer_id, status, product_id
-         FROM merch_orders WHERE id = $1 LIMIT 1`,
-        [orderId]
-      );
+      const orderRows = await orm
+        .select({
+          id: schema.merchOrders.id,
+          creatorId: schema.merchOrders.creatorId,
+          buyerId: schema.merchOrders.buyerId,
+          status: schema.merchOrders.status,
+          productId: schema.merchOrders.productId,
+        })
+        .from(schema.merchOrders)
+        .where(eq(schema.merchOrders.id, orderId))
+        .limit(1);
       const order = orderRows[0];
       if (!order) throw notFound("Order not found");
-      if (order.creator_id !== userId) throw forbidden("Only the seller can update this order");
+      if (order.creatorId !== userId) throw forbidden("Only the seller can update this order");
       if (order.status !== "pending") throw conflict(`Order is already in status '${order.status}'`);
 
       const newStatus = body.useStepTracking ? "shipped" : "in_transit";
       const trackingEntry = body.useStepTracking
-        ? JSON.stringify([{ status: "shipped", note: body.note ?? "Order shipped", timestamp: new Date().toISOString() }])
-        : "[]";
+        ? [{ status: "shipped", note: body.note ?? "Order shipped", timestamp: new Date().toISOString() }]
+        : [];
 
-      await db.query(
-        `UPDATE merch_orders
-         SET status = $1, shipped_at = NOW(),
-             tracking_updates = $2::jsonb,
-             updated_at = NOW()
-         WHERE id = $3`,
-        [newStatus, trackingEntry, orderId]
-      );
+      await orm
+        .update(schema.merchOrders)
+        .set({
+          status: newStatus,
+          shippedAt: sql`NOW()`,
+          trackingUpdates: trackingEntry,
+          updatedAt: sql`NOW()`,
+        })
+        .where(eq(schema.merchOrders.id, orderId));
 
       // Notify buyer
       void (async () => {
         try {
-          await db.query(
-            `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
-             VALUES ($1, 'order_shipped', 'Your order is on the way!',
-                     'Your order has been shipped and is on its way to you.', $2, NOW())`,
-            [order.buyer_id, JSON.stringify({ orderId })]
-          );
+          await orm.insert(schema.notifications).values({
+            userId: order.buyerId,
+            type: "order_shipped",
+            title: "Your order is on the way!",
+            body: "Your order has been shipped and is on its way to you.",
+            metadata: { orderId },
+            isRead: false,
+          });
           await sendPushNotification(
-            order.buyer_id,
+            order.buyerId,
             "Your order is on the way!",
             "Your order has been shipped.",
             { action: `/merch/order/${orderId}`, priority: "high" }

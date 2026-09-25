@@ -17,7 +17,8 @@
  * @module lib/announcements/engine
  */
 
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { schema, type DbOrTx } from "@/lib/db/drizzle";
 import { sanitizeAnnouncementContent } from "@/lib/security/htmlSanitizer";
 import { getManifestValue } from "@/lib/manifest";
 
@@ -96,47 +97,45 @@ function matchesTargeting(
  *
  * @param userId - Authenticated user's UUID
  * @param user   - User object with plan and role for targeting
- * @param db     - Database adapter
+ * @param db     - Drizzle db instance or an active transaction handle.
  * @returns The modal to show, or null
  */
 export async function getActiveModalForUser(
   userId: string,
   user: AnnouncementUser,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<ResolvedModal | null> {
   // TASK-30: use manifest cache instead of raw SQL to avoid an extra uncached DB hit
   const displayMode = ((await getManifestValue("announcement_modal_mode")) ?? "serial") as "serial" | "random";
 
   // TASK-19: LIMIT 50 prevents unbounded fetch when hundreds of announcements exist
-  const { rows: modals } = await db.query<{
-    id: string;
-    title: string;
-    content: string;
-    content_type: string;
-    display_order: number;
-    target_plans: string[];
-    target_roles: string[];
-    target_genders: string[];
-    starts_at: string | null;
-    ends_at: string | null;
-  }>(
-    `SELECT
-       id, title, content, content_type, display_order,
-       COALESCE(target_plans, '{}')::text[]  AS target_plans,
-       COALESCE(target_roles, '{}')::text[]  AS target_roles,
-       COALESCE(target_genders, '{}')::text[]  AS target_genders,
-       starts_at, ends_at
-     FROM announcement_modals
-     WHERE is_active = true
-       AND (starts_at IS NULL OR starts_at <= NOW())
-       AND (ends_at IS NULL OR ends_at >= NOW())
-       AND deleted_at IS NULL
-     ORDER BY display_order ASC
-     LIMIT 50`
-  );
+  const modals = await db
+    .select({
+      id: schema.announcementModals.id,
+      title: schema.announcementModals.title,
+      content: schema.announcementModals.content,
+      contentType: schema.announcementModals.contentType,
+      displayOrder: schema.announcementModals.displayOrder,
+      targetPlans: sql<string[]>`COALESCE(${schema.announcementModals.targetPlans}, '{}')::text[]`,
+      targetRoles: sql<string[]>`COALESCE(${schema.announcementModals.targetRoles}, '{}')::text[]`,
+      targetGenders: sql<string[]>`COALESCE(${schema.announcementModals.targetGenders}, '{}')::text[]`,
+      startsAt: schema.announcementModals.startsAt,
+      endsAt: schema.announcementModals.endsAt,
+    })
+    .from(schema.announcementModals)
+    .where(
+      and(
+        eq(schema.announcementModals.isActive, true),
+        or(isNull(schema.announcementModals.startsAt), sql`${schema.announcementModals.startsAt} <= NOW()`),
+        or(isNull(schema.announcementModals.endsAt), sql`${schema.announcementModals.endsAt} >= NOW()`),
+        isNull(schema.announcementModals.deletedAt)
+      )
+    )
+    .orderBy(sql`${schema.announcementModals.displayOrder} ASC`)
+    .limit(50);
 
   const eligible = modals.filter((m) =>
-    matchesTargeting(user, m.target_plans, m.target_roles, m.target_genders)
+    matchesTargeting(user, m.targetPlans, m.targetRoles, m.targetGenders)
   );
 
   if (eligible.length === 0) return null;
@@ -146,20 +145,17 @@ export async function getActiveModalForUser(
   if (displayMode === "serial") {
     const eligibleIds = eligible.map((m) => m.id);
     // TASK-32: bound query to only eligible modal IDs to prevent unbounded scan
-    const { rows: viewedRows } = await db.query<{ modal_id: string }>(
-      `SELECT modal_id FROM user_modal_views
-       WHERE user_id = $1 AND modal_id = ANY($2::uuid[])`,
-      [userId, eligibleIds]
-    );
-    const viewedIds = new Set(viewedRows.map((r) => r.modal_id));
+    const viewedRows = await db
+      .select({ modalId: schema.userModalViews.modalId })
+      .from(schema.userModalViews)
+      .where(and(eq(schema.userModalViews.userId, userId), inArray(schema.userModalViews.modalId, eligibleIds)));
+    const viewedIds = new Set(viewedRows.map((r) => r.modalId));
     const unviewed = eligible.filter((m) => !viewedIds.has(m.id));
     if (unviewed.length === 0) {
       // TASK-31: reset only the currently eligible modal views, not ALL user views
-      await db.query(
-        `DELETE FROM user_modal_views
-         WHERE user_id = $1 AND modal_id = ANY($2::uuid[])`,
-        [userId, eligibleIds]
-      );
+      await db
+        .delete(schema.userModalViews)
+        .where(and(eq(schema.userModalViews.userId, userId), inArray(schema.userModalViews.modalId, eligibleIds)));
       selected = eligible[0];
     } else {
       selected = unviewed[0];
@@ -171,11 +167,11 @@ export async function getActiveModalForUser(
   return {
     id: selected.id,
     title: selected.title,
-    content: sanitizeAnnouncementContent(selected.content, selected.content_type),
-    content_type: selected.content_type as ResolvedModal["content_type"],
-    display_order: selected.display_order,
-    starts_at: selected.starts_at,
-    ends_at: selected.ends_at,
+    content: sanitizeAnnouncementContent(selected.content, selected.contentType),
+    content_type: selected.contentType as ResolvedModal["content_type"],
+    display_order: selected.displayOrder,
+    starts_at: selected.startsAt ? new Date(selected.startsAt).toISOString() : null,
+    ends_at: selected.endsAt ? new Date(selected.endsAt).toISOString() : null,
   };
 }
 
@@ -190,28 +186,30 @@ export async function getActiveModalForUser(
  * @param userId         - Authenticated user's UUID
  * @param announcementId - UUID of the modal or banner that was shown
  * @param type           - Whether this is a 'modal' or 'banner' view
- * @param db             - Database adapter
+ * @param db             - Drizzle db instance or an active transaction handle.
  */
 export async function confirmAnnouncementView(
   userId: string,
   announcementId: string,
   type: "modal" | "banner",
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<void> {
   if (type === "modal") {
-    await db.query(
-      `INSERT INTO user_modal_views (user_id, modal_id, viewed_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (user_id, modal_id) DO UPDATE SET viewed_at = NOW()`,
-      [userId, announcementId]
-    );
+    await db
+      .insert(schema.userModalViews)
+      .values({ userId, modalId: announcementId })
+      .onConflictDoUpdate({
+        target: [schema.userModalViews.userId, schema.userModalViews.modalId],
+        set: { viewedAt: new Date() },
+      });
   } else {
-    await db.query(
-      `INSERT INTO user_banner_views (user_id, banner_id, viewed_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (user_id, banner_id) DO UPDATE SET viewed_at = NOW()`,
-      [userId, announcementId]
-    );
+    await db
+      .insert(schema.userBannerViews)
+      .values({ userId, bannerId: announcementId })
+      .onConflictDoUpdate({
+        target: [schema.userBannerViews.userId, schema.userBannerViews.bannerId],
+        set: { viewedAt: new Date() },
+      });
   }
 }
 
@@ -229,44 +227,42 @@ export async function confirmAnnouncementView(
  *
  * @param userId - Authenticated user's UUID
  * @param user   - User object with plan and role for targeting
- * @param db     - Database adapter
+ * @param db     - Drizzle db instance or an active transaction handle.
  * @returns The banner to show, or null
  */
 export async function getActiveBannerForUser(
   userId: string,
   user: AnnouncementUser,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<ResolvedBanner | null> {
   // TASK-19: LIMIT 50 prevents unbounded fetch
-  const { rows: banners } = await db.query<{
-    id: string;
-    title: string;
-    content: string;
-    content_type: string;
-    link_url: string | null;
-    target_plans: string[];
-    target_roles: string[];
-    target_genders: string[];
-    starts_at: string | null;
-    ends_at: string | null;
-  }>(
-    `SELECT
-       id, title, content, content_type, link_url,
-       COALESCE(target_plans, '{}')::text[]  AS target_plans,
-       COALESCE(target_roles, '{}')::text[]  AS target_roles,
-       COALESCE(target_genders, '{}')::text[]  AS target_genders,
-       starts_at, ends_at
-     FROM announcement_banners
-     WHERE is_active = true
-       AND (starts_at IS NULL OR starts_at <= NOW())
-       AND (ends_at IS NULL OR ends_at >= NOW())
-       AND deleted_at IS NULL
-     ORDER BY display_order ASC
-     LIMIT 50`
-  );
+  const banners = await db
+    .select({
+      id: schema.announcementBanners.id,
+      title: schema.announcementBanners.title,
+      content: schema.announcementBanners.content,
+      contentType: schema.announcementBanners.contentType,
+      linkUrl: schema.announcementBanners.linkUrl,
+      targetPlans: sql<string[]>`COALESCE(${schema.announcementBanners.targetPlans}, '{}')::text[]`,
+      targetRoles: sql<string[]>`COALESCE(${schema.announcementBanners.targetRoles}, '{}')::text[]`,
+      targetGenders: sql<string[]>`COALESCE(${schema.announcementBanners.targetGenders}, '{}')::text[]`,
+      startsAt: schema.announcementBanners.startsAt,
+      endsAt: schema.announcementBanners.endsAt,
+    })
+    .from(schema.announcementBanners)
+    .where(
+      and(
+        eq(schema.announcementBanners.isActive, true),
+        or(isNull(schema.announcementBanners.startsAt), sql`${schema.announcementBanners.startsAt} <= NOW()`),
+        or(isNull(schema.announcementBanners.endsAt), sql`${schema.announcementBanners.endsAt} >= NOW()`),
+        isNull(schema.announcementBanners.deletedAt)
+      )
+    )
+    .orderBy(sql`${schema.announcementBanners.displayOrder} ASC`)
+    .limit(50);
 
   const eligible = banners.filter((b) =>
-    matchesTargeting(user, b.target_plans, b.target_roles, b.target_genders)
+    matchesTargeting(user, b.targetPlans, b.targetRoles, b.targetGenders)
   );
 
   if (eligible.length === 0) return null;
@@ -279,12 +275,11 @@ export async function getActiveBannerForUser(
   if (displayMode === "serial") {
     const eligibleIds = eligible.map((b) => b.id);
     // TASK-32: bound query to only eligible banner IDs
-    const { rows: viewedRows } = await db.query<{ banner_id: string }>(
-      `SELECT banner_id FROM user_banner_views
-       WHERE user_id = $1 AND banner_id = ANY($2::uuid[])`,
-      [userId, eligibleIds]
-    );
-    const viewedIds = new Set(viewedRows.map((r) => r.banner_id));
+    const viewedRows = await db
+      .select({ bannerId: schema.userBannerViews.bannerId })
+      .from(schema.userBannerViews)
+      .where(and(eq(schema.userBannerViews.userId, userId), inArray(schema.userBannerViews.bannerId, eligibleIds)));
+    const viewedIds = new Set(viewedRows.map((r) => r.bannerId));
     const unviewed = eligible.filter((b) => !viewedIds.has(b.id));
     if (unviewed.length === 0) return null;
     selected = unviewed[0];
@@ -294,11 +289,11 @@ export async function getActiveBannerForUser(
 
   return {
     id: selected.id,
-    title: selected.title,
-    content: sanitizeAnnouncementContent(selected.content, selected.content_type),
-    content_type: selected.content_type as ResolvedBanner["content_type"],
-    link_url: selected.link_url,
-    starts_at: selected.starts_at,
-    ends_at: selected.ends_at,
+    title: selected.title as string,
+    content: sanitizeAnnouncementContent(selected.content, selected.contentType),
+    content_type: selected.contentType as ResolvedBanner["content_type"],
+    link_url: selected.linkUrl,
+    starts_at: selected.startsAt ? new Date(selected.startsAt).toISOString() : null,
+    ends_at: selected.endsAt ? new Date(selected.endsAt).toISOString() : null,
   };
 }

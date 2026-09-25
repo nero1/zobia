@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest } from "next/server";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -25,11 +26,13 @@ export const GET = withAuth<{ roomId: string }>(async (_req: NextRequest, { para
     const { classroom, viewer } = await classroomContextFromParams(params, auth.user.sub);
     requireCapability(viewer, "manageClassroom");
     // Tier follows the classroom CREATOR's plan (staff viewing see what the creator sees).
-    const { rows } = await db.query<{ plan: string; creator_tier: string | null }>(
-      `SELECT plan, creator_tier FROM users WHERE id = $1`,
-      [classroom.creatorId]
-    );
-    const tier = resolveClassroomStatsTier(rows[0]?.plan, rows[0]?.creator_tier);
+    const orm = await getDb();
+    const [creatorRow] = await orm
+      .select({ plan: schema.users.plan, creator_tier: schema.users.creatorTier })
+      .from(schema.users)
+      .where(eq(schema.users.id, classroom.creatorId))
+      .limit(1);
+    const tier = resolveClassroomStatsTier(creatorRow?.plan, creatorRow?.creator_tier);
     return ok(await getClassroomStats(classroom.id, tier));
   } catch (err) {
     return handleApiError(err);

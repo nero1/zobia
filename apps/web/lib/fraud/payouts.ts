@@ -13,7 +13,9 @@
  *   3. Trust score: creator trust score below minimum threshold
  */
 
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import { and, eq, gte, notInArray, sql } from "drizzle-orm";
+import type { DbOrTx } from "@/lib/db/drizzle";
+import { schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 import { getManifestValue } from "@/lib/manifest";
 import { raiseAlert } from "@/lib/alerts/dispatch";
@@ -61,13 +63,13 @@ const MIN_TRUST_SCORE_FOR_AUTO = 30;
  *
  * @param creatorId  - UUID of the creator requesting the payout
  * @param grossKobo  - Gross amount requested in kobo
- * @param db         - Database adapter (use the shared singleton in route handlers)
+ * @param db         - Drizzle db handle or transaction (use the shared singleton in route handlers)
  * @returns FraudCheckResult
  */
 export async function checkPayoutFraud(
   creatorId: string,
   grossKobo: number,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<FraudCheckResult> {
   const reasons: string[] = [];
 
@@ -107,14 +109,14 @@ export async function checkPayoutFraud(
 
     // FRAUD-03: Use SYSTEM_ACTOR_ID instead of NULL — admin_audit_log.admin_id is NOT NULL
     await db
-      .query(
-        `INSERT INTO admin_audit_log (admin_id, action, resource, resource_id, after_val, created_at)
-         VALUES (
-           $3::uuid,
-           'payout_fraud_flagged', 'creator_payouts', $1, $2::jsonb, NOW()
-         )`,
-        [creatorId, JSON.stringify({ creatorId, grossKobo, reasons }), SYSTEM_ACTOR_ID]
-      )
+      .insert(schema.adminAuditLog)
+      .values({
+        adminId: SYSTEM_ACTOR_ID,
+        action: "payout_fraud_flagged",
+        resource: "creator_payouts",
+        resourceId: creatorId,
+        afterVal: { creatorId, grossKobo, reasons },
+      })
       .catch(() => {});
   }
 
@@ -127,7 +129,7 @@ export async function checkPayoutFraud(
 
 async function checkNewAccountGiftInflow(
   creatorId: string,
-  db: DatabaseAdapter,
+  db: DbOrTx,
   reasons: string[],
   inflowThreshold: number,
   newAccountAgeDays: number,
@@ -135,8 +137,8 @@ async function checkNewAccountGiftInflow(
   minAccounts: number
 ): Promise<void> {
   try {
-    const { rows } = await db.query<{ total_coins: string; account_count: string }>(
-      `SELECT
+    const { rows } = await db.execute<{ total_coins: string; account_count: string }>(sql`
+      SELECT
          COALESCE(SUM(combined.coin_cost), 0)::TEXT  AS total_coins,
          COUNT(DISTINCT combined.sender_id)::TEXT      AS account_count
        FROM (
@@ -144,22 +146,21 @@ async function checkNewAccountGiftInflow(
          FROM gifts g
          JOIN rooms r ON r.id = g.room_id
          JOIN users sender ON sender.id = g.sender_id
-         WHERE r.creator_id = $1
-           AND sender.created_at >= NOW() - ($2 * INTERVAL '1 day')
-           AND g.created_at >= NOW() - ($3 * INTERVAL '1 day')
+         WHERE r.creator_id = ${creatorId}
+           AND sender.created_at >= NOW() - (${newAccountAgeDays} * INTERVAL '1 day')
+           AND g.created_at >= NOW() - (${giftWindowDays} * INTERVAL '1 day')
 
          UNION ALL
 
          SELECT g2.coin_cost, g2.sender_id
          FROM gifts g2
          JOIN users sender2 ON sender2.id = g2.sender_id
-         WHERE g2.recipient_id = $1
+         WHERE g2.recipient_id = ${creatorId}
            AND g2.room_id IS NULL
-           AND sender2.created_at >= NOW() - ($2 * INTERVAL '1 day')
-           AND g2.created_at >= NOW() - ($3 * INTERVAL '1 day')
-       ) combined`,
-      [creatorId, newAccountAgeDays, giftWindowDays]
-    );
+           AND sender2.created_at >= NOW() - (${newAccountAgeDays} * INTERVAL '1 day')
+           AND g2.created_at >= NOW() - (${giftWindowDays} * INTERVAL '1 day')
+       ) combined
+    `);
 
     const totalCoins = parseInt(rows[0]?.total_coins ?? "0", 10);
     const accountCount = parseInt(rows[0]?.account_count ?? "0", 10);
@@ -182,23 +183,25 @@ async function checkNewAccountGiftInflow(
 
 async function checkPayoutVelocity(
   creatorId: string,
-  db: DatabaseAdapter,
+  db: DbOrTx,
   reasons: string[],
   maxPayoutsPerDay: number
 ): Promise<void> {
   try {
-    const { rows } = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::TEXT AS count
-       FROM creator_payouts
-       WHERE creator_id = $1
-         AND created_at >= NOW() - INTERVAL '24 hours'
-         AND status NOT IN ('retrying', 'system_retry')`,
-      [creatorId]
-    );
+    const [{ count }] = await db
+      .select({ count: sql<string>`COUNT(*)::TEXT` })
+      .from(schema.creatorPayouts)
+      .where(
+        and(
+          eq(schema.creatorPayouts.creatorId, creatorId),
+          gte(schema.creatorPayouts.createdAt, sql`NOW() - INTERVAL '24 hours'`),
+          notInArray(schema.creatorPayouts.status, ["retrying", "system_retry"])
+        )
+      );
 
-    const count = parseInt(rows[0]?.count ?? "0", 10);
-    if (count >= maxPayoutsPerDay) {
-      reasons.push(`${count} payout requests in the past 24 hours (max ${maxPayoutsPerDay})`);
+    const count2 = parseInt(count ?? "0", 10);
+    if (count2 >= maxPayoutsPerDay) {
+      reasons.push(`${count2} payout requests in the past 24 hours (max ${maxPayoutsPerDay})`);
     }
   } catch (err) {
     // BUG-FRAUD-01: fail-safe — flag as suspicious so a DB error cannot allow rapid payouts
@@ -209,16 +212,17 @@ async function checkPayoutVelocity(
 
 async function checkTrustScore(
   creatorId: string,
-  db: DatabaseAdapter,
+  db: DbOrTx,
   reasons: string[]
 ): Promise<void> {
   try {
-    const { rows } = await db.query<{ trust_score: number }>(
-      `SELECT trust_score FROM users WHERE id = $1 LIMIT 1`,
-      [creatorId]
-    );
+    const rows = await db
+      .select({ trustScore: schema.users.trustScore })
+      .from(schema.users)
+      .where(eq(schema.users.id, creatorId))
+      .limit(1);
 
-    const score = rows[0]?.trust_score ?? 50;
+    const score = rows[0]?.trustScore ?? 50;
     if (score < MIN_TRUST_SCORE_FOR_AUTO) {
       reasons.push(`Trust score ${score} is below the auto-approval minimum (${MIN_TRUST_SCORE_FOR_AUTO})`);
     }

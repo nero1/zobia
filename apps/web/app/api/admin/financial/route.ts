@@ -17,9 +17,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { writeAuditLog } from "@/lib/audit/auditLog";
 import { logger } from "@/lib/logger";
 import { loadManifest } from "@/lib/manifest";
@@ -43,10 +44,12 @@ async function detectAnomalies(): Promise<AnomalyAlert[]> {
   const currencyPlural = manifest.currency.softNamePlural.toLowerCase();
 
   try {
+    const orm = await getDb();
+
     // Check for users with unusually large balances (> 1 million)
-    const { rows: largeBalances } = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::TEXT AS count FROM users WHERE coin_balance > 1000000 AND deleted_at IS NULL`
-    );
+    const { rows: largeBalances } = await orm.execute<{ count: string }>(sql`
+      SELECT COUNT(*)::TEXT AS count FROM users WHERE coin_balance > 1000000 AND deleted_at IS NULL
+    `);
     const largeCount = parseInt(largeBalances[0]?.count ?? "0", 10);
     if (largeCount > 0) {
       alerts.push({
@@ -57,16 +60,16 @@ async function detectAnomalies(): Promise<AnomalyAlert[]> {
     }
 
     // Check for unusual coin minting volume (> 10× yesterday's minting in last hour)
-    const { rows: recentMinting } = await db.query<{ hourly: string; daily_avg: string }>(
-      `SELECT
+    const { rows: recentMinting } = await orm.execute<{ hourly: string; daily_avg: string }>(sql`
+      SELECT
          COALESCE(SUM(amount) FILTER (
            WHERE created_at >= NOW() - INTERVAL '1 hour'
          ), 0)::TEXT AS hourly,
          COALESCE(SUM(amount) / 24.0, 1)::TEXT AS daily_avg
        FROM coin_ledger
        WHERE transaction_type = 'purchase'
-         AND created_at >= NOW() - INTERVAL '24 hours'`
-    );
+         AND created_at >= NOW() - INTERVAL '24 hours'
+    `);
 
     const hourly = parseFloat(recentMinting[0]?.hourly ?? "0");
     const dailyAvg = parseFloat(recentMinting[0]?.daily_avg ?? "1");
@@ -79,10 +82,10 @@ async function detectAnomalies(): Promise<AnomalyAlert[]> {
     }
 
     // Check for failed payouts in the last 24 hours
-    const { rows: failedPayouts } = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::TEXT AS count FROM creator_payouts
-       WHERE status = 'failed' AND updated_at >= NOW() - INTERVAL '24 hours'`
-    );
+    const { rows: failedPayouts } = await orm.execute<{ count: string }>(sql`
+      SELECT COUNT(*)::TEXT AS count FROM creator_payouts
+       WHERE status = 'failed' AND updated_at >= NOW() - INTERVAL '24 hours'
+    `);
     const failedCount = parseInt(failedPayouts[0]?.count ?? "0", 10);
     if (failedCount > 0) {
       alerts.push({

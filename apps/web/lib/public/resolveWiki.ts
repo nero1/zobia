@@ -8,7 +8,8 @@
  * banned, deactivated, or deleted wikis 404 publicly.
  */
 
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { looksLikeUuid } from "@zobia/shared/utils";
 import { lookupSlugRedirect } from "@/lib/slug";
 
@@ -37,19 +38,58 @@ export interface ResolvedWiki {
   canonicalRedirectSlug: string | null;
 }
 
-const SELECT = `
-  SELECT w.id, w.slug, w.name, w.description, w.avatar_url, w.cover_image_url,
-         w.contribute_policy, w.status, w.page_count, w.contributor_count, w.view_count,
-         w.owner_id, u.username AS owner_username, u.display_name AS owner_display_name, u.avatar_url AS owner_avatar_url,
-         w.created_at, w.updated_at
-  FROM wikis w
-  JOIN users u ON u.id = w.owner_id
-  WHERE w.deleted_at IS NULL AND w.status IN ('active', 'paused')
-`;
-
 async function queryBy(column: "slug" | "id", value: string): Promise<PublicWiki | null> {
-  const { rows } = await db.query<PublicWiki>(`${SELECT} AND w.${column} = $1 LIMIT 1`, [value]);
-  return rows[0] ?? null;
+  const orm = await getDb();
+  const [row] = await orm
+    .select({
+      id: schema.wikis.id,
+      slug: schema.wikis.slug,
+      name: schema.wikis.name,
+      description: schema.wikis.description,
+      avatarUrl: schema.wikis.avatarUrl,
+      coverImageUrl: schema.wikis.coverImageUrl,
+      contributePolicy: schema.wikis.contributePolicy,
+      status: schema.wikis.status,
+      pageCount: schema.wikis.pageCount,
+      contributorCount: schema.wikis.contributorCount,
+      viewCount: schema.wikis.viewCount,
+      ownerId: schema.wikis.ownerId,
+      ownerUsername: schema.users.username,
+      ownerDisplayName: schema.users.displayName,
+      ownerAvatarUrl: schema.users.avatarUrl,
+      createdAt: schema.wikis.createdAt,
+      updatedAt: schema.wikis.updatedAt,
+    })
+    .from(schema.wikis)
+    .innerJoin(schema.users, eq(schema.users.id, schema.wikis.ownerId))
+    .where(
+      and(
+        isNull(schema.wikis.deletedAt),
+        inArray(schema.wikis.status, ["active", "paused"]),
+        column === "slug" ? eq(schema.wikis.slug, value) : eq(schema.wikis.id, value)
+      )
+    )
+    .limit(1);
+  if (!row) return null;
+  return {
+    id: row.id,
+    slug: row.slug,
+    name: row.name,
+    description: row.description,
+    avatar_url: row.avatarUrl,
+    cover_image_url: row.coverImageUrl,
+    contribute_policy: row.contributePolicy,
+    status: row.status,
+    page_count: row.pageCount,
+    contributor_count: row.contributorCount,
+    view_count: row.viewCount,
+    owner_id: row.ownerId,
+    owner_username: row.ownerUsername,
+    owner_display_name: row.ownerDisplayName,
+    owner_avatar_url: row.ownerAvatarUrl,
+    created_at: row.createdAt.toISOString(),
+    updated_at: row.updatedAt.toISOString(),
+  };
 }
 
 export async function resolvePublicWiki(identifier: string): Promise<ResolvedWiki | null> {

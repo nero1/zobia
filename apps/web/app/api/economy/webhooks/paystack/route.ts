@@ -18,7 +18,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { verifyWebhookSignature } from "@/lib/payments/paystack";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { logger } from "@/lib/logger";
 import { raiseAlert } from "@/lib/alerts/dispatch";
@@ -97,7 +97,7 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     // Non-recoverable error — log for ops review but return 200 to stop Paystack retry loops
     logger.error({ err: err }, "[webhook/paystack] Non-recoverable processing error:");
     try {
-      await raiseAlert(db, {
+      await raiseAlert(await getDb(), {
         type: "webhook_processing_error",
         category: "financial",
         priorityLevel: 2,

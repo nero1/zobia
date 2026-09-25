@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, validateSearchParams } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -53,30 +54,25 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const query = validateSearchParams(req.nextUrl.searchParams, querySchema);
 
-    const clauses: string[] = [`ma.actor_type = 'manual'`];
-    const args: SqlParam[] = [];
-    let idx = 1;
+    const clauses = [sql`ma.actor_type = 'manual'`];
 
     if (query.moderatorId) {
-      clauses.push(`ma.moderator_id = $${idx++}`);
-      args.push(query.moderatorId);
+      clauses.push(sql`ma.moderator_id = ${query.moderatorId}`);
     }
     if (query.targetUserId) {
-      clauses.push(`ma.target_user_id = $${idx++}`);
-      args.push(query.targetUserId);
+      clauses.push(sql`ma.target_user_id = ${query.targetUserId}`);
     }
     if (query.actionType) {
-      clauses.push(`ma.action_type = $${idx++}`);
-      args.push(query.actionType);
+      clauses.push(sql`ma.action_type = ${query.actionType}`);
     }
     if (query.cursor) {
-      clauses.push(`ma.created_at < $${idx++}`);
-      args.push(query.cursor);
+      clauses.push(sql`ma.created_at < ${query.cursor}`);
     }
-    args.push(query.limit + 1);
+    const whereClause = sql.join(clauses, sql` AND `);
 
-    const { rows } = await db.query<AuditRow>(
-      `SELECT
+    const orm = await getDb();
+    const { rows } = await orm.execute<AuditRow & Record<string, unknown>>(sql`
+      SELECT
          ma.id, ma.action_type, ma.reason, ma.duration_hours, ma.report_id,
          ma.target_user_id, target.username AS target_username,
          ma.moderator_id, mod.username AS moderator_username,
@@ -87,11 +83,10 @@ export const GET = withAdminAuth(async (req: NextRequest, { params, auth }) => {
        LEFT JOIN users target   ON target.id = ma.target_user_id
        LEFT JOIN users mod      ON mod.id = ma.moderator_id
        LEFT JOIN users reverser ON reverser.id = ma.reversed_by
-       WHERE ${clauses.join(" AND ")}
+       WHERE ${whereClause}
        ORDER BY ma.created_at DESC
-       LIMIT $${idx}`,
-      args
-    );
+       LIMIT ${query.limit + 1}
+    `);
 
     const hasMore = rows.length > query.limit;
     const items = hasMore ? rows.slice(0, query.limit) : rows;

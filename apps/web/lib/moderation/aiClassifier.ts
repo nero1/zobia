@@ -15,7 +15,8 @@
 import { aiClient } from "@/lib/ai/client";
 import type { AiProviderId } from "@/lib/ai/config";
 import { logAiCall } from "@/lib/ai/monitoring";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { inArray } from "drizzle-orm";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -96,14 +97,17 @@ async function getManifestConfig(): Promise<ManifestCache> {
     return manifestCache;
   }
   try {
-    const { rows } = await db.query<{ key: string; value: string }>(
-      `SELECT key, value FROM x_manifest
-       WHERE key IN (
-         'ai_moderation_auto_action_threshold',
-         'ai_moderation_community_threshold',
-         'ai_moderation_system_prompt'
-       )`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ key: schema.xManifest.key, value: schema.xManifest.value })
+      .from(schema.xManifest)
+      .where(
+        inArray(schema.xManifest.key, [
+          "ai_moderation_auto_action_threshold",
+          "ai_moderation_community_threshold",
+          "ai_moderation_system_prompt",
+        ])
+      );
     const map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
     // FIX-H08: guard against NaN when the DB value is a non-numeric string
     const parseThreshold = (raw: string | undefined, fallback: number): number => {

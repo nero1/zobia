@@ -457,11 +457,13 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 ### Adding a new database provider
 
 1. Create a new adapter file at `apps/web/lib/db/providers/yourprovider.ts`.
-2. Implement the `DatabaseAdapter` interface from `apps/web/lib/db/interface.ts`.
+2. Implement the `DatabaseAdapter` interface from `apps/web/lib/db/interface.ts`, and export a `getPool()` returning the provider's `pg.Pool` (see `lib/db/providers/supabase.ts`/`railway.ts`/`digitalocean.ts`) — `lib/db/drizzle.ts`'s `getDb()` reuses this exact pool for the Drizzle ORM instance rather than opening a second connection.
 3. The interface's `query<T>` generic defaults to `Record<string, unknown>` without a constraint. If your underlying driver (e.g. `pg`) requires `T extends QueryResultRow`, use `T & Record<string, unknown>` when calling the driver and cast the result back: `result.rows as T[]`. This keeps the public interface flexible for callers.
 4. Add the provider key to the `DATABASE_PROVIDER` enum/union in `apps/web/lib/env.ts`.
-5. Import and register the new adapter in `apps/web/lib/db/index.ts`.
+5. Import and register the new adapter in `apps/web/lib/db/index.ts`, and add its `getPool()` branch to `lib/db/drizzle.ts`'s `getDb()`.
 6. Add a corresponding ESLint rule if the provider has a client SDK that must not leak into business logic.
+
+No other business logic needs to change — application code talks to `getDb()`/Drizzle's query builder, which is already provider-agnostic once the pool is wired up.
 
 ---
 

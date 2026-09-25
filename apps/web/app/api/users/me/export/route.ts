@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, ApiError } from "@/lib/api/errors";
 
@@ -76,18 +77,21 @@ interface QuestRow {
 // ---------------------------------------------------------------------------
 
 async function checkExportRateLimit(userId: string): Promise<void> {
-  const { rows } = await db.query<{ created_at: string }>(
-    `SELECT created_at
-     FROM data_export_requests
-     WHERE user_id = $1
-       AND created_at > NOW() - INTERVAL '24 hours'
-     ORDER BY created_at DESC
-     LIMIT 1`,
-    [userId]
-  );
+  const db = await getDb();
+  const [row] = await db
+    .select({ createdAt: schema.dataExportRequests.createdAt })
+    .from(schema.dataExportRequests)
+    .where(
+      and(
+        eq(schema.dataExportRequests.userId, userId),
+        gt(schema.dataExportRequests.createdAt, sql`NOW() - INTERVAL '24 hours'`)
+      )
+    )
+    .orderBy(desc(schema.dataExportRequests.createdAt))
+    .limit(1);
 
-  if (rows[0]) {
-    const nextAvailableAt = new Date(rows[0].created_at);
+  if (row?.createdAt) {
+    const nextAvailableAt = new Date(row.createdAt);
     nextAvailableAt.setHours(nextAvailableAt.getHours() + 24);
     throw new ApiError(
       429,
@@ -113,85 +117,135 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
     // Enforce 24-hour rate limit
     await checkExportRateLimit(userId);
 
+    const db = await getDb();
+
     // Create a pending request record
-    const { rows: requestRows } = await db.query<{ id: string }>(
-      `INSERT INTO data_export_requests (user_id, status, created_at)
-       VALUES ($1, 'pending', NOW())
-       RETURNING id`,
-      [userId]
-    );
-    const requestId = requestRows[0]!.id;
+    const [requestRow] = await db
+      .insert(schema.dataExportRequests)
+      .values({ userId, status: "pending" })
+      .returning({ id: schema.dataExportRequests.id });
+    const requestId = requestRow!.id;
 
     // Gather all user data in parallel
     const [
-      profileResult,
-      messagesResult,
-      coinLedgerResult,
-      friendsResult,
-      guildResult,
-      questsResult,
+      profileRows,
+      messageRows,
+      coinLedgerRows,
+      friendRows,
+      guildRows,
+      questRows,
     ] = await Promise.all([
       // User profile
-      db.query<UserProfileRow>(
-        `SELECT id, email, username, display_name, bio, avatar_emoji,
-                city, country, locale, plan, created_at
-         FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [userId]
-      ),
+      db
+        .select({
+          id: schema.users.id,
+          email: schema.users.email,
+          username: schema.users.username,
+          display_name: schema.users.displayName,
+          bio: schema.users.bio,
+          avatar_emoji: schema.users.avatarEmoji,
+          city: schema.users.city,
+          country: schema.users.country,
+          locale: schema.users.locale,
+          plan: schema.users.plan,
+          created_at: schema.users.createdAt,
+        })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+        .limit(1),
       // Last 1000 messages sent
-      db.query<MessageRow>(
-        `SELECT id, content, message_type, created_at
-         FROM messages
-         WHERE sender_id = $1 AND is_deleted = FALSE
-         ORDER BY created_at DESC
-         LIMIT 1000`,
-        [userId]
-      ),
+      db
+        .select({
+          id: schema.messages.id,
+          content: schema.messages.content,
+          message_type: schema.messages.messageType,
+          created_at: schema.messages.createdAt,
+        })
+        .from(schema.messages)
+        .where(
+          and(
+            eq(schema.messages.senderId, userId),
+            eq(schema.messages.isDeleted, false)
+          )
+        )
+        .orderBy(desc(schema.messages.createdAt))
+        .limit(1000),
       // Coin ledger (last 500 entries)
-      db.query<CoinLedgerRow>(
-        `SELECT id, amount, transaction_type, description, created_at
-         FROM coin_ledger
-         WHERE user_id = $1
-         ORDER BY created_at DESC
-         LIMIT 500`,
-        [userId]
-      ),
+      db
+        .select({
+          id: schema.coinLedger.id,
+          amount: schema.coinLedger.amount,
+          transaction_type: schema.coinLedger.transactionType,
+          description: schema.coinLedger.description,
+          created_at: schema.coinLedger.createdAt,
+        })
+        .from(schema.coinLedger)
+        .where(eq(schema.coinLedger.userId, userId))
+        .orderBy(desc(schema.coinLedger.createdAt))
+        .limit(500),
       // Friends list (accepted friendships only)
-      db.query<FriendRow>(
-        `SELECT u.id AS friend_id, u.username, u.display_name, f.created_at
-         FROM friendships f
-         JOIN users u ON u.id = CASE WHEN f.requester_id = $1 THEN f.addressee_id ELSE f.requester_id END
-         WHERE (f.requester_id = $1 OR f.addressee_id = $1) AND f.status = 'accepted'`,
-        [userId]
-      ),
+      db
+        .select({
+          friend_id: schema.users.id,
+          username: schema.users.username,
+          display_name: schema.users.displayName,
+          created_at: schema.friendships.createdAt,
+        })
+        .from(schema.friendships)
+        .innerJoin(
+          schema.users,
+          eq(
+            schema.users.id,
+            sql`CASE WHEN ${schema.friendships.requesterId} = ${userId} THEN ${schema.friendships.addresseeId} ELSE ${schema.friendships.requesterId} END`
+          )
+        )
+        .where(
+          and(
+            or(
+              eq(schema.friendships.requesterId, userId),
+              eq(schema.friendships.addresseeId, userId)
+            ),
+            eq(schema.friendships.status, "accepted")
+          )
+        ),
       // Guild memberships
-      db.query<GuildMembershipRow>(
-        `SELECT gm.guild_id, g.name AS guild_name, gm.role, gm.joined_at
-         FROM guild_members gm
-         JOIN guilds g ON g.id = gm.guild_id
-         WHERE gm.user_id = $1`,
-        [userId]
-      ),
+      db
+        .select({
+          guild_id: schema.guildMembers.guildId,
+          guild_name: schema.guilds.name,
+          role: schema.guildMembers.role,
+          joined_at: schema.guildMembers.joinedAt,
+        })
+        .from(schema.guildMembers)
+        .innerJoin(schema.guilds, eq(schema.guilds.id, schema.guildMembers.guildId))
+        .where(eq(schema.guildMembers.userId, userId)),
       // Quest history (from user_quest_progress — user_quests was dropped in migration 0020)
-      db.query<QuestRow>(
-        `SELECT uqp.quest_id, qt.title, uqp.completed_at, uqp.progress_count AS progress
-         FROM user_quest_progress uqp
-         JOIN quest_templates qt ON qt.id = uqp.quest_id
-         WHERE uqp.user_id = $1
-         ORDER BY uqp.completed_at DESC NULLS LAST`,
-        [userId]
-      ),
+      db
+        .select({
+          quest_id: schema.userQuestProgress.questId,
+          title: schema.questTemplates.title,
+          completed_at: schema.userQuestProgress.completedAt,
+          progress: schema.userQuestProgress.progressCount,
+        })
+        .from(schema.userQuestProgress)
+        .innerJoin(
+          schema.questTemplates,
+          eq(schema.questTemplates.id, schema.userQuestProgress.questId)
+        )
+        .where(eq(schema.userQuestProgress.userId, userId))
+        .orderBy(sql`${schema.userQuestProgress.completedAt} DESC NULLS LAST`),
     ]);
 
-    // Build the export payload
+    // Build the export payload. coin_ledger.amount is a Drizzle `bigint`
+    // column (JS BigInt) — convert to a JSON-serializable number/string.
     const exportData = {
       exportedAt: new Date().toISOString(),
-      profile: profileResult.rows[0] ?? null,
-      messages: messagesResult.rows,
-      coinLedger: coinLedgerResult.rows,
-      friends: friendsResult.rows,
-      guildMemberships: guildResult.rows,
-      questHistory: questsResult.rows,
+      profile: profileRows[0] ?? null,
+      messages: messageRows,
+      coinLedger: coinLedgerRows.map((r) => ({ ...r, amount: Number(r.amount) })),
+      friends: friendRows,
+      guildMemberships: guildRows,
+      questHistory: questRows,
     };
 
     // Encode as base64 data URL (no external storage required for demo)
@@ -203,15 +257,15 @@ export const POST = withAuth(async (_req: NextRequest, { auth }) => {
     expiresAt.setDate(expiresAt.getDate() + 7);
 
     // Update the request record with the download URL and expiry
-    await db.query(
-      `UPDATE data_export_requests
-       SET status = 'completed',
-           download_url = $2,
-           expires_at = $3,
-           completed_at = NOW()
-       WHERE id = $1`,
-      [requestId, downloadUrl, expiresAt.toISOString()]
-    );
+    await db
+      .update(schema.dataExportRequests)
+      .set({
+        status: "completed",
+        downloadUrl,
+        expiresAt,
+        completedAt: new Date(),
+      })
+      .where(eq(schema.dataExportRequests.id, requestId));
 
     return NextResponse.json(
       {

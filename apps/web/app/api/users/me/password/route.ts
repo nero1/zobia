@@ -22,7 +22,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { createHmac, timingSafeEqual } from "crypto";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -73,16 +74,17 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, passwordChangeSchema);
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<{
-      password_hash: string | null;
-      google_id: string | null;
-      telegram_id: string | null;
-    }>(
-      `SELECT password_hash, google_id, telegram_id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const db = await getDb();
+    const [user] = await db
+      .select({
+        password_hash: schema.users.passwordHash,
+        google_id: schema.users.googleId,
+        telegram_id: schema.users.telegramId,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
 
-    const user = rows[0];
     if (!user) throw unauthorized("User not found");
 
     const disabling = !body.newPassword;
@@ -106,10 +108,10 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
           "Link a Google or Telegram login before disabling your password, or you won't be able to sign in."
         );
       }
-      await db.query(
-        `UPDATE users SET password_hash = NULL, updated_at = NOW() WHERE id = $1`,
-        [userId]
-      );
+      await db
+        .update(schema.users)
+        .set({ passwordHash: null, updatedAt: new Date() })
+        .where(eq(schema.users.id, userId));
       return NextResponse.json({
         success: true,
         data: { message: "Password disabled" },
@@ -131,10 +133,10 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
     // Hash and store the new password
     const newHash = await hashPassword(body.newPassword as string);
 
-    await db.query(
-      `UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`,
-      [newHash, userId]
-    );
+    await db
+      .update(schema.users)
+      .set({ passwordHash: newHash, updatedAt: new Date() })
+      .where(eq(schema.users.id, userId));
 
     return NextResponse.json({
       success: true,

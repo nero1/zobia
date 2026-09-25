@@ -18,22 +18,11 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { badRequest, notFound, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { decryptField } from "@/lib/security/fieldEncryption";
-
-interface PayoutRow {
-  id: string;
-  creator_id: string;
-  net_kobo: number;
-  gross_kobo: number;
-  status: string;
-  payout_method: string;
-  idempotency_key: string;
-  bank_account_snapshot: Record<string, string> | null;
-  wallet_address_snapshot: string | null;
-}
 
 export const POST = withAdminAuth(
   async (
@@ -44,30 +33,40 @@ export const POST = withAdminAuth(
       const { payoutId } = params;
       const adminId = auth.user.sub;
 
-      const { rows } = await db.query<PayoutRow>(
-        `SELECT id, creator_id, net_kobo, gross_kobo, status, payout_method,
-                idempotency_key, bank_account_snapshot, wallet_address_snapshot
-         FROM creator_payouts WHERE id = $1 LIMIT 1`,
-        [payoutId]
-      );
+      const orm = await getDb();
 
-      if (!rows[0]) throw notFound("Payout not found");
+      const [payout] = await orm
+        .select({
+          id: schema.creatorPayouts.id,
+          creator_id: schema.creatorPayouts.creatorId,
+          net_kobo: schema.creatorPayouts.netKobo,
+          gross_kobo: schema.creatorPayouts.grossKobo,
+          status: schema.creatorPayouts.status,
+          payout_method: schema.creatorPayouts.payoutMethod,
+          idempotency_key: schema.creatorPayouts.idempotencyKey,
+          bank_account_snapshot: schema.creatorPayouts.bankAccountSnapshot,
+          wallet_address_snapshot: schema.creatorPayouts.walletAddressSnapshot,
+        })
+        .from(schema.creatorPayouts)
+        .where(eq(schema.creatorPayouts.id, payoutId))
+        .limit(1);
 
-      const payout = rows[0];
+      if (!payout) throw notFound("Payout not found");
 
       if (payout.status !== "awaiting_approval") {
         throw badRequest(`Cannot approve a payout in status: ${payout.status}`);
       }
 
       // Block for banned or deleted users
-      const { rows: userRows } = await db.query<{ is_banned: boolean }>(
-        `SELECT COALESCE(is_banned, false) AS is_banned FROM users WHERE id = $1 AND deleted_at IS NULL`,
-        [payout.creator_id]
-      );
-      if (!userRows[0]) {
+      const [userRow] = await orm
+        .select({ is_banned: sql<boolean>`COALESCE(${schema.users.isBanned}, false)` })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, payout.creator_id), isNull(schema.users.deletedAt)))
+        .limit(1);
+      if (!userRow) {
         throw badRequest("Cannot approve payout: creator account not found or deleted", "USER_NOT_FOUND");
       }
-      if (userRows[0].is_banned) {
+      if (userRow.is_banned) {
         throw badRequest("Cannot approve payout for a banned user");
       }
 
@@ -75,7 +74,7 @@ export const POST = withAdminAuth(
       let walletAddressMasked: string | undefined;
 
       if (payout.payout_method === "bank_transfer") {
-        const snapshot = payout.bank_account_snapshot;
+        const snapshot = payout.bank_account_snapshot as Record<string, string> | null;
         if (!snapshot?.recipient_code) {
           throw badRequest(
             "Payout has no bank account snapshot. Cannot process.",
@@ -99,39 +98,33 @@ export const POST = withAdminAuth(
         throw badRequest("Unexpected payout method for manual approval");
       }
 
-      await db.query(
-        `UPDATE creator_payouts
-         SET status = $1,
-             approved_at = NOW(),
-             updated_at = NOW()
-         WHERE id = $2`,
-        [newStatus, payoutId]
-      );
+      await orm
+        .update(schema.creatorPayouts)
+        .set({ status: newStatus, approvedAt: new Date(), updatedAt: new Date() })
+        .where(eq(schema.creatorPayouts.id, payoutId));
 
       // Audit log
-      await db
-        .query(
-          `INSERT INTO admin_audit_log
-             (admin_id, action, resource, resource_id, after_val, created_at)
-           VALUES ($1, 'payout_approved', 'creator_payouts', $2, $3::jsonb, NOW())`,
-          [
-            adminId,
-            payoutId,
-            JSON.stringify({ newStatus, method: payout.payout_method, grossKobo: payout.gross_kobo }),
-          ]
-        )
+      await orm
+        .insert(schema.adminAuditLog)
+        .values({
+          adminId,
+          action: "payout_approved",
+          resource: "creator_payouts",
+          resourceId: payoutId,
+          afterVal: { newStatus, method: payout.payout_method, grossKobo: payout.gross_kobo?.toString() ?? null },
+        })
         .catch(() => {});
 
       // Notify creator
-      await db
-        .query(
-          `INSERT INTO notifications
-             (user_id, type, title, body, metadata, created_at)
-           VALUES ($1, 'payout_approved', 'Payout Approved',
-             'Your payout request has been approved and is being processed.',
-             $2::jsonb, NOW())`,
-          [payout.creator_id, JSON.stringify({ payoutId })]
-        )
+      await orm
+        .insert(schema.notifications)
+        .values({
+          userId: payout.creator_id,
+          type: "payout_approved",
+          title: "Payout Approved",
+          body: "Your payout request has been approved and is being processed.",
+          metadata: { payoutId },
+        })
         .catch(() => {});
 
       return NextResponse.json({
@@ -142,7 +135,7 @@ export const POST = withAdminAuth(
         ...(walletAddressMasked ? { walletAddress: walletAddressMasked } : {}),
         message:
           payout.payout_method === "crypto"
-            ? `Please send ₦${(payout.net_kobo / 100).toFixed(2)} equivalent in USDT to the wallet address above, then mark as completed.`
+            ? `Please send ₦${(Number(payout.net_kobo ?? BigInt(0)) / 100).toFixed(2)} equivalent in USDT to the wallet address above, then mark as completed.`
             : "Payout queued for next batch run.",
       });
     } catch (err) {

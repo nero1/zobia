@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, forbidden } from "@/lib/api/errors";
@@ -74,11 +75,20 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     if (body.businessPageId) {
       if (!eligibility.businessAccountId) throw forbidden("businessPageId requires a Business Account");
-      const { rows: pageRows } = await db.query<{ id: string }>(
-        `SELECT id FROM business_pages WHERE id = $1 AND business_account_id = $2 AND deleted_at IS NULL AND status = 'active' LIMIT 1`,
-        [body.businessPageId, eligibility.businessAccountId]
-      );
-      if (!pageRows[0]) throw forbidden("businessPageId must reference one of your active Business Pages");
+      const orm = await getDb();
+      const [pageRow] = await orm
+        .select({ id: schema.businessPages.id })
+        .from(schema.businessPages)
+        .where(
+          and(
+            eq(schema.businessPages.id, body.businessPageId),
+            eq(schema.businessPages.businessAccountId, eligibility.businessAccountId),
+            isNull(schema.businessPages.deletedAt),
+            eq(schema.businessPages.status, "active")
+          )
+        )
+        .limit(1);
+      if (!pageRow) throw forbidden("businessPageId must reference one of your active Business Pages");
     }
 
     const campaign = await createCampaign({

@@ -8,7 +8,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, gt, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 
@@ -17,19 +18,42 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const { momentId } = await params as { momentId: string };
     const viewerId = auth.user.sub;
 
-    const { rows } = await db.query(
-      `SELECT m.*, u.username, u.avatar_emoji
-       FROM moments m JOIN users u ON u.id = m.user_id
-       WHERE m.id = $1 AND m.expires_at > NOW()`,
-      [momentId]
-    );
+    const orm = await getDb();
+
+    const rows = await orm
+      .select({
+        id: schema.moments.id,
+        userId: schema.moments.userId,
+        content: schema.moments.content,
+        contentType: schema.moments.contentType,
+        mediaUrl: schema.moments.mediaUrl,
+        thumbnailUrl: schema.moments.thumbnailUrl,
+        caption: schema.moments.caption,
+        viewCount: schema.moments.viewCount,
+        reactionsCount: schema.moments.reactionsCount,
+        expiresAt: schema.moments.expiresAt,
+        createdAt: schema.moments.createdAt,
+        username: schema.users.username,
+        avatarEmoji: schema.users.avatarEmoji,
+      })
+      .from(schema.moments)
+      .innerJoin(schema.users, eq(schema.users.id, schema.moments.userId))
+      .where(and(eq(schema.moments.id, momentId), gt(schema.moments.expiresAt, sql`NOW()`)))
+      .limit(1);
+
     if (!rows[0]) throw notFound("Moment not found or expired");
 
-    void db.query(
-      `INSERT INTO moment_views (moment_id, viewer_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-      [momentId, viewerId]
-    ).then(() => db.query(`UPDATE moments SET view_count = view_count + 1 WHERE id = $1`, [momentId]))
-     .catch(() => {});
+    void orm
+      .insert(schema.momentViews)
+      .values({ momentId, viewerId })
+      .onConflictDoNothing()
+      .then(() =>
+        orm
+          .update(schema.moments)
+          .set({ viewCount: sql`${schema.moments.viewCount} + 1` })
+          .where(eq(schema.moments.id, momentId))
+      )
+      .catch(() => {});
 
     return NextResponse.json({ success: true, data: rows[0], error: null });
   } catch (err) {
@@ -42,13 +66,17 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
     const { momentId } = await params as { momentId: string };
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<{ user_id: string }>(
-      `SELECT user_id FROM moments WHERE id = $1`, [momentId]
-    );
-    if (!rows[0]) throw notFound("Moment not found");
-    if (rows[0].user_id !== userId) throw forbidden("Cannot delete another user's moment");
+    const orm = await getDb();
 
-    await db.query(`DELETE FROM moments WHERE id = $1`, [momentId]);
+    const rows = await orm
+      .select({ userId: schema.moments.userId })
+      .from(schema.moments)
+      .where(eq(schema.moments.id, momentId))
+      .limit(1);
+    if (!rows[0]) throw notFound("Moment not found");
+    if (rows[0].userId !== userId) throw forbidden("Cannot delete another user's moment");
+
+    await orm.delete(schema.moments).where(eq(schema.moments.id, momentId));
     return NextResponse.json({ success: true, data: null, error: null });
   } catch (err) {
     return handleApiError(err);

@@ -8,9 +8,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from 'next/server';
+import { eq } from 'drizzle-orm';
 import { withAuth } from '@/lib/api/middleware';
 import { badRequest } from '@/lib/api/errors';
-import { db, SqlParam } from '@/lib/db';
+import { getDb, schema } from '@/lib/db/drizzle';
 
 const GIPHY_BASE = 'https://api.giphy.com/v1/gifs';
 const TENOR_BASE = 'https://tenor.googleapis.com/v2';
@@ -24,10 +25,12 @@ export const GET = withAuth(async (req: NextRequest) => {
   if (!q) throw badRequest('q (search query) is required');
 
   // Read gif provider from manifest
-  const { rows: [row] } = await db.query<{ value: string }>(
-    "SELECT value FROM x_manifest WHERE key = 'gif_provider'",
-    [],
-  );
+  const orm = await getDb();
+  const [row] = await orm
+    .select({ value: schema.xManifest.value })
+    .from(schema.xManifest)
+    .where(eq(schema.xManifest.key, 'gif_provider'))
+    .limit(1);
   const provider: string = row?.value ?? 'giphy';
 
   try {

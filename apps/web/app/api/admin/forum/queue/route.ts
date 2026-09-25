@@ -12,10 +12,11 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 
 export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) => {
   try {
@@ -29,20 +30,17 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
     const validStatuses = ["pending", "resolved", "escalated", "all"];
     const safeStatus = validStatuses.includes(status) ? status : "pending";
 
-    const params: (string | number)[] = [limit + 1];
-    let whereClause = `(r.reported_forum_question_id IS NOT NULL OR r.reported_forum_answer_id IS NOT NULL)`;
-
+    const conditions = [sql`(r.reported_forum_question_id IS NOT NULL OR r.reported_forum_answer_id IS NOT NULL)`];
     if (safeStatus !== "all") {
-      params.push(safeStatus);
-      whereClause += ` AND r.status = $${params.length}`;
+      conditions.push(sql`r.status = ${safeStatus}`);
     }
-
     if (cursor) {
-      params.push(cursor);
-      whereClause += ` AND r.id < $${params.length}`;
+      conditions.push(sql`r.id < ${cursor}`);
     }
+    const whereClause = sql.join(conditions, sql` AND `);
 
-    const { rows } = await db.query<{
+    const orm = await getDb();
+    const { rows } = await orm.execute<{
       id: string;
       reporter_id: string;
       reporter_username: string | null;
@@ -64,8 +62,8 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
       resolved_by_username: string | null;
       resolution_note: string | null;
       action_id: string | null;
-    }>(
-      `SELECT
+    }>(sql`
+      SELECT
          r.id,
          r.reporter_id,
          reporter.username AS reporter_username,
@@ -97,9 +95,8 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
        LEFT JOIN forum_questions aq ON aq.id = a.question_id
        WHERE ${whereClause}
        ORDER BY r.ai_confidence DESC NULLS LAST, r.created_at DESC
-       LIMIT $1`,
-      params
-    );
+       LIMIT ${limit + 1}
+    `);
 
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;

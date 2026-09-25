@@ -11,7 +11,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden, conflict } from "@/lib/api/errors";
 import { sendPushNotification } from "@/lib/notifications/push";
@@ -27,79 +28,79 @@ export const PATCH = withAuth(
     try {
       const { orderId } = await params;
       const userId = auth.user.sub;
+      const orm = await getDb();
 
-      await db.transaction(async (tx) => {
-        const { rows: orderRows } = await tx.query<{
-          id: string;
-          buyer_id: string;
-          creator_id: string;
-          status: string;
-          amount_kobo: number;
-          creator_share_kobo: number;
-          platform_fee_kobo: number;
-          product_id: string;
-        }>(
-          `SELECT id, buyer_id, creator_id, status,
-                  amount_kobo, creator_share_kobo, platform_fee_kobo, product_id
-           FROM merch_orders WHERE id = $1 FOR UPDATE`,
-          [orderId]
-        );
+      await orm.transaction(async (tx) => {
+        const orderRows = await tx
+          .select({
+            id: schema.merchOrders.id,
+            buyerId: schema.merchOrders.buyerId,
+            creatorId: schema.merchOrders.creatorId,
+            status: schema.merchOrders.status,
+            amountKobo: schema.merchOrders.amountKobo,
+            creatorShareKobo: schema.merchOrders.creatorShareKobo,
+            platformFeeKobo: schema.merchOrders.platformFeeKobo,
+            productId: schema.merchOrders.productId,
+          })
+          .from(schema.merchOrders)
+          .where(eq(schema.merchOrders.id, orderId))
+          .for("update");
         const order = orderRows[0];
         if (!order) throw notFound("Order not found");
-        if (order.buyer_id !== userId) throw forbidden("Only the buyer can confirm receipt");
+        if (order.buyerId !== userId) throw forbidden("Only the buyer can confirm receipt");
         if (order.status !== "delivered") {
           throw conflict(`Cannot confirm receipt of an order in status '${order.status}'`);
         }
 
         // Complete the order
-        await tx.query(
-          `UPDATE merch_orders
-           SET status = 'completed', confirmed_at = NOW(), updated_at = NOW()
-           WHERE id = $1`,
-          [orderId]
-        );
+        await tx
+          .update(schema.merchOrders)
+          .set({ status: "completed", confirmedAt: sql`NOW()`, updatedAt: sql`NOW()` })
+          .where(eq(schema.merchOrders.id, orderId));
+
+        const amountKobo = order.amountKobo ?? BigInt(0);
+        const platformFeeKobo = order.platformFeeKobo ?? BigInt(0);
+        const creatorShareKobo = order.creatorShareKobo ?? BigInt(0);
+        const creatorId = order.creatorId;
+        if (!creatorId) throw notFound("Order has no associated creator");
 
         // Credit creator earnings (deferred from purchase for physical orders)
-        await tx.query(
-          `INSERT INTO creator_earnings
-             (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id, created_at)
-           VALUES ($1, 'merch', $2, $3, $4, $5, NOW())`,
-          [
-            order.creator_id,
-            order.amount_kobo,
-            order.platform_fee_kobo,
-            order.creator_share_kobo,
-            orderId,
-          ]
-        );
-        await tx.query(
-          `UPDATE users
-           SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $1,
-               updated_at = NOW()
-           WHERE id = $2`,
-          [order.creator_share_kobo, order.creator_id]
-        );
+        await tx.insert(schema.creatorEarnings).values({
+          creatorId,
+          sourceType: "merch",
+          grossAmountKobo: amountKobo,
+          platformFeeKobo,
+          netAmountKobo: creatorShareKobo,
+          referenceId: orderId,
+        });
+        await tx
+          .update(schema.users)
+          .set({
+            availableEarningsKobo: sql`COALESCE(${schema.users.availableEarningsKobo}, 0) + ${creatorShareKobo}`,
+            updatedAt: sql`NOW()`,
+          })
+          .where(eq(schema.users.id, creatorId));
 
         // Physical-item referral commission — deferred to this point (not
         // purchase time) since a physical order can still be refunded or
         // disputed before delivery is confirmed.
-        const { rows: productRows } = await tx.query<{
-          referral_enabled: boolean;
-          referral_commission_pct: string | null;
-        }>(
-          `SELECT referral_enabled, referral_commission_pct::TEXT AS referral_commission_pct
-           FROM merch_products WHERE id = $1 LIMIT 1`,
-          [order.product_id]
-        );
+        const productRows = await tx
+          .select({
+            referralEnabled: schema.merchProducts.referralEnabled,
+            referralCommissionPct: schema.merchProducts.referralCommissionPct,
+          })
+          .from(schema.merchProducts)
+          .where(eq(schema.merchProducts.id, order.productId))
+          .limit(1);
         const product = productRows[0];
-        if (product?.referral_enabled && product.referral_commission_pct) {
-          const physicalReferralsEnabled = await getManifestValue("market_referral_physical_enabled", tx);
+        if (product?.referralEnabled && product.referralCommissionPct) {
+          const physicalReferralsEnabled = await getManifestValue("market_referral_physical_enabled", tx as never);
           if (physicalReferralsEnabled === "true") {
             await awardMerchPhysicalReferralCommission(
-              tx,
-              order.buyer_id,
-              order.amount_kobo,
-              parseFloat(product.referral_commission_pct),
+              tx as never,
+              order.buyerId,
+              Number(amountKobo),
+              parseFloat(product.referralCommissionPct),
               orderId
             ).catch((err) => {
               logger.error({ err, orderId }, "[merch] Physical referral commission failed (non-fatal)");
@@ -110,14 +111,16 @@ export const PATCH = withAuth(
         // Notify seller of confirmed receipt
         void (async () => {
           try {
-            await db.query(
-              `INSERT INTO notifications (user_id, type, title, body, metadata, created_at)
-               VALUES ($1, 'order_confirmed', 'Order confirmed by buyer',
-                       'A buyer has confirmed receipt of their order. Earnings have been credited.', $2, NOW())`,
-              [order.creator_id, JSON.stringify({ orderId })]
-            );
+            await orm.insert(schema.notifications).values({
+              userId: creatorId,
+              type: "order_confirmed",
+              title: "Order confirmed by buyer",
+              body: "A buyer has confirmed receipt of their order. Earnings have been credited.",
+              metadata: { orderId },
+              isRead: false,
+            });
             await sendPushNotification(
-              order.creator_id,
+              creatorId,
               "Order confirmed!",
               "A buyer confirmed receipt. Your earnings have been credited.",
               { action: `/creator/orders`, priority: "normal" }

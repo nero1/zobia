@@ -8,9 +8,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, eq } from "drizzle-orm";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { badRequest, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 
 interface UnfollowCtx {
@@ -27,10 +28,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }: Unfollow
 
     if (!targetId) throw badRequest("userId is required");
 
-    await db.query(
-      "DELETE FROM follows WHERE follower_id = $1 AND following_id = $2",
-      [callerId, targetId]
-    );
+    const db = await getDb();
+    await db
+      .delete(schema.follows)
+      .where(
+        and(
+          eq(schema.follows.followerId, callerId),
+          eq(schema.follows.followingId, targetId)
+        )
+      );
 
     return NextResponse.json({ success: true });
   } catch (err) {

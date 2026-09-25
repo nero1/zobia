@@ -27,8 +27,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { getDb } from "@/lib/db/drizzle";
+import { sql } from "drizzle-orm";
 import { loadManifest } from "@/lib/manifest";
 import { debitCoins } from "@/lib/economy/coins";
 import { debitStars } from "@/lib/economy/stars";
@@ -90,13 +90,13 @@ export interface AvatarEligibility {
  * user even picks a file.
  */
 export async function getAvatarEligibility(userId: string): Promise<AvatarEligibility> {
+  const orm = await getDb();
   const [manifest, userRows] = await Promise.all([
     loadManifest(),
-    db.query<AvatarUserRow>(
-      `SELECT plan, avatar_changed_at, coin_balance, star_balance
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    ),
+    orm.execute<AvatarUserRow & Record<string, unknown>>(sql`
+      SELECT plan, avatar_changed_at, coin_balance, star_balance
+      FROM users WHERE id = ${userId} AND deleted_at IS NULL LIMIT 1
+    `),
   ]);
   const row = userRows.rows[0];
   if (!row) throw forbidden("User account not found");
@@ -145,12 +145,12 @@ export async function applyCustomAvatar(
   const { costCredits, costStars } = manifest.avatarChange;
   const referenceId = `avatar_change:${userId}:${randomUUID()}`;
 
-  const charged = await db.transaction(async (tx: TransactionClient) => {
-    const { rows } = await tx.query<AvatarUserRow>(
-      `SELECT plan, avatar_changed_at, coin_balance, star_balance
-       FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-      [userId]
-    );
+  const orm = await getDb();
+  const charged = await orm.transaction(async (tx) => {
+    const { rows } = await tx.execute<AvatarUserRow & Record<string, unknown>>(sql`
+      SELECT plan, avatar_changed_at, coin_balance, star_balance
+      FROM users WHERE id = ${userId} AND deleted_at IS NULL FOR UPDATE
+    `);
     if (!rows[0]) throw forbidden("User account not found");
     const row = rows[0];
 
@@ -188,12 +188,11 @@ export async function applyCustomAvatar(
       }
     }
 
-    await tx.query(
-      `UPDATE users
-       SET avatar_url = $1, avatar_emoji = NULL, avatar_changed_at = NOW(), updated_at = NOW()
-       WHERE id = $2`,
-      [avatarUrl, userId]
-    );
+    await tx.execute(sql`
+      UPDATE users
+      SET avatar_url = ${avatarUrl}, avatar_emoji = NULL, avatar_changed_at = NOW(), updated_at = NOW()
+      WHERE id = ${userId}
+    `);
 
     return currency;
   });
@@ -214,20 +213,19 @@ export async function applyDefaultAvatarIcon(userId: string, emoji: string): Pro
     throw badRequest("Not a recognised default avatar icon", "INVALID_DEFAULT_AVATAR");
   }
 
-  await db.transaction(async (tx: TransactionClient) => {
-    const { rows } = await tx.query<{ avatar_changed_at: string | null }>(
-      `SELECT avatar_changed_at FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-      [userId]
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    const { rows } = await tx.execute<{ avatar_changed_at: string | null } & Record<string, unknown>>(
+      sql`SELECT avatar_changed_at FROM users WHERE id = ${userId} AND deleted_at IS NULL FOR UPDATE`
     );
     if (!rows[0]) throw forbidden("User account not found");
     assertCooldownElapsed(rows[0].avatar_changed_at);
 
-    await tx.query(
-      `UPDATE users
-       SET avatar_url = NULL, avatar_emoji = $1, avatar_changed_at = NOW(), updated_at = NOW()
-       WHERE id = $2`,
-      [emoji, userId]
-    );
+    await tx.execute(sql`
+      UPDATE users
+      SET avatar_url = NULL, avatar_emoji = ${emoji}, avatar_changed_at = NOW(), updated_at = NOW()
+      WHERE id = ${userId}
+    `);
   });
 
   logger.info({ userId, emoji }, "[avatarService] default avatar icon applied");

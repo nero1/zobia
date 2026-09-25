@@ -6,7 +6,8 @@
  * (shared/utils/games) is the source of truth for which engine renders it.
  */
 
-import { db } from "@/lib/db";
+import { sql, type SQL } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import type { GameCategory, GameSummary } from "@zobia/types";
 
 export interface GameConfigRow {
@@ -38,24 +39,24 @@ export interface GameConfigRow {
   is_favorited?: boolean;
 }
 
-const SUMMARY_COLUMNS = `
+const SUMMARY_COLUMNS = sql.raw(`
   id, slug, name, tagline, description, long_description, cover_emoji,
   cover_image_url, category, engine_key,
   reward_credits_per_win, reward_xp_per_win, reward_stars_per_win,
   play_cost_credits, play_cost_stars, max_score, min_play_seconds,
   play_count, avg_rating, rating_count, favorite_count, is_active, is_public, created_at
-`;
+`);
 
 // Table-qualified variant for queries that alias `games` as `g` and join
 // other tables that also have an `id` column (e.g. game_favorites) — avoids
 // "column reference is ambiguous" errors.
-const SUMMARY_COLUMNS_G = `
+const SUMMARY_COLUMNS_G = sql.raw(`
   g.id, g.slug, g.name, g.tagline, g.description, g.long_description, g.cover_emoji,
   g.cover_image_url, g.category, g.engine_key,
   g.reward_credits_per_win, g.reward_xp_per_win, g.reward_stars_per_win,
   g.play_cost_credits, g.play_cost_stars, g.max_score, g.min_play_seconds,
   g.play_count, g.avg_rating, g.rating_count, g.favorite_count, g.is_active, g.is_public, g.created_at
-`;
+`);
 
 function toSummary(row: GameConfigRow): GameSummary {
   return {
@@ -86,17 +87,19 @@ function toSummary(row: GameConfigRow): GameSummary {
 
 /** All active, public games for the directory, ordered by category + sort. */
 export async function getActiveGames(userId?: string): Promise<GameSummary[]> {
-  const favSelect = userId ? `, (gf.id IS NOT NULL) AS is_favorited` : "";
-  const favJoin = userId ? `LEFT JOIN game_favorites gf ON gf.game_id = g.id AND gf.user_id = $1` : "";
-  const { rows } = await db.query<GameConfigRow>(
-    `SELECT ${SUMMARY_COLUMNS_G}${favSelect}
-     FROM games g
-     ${favJoin}
-     WHERE g.deleted_at IS NULL AND g.is_active = TRUE AND g.is_public = TRUE
-     ORDER BY g.category NULLS LAST, g.sort_order ASC, g.name ASC`,
-    userId ? [userId] : []
-  );
-  return rows.map(toSummary);
+  const db = await getDb();
+  const favSelect = userId ? sql`, (gf.id IS NOT NULL) AS is_favorited` : sql``;
+  const favJoin = userId
+    ? sql`LEFT JOIN game_favorites gf ON gf.game_id = g.id AND gf.user_id = ${userId}`
+    : sql``;
+  const result = await db.execute<GameConfigRow & Record<string, unknown>>(sql`
+    SELECT ${SUMMARY_COLUMNS_G}${favSelect}
+    FROM games g
+    ${favJoin}
+    WHERE g.deleted_at IS NULL AND g.is_active = TRUE AND g.is_public = TRUE
+    ORDER BY g.category NULLS LAST, g.sort_order ASC, g.name ASC
+  `);
+  return result.rows.map(toSummary);
 }
 
 export interface GameListOptions {
@@ -132,54 +135,52 @@ export interface GameListResult {
 export async function listGames(opts: GameListOptions = {}): Promise<GameListResult> {
   const { tab = "popular", category, free, q, userId, cursor, limit: rawLimit = 24 } = opts;
   const limit = Math.min(rawLimit, 50);
-  const params: (string | number | boolean | null)[] = [];
-  const where: string[] = [
-    "g.deleted_at IS NULL",
-    "g.is_active = TRUE",
-    "g.is_public = TRUE",
+  const db = await getDb();
+
+  const where: SQL[] = [
+    sql`g.deleted_at IS NULL`,
+    sql`g.is_active = TRUE`,
+    sql`g.is_public = TRUE`,
   ];
 
   if (category) {
-    params.push(category);
-    where.push(`g.category = $${params.length}`);
+    where.push(sql`g.category = ${category}`);
   }
 
   if (free === true) {
-    where.push(`g.play_cost_credits = 0 AND g.play_cost_stars = 0`);
+    where.push(sql`g.play_cost_credits = 0 AND g.play_cost_stars = 0`);
   } else if (free === false) {
-    where.push(`(g.play_cost_credits > 0 OR g.play_cost_stars > 0)`);
+    where.push(sql`(g.play_cost_credits > 0 OR g.play_cost_stars > 0)`);
   }
 
   if (q && q.trim()) {
-    params.push(`%${q.trim()}%`);
-    where.push(`(g.name ILIKE $${params.length} OR g.tagline ILIKE $${params.length})`);
+    const pattern = `%${q.trim()}%`;
+    where.push(sql`(g.name ILIKE ${pattern} OR g.tagline ILIKE ${pattern})`);
   }
 
-  let favSelect = "";
-  let favJoin = "";
+  let favSelect: SQL = sql``;
+  let favJoin: SQL = sql``;
   if (userId) {
-    params.push(userId);
-    favSelect = `, (gf.id IS NOT NULL) AS is_favorited`;
-    favJoin = `LEFT JOIN game_favorites gf ON gf.game_id = g.id AND gf.user_id = $${params.length}`;
+    favSelect = sql`, (gf.id IS NOT NULL) AS is_favorited`;
+    favJoin = sql`LEFT JOIN game_favorites gf ON gf.game_id = g.id AND gf.user_id = ${userId}`;
   }
 
-  let orderBy: string;
-  let trendingJoin = "";
-  let extraSelect = favSelect;
+  let orderBy: SQL;
+  let trendingJoin: SQL = sql``;
+  let extraSelect: SQL = favSelect;
 
   if (tab === "random") {
     // Random tab: no meaningful cursor over ORDER BY random() — each fetch
     // (including "Load more") returns a fresh shuffled batch instead of a
     // stable page, same tradeoff as any "shuffle" feature at this scale.
-    orderBy = "random()";
+    orderBy = sql`random()`;
   } else if (tab === "new") {
     if (cursor) {
-      params.push(cursor);
-      where.push(`g.created_at < $${params.length}`);
+      where.push(sql`g.created_at < ${cursor}`);
     }
-    orderBy = "g.created_at DESC";
+    orderBy = sql`g.created_at DESC`;
   } else if (tab === "trending") {
-    trendingJoin = `
+    trendingJoin = sql`
       LEFT JOIN (
         SELECT game_id, COUNT(*) AS recent_plays
         FROM game_plays
@@ -187,20 +188,18 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
         GROUP BY game_id
       ) tp ON tp.game_id = g.id
     `;
-    extraSelect += ", COALESCE(tp.recent_plays, 0) AS recent_plays";
+    extraSelect = sql`${extraSelect}, COALESCE(tp.recent_plays, 0) AS recent_plays`;
     if (cursor) {
       try {
         const { recent_plays: cp, id: cid } = JSON.parse(
           Buffer.from(cursor, "base64url").toString("utf-8")
         ) as { recent_plays: number; id: string };
-        params.push(cp, cid);
-        const pN = params.length - 1;
         where.push(
-          `(COALESCE(tp.recent_plays, 0) < $${pN} OR (COALESCE(tp.recent_plays, 0) = $${pN} AND g.id < $${pN + 1}::uuid))`
+          sql`(COALESCE(tp.recent_plays, 0) < ${cp} OR (COALESCE(tp.recent_plays, 0) = ${cp} AND g.id < ${cid}::uuid))`
         );
       } catch { /* invalid cursor — ignore, return first page */ }
     }
-    orderBy = "COALESCE(tp.recent_plays, 0) DESC, g.play_count DESC";
+    orderBy = sql`COALESCE(tp.recent_plays, 0) DESC, g.play_count DESC`;
   } else {
     // popular (default)
     if (cursor) {
@@ -208,29 +207,26 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
         const { play_count: cp, id: cid } = JSON.parse(
           Buffer.from(cursor, "base64url").toString("utf-8")
         ) as { play_count: number; id: string };
-        params.push(cp, cid);
-        const pN = params.length - 1;
         where.push(
-          `(g.play_count < $${pN} OR (g.play_count = $${pN} AND g.id < $${pN + 1}::uuid))`
+          sql`(g.play_count < ${cp} OR (g.play_count = ${cp} AND g.id < ${cid}::uuid))`
         );
       } catch { /* invalid cursor — ignore, return first page */ }
     }
-    orderBy = "g.play_count DESC, g.avg_rating DESC";
+    orderBy = sql`g.play_count DESC, g.avg_rating DESC`;
   }
 
-  params.push(limit + 1);
-  const rows_param = `$${params.length}`;
+  const whereClause = sql.join(where, sql` AND `);
 
-  const { rows } = await db.query<GameConfigRow & { recent_plays?: number }>(
-    `SELECT ${SUMMARY_COLUMNS_G}${extraSelect}
-     FROM games g
-     ${trendingJoin}
-     ${favJoin}
-     WHERE ${where.join(" AND ")}
-     ORDER BY ${orderBy}
-     LIMIT ${rows_param}`,
-    params
-  );
+  const result = await db.execute<GameConfigRow & Record<string, unknown> & { recent_plays?: number }>(sql`
+    SELECT ${SUMMARY_COLUMNS_G}${extraSelect}
+    FROM games g
+    ${trendingJoin}
+    ${favJoin}
+    WHERE ${whereClause}
+    ORDER BY ${orderBy}
+    LIMIT ${limit + 1}
+  `);
+  const rows = result.rows;
 
   const hasMore = rows.length > limit;
   const items = hasMore ? rows.slice(0, limit) : rows;
@@ -263,14 +259,14 @@ export async function listGames(opts: GameListOptions = {}): Promise<GameListRes
 
 /** Full config for a single live game by slug (active + public only). */
 export async function getActiveGameBySlug(slug: string): Promise<GameConfigRow | null> {
-  const { rows } = await db.query<GameConfigRow>(
-    `SELECT ${SUMMARY_COLUMNS}
-     FROM games g
-     WHERE slug = $1 AND deleted_at IS NULL AND is_active = TRUE AND is_public = TRUE
-     LIMIT 1`,
-    [slug]
-  );
-  return rows[0] ?? null;
+  const db = await getDb();
+  const result = await db.execute<GameConfigRow & Record<string, unknown>>(sql`
+    SELECT ${SUMMARY_COLUMNS}
+    FROM games g
+    WHERE slug = ${slug} AND deleted_at IS NULL AND is_active = TRUE AND is_public = TRUE
+    LIMIT 1
+  `);
+  return result.rows[0] ?? null;
 }
 
 /** Public summary for a single live game by slug. */
@@ -281,23 +277,23 @@ export async function getGameSummaryBySlug(slug: string): Promise<GameSummary | 
 
 /** Full config for a game by id, ignoring active flag (admin / internal use). */
 export async function getGameById(id: string): Promise<GameConfigRow | null> {
-  const { rows } = await db.query<GameConfigRow>(
-    `SELECT ${SUMMARY_COLUMNS}
-     FROM games g
-     WHERE id = $1 AND deleted_at IS NULL
-     LIMIT 1`,
-    [id]
-  );
-  return rows[0] ?? null;
+  const db = await getDb();
+  const result = await db.execute<GameConfigRow & Record<string, unknown>>(sql`
+    SELECT ${SUMMARY_COLUMNS}
+    FROM games g
+    WHERE id = ${id} AND deleted_at IS NULL
+    LIMIT 1
+  `);
+  return result.rows[0] ?? null;
 }
 
 /** Get a user's rating for a specific game, if any. */
 export async function getUserGameRating(gameId: string, userId: string): Promise<number | null> {
-  const { rows } = await db.query<{ rating: number }>(
-    `SELECT rating FROM game_ratings WHERE game_id = $1 AND user_id = $2 LIMIT 1`,
-    [gameId, userId]
+  const db = await getDb();
+  const result = await db.execute<{ rating: number }>(
+    sql`SELECT rating FROM game_ratings WHERE game_id = ${gameId} AND user_id = ${userId} LIMIT 1`
   );
-  return rows[0]?.rating ?? null;
+  return result.rows[0]?.rating ?? null;
 }
 
 /** Upsert a user's rating and update the game's avg_rating + rating_count. */
@@ -306,30 +302,29 @@ export async function upsertGameRating(
   userId: string,
   rating: 1 | 2 | 3 | 4 | 5
 ): Promise<{ avgRating: number; ratingCount: number }> {
-  await db.transaction(async (tx) => {
-    await tx.query(
-      `INSERT INTO game_ratings (game_id, user_id, rating, updated_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (game_id, user_id) DO UPDATE SET rating = EXCLUDED.rating, updated_at = NOW()`,
-      [gameId, userId, rating]
-    );
-    await tx.query(
-      `UPDATE games
-       SET avg_rating = (SELECT AVG(rating) FROM game_ratings WHERE game_id = $1),
-           rating_count = (SELECT COUNT(*) FROM game_ratings WHERE game_id = $1),
-           updated_at = NOW()
-       WHERE id = $1`,
-      [gameId]
-    );
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    await tx.execute(sql`
+      INSERT INTO game_ratings (game_id, user_id, rating, updated_at)
+      VALUES (${gameId}, ${userId}, ${rating}, NOW())
+      ON CONFLICT (game_id, user_id) DO UPDATE SET rating = EXCLUDED.rating, updated_at = NOW()
+    `);
+    await tx.execute(sql`
+      UPDATE games
+      SET avg_rating = (SELECT AVG(rating) FROM game_ratings WHERE game_id = ${gameId}),
+          rating_count = (SELECT COUNT(*) FROM game_ratings WHERE game_id = ${gameId}),
+          updated_at = NOW()
+      WHERE id = ${gameId}
+    `);
   });
 
-  const { rows } = await db.query<{ avg_rating: number; rating_count: number }>(
-    `SELECT avg_rating, rating_count FROM games WHERE id = $1`,
-    [gameId]
+  const db = await getDb();
+  const result = await db.execute<{ avg_rating: number; rating_count: number }>(
+    sql`SELECT avg_rating, rating_count FROM games WHERE id = ${gameId}`
   );
   return {
-    avgRating: Number(rows[0]?.avg_rating ?? 0),
-    ratingCount: Number(rows[0]?.rating_count ?? 0),
+    avgRating: Number(result.rows[0]?.avg_rating ?? 0),
+    ratingCount: Number(result.rows[0]?.rating_count ?? 0),
   };
 }
 
@@ -344,23 +339,18 @@ export async function listFavoriteGames(
   limit = 24
 ): Promise<GameListResult> {
   const pageSize = Math.min(limit, 50);
-  const params: (string | number)[] = [userId];
-  let cursorClause = "";
-  if (cursor) {
-    params.push(cursor);
-    cursorClause = `AND gf.created_at < $${params.length}`;
-  }
-  params.push(pageSize + 1);
+  const db = await getDb();
+  const cursorClause = cursor ? sql`AND gf.created_at < ${cursor}` : sql``;
 
-  const { rows } = await db.query<GameConfigRow & { favorited_at: string }>(
-    `SELECT ${SUMMARY_COLUMNS_G}, TRUE AS is_favorited, gf.created_at AS favorited_at
-     FROM game_favorites gf
-     JOIN games g ON g.id = gf.game_id AND g.deleted_at IS NULL AND g.is_active = TRUE AND g.is_public = TRUE
-     WHERE gf.user_id = $1 ${cursorClause}
-     ORDER BY gf.created_at DESC
-     LIMIT $${params.length}`,
-    params
-  );
+  const result = await db.execute<GameConfigRow & Record<string, unknown> & { favorited_at: string }>(sql`
+    SELECT ${SUMMARY_COLUMNS_G}, TRUE AS is_favorited, gf.created_at AS favorited_at
+    FROM game_favorites gf
+    JOIN games g ON g.id = gf.game_id AND g.deleted_at IS NULL AND g.is_active = TRUE AND g.is_public = TRUE
+    WHERE gf.user_id = ${userId} ${cursorClause}
+    ORDER BY gf.created_at DESC
+    LIMIT ${pageSize + 1}
+  `);
+  const rows = result.rows;
 
   const hasMore = rows.length > pageSize;
   const items = hasMore ? rows.slice(0, pageSize) : rows;
@@ -375,36 +365,34 @@ export async function setGameFavorite(
   gameId: string,
   favorited: boolean
 ): Promise<{ favorited: boolean; favoriteCount: number }> {
-  await db.transaction(async (tx) => {
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
     if (favorited) {
-      const { rows } = await tx.query<{ id: string }>(
-        `INSERT INTO game_favorites (user_id, game_id) VALUES ($1, $2)
-         ON CONFLICT (user_id, game_id) DO NOTHING
-         RETURNING id`,
-        [userId, gameId]
-      );
-      if (rows.length > 0) {
-        await tx.query(`UPDATE games SET favorite_count = favorite_count + 1 WHERE id = $1`, [gameId]);
+      const insertResult = await tx.execute<{ id: string }>(sql`
+        INSERT INTO game_favorites (user_id, game_id) VALUES (${userId}, ${gameId})
+        ON CONFLICT (user_id, game_id) DO NOTHING
+        RETURNING id
+      `);
+      if (insertResult.rows.length > 0) {
+        await tx.execute(sql`UPDATE games SET favorite_count = favorite_count + 1 WHERE id = ${gameId}`);
       }
     } else {
-      const { rows } = await tx.query<{ id: string }>(
-        `DELETE FROM game_favorites WHERE user_id = $1 AND game_id = $2 RETURNING id`,
-        [userId, gameId]
+      const deleteResult = await tx.execute<{ id: string }>(
+        sql`DELETE FROM game_favorites WHERE user_id = ${userId} AND game_id = ${gameId} RETURNING id`
       );
-      if (rows.length > 0) {
-        await tx.query(
-          `UPDATE games SET favorite_count = GREATEST(favorite_count - 1, 0) WHERE id = $1`,
-          [gameId]
+      if (deleteResult.rows.length > 0) {
+        await tx.execute(
+          sql`UPDATE games SET favorite_count = GREATEST(favorite_count - 1, 0) WHERE id = ${gameId}`
         );
       }
     }
   });
 
-  const { rows } = await db.query<{ favorite_count: number }>(
-    `SELECT favorite_count FROM games WHERE id = $1`,
-    [gameId]
+  const db = await getDb();
+  const result = await db.execute<{ favorite_count: number }>(
+    sql`SELECT favorite_count FROM games WHERE id = ${gameId}`
   );
-  return { favorited, favoriteCount: Number(rows[0]?.favorite_count ?? 0) };
+  return { favorited, favoriteCount: Number(result.rows[0]?.favorite_count ?? 0) };
 }
 
 // ---------------------------------------------------------------------------
@@ -419,30 +407,25 @@ export async function listRecentlyPlayedGames(
   limit = 24
 ): Promise<GameListResult> {
   const pageSize = Math.min(limit, 50);
-  const params: (string | number)[] = [userId];
-  let cursorClause = "";
-  if (cursor) {
-    params.push(cursor);
-    cursorClause = `AND lp.last_played_at < $${params.length}`;
-  }
-  params.push(pageSize + 1);
+  const db = await getDb();
+  const cursorClause = cursor ? sql`AND lp.last_played_at < ${cursor}` : sql``;
 
-  const { rows } = await db.query<GameConfigRow & { last_played_at: string }>(
-    `WITH last_plays AS (
-       SELECT game_id, MAX(started_at) AS last_played_at
-       FROM game_plays
-       WHERE user_id = $1
-       GROUP BY game_id
-     )
-     SELECT ${SUMMARY_COLUMNS_G}, (gf.id IS NOT NULL) AS is_favorited, lp.last_played_at
-     FROM last_plays lp
-     JOIN games g ON g.id = lp.game_id AND g.deleted_at IS NULL AND g.is_active = TRUE AND g.is_public = TRUE
-     LEFT JOIN game_favorites gf ON gf.game_id = g.id AND gf.user_id = $1
-     WHERE TRUE ${cursorClause}
-     ORDER BY lp.last_played_at DESC
-     LIMIT $${params.length}`,
-    params
-  );
+  const result = await db.execute<GameConfigRow & Record<string, unknown> & { last_played_at: string }>(sql`
+    WITH last_plays AS (
+      SELECT game_id, MAX(started_at) AS last_played_at
+      FROM game_plays
+      WHERE user_id = ${userId}
+      GROUP BY game_id
+    )
+    SELECT ${SUMMARY_COLUMNS_G}, (gf.id IS NOT NULL) AS is_favorited, lp.last_played_at
+    FROM last_plays lp
+    JOIN games g ON g.id = lp.game_id AND g.deleted_at IS NULL AND g.is_active = TRUE AND g.is_public = TRUE
+    LEFT JOIN game_favorites gf ON gf.game_id = g.id AND gf.user_id = ${userId}
+    WHERE TRUE ${cursorClause}
+    ORDER BY lp.last_played_at DESC
+    LIMIT ${pageSize + 1}
+  `);
+  const rows = result.rows;
 
   const hasMore = rows.length > pageSize;
   const items = hasMore ? rows.slice(0, pageSize) : rows;

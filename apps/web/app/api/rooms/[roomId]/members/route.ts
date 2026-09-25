@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, SqlParam } from "@/lib/db";
+import { and, asc, eq, gt, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateSearchParams } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -77,27 +78,26 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const { roomId } = await params as { roomId: string };
     const userId = auth.user.sub;
+    const orm = await getDb();
 
     // Verify room exists
-    const { rows: roomRows } = await db.query<{
-      creator_id: string;
-      is_active: boolean;
-    }>(
-      `SELECT creator_id, is_active FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-    const room = roomRows[0];
+    const [room] = await orm
+      .select({ creator_id: schema.rooms.creatorId, is_active: schema.rooms.isActive })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
     if (!room || !room.is_active) throw notFound("Room not found");
 
     const isCreator = room.creator_id === userId;
 
     // Verify membership
     if (!isCreator) {
-      const { rows: memberRows } = await db.query<{ id: string }>(
-        `SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
-        [roomId, userId]
-      );
-      if (memberRows.length === 0) {
+      const [memberRow] = await orm
+        .select({ id: schema.roomMembers.id })
+        .from(schema.roomMembers)
+        .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, userId)))
+        .limit(1);
+      if (!memberRow) {
         throw forbidden("You must be a member to view the member list");
       }
     }
@@ -107,44 +107,34 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       listMembersQuerySchema
     );
 
-    const args: SqlParam[] = [roomId];
-    let paramIdx = 2;
-    let cursorClause = "";
-
-    if (queryParams.cursor) {
-      cursorClause = `AND rm.joined_at > $${paramIdx++}`;
-      args.push(queryParams.cursor);
-    }
-
-    args.push(queryParams.limit);
-    const limitParam = paramIdx;
-
-    const { rows: members } = await db.query<MemberRow>(
-      `SELECT
-         rm.user_id,
-         u.username,
-         u.display_name,
-         u.avatar_emoji,
-         u.plan,
-         u.is_creator,
-         u.creator_tier,
-         rm.role,
-         rm.is_muted,
-         rm.joined_at
-       FROM room_members rm
-       JOIN users u ON u.id = rm.user_id
-       WHERE rm.room_id = $1
-         ${cursorClause}
-       ORDER BY
-         CASE rm.role
-           WHEN 'admin'        THEN 1
-           WHEN 'co_moderator' THEN 2
-           ELSE 3
-         END,
-         rm.joined_at ASC
-       LIMIT $${limitParam}`,
-      args
-    );
+    const rm = schema.roomMembers;
+    const u = schema.users;
+    const members = await orm
+      .select({
+        user_id: rm.userId,
+        username: u.username,
+        display_name: u.displayName,
+        avatar_emoji: u.avatarEmoji,
+        plan: u.plan,
+        is_creator: u.isCreator,
+        creator_tier: u.creatorTier,
+        role: rm.role,
+        is_muted: rm.isMuted,
+        joined_at: rm.joinedAt,
+      })
+      .from(rm)
+      .innerJoin(u, eq(u.id, rm.userId))
+      .where(
+        and(
+          eq(rm.roomId, roomId),
+          queryParams.cursor ? gt(rm.joinedAt, new Date(queryParams.cursor)) : undefined
+        )
+      )
+      .orderBy(
+        sql`CASE ${rm.role} WHEN 'admin' THEN 1 WHEN 'co_moderator' THEN 2 ELSE 3 END`,
+        asc(rm.joinedAt)
+      )
+      .limit(queryParams.limit);
 
     const nextCursor =
       members.length === queryParams.limit
@@ -192,25 +182,25 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("removeUserId query param is required");
     }
 
+    const orm = await getDb();
+
     // Fetch room
-    const { rows: roomRows } = await db.query<{
-      creator_id: string;
-      is_active: boolean;
-    }>(
-      `SELECT creator_id, is_active FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-    const room = roomRows[0];
+    const [room] = await orm
+      .select({ creator_id: schema.rooms.creatorId, is_active: schema.rooms.isActive })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
     if (!room || !room.is_active) throw notFound("Room not found");
 
     // Fetch caller's role
-    const { rows: callerRows } = await db.query<{ role: string }>(
-      `SELECT role FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
-      [roomId, callerId]
-    );
+    const [callerRow] = await orm
+      .select({ role: schema.roomMembers.role })
+      .from(schema.roomMembers)
+      .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, callerId)))
+      .limit(1);
 
     const isCreator = room.creator_id === callerId;
-    const callerRole = callerRows[0]?.role;
+    const callerRole = callerRow?.role;
 
     if (!isCreator && callerRole !== "co_moderator") {
       throw forbidden(
@@ -224,30 +214,31 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Fetch target's role
-    const { rows: targetRows } = await db.query<{ role: string }>(
-      `SELECT role FROM room_members WHERE room_id = $1 AND user_id = $2 LIMIT 1`,
-      [roomId, targetUserId]
-    );
+    const [targetRow] = await orm
+      .select({ role: schema.roomMembers.role })
+      .from(schema.roomMembers)
+      .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, targetUserId)))
+      .limit(1);
 
-    if (targetRows.length === 0) throw notFound("Member not found");
+    if (!targetRow) throw notFound("Member not found");
 
     // Co-moderators cannot remove other co-moderators
-    if (!isCreator && targetRows[0].role === "co_moderator") {
+    if (!isCreator && targetRow.role === "co_moderator") {
       throw forbidden("Co-moderators cannot remove other co-moderators");
     }
 
-    await db.transaction(async (tx) => {
-      await tx.query(
-        `DELETE FROM room_members WHERE room_id = $1 AND user_id = $2`,
-        [roomId, targetUserId]
-      );
+    await orm.transaction(async (tx) => {
+      await tx
+        .delete(schema.roomMembers)
+        .where(and(eq(schema.roomMembers.roomId, roomId), eq(schema.roomMembers.userId, targetUserId)));
 
-      await tx.query(
-        `UPDATE rooms
-         SET member_count = GREATEST(member_count - 1, 0), updated_at = NOW()
-         WHERE id = $1`,
-        [roomId]
-      );
+      await tx
+        .update(schema.rooms)
+        .set({
+          memberCount: sql`GREATEST(${schema.rooms.memberCount} - 1, 0)`,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.rooms.id, roomId));
     });
 
     return new NextResponse(null, { status: 204 });

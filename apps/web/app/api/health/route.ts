@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { dbCircuit } from "@/lib/db/circuit";
 
@@ -24,7 +25,8 @@ export async function GET(): Promise<NextResponse> {
   // once it moves from OPEN to HALF_OPEN).
   const dbStart = Date.now();
   try {
-    await db.query("SELECT 1", []);
+    const orm = await getDb();
+    await orm.execute(sql`SELECT 1`);
     checks.db = "ok";
     latencyMs.db = Date.now() - dbStart;
   } catch {

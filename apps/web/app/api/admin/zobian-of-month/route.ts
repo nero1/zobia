@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { invalidateZobianOfMonthCache } from "@/lib/feed/zobianOfMonth";
@@ -28,21 +29,35 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }: { auth: Adm
   try {
     const body = await validateBody(req, overrideSchema);
 
-    const { rows: userRows } = await db.query<{ id: string }>(
-      `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [body.userId]
-    );
+    const orm = await getDb();
+
+    const userRows = await orm
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, body.userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!userRows[0]) throw notFound("User not found");
 
-    const { rows } = await db.query(
-      `INSERT INTO zobian_of_month (month, user_id, is_admin_override, overridden_by, note)
-       VALUES ($1::date, $2, true, $3, $4)
-       ON CONFLICT (month) DO UPDATE
-         SET user_id = EXCLUDED.user_id, is_admin_override = true,
-             overridden_by = EXCLUDED.overridden_by, note = EXCLUDED.note, updated_at = NOW()
-       RETURNING *`,
-      [body.month, body.userId, auth.user.sub, body.note ?? null]
-    );
+    const rows = await orm
+      .insert(schema.zobianOfMonth)
+      .values({
+        month: body.month,
+        userId: body.userId,
+        isAdminOverride: true,
+        overriddenBy: auth.user.sub,
+        note: body.note ?? null,
+      })
+      .onConflictDoUpdate({
+        target: schema.zobianOfMonth.month,
+        set: {
+          userId: body.userId,
+          isAdminOverride: true,
+          overriddenBy: auth.user.sub,
+          note: body.note ?? null,
+          updatedAt: new Date(),
+        },
+      })
+      .returning();
 
     await invalidateZobianOfMonthCache();
 

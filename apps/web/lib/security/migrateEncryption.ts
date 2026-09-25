@@ -13,56 +13,64 @@
  * Idempotent — v2 values are detected and skipped automatically.
  */
 
-import { db } from "@/lib/db";
+import { asc, isNotNull, eq, sql } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { migrateFieldEncryption } from "@/lib/security/fieldEncryption";
 import { logger } from "@/lib/logger";
 
 const BATCH_SIZE = 500;
 
-async function migrateColumn(
-  table: string,
-  column: string,
-  idCol = "id"
-): Promise<{ migrated: number; skipped: number; errors: number }> {
+interface MigrateTarget {
+  table: typeof schema.users | typeof schema.creatorBankAccounts | typeof schema.creatorWalletAddresses;
+  column: AnyPgColumn;
+  /** camelCase JS property key on `table` corresponding to `column` (for `.set()`). */
+  fieldKey: string;
+  idCol: AnyPgColumn;
+  tableName: string;
+  columnName: string;
+}
+
+async function migrateColumn(target: MigrateTarget): Promise<{ migrated: number; skipped: number; errors: number }> {
+  const { table, column, fieldKey, idCol, tableName, columnName } = target;
   let migrated = 0;
   let skipped = 0;
   let errors = 0;
   let lastId: string | null = null;
 
-  logger.info(`[migrate] Starting ${table}.${column} ...`);
+  logger.info(`[migrate] Starting ${tableName}.${columnName} ...`);
+
+  const db = await getDb();
 
   while (true) {
-    const queryResult = await db.query<{ id: string; val: string }>(
-      `SELECT ${idCol} AS id, ${column} AS val
-       FROM ${table}
-       WHERE ${column} IS NOT NULL
-         ${lastId ? `AND ${idCol} > $1` : ""}
-       ORDER BY ${idCol} ASC
-       LIMIT ${lastId ? "$2" : "$1"}`,
-      lastId ? [lastId, BATCH_SIZE] : [BATCH_SIZE]
-    );
-    const rows: { id: string; val: string }[] = queryResult.rows;
+    const rows: { id: string; val: string | null }[] = await db
+      .select({ id: idCol, val: column })
+      .from(table as never)
+      .where(lastId ? sql`${column} IS NOT NULL AND ${idCol} > ${lastId}` : isNotNull(column))
+      .orderBy(asc(idCol))
+      .limit(BATCH_SIZE);
 
     if (rows.length === 0) break;
 
     for (const row of rows) {
+      if (row.val === null) continue;
       try {
         const newVal = migrateFieldEncryption(row.val);
         if (newVal === null) {
-          logger.warn(`[migrate] Decryption failed for ${table}.${column} id=${row.id} — skipping`);
+          logger.warn(`[migrate] Decryption failed for ${tableName}.${columnName} id=${row.id} — skipping`);
           errors++;
         } else if (newVal === row.val) {
           // Already at current version
           skipped++;
         } else {
-          await db.query(
-            `UPDATE ${table} SET ${column} = $1, updated_at = NOW() WHERE ${idCol} = $2`,
-            [newVal, row.id]
-          );
+          await db
+            .update(table as never)
+            .set({ [fieldKey]: newVal, updatedAt: sql`NOW()` } as never)
+            .where(eq(idCol, row.id));
           migrated++;
         }
       } catch (err) {
-        logger.error({ err: err }, `[migrate] Error migrating ${table}.${column} id=${row.id}:`);
+        logger.error({ err: err }, `[migrate] Error migrating ${tableName}.${columnName} id=${row.id}:`);
         errors++;
       }
     }
@@ -71,7 +79,7 @@ async function migrateColumn(
     lastId = rows[rows.length - 1].id;
   }
 
-  logger.info(`[migrate] ${table}.${column}: migrated=${migrated} skipped=${skipped} errors=${errors}`);
+  logger.info(`[migrate] ${tableName}.${columnName}: migrated=${migrated} skipped=${skipped} errors=${errors}`);
   return { migrated, skipped, errors };
 }
 
@@ -84,14 +92,35 @@ export async function runEncryptionMigration(): Promise<{
   let totalSkipped = 0;
   let totalErrors = 0;
 
-  const targets: Array<{ table: string; column: string; idCol?: string }> = [
-    { table: "users", column: "totp_secret" },
-    { table: "creator_bank_accounts", column: "account_number" },
-    { table: "creator_wallet_addresses", column: "address" },
+  const targets: MigrateTarget[] = [
+    {
+      table: schema.users,
+      column: schema.users.totpSecret,
+      fieldKey: "totpSecret",
+      idCol: schema.users.id,
+      tableName: "users",
+      columnName: "totp_secret",
+    },
+    {
+      table: schema.creatorBankAccounts,
+      column: schema.creatorBankAccounts.accountNumber,
+      fieldKey: "accountNumber",
+      idCol: schema.creatorBankAccounts.id,
+      tableName: "creator_bank_accounts",
+      columnName: "account_number",
+    },
+    {
+      table: schema.creatorWalletAddresses,
+      column: schema.creatorWalletAddresses.address,
+      fieldKey: "address",
+      idCol: schema.creatorWalletAddresses.id,
+      tableName: "creator_wallet_addresses",
+      columnName: "address",
+    },
   ];
 
   for (const target of targets) {
-    const result = await migrateColumn(target.table, target.column, target.idCol);
+    const result = await migrateColumn(target);
     totalMigrated += result.migrated;
     totalSkipped += result.skipped;
     totalErrors += result.errors;

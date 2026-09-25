@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, desc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, conflict, forbidden } from "@/lib/api/errors";
 import { assignNemesis, compareNemesisProgress } from "@/lib/nemesis/nemesisEngine";
@@ -33,14 +34,39 @@ const MIN_COMPETITOR_LEVEL_FOR_CHALLENGE = 40;
 interface NemesisRow {
   user_id: string;
   nemesis_id: string;
-  assigned_at: string;
-  dismissed_at: string | null;
+  assigned_at: Date | null;
+  dismissed_at: Date | null;
   nemesis_username: string;
   nemesis_display_name: string;
   nemesis_avatar_emoji: string;
   nemesis_rank_name: string;
-  nemesis_xp_total: number;
+  nemesis_xp_total: bigint;
   nemesis_city: string | null;
+}
+
+async function fetchActiveNemesisRow(
+  orm: Awaited<ReturnType<typeof getDb>>,
+  userId: string
+): Promise<NemesisRow | null> {
+  const rows = await orm
+    .select({
+      user_id: schema.nemesisAssignments.userId,
+      nemesis_id: schema.nemesisAssignments.nemesisUserId,
+      assigned_at: schema.nemesisAssignments.assignedAt,
+      dismissed_at: schema.nemesisAssignments.dismissedAt,
+      nemesis_username: schema.users.username,
+      nemesis_display_name: schema.users.displayName,
+      nemesis_avatar_emoji: schema.users.avatarEmoji,
+      nemesis_rank_name: schema.users.rankName,
+      nemesis_xp_total: schema.users.xpTotal,
+      nemesis_city: schema.users.city,
+    })
+    .from(schema.nemesisAssignments)
+    .innerJoin(schema.users, eq(schema.users.id, schema.nemesisAssignments.nemesisUserId))
+    .where(and(eq(schema.nemesisAssignments.userId, userId), eq(schema.nemesisAssignments.isActive, true)))
+    .orderBy(desc(schema.nemesisAssignments.assignedAt))
+    .limit(1);
+  return rows[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -58,111 +84,81 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
       return NextResponse.json({ nemesis: null, me: null, recentActivity: [], sprintActive: false });
     }
 
-    const { rows } = await db.query<NemesisRow>(
-      `SELECT na.user_id, na.nemesis_user_id AS nemesis_id, na.assigned_at,
-              u.username AS nemesis_username,
-              u.display_name AS nemesis_display_name,
-              u.avatar_emoji AS nemesis_avatar_emoji,
-              u.rank_name AS nemesis_rank_name,
-              u.xp_total AS nemesis_xp_total,
-              u.city AS nemesis_city
-       FROM nemesis_assignments na
-       JOIN users u ON u.id = na.nemesis_user_id
-       WHERE na.user_id = $1 AND na.is_active = true
-       ORDER BY na.assigned_at DESC
-       LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
 
-    if (!rows[0]) {
+    let nemesisRow = await fetchActiveNemesisRow(orm, userId);
+
+    if (!nemesisRow) {
       // No nemesis — try to assign one (assignNemesis() itself declines for
       // an opted-out user, so surface that distinctly from "no match yet").
-      const newAssignment = await assignNemesis(userId, db);
+      const newAssignment = await assignNemesis(userId, orm);
       if (!newAssignment) {
-        const { rows: optOutRows } = await db.query<{ nemesis_opt_out: boolean }>(
-          `SELECT COALESCE(nemesis_opt_out, false) AS nemesis_opt_out FROM users WHERE id = $1`,
-          [userId]
+        // NOTE: users.nemesis_opt_out is not present in lib/db/schema.ts
+        // (schema mismatch — flagged, not silently patched). Queried via raw
+        // sql`` until the column is added to the Drizzle schema.
+        const optOutResult = await orm.execute<{ nemesis_opt_out: boolean }>(
+          sql`SELECT COALESCE(nemesis_opt_out, false) AS nemesis_opt_out FROM users WHERE id = ${userId}`
         );
         return NextResponse.json({
           success: true,
-          data: { nemesis: null, optedOut: optOutRows[0]?.nemesis_opt_out === true },
+          data: { nemesis: null, optedOut: optOutResult.rows[0]?.nemesis_opt_out === true },
           error: null,
         });
       }
 
       // Refetch with profile — must use nemesis_user_id (the active FK column)
       // and filter by is_active since dismissed_at is only set by the dismiss route
-      const refreshedRows = await db.query<NemesisRow>(
-        `SELECT na.user_id, na.nemesis_user_id AS nemesis_id, na.assigned_at,
-                na.dismissed_at,
-                u.username AS nemesis_username,
-                u.display_name AS nemesis_display_name,
-                u.avatar_emoji AS nemesis_avatar_emoji,
-                u.rank_name AS nemesis_rank_name,
-                u.xp_total AS nemesis_xp_total,
-                u.city AS nemesis_city
-         FROM nemesis_assignments na
-         JOIN users u ON u.id = na.nemesis_user_id
-         WHERE na.user_id = $1 AND na.is_active = true
-         ORDER BY na.assigned_at DESC
-         LIMIT 1`,
-        [userId]
-      );
-      if (!refreshedRows.rows[0]) {
+      nemesisRow = await fetchActiveNemesisRow(orm, userId);
+      if (!nemesisRow) {
         return NextResponse.json({ success: true, data: { nemesis: null }, error: null });
       }
-      rows.push(...refreshedRows.rows);
     }
 
-    const nemesisRow = rows[0];
-
     // Fetch the calling user's own profile data (including competitor XP for level gate UI)
-    const { rows: myRows } = await db.query<{
-      username: string;
-      display_name: string;
-      avatar_emoji: string;
-      xp_total: number;
-      xp_competitor: number;
-    }>(
-      `SELECT username, display_name, avatar_emoji, COALESCE(xp_total, 0) AS xp_total,
-              COALESCE(xp_competitor, 0) AS xp_competitor
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const myRows = await orm
+      .select({
+        username: schema.users.username,
+        display_name: schema.users.displayName,
+        avatar_emoji: schema.users.avatarEmoji,
+        xp_total: sql<string>`COALESCE(${schema.users.xpTotal}, 0)`,
+        xp_competitor: sql<string>`COALESCE(${schema.users.xpCompetitor}, 0)`,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     const me = myRows[0];
 
     // XP comparison
-    const comparison = await compareNemesisProgress(userId, nemesisRow.nemesis_id, "main", db);
+    const comparison = await compareNemesisProgress(userId, nemesisRow.nemesis_id, "main", orm);
 
     // Recent XP activity for both parties (last 20 events combined).
     // xp_ledger stores the action label in `source` and the awarded amount in
     // `amount` (the canonical columns written by safeAwardXP — see
     // apps/web/lib/xp/safeAwardXP.ts). The `xp_net`/`action` columns were
     // dropped in migration 0020 and never repopulated.
-    const { rows: activityRows } = await db.query<{
+    const activityResult = await orm.execute<{
       id: string;
       user_id: string;
       action: string;
       xp_net: number;
       created_at: string;
-    }>(
-      `(SELECT id, user_id, source AS action,
-               amount AS xp_net, created_at
-        FROM xp_ledger
-        WHERE user_id = $1 AND created_at > NOW() - INTERVAL '7 days'
-        ORDER BY created_at DESC LIMIT 10)
-       UNION ALL
-       (SELECT id, user_id, source AS action,
-               amount AS xp_net, created_at
-        FROM xp_ledger
-        WHERE user_id = $2 AND created_at > NOW() - INTERVAL '7 days'
-        ORDER BY created_at DESC LIMIT 10)
-       ORDER BY created_at DESC
-       LIMIT 20`,
-      [userId, nemesisRow.nemesis_id]
-    );
+    }>(sql`
+      (SELECT id, user_id, source AS action,
+              amount AS xp_net, created_at
+       FROM xp_ledger
+       WHERE user_id = ${userId} AND created_at > NOW() - INTERVAL '7 days'
+       ORDER BY created_at DESC LIMIT 10)
+      UNION ALL
+      (SELECT id, user_id, source AS action,
+              amount AS xp_net, created_at
+       FROM xp_ledger
+       WHERE user_id = ${nemesisRow.nemesis_id} AND created_at > NOW() - INTERVAL '7 days'
+       ORDER BY created_at DESC LIMIT 10)
+      ORDER BY created_at DESC
+      LIMIT 20
+    `);
 
-    const recentActivity = activityRows.map((a) => ({
+    const recentActivity = activityResult.rows.map((a) => ({
       id: a.id,
       userId: a.user_id,
       description: (a.action ?? "unknown activity").replace(/_/g, " "),
@@ -171,34 +167,39 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     }));
 
     // Check if there is an active sprint challenge between these two users
-    const { rows: sprintRows } = await db.query<{ id: string; expires_at: string }>(
-      `SELECT id, expires_at FROM nemesis_challenges
-       WHERE ((challenger_id = $1 AND challenged_id = $2)
-           OR (challenger_id = $2 AND challenged_id = $1))
-         AND status = 'pending'
-         AND expires_at > NOW()
-       ORDER BY created_at DESC LIMIT 1`,
-      [userId, nemesisRow.nemesis_id]
-    );
+    const sprintRows = await orm
+      .select({ id: schema.nemesisChallenges.id, expires_at: schema.nemesisChallenges.expiresAt })
+      .from(schema.nemesisChallenges)
+      .where(
+        and(
+          or(
+            and(eq(schema.nemesisChallenges.challengerId, userId), eq(schema.nemesisChallenges.challengedId, nemesisRow.nemesis_id)),
+            and(eq(schema.nemesisChallenges.challengerId, nemesisRow.nemesis_id), eq(schema.nemesisChallenges.challengedId, userId))
+          ),
+          eq(schema.nemesisChallenges.status, "pending"),
+          gt(schema.nemesisChallenges.expiresAt, sql`NOW()`)
+        )
+      )
+      .orderBy(desc(schema.nemesisChallenges.createdAt))
+      .limit(1);
     const activeSprint = sprintRows[0] ?? null;
 
     // A pending challenge sent TO this user (by anyone — not necessarily
     // their current nemesis, since a nemesis reassignment can happen while a
     // challenge is still awaiting response) that they can accept.
-    const { rows: incomingRows } = await db.query<{
-      id: string;
-      challenger_id: string;
-      username: string;
-      display_name: string;
-      avatar_emoji: string;
-    }>(
-      `SELECT nc.id, nc.challenger_id, u.username, u.display_name, u.avatar_emoji
-       FROM nemesis_challenges nc
-       JOIN users u ON u.id = nc.challenger_id
-       WHERE nc.challenged_id = $1 AND nc.status = 'pending'
-       ORDER BY nc.created_at DESC LIMIT 1`,
-      [userId]
-    );
+    const incomingRows = await orm
+      .select({
+        id: schema.nemesisChallenges.id,
+        challenger_id: schema.nemesisChallenges.challengerId,
+        username: schema.users.username,
+        display_name: schema.users.displayName,
+        avatar_emoji: schema.users.avatarEmoji,
+      })
+      .from(schema.nemesisChallenges)
+      .innerJoin(schema.users, eq(schema.users.id, schema.nemesisChallenges.challengerId))
+      .where(and(eq(schema.nemesisChallenges.challengedId, userId), eq(schema.nemesisChallenges.status, "pending")))
+      .orderBy(desc(schema.nemesisChallenges.createdAt))
+      .limit(1);
     const incomingChallenge = incomingRows[0]
       ? {
           challengeId: incomingRows[0].id,
@@ -209,7 +210,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         }
       : null;
 
-    const competitorTrackInfo = getTrackLevelForXP("competitor", me?.xp_competitor ?? 0);
+    const competitorTrackInfo = getTrackLevelForXP("competitor", Number(me?.xp_competitor ?? 0));
 
     return NextResponse.json({
       me: {
@@ -268,16 +269,17 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await req.json().catch(() => ({})) as { action?: string };
     const action = body.action;
 
+    const orm = await getDb();
+
     if (action === "dismiss") {
       // Dismiss current assignment
-      const updateResult = await db.query(
-        `UPDATE nemesis_assignments SET is_active = false
-         WHERE user_id = $1 AND is_active = true`,
-        [userId]
-      );
+      const updateResult = await orm
+        .update(schema.nemesisAssignments)
+        .set({ isActive: false })
+        .where(and(eq(schema.nemesisAssignments.userId, userId), eq(schema.nemesisAssignments.isActive, true)));
 
       // Assign a new nemesis
-      const newAssignment = await assignNemesis(userId, db);
+      const newAssignment = await assignNemesis(userId, orm);
 
       return NextResponse.json({
         success: true,
@@ -292,21 +294,22 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     if (action === "challenge") {
       // Get current nemesis
-      const nemesisResult = await db.query<{ nemesis_user_id: string }>(
-        `SELECT nemesis_user_id FROM nemesis_assignments
-         WHERE user_id = $1 AND is_active = true
-         ORDER BY assigned_at DESC LIMIT 1`,
-        [userId]
-      );
-      const nemesisId = nemesisResult.rows[0]?.nemesis_user_id;
+      const nemesisResult = await orm
+        .select({ nemesisUserId: schema.nemesisAssignments.nemesisUserId })
+        .from(schema.nemesisAssignments)
+        .where(and(eq(schema.nemesisAssignments.userId, userId), eq(schema.nemesisAssignments.isActive, true)))
+        .orderBy(desc(schema.nemesisAssignments.assignedAt))
+        .limit(1);
+      const nemesisId = nemesisResult[0]?.nemesisUserId;
       if (!nemesisId) throw notFound("No active nemesis to challenge");
 
       // Enforce Competitor Track Level 40 gate (PRD §7)
-      const { rows: xpRows } = await db.query<{ xp_competitor: number }>(
-        `SELECT xp_competitor FROM users WHERE id = $1`,
-        [userId]
-      );
-      const competitorXP = xpRows[0]?.xp_competitor ?? 0;
+      const xpRows = await orm
+        .select({ xpCompetitor: schema.users.xpCompetitor })
+        .from(schema.users)
+        .where(eq(schema.users.id, userId))
+        .limit(1);
+      const competitorXP = Number(xpRows[0]?.xpCompetitor ?? 0);
       const competitorTrackInfo = getTrackLevelForXP("competitor", competitorXP);
       if (competitorTrackInfo.level < MIN_COMPETITOR_LEVEL_FOR_CHALLENGE) {
         throw forbidden(
@@ -317,41 +320,44 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
 
       // Check no challenge already pending
-      const existingChallenge = await db.query<{ id: string }>(
-        `SELECT id FROM nemesis_challenges
-         WHERE challenger_id = $1 AND expires_at > NOW() AND status = 'pending'
-         LIMIT 1`,
-        [userId]
-      );
-      if (existingChallenge.rows.length > 0) {
+      const existingChallenge = await orm
+        .select({ id: schema.nemesisChallenges.id })
+        .from(schema.nemesisChallenges)
+        .where(
+          and(
+            eq(schema.nemesisChallenges.challengerId, userId),
+            gt(schema.nemesisChallenges.expiresAt, sql`NOW()`),
+            eq(schema.nemesisChallenges.status, "pending")
+          )
+        )
+        .limit(1);
+      if (existingChallenge.length > 0) {
         throw conflict("You already have a pending challenge", "CHALLENGE_ALREADY_ACTIVE");
       }
 
-      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
-      await db.query(
-        `INSERT INTO nemesis_challenges (challenger_id, challenged_id, status, expires_at, created_at)
-         VALUES ($1, $2, 'pending', $3, NOW())`,
-        [userId, nemesisId, expiresAt]
-      );
+      await orm.insert(schema.nemesisChallenges).values({
+        challengerId: userId,
+        challengedId: nemesisId,
+        status: "pending",
+        expiresAt,
+      });
 
       // Queue notification (best-effort — don't fail if notifications table doesn't exist)
       try {
-        await db.query(
-          `INSERT INTO notifications (user_id, type, payload, created_at)
-           VALUES ($1, 'nemesis_challenge', $2, NOW())`,
-          [
-            nemesisId,
-            JSON.stringify({ challenger_id: userId, expires_at: expiresAt }),
-          ]
-        );
+        await orm.insert(schema.notifications).values({
+          userId: nemesisId,
+          type: "nemesis_challenge",
+          payload: { challenger_id: userId, expires_at: expiresAt.toISOString() },
+        });
       } catch {
         // Notification table may not exist yet — log but don't fail
       }
 
       return NextResponse.json({
         success: true,
-        data: { challengeSent: true, expiresAt },
+        data: { challengeSent: true, expiresAt: expiresAt.toISOString() },
         error: null,
       });
     }

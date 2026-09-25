@@ -11,9 +11,10 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { and, eq, sql } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, notFound, forbidden, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 
 // ---------------------------------------------------------------------------
@@ -22,29 +23,36 @@ import { logger } from "@/lib/logger";
 
 interface SubscriptionRow {
   id: string;
-  user_id: string;
+  userId: string;
   plan: string;
   status: string;
-  ends_at: string | null;
-  cancelled_at: string | null;
+  endsAt: Date | null;
+  cancelledAt: Date | null;
 }
 
 async function loadOwnSubscription(
+  orm: Awaited<ReturnType<typeof getDb>>,
   subscriptionId: string,
   userId: string
 ): Promise<SubscriptionRow> {
-  const { rows } = await db.query<SubscriptionRow>(
-    `SELECT id, user_id, plan, status, ends_at, cancelled_at
-     FROM subscriptions
-     WHERE id = $1 LIMIT 1`,
-    [subscriptionId]
-  );
+  const rows = await orm
+    .select({
+      id: schema.subscriptions.id,
+      userId: schema.subscriptions.userId,
+      plan: schema.subscriptions.plan,
+      status: schema.subscriptions.status,
+      endsAt: schema.subscriptions.endsAt,
+      cancelledAt: schema.subscriptions.cancelledAt,
+    })
+    .from(schema.subscriptions)
+    .where(eq(schema.subscriptions.id, subscriptionId))
+    .limit(1);
 
   if (!rows[0]) {
     throw notFound("Subscription not found");
   }
 
-  if (rows[0].user_id !== userId) {
+  if (rows[0].userId !== userId) {
     throw forbidden("You do not own this subscription");
   }
 
@@ -69,30 +77,29 @@ export const DELETE = withAuth(
     try {
       const userId = auth.user.sub;
       const { subscriptionId } = params;
+      const orm = await getDb();
 
-      const subscription = await loadOwnSubscription(subscriptionId, userId);
+      const subscription = await loadOwnSubscription(orm, subscriptionId, userId);
 
       if (subscription.status === "cancelled") {
         throw badRequest("Subscription is already cancelled");
       }
 
       // Mark as cancelled — access continues until current_period_end
-      await db.query(
-        `UPDATE subscriptions
-         SET status = 'cancelled', cancelled_at = NOW(), updated_at = NOW()
-         WHERE id = $1`,
-        [subscriptionId]
-      );
+      await orm
+        .update(schema.subscriptions)
+        .set({ status: "cancelled", cancelledAt: sql`NOW()`, updatedAt: sql`NOW()` })
+        .where(eq(schema.subscriptions.id, subscriptionId));
 
       logger.info(
-        { userId, subscriptionId, plan: subscription.plan, endsAt: subscription.ends_at },
+        { userId, subscriptionId, plan: subscription.plan, endsAt: subscription.endsAt },
         "[subscriptions] cancelled"
       );
 
       return NextResponse.json({
         success: true,
         message: "Subscription cancelled. You retain access until your current period ends.",
-        accessUntil: subscription.ends_at,
+        accessUntil: subscription.endsAt,
       });
     } catch (err) {
       return handleApiError(err);
@@ -109,13 +116,6 @@ const ChangePlanSchema = z.object({
   newPlanId: z.string().uuid("newPlanId must be a valid UUID"),
 });
 
-interface PlanRow {
-  id: string;
-  plan: string;
-  name: string;
-  price_kobo: number;
-}
-
 /**
  * PUT /api/economy/subscriptions/[subscriptionId]
  *
@@ -130,20 +130,26 @@ export const PUT = withAuth(
     try {
       const userId = auth.user.sub;
       const { subscriptionId } = params;
+      const orm = await getDb();
 
       const body = await validateBody(req, ChangePlanSchema);
-      const subscription = await loadOwnSubscription(subscriptionId, userId);
+      const subscription = await loadOwnSubscription(orm, subscriptionId, userId);
 
       if (subscription.status !== "active" && subscription.status !== "trialing") {
         throw badRequest("Can only change an active subscription");
       }
 
       // Load the new plan
-      const { rows: planRows } = await db.query<PlanRow>(
-        `SELECT id, plan, name, price_kobo FROM subscription_plans
-         WHERE id = $1 AND is_active = TRUE LIMIT 1`,
-        [body.newPlanId]
-      );
+      const planRows = await orm
+        .select({
+          id: schema.subscriptionPlans.id,
+          plan: schema.subscriptionPlans.plan,
+          name: schema.subscriptionPlans.name,
+          priceKobo: schema.subscriptionPlans.priceKobo,
+        })
+        .from(schema.subscriptionPlans)
+        .where(and(eq(schema.subscriptionPlans.id, body.newPlanId), eq(schema.subscriptionPlans.isActive, true)))
+        .limit(1);
 
       if (!planRows[0]) {
         throw notFound("New subscription plan not found");
@@ -155,20 +161,18 @@ export const PUT = withAuth(
         throw badRequest("Already on this plan");
       }
 
-      await db.transaction(async (tx) => {
+      await orm.transaction(async (tx) => {
         // Update the subscription plan
-        await tx.query(
-          `UPDATE subscriptions
-           SET plan = $1, updated_at = NOW()
-           WHERE id = $2`,
-          [newPlan.plan, subscriptionId]
-        );
+        await tx
+          .update(schema.subscriptions)
+          .set({ plan: newPlan.plan, updatedAt: sql`NOW()` })
+          .where(eq(schema.subscriptions.id, subscriptionId));
 
         // Update user's plan column
-        await tx.query(
-          `UPDATE users SET plan = $1, updated_at = NOW() WHERE id = $2`,
-          [newPlan.plan, userId]
-        );
+        await tx
+          .update(schema.users)
+          .set({ plan: newPlan.plan, updatedAt: sql`NOW()` })
+          .where(eq(schema.users.id, userId));
       });
 
       return NextResponse.json({

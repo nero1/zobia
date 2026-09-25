@@ -18,30 +18,12 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import { eq, and, isNull, inArray } from "drizzle-orm";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { badRequest, forbidden, notFound, handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { encryptField, decryptField } from "@/lib/security/fieldEncryption";
-
-// ---------------------------------------------------------------------------
-// DB row type
-// ---------------------------------------------------------------------------
-
-interface WalletRow {
-  id: string;
-  network: string;
-  currency: string;
-  address: string; // encrypted
-  created_at: string;
-}
-
-interface UserPinRow {
-  pin_hash: string | null;
-  password_hash: string | null;
-  totp_secret: string | null;
-  totp_enabled: boolean;
-}
 
 // ---------------------------------------------------------------------------
 // Schema
@@ -64,19 +46,23 @@ async function verifySecurityGate(
   pinOrCode: string | undefined,
   isExistingRecord: boolean
 ): Promise<boolean> {
-  const { rows } = await db.query<UserPinRow>(
-    `SELECT up.pin_hash, u.password_hash, up.totp_secret,
-            COALESCE(up.totp_enabled, false) AS totp_enabled
-     FROM users u
-     LEFT JOIN user_pins up ON up.user_id = u.id
-     WHERE u.id = $1 LIMIT 1`,
-    [userId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      pinHash: schema.userPins.pinHash,
+      passwordHash: schema.users.passwordHash,
+      totpSecret: schema.users.totpSecret,
+      totpEnabled: schema.users.totpEnabled,
+    })
+    .from(schema.users)
+    .leftJoin(schema.userPins, eq(schema.userPins.userId, schema.users.id))
+    .where(eq(schema.users.id, userId))
+    .limit(1);
 
   const row = rows[0];
-  const hasPinHash = !!row?.pin_hash;
-  const hasPassword = !!row?.password_hash;
-  const hasTotp = !!row?.totp_enabled && !!row?.totp_secret;
+  const hasPinHash = !!row?.pinHash;
+  const hasPassword = !!row?.passwordHash;
+  const hasTotp = !!row?.totpEnabled && !!row?.totpSecret;
   const hasAnyAuth = hasPinHash || hasPassword || hasTotp;
 
   if (isExistingRecord && hasAnyAuth) {
@@ -92,11 +78,11 @@ async function verifySecurityGate(
     let verified = false;
 
     if (hasPinHash && /^\d{4}$/.test(pinOrCode)) {
-      verified = await bcrypt.compare(pinOrCode, row!.pin_hash!);
+      verified = await bcrypt.compare(pinOrCode, row!.pinHash!);
     }
 
     if (!verified && hasPassword) {
-      verified = await bcrypt.compare(pinOrCode, row!.password_hash!);
+      verified = await bcrypt.compare(pinOrCode, row!.passwordHash!);
     }
 
     if (!verified) {
@@ -121,12 +107,18 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<WalletRow>(
-      `SELECT id, network, currency, address, created_at
-       FROM creator_wallet_addresses
-       WHERE creator_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.creatorWalletAddresses.id,
+        network: schema.creatorWalletAddresses.network,
+        currency: schema.creatorWalletAddresses.currency,
+        address: schema.creatorWalletAddresses.address,
+        createdAt: schema.creatorWalletAddresses.createdAt,
+      })
+      .from(schema.creatorWalletAddresses)
+      .where(eq(schema.creatorWalletAddresses.creatorId, userId))
+      .limit(1);
 
     if (!rows[0]) {
       return NextResponse.json({ hasWallet: false });
@@ -145,7 +137,7 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       network: wallet.network,
       currency: wallet.currency,
       addressMasked: maskAddress(decryptedAddress),
-      createdAt: wallet.created_at,
+      createdAt: wallet.createdAt,
     });
   } catch (err) {
     return handleApiError(err);
@@ -161,35 +153,48 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const userId = auth.user.sub;
+    const orm = await getDb();
 
-    const { rows: creatorRows } = await db.query<{ is_creator: boolean }>(
-      `SELECT is_creator FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    if (!creatorRows[0]?.is_creator) {
+    const creatorRows = await orm
+      .select({ isCreator: schema.users.isCreator })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    if (!creatorRows[0]?.isCreator) {
       throw forbidden("Creator access required");
     }
 
     const body = await validateBody(req, PostSchema);
 
-    const { rows: existingRows } = await db.query<{ id: string }>(
-      `SELECT id FROM creator_wallet_addresses WHERE creator_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const existingRows = await orm
+      .select({ id: schema.creatorWalletAddresses.id })
+      .from(schema.creatorWalletAddresses)
+      .where(
+        and(
+          eq(schema.creatorWalletAddresses.creatorId, userId),
+          eq(schema.creatorWalletAddresses.network, "tron")
+        )
+      )
+      .limit(1);
     const isExisting = !!existingRows[0];
 
     const hasAnyAuth = await verifySecurityGate(userId, body.pinOrCode, isExisting);
 
     const encryptedAddress = encryptField(body.address);
 
-    await db.query(
-      `INSERT INTO creator_wallet_addresses (creator_id, network, currency, address)
-       VALUES ($1, 'tron', 'USDT', $2)
-       ON CONFLICT (creator_id) DO UPDATE
-         SET address = EXCLUDED.address,
-             updated_at = NOW()`,
-      [userId, encryptedAddress]
-    );
+    // Conflict target matches the real unique index
+    // (uidx_creator_wallet_addresses_creator_network on (creator_id, network))
+    // — the original raw SQL's `ON CONFLICT (creator_id)` alone did not
+    // match any unique constraint on this table (Migration 0006 changed it
+    // to per-(creator, network)) and would have raised "no unique or
+    // exclusion constraint matching the ON CONFLICT specification".
+    await orm
+      .insert(schema.creatorWalletAddresses)
+      .values({ creatorId: userId, network: "tron", currency: "USDT", address: encryptedAddress })
+      .onConflictDoUpdate({
+        target: [schema.creatorWalletAddresses.creatorId, schema.creatorWalletAddresses.network],
+        set: { address: encryptedAddress, updatedAt: new Date() },
+      });
 
     return NextResponse.json({
       success: true,
@@ -213,25 +218,30 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const userId = auth.user.sub;
     const body = await req.json().catch(() => ({})) as { pinOrCode?: string };
+    const orm = await getDb();
 
-    const { rows: existingRows } = await db.query<{ id: string }>(
-      `SELECT id FROM creator_wallet_addresses WHERE creator_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const existingRows = await orm
+      .select({ id: schema.creatorWalletAddresses.id })
+      .from(schema.creatorWalletAddresses)
+      .where(eq(schema.creatorWalletAddresses.creatorId, userId))
+      .limit(1);
     if (!existingRows[0]) {
       throw notFound("No wallet address configured");
     }
 
     await verifySecurityGate(userId, body.pinOrCode, true);
 
-    const { rows: pendingRows } = await db.query<{ id: string }>(
-      `SELECT id FROM creator_payouts
-       WHERE creator_id = $1
-         AND payout_method = 'crypto'
-         AND status IN ('pending', 'awaiting_approval', 'processing')
-       LIMIT 1`,
-      [userId]
-    );
+    const pendingRows = await orm
+      .select({ id: schema.creatorPayouts.id })
+      .from(schema.creatorPayouts)
+      .where(
+        and(
+          eq(schema.creatorPayouts.creatorId, userId),
+          eq(schema.creatorPayouts.payoutMethod, "crypto"),
+          inArray(schema.creatorPayouts.status, ["pending", "awaiting_approval", "processing"])
+        )
+      )
+      .limit(1);
     if (pendingRows[0]) {
       throw badRequest(
         "You cannot remove your wallet address while a crypto payout is in progress.",
@@ -239,10 +249,7 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
       );
     }
 
-    await db.query(
-      `DELETE FROM creator_wallet_addresses WHERE creator_id = $1`,
-      [userId]
-    );
+    await orm.delete(schema.creatorWalletAddresses).where(eq(schema.creatorWalletAddresses.creatorId, userId));
 
     return NextResponse.json({ success: true });
   } catch (err) {

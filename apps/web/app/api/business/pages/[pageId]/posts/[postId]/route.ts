@@ -9,8 +9,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db";
+import { eq, and, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody, type AuthContext } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -29,16 +29,25 @@ const updatePostSchema = z.object({
 });
 
 async function assertOwnerOrModerator(pageId: string, postId: string, userId: string): Promise<{ status: string }> {
-  const { rows } = await db.query<{ owner_user_id: string; status: string }>(
-    `SELECT ba.user_id AS owner_user_id, bpp.status
-     FROM business_page_posts bpp
-     JOIN business_pages bp ON bp.id = bpp.page_id
-     JOIN business_accounts ba ON ba.id = bp.business_account_id
-     WHERE bpp.id = $1 AND bpp.page_id = $2 AND bpp.deleted_at IS NULL LIMIT 1`,
-    [postId, pageId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      ownerUserId: schema.businessAccounts.userId,
+      status: schema.businessPagePosts.status,
+    })
+    .from(schema.businessPagePosts)
+    .innerJoin(schema.businessPages, eq(schema.businessPages.id, schema.businessPagePosts.pageId))
+    .innerJoin(schema.businessAccounts, eq(schema.businessAccounts.id, schema.businessPages.businessAccountId))
+    .where(
+      and(
+        eq(schema.businessPagePosts.id, postId),
+        eq(schema.businessPagePosts.pageId, pageId),
+        isNull(schema.businessPagePosts.deletedAt)
+      )
+    )
+    .limit(1);
   if (!rows[0]) throw notFound("Post not found");
-  if (rows[0].owner_user_id !== userId && !(await isUserModeratorOrAdmin(userId))) {
+  if (rows[0].ownerUserId !== userId && !(await isUserModeratorOrAdmin(userId))) {
     throw forbidden("Only the page owner or a moderator can manage this post.");
   }
   return { status: rows[0].status };
@@ -51,27 +60,29 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }: Ctx) =>
     const before = await assertOwnerOrModerator(pageId, postId, auth.user.sub);
 
     const body = await validateBody(req, updatePostSchema);
-    const setParts: string[] = ["updated_at = NOW()"];
-    const values: SqlParam[] = [postId];
-    let idx = 2;
-    const fieldMap: Record<string, string> = { title: "title", body: "body", imageUrl: "image_url", status: "status" };
-    for (const [jsKey, col] of Object.entries(fieldMap)) {
-      const val = (body as Record<string, unknown>)[jsKey];
-      if (val !== undefined) {
-        setParts.push(`${col} = $${idx++}`);
-        values.push(val as SqlParam);
-      }
-    }
-    if (setParts.length > 1) {
-      await db.query(`UPDATE business_page_posts SET ${setParts.join(", ")} WHERE id = $1`, values);
+    const orm = await getDb();
+    const updates: Partial<typeof schema.businessPagePosts.$inferInsert> = { updatedAt: new Date() };
+    if (body.title !== undefined) updates.title = body.title;
+    if (body.body !== undefined) updates.body = body.body;
+    if (body.imageUrl !== undefined) updates.imageUrl = body.imageUrl;
+    if (body.status !== undefined) updates.status = body.status;
+
+    if (Object.keys(updates).length > 1) {
+      await orm.update(schema.businessPagePosts).set(updates).where(eq(schema.businessPagePosts.id, postId));
     }
 
     // Keep the page's published post_count accurate if status transitioned.
     if (body.status && body.status !== before.status) {
       if (body.status === "published") {
-        await db.query(`UPDATE business_pages SET post_count = post_count + 1, updated_at = NOW() WHERE id = $1`, [pageId]);
+        await orm
+          .update(schema.businessPages)
+          .set({ postCount: sql`${schema.businessPages.postCount} + 1`, updatedAt: new Date() })
+          .where(eq(schema.businessPages.id, pageId));
       } else if (before.status === "published") {
-        await db.query(`UPDATE business_pages SET post_count = GREATEST(post_count - 1, 0), updated_at = NOW() WHERE id = $1`, [pageId]);
+        await orm
+          .update(schema.businessPages)
+          .set({ postCount: sql`GREATEST(${schema.businessPages.postCount} - 1, 0)`, updatedAt: new Date() })
+          .where(eq(schema.businessPages.id, pageId));
       }
     }
 
@@ -87,9 +98,16 @@ export const DELETE = withAuth(async (_req: NextRequest, { params, auth }: Ctx) 
     const { pageId, postId } = await params;
     const before = await assertOwnerOrModerator(pageId, postId, auth.user.sub);
 
-    await db.query(`UPDATE business_page_posts SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1`, [postId]);
+    const orm = await getDb();
+    await orm
+      .update(schema.businessPagePosts)
+      .set({ deletedAt: new Date(), updatedAt: new Date() })
+      .where(eq(schema.businessPagePosts.id, postId));
     if (before.status === "published") {
-      await db.query(`UPDATE business_pages SET post_count = GREATEST(post_count - 1, 0), updated_at = NOW() WHERE id = $1`, [pageId]);
+      await orm
+        .update(schema.businessPages)
+        .set({ postCount: sql`GREATEST(${schema.businessPages.postCount} - 1, 0)`, updatedAt: new Date() })
+        .where(eq(schema.businessPages.id, pageId));
     }
 
     return NextResponse.json({ success: true, data: { postId, deleted: true }, error: null });

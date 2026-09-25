@@ -11,7 +11,8 @@
  * of duplicating it.
  */
 
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 
 // ---------------------------------------------------------------------------
 // Coin economy summary
@@ -32,8 +33,9 @@ interface CoinEconomyRow {
 }
 
 export async function getCoinEconomy() {
-  const { rows } = await db.query<CoinEconomyRow>(
-    `SELECT
+  const orm = await getDb();
+  const { rows } = await orm.execute<CoinEconomyRow & Record<string, unknown>>(sql`
+    SELECT
        SUM(coin_balance)::TEXT AS total_coins_in_circulation,
        (SELECT COALESCE(SUM(amount), 0)::TEXT FROM coin_ledger
         WHERE transaction_type = 'purchase' AND created_at >= CURRENT_DATE
@@ -64,8 +66,8 @@ export async function getCoinEconomy() {
        ) AS coins_earned_month,
        COUNT(*) FILTER (WHERE coin_balance > 0)::TEXT AS total_users_with_coins
      FROM users
-     WHERE deleted_at IS NULL`
-  );
+     WHERE deleted_at IS NULL
+  `);
 
   // Use Number() on BIGINT sums — safe up to 2^53. For coin aggregates in the
   // billions this is fine; if ever larger, switch to string and parse on the client (#25).
@@ -106,8 +108,9 @@ interface RevenueRow {
 }
 
 export async function getRevenueByProvider() {
-  const { rows } = await db.query<RevenueRow>(
-    `SELECT
+  const orm = await getDb();
+  const { rows } = await orm.execute<RevenueRow & Record<string, unknown>>(sql`
+    SELECT
        provider,
        SUM(amount_received_kobo) FILTER (
          WHERE completed_at >= CURRENT_DATE
@@ -120,8 +123,8 @@ export async function getRevenueByProvider() {
        )::TEXT AS revenue_month_kobo,
        COUNT(*) FILTER (WHERE status = 'completed')::TEXT AS transaction_count
      FROM payments
-     GROUP BY provider`
-  );
+     GROUP BY provider
+  `);
 
   return rows.map((r) => ({
     provider: r.provider,
@@ -145,8 +148,9 @@ interface PayoutSummaryRow {
 }
 
 export async function getPayoutSummary() {
-  const { rows } = await db.query<PayoutSummaryRow>(
-    `SELECT
+  const orm = await getDb();
+  const { rows } = await orm.execute<PayoutSummaryRow & Record<string, unknown>>(sql`
+    SELECT
        COUNT(*) FILTER (WHERE status = 'awaiting_approval')::TEXT AS awaiting_approval_count,
        COALESCE(SUM(gross_kobo) FILTER (WHERE status = 'awaiting_approval'), 0)::TEXT AS awaiting_approval_gross_kobo,
        COUNT(*) FILTER (WHERE status = 'processing')::TEXT AS processing_count,
@@ -154,8 +158,8 @@ export async function getPayoutSummary() {
        COALESCE(SUM(net_kobo) FILTER (
          WHERE status = 'completed' AND completed_at >= CURRENT_DATE - INTERVAL '30 days'
        ), 0)::TEXT AS completed_month_kobo
-     FROM creator_payouts`
-  );
+     FROM creator_payouts
+  `);
 
   const row = rows[0];
   return {

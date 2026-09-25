@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, count, eq, inArray } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, conflict, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp } from "@/lib/security/rateLimit";
@@ -67,16 +68,22 @@ export const POST = async (req: NextRequest) => {
     }
 
     const manifest = await loadManifest();
+    const orm = await getDb();
 
     // Enforce the refusal cap: once a user has been denied
     // `appeals.maxRefusals` times for this same kind of action, no further
     // appeals for it may be submitted.
-    const { rows: deniedRows } = await db.query<{ count: string }>(
-      `SELECT COUNT(*)::text AS count FROM account_appeals
-       WHERE user_id = $1 AND appeal_type = $2 AND status = 'denied'`,
-      [payload.userId, payload.appealType]
-    );
-    const deniedCount = parseInt(deniedRows[0]?.count ?? "0", 10);
+    const [deniedRow] = await orm
+      .select({ count: count() })
+      .from(schema.accountAppeals)
+      .where(
+        and(
+          eq(schema.accountAppeals.userId, payload.userId),
+          eq(schema.accountAppeals.appealType, payload.appealType),
+          eq(schema.accountAppeals.status, "denied")
+        )
+      );
+    const deniedCount = deniedRow?.count ?? 0;
     if (deniedCount >= manifest.appeals.maxRefusals) {
       throw forbidden(
         "You've reached the maximum number of appeals for this action. No further appeals can be submitted.",
@@ -85,13 +92,18 @@ export const POST = async (req: NextRequest) => {
     }
 
     // Don't allow piling up a second appeal while one is still in flight.
-    const { rows: pendingRows } = await db.query<{ id: string }>(
-      `SELECT id FROM account_appeals
-       WHERE user_id = $1 AND appeal_type = $2 AND status IN ('pending', 'under_review')
-       LIMIT 1`,
-      [payload.userId, payload.appealType]
-    );
-    if (pendingRows[0]) {
+    const [pendingRow] = await orm
+      .select({ id: schema.accountAppeals.id })
+      .from(schema.accountAppeals)
+      .where(
+        and(
+          eq(schema.accountAppeals.userId, payload.userId),
+          eq(schema.accountAppeals.appealType, payload.appealType),
+          inArray(schema.accountAppeals.status, ["pending", "under_review"])
+        )
+      )
+      .limit(1);
+    if (pendingRow) {
       throw conflict(
         "You already have an appeal under review. We'll email you once it's been decided.",
         "APPEAL_ALREADY_PENDING"
@@ -109,23 +121,20 @@ export const POST = async (req: NextRequest) => {
       }
     }
 
-    const { rows: inserted } = await db.query<{ id: string; created_at: string }>(
-      `INSERT INTO account_appeals
-         (user_id, appeal_type, reason, contact_email, status, ai_triage_result, created_at, updated_at)
-       VALUES ($1, $2, $3, $4, 'pending', $5, NOW(), NOW())
-       RETURNING id, created_at`,
-      [
-        payload.userId,
-        payload.appealType,
-        body.reason,
+    const [appeal] = await orm
+      .insert(schema.accountAppeals)
+      .values({
+        userId: payload.userId,
+        appealType: payload.appealType,
+        reason: body.reason,
         contactEmail,
-        aiTriageResult ? JSON.stringify(aiTriageResult) : null,
-      ]
-    );
-    const appeal = inserted[0];
+        status: "pending",
+        aiTriageResult: aiTriageResult ?? null,
+      })
+      .returning({ id: schema.accountAppeals.id, createdAt: schema.accountAppeals.createdAt });
 
     // Notify admins/moderators (fire-and-forget, non-fatal on failure).
-    await raiseAlert(db, {
+    await raiseAlert(orm, {
       type: "account_appeal",
       category: "moderation",
       priorityLevel: 4,

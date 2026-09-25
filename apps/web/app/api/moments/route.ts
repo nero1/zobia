@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db, type SqlParam } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -118,29 +119,41 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     const authorFilter = req.nextUrl.searchParams.get("userId");
     const mediaOnly = req.nextUrl.searchParams.get("mediaOnly") === "1" || req.nextUrl.searchParams.get("mediaOnly") === "true";
 
-    const conditions = ["m.expires_at > NOW()"];
-    const queryParams: SqlParam[] = [userId, limit];
-    if (cursor) {
-      queryParams.push(cursor);
-      conditions.push(`m.created_at < $${queryParams.length}`);
-    }
-    if (authorFilter) {
-      queryParams.push(authorFilter);
-      conditions.push(`m.user_id = $${queryParams.length}`);
-    }
-    if (mediaOnly) {
-      conditions.push(`m.content_type <> 'text' AND m.media_url IS NOT NULL`);
-    }
+    const conditions = [sql`m.expires_at > NOW()`];
+    if (cursor) conditions.push(sql`m.created_at < ${cursor}`);
+    if (authorFilter) conditions.push(sql`m.user_id = ${authorFilter}`);
+    if (mediaOnly) conditions.push(sql`m.content_type <> 'text' AND m.media_url IS NOT NULL`);
+    const whereClause = sql.join(conditions, sql` AND `);
 
-    const { rows } = await db.query(
-      `SELECT m.id, m.user_id,
+    const orm = await getDb();
+    const result = await orm.execute<{
+      id: string;
+      user_id: string;
+      username: string;
+      avatar_emoji: string;
+      avatar_url: string | null;
+      is_verified: boolean;
+      prestige_count: number;
+      xp_total: string;
+      content: string;
+      content_type: string;
+      media_url: string | null;
+      caption: string | null;
+      view_count: number;
+      reactions_count: number;
+      expires_at: string;
+      created_at: string;
+      has_viewed: boolean;
+      reactions: unknown;
+    }>(sql`
+       SELECT m.id, m.user_id,
               u.username, u.avatar_emoji, u.avatar_url,
               u.is_verified, u.prestige_count, u.xp_total,
               m.content, m.content_type, m.media_url, m.caption,
               m.view_count, m.reactions_count, m.expires_at, m.created_at,
               (EXISTS (
                 SELECT 1 FROM moment_views mv
-                WHERE mv.moment_id = m.id AND mv.viewer_id = $1
+                WHERE mv.moment_id = m.id AND mv.viewer_id = ${userId}
               )) AS has_viewed,
               COALESCE(
                 (SELECT jsonb_agg(jsonb_build_object(
@@ -149,7 +162,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
                     'userReacted', r.user_reacted
                   ) ORDER BY r.cnt DESC)
                  FROM (
-                   SELECT mr.emoji, COUNT(*) AS cnt, BOOL_OR(mr.user_id = $1) AS user_reacted
+                   SELECT mr.emoji, COUNT(*) AS cnt, BOOL_OR(mr.user_id = ${userId}) AS user_reacted
                    FROM moment_reactions mr
                    WHERE mr.moment_id = m.id
                    GROUP BY mr.emoji
@@ -158,11 +171,11 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
               ) AS reactions
        FROM moments m
        JOIN users u ON u.id = m.user_id
-       WHERE ${conditions.join(" AND ")}
+       WHERE ${whereClause}
        ORDER BY m.created_at DESC
-       LIMIT $2`,
-      queryParams
-    );
+       LIMIT ${limit}
+    `);
+    const rows = result.rows;
 
     const nextCursor = rows.length === limit ? rows[rows.length - 1].created_at : null;
     return NextResponse.json({ success: true, data: { moments: rows, nextCursor }, error: null });

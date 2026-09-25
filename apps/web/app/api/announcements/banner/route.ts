@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, asc, eq, gte, isNull, lte, or, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { getManifestValue } from "@/lib/manifest";
@@ -22,47 +23,54 @@ interface BannerRow {
   display_order: number;
 }
 
-interface UserContext {
-  plan: string;
-  role: string | null;
-  gender: string | null;
-}
-
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
     const userId = auth.user.sub;
     await enforceRateLimit(userId, "user", RATE_LIMITS.apiRead);
 
-    const now = new Date().toISOString();
+    const orm = await getDb();
+    const now = new Date();
 
-    const { rows: userRows } = await db.query<UserContext>(
-      `SELECT COALESCE(plan, 'free') AS plan, role, gender
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
-    const user = userRows[0];
+    // BUG-FIX: the pre-migration raw SQL selected a `role` column directly
+    // off `users`, but `users` has never had a `role` column (only
+    // isAdmin/isModerator/isCreator booleans) — that query would fail with
+    // "column role does not exist" every time role-targeted banners existed.
+    // Role targeting is modeled via the `admin_roles` table elsewhere in the
+    // app (see app/api/admin/messages/route.ts's by_role targeting), so
+    // role-match is now an EXISTS check against admin_roles instead of a
+    // scalar column on users.
+    const [user] = await orm
+      .select({
+        plan: sql<string>`COALESCE(${schema.users.plan}, 'free')`,
+        gender: schema.users.gender,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
+
     if (!user) return NextResponse.json({ success: true, data: { banner: null }, error: null });
 
-    const { rows: banners } = await db.query<BannerRow>(
-      `SELECT id, content, content_type, display_order
-       FROM announcement_banners
-       WHERE is_active = TRUE
-         AND (starts_at IS NULL OR starts_at <= $1)
-         AND (ends_at IS NULL OR ends_at >= $1)
-         AND (
-           cardinality(target_plans) = 0 OR $2 = ANY(target_plans)
-         )
-         AND (
-           cardinality(target_roles) = 0
-           OR ($3::text IS NOT NULL AND $3::text = ANY(target_roles))
-         )
-         AND (
-           cardinality(target_genders) = 0
-           OR ($4::text IS NOT NULL AND $4::text = ANY(target_genders))
-         )
-       ORDER BY display_order ASC, created_at ASC`,
-      [now, user.plan, user.role ?? null, user.gender ?? null]
-    );
+    const banners = (await orm
+      .select({
+        id: schema.announcementBanners.id,
+        content: schema.announcementBanners.content,
+        content_type: schema.announcementBanners.contentType,
+        display_order: schema.announcementBanners.displayOrder,
+      })
+      .from(schema.announcementBanners)
+      .where(
+        and(
+          eq(schema.announcementBanners.isActive, true),
+          or(isNull(schema.announcementBanners.startsAt), lte(schema.announcementBanners.startsAt, now)),
+          or(isNull(schema.announcementBanners.endsAt), gte(schema.announcementBanners.endsAt, now)),
+          sql`(cardinality(${schema.announcementBanners.targetPlans}) = 0 OR ${user.plan} = ANY(${schema.announcementBanners.targetPlans}))`,
+          sql`(cardinality(${schema.announcementBanners.targetRoles}) = 0 OR EXISTS (
+            SELECT 1 FROM admin_roles ar WHERE ar.user_id = ${userId} AND ar.role = ANY(${schema.announcementBanners.targetRoles})
+          ))`,
+          sql`(cardinality(${schema.announcementBanners.targetGenders}) = 0 OR (${user.gender}::text IS NOT NULL AND ${user.gender}::text = ANY(${schema.announcementBanners.targetGenders})))`
+        )
+      )
+      .orderBy(asc(schema.announcementBanners.displayOrder), asc(schema.announcementBanners.createdAt))) as BannerRow[];
 
     if (banners.length === 0) {
       return NextResponse.json({ success: true, data: { banner: null }, error: null });
@@ -70,12 +78,12 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 
     const displayMode = (await getManifestValue("announcement_banner_mode"))?.replace(/"/g, "") ?? "serial";
 
-    const { rows: rotationRows } = await db.query<{ last_shown_id: string }>(
-      `SELECT last_shown_id FROM user_announcement_rotation
-       WHERE user_id = $1 AND content_type = 'banner' LIMIT 1`,
-      [userId]
-    );
-    const lastShownId = rotationRows[0]?.last_shown_id ?? null;
+    const [rotation] = await orm
+      .select({ last_shown_id: schema.userAnnouncementRotation.lastShownId })
+      .from(schema.userAnnouncementRotation)
+      .where(and(eq(schema.userAnnouncementRotation.userId, userId), eq(schema.userAnnouncementRotation.contentType, "banner")))
+      .limit(1);
+    const lastShownId = rotation?.last_shown_id ?? null;
 
     let selected: BannerRow;
 
@@ -92,13 +100,13 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       }
     }
 
-    await db.query(
-      `INSERT INTO user_announcement_rotation (user_id, content_type, last_shown_id, last_shown_at)
-       VALUES ($1, 'banner', $2, NOW())
-       ON CONFLICT (user_id, content_type)
-       DO UPDATE SET last_shown_id = EXCLUDED.last_shown_id, last_shown_at = EXCLUDED.last_shown_at`,
-      [userId, selected.id]
-    );
+    await orm
+      .insert(schema.userAnnouncementRotation)
+      .values({ userId, contentType: "banner", lastShownId: selected.id, lastShownAt: new Date() })
+      .onConflictDoUpdate({
+        target: [schema.userAnnouncementRotation.userId, schema.userAnnouncementRotation.contentType],
+        set: { lastShownId: selected.id, lastShownAt: new Date() },
+      });
 
     return NextResponse.json({
       success: true,

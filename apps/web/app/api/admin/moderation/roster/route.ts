@@ -16,9 +16,10 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 
 interface RosterRow {
   id: string;
@@ -36,8 +37,9 @@ interface RosterRow {
 
 export const GET = withAdminAuth(async (_req: NextRequest, _ctx) => {
   try {
-    const { rows } = await db.query<RosterRow>(
-      `SELECT id, username, display_name, avatar_emoji,
+    const orm = await getDb();
+    const { rows } = await orm.execute<RosterRow & Record<string, unknown>>(sql`
+      SELECT id, username, display_name, avatar_emoji,
               COALESCE(is_admin, false) AS is_admin,
               COALESCE(is_moderator, false) AS is_moderator,
               COALESCE(is_ad_moderator, false) AS is_ad_moderator,
@@ -54,8 +56,8 @@ export const GET = withAdminAuth(async (_req: NextRequest, _ctx) => {
            OR COALESCE(is_senior_support, false) = true
          )
        ORDER BY username ASC NULLS LAST
-       LIMIT 500`
-    );
+       LIMIT 500
+    `);
 
     const roster = rows.map((row) => ({
       id: row.id,

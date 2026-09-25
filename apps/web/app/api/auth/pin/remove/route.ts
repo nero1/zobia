@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, ApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -26,14 +27,6 @@ const removePinSchema = z.object({
     .string()
     .regex(/^\d{4}$/, "PIN must be exactly 4 numeric digits"),
 });
-
-// ---------------------------------------------------------------------------
-// DB row type
-// ---------------------------------------------------------------------------
-
-interface UserPinRow {
-  pin_hash: string;
-}
 
 // ---------------------------------------------------------------------------
 // DELETE /api/auth/pin/remove
@@ -56,26 +49,25 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, removePinSchema);
 
     // Fetch the user's stored PIN hash
-    const { rows } = await db.query<UserPinRow>(
-      `SELECT pin_hash FROM user_pins WHERE user_id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
+    const orm = await getDb();
+    const [row] = await orm
+      .select({ pinHash: schema.userPins.pinHash })
+      .from(schema.userPins)
+      .where(eq(schema.userPins.userId, auth.user.sub))
+      .limit(1);
 
-    if (!rows[0]) {
+    if (!row) {
       throw new ApiError(422, "NO_PIN_CONFIGURED", "No PIN configured for this account");
     }
 
     // Verify the supplied current PIN before allowing removal
-    const isValid = await bcrypt.compare(body.currentPin, rows[0].pin_hash);
+    const isValid = await bcrypt.compare(body.currentPin, row.pinHash);
     if (!isValid) {
       throw badRequest("Incorrect PIN", "INVALID_PIN");
     }
 
     // Delete the PIN record
-    await db.query(
-      `DELETE FROM user_pins WHERE user_id = $1`,
-      [auth.user.sub]
-    );
+    await orm.delete(schema.userPins).where(eq(schema.userPins.userId, auth.user.sub));
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {

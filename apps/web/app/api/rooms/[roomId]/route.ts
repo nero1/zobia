@@ -14,11 +14,18 @@ export const dynamic = 'force-dynamic';
  *
  * DELETE /api/rooms/:roomId
  *   Soft-deactivate a room (sets is_active = FALSE). Creator only.
+ *
+ * NOTE: `rooms.is_suspended` / `rooms.is_banned` and the `room_visits` table
+ * are not present in lib/db/schema.ts's rooms table (schema/DB mismatch —
+ * reported upstream; users has same-named is_suspended/is_banned columns,
+ * but rooms does not), so those specific reads/writes use Drizzle's `sql`
+ * tag directly rather than the query builder.
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -46,7 +53,7 @@ const updateRoomSchema = z.object({
 // DB row types
 // ---------------------------------------------------------------------------
 
-interface RoomDetailRow {
+type RoomDetailRow = Record<string, unknown> & {
   id: string;
   name: string;
   description: string | null;
@@ -81,7 +88,7 @@ interface RoomDetailRow {
   updated_at: string;
   /** Caller's membership role; null if not a member. */
   caller_role: string | null;
-}
+};
 
 interface RecentMessageRow {
   id: string;
@@ -112,54 +119,54 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
     const { roomId } = await params as { roomId: string };
+    const orm = await getDb();
 
-    const { rows: roomRows } = await db.query<RoomDetailRow & { is_admin: boolean }>(
-      `SELECT
-         r.id,
-         r.name,
-         r.description,
-         r.type,
-         r.category,
-         r.city,
-         r.cover_emoji,
-         r.cover_image_url,
-         r.creator_id,
-         u.username        AS creator_username,
-         u.display_name    AS creator_display_name,
-         u.avatar_emoji    AS creator_avatar_emoji,
-         u.creator_tier,
-         r.member_count,
-         r.max_members,
-         r.is_active,
-         r.is_featured,
-         r.is_sponsored,
-         r.subscription_price_ngn,
-         r.entry_fee_ngn,
-         r.drop_starts_at,
-         r.drop_ends_at,
-         r.enrolment_fee_ngn,
-         r.curriculum,
-         r.class_start_date,
-         r.class_end_date,
-         r.total_messages,
-         r.health_score,
-         r.created_at,
-         r.updated_at,
-         rm.role            AS caller_role,
-         COALESCE(r.is_suspended, FALSE) AS is_suspended,
-         COALESCE(r.is_banned, FALSE)    AS is_banned,
-         COALESCE(caller.is_admin, FALSE) AS is_admin
-       FROM rooms r
-       JOIN users u ON u.id = r.creator_id
-       LEFT JOIN room_members rm
-         ON rm.room_id = r.id AND rm.user_id = $2
-       LEFT JOIN users caller ON caller.id = $2
-       WHERE r.id = $1
-         AND r.is_active = TRUE`,
-      [roomId, auth.user.sub]
-    );
+    const result = await orm.execute<RoomDetailRow & { is_admin: boolean }>(sql`
+      SELECT
+        r.id,
+        r.name,
+        r.description,
+        r.type,
+        r.category,
+        r.city,
+        r.cover_emoji,
+        r.cover_image_url,
+        r.creator_id,
+        u.username        AS creator_username,
+        u.display_name    AS creator_display_name,
+        u.avatar_emoji    AS creator_avatar_emoji,
+        u.creator_tier,
+        r.member_count,
+        r.max_members,
+        r.is_active,
+        r.is_featured,
+        r.is_sponsored,
+        r.subscription_price_ngn,
+        r.entry_fee_ngn,
+        r.drop_starts_at,
+        r.drop_ends_at,
+        r.enrolment_fee_ngn,
+        r.curriculum,
+        r.class_start_date,
+        r.class_end_date,
+        r.total_messages,
+        r.health_score,
+        r.created_at,
+        r.updated_at,
+        rm.role            AS caller_role,
+        COALESCE(r.is_suspended, FALSE) AS is_suspended,
+        COALESCE(r.is_banned, FALSE)    AS is_banned,
+        COALESCE(caller.is_admin, FALSE) AS is_admin
+      FROM rooms r
+      JOIN users u ON u.id = r.creator_id
+      LEFT JOIN room_members rm
+        ON rm.room_id = r.id AND rm.user_id = ${auth.user.sub}
+      LEFT JOIN users caller ON caller.id = ${auth.user.sub}
+      WHERE r.id = ${roomId}
+        AND r.is_active = TRUE
+    `);
 
-    const room = roomRows[0];
+    const room = result.rows[0];
     if (!room) throw notFound("Room not found");
     if (room.is_banned) throw forbidden("This room has been permanently banned");
     if (room.is_suspended) throw forbidden("This room is currently suspended");
@@ -167,13 +174,12 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
     // Guild rooms are restricted to Platinum-tier guilds and above.
     // Admins bypass this gate entirely — they can open and moderate any room.
     if (room.type === "guild" && !room.is_admin) {
-      const { rows: guildTierRows } = await db.query<{ tier: string }>(
-        `SELECT g.tier FROM guilds g
-         JOIN guild_rooms gr ON gr.guild_id = g.id
-         WHERE gr.room_id = $1`,
-        [roomId]
-      );
-      const guildTier = guildTierRows[0]?.tier ?? null;
+      const [guildTierRow] = await orm
+        .select({ tier: schema.guilds.tier })
+        .from(schema.guilds)
+        .innerJoin(schema.guildRooms, eq(schema.guildRooms.guildId, schema.guilds.id))
+        .where(eq(schema.guildRooms.roomId, roomId));
+      const guildTier = guildTierRow?.tier ?? null;
       const platinumAndAbove = ["platinum_1", "platinum_2", "platinum_3", "legend"];
       if (!guildTier || !platinumAndAbove.includes(guildTier)) {
         throw forbidden("Guild Rooms are only available to Platinum-tier Guilds and above.");
@@ -195,52 +201,48 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
 
     let recentMessages: RecentMessageRow[] = [];
     if (showMessages) {
-      const { rows: msgRows } = await db.query<RecentMessageRow>(
-        `SELECT
-           m.id,
-           u.username       AS sender_username,
-           u.avatar_emoji   AS sender_avatar_emoji,
-           m.content,
-           m.message_type,
-           m.created_at
-         FROM room_messages m
-         JOIN users u ON u.id = m.sender_id
-         WHERE m.room_id = $1
-           AND m.is_deleted = FALSE
-         ORDER BY m.created_at DESC
-         LIMIT $2`,
-        [roomId, messageLimit]
-      );
-      recentMessages = msgRows;
+      const msgRows = await orm
+        .select({
+          id: schema.roomMessages.id,
+          sender_username: schema.users.username,
+          sender_avatar_emoji: schema.users.avatarEmoji,
+          content: schema.roomMessages.content,
+          message_type: schema.roomMessages.messageType,
+          created_at: schema.roomMessages.createdAt,
+        })
+        .from(schema.roomMessages)
+        .innerJoin(schema.users, eq(schema.users.id, schema.roomMessages.senderId))
+        .where(and(eq(schema.roomMessages.roomId, roomId), eq(schema.roomMessages.isDeleted, false)))
+        .orderBy(sql`${schema.roomMessages.createdAt} DESC`)
+        .limit(messageLimit);
+      recentMessages = msgRows as unknown as RecentMessageRow[];
     }
 
     // Top gifter for display in header
-    const { rows: topGifterRows } = await db.query<{
+    const topGifterResult = await orm.execute<{
       user_id: string;
       username: string;
       avatar_emoji: string;
-      total_coins: number;
-    }>(
-      `SELECT g.sender_id AS user_id, u.username, u.avatar_emoji,
-              SUM(g.coin_value) AS total_coins
-         FROM gifts g
-         JOIN users u ON u.id = g.sender_id
-         WHERE g.room_id = $1
-           AND g.created_at > NOW() - INTERVAL '24 hours'
-         GROUP BY g.sender_id, u.username, u.avatar_emoji
-         ORDER BY total_coins DESC
-         LIMIT 1`,
-      [roomId]
-    );
+      total_coins: string;
+    }>(sql`
+      SELECT g.sender_id AS user_id, u.username, u.avatar_emoji,
+             SUM(g.coin_value) AS total_coins
+        FROM gifts g
+        JOIN users u ON u.id = g.sender_id
+        WHERE g.room_id = ${roomId}
+          AND g.created_at > NOW() - INTERVAL '24 hours'
+        GROUP BY g.sender_id, u.username, u.avatar_emoji
+        ORDER BY total_coins DESC
+        LIMIT 1
+    `);
 
     // Record this open for the "Recently Visited" discovery tab. Fire-and-forget
     // — a visit-tracking failure must never break the room detail response.
-    db.query(
-      `INSERT INTO room_visits (user_id, room_id, last_visited_at)
-       VALUES ($1, $2, NOW())
-       ON CONFLICT (user_id, room_id) DO UPDATE SET last_visited_at = NOW()`,
-      [auth.user.sub, roomId]
-    ).catch((err) => {
+    orm.execute(sql`
+      INSERT INTO room_visits (user_id, room_id, last_visited_at)
+      VALUES (${auth.user.sub}, ${roomId}, NOW())
+      ON CONFLICT (user_id, room_id) DO UPDATE SET last_visited_at = NOW()
+    `).catch((err: unknown) => {
       logger.warn({ err, roomId, userId: auth.user.sub }, "[rooms] failed to record room visit");
     });
 
@@ -250,7 +252,7 @@ export const GET = withAuth(async (req: NextRequest, { params, auth }) => {
         isMember,
         isCreator,
         recentMessages,
-        topGifter: topGifterRows[0] ?? null,
+        topGifter: topGifterResult.rows[0] ?? null,
       },
       { status: 200 }
     );
@@ -276,40 +278,34 @@ export const PUT = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const { roomId } = await params as { roomId: string };
     const body = await validateBody(req, updateRoomSchema);
+    const orm = await getDb();
 
     // Verify ownership
-    const { rows: ownerRows } = await db.query<{ creator_id: string }>(
-      `SELECT creator_id FROM rooms WHERE id = $1 AND is_active = TRUE`,
-      [roomId]
-    );
-    if (!ownerRows[0]) throw notFound("Room not found");
-    if (ownerRows[0].creator_id !== auth.user.sub) {
+    const [owner] = await orm
+      .select({ creatorId: schema.rooms.creatorId })
+      .from(schema.rooms)
+      .where(and(eq(schema.rooms.id, roomId), eq(schema.rooms.isActive, true)))
+      .limit(1);
+    if (!owner) throw notFound("Room not found");
+    if (owner.creatorId !== auth.user.sub) {
       throw forbidden("Only the room creator can update this room");
     }
 
-    const { rows: updatedRows } = await db.query(
-      `UPDATE rooms SET
-         name             = COALESCE($2, name),
-         description      = COALESCE($3, description),
-         category         = COALESCE($4, category),
-         city             = COALESCE($5, city),
-         cover_emoji      = COALESCE($6, cover_emoji),
-         cover_image_url  = COALESCE($7, cover_image_url),
-         updated_at       = NOW()
-       WHERE id = $1
-       RETURNING *`,
-      [
-        roomId,
-        body.name ?? null,
-        body.description ?? null,
-        body.category ?? null,
-        body.city ?? null,
-        body.coverEmoji ?? null,
-        body.coverImageUrl ?? null,
-      ]
-    );
+    const [updatedRoom] = await orm
+      .update(schema.rooms)
+      .set({
+        name: body.name ?? undefined,
+        description: body.description ?? undefined,
+        category: body.category ?? undefined,
+        city: body.city ?? undefined,
+        coverEmoji: body.coverEmoji ?? undefined,
+        coverImageUrl: body.coverImageUrl !== undefined ? body.coverImageUrl : undefined,
+        updatedAt: sql`NOW()`,
+      })
+      .where(eq(schema.rooms.id, roomId))
+      .returning();
 
-    return NextResponse.json({ room: updatedRows[0] }, { status: 200 });
+    return NextResponse.json({ room: updatedRoom }, { status: 200 });
   } catch (err) {
     return handleApiError(err);
   }
@@ -334,34 +330,40 @@ export const DELETE = withAuth(async (req: NextRequest, { params, auth }) => {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiWrite);
 
     const { roomId } = await params as { roomId: string };
+    const orm = await getDb();
 
-    const { rows: ownerRows } = await db.query<{ creator_id: string; created_at: string }>(
-      `SELECT creator_id, created_at FROM rooms WHERE id = $1 AND is_active = TRUE`,
-      [roomId]
-    );
-    if (!ownerRows[0]) throw notFound("Room not found");
-    if (ownerRows[0].creator_id !== auth.user.sub) {
+    const [owner] = await orm
+      .select({ creatorId: schema.rooms.creatorId, createdAt: schema.rooms.createdAt })
+      .from(schema.rooms)
+      .where(and(eq(schema.rooms.id, roomId), eq(schema.rooms.isActive, true)))
+      .limit(1);
+    if (!owner) throw notFound("Room not found");
+    if (owner.creatorId !== auth.user.sub) {
       throw forbidden("Only the room creator can deactivate this room");
     }
 
-    await db.query(
-      `UPDATE rooms SET is_active = FALSE, updated_at = NOW() WHERE id = $1`,
-      [roomId]
-    );
+    await orm
+      .update(schema.rooms)
+      .set({ isActive: false, updatedAt: sql`NOW()` })
+      .where(eq(schema.rooms.id, roomId));
 
     // PRD §6: Award 50 XP (creator track) if creator hosted for 30+ minutes
-    const sessionMinutes = (Date.now() - new Date(ownerRows[0].created_at).getTime()) / 60000;
+    const sessionMinutes = owner.createdAt
+      ? (Date.now() - new Date(owner.createdAt).getTime()) / 60000
+      : 0;
     if (sessionMinutes >= 30) {
-      db.query(
-        `INSERT INTO xp_events (user_id, action, xp_awarded, track, metadata)
-         VALUES ($1, 'host_room_session_30_min', 50, 'creator', $2::jsonb)`,
-        [auth.user.sub, JSON.stringify({ roomId, sessionMinutes: Math.floor(sessionMinutes) })]
-      ).then(() =>
-        db.query(
-          `UPDATE users SET xp_total = xp_total + 50, xp_creator = xp_creator + 50, updated_at = NOW() WHERE id = $1`,
-          [auth.user.sub]
-        )
-      ).catch((err) => logger.error({ err: err }, "[rooms/delete] host_room_session_30_min XP failed:"))
+      orm.insert(schema.xpEvents).values({
+        userId: auth.user.sub,
+        action: 'host_room_session_30_min',
+        xpAwarded: 50,
+        track: 'creator',
+        metadata: { roomId, sessionMinutes: Math.floor(sessionMinutes) },
+      }).then(() =>
+        orm
+          .update(schema.users)
+          .set({ xpTotal: sql`${schema.users.xpTotal} + 50`, xpCreator: sql`${schema.users.xpCreator} + 50`, updatedAt: sql`NOW()` })
+          .where(eq(schema.users.id, auth.user.sub))
+      ).catch((err: unknown) => logger.error({ err: err }, "[rooms/delete] host_room_session_30_min XP failed:"))
     }
 
     return new NextResponse(null, { status: 204 });

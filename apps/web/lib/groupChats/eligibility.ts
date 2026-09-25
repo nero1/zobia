@@ -8,14 +8,9 @@
  * the same limit since a reactivated group counts against it again.
  */
 
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { loadManifest } from "@/lib/manifest";
-
-interface CreatorEligibilityRow {
-  plan: string;
-  business_tier: string | null;
-  business_status: string | null;
-}
 
 export interface GroupCreationEligibility {
   allowed: boolean;
@@ -35,38 +30,48 @@ export async function resolveGroupCreationEligibility(
 ): Promise<GroupCreationEligibility> {
   const manifest = await loadManifest();
   const limits = manifest.groupChatCreationLimits;
+  const orm = await getDb();
 
-  const { rows: userRows } = await db.query<CreatorEligibilityRow>(
-    `SELECT COALESCE(u.plan, 'free') AS plan, ba.tier AS business_tier, ba.status AS business_status
-     FROM users u
-     LEFT JOIN business_accounts ba ON ba.user_id = u.id AND ba.status = 'active'
-     WHERE u.id = $1 AND u.deleted_at IS NULL LIMIT 1`,
-    [userId]
-  );
-  const user = userRows[0];
+  const [user] = await orm
+    .select({
+      plan: schema.users.plan,
+      businessTier: schema.businessAccounts.tier,
+      businessStatus: schema.businessAccounts.status,
+    })
+    .from(schema.users)
+    .leftJoin(
+      schema.businessAccounts,
+      and(eq(schema.businessAccounts.userId, schema.users.id), eq(schema.businessAccounts.status, "active"))
+    )
+    .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+    .limit(1);
   if (!user) return { allowed: false, limit: 0, active: 0, isGuildOwner: false };
 
-  const { rows: guildRows } = await db.query<{ id: string }>(
-    `SELECT id FROM guilds WHERE captain_id = $1 AND is_active = TRUE AND deleted_at IS NULL LIMIT 1`,
-    [userId]
-  );
-  const isGuildOwner = guildRows.length > 0;
+  const [guildRow] = await orm
+    .select({ id: schema.guilds.id })
+    .from(schema.guilds)
+    .where(and(eq(schema.guilds.captainId, userId), eq(schema.guilds.isActive, true), isNull(schema.guilds.deletedAt)))
+    .limit(1);
+  const isGuildOwner = !!guildRow;
 
   let limit: number;
-  if (user.business_tier === "starter") limit = limits.businessStarter;
-  else if (user.business_tier === "growth") limit = limits.businessGrowth;
-  else if (user.business_tier === "enterprise") limit = limits.businessEnterprise;
+  if (user.businessTier === "starter") limit = limits.businessStarter;
+  else if (user.businessTier === "growth") limit = limits.businessGrowth;
+  else if (user.businessTier === "enterprise") limit = limits.businessEnterprise;
   else {
-    limit = limits[user.plan as keyof typeof limits] ?? limits.free;
+    limit = limits[(user.plan ?? "free") as keyof typeof limits] ?? limits.free;
   }
   if (isGuildOwner) limit = Math.max(limit, 1);
 
-  const { rows: countRows } = await db.query<{ cnt: string }>(
-    `SELECT COUNT(*)::text AS cnt FROM group_chats
-     WHERE creator_id = $1 AND is_active = TRUE AND is_deactivated = FALSE`,
-    [userId]
-  );
-  const active = parseInt(countRows[0]?.cnt ?? "0", 10);
+  // NOTE: `group_chats.is_deactivated` is not present on `schema.groupChats`
+  // in lib/db/schema.ts (schema/DB mismatch — reported upstream, see
+  // lib/plans/groupChatSweep.ts), so this uses Drizzle's `sql` tag directly
+  // rather than the query builder for that one predicate.
+  const result = await orm.execute<{ cnt: string }>(sql`
+    SELECT COUNT(*)::text AS cnt FROM group_chats
+    WHERE creator_id = ${userId} AND is_active = TRUE AND is_deactivated = FALSE
+  `);
+  const active = parseInt(result.rows[0]?.cnt ?? "0", 10);
 
   return { allowed: active < limit, limit, active, isGuildOwner };
 }

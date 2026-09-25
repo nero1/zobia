@@ -26,6 +26,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import crypto from "crypto";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import {
   verifyTelegramLogin,
   parseTelegramParams,
@@ -33,7 +34,7 @@ import {
 import { createSession, buildCookieHeaders } from "@/lib/auth/session";
 import { signAccessToken } from "@/lib/auth/jwt";
 import { redis } from "@/lib/redis";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { handleApiError, badRequest, unauthorized } from "@/lib/api/errors";
 import { enforceRateLimit, getClientIp, getUserAgent, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getManifestValue } from "@/lib/manifest";
@@ -89,9 +90,67 @@ interface UserRow {
   is_creator: boolean;
 }
 
+const userSelectCols = {
+  id: schema.users.id,
+  email: schema.users.email,
+  username: schema.users.username,
+  is_admin: schema.users.isAdmin,
+  is_moderator: schema.users.isModerator,
+  is_banned: schema.users.isBanned,
+  is_suspended: schema.users.isSuspended,
+  suspension_reason: schema.users.suspensionReason,
+  suspended_until: schema.users.suspendedUntil,
+  ban_reason: schema.users.banReason,
+  totp_enabled: schema.users.totpEnabled,
+  onboarding_completed: schema.users.onboardingCompleted,
+  display_name: schema.users.displayName,
+  avatar_emoji: schema.users.avatarEmoji,
+  city: schema.users.city,
+  xp_total: schema.users.xpTotal,
+  rank_name: schema.users.rankName,
+  plan: schema.users.plan,
+  is_creator: schema.users.isCreator,
+} as const;
+
+/** Normalize a Drizzle row (bigint xp_total) into the plain UserRow shape. */
+function toUserRow(row: Record<string, unknown>): UserRow {
+  const xp = (row as { xp_total?: unknown }).xp_total;
+  return {
+    ...(row as unknown as UserRow),
+    xp_total: typeof xp === "bigint" ? Number(xp) : ((xp as number) ?? 0),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+// Maximum username length enforced by the DB schema constraint.
+const DB_USERNAME_MAX_LENGTH = 30;
+
+/** Find a unique username by appending a numeric suffix if the base is taken. */
+async function uniqueUsername(base: string): Promise<string> {
+  const safeBase = base.replace(/[^a-z0-9_]/gi, "").slice(0, DB_USERNAME_MAX_LENGTH) || "user";
+  const orm = await getDb();
+  const rows = await orm
+    .select({ username: schema.users.username })
+    .from(schema.users)
+    .where(
+      and(
+        sql`(${schema.users.username} = ${safeBase} OR ${schema.users.username} ~ ('^' || ${safeBase} || '[0-9]+$'))`,
+        isNull(schema.users.deletedAt)
+      )
+    );
+  const taken = new Set(rows.map((r) => r.username));
+  if (!taken.has(safeBase)) return safeBase;
+  for (let i = 2; i < 10_000; i++) {
+    const suffix = String(i);
+    const candidate = `${safeBase.slice(0, DB_USERNAME_MAX_LENGTH - suffix.length)}${suffix}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  const suffix = Math.random().toString(36).slice(2, 6);
+  return `${safeBase.slice(0, DB_USERNAME_MAX_LENGTH - suffix.length)}${suffix}`;
+}
 
 /**
  * Upsert a user record from Telegram profile data.
@@ -108,19 +167,15 @@ async function upsertTelegramUser(profile: {
   photoUrl?: string;
 }): Promise<UserRow> {
   // Check if user already exists with this Telegram ID
-  const existing = await db.query<UserRow>(
-    `SELECT id, email, username, is_admin, is_moderator, is_banned, is_suspended,
-            suspension_reason, suspended_until, ban_reason,
-            totp_enabled, onboarding_completed, display_name, avatar_emoji, city,
-            xp_total, rank_name, plan, is_creator
-     FROM users
-     WHERE telegram_id = $1 AND deleted_at IS NULL
-     LIMIT 1`,
-    [profile.telegramId]
-  );
+  const orm = await getDb();
+  const [existingRow] = await orm
+    .select(userSelectCols)
+    .from(schema.users)
+    .where(and(eq(schema.users.telegramId, profile.telegramId), isNull(schema.users.deletedAt)))
+    .limit(1);
 
-  if (existing.rows[0]) {
-    const u = existing.rows[0];
+  if (existingRow) {
+    const u = toUserRow(existingRow);
     if (u.is_banned || u.is_suspended) {
       // Keyed by userId — identity is already established via Telegram's
       // signed widget payload at this point (BUG-060: bypassL1 on the general
@@ -153,25 +208,29 @@ async function upsertTelegramUser(profile: {
     .filter(Boolean)
     .join(" ");
 
-  // Create new user
-  const inserted = await db.query<UserRow>(
-    `INSERT INTO users (
-       telegram_id, display_name, avatar_url, onboarding_completed,
-       is_admin, is_creator, created_at, updated_at
-     )
-     VALUES ($1, $2, $3, false, false, false, NOW(), NOW())
-     RETURNING id, email, username, is_admin, is_moderator, is_banned, is_suspended,
-               suspension_reason, suspended_until, ban_reason,
-               totp_enabled, onboarding_completed, display_name, avatar_emoji, city,
-               xp_total, rank_name, plan, is_creator`,
-    [profile.telegramId, displayName, profile.photoUrl ?? null]
-  );
+  // users.username is NOT NULL with no DB default — derive one from the
+  // Telegram profile (username, else first name, else telegram id).
+  const username = await uniqueUsername(profile.username || profile.firstName || `tg${profile.telegramId}`);
 
-  if (!inserted.rows[0]) {
+  // Create new user
+  const [inserted] = await orm
+    .insert(schema.users)
+    .values({
+      telegramId: profile.telegramId,
+      username,
+      displayName: displayName,
+      avatarUrl: profile.photoUrl ?? null,
+      onboardingCompleted: false,
+      isAdmin: false,
+      isCreator: false,
+    })
+    .returning(userSelectCols);
+
+  if (!inserted) {
     throw new Error("Failed to create user record for Telegram login");
   }
 
-  return inserted.rows[0];
+  return toUserRow(inserted);
 }
 
 // ---------------------------------------------------------------------------

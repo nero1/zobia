@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -27,26 +28,25 @@ export const POST = withAuth(
 
       const { roomId } = params;
       const userId = auth.user.sub;
+      const orm = await getDb();
 
       // Fetch replay
-      const { rows: replayRows } = await db.query<{
-        id: string;
-        creator_id: string;
-        title: string;
-        replay_fee_kobo: string;
-        is_published: boolean;
-      }>(
-        `SELECT id, creator_id, title, replay_fee_kobo::TEXT, is_published
-         FROM drop_room_replays
-         WHERE room_id = $1 LIMIT 1`,
-        [roomId]
-      );
+      const [replay] = await orm
+        .select({
+          id: schema.dropRoomReplays.id,
+          creator_id: schema.dropRoomReplays.creatorId,
+          title: schema.dropRoomReplays.title,
+          replay_fee_kobo: schema.dropRoomReplays.replayFeeKobo,
+          is_published: schema.dropRoomReplays.isPublished,
+        })
+        .from(schema.dropRoomReplays)
+        .where(eq(schema.dropRoomReplays.roomId, roomId))
+        .limit(1);
 
-      const replay = replayRows[0];
       if (!replay) throw notFound("Replay not found for this room");
       if (!replay.is_published) throw notFound("Replay is not yet published");
 
-      const replayFeeKobo = parseInt(replay.replay_fee_kobo, 10);
+      const replayFeeKobo = Number(replay.replay_fee_kobo);
       const isFree = replayFeeKobo <= 0;
 
       // Creator always has access
@@ -57,28 +57,32 @@ export const POST = withAuth(
       const replayFeeCoins = Math.ceil(replayFeeKobo / 100);
 
       // Idempotency: check if already paid
-      const { rows: accessRows } = await db.query<{ id: string }>(
-        `SELECT id FROM coin_ledger
-         WHERE user_id = $1
-           AND reference_id = $2
-           AND transaction_type = 'replay_access'
-         LIMIT 1`,
-        [userId, replay.id]
-      );
+      const [access] = await orm
+        .select({ id: schema.coinLedger.id })
+        .from(schema.coinLedger)
+        .where(
+          and(
+            eq(schema.coinLedger.userId, userId),
+            eq(schema.coinLedger.referenceId, replay.id),
+            eq(schema.coinLedger.transactionType, "replay_access")
+          )
+        )
+        .limit(1);
 
-      if (accessRows[0]) {
+      if (access) {
         return NextResponse.json({ success: true, alreadyOwned: true }, { status: 200 });
       }
 
       // Deduct coins in transaction
-      await db.transaction(async (tx) => {
-        const { rows: userRows } = await tx.query<{ coin_balance: number }>(
-          `SELECT coin_balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
-          [userId]
-        );
-        if (!userRows[0]) throw notFound("User not found");
+      await orm.transaction(async (tx) => {
+        const [userRow] = await tx
+          .select({ coin_balance: schema.users.coinBalance })
+          .from(schema.users)
+          .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+          .for("update");
+        if (!userRow) throw notFound("User not found");
 
-        const { coin_balance } = userRows[0];
+        const coin_balance = Number(userRow.coin_balance);
         if (coin_balance < replayFeeCoins) {
           throw forbidden(
             `Insufficient coins. Replay access costs ${replayFeeCoins} coins.`
@@ -87,24 +91,20 @@ export const POST = withAuth(
 
         const newBalance = coin_balance - replayFeeCoins;
 
-        await tx.query(
-          `UPDATE users SET coin_balance = $1, updated_at = NOW() WHERE id = $2`,
-          [newBalance, userId]
-        );
+        await tx
+          .update(schema.users)
+          .set({ coinBalance: BigInt(newBalance), updatedAt: new Date() })
+          .where(eq(schema.users.id, userId));
 
-        await tx.query(
-          `INSERT INTO coin_ledger
-             (user_id, amount, balance_before, balance_after, transaction_type, description, reference_id, created_at)
-           VALUES ($1, $2, $3, $4, 'replay_access', $5, $6, NOW())`,
-          [
-            userId,
-            -replayFeeCoins,
-            coin_balance,
-            newBalance,
-            `Replay access: ${replay.title}`,
-            replay.id,
-          ]
-        );
+        await tx.insert(schema.coinLedger).values({
+          userId,
+          amount: BigInt(-replayFeeCoins),
+          balanceBefore: BigInt(coin_balance),
+          balanceAfter: BigInt(newBalance),
+          transactionType: "replay_access",
+          description: `Replay access: ${replay.title}`,
+          referenceId: replay.id,
+        });
       });
 
       return NextResponse.json(

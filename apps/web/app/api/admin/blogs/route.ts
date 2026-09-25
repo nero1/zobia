@@ -8,10 +8,11 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { and, desc, eq, ilike, isNull, lt, or } from "drizzle-orm";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) => {
   try {
@@ -22,38 +23,50 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
     const cursor = url.searchParams.get("cursor");
     const limit = Math.min(parseInt(url.searchParams.get("limit") ?? "50", 10) || 50, 100);
 
-    const params: (string | number)[] = [];
-    let where = "b.deleted_at IS NULL";
+    const filters = [];
     if (status !== "all") {
-      params.push(status);
-      where += ` AND b.status = $${params.length}`;
+      filters.push(eq(schema.blogs.status, status));
     }
     if (q) {
-      params.push(`%${q}%`);
-      where += ` AND (b.title ILIKE $${params.length} OR b.slug ILIKE $${params.length} OR u.username ILIKE $${params.length} OR u.email ILIKE $${params.length})`;
+      const like = `%${q}%`;
+      filters.push(
+        or(
+          ilike(schema.blogs.title, like),
+          ilike(schema.blogs.slug, like),
+          ilike(schema.users.username, like),
+          ilike(schema.users.email, like)
+        )
+      );
     }
     if (cursor) {
-      params.push(cursor);
-      where += ` AND b.created_at < $${params.length}`;
+      filters.push(lt(schema.blogs.createdAt, new Date(cursor)));
     }
 
-    params.push(limit + 1);
-    const { rows } = await db.query(
-      `SELECT b.id, b.slug, b.title, b.status, b.status_reason, b.subscriber_count, b.post_count,
-              b.created_at, u.id AS owner_id, u.username AS owner_username
-       FROM blogs b
-       JOIN users u ON u.id = b.owner_id
-       WHERE ${where}
-       ORDER BY b.created_at DESC
-       LIMIT $${params.length}`,
-      params
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        id: schema.blogs.id,
+        slug: schema.blogs.slug,
+        title: schema.blogs.title,
+        status: schema.blogs.status,
+        status_reason: schema.blogs.statusReason,
+        subscriber_count: schema.blogs.subscriberCount,
+        post_count: schema.blogs.postCount,
+        created_at: schema.blogs.createdAt,
+        owner_id: schema.users.id,
+        owner_username: schema.users.username,
+      })
+      .from(schema.blogs)
+      .innerJoin(schema.users, eq(schema.users.id, schema.blogs.ownerId))
+      .where(and(isNull(schema.blogs.deletedAt), ...filters))
+      .orderBy(desc(schema.blogs.createdAt))
+      .limit(limit + 1);
 
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;
     return NextResponse.json({
       success: true,
-      data: { items, hasMore, nextCursor: hasMore ? (items[items.length - 1] as { created_at: string }).created_at : null },
+      data: { items, hasMore, nextCursor: hasMore ? (items[items.length - 1] as { created_at: Date | string }).created_at : null },
       error: null,
     });
   } catch (err) {

@@ -8,7 +8,8 @@
  * a role claim from the JWT.
  */
 
-import { db } from "@/lib/db";
+import { eq, and, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 
 /**
  * Returns true if the given user currently has `is_admin` or `is_moderator`
@@ -47,25 +48,31 @@ const EMPTY_STAFF_ROLES: StaffRoles = {
  */
 export async function getStaffRoles(userId: string): Promise<StaffRoles> {
   try {
-    const { rows } = await db.query<{
-      is_admin: boolean;
-      is_moderator: boolean;
-      is_support: boolean;
-      is_senior_support: boolean;
-      is_ad_moderator: boolean;
-    }>(
-      `SELECT is_admin, is_moderator, is_support, is_senior_support, is_ad_moderator
-       FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+    // NOTE (schema gap): `is_ad_moderator` (db/migrations/0002_ai_vision_and_ad_moderator.sql)
+    // has no corresponding column in lib/db/schema.ts's `users` pgTable, so it
+    // can't be selected via the query builder — pulled in via a raw `sql`
+    // fragment alongside the builder-selected columns, still through the
+    // shared Drizzle-wrapped pg.Pool and still fully parameterised.
+    const rows = await orm
+      .select({
+        isAdmin: schema.users.isAdmin,
+        isModerator: schema.users.isModerator,
+        isSupport: schema.users.isSupport,
+        isSeniorSupport: schema.users.isSeniorSupport,
+        isAdModerator: sql<boolean>`${schema.users}.is_ad_moderator`,
+      })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     const row = rows[0];
     if (!row) return EMPTY_STAFF_ROLES;
     return {
-      isAdmin: Boolean(row.is_admin),
-      isModerator: Boolean(row.is_moderator),
-      isSupport: Boolean(row.is_support),
-      isSeniorSupport: Boolean(row.is_senior_support),
-      isAdModerator: Boolean(row.is_ad_moderator),
+      isAdmin: Boolean(row.isAdmin),
+      isModerator: Boolean(row.isModerator),
+      isSupport: Boolean(row.isSupport),
+      isSeniorSupport: Boolean(row.isSeniorSupport),
+      isAdModerator: Boolean(row.isAdModerator),
     };
   } catch {
     return EMPTY_STAFF_ROLES;

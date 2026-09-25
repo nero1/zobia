@@ -18,7 +18,8 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 
@@ -42,17 +43,17 @@ export const POST = withAuth(async (req: NextRequest, { auth }): Promise<NextRes
 
     const { reference } = parsed.data;
 
-    const { rows } = await db.query<PaymentRow>(
-      `SELECT p.status,
+    const orm = await getDb();
+    const { rows } = await orm.execute<PaymentRow & Record<string, unknown>>(sql`
+       SELECT p.status,
               p.metadata,
               cl.amount AS coins_granted
        FROM payments p
        LEFT JOIN coin_ledger cl ON cl.reference_id = p.id::text AND cl.transaction_type = 'iap_purchase'
-       WHERE p.provider_reference = $1
-         AND p.user_id = $2
-       LIMIT 1`,
-      [reference, auth.user.sub]
-    );
+       WHERE p.provider_reference = ${reference}
+         AND p.user_id = ${auth.user.sub}
+       LIMIT 1
+    `);
 
     if (!rows[0]) {
       return NextResponse.json(

@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { createGiftItem, rewardConfigSchema, refineRewardFields } from "@/lib/economy/giftItems";
@@ -51,32 +52,25 @@ export const GET = withAdminAuth(async (req: NextRequest) => {
     const cursor = searchParams.get("cursor");
     const showRetired = searchParams.get("retired") === "true";
 
-    const params: (string | number | boolean)[] = [];
-    let idx = 1;
-    const conditions: string[] = [];
-
+    const conditions = [];
     if (!showRetired) {
-      conditions.push(`is_active = TRUE`);
+      conditions.push(sql`is_active = TRUE`);
     }
-
     if (cursor) {
       const [ts, id] = cursor.split("__");
-      conditions.push(`(created_at, id) < ($${idx++}::timestamptz, $${idx++}::uuid)`);
-      params.push(ts, id);
+      conditions.push(sql`(created_at, id) < (${ts}::timestamptz, ${id}::uuid)`);
     }
+    const whereClause = conditions.length ? sql`WHERE ${sql.join(conditions, sql` AND `)}` : sql``;
 
-    const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-    params.push(limit + 1);
-
-    const { rows } = await db.query<GiftItemRow>(
-      `SELECT id, name, emoji, coin_cost, tier, animation_url,
+    const orm = await getDb();
+    const { rows } = await orm.execute<GiftItemRow & Record<string, unknown>>(sql`
+      SELECT id, name, emoji, coin_cost, tier, animation_url,
               spectacle_threshold_coins, is_active, is_rewarded, reward_config, created_at
        FROM gift_items
-       ${where}
+       ${whereClause}
        ORDER BY tier ASC, coin_cost ASC, created_at DESC, id DESC
-       LIMIT $${idx}`,
-      params
-    );
+       LIMIT ${limit + 1}
+    `);
 
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;
@@ -114,7 +108,8 @@ export const POST = withAdminAuth(async (req: NextRequest) => {
   try {
     const body = await validateBody(req, createGiftSchema);
 
-    const gift = await createGiftItem(body, db);
+    const orm = await getDb();
+    const gift = await createGiftItem(body, orm);
 
     return NextResponse.json({ success: true, data: { id: gift.id }, error: null }, { status: 201 });
   } catch (err) {

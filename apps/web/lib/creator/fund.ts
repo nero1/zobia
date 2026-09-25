@@ -11,8 +11,8 @@
  */
 
 import Decimal from "decimal.js";
-import { db } from "@/lib/db";
-import type { TransactionClient } from "@/lib/db/interface";
+import { sql } from "drizzle-orm";
+import { getDb, type DbOrTx } from "@/lib/db/drizzle";
 
 export interface CreatorFundDistribution {
   creatorId: string;
@@ -81,19 +81,21 @@ function normalise(values: number[]): number[] {
 
 export async function calculateFundDistributions(
   poolKobo: number,
-  dbClient: TransactionClient | typeof db = db
+  dbClient?: DbOrTx
 ): Promise<CreatorFundDistribution[]> {
+  const client = dbClient ?? (await getDb());
+
   // Check for an active IWD / female-creator cultural event boost
-  const { rows: eventRows } = await dbClient.query<{ multiplier: string }>(
-    `SELECT xp_multiplier::TEXT AS multiplier
+  const eventResult = await client.execute<{ multiplier: string }>(sql`
+    SELECT xp_multiplier::TEXT AS multiplier
      FROM platform_events
      WHERE event_type = 'cultural'
        AND (metadata->>'female_creator_only')::boolean = true
        AND starts_at <= NOW()
        AND ends_at > NOW()
-     ORDER BY xp_multiplier DESC LIMIT 1`
-  );
-  const femaleCreatorBoost = eventRows[0] ? parseFloat(eventRows[0].multiplier) : 1.0;
+     ORDER BY xp_multiplier DESC LIMIT 1
+  `);
+  const femaleCreatorBoost = eventResult.rows[0] ? parseFloat(eventResult.rows[0].multiplier) : 1.0;
 
   // ZB-10: Use CTEs to compute each metric independently, then JOIN.
   // Joining multiple one-to-many tables to the same user row in a single query
@@ -105,8 +107,12 @@ export async function calculateFundDistributions(
   // calendar days the user authenticated — the canonical definition of an "active day"
   // for Creator Fund consistency scoring. Decoupled from XP/message activity so
   // engagement (40%) and consistency (15%) dimensions are truly independent.
-  const { rows: creators } = await dbClient.query<CreatorMetrics>(
-    `WITH eng AS (
+  //
+  // Kept as a raw parameterized `sql` template (multi-CTE aggregation isn't
+  // cleanly expressible via the Drizzle query builder) rather than db.query —
+  // this still goes through the shared Drizzle client/pool.
+  const creatorsResult = await client.execute<CreatorMetrics & Record<string, unknown>>(sql`
+    WITH eng AS (
        SELECT user_id,
               COALESCE(SUM(amount), 0)::INTEGER           AS xp_earned_30d
        FROM xp_ledger
@@ -160,8 +166,9 @@ export async function calculateFundDistributions(
        AND u.creator_tier IN ('elite', 'icon')
        AND u.deleted_at IS NULL
        AND COALESCE(eng.xp_earned_30d, 0) > 0
-     ORDER BY u.id`
-  );
+     ORDER BY u.id
+  `);
+  const creators = creatorsResult.rows;
 
   if (creators.length === 0) return [];
 
@@ -243,13 +250,14 @@ export async function distributeCreatorFund(poolKobo: number): Promise<number> {
   const period = new Date().toISOString().slice(0, 7); // YYYY-MM
   let distributed = 0;
 
-  await db.transaction(async (tx) => {
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
     // Acquire transaction-level advisory lock — auto-released when the transaction commits
     // or rolls back. If another instance holds the lock, we skip this run silently.
-    const { rows: lockRows } = await tx.query<{ acquired: boolean }>(
-      `SELECT pg_try_advisory_xact_lock(1, hashtext('distributeCreatorFund')) AS acquired`
+    const lockResult = await tx.execute<{ acquired: boolean }>(
+      sql`SELECT pg_try_advisory_xact_lock(1, hashtext('distributeCreatorFund')) AS acquired`
     );
-    if (!lockRows[0]?.acquired) return;
+    if (!lockResult.rows[0]?.acquired) return;
 
     // Calculate distributions INSIDE the lock so scoring uses a consistent DB snapshot
     // and concurrent instances cannot both complete scoring before either acquires the lock.
@@ -263,20 +271,19 @@ export async function distributeCreatorFund(poolKobo: number): Promise<number> {
     // creators and credit the rest.
     for (const dist of distributions) {
       const ref = `fund:${period}:creator:${dist.creatorId}`;
-      await tx.query(
-        `WITH ins AS (
+      await tx.execute(sql`
+        WITH ins AS (
            INSERT INTO creator_earnings
              (creator_id, source_type, gross_amount_kobo, platform_fee_kobo, net_amount_kobo, reference_id)
-           VALUES ($1, 'creator_fund', $2, 0, $2, $3)
+           VALUES (${dist.creatorId}, 'creator_fund', ${dist.amountKobo}, 0, ${dist.amountKobo}, ${ref})
            ON CONFLICT (reference_id) DO NOTHING
            RETURNING id
          )
          UPDATE users
-           SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + $2,
+           SET available_earnings_kobo = COALESCE(available_earnings_kobo, 0) + ${dist.amountKobo},
                updated_at = NOW()
-         WHERE id = $1 AND EXISTS (SELECT 1 FROM ins)`,
-        [dist.creatorId, dist.amountKobo, ref]
-      );
+         WHERE id = ${dist.creatorId} AND EXISTS (SELECT 1 FROM ins)
+      `);
     }
     distributed = distributions.length;
   });

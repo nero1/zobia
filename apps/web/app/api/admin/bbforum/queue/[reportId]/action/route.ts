@@ -12,10 +12,11 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { eq, sql } from "drizzle-orm";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, forbidden } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { deletePost } from "@/lib/bbforum/service";
 import { revokeUserAccess } from "@/lib/auth/session";
 
@@ -26,6 +27,16 @@ const ActionBodySchema = z.object({
 });
 
 const ADMIN_ONLY_ACTIONS = new Set(["ban_user"]);
+
+interface ReportRow {
+  id: string;
+  status: string;
+  reported_bb_thread_id: string | null;
+  reported_bb_post_id: string | null;
+  thread_author_id: string | null;
+  post_author_id: string | null;
+  thread_op_post_id: string | null;
+}
 
 export const POST = withModeratorOrAdminAuth<{ reportId: string }>(async (req: NextRequest, { params, auth }) => {
   try {
@@ -44,55 +55,65 @@ export const POST = withModeratorOrAdminAuth<{ reportId: string }>(async (req: N
       throw badRequest("duration_hours is required for suspend_user");
     }
 
-    const { rows } = await db.query<{
-      id: string;
-      status: string;
-      reported_bb_thread_id: string | null;
-      reported_bb_post_id: string | null;
-      thread_author_id: string | null;
-      post_author_id: string | null;
-      thread_op_post_id: string | null;
-    }>(
-      `SELECT r.id, r.status, r.reported_bb_thread_id, r.reported_bb_post_id,
-              t.author_id AS thread_author_id, p.author_id AS post_author_id,
-              (SELECT id FROM bb_posts WHERE thread_id = t.id AND is_op = true LIMIT 1) AS thread_op_post_id
-       FROM moderation_reports r
-       LEFT JOIN bb_threads t ON t.id = r.reported_bb_thread_id
-       LEFT JOIN bb_posts p ON p.id = r.reported_bb_post_id
-       WHERE r.id = $1
-         AND (r.reported_bb_thread_id IS NOT NULL OR r.reported_bb_post_id IS NOT NULL)
-       LIMIT 1`,
-      [reportId]
-    );
+    const orm = await getDb();
+
+    // NOTE: bb_threads/bb_posts are not present in lib/db/schema.ts (schema/DB
+    // mismatch — reported separately), so this query is expressed via the
+    // `sql` template rather than the Drizzle query builder.
+    const { rows } = await orm.execute<ReportRow & Record<string, unknown>>(sql`
+      SELECT r.id, r.status, r.reported_bb_thread_id, r.reported_bb_post_id,
+             t.author_id AS thread_author_id, p.author_id AS post_author_id,
+             (SELECT id FROM bb_posts WHERE thread_id = t.id AND is_op = true LIMIT 1) AS thread_op_post_id
+      FROM moderation_reports r
+      LEFT JOIN bb_threads t ON t.id = r.reported_bb_thread_id
+      LEFT JOIN bb_posts p ON p.id = r.reported_bb_post_id
+      WHERE r.id = ${reportId}
+        AND (r.reported_bb_thread_id IS NOT NULL OR r.reported_bb_post_id IS NOT NULL)
+      LIMIT 1
+    `);
     const report = rows[0];
     if (!report) throw notFound("Report not found");
     if (report.status !== "pending") throw badRequest(`Report is already ${report.status}`);
 
     const targetUserId = report.thread_author_id ?? report.post_author_id ?? null;
 
-    await db.transaction(async (tx) => {
-      await tx.query(
-        `INSERT INTO moderation_actions
-           (report_id, target_user_id, action_type, reason, duration_hours, moderator_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, NOW())`,
-        [reportId, targetUserId, action, note ?? null, duration_hours ?? null, auth.user.sub]
-      );
+    await orm.transaction(async (tx) => {
+      await tx.insert(schema.moderationActions).values({
+        reportId,
+        targetUserId,
+        actionType: action,
+        reason: note ?? null,
+        durationHours: duration_hours ?? null,
+        moderatorId: auth.user.sub,
+      });
 
-      await tx.query(
-        `UPDATE moderation_reports
-         SET status = $1, resolved_at = NOW(), resolved_by = $2, resolution_note = $3
-         WHERE id = $4`,
-        [action === "dismiss" ? "dismissed" : "resolved", auth.user.sub, note ?? null, reportId]
-      );
+      await tx
+        .update(schema.moderationReports)
+        .set({
+          status: action === "dismiss" ? "dismissed" : "resolved",
+          resolvedAt: new Date(),
+          resolvedBy: auth.user.sub,
+          resolutionNote: note ?? null,
+        })
+        .where(eq(schema.moderationReports.id, reportId));
 
       if (targetUserId) {
         if (action === "warn") {
-          await tx.query(`UPDATE users SET warning_count = COALESCE(warning_count, 0) + 1 WHERE id = $1`, [targetUserId]);
+          await tx
+            .update(schema.users)
+            .set({ warningCount: sql`COALESCE(${schema.users.warningCount}, 0) + 1` })
+            .where(eq(schema.users.id, targetUserId));
         } else if (action === "suspend_user" && duration_hours) {
-          const suspendUntil = new Date(Date.now() + duration_hours * 60 * 60 * 1000).toISOString();
-          await tx.query(`UPDATE users SET suspended_until = $1, is_suspended = true WHERE id = $2`, [suspendUntil, targetUserId]);
+          const suspendUntil = new Date(Date.now() + duration_hours * 60 * 60 * 1000);
+          await tx
+            .update(schema.users)
+            .set({ suspendedUntil: suspendUntil, isSuspended: true })
+            .where(eq(schema.users.id, targetUserId));
         } else if (action === "ban_user") {
-          await tx.query(`UPDATE users SET is_banned = true, banned_at = NOW(), banned_by = $1 WHERE id = $2`, [auth.user.sub, targetUserId]);
+          await tx
+            .update(schema.users)
+            .set({ isBanned: true, bannedAt: new Date(), bannedBy: auth.user.sub })
+            .where(eq(schema.users.id, targetUserId));
         }
       }
     });

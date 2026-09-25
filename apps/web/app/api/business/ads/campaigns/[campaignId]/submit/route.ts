@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, type AuthContext } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
@@ -41,27 +42,38 @@ export const POST = withAuth(async (_req: NextRequest, { params, auth }: Ctx) =>
     const creatives = await listCreatives(campaignId);
     if (creatives.length === 0) throw badRequest("Add at least one creative before submitting.");
 
+    const orm = await getDb();
+
     // Advertiser display name follows advertiser_type: the business page's
     // name, the business account's name, or the user's own display name.
     let advertiserName = "Advertiser";
     if (campaign.advertiser_type === "business_page" && campaign.business_page_id) {
-      const { rows } = await db.query<{ name: string }>(`SELECT name FROM business_pages WHERE id = $1 LIMIT 1`, [campaign.business_page_id]);
-      advertiserName = rows[0]?.name ?? advertiserName;
+      const [row] = await orm
+        .select({ name: schema.businessPages.name })
+        .from(schema.businessPages)
+        .where(eq(schema.businessPages.id, campaign.business_page_id))
+        .limit(1);
+      advertiserName = row?.name ?? advertiserName;
     } else if (campaign.business_account_id) {
-      const { rows } = await db.query<{ business_name: string }>(`SELECT business_name FROM business_accounts WHERE id = $1 LIMIT 1`, [campaign.business_account_id]);
-      advertiserName = rows[0]?.business_name ?? advertiserName;
+      const [row] = await orm
+        .select({ business_name: schema.businessAccounts.businessName })
+        .from(schema.businessAccounts)
+        .where(eq(schema.businessAccounts.id, campaign.business_account_id))
+        .limit(1);
+      advertiserName = row?.business_name ?? advertiserName;
     } else {
-      const { rows } = await db.query<{ display_name: string | null; username: string | null }>(
-        `SELECT display_name, username FROM users WHERE id = $1 LIMIT 1`,
-        [auth.user.sub]
-      );
-      advertiserName = rows[0]?.display_name ?? rows[0]?.username ?? advertiserName;
+      const [row] = await orm
+        .select({ display_name: schema.users.displayName, username: schema.users.username })
+        .from(schema.users)
+        .where(eq(schema.users.id, auth.user.sub))
+        .limit(1);
+      advertiserName = row?.display_name ?? row?.username ?? advertiserName;
     }
 
     const { moderationStatus, reason } = await submitCampaignForModeration(campaign, advertiserName);
 
     if (moderationStatus === "pending") {
-      await raiseAlert(db, {
+      await raiseAlert(orm, {
         type: "ad_campaign_pending_review",
         category: "moderation",
         priorityLevel: 6,

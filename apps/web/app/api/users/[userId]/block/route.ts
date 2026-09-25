@@ -16,7 +16,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, isNull, or } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -44,31 +45,45 @@ export const POST = withAuth<UserParams>(async (req: NextRequest, { params, auth
       throw badRequest("You cannot block yourself");
     }
 
+    const db = await getDb();
+
     // Verify target user exists
-    const { rows: targetRows } = await db.query<{ id: string }>(
-      `SELECT id FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [targetId]
-    );
-    if (!targetRows[0]) throw notFound("User not found");
+    const [targetRow] = await db
+      .select({ id: schema.users.id })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, targetId), isNull(schema.users.deletedAt)))
+      .limit(1);
+    if (!targetRow) throw notFound("User not found");
 
     await db.transaction(async (tx) => {
       // Upsert the block record
-      await tx.query(
-        `INSERT INTO user_blocks (blocker_id, blocked_id)
-         VALUES ($1, $2)
-         ON CONFLICT (blocker_id, blocked_id) DO NOTHING`,
-        [blockerId, targetId]
-      );
+      await tx
+        .insert(schema.userBlocks)
+        .values({ blockerId, blockedId: targetId })
+        .onConflictDoNothing();
 
       // Cancel any pending friendship between the two
-      await tx.query(
-        `UPDATE friendships
-         SET status = 'blocked', updated_at = NOW()
-         WHERE ((requester_id = $1 AND addressee_id = $2)
-             OR (requester_id = $2 AND addressee_id = $1))
-           AND status IN ('pending', 'accepted')`,
-        [blockerId, targetId]
-      );
+      await tx
+        .update(schema.friendships)
+        .set({ status: "blocked", updatedAt: new Date() })
+        .where(
+          and(
+            or(
+              and(
+                eq(schema.friendships.requesterId, blockerId),
+                eq(schema.friendships.addresseeId, targetId)
+              ),
+              and(
+                eq(schema.friendships.requesterId, targetId),
+                eq(schema.friendships.addresseeId, blockerId)
+              )
+            ),
+            or(
+              eq(schema.friendships.status, "pending"),
+              eq(schema.friendships.status, "accepted")
+            )
+          )
+        );
     });
 
     return NextResponse.json({ blocked: true }, { status: 200 });
@@ -90,10 +105,15 @@ export const DELETE = withAuth<UserParams>(async (req: NextRequest, { params, au
 
     const blockerId = auth.user.sub;
 
-    await db.query(
-      `DELETE FROM user_blocks WHERE blocker_id = $1 AND blocked_id = $2`,
-      [blockerId, targetId]
-    );
+    const db = await getDb();
+    await db
+      .delete(schema.userBlocks)
+      .where(
+        and(
+          eq(schema.userBlocks.blockerId, blockerId),
+          eq(schema.userBlocks.blockedId, targetId)
+        )
+      );
 
     return NextResponse.json({ blocked: false }, { status: 200 });
   } catch (err) {

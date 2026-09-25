@@ -24,7 +24,7 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { handleApiError } from "@/lib/api/errors";
 import { getActiveGiftDrop, getUpcomingGiftDrop } from "@/lib/events/monthlyGiftDrop";
 
@@ -33,9 +33,10 @@ import { getActiveGiftDrop, getUpcomingGiftDrop } from "@/lib/events/monthlyGift
  */
 export async function GET(_req: NextRequest): Promise<NextResponse> {
   try {
+    const orm = await getDb();
     const [active, upcoming] = await Promise.all([
-      getActiveGiftDrop(db),
-      getUpcomingGiftDrop(db),
+      getActiveGiftDrop(orm),
+      getUpcomingGiftDrop(orm),
     ]);
 
     let countdown: number | null = null;

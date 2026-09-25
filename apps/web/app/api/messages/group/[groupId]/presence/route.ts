@@ -19,7 +19,8 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -43,21 +44,29 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const userId = auth.user.sub;
 
-    const { rows } = await db.query<GroupRow>(
-      `SELECT creator_id, concurrent_cap, is_active, is_deactivated FROM group_chats WHERE id = $1`,
-      [groupId],
-    );
+    // group_chats.concurrent_cap / is_deactivated exist in the DB (migration
+    // 0001) but are not present in lib/db/schema.ts, so this stays raw SQL.
+    const orm = await getDb();
+    const { rows } = await orm.execute<GroupRow & Record<string, unknown>>(sql`
+      SELECT creator_id, concurrent_cap, is_active, is_deactivated FROM group_chats WHERE id = ${groupId}
+    `);
     const group = rows[0];
     if (!group || !group.is_active || group.is_deactivated) throw notFound("Group not found");
 
     // Privileged = creator or an admin member — these always bypass the cap.
     let privileged = group.creator_id === userId;
     if (!privileged) {
-      const { rows: memberRows } = await db.query<{ role: string }>(
-        `SELECT role FROM group_chat_members WHERE group_chat_id = $1 AND user_id = $2 LIMIT 1`,
-        [groupId, userId],
-      );
-      privileged = memberRows[0]?.role === "admin";
+      const [memberRow] = await orm
+        .select({ role: schema.groupChatMembers.role })
+        .from(schema.groupChatMembers)
+        .where(
+          and(
+            eq(schema.groupChatMembers.groupChatId, groupId),
+            eq(schema.groupChatMembers.userId, userId)
+          )
+        )
+        .limit(1);
+      privileged = memberRow?.role === "admin";
     }
 
     const manifest = await loadManifest();

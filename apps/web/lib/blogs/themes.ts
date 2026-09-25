@@ -14,10 +14,15 @@
  * check is "does the caller own store_items row X", exactly like any other
  * cosmetic. Free-default and plan-included themes need no ownership row at
  * all; availability is computed from the caller's plan/business tier.
+ *
+ * NOTE: `blog_themes` and `blogs.active_theme_id` have no Drizzle
+ * definitions in lib/db/schema.ts (the `blogs` table there has no
+ * `active_theme_id` column), so queries touching either are kept as `sql`
+ * templates run through the Drizzle instance rather than the query builder.
  */
 
-import { db } from "@/lib/db";
-import type { SqlParam, TransactionClient } from "@/lib/db/interface";
+import { getDb, schema } from "@/lib/db/drizzle";
+import { sql, eq, and } from "drizzle-orm";
 import { debitCoins } from "@/lib/economy/coins";
 import { debitStars } from "@/lib/economy/stars";
 import { badRequest, forbidden, notFound } from "@/lib/api/errors";
@@ -36,7 +41,7 @@ export interface ThemeTokens {
   muted: string;
 }
 
-export interface BlogThemeRow {
+export type BlogThemeRow = {
   id: string;
   name: string;
   description: string | null;
@@ -50,7 +55,7 @@ export interface BlogThemeRow {
   stars_cost: number | null;
   enabled: boolean;
   sort_order: number;
-}
+};
 
 function normalizeLayoutVariant(v: string): LayoutVariant {
   return (LAYOUT_VARIANTS as readonly string[]).includes(v) ? (v as LayoutVariant) : "classic";
@@ -78,18 +83,21 @@ function hydrateThemeRow(row: BlogThemeRow): BlogThemeRow {
 
 /** Full catalog (admin view — includes disabled rows). */
 export async function listAllThemes(): Promise<BlogThemeRow[]> {
-  const { rows } = await db.query<BlogThemeRow>(`SELECT * FROM blog_themes ORDER BY sort_order ASC, name ASC`);
+  const orm = await getDb();
+  const { rows } = await orm.execute<BlogThemeRow>(sql`SELECT * FROM blog_themes ORDER BY sort_order ASC, name ASC`);
   return rows.map(hydrateThemeRow);
 }
 
 /** Enabled-only catalog (owner-facing). */
 export async function listEnabledThemes(): Promise<BlogThemeRow[]> {
-  const { rows } = await db.query<BlogThemeRow>(`SELECT * FROM blog_themes WHERE enabled = TRUE ORDER BY sort_order ASC, name ASC`);
+  const orm = await getDb();
+  const { rows } = await orm.execute<BlogThemeRow>(sql`SELECT * FROM blog_themes WHERE enabled = TRUE ORDER BY sort_order ASC, name ASC`);
   return rows.map(hydrateThemeRow);
 }
 
 export async function getTheme(themeId: string): Promise<BlogThemeRow | null> {
-  const { rows } = await db.query<BlogThemeRow>(`SELECT * FROM blog_themes WHERE id = $1 LIMIT 1`, [themeId]);
+  const orm = await getDb();
+  const { rows } = await orm.execute<BlogThemeRow>(sql`SELECT * FROM blog_themes WHERE id = ${themeId} LIMIT 1`);
   return rows[0] ? hydrateThemeRow(rows[0]) : null;
 }
 
@@ -123,11 +131,12 @@ export async function getAvailableThemesForBlog(
 
   const ownedSet = new Set<string>();
   if (storeItemIds.length > 0) {
-    const { rows } = await db.query<{ store_item_id: string }>(
-      `SELECT store_item_id FROM user_cosmetics WHERE user_id = $1 AND store_item_id = ANY($2::uuid[])`,
-      [ownerId, storeItemIds]
-    );
-    rows.forEach((r) => ownedSet.add(r.store_item_id));
+    const orm = await getDb();
+    const rows = await orm
+      .select({ storeItemId: schema.userCosmetics.storeItemId })
+      .from(schema.userCosmetics)
+      .where(and(eq(schema.userCosmetics.userId, ownerId), sql`${schema.userCosmetics.storeItemId} = ANY(${storeItemIds}::uuid[])`));
+    rows.forEach((r) => ownedSet.add(r.storeItemId));
   }
 
   return themes.map((theme) => {
@@ -156,7 +165,12 @@ async function assertEntitled(themeId: string, blogId: string, ownerId: string, 
   if (ownerBusinessTier && (theme.included_for_business_tiers ?? []).includes(ownerBusinessTier)) return theme;
 
   if (theme.store_item_id) {
-    const { rows } = await db.query<{ id: string }>(`SELECT id FROM user_cosmetics WHERE user_id = $1 AND store_item_id = $2 LIMIT 1`, [ownerId, theme.store_item_id]);
+    const orm = await getDb();
+    const rows = await orm
+      .select({ id: schema.userCosmetics.id })
+      .from(schema.userCosmetics)
+      .where(and(eq(schema.userCosmetics.userId, ownerId), eq(schema.userCosmetics.storeItemId, theme.store_item_id)))
+      .limit(1);
     if (rows[0]) return theme;
   }
 
@@ -166,7 +180,8 @@ async function assertEntitled(themeId: string, blogId: string, ownerId: string, 
 /** Sets `blogs.active_theme_id`, after verifying the caller is entitled to the theme (free/plan-included/already-purchased). */
 export async function equipTheme(blogId: string, ownerId: string, ownerPlan: string, ownerBusinessTier: string | null, themeId: string): Promise<void> {
   const theme = await assertEntitled(themeId, blogId, ownerId, ownerPlan, ownerBusinessTier);
-  await db.query(`UPDATE blogs SET active_theme_id = $2, updated_at = NOW() WHERE id = $1`, [blogId, theme.id]);
+  const orm = await getDb();
+  await orm.execute(sql`UPDATE blogs SET active_theme_id = ${theme.id}, updated_at = NOW() WHERE id = ${blogId}`);
 }
 
 /**
@@ -193,7 +208,12 @@ export async function purchaseAndEquipTheme(
 
   if (!theme.store_item_id) throw badRequest("This theme is not purchasable.", "BLOG_THEME_NOT_PURCHASABLE");
 
-  const { rows: existingRows } = await db.query<{ id: string }>(`SELECT id FROM user_cosmetics WHERE user_id = $1 AND store_item_id = $2 LIMIT 1`, [ownerId, theme.store_item_id]);
+  const orm = await getDb();
+  const existingRows = await orm
+    .select({ id: schema.userCosmetics.id })
+    .from(schema.userCosmetics)
+    .where(and(eq(schema.userCosmetics.userId, ownerId), eq(schema.userCosmetics.storeItemId, theme.store_item_id)))
+    .limit(1);
   if (existingRows[0]) {
     await equipTheme(blogId, ownerId, ownerPlan, ownerBusinessTier, themeId);
     return { alreadyOwned: true };
@@ -203,18 +223,17 @@ export async function purchaseAndEquipTheme(
   if (!cost || cost <= 0) throw badRequest(`This theme cannot be purchased with ${currency === "credits" ? "Credits" : "Stars"}.`, "BLOG_THEME_WRONG_CURRENCY");
 
   const referenceId = `blog_theme_purchase:${theme.store_item_id}:${ownerId}`;
-  await db.transaction(async (tx: TransactionClient) => {
+  await orm.transaction(async (tx) => {
     if (currency === "credits") {
       await debitCoins(ownerId, cost, "blog_theme_purchase", referenceId, `Purchased blog theme: ${theme.name}`, { themeId: theme.id }, tx);
     } else {
       await debitStars(ownerId, cost, "blog_theme_purchase", referenceId, `Purchased blog theme: ${theme.name}`, tx);
     }
-    await tx.query(
-      `INSERT INTO user_cosmetics (user_id, store_item_id, cosmetic_type, is_active, acquired_at)
-       VALUES ($1, $2, 'blog_theme', FALSE, NOW()) ON CONFLICT (user_id, store_item_id) DO NOTHING`,
-      [ownerId, theme.store_item_id]
-    );
-    await tx.query(`UPDATE blogs SET active_theme_id = $2, updated_at = NOW() WHERE id = $1`, [blogId, theme.id]);
+    await tx
+      .insert(schema.userCosmetics)
+      .values({ userId: ownerId, storeItemId: theme.store_item_id!, cosmeticType: "blog_theme", isActive: false })
+      .onConflictDoNothing({ target: [schema.userCosmetics.userId, schema.userCosmetics.storeItemId] });
+    await tx.execute(sql`UPDATE blogs SET active_theme_id = ${theme.id}, updated_at = NOW() WHERE id = ${blogId}`);
   });
 
   return { alreadyOwned: false };
@@ -233,18 +252,17 @@ export interface AdminUpdateThemeInput {
 }
 
 export async function adminUpdateTheme(themeId: string, input: AdminUpdateThemeInput): Promise<void> {
-  const fields: string[] = [];
-  const params: SqlParam[] = [themeId];
-  const push = (col: string, value: SqlParam, cast?: string) => {
-    params.push(value);
-    fields.push(`${col} = $${params.length}${cast ? `::${cast}` : ""}`);
-  };
-  if (input.enabled !== undefined) push("enabled", input.enabled);
-  if (input.includedForPlans !== undefined) push("included_for_plans", input.includedForPlans, "text[]");
-  if (input.includedForBusinessTiers !== undefined) push("included_for_business_tiers", input.includedForBusinessTiers, "text[]");
-  if (input.creditsCost !== undefined) push("credits_cost", input.creditsCost);
-  if (input.starsCost !== undefined) push("stars_cost", input.starsCost);
-  if (fields.length === 0) return;
-  const { rowCount } = await db.query(`UPDATE blog_themes SET ${fields.join(", ")}, updated_at = NOW() WHERE id = $1`, params);
-  if (!rowCount) throw notFound("Theme not found");
+  const setClauses: ReturnType<typeof sql>[] = [];
+  if (input.enabled !== undefined) setClauses.push(sql`enabled = ${input.enabled}`);
+  if (input.includedForPlans !== undefined) setClauses.push(sql`included_for_plans = ${input.includedForPlans}::text[]`);
+  if (input.includedForBusinessTiers !== undefined) setClauses.push(sql`included_for_business_tiers = ${input.includedForBusinessTiers}::text[]`);
+  if (input.creditsCost !== undefined) setClauses.push(sql`credits_cost = ${input.creditsCost}`);
+  if (input.starsCost !== undefined) setClauses.push(sql`stars_cost = ${input.starsCost}`);
+  if (setClauses.length === 0) return;
+
+  const orm = await getDb();
+  const result = await orm.execute<never>(
+    sql`UPDATE blog_themes SET ${sql.join(setClauses, sql`, `)}, updated_at = NOW() WHERE id = ${themeId}`
+  );
+  if (!result.rowCount) throw notFound("Theme not found");
 }

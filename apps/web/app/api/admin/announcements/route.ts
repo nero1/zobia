@@ -22,11 +22,12 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { and, desc, isNull, sql } from "drizzle-orm";
 import { withAdminAuth } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { sanitizeAnnouncementContent } from "@/lib/security/htmlSanitizer";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { getManifestValue } from "@/lib/manifest";
 
 const MAX_MODALS = 5;
@@ -63,23 +64,19 @@ interface DbRow {
   id: string;
   title: string | null;
   content: string;
-  content_type: string;
-  link_url?: string | null;
-  is_active: boolean;
-  target_plans: string[] | null;
-  target_roles: string[] | null;
-  target_genders: string[] | null;
-  display_order: number;
-  starts_at: string | null;
-  ends_at: string | null;
-  created_at: string;
-  updated_at: string;
+  isActive: boolean | null;
+  targetPlans: string[] | null;
+  targetRoles: string[] | null;
+  targetGenders: string[] | null;
+  displayOrder: number;
+  startsAt: Date | string | null;
+  endsAt: Date | string | null;
 }
 
 /** Compute the admin-facing status from is_active + starts_at, matching what the UI's 3-way select means. */
 function computeStatus(row: DbRow): "active" | "inactive" | "scheduled" {
-  if (!row.is_active) return "inactive";
-  if (row.starts_at && new Date(row.starts_at).getTime() > Date.now()) return "scheduled";
+  if (!row.isActive) return "inactive";
+  if (row.startsAt && new Date(row.startsAt).getTime() > Date.now()) return "scheduled";
   return "active";
 }
 
@@ -91,13 +88,13 @@ function toApiAnnouncement(type: "modal" | "banner", row: DbRow) {
     content: row.content,
     status: computeStatus(row),
     audience: {
-      plans: row.target_plans ?? [],
-      roles: row.target_roles ?? [],
-      genders: row.target_genders ?? [],
+      plans: row.targetPlans ?? [],
+      roles: row.targetRoles ?? [],
+      genders: row.targetGenders ?? [],
     },
-    startAt: row.starts_at,
-    endAt: row.ends_at,
-    displayOrder: row.display_order,
+    startAt: row.startsAt,
+    endAt: row.endsAt,
+    displayOrder: row.displayOrder,
   };
 }
 
@@ -112,25 +109,41 @@ export const GET = withAdminAuth(async (req: NextRequest, { auth }) => {
     const { searchParams } = new URL(req.url);
     const type: "modal" | "banner" = searchParams.get("type") === "banner" ? "banner" : "modal";
 
-    const { rows } = await db.query<DbRow>(
+    const orm = await getDb();
+    const rows: DbRow[] =
       type === "modal"
-        ? `SELECT id, title, content, content_type, is_active,
-                  COALESCE(target_plans, '{}')::text[] AS target_plans,
-                  COALESCE(target_roles, '{}')::text[] AS target_roles,
-                  COALESCE(target_genders, '{}')::text[] AS target_genders,
-                  display_order, starts_at, ends_at, created_at, updated_at
-           FROM announcement_modals
-           WHERE deleted_at IS NULL
-           ORDER BY display_order ASC, created_at DESC`
-        : `SELECT id, title, content, content_type, link_url, is_active,
-                  COALESCE(target_plans, '{}')::text[] AS target_plans,
-                  COALESCE(target_roles, '{}')::text[] AS target_roles,
-                  COALESCE(target_genders, '{}')::text[] AS target_genders,
-                  display_order, starts_at, ends_at, created_at, updated_at
-           FROM announcement_banners
-           WHERE deleted_at IS NULL
-           ORDER BY display_order ASC, created_at DESC`
-    );
+        ? await orm
+            .select({
+              id: schema.announcementModals.id,
+              title: schema.announcementModals.title,
+              content: schema.announcementModals.content,
+              isActive: schema.announcementModals.isActive,
+              targetPlans: schema.announcementModals.targetPlans,
+              targetRoles: schema.announcementModals.targetRoles,
+              targetGenders: schema.announcementModals.targetGenders,
+              displayOrder: schema.announcementModals.displayOrder,
+              startsAt: schema.announcementModals.startsAt,
+              endsAt: schema.announcementModals.endsAt,
+            })
+            .from(schema.announcementModals)
+            .where(isNull(schema.announcementModals.deletedAt))
+            .orderBy(schema.announcementModals.displayOrder, desc(schema.announcementModals.createdAt))
+        : await orm
+            .select({
+              id: schema.announcementBanners.id,
+              title: schema.announcementBanners.title,
+              content: schema.announcementBanners.content,
+              isActive: schema.announcementBanners.isActive,
+              targetPlans: schema.announcementBanners.targetPlans,
+              targetRoles: schema.announcementBanners.targetRoles,
+              targetGenders: schema.announcementBanners.targetGenders,
+              displayOrder: schema.announcementBanners.displayOrder,
+              startsAt: schema.announcementBanners.startsAt,
+              endsAt: schema.announcementBanners.endsAt,
+            })
+            .from(schema.announcementBanners)
+            .where(isNull(schema.announcementBanners.deletedAt))
+            .orderBy(schema.announcementBanners.displayOrder, desc(schema.announcementBanners.createdAt));
 
     // Fetch the current display mode from x_manifest
     const dmKey = type === "modal" ? "announcement_modal_display_mode" : "announcement_banner_mode";
@@ -165,59 +178,84 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
 
     const content = sanitizeAnnouncementContent(rawContent, contentType);
     const isActive = status !== "inactive";
+    const orm = await getDb();
 
     if (type === "modal") {
-      const { rows: countRows } = await db.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM announcement_modals WHERE deleted_at IS NULL`
-      );
-      if (parseInt(countRows[0]?.count ?? "0", 10) >= MAX_MODALS) {
+      const [{ count: modalCount }] = await orm
+        .select({ count: sql<string>`COUNT(*)` })
+        .from(schema.announcementModals)
+        .where(isNull(schema.announcementModals.deletedAt));
+      if (parseInt(modalCount ?? "0", 10) >= MAX_MODALS) {
         throw badRequest(`Cannot create modal: already at maximum of ${MAX_MODALS} modals. Delete one first.`);
       }
 
-      const { rows } = await db.query<DbRow>(
-        `INSERT INTO announcement_modals
-           (title, content, content_type, is_active,
-            target_plans, target_roles, target_genders, display_order,
-            starts_at, ends_at, created_by, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW(), NOW())
-         RETURNING id, title, content, content_type, is_active,
-                   COALESCE(target_plans, '{}')::text[] AS target_plans,
-                   COALESCE(target_roles, '{}')::text[] AS target_roles,
-                   COALESCE(target_genders, '{}')::text[] AS target_genders,
-                   display_order, starts_at, ends_at, created_at, updated_at`,
-        [
-          title ?? null, content, contentType, isActive,
-          audience.plans, audience.roles, audience.genders,
-          displayOrder, startAt ?? null, endAt ?? null, auth.user.sub,
-        ]
-      );
-      return NextResponse.json({ announcement: toApiAnnouncement("modal", rows[0]) }, { status: 201 });
+      const [row] = await orm
+        .insert(schema.announcementModals)
+        .values({
+          // Guaranteed non-empty by the schema's .refine() above for type === "modal".
+          title: title as string,
+          content,
+          contentType,
+          isActive,
+          targetPlans: audience.plans,
+          targetRoles: audience.roles,
+          targetGenders: audience.genders,
+          displayOrder,
+          startsAt: startAt ? new Date(startAt) : null,
+          endsAt: endAt ? new Date(endAt) : null,
+          createdBy: auth.user.sub,
+        })
+        .returning({
+          id: schema.announcementModals.id,
+          title: schema.announcementModals.title,
+          content: schema.announcementModals.content,
+          isActive: schema.announcementModals.isActive,
+          targetPlans: schema.announcementModals.targetPlans,
+          targetRoles: schema.announcementModals.targetRoles,
+          targetGenders: schema.announcementModals.targetGenders,
+          displayOrder: schema.announcementModals.displayOrder,
+          startsAt: schema.announcementModals.startsAt,
+          endsAt: schema.announcementModals.endsAt,
+        });
+      return NextResponse.json({ announcement: toApiAnnouncement("modal", row as DbRow) }, { status: 201 });
     } else {
-      const { rows: countRows } = await db.query<{ count: string }>(
-        `SELECT COUNT(*)::text AS count FROM announcement_banners WHERE deleted_at IS NULL`
-      );
-      if (parseInt(countRows[0]?.count ?? "0", 10) >= MAX_BANNERS) {
+      const [{ count: bannerCount }] = await orm
+        .select({ count: sql<string>`COUNT(*)` })
+        .from(schema.announcementBanners)
+        .where(isNull(schema.announcementBanners.deletedAt));
+      if (parseInt(bannerCount ?? "0", 10) >= MAX_BANNERS) {
         throw badRequest(`Cannot create banner: already at maximum of ${MAX_BANNERS} banners. Delete one first.`);
       }
 
-      const { rows } = await db.query<DbRow>(
-        `INSERT INTO announcement_banners
-           (title, content, content_type, link_url, is_active,
-            target_plans, target_roles, target_genders, display_order,
-            starts_at, ends_at, created_by, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW(), NOW())
-         RETURNING id, title, content, content_type, link_url, is_active,
-                   COALESCE(target_plans, '{}')::text[] AS target_plans,
-                   COALESCE(target_roles, '{}')::text[] AS target_roles,
-                   COALESCE(target_genders, '{}')::text[] AS target_genders,
-                   display_order, starts_at, ends_at, created_at, updated_at`,
-        [
-          title ?? null, content, contentType, linkUrl ?? null, isActive,
-          audience.plans, audience.roles, audience.genders,
-          displayOrder, startAt ?? null, endAt ?? null, auth.user.sub,
-        ]
-      );
-      return NextResponse.json({ announcement: toApiAnnouncement("banner", rows[0]) }, { status: 201 });
+      const [row] = await orm
+        .insert(schema.announcementBanners)
+        .values({
+          title: title ?? null,
+          content,
+          contentType,
+          linkUrl: linkUrl ?? null,
+          isActive,
+          targetPlans: audience.plans,
+          targetRoles: audience.roles,
+          targetGenders: audience.genders,
+          displayOrder,
+          startsAt: startAt ? new Date(startAt) : null,
+          endsAt: endAt ? new Date(endAt) : null,
+          createdBy: auth.user.sub,
+        })
+        .returning({
+          id: schema.announcementBanners.id,
+          title: schema.announcementBanners.title,
+          content: schema.announcementBanners.content,
+          isActive: schema.announcementBanners.isActive,
+          targetPlans: schema.announcementBanners.targetPlans,
+          targetRoles: schema.announcementBanners.targetRoles,
+          targetGenders: schema.announcementBanners.targetGenders,
+          displayOrder: schema.announcementBanners.displayOrder,
+          startsAt: schema.announcementBanners.startsAt,
+          endsAt: schema.announcementBanners.endsAt,
+        });
+      return NextResponse.json({ announcement: toApiAnnouncement("banner", row as DbRow) }, { status: 201 });
     }
   } catch (err) {
     return handleApiError(err);

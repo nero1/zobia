@@ -21,7 +21,8 @@
  */
 
 import Decimal from "decimal.js";
-import type { TransactionClient } from "@/lib/db/interface";
+import { sql } from "drizzle-orm";
+import { schema, type DbOrTx } from "@/lib/db/drizzle";
 import { getManifestValue } from "@/lib/manifest";
 import { getToken } from "./tokens";
 import { getUsdPrice } from "./priceFeed";
@@ -64,7 +65,7 @@ export async function getCryptoPayoutThreshold(currency: CryptoCurrency): Promis
  *  Idempotent per (userId, currency, referenceId) via the unique index on
  *  crypto_balance_ledger — a retried webhook never double-credits. */
 export async function creditCryptoBalance(
-  tx: TransactionClient,
+  tx: DbOrTx,
   userId: string,
   currency: CryptoCurrency,
   baseUnitsAmount: bigint,
@@ -74,23 +75,30 @@ export async function creditCryptoBalance(
 ): Promise<boolean> {
   if (baseUnitsAmount <= 0n) return false;
 
-  const { rows: ledgerRows } = await tx.query<{ id: string }>(
-    `INSERT INTO crypto_balance_ledger (user_id, currency, amount_base_units, source_type, reference_id, metadata, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6::jsonb, NOW())
-     ON CONFLICT (currency, reference_id) DO NOTHING
-     RETURNING id`,
-    [userId, currency, baseUnitsAmount.toString(), sourceType, referenceId, JSON.stringify(metadata)]
-  );
+  const ledgerRows = await tx
+    .insert(schema.cryptoBalanceLedger)
+    .values({
+      userId,
+      currency,
+      amountBaseUnits: baseUnitsAmount.toString(),
+      sourceType,
+      referenceId,
+      metadata,
+    })
+    .onConflictDoNothing({ target: [schema.cryptoBalanceLedger.currency, schema.cryptoBalanceLedger.referenceId] })
+    .returning({ id: schema.cryptoBalanceLedger.id });
   if (!ledgerRows[0]) return false; // already credited — idempotent no-op
 
-  await tx.query(
-    `INSERT INTO creator_crypto_balances (user_id, currency, balance_base_units, updated_at)
-     VALUES ($1, $2, $3, NOW())
-     ON CONFLICT (user_id, currency) DO UPDATE
-       SET balance_base_units = creator_crypto_balances.balance_base_units + EXCLUDED.balance_base_units,
-           updated_at = NOW()`,
-    [userId, currency, baseUnitsAmount.toString()]
-  );
+  await tx
+    .insert(schema.creatorCryptoBalances)
+    .values({ userId, currency, balanceBaseUnits: baseUnitsAmount.toString() })
+    .onConflictDoUpdate({
+      target: [schema.creatorCryptoBalances.userId, schema.creatorCryptoBalances.currency],
+      set: {
+        balanceBaseUnits: sql`${schema.creatorCryptoBalances.balanceBaseUnits} + ${baseUnitsAmount.toString()}`,
+        updatedAt: sql`NOW()`,
+      },
+    });
   return true;
 }
 

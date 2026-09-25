@@ -22,8 +22,8 @@
  * queries beyond price.
  */
 
-import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db/interface";
+import { getDb } from "@/lib/db/drizzle";
+import { sql, type SQL } from "drizzle-orm";
 import { getManifestValue } from "@/lib/manifest";
 import type { MarketCategory, MarketItem, MarketSection, MarketSort } from "./types";
 
@@ -166,7 +166,7 @@ function mapBoostRow(row: BoostTypeRow): MarketItem {
   };
 }
 
-const CREATOR_ITEM_SELECT = `
+const CREATOR_ITEM_SELECT = sql.raw(`
   SELECT mp.id, mp.name, mp.description, mp.image_url, mp.product_type,
          mp.price_kobo::TEXT AS price_kobo, mp.is_sponsored, mp.is_admin_featured,
          mp.referral_enabled, mp.referral_commission_pct::TEXT AS referral_commission_pct,
@@ -185,12 +185,12 @@ const CREATOR_ITEM_SELECT = `
     FROM merch_orders WHERE status = 'completed' GROUP BY product_id
   ) o ON o.product_id = mp.id
   WHERE mp.is_active = TRUE
-`;
+`);
 
-const SORT_SQL: Record<MarketSort, string> = {
-  price: "mp.price_kobo ASC",
-  popularity: "COALESCE(o.order_count, 0) DESC",
-  rating: "COALESCE(r.avg_rating, 0) DESC",
+const SORT_SQL: Record<MarketSort, SQL> = {
+  price: sql.raw("mp.price_kobo ASC"),
+  popularity: sql.raw("COALESCE(o.order_count, 0) DESC"),
+  rating: sql.raw("COALESCE(r.avg_rating, 0) DESC"),
 };
 
 // ---------------------------------------------------------------------------
@@ -205,47 +205,43 @@ export interface MarketSectionOptions {
 }
 
 async function queryCreatorItems(
-  whereExtra: string,
-  extraParams: SqlParam[],
+  whereExtra: SQL,
   opts: MarketSectionOptions,
-  orderOverride?: string
+  orderOverride?: SQL
 ): Promise<MarketItem[]> {
-  const params: SqlParam[] = [...extraParams];
-  let where = whereExtra;
   if (opts.category && opts.category !== "digital" && opts.category !== "physical") {
     return []; // creator items are only digital/physical
   }
+  let categoryClause: SQL = sql``;
   if (opts.category === "physical") {
-    where += ` AND mp.product_type = 'physical'`;
+    categoryClause = sql`AND mp.product_type = 'physical'`;
   } else if (opts.category === "digital") {
-    where += ` AND mp.product_type IN ('digital', 'course_material')`;
+    categoryClause = sql`AND mp.product_type IN ('digital', 'course_material')`;
   }
 
   const order = orderOverride ?? SORT_SQL[opts.sort ?? "popularity"];
   const limit = Math.min(opts.limit ?? 12, 60);
   const offset = opts.offset ?? 0;
-  params.push(limit, offset);
 
-  const { rows } = await db.query<CreatorItemRow>(
-    `${CREATOR_ITEM_SELECT} ${where} ORDER BY ${order} LIMIT $${params.length - 1} OFFSET $${params.length}`,
-    params
-  );
+  const orm = await getDb();
+  const { rows } = await orm.execute<CreatorItemRow & Record<string, unknown>>(sql`
+    ${CREATOR_ITEM_SELECT} ${whereExtra} ${categoryClause} ORDER BY ${order} LIMIT ${limit} OFFSET ${offset}
+  `);
   return rows.map(mapCreatorRow);
 }
 
 /** Sponsored (paid promotion) creator items — deterministic order, most-recently-boosted first. */
 export async function getSponsoredItems(opts: MarketSectionOptions = {}): Promise<MarketItem[]> {
   return queryCreatorItems(
-    `AND mp.is_sponsored = TRUE AND (mp.sponsored_until IS NULL OR mp.sponsored_until > NOW())`,
-    [],
+    sql`AND mp.is_sponsored = TRUE AND (mp.sponsored_until IS NULL OR mp.sponsored_until > NOW())`,
     opts,
-    "mp.updated_at DESC"
+    sql.raw("mp.updated_at DESC")
   );
 }
 
 /** Admin-curated creator items. */
 export async function getAdminFeaturedCreatorItems(opts: MarketSectionOptions = {}): Promise<MarketItem[]> {
-  return queryCreatorItems(`AND mp.is_admin_featured = TRUE`, [], opts, "mp.updated_at DESC");
+  return queryCreatorItems(sql`AND mp.is_admin_featured = TRUE`, opts, sql.raw("mp.updated_at DESC"));
 }
 
 /**
@@ -263,10 +259,9 @@ export async function getTrendingItems(opts: MarketSectionOptions = {}): Promise
   const weight = weightStr ? parseFloat(weightStr) : 2.0;
 
   return queryCreatorItems(
-    ``,
-    [minOrders, weight],
+    sql``,
     opts,
-    `(random() * (CASE WHEN COALESCE(o.order_count, 0) >= $1 THEN $2::numeric ELSE 1 END)) DESC`
+    sql`(random() * (CASE WHEN COALESCE(o.order_count, 0) >= ${minOrders} THEN ${weight}::numeric ELSE 1 END)) DESC`
   );
 }
 
@@ -279,31 +274,33 @@ export async function getPlatformItems(opts: MarketSectionOptions = {}): Promise
 
   const items: MarketItem[] = [];
 
+  const orm = await getDb();
+
   if (!opts.category || opts.category === "credits" || opts.category === "cosmetics_themes") {
-    const itemTypeFilter = opts.category === "credits"
-      ? `item_type IN ('coin_pack', 'star_pack')`
-      : opts.category === "cosmetics_themes"
-      ? `item_type = 'cosmetic'`
-      : `item_type IN ('coin_pack', 'star_pack', 'cosmetic')`;
-    const { rows } = await db.query<PlatformItemRow>(
-      `SELECT id, name, description, item_type, cosmetic_type,
+    const itemTypeFilter = sql.raw(
+      opts.category === "credits"
+        ? `item_type IN ('coin_pack', 'star_pack')`
+        : opts.category === "cosmetics_themes"
+        ? `item_type = 'cosmetic'`
+        : `item_type IN ('coin_pack', 'star_pack', 'cosmetic')`
+    );
+    const { rows } = await orm.execute<PlatformItemRow & Record<string, unknown>>(sql`
+      SELECT id, name, description, item_type, cosmetic_type,
               coins_cost::TEXT AS coins_cost, stars_cost, price_kobo::TEXT AS price_kobo,
               is_featured, sort_order
        FROM store_items
        WHERE is_active = TRUE AND (valid_until IS NULL OR valid_until > NOW()) AND ${itemTypeFilter}
        ORDER BY is_featured DESC, sort_order ASC, price_kobo ASC NULLS LAST
-       LIMIT $1 OFFSET $2`,
-      [limit, offset]
-    );
+       LIMIT ${limit} OFFSET ${offset}
+    `);
     items.push(...rows.map(mapPlatformRow));
   }
 
   if (!opts.category || opts.category === "boosts_passes") {
-    const { rows } = await db.query<BoostTypeRow>(
-      `SELECT id, key, label, description, coins_cost, stars_cost, sort_order
-       FROM boost_types WHERE is_active = TRUE ORDER BY sort_order ASC LIMIT $1`,
-      [limit]
-    );
+    const { rows } = await orm.execute<BoostTypeRow & Record<string, unknown>>(sql`
+      SELECT id, key, label, description, coins_cost, stars_cost, sort_order
+       FROM boost_types WHERE is_active = TRUE ORDER BY sort_order ASC LIMIT ${limit}
+    `);
     items.push(...rows.map(mapBoostRow));
   }
 
@@ -312,15 +309,15 @@ export async function getPlatformItems(opts: MarketSectionOptions = {}): Promise
 
 /** Admin-featured platform items only (used by the "Featured" section alongside admin-featured creator items). */
 export async function getAdminFeaturedPlatformItems(limit = 6): Promise<MarketItem[]> {
-  const { rows } = await db.query<PlatformItemRow>(
-    `SELECT id, name, description, item_type, cosmetic_type,
+  const orm = await getDb();
+  const { rows } = await orm.execute<PlatformItemRow & Record<string, unknown>>(sql`
+    SELECT id, name, description, item_type, cosmetic_type,
             coins_cost::TEXT AS coins_cost, stars_cost, price_kobo::TEXT AS price_kobo,
             is_featured, sort_order
      FROM store_items
      WHERE is_active = TRUE AND is_featured = TRUE AND (valid_until IS NULL OR valid_until > NOW())
-     ORDER BY sort_order ASC LIMIT $1`,
-    [limit]
-  );
+     ORDER BY sort_order ASC LIMIT ${limit}
+  `);
   return rows.map(mapPlatformRow);
 }
 

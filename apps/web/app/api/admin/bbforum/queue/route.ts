@@ -10,10 +10,11 @@ export const dynamic = "force-dynamic";
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { withModeratorOrAdminAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 
 export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) => {
   try {
@@ -27,20 +28,21 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
     const validStatuses = ["pending", "resolved", "escalated", "all"];
     const safeStatus = validStatuses.includes(status) ? status : "pending";
 
-    const params: (string | number)[] = [limit + 1];
-    let whereClause = `(r.reported_bb_thread_id IS NOT NULL OR r.reported_bb_post_id IS NOT NULL)`;
-
+    // NOTE: bb_threads/bb_posts are not present in lib/db/schema.ts (schema/DB
+    // mismatch — reported separately), so this query is expressed via the
+    // `sql` template rather than the Drizzle query builder.
+    const conditions = [sql`(r.reported_bb_thread_id IS NOT NULL OR r.reported_bb_post_id IS NOT NULL)`];
     if (safeStatus !== "all") {
-      params.push(safeStatus);
-      whereClause += ` AND r.status = $${params.length}`;
+      conditions.push(sql`r.status = ${safeStatus}`);
     }
     if (cursor) {
-      params.push(cursor);
-      whereClause += ` AND r.id < $${params.length}`;
+      conditions.push(sql`r.id < ${cursor}`);
     }
+    const whereClause = sql.join(conditions, sql` AND `);
 
-    const { rows } = await db.query(
-      `SELECT
+    const orm = await getDb();
+    const { rows } = await orm.execute(sql`
+       SELECT
          r.id,
          r.reporter_id,
          reporter.username AS reporter_username,
@@ -72,9 +74,8 @@ export const GET = withModeratorOrAdminAuth(async (req: NextRequest, { auth }) =
        LEFT JOIN bb_threads pt ON pt.id = p.thread_id
        WHERE ${whereClause}
        ORDER BY r.ai_confidence DESC NULLS LAST, r.created_at DESC
-       LIMIT $1`,
-      params
-    );
+       LIMIT ${limit + 1}
+    `);
 
     const hasMore = rows.length > limit;
     const items = hasMore ? rows.slice(0, limit) : rows;

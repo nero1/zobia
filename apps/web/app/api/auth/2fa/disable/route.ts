@@ -12,7 +12,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { redis } from "@/lib/redis";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
@@ -42,19 +43,21 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const { code } = await validateBody(req, disableSchema);
     const userId = auth.user.sub;
 
-    // Fetch current TOTP secret
-    const { rows: userRows } = await db.query<{ totp_secret: string | null; totp_enabled: boolean }>(
-      "SELECT totp_secret, totp_enabled FROM users WHERE id = $1",
-      [userId]
-    );
-    const row = userRows[0];
+    const orm = await getDb();
 
-    if (!row || !row.totp_enabled || !row.totp_secret) {
+    // Fetch current TOTP secret
+    const [row] = await orm
+      .select({ totpSecret: schema.users.totpSecret, totpEnabled: schema.users.totpEnabled })
+      .from(schema.users)
+      .where(eq(schema.users.id, userId))
+      .limit(1);
+
+    if (!row || !row.totpEnabled || !row.totpSecret) {
       throw badRequest("2FA is not currently enabled", "TOTP_NOT_ENABLED");
     }
 
     // Decrypt the stored secret before TOTP verification (B-01)
-    const plainSecret = decryptField(row.totp_secret);
+    const plainSecret = decryptField(row.totpSecret);
     if (!plainSecret) {
       throw badRequest("2FA secret is invalid. Please contact support.", "TOTP_DECRYPT_FAILED");
     }
@@ -72,11 +75,10 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     }
 
     // Clear TOTP secret and disable
-    await db.query(
-      `UPDATE users SET totp_secret = NULL, totp_enabled = false, updated_at = NOW()
-       WHERE id = $1`,
-      [userId]
-    );
+    await orm
+      .update(schema.users)
+      .set({ totpSecret: null, totpEnabled: false, updatedAt: new Date() })
+      .where(eq(schema.users.id, userId));
 
     return NextResponse.json({ success: true }, { status: 200 });
   } catch (err) {

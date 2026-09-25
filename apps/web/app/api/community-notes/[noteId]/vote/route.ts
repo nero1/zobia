@@ -14,7 +14,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -46,38 +47,32 @@ export const POST = withAuth(
 
       const { helpful } = await validateBody(req, voteSchema);
 
-      const result = await db.transaction(async (tx) => {
+      const orm = await getDb();
+      const result = await orm.transaction(async (tx) => {
         // Verify note exists
-        const { rows: noteRows } = await tx.query<{
-          id: string;
-          helpful_votes: number;
-          unhelpful_votes: number;
-          status: string;
-        }>(
-          `SELECT id, helpful_votes, unhelpful_votes, status
-           FROM community_notes
-           WHERE id = $1
-           FOR UPDATE`,
-          [noteId]
-        );
-        if (!noteRows[0]) throw notFound("Community note not found");
-        const note = noteRows[0];
+        const [note] = await tx
+          .select({
+            id: schema.communityNotes.id,
+            helpful_votes: schema.communityNotes.helpfulVotes,
+            unhelpful_votes: schema.communityNotes.unhelpfulVotes,
+            status: schema.communityNotes.status,
+          })
+          .from(schema.communityNotes)
+          .where(eq(schema.communityNotes.id, noteId))
+          .for("update");
+        if (!note) throw notFound("Community note not found");
 
         // Check for existing vote by this user
-        const { rows: existingVote } = await tx.query<{
-          id: string;
-          helpful: boolean;
-        }>(
-          `SELECT id, helpful FROM community_note_votes
-           WHERE note_id = $1 AND user_id = $2 LIMIT 1`,
-          [noteId, userId]
-        );
+        const [prev] = await tx
+          .select({ id: schema.communityNoteVotes.id, helpful: schema.communityNoteVotes.helpful })
+          .from(schema.communityNoteVotes)
+          .where(and(eq(schema.communityNoteVotes.noteId, noteId), eq(schema.communityNoteVotes.userId, userId)))
+          .limit(1);
 
         let helpfulDelta = 0;
         let unhelpfulDelta = 0;
 
-        if (existingVote.length > 0) {
-          const prev = existingVote[0];
+        if (prev) {
           if (prev.helpful === helpful) {
             // Same vote — no change
             return {
@@ -91,11 +86,10 @@ export const POST = withAuth(
           }
 
           // Flip the vote
-          await tx.query(
-            `UPDATE community_note_votes SET helpful = $1, created_at = NOW()
-             WHERE note_id = $2 AND user_id = $3`,
-            [helpful, noteId, userId]
-          );
+          await tx
+            .update(schema.communityNoteVotes)
+            .set({ helpful, createdAt: new Date() })
+            .where(and(eq(schema.communityNoteVotes.noteId, noteId), eq(schema.communityNoteVotes.userId, userId)));
 
           // Adjust deltas
           if (helpful) {
@@ -107,11 +101,7 @@ export const POST = withAuth(
           }
         } else {
           // New vote
-          await tx.query(
-            `INSERT INTO community_note_votes (note_id, user_id, helpful, created_at)
-             VALUES ($1, $2, $3, NOW())`,
-            [noteId, userId, helpful]
-          );
+          await tx.insert(schema.communityNoteVotes).values({ noteId, userId, helpful });
 
           if (helpful) helpfulDelta = +1;
           else unhelpfulDelta = +1;
@@ -129,15 +119,10 @@ export const POST = withAuth(
           newStatus = "hidden";
         }
 
-        await tx.query(
-          `UPDATE community_notes
-           SET helpful_votes = $1,
-               unhelpful_votes = $2,
-               status = $3,
-               updated_at = NOW()
-           WHERE id = $4`,
-          [newHelpful, newUnhelpful, newStatus, noteId]
-        );
+        await tx
+          .update(schema.communityNotes)
+          .set({ helpfulVotes: newHelpful, unhelpfulVotes: newUnhelpful, status: newStatus, updatedAt: new Date() })
+          .where(eq(schema.communityNotes.id, noteId));
 
         return {
           noteId,

@@ -15,7 +15,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { eq, and, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateSearchParams, validateBody } from "@/lib/api/middleware";
 import { handleApiError, forbidden, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -56,21 +57,7 @@ const querySchema = z.object({
 // DB row types
 // ---------------------------------------------------------------------------
 
-interface ConversationParticipantRow {
-  user_id_1: string;
-  user_id_2: string;
-}
-
-interface RecipientInfoRow {
-  id: string;
-  coin_balance: number;
-  plan: Plan;
-  username: string;
-  display_name: string | null;
-  avatar_emoji: string | null;
-}
-
-interface MessageRow {
+type MessageRow = Record<string, unknown> & {
   id: string;
   sender_id: string;
   sender_username: string;
@@ -80,12 +67,12 @@ interface MessageRow {
   message_type: string;
   content: string | null;
   media_url: string | null;
-  coin_cost: number;
+  coin_cost: string | number | null;
   is_deleted: boolean;
   reactions: string | null;
   created_at: string;
   updated_at: string;
-}
+};
 
 // ---------------------------------------------------------------------------
 // GET handler
@@ -109,22 +96,20 @@ export const GET = withAuth(
       await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.apiRead);
 
       const { conversationId } = params;
+      const orm = await getDb();
 
       // 1. Verify the conversation exists and the user is a participant
-      const { rows: convRows } = await db.query<ConversationParticipantRow>(
-        `SELECT user_id_1, user_id_2
-         FROM dm_conversations
-         WHERE id = $1
-         LIMIT 1`,
-        [conversationId]
-      );
+      const [conv] = await orm
+        .select({ userId1: schema.dmConversations.userId1, userId2: schema.dmConversations.userId2 })
+        .from(schema.dmConversations)
+        .where(eq(schema.dmConversations.id, conversationId))
+        .limit(1);
 
-      const conv = convRows[0];
       if (!conv) throw notFound("Conversation not found");
 
       const isParticipant =
-        conv.user_id_1 === auth.user.sub ||
-        conv.user_id_2 === auth.user.sub;
+        conv.userId1 === auth.user.sub ||
+        conv.userId2 === auth.user.sub;
 
       if (!isParticipant) {
         throw forbidden("You are not a participant in this conversation");
@@ -139,92 +124,89 @@ export const GET = withAuth(
 
       // 2a. Determine message history window based on user's plan
       //     free: 90 days, plus: 180 days, pro/max: unlimited
-      const { rows: planRows } = await db.query<{ plan: string }>(
-        `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-        [auth.user.sub]
-      );
-      const userPlan = planRows[0]?.plan ?? "free";
+      const [planRow] = await orm
+        .select({ plan: schema.users.plan })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, auth.user.sub), sql`${schema.users.deletedAt} IS NULL`))
+        .limit(1);
+      const userPlan = planRow?.plan ?? "free";
       // Map plan to history limit in days (null = unlimited) — BUG-51: use parameterized query
       const PLAN_HISTORY_DAYS: Record<string, number | null> = {
         free: 90, plus: 180, pro: null, max: null,
       };
       const historyDays = PLAN_HISTORY_DAYS[userPlan] ?? 90;
 
-      const params2: (string | number)[] = [conversationId, limit];
-      let nextParam = 3;
-
       // Delta mode takes precedence: only messages newer than `after`, ascending.
-      let cursorClause = "";
+      let cursorClause = sql``;
       if (deltaMode) {
-        cursorClause = `AND m.created_at >= $${nextParam++}`;
-        params2.push(after as string);
+        cursorClause = sql`AND m.created_at >= ${after}::timestamptz`;
       } else if (before && beforeId) {
-        cursorClause = `AND (m.created_at, m.id) < ($${nextParam++}, $${nextParam++})`;
-        params2.push(before, beforeId);
+        cursorClause = sql`AND (m.created_at, m.id) < (${before}::timestamptz, ${beforeId}::uuid)`;
       } else if (before) {
-        cursorClause = `AND m.created_at < $${nextParam++}`;
-        params2.push(before);
+        cursorClause = sql`AND m.created_at < ${before}::timestamptz`;
       }
 
-      let historyClause = "";
-      if (historyDays !== null) {
-        historyClause = `AND m.created_at > NOW() - make_interval(days => $${nextParam++}::int)`;
-        params2.push(historyDays);
-      }
+      const historyClause = historyDays !== null
+        ? sql`AND m.created_at > NOW() - make_interval(days => ${historyDays}::int)`
+        : sql``;
 
       // 3. Fetch messages with sender profile and reactions
-      const { rows } = await db.query<MessageRow>(
-        `SELECT
-           m.id,
-           m.sender_id,
-           u.username AS sender_username,
-           u.display_name AS sender_display_name,
-           u.avatar_emoji AS sender_avatar_emoji,
-           m.recipient_id,
-           m.message_type,
-           CASE WHEN m.is_deleted THEN NULL ELSE m.content END AS content,
-           CASE WHEN m.is_deleted THEN NULL ELSE m.media_url END AS media_url,
-           m.coin_cost,
-           m.is_deleted,
-           COALESCE(
-             (
-               SELECT json_agg(json_build_object(
-                 'id', r.id,
-                 'userId', r.user_id,
-                 'emoji', r.emoji,
-                 'isCustom', r.is_custom,
-                 'createdAt', r.created_at
-               ) ORDER BY r.created_at)
-               FROM message_reactions r
-               WHERE r.message_id = m.id
-             ),
-             '[]'::json
-           ) AS reactions,
-           m.created_at,
-           m.updated_at
-         FROM messages m
-         JOIN users u ON u.id = m.sender_id
-         WHERE m.conversation_id = $1
-           ${cursorClause}
-           ${historyClause}
-           AND (m.message_type != 'moment' OR m.created_at > NOW() - INTERVAL '24 hours')
-         ORDER BY m.created_at ${deltaMode ? "ASC" : "DESC"}
-         LIMIT $2`,
-        params2
-      );
+      const result = await orm.execute<MessageRow>(sql`
+        SELECT
+          m.id,
+          m.sender_id,
+          u.username AS sender_username,
+          u.display_name AS sender_display_name,
+          u.avatar_emoji AS sender_avatar_emoji,
+          m.recipient_id,
+          m.message_type,
+          CASE WHEN m.is_deleted THEN NULL ELSE m.content END AS content,
+          CASE WHEN m.is_deleted THEN NULL ELSE m.media_url END AS media_url,
+          m.coin_cost,
+          m.is_deleted,
+          COALESCE(
+            (
+              SELECT json_agg(json_build_object(
+                'id', r.id,
+                'userId', r.user_id,
+                'emoji', r.emoji,
+                'isCustom', r.is_custom,
+                'createdAt', r.created_at
+              ) ORDER BY r.created_at)
+              FROM message_reactions r
+              WHERE r.message_id = m.id
+            ),
+            '[]'::json
+          ) AS reactions,
+          m.created_at,
+          m.updated_at
+        FROM messages m
+        JOIN users u ON u.id = m.sender_id
+        WHERE m.conversation_id = ${conversationId}
+          ${cursorClause}
+          ${historyClause}
+          AND (m.message_type != 'moment' OR m.created_at > NOW() - INTERVAL '24 hours')
+        ORDER BY m.created_at ${deltaMode ? sql`ASC` : sql`DESC`}
+        LIMIT ${limit}
+      `);
+      const rows = result.rows;
 
       // 4. Mark messages as read (best-effort, async)
-      db.query(
-        `UPDATE messages
-         SET is_read = TRUE, updated_at = NOW()
-         WHERE conversation_id = $1
-           AND recipient_id = $2
-           AND is_read = FALSE
-           AND is_deleted = FALSE`,
-        [conversationId, auth.user.sub]
-      ).catch((err) => {
-        logger.error({ err: err }, "[dm/[conversationId]:GET] Mark read failed");
-        });
+      void (async () => {
+        try {
+          await orm
+            .update(schema.messages)
+            .set({ isRead: true, updatedAt: sql`NOW()` })
+            .where(and(
+              eq(schema.messages.conversationId, conversationId),
+              eq(schema.messages.recipientId, auth.user.sub),
+              eq(schema.messages.isRead, false),
+              eq(schema.messages.isDeleted, false),
+            ));
+        } catch (err) {
+          logger.error({ err: err }, "[dm/[conversationId]:GET] Mark read failed");
+        }
+      })();
 
       // Cursor pagination only applies to the backlog query, not delta polling.
       const lastRow = !deltaMode && rows.length === limit ? rows[rows.length - 1] : null;
@@ -235,21 +217,21 @@ export const GET = withAuth(
       // 5. Check if the OTHER participant can reply (sufficient coins)
       //    and fetch their profile for the conversation metadata object
       const otherId =
-        conv.user_id_1 === auth.user.sub ? conv.user_id_2 : conv.user_id_1;
+        conv.userId1 === auth.user.sub ? conv.userId2 : conv.userId1;
 
       // PRD §5 — Link previews only render after recipient has replied at least twice.
       // Count messages sent by the OTHER user (the recipient from the current user's POV).
       let recipientReplyCount = 0;
       try {
-        const { rows: replyCountRows } = await db.query<{ cnt: string }>(
-          `SELECT COUNT(*)::text AS cnt
-           FROM messages
-           WHERE conversation_id = $1
-             AND sender_id = $2
-             AND is_deleted = FALSE`,
-          [conversationId, otherId]
-        );
-        recipientReplyCount = parseInt(replyCountRows[0]?.cnt ?? "0", 10);
+        const [{ count }] = await orm
+          .select({ count: sql<string>`COUNT(*)` })
+          .from(schema.messages)
+          .where(and(
+            eq(schema.messages.conversationId, conversationId),
+            eq(schema.messages.senderId, otherId),
+            eq(schema.messages.isDeleted, false),
+          ));
+        recipientReplyCount = parseInt(count ?? "0", 10);
       } catch {
         // Non-fatal — default to 0 (link previews disabled)
       }
@@ -257,30 +239,37 @@ export const GET = withAuth(
       let recipientCanReply = true;
       let conversationMeta = null;
       try {
-        const { rows: recipientRows } = await db.query<RecipientInfoRow>(
-          `SELECT id, coin_balance, plan, username, display_name, avatar_emoji
-           FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-          [otherId]
-        );
-        if (recipientRows[0]) {
-          const r = recipientRows[0];
-          const replyCost = getDMCost(r.plan as Plan, false) ?? 0;
-          recipientCanReply = r.coin_balance >= replyCost;
+        const [recipient] = await orm
+          .select({
+            id: schema.users.id,
+            coinBalance: schema.users.coinBalance,
+            plan: schema.users.plan,
+            username: schema.users.username,
+            displayName: schema.users.displayName,
+            avatarEmoji: schema.users.avatarEmoji,
+          })
+          .from(schema.users)
+          .where(and(eq(schema.users.id, otherId), sql`${schema.users.deletedAt} IS NULL`))
+          .limit(1);
+        if (recipient) {
+          const replyCost = getDMCost(recipient.plan as Plan, false) ?? 0;
+          recipientCanReply = recipient.coinBalance >= BigInt(replyCost);
 
           // Also compute the DM cost for the current user
-          const { rows: senderRows } = await db.query<{ plan: Plan }>(
-            `SELECT COALESCE(plan, 'free') AS plan FROM users WHERE id = $1 LIMIT 1`,
-            [auth.user.sub]
-          );
-          const senderPlan = senderRows[0]?.plan ?? "free";
-          const myDmCost = getDMCost(senderPlan, false) ?? 0;
+          const [senderRow] = await orm
+            .select({ plan: schema.users.plan })
+            .from(schema.users)
+            .where(eq(schema.users.id, auth.user.sub))
+            .limit(1);
+          const senderPlan = senderRow?.plan ?? "free";
+          const myDmCost = getDMCost(senderPlan as Plan, false) ?? 0;
 
           conversationMeta = {
             conversationId,
-            participantUserId: r.id,
-            participantUsername: r.username,
-            participantDisplayName: r.display_name ?? r.username,
-            participantAvatarEmoji: r.avatar_emoji ?? "👤",
+            participantUserId: recipient.id,
+            participantUsername: recipient.username,
+            participantDisplayName: recipient.displayName ?? recipient.username,
+            participantAvatarEmoji: recipient.avatarEmoji ?? "👤",
             dmCoinCost: myDmCost > 0 ? myDmCost : null,
           };
         }
@@ -331,24 +320,6 @@ const sendInConversationSchema = z.object({
 // Replaced by the shared RATE_LIMITS.messageSend preset (20/min) so rooms and DMs
 // enforce identical limits.
 
-interface SenderRow {
-  id: string;
-  plan: Plan;
-  coin_balance: number;
-  is_admin: boolean;
-  is_verified: boolean;
-  trust_score: number;
-  username: string;
-  display_name: string | null;
-  avatar_emoji: string | null;
-}
-interface SentMessageRow {
-  id: string; sender_id: string; recipient_id: string; message_type: string;
-  content: string | null; media_url: string | null; coin_cost: number;
-  reply_count_from_recipient: number; is_deleted: boolean;
-  created_at: string; updated_at: string;
-}
-
 /**
  * Send a message inside an existing DM conversation.
  * The recipient is derived from the conversation record (no recipientId in body).
@@ -368,47 +339,54 @@ export const POST = withAuth(
         throw badRequest("content is required");
       }
 
+      const orm = await getDb();
+
       // 1. Load conversation and verify participant
-      const { rows: convRows } = await db.query<{
-        id: string; user_id_1: string; user_id_2: string;
-      }>(
-        `SELECT id, user_id_1, user_id_2 FROM dm_conversations WHERE id = $1 LIMIT 1`,
-        [conversationId]
-      );
-      const conv = convRows[0];
+      const [conv] = await orm
+        .select({ id: schema.dmConversations.id, userId1: schema.dmConversations.userId1, userId2: schema.dmConversations.userId2 })
+        .from(schema.dmConversations)
+        .where(eq(schema.dmConversations.id, conversationId))
+        .limit(1);
       if (!conv) throw notFound("Conversation not found");
 
       const isParticipant =
-        conv.user_id_1 === auth.user.sub || conv.user_id_2 === auth.user.sub;
+        conv.userId1 === auth.user.sub || conv.userId2 === auth.user.sub;
       if (!isParticipant) throw forbidden("Not a participant in this conversation");
 
       const recipientId =
-        conv.user_id_1 === auth.user.sub ? conv.user_id_2 : conv.user_id_1;
+        conv.userId1 === auth.user.sub ? conv.userId2 : conv.userId1;
 
       // BUG-53: Check if recipient has blocked the sender (generic error, no block status revealed)
-      const { rows: dmBlockRows } = await db.query<{ id: string }>(
-        `SELECT id FROM user_blocks
-         WHERE blocker_id = $1 AND blocked_id = $2
-         LIMIT 1`,
-        [recipientId, auth.user.sub]
-      );
+      const [dmBlock] = await orm
+        .select({ id: schema.userBlocks.id })
+        .from(schema.userBlocks)
+        .where(and(eq(schema.userBlocks.blockerId, recipientId), eq(schema.userBlocks.blockedId, auth.user.sub)))
+        .limit(1);
 
       // 2. Load sender
-      const { rows: senderRows } = await db.query<SenderRow>(
-        `SELECT id, plan, coin_balance, is_admin,
-                COALESCE(is_verified, false) AS is_verified,
-                COALESCE(trust_score, 50)    AS trust_score,
-                username, display_name, avatar_emoji
-         FROM users
-         WHERE id = $1 AND deleted_at IS NULL AND is_suspended = FALSE
-         LIMIT 1`,
-        [auth.user.sub]
-      );
-      const sender = senderRows[0];
+      const [sender] = await orm
+        .select({
+          id: schema.users.id,
+          plan: schema.users.plan,
+          coinBalance: schema.users.coinBalance,
+          isAdmin: schema.users.isAdmin,
+          isVerified: schema.users.isVerified,
+          trustScore: schema.users.trustScore,
+          username: schema.users.username,
+          displayName: schema.users.displayName,
+          avatarEmoji: schema.users.avatarEmoji,
+        })
+        .from(schema.users)
+        .where(and(
+          eq(schema.users.id, auth.user.sub),
+          sql`${schema.users.deletedAt} IS NULL`,
+          eq(schema.users.isSuspended, false),
+        ))
+        .limit(1);
       if (!sender) throw forbidden("Your account cannot send messages");
 
       // BUG-53: Enforce block check now that we know sender.is_admin
-      if (dmBlockRows[0] && !sender.is_admin) {
+      if (dmBlock && !sender.isAdmin) {
         throw badRequest("Unable to send message to this user", "MESSAGE_NOT_DELIVERED");
       }
 
@@ -417,29 +395,32 @@ export const POST = withAuth(
       //    write-increment (BUG-10). Placed before the DB transaction so a
       //    rolled-back transaction never leaks a Redis counter increment.
       const { allowed: replyAllowed } = await checkAndIncrementDailyCount(
-        auth.user.sub, "reply", sender.plan
+        auth.user.sub, "reply", sender.plan as Plan
       );
       if (!replyAllowed) {
         throw conflict("Daily reply limit reached. Try again tomorrow.", "DAILY_LIMIT_REACHED");
       }
 
       // 4. Coin cost (always a reply since conversation exists)
-      const coinCost = getDMCost(sender.plan, false) ?? 0;
-      if (coinCost > 0 && sender.coin_balance < coinCost && !sender.is_admin) {
+      const coinCost = getDMCost(sender.plan as Plan, false) ?? 0;
+      if (coinCost > 0 && sender.coinBalance < BigInt(coinCost) && !sender.isAdmin) {
         throw conflict(`Insufficient coins. This message costs ${coinCost} coin(s).`, "INSUFFICIENT_COINS");
       }
 
       // 5. Count recipient replies (for anti-spam threshold)
-      const { rows: replyRows } = await db.query<{ cnt: string }>(
-        `SELECT COUNT(*)::text AS cnt FROM messages
-         WHERE conversation_id = $1 AND sender_id = $2 AND is_deleted = FALSE`,
-        [conversationId, recipientId]
-      );
-      const replyCountFromRecipient = parseInt(replyRows[0]?.cnt ?? "0", 10);
+      const [{ count: replyCountStr }] = await orm
+        .select({ count: sql<string>`COUNT(*)` })
+        .from(schema.messages)
+        .where(and(
+          eq(schema.messages.conversationId, conversationId),
+          eq(schema.messages.senderId, recipientId),
+          eq(schema.messages.isDeleted, false),
+        ));
+      const replyCountFromRecipient = parseInt(replyCountStr ?? "0", 10);
 
       // 6. Anti-spam filter
-      const filtered = filterDMContent(body.content, replyCountFromRecipient, sender.is_admin);
-      if (!sender.is_admin && body.content.trim() && !filtered.trim()) {
+      const filtered = filterDMContent(body.content, replyCountFromRecipient, sender.isAdmin);
+      if (!sender.isAdmin && body.content.trim() && !filtered.trim()) {
         return NextResponse.json(
           { error: "Message blocked by content filter", code: "CONTENT_FILTERED" },
           { status: 422 }
@@ -450,12 +431,12 @@ export const POST = withAuth(
       const finalContent = filtered.trim() || "[Message removed by content filter]";
 
       // 7. Bot/duplicate automod (same checks as room messages)
-      if (!sender.is_admin && body.messageType === "text" && filtered.trim()) {
+      if (!sender.isAdmin && body.messageType === "text" && filtered.trim()) {
         const modResult = await applyAutoModeration(
           { content: filtered, senderId: auth.user.sub, roomId: conversationId },
           { id: conversationId },
-          { id: auth.user.sub, is_verified: sender.is_verified, trust_score: sender.trust_score },
-          db,
+          { id: auth.user.sub, is_verified: sender.isVerified ?? false, trust_score: sender.trustScore ?? 50 },
+          orm,
           "dm"
         );
         if (modResult.blocked) {
@@ -469,18 +450,17 @@ export const POST = withAuth(
 
       // 8. Idempotency check
       if (body.idempotencyKey) {
-        const { rows: dupRows } = await db.query<{ id: string }>(
-          `SELECT id FROM messages WHERE sender_id = $1 AND idempotency_key = $2 LIMIT 1`,
-          [auth.user.sub, body.idempotencyKey]
-        );
-        if (dupRows[0]) {
-          const { rows: existingRows } = await db.query<SentMessageRow>(
-            `SELECT id, sender_id, recipient_id, message_type, content, media_url,
-                    coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at
-             FROM messages WHERE id = $1 LIMIT 1`,
-            [dupRows[0].id]
+        const [dup] = await orm
+          .select({ id: schema.messages.id })
+          .from(schema.messages)
+          .where(and(eq(schema.messages.senderId, auth.user.sub), eq(schema.messages.idempotencyKey, body.idempotencyKey)))
+          .limit(1);
+        if (dup) {
+          const [existing] = await orm.select().from(schema.messages).where(eq(schema.messages.id, dup.id)).limit(1);
+          return NextResponse.json(
+            { message: existing ? { ...existing, coinCost: Number(existing.coinCost ?? 0) } : existing },
+            { status: 200 }
           );
-          return NextResponse.json({ message: existingRows[0] }, { status: 200 });
         }
       }
 
@@ -491,10 +471,18 @@ export const POST = withAuth(
       const coinRefId = `dm_cost:${body.idempotencyKey ?? randomUUID()}`;
 
       // 9. Atomic: deduct coins + create message
-      const message = await db.transaction(async (tx) => {
-        if (coinCost > 0 && !sender.is_admin) {
+      const message = await orm.transaction(async (tx) => {
+        if (coinCost > 0 && !sender.isAdmin) {
           try {
-            await debitCoins(auth.user.sub, coinCost, 'dm_cost', coinRefId, 'DM coin cost', null, tx);
+            await debitCoins(
+              auth.user.sub,
+              coinCost,
+              'dm_cost',
+              coinRefId,
+              'DM coin cost',
+              null,
+              tx
+            );
           } catch (err) {
             if ((err as NodeJS.ErrnoException).code === 'INSUFFICIENT_BALANCE') {
               throw conflict("Insufficient coins", "INSUFFICIENT_COINS");
@@ -503,21 +491,23 @@ export const POST = withAuth(
           }
         }
 
-        const { rows: msgRows } = await tx.query<SentMessageRow>(
-          `INSERT INTO messages
-             (sender_id, recipient_id, conversation_id, message_type, content,
-              media_url, coin_cost, reply_count_from_recipient, idempotency_key, sender_plan_at_creation)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-           RETURNING id, sender_id, recipient_id, message_type, content, media_url,
-                     coin_cost, reply_count_from_recipient, is_deleted, created_at, updated_at`,
-          [
-            auth.user.sub, recipientId, conversationId, body.messageType,
-            finalContent, body.mediaUrl ?? null, coinCost,
-            replyCountFromRecipient, body.idempotencyKey ?? null, sender.plan,
-          ]
-        );
+        const [inserted] = await tx
+          .insert(schema.messages)
+          .values({
+            senderId: auth.user.sub,
+            recipientId,
+            conversationId,
+            messageType: body.messageType,
+            content: finalContent,
+            mediaUrl: body.mediaUrl ?? null,
+            coinCost: BigInt(coinCost),
+            replyCountFromRecipient,
+            idempotencyKey: body.idempotencyKey ?? null,
+            senderPlanAtCreation: sender.plan,
+          })
+          .returning();
 
-        return msgRows[0];
+        return inserted;
       });
 
       if (!message) throw new Error("Message creation failed");
@@ -528,16 +518,18 @@ export const POST = withAuth(
       // no avatar until the next poll reconciled.
       const enrichedMessage = {
         ...message,
+        // coinCost is a bigint column — convert for JSON serialization (JSON.stringify throws on bigint).
+        coinCost: Number(message.coinCost ?? 0),
         sender_username: sender.username,
-        sender_display_name: sender.display_name ?? sender.username,
-        sender_avatar_emoji: sender.avatar_emoji ?? "👤",
+        sender_display_name: sender.displayName ?? sender.username,
+        sender_avatar_emoji: sender.avatarEmoji ?? "👤",
       };
 
       // 10. XP + daily counter (best-effort, outside transaction) — apply plan multiplier per PRD §6
       {
         const { finalXp: convFinalXp } = calculateFinalXP(
           'send_text_message',
-          { plan: sender.plan, isMessagingAction: true }
+          { plan: sender.plan as Plan, isMessagingAction: true }
         );
         // BUG-XP-11: use safeAwardXP with message.id as reference_id for idempotency + DLQ on failure
         safeAwardXP(auth.user.sub, convFinalXp, 'social', 'message', `dm_${message.id}`).catch(() => {});
@@ -554,7 +546,7 @@ export const POST = withAuth(
       // 12. Push notification — only if the recipient is not currently online.
       void notifyDirectMessage({
         recipientId,
-        senderName: sender.display_name ?? sender.username,
+        senderName: sender.displayName ?? sender.username,
         text: finalContent,
         conversationId,
       });

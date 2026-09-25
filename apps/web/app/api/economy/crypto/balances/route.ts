@@ -13,7 +13,8 @@ export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { withAuth } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { db } from "@/lib/db";
+import { desc, eq } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { getCryptoPayoutsEnabled, getCryptoPayoutMode, getCryptoPayoutThreshold } from "@/lib/payments/crypto/payouts";
 import { getToken, explorerTxUrl, SUPPORTED_CURRENCIES } from "@/lib/payments/crypto/tokens";
@@ -43,16 +44,26 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
       return NextResponse.json({ success: true, data: { enabled: false, balances: [], transactions: [] }, error: null });
     }
 
-    const [{ rows: balanceRows }, { rows: ledgerRows }, thresholds] = await Promise.all([
-      db.query<BalanceRow>(
-        `SELECT currency, balance_base_units FROM creator_crypto_balances WHERE user_id = $1`,
-        [auth.user.sub]
-      ),
-      db.query<LedgerRow>(
-        `SELECT id, currency, amount_base_units, source_type, reference_id, metadata, created_at
-         FROM crypto_balance_ledger WHERE user_id = $1 ORDER BY created_at DESC LIMIT 50`,
-        [auth.user.sub]
-      ),
+    const orm = await getDb();
+    const [balanceRows, ledgerRows, thresholds] = await Promise.all([
+      orm
+        .select({ currency: schema.creatorCryptoBalances.currency, balance_base_units: schema.creatorCryptoBalances.balanceBaseUnits })
+        .from(schema.creatorCryptoBalances)
+        .where(eq(schema.creatorCryptoBalances.userId, auth.user.sub)),
+      orm
+        .select({
+          id: schema.cryptoBalanceLedger.id,
+          currency: schema.cryptoBalanceLedger.currency,
+          amount_base_units: schema.cryptoBalanceLedger.amountBaseUnits,
+          source_type: schema.cryptoBalanceLedger.sourceType,
+          reference_id: schema.cryptoBalanceLedger.referenceId,
+          metadata: schema.cryptoBalanceLedger.metadata,
+          created_at: schema.cryptoBalanceLedger.createdAt,
+        })
+        .from(schema.cryptoBalanceLedger)
+        .where(eq(schema.cryptoBalanceLedger.userId, auth.user.sub))
+        .orderBy(desc(schema.cryptoBalanceLedger.createdAt))
+        .limit(50),
       Promise.all(SUPPORTED_CURRENCIES.map(async (c) => [c, (await getCryptoPayoutThreshold(c)).toString()] as const)),
     ]);
 
@@ -69,7 +80,8 @@ export const GET = withAuth(async (_req: NextRequest, { auth }) => {
 
     const transactions = ledgerRows.map((r) => {
       const chain = getToken(r.currency as CryptoCurrency).chain;
-      const txHash = typeof r.metadata?.txHash === "string" ? r.metadata.txHash : null;
+      const metadata = r.metadata as Record<string, unknown> | null;
+      const txHash = typeof metadata?.txHash === "string" ? metadata.txHash : null;
       return {
         id: r.id,
         currency: r.currency,

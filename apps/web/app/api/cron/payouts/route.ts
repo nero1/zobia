@@ -29,11 +29,12 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
+import { sql } from "drizzle-orm";
 import { loadManifest } from "@/lib/manifest";
 import { processPendingPayouts, reconcileStuckPayouts } from "@/lib/payments/payouts";
 import { validateCronSecret } from "@/lib/cron/auth";
 import { logger } from "@/lib/logger";
-import { db } from "@/lib/db";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { raiseAlert } from "@/lib/alerts/dispatch";
 
 export const POST = async (req: NextRequest) => {
@@ -67,14 +68,15 @@ export const POST = async (req: NextRequest) => {
     // BUG-061: Monitor DLQ depth and alert when it exceeds a threshold.
     let dlqDepth = 0;
     try {
-      const { rows } = await db.query<{ count: string }>(
-        `SELECT COUNT(*) AS count FROM payout_dead_letter_queue`
-      );
-      dlqDepth = parseInt(rows[0]?.count ?? "0", 10);
+      const orm = await getDb();
+      const [row] = await orm
+        .select({ count: sql<string>`COUNT(*)` })
+        .from(schema.payoutDeadLetterQueue);
+      dlqDepth = parseInt(row?.count ?? "0", 10);
       const DLQ_ALERT_THRESHOLD = 10;
       if (dlqDepth >= DLQ_ALERT_THRESHOLD) {
         logger.warn({ dlqDepth }, "[cron/payouts] DLQ depth alert: payout_dead_letter_queue has many entries");
-        await raiseAlert(db, {
+        await raiseAlert(orm, {
           type: "payout_dlq_depth",
           category: "financial",
           priorityLevel: 2,

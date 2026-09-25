@@ -6,7 +6,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { and, desc, eq, lt } from 'drizzle-orm';
+import { getDb, schema } from '@/lib/db/drizzle';
 
 export async function GET(
   req: NextRequest,
@@ -17,18 +18,30 @@ export async function GET(
   const cursor = searchParams.get('cursor');
   const limit = Math.min(Number(searchParams.get('limit') ?? 50), 100);
 
-  const { rows } = await db.query(
-    `SELECT f.id, f.follower_id, f.created_at,
-            u.username, u.display_name, u.avatar_emoji, u.rank_name,
-            u.is_creator, u.is_verified, u.plan
-     FROM follows f
-     JOIN users u ON u.id = f.follower_id
-     WHERE f.following_id = $1
-       AND ($2::uuid IS NULL OR f.id < $2::uuid)
-     ORDER BY f.created_at DESC
-     LIMIT $3`,
-    [params.userId, cursor ?? null, limit + 1],
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({
+      id: schema.follows.id,
+      follower_id: schema.follows.followerId,
+      created_at: schema.follows.createdAt,
+      username: schema.users.username,
+      display_name: schema.users.displayName,
+      avatar_emoji: schema.users.avatarEmoji,
+      rank_name: schema.users.rankName,
+      is_creator: schema.users.isCreator,
+      is_verified: schema.users.isVerified,
+      plan: schema.users.plan,
+    })
+    .from(schema.follows)
+    .innerJoin(schema.users, eq(schema.users.id, schema.follows.followerId))
+    .where(
+      and(
+        eq(schema.follows.followingId, params.userId),
+        cursor ? lt(schema.follows.id, cursor) : undefined,
+      ),
+    )
+    .orderBy(desc(schema.follows.createdAt))
+    .limit(limit + 1);
 
   const hasNextPage = rows.length > limit;
   const data = hasNextPage ? rows.slice(0, limit) : rows;

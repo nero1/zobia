@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { requireFeatureEnabled } from "@/lib/manifest";
 import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors";
@@ -45,17 +46,21 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     const body = await validateBody(req, renewSchema);
 
-    const { rows: userRows } = await db.query<{ email: string | null }>(
-      `SELECT email FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const orm = await getDb();
+
+    const userRows = await orm
+      .select({ email: schema.users.email })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!userRows[0]) throw notFound("User not found");
     const userEmail = userRows[0].email ?? `${userId}@zobia.placeholder`;
 
-    const { rows } = await db.query<{ id: string; tier: string }>(
-      `SELECT id, tier FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const rows = await orm
+      .select({ id: schema.businessAccounts.id, tier: schema.businessAccounts.tier })
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.userId, userId))
+      .limit(1);
     if (!rows[0]) throw notFound("No business account found");
     const businessAccountId = rows[0].id;
     const tier = rows[0].tier;
@@ -76,14 +81,21 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     };
 
     if (decision.isFree) {
-      const { rows: freeRows } = await db.query<{ id: string }>(
-        `INSERT INTO payments
-           (user_id, payment_type, amount_kobo, currency, provider, status, idempotency_key, provider_reference, metadata)
-         VALUES ($1, 'business_upgrade', $2, 'NGN', 'free', 'pending', $3, $3, $4::jsonb)
-         ON CONFLICT (idempotency_key) DO NOTHING
-         RETURNING id`,
-        [userId, priceKobo, reference, JSON.stringify(metadata)]
-      );
+      const freeRows = await orm
+        .insert(schema.payments)
+        .values({
+          userId,
+          paymentType: "business_upgrade",
+          amountKobo: BigInt(priceKobo),
+          currency: "NGN",
+          provider: "free",
+          status: "pending",
+          idempotencyKey: reference,
+          providerReference: reference,
+          metadata,
+        })
+        .onConflictDoNothing({ target: schema.payments.idempotencyKey })
+        .returning({ id: schema.payments.id });
       if (freeRows[0]) {
         await processChargeSuccess({
           reference,
@@ -103,22 +115,25 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
 
     const provider = decision.provider;
 
-    const { rows: reservedRows } = await db.query<{ id: string }>(
-      `INSERT INTO payments
-         (user_id, payment_type, amount_kobo, currency, provider,
-          status, idempotency_key, provider_reference, metadata)
-       SELECT $1, 'business_upgrade', $2, 'NGN', $3, 'pending', $4, $4, $5::jsonb
-       WHERE NOT EXISTS (
-         SELECT 1 FROM payments
-         WHERE user_id = $1
-           AND payment_type = 'business_upgrade'
-           AND status = 'pending'
-           AND metadata->>'itemType' IN ('business_signup', 'business_upgrade', 'business_renewal')
-           AND created_at > NOW() - INTERVAL '${PENDING_PAYMENT_TTL_MINUTES} minutes'
-       )
-       RETURNING id`,
-      [userId, priceKobo, provider, reference, JSON.stringify(metadata)]
-    );
+    // Expressed via Drizzle's `sql` tag (still parameterized) — the atomic
+    // "INSERT ... WHERE NOT EXISTS" race guard has no direct query-builder
+    // equivalent (BIZ-SIGNUP-RACE).
+    const reservedResult = await orm.execute<{ id: string }>(sql`
+      INSERT INTO payments
+        (user_id, payment_type, amount_kobo, currency, provider,
+         status, idempotency_key, provider_reference, metadata)
+      SELECT ${userId}, 'business_upgrade', ${priceKobo}, 'NGN', ${provider}, 'pending', ${reference}, ${reference}, ${JSON.stringify(metadata)}::jsonb
+      WHERE NOT EXISTS (
+        SELECT 1 FROM payments
+        WHERE user_id = ${userId}
+          AND payment_type = 'business_upgrade'
+          AND status = 'pending'
+          AND metadata->>'itemType' IN ('business_signup', 'business_upgrade', 'business_renewal')
+          AND created_at > NOW() - INTERVAL '${sql.raw(String(PENDING_PAYMENT_TTL_MINUTES))} minutes'
+      )
+      RETURNING id
+    `);
+    const reservedRows = reservedResult.rows;
     if (!reservedRows[0]) {
       throw conflict(
         `You already have a business payment in progress. Complete it, cancel it, or wait for it to expire (expires after ${PENDING_PAYMENT_TTL_MINUTES} minutes) before starting a new one.`,
@@ -136,7 +151,7 @@ export const POST = withAuth(async (req: NextRequest, { auth }) => {
     const computed = provider === "crypto" ? (result.raw as ComputedAmount) : null;
 
     if (providerReference !== reference) {
-      await db.query(`UPDATE payments SET provider_reference = $1 WHERE id = $2`, [providerReference, reservedRows[0].id]);
+      await orm.update(schema.payments).set({ providerReference }).where(eq(schema.payments.id, reservedRows[0].id));
     }
     if (computed) {
       await applyCryptoComputedAmount(reservedRows[0].id, computed);

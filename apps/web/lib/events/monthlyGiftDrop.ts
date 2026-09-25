@@ -14,7 +14,8 @@
  *      - Retires drops whose availability window has closed (NOW >= startAt + 48h).
  */
 
-import type { DatabaseAdapter } from "@/lib/db/interface";
+import { and, asc, eq, gt, isNull, lte, sql } from "drizzle-orm";
+import { getDb, schema, type DbOrTx } from "@/lib/db/drizzle";
 import { insertNotificationBatch } from "@/lib/notifications/insert";
 import { logger } from "@/lib/logger";
 
@@ -34,12 +35,12 @@ export interface MonthlyGiftDrop {
 
 interface GiftDropRow {
   id: string;
-  gift_item_id: string;
+  giftItemId: string | null;
   title: string;
-  available_from: string;
-  available_until: string;
-  announced_at: string | null;
-  is_active: boolean;
+  availableFrom: Date;
+  availableUntil: Date;
+  announcedAt: Date | null;
+  isActive: boolean | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -49,14 +50,24 @@ interface GiftDropRow {
 function rowToGiftDrop(row: GiftDropRow): MonthlyGiftDrop {
   return {
     id: row.id,
-    giftItemId: row.gift_item_id,
+    giftItemId: row.giftItemId ?? "",
     title: row.title,
-    availableFrom: row.available_from,
-    availableUntil: row.available_until,
-    announcedAt: row.announced_at,
-    isActive: row.is_active,
+    availableFrom: new Date(row.availableFrom).toISOString(),
+    availableUntil: new Date(row.availableUntil).toISOString(),
+    announcedAt: row.announcedAt ? new Date(row.announcedAt).toISOString() : null,
+    isActive: Boolean(row.isActive),
   };
 }
+
+const giftDropColumns = {
+  id: schema.monthlyGiftDrops.id,
+  giftItemId: schema.monthlyGiftDrops.giftItemId,
+  title: schema.monthlyGiftDrops.title,
+  availableFrom: schema.monthlyGiftDrops.availableFrom,
+  availableUntil: schema.monthlyGiftDrops.availableUntil,
+  announcedAt: schema.monthlyGiftDrops.announcedAt,
+  isActive: schema.monthlyGiftDrops.isActive,
+};
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -73,18 +84,21 @@ function rowToGiftDrop(row: GiftDropRow): MonthlyGiftDrop {
  * @returns The active MonthlyGiftDrop, or null if none.
  */
 export async function getActiveGiftDrop(
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<MonthlyGiftDrop | null> {
-  const { rows } = await db.query<GiftDropRow>(
-    `SELECT id, gift_item_id, title, available_from, available_until, announced_at, is_active
-     FROM monthly_gift_drops
-     WHERE is_active = TRUE
-       AND available_from <= NOW()
-       AND available_until > NOW()
-     ORDER BY available_from DESC
-     LIMIT 1`
-  );
-  return rows[0] ? rowToGiftDrop(rows[0]) : null;
+  const [row] = await db
+    .select(giftDropColumns)
+    .from(schema.monthlyGiftDrops)
+    .where(
+      and(
+        eq(schema.monthlyGiftDrops.isActive, true),
+        lte(schema.monthlyGiftDrops.availableFrom, sql`NOW()`),
+        gt(schema.monthlyGiftDrops.availableUntil, sql`NOW()`)
+      )
+    )
+    .orderBy(sql`${schema.monthlyGiftDrops.availableFrom} DESC`)
+    .limit(1);
+  return row ? rowToGiftDrop(row) : null;
 }
 
 /**
@@ -97,18 +111,21 @@ export async function getActiveGiftDrop(
  * @returns The upcoming MonthlyGiftDrop, or null if none.
  */
 export async function getUpcomingGiftDrop(
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<MonthlyGiftDrop | null> {
-  const { rows } = await db.query<GiftDropRow>(
-    `SELECT id, gift_item_id, title, available_from, available_until, announced_at, is_active
-     FROM monthly_gift_drops
-     WHERE is_active = FALSE
-       AND available_from > NOW()
-       AND available_from <= NOW() + INTERVAL '24 hours'
-     ORDER BY available_from ASC
-     LIMIT 1`
-  );
-  return rows[0] ? rowToGiftDrop(rows[0]) : null;
+  const [row] = await db
+    .select(giftDropColumns)
+    .from(schema.monthlyGiftDrops)
+    .where(
+      and(
+        eq(schema.monthlyGiftDrops.isActive, false),
+        gt(schema.monthlyGiftDrops.availableFrom, sql`NOW()`),
+        lte(schema.monthlyGiftDrops.availableFrom, sql`NOW() + INTERVAL '24 hours'`)
+      )
+    )
+    .orderBy(asc(schema.monthlyGiftDrops.availableFrom))
+    .limit(1);
+  return row ? rowToGiftDrop(row) : null;
 }
 
 /**
@@ -120,37 +137,41 @@ export async function getUpcomingGiftDrop(
  *
  * @param giftItemId - UUID of the gift_items row to release.
  * @param startAt    - When the 48-hour window begins.
- * @param db         - Database adapter.
+ * @param db         - Drizzle db instance or an active transaction handle.
  * @returns The newly created MonthlyGiftDrop.
  */
 export async function scheduleMonthlyGiftDrop(
   giftItemId: string,
   startAt: Date,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<MonthlyGiftDrop> {
   const availableUntil = new Date(startAt.getTime() + 48 * 60 * 60 * 1000);
 
   // Look up the gift item name to use as the drop title
-  const { rows: itemRows } = await db.query<{ name: string }>(
-    `SELECT name FROM gift_items WHERE id = $1 AND is_retired = FALSE LIMIT 1`,
-    [giftItemId]
-  );
+  const [item] = await db
+    .select({ name: schema.giftItems.name })
+    .from(schema.giftItems)
+    .where(and(eq(schema.giftItems.id, giftItemId), eq(schema.giftItems.isRetired, false)))
+    .limit(1);
 
-  if (!itemRows[0]) {
+  if (!item) {
     throw new Error(`Gift item ${giftItemId} not found or already retired`);
   }
 
-  const title = `Mystery Drop: ${itemRows[0].name}`;
+  const title = `Mystery Drop: ${item.name}`;
 
-  const { rows } = await db.query<GiftDropRow>(
-    `INSERT INTO monthly_gift_drops
-       (gift_item_id, title, available_from, available_until, is_active, created_at)
-     VALUES ($1, $2, $3, $4, FALSE, NOW())
-     RETURNING id, gift_item_id, title, available_from, available_until, announced_at, is_active`,
-    [giftItemId, title, startAt.toISOString(), availableUntil.toISOString()]
-  );
+  const [row] = await db
+    .insert(schema.monthlyGiftDrops)
+    .values({
+      giftItemId,
+      title,
+      availableFrom: startAt,
+      availableUntil,
+      isActive: false,
+    })
+    .returning(giftDropColumns);
 
-  return rowToGiftDrop(rows[0]);
+  return rowToGiftDrop(row);
 }
 
 /**
@@ -160,43 +181,40 @@ export async function scheduleMonthlyGiftDrop(
  * Called when the 48-hour availability window closes.
  *
  * @param dropId - UUID of the monthly_gift_drops row.
- * @param db     - Database adapter.
+ * @param db     - Drizzle db instance or an active transaction handle.
  */
 export async function retireGiftDrop(
   dropId: string,
-  db: DatabaseAdapter
+  db: DbOrTx
 ): Promise<void> {
   // Get the gift_item_id for this drop
-  const { rows } = await db.query<{ gift_item_id: string }>(
-    `SELECT gift_item_id FROM monthly_gift_drops WHERE id = $1`,
-    [dropId]
-  );
+  const [row] = await db
+    .select({ giftItemId: schema.monthlyGiftDrops.giftItemId })
+    .from(schema.monthlyGiftDrops)
+    .where(eq(schema.monthlyGiftDrops.id, dropId))
+    .limit(1);
 
-  if (!rows[0]) {
+  if (!row) {
     throw new Error(`Gift drop ${dropId} not found`);
   }
 
-  const giftItemId = rows[0].gift_item_id;
+  const giftItemId = row.giftItemId;
 
   // Both UPDATEs must succeed atomically — partial failure (drop deactivated but
   // item not retired) would allow the gift item to be re-scheduled into a new drop.
-  await db.transaction(async (tx) => {
-    await tx.query(
-      `UPDATE monthly_gift_drops
-       SET is_active = FALSE
-       WHERE id = $1`,
-      [dropId]
-    );
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    await tx
+      .update(schema.monthlyGiftDrops)
+      .set({ isActive: false })
+      .where(eq(schema.monthlyGiftDrops.id, dropId));
 
-    await tx.query(
-      `UPDATE gift_items
-       SET is_retired = TRUE,
-           is_active = FALSE,
-           is_limited_edition = TRUE,
-           updated_at = NOW()
-       WHERE id = $1`,
-      [giftItemId]
-    );
+    if (giftItemId) {
+      await tx
+        .update(schema.giftItems)
+        .set({ isRetired: true, isActive: false, isLimitedEdition: true, updatedAt: new Date() })
+        .where(eq(schema.giftItems.id, giftItemId));
+    }
   });
 }
 
@@ -207,10 +225,10 @@ export async function retireGiftDrop(
  * - Activates drops whose start time has arrived (sets is_active=TRUE).
  * - Retires drops whose end time has passed (calls retireGiftDrop()).
  *
- * @param db - Database adapter.
+ * @param db - Drizzle db instance or an active transaction handle.
  * @returns Counts of drops processed in each category.
  */
-export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
+export async function processPendingGiftDrops(db: DbOrTx): Promise<{
   activated: number;
   retired: number;
   announced: number;
@@ -220,20 +238,23 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
   let announced = 0;
 
   // 1. Announce upcoming drops (within next 24 hours, not yet announced)
-  const { rows: toAnnounce } = await db.query<{
-    id: string;
-    gift_item_id: string;
-    available_from: string;
-    available_until: string;
-  }>(
-    `UPDATE monthly_gift_drops
-     SET announced_at = NOW()
-     WHERE is_active = FALSE
-       AND announced_at IS NULL
-       AND available_from <= NOW() + INTERVAL '24 hours'
-       AND available_from > NOW()
-     RETURNING id, gift_item_id, available_from, available_until`
-  );
+  const toAnnounce = await db
+    .update(schema.monthlyGiftDrops)
+    .set({ announcedAt: new Date() })
+    .where(
+      and(
+        eq(schema.monthlyGiftDrops.isActive, false),
+        isNull(schema.monthlyGiftDrops.announcedAt),
+        lte(schema.monthlyGiftDrops.availableFrom, sql`NOW() + INTERVAL '24 hours'`),
+        gt(schema.monthlyGiftDrops.availableFrom, sql`NOW()`)
+      )
+    )
+    .returning({
+      id: schema.monthlyGiftDrops.id,
+      giftItemId: schema.monthlyGiftDrops.giftItemId,
+      availableFrom: schema.monthlyGiftDrops.availableFrom,
+      availableUntil: schema.monthlyGiftDrops.availableUntil,
+    });
   announced = toAnnounce.length;
 
   // Create a FOMO announcement banner for each newly-announced drop, reusing
@@ -245,26 +266,27 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
   // banner cleanup is needed.
   for (const drop of toAnnounce) {
     try {
-      const { rows: giftRows } = await db.query<{ name: string; emoji: string }>(
-        `SELECT name, emoji FROM gift_items WHERE id = $1 LIMIT 1`,
-        [drop.gift_item_id]
-      );
-      const gift = giftRows[0];
+      if (!drop.giftItemId) continue;
+      const [gift] = await db
+        .select({ name: schema.giftItems.name, emoji: schema.giftItems.emoji })
+        .from(schema.giftItems)
+        .where(eq(schema.giftItems.id, drop.giftItemId))
+        .limit(1);
       if (!gift) continue;
 
-      await db.query(
-        `INSERT INTO announcement_banners
-           (title, content, content_type, link_url, is_active,
-            target_plans, target_roles, display_order,
-            starts_at, ends_at, created_by, created_at, updated_at)
-         VALUES ($1, $2, 'text', $3, TRUE, '{}', '{}', 0, NOW(), $4, 'cron:monthly_gift_drop', NOW(), NOW())`,
-        [
-          `Limited-Time Gift Drop: ${gift.name}`,
-          `⚡ ${gift.emoji} ${gift.name} is dropping soon — available for 48 hours only, then gone for good. Don't miss it!`,
-          "/gifts",
-          drop.available_until,
-        ]
-      );
+      await db.insert(schema.announcementBanners).values({
+        title: `Limited-Time Gift Drop: ${gift.name}`,
+        content: `⚡ ${gift.emoji} ${gift.name} is dropping soon — available for 48 hours only, then gone for good. Don't miss it!`,
+        contentType: "text",
+        linkUrl: "/gifts",
+        isActive: true,
+        targetPlans: [],
+        targetRoles: [],
+        displayOrder: 0,
+        startsAt: new Date(),
+        endsAt: drop.availableUntil,
+        createdBy: "cron:monthly_gift_drop",
+      });
     } catch (err) {
       logger.error({ err }, `[monthlyGiftDrop] Failed to create announcement banner for drop ${drop.id}:`);
     }
@@ -278,16 +300,16 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
       let cursorId: string | null = null;
       let batchIndex = 0;
       while (true) {
-        const batchResult = await db.query<{ id: string }>(
-          `SELECT id FROM users
-           WHERE deleted_at IS NULL
-             AND COALESCE(is_banned, false) = false
-             ${cursorId ? `AND id > $1` : ''}
-           ORDER BY id ASC
-           LIMIT ${cursorId ? '$2' : '$1'}`,
-          cursorId ? [cursorId, BATCH_SIZE] : [BATCH_SIZE]
-        );
-        const batchRows: { id: string }[] = batchResult.rows;
+        const batchRows: { id: string }[] = await db
+          .select({ id: schema.users.id })
+          .from(schema.users)
+          .where(
+            cursorId
+              ? and(isNull(schema.users.deletedAt), eq(schema.users.isBanned, false), sql`${schema.users.id} > ${cursorId}`)
+              : and(isNull(schema.users.deletedAt), eq(schema.users.isBanned, false))
+          )
+          .orderBy(asc(schema.users.id))
+          .limit(BATCH_SIZE);
         if (batchRows.length === 0) break;
         const batchIds = batchRows.map((r) => r.id);
         await insertNotificationBatch(
@@ -309,22 +331,24 @@ export async function processPendingGiftDrops(db: DatabaseAdapter): Promise<{
   }
 
   // 2. Activate drops whose window has opened
-  const { rows: toActivate } = await db.query<{ id: string }>(
-    `UPDATE monthly_gift_drops
-     SET is_active = TRUE
-     WHERE is_active = FALSE
-       AND available_from <= NOW()
-       AND available_until > NOW()
-     RETURNING id`
-  );
+  const toActivate = await db
+    .update(schema.monthlyGiftDrops)
+    .set({ isActive: true })
+    .where(
+      and(
+        eq(schema.monthlyGiftDrops.isActive, false),
+        lte(schema.monthlyGiftDrops.availableFrom, sql`NOW()`),
+        gt(schema.monthlyGiftDrops.availableUntil, sql`NOW()`)
+      )
+    )
+    .returning({ id: schema.monthlyGiftDrops.id });
   activated = toActivate.length;
 
   // 3. Retire drops whose window has closed
-  const { rows: toRetire } = await db.query<{ id: string }>(
-    `SELECT id FROM monthly_gift_drops
-     WHERE is_active = TRUE
-       AND available_until <= NOW()`
-  );
+  const toRetire = await db
+    .select({ id: schema.monthlyGiftDrops.id })
+    .from(schema.monthlyGiftDrops)
+    .where(and(eq(schema.monthlyGiftDrops.isActive, true), lte(schema.monthlyGiftDrops.availableUntil, sql`NOW()`)));
 
   for (const row of toRetire) {
     await retireGiftDrop(row.id, db);

@@ -18,7 +18,7 @@ import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
 import { assertGamesEnabled } from "@/lib/games/config";
 import { getActiveGameBySlug } from "@/lib/games/repo";
 import { finalizeScore } from "@/lib/games/sessions";
-import { db } from "@/lib/db";
+import { getDb } from "@/lib/db/drizzle";
 import { triggerActivityQuestProgress } from "@/lib/quests/questEngine";
 
 const scoreSchema = z.object({
@@ -37,7 +37,7 @@ export const POST = withAuth(
       if (!game) throw notFound("Game not found.");
 
       const result = await finalizeScore(auth.user.sub, body.nonce, body.score, game);
-      void triggerActivityQuestProgress(auth.user.sub, "game_play", db);
+      void triggerActivityQuestProgress(auth.user.sub, "game_play", await getDb());
       return NextResponse.json({ success: true, data: result, error: null });
     } catch (err) {
       return handleApiError(err);

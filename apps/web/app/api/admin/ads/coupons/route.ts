@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -26,8 +27,12 @@ const createSchema = z.object({
 export const GET = withAdminAuth(async (_req: NextRequest, { auth }: { auth: AdminContext }) => {
   try {
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
-    const { rows } = await db.query(`SELECT * FROM ad_coupons ORDER BY created_at DESC LIMIT 200`);
-    return NextResponse.json({ success: true, data: { coupons: rows }, error: null });
+    // NOTE: `ad_coupons` is not present in lib/db/schema.ts (schema/DB
+    // mismatch — reported upstream), so this uses Drizzle's `sql` tag
+    // directly rather than the query builder.
+    const orm = await getDb();
+    const result = await orm.execute(sql`SELECT * FROM ad_coupons ORDER BY created_at DESC LIMIT 200`);
+    return NextResponse.json({ success: true, data: { coupons: result.rows }, error: null });
   } catch (err) {
     return handleApiError(err);
   }
@@ -38,22 +43,14 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }: { auth: Adm
     await enforceRateLimit(auth.user.sub, "user", RATE_LIMITS.admin);
     const body = await validateBody(req, createSchema);
 
-    const { rows } = await db.query(
-      `INSERT INTO ad_coupons (code, discount_type, discount_value, max_redemptions, min_budget_credits, expires_at, created_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7)
-       RETURNING *`,
-      [
-        body.code.toUpperCase(),
-        body.discountType,
-        body.discountValue,
-        body.maxRedemptions ?? null,
-        body.minBudgetCredits,
-        body.expiresAt ?? null,
-        auth.user.sub,
-      ]
-    );
+    const orm = await getDb();
+    const result = await orm.execute(sql`
+      INSERT INTO ad_coupons (code, discount_type, discount_value, max_redemptions, min_budget_credits, expires_at, created_by)
+      VALUES (${body.code.toUpperCase()}, ${body.discountType}, ${body.discountValue}, ${body.maxRedemptions ?? null}, ${body.minBudgetCredits}, ${body.expiresAt ?? null}, ${auth.user.sub})
+      RETURNING *
+    `);
 
-    return NextResponse.json({ success: true, data: { coupon: rows[0] }, error: null }, { status: 201 });
+    return NextResponse.json({ success: true, data: { coupon: result.rows[0] }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

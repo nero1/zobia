@@ -14,8 +14,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
-import type { SqlParam } from "@/lib/db/interface";
+import { eq, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -34,13 +34,12 @@ const patchSettingsSchema = z.object({
 
 export const GET = withAuth(async (_req: NextRequest, { auth }) => {
   try {
-    const { rows } = await db.query<{
-      hd_send_enabled: boolean;
-    }>(
-      `SELECT COALESCE(hd_send_enabled, false) AS hd_send_enabled
-       FROM users WHERE id = $1 LIMIT 1`,
-      [auth.user.sub]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ hd_send_enabled: sql<boolean>`COALESCE(${schema.users.hdSendEnabled}, false)` })
+      .from(schema.users)
+      .where(eq(schema.users.id, auth.user.sub))
+      .limit(1);
 
     return NextResponse.json({
       success: true,
@@ -61,26 +60,15 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
 
     const body = await validateBody(req, patchSettingsSchema);
 
-    const updates: string[] = [];
-    const values: SqlParam[] = [];
-    let idx = 1;
-
-    if (body.hd_send_enabled !== undefined) {
-      updates.push(`hd_send_enabled = $${idx++}`);
-      values.push(body.hd_send_enabled);
-    }
-
-    if (updates.length === 0) {
+    if (body.hd_send_enabled === undefined) {
       return NextResponse.json({ success: true, data: {} });
     }
 
-    updates.push(`updated_at = NOW()`);
-    values.push(auth.user.sub);
-
-    await db.query(
-      `UPDATE users SET ${updates.join(", ")} WHERE id = $${idx}`,
-      values
-    );
+    const orm = await getDb();
+    await orm
+      .update(schema.users)
+      .set({ hdSendEnabled: body.hd_send_enabled, updatedAt: sql`NOW()` })
+      .where(eq(schema.users.id, auth.user.sub));
 
     return NextResponse.json({ success: true, data: body });
   } catch (err) {

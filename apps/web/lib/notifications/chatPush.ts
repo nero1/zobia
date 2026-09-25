@@ -15,7 +15,8 @@
  * failure never blocks or delays message delivery.
  */
 
-import { db } from "@/lib/db";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { logger } from "@/lib/logger";
 import { sendPushNotification, sendPushNotificationBatch } from "@/lib/notifications/push";
 import { getOnlineUserIds } from "@/lib/presence/keys";
@@ -26,6 +27,12 @@ import { getOnlineUserIds } from "@/lib/presence/keys";
  * @mentions independently. Whitelisted here — never interpolate arbitrary input.
  */
 type PushPrefColumn = "dm_notifications" | "group_notifications" | "room_mention_notifications";
+
+const PUSH_PREF_COLUMNS = {
+  dm_notifications: schema.users.dmNotifications,
+  group_notifications: schema.users.groupNotifications,
+  room_mention_notifications: schema.users.roomMentionNotifications,
+} as const;
 
 /** Trim a message body to a sensible push-preview length. */
 function preview(text: string | null | undefined, max = 140): string {
@@ -44,11 +51,12 @@ async function eligibleRecipients(
   prefColumn: PushPrefColumn,
 ): Promise<string[]> {
   if (userIds.length === 0) return [];
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM users
-     WHERE id = ANY($1) AND deleted_at IS NULL AND COALESCE(${prefColumn}, true) = true`,
-    [userIds],
-  );
+  const orm = await getDb();
+  const column = PUSH_PREF_COLUMNS[prefColumn];
+  const rows = await orm
+    .select({ id: schema.users.id })
+    .from(schema.users)
+    .where(and(inArray(schema.users.id, userIds), isNull(schema.users.deletedAt), sql`COALESCE(${column}, true) = true`));
   const allowed = rows.map((r) => r.id);
   if (allowed.length === 0) return [];
 

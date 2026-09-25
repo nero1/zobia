@@ -13,7 +13,8 @@ export const dynamic = 'force-dynamic';
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest, notFound, conflict } from "@/lib/api/errors";
 import { MENTEE_MAX_XP, ELDER_MIN_PRESTIGE, ELDER_ACTIVITY_DAYS, MAX_MENTEES } from "@/lib/elder/constants";
@@ -45,14 +46,15 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       throw badRequest("You cannot request yourself as a mentor");
     }
 
-    const result = await db.transaction(async (client) => {
+    const orm = await getDb();
+    const result = await orm.transaction(async (tx) => {
       // 1. Verify requester's XP level
-      const userRow = await client.query<{ xp_total: number }>(
-        `SELECT xp_total FROM users WHERE id = $1 AND deleted_at IS NULL`,
-        [userId]
-      );
-      if (!userRow.rows[0]) throw notFound("User not found");
-      if (userRow.rows[0].xp_total >= MENTEE_MAX_XP) {
+      const [userRow] = await tx
+        .select({ xp_total: schema.users.xpTotal })
+        .from(schema.users)
+        .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)));
+      if (!userRow) throw notFound("User not found");
+      if (Number(userRow.xp_total) >= MENTEE_MAX_XP) {
         throw badRequest(
           "You have progressed beyond needing a mentor. Reach Hustler rank to become one!",
           "TOO_ADVANCED_FOR_MENTEE"
@@ -66,21 +68,21 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // This previously checked xp_total >= MENTEE_MAX_XP, which meant any
       // elder shown in the availableElders list (freshly prestiged, so
       // xp_total = 0) would always fail this check and 400 on every request.
-      const elderRow = await client.query<{
-        id: string;
-        prestige_count: number;
-        last_active_at: string | null;
-        mentee_count: string;
-      }>(
-        `SELECT u.id, COALESCE(u.prestige_count, 0) AS prestige_count, u.last_active_at,
-                COUNT(em.id) FILTER (WHERE em.ended_at IS NULL) AS mentee_count
-         FROM users u
-         LEFT JOIN elder_mentorships em ON em.elder_id = u.id AND em.ended_at IS NULL
-         WHERE u.id = $1 AND u.deleted_at IS NULL
-         GROUP BY u.id`,
-        [body.elderId]
-      );
-      const elder = elderRow.rows[0];
+      const activeMenteeCount = sql<string>`COUNT(${schema.elderMentorships.id}) FILTER (WHERE ${schema.elderMentorships.endedAt} IS NULL)`;
+      const [elder] = await tx
+        .select({
+          id: schema.users.id,
+          prestige_count: sql<number>`COALESCE(${schema.users.prestigeCount}, 0)`,
+          last_active_at: schema.users.lastActiveAt,
+          mentee_count: activeMenteeCount,
+        })
+        .from(schema.users)
+        .leftJoin(
+          schema.elderMentorships,
+          and(eq(schema.elderMentorships.elderId, schema.users.id), isNull(schema.elderMentorships.endedAt))
+        )
+        .where(and(eq(schema.users.id, body.elderId), isNull(schema.users.deletedAt)))
+        .groupBy(schema.users.id);
       if (!elder) throw notFound("Elder not found");
       const elderIsActive =
         !!elder.last_active_at &&
@@ -93,13 +95,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
 
       // 3. Check for existing pending or accepted request
-      const existingRequest = await client.query<{ id: string; status: string }>(
-        `SELECT id, status FROM elder_requests
-         WHERE mentee_id = $1 AND elder_id = $2 AND status IN ('pending', 'accepted')
-         LIMIT 1`,
-        [userId, body.elderId]
-      );
-      if (existingRequest.rows[0]) {
+      const [existingRequest] = await tx
+        .select({ id: schema.elderRequests.id, status: schema.elderRequests.status })
+        .from(schema.elderRequests)
+        .where(
+          and(
+            eq(schema.elderRequests.menteeId, userId),
+            eq(schema.elderRequests.elderId, body.elderId),
+            inArray(schema.elderRequests.status, ["pending", "accepted"])
+          )
+        )
+        .limit(1);
+      if (existingRequest) {
         throw conflict(
           "You already have a pending or active request with this elder",
           "REQUEST_ALREADY_EXISTS"
@@ -107,38 +114,38 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       }
 
       // 4. Check user doesn't already have an active mentor
-      const activeMentorship = await client.query<{ id: string }>(
-        `SELECT id FROM elder_mentorships
-         WHERE mentee_id = $1 AND ended_at IS NULL LIMIT 1`,
-        [userId]
-      );
-      if (activeMentorship.rows.length > 0) {
+      const [activeMentorship] = await tx
+        .select({ id: schema.elderMentorships.id })
+        .from(schema.elderMentorships)
+        .where(and(eq(schema.elderMentorships.menteeId, userId), isNull(schema.elderMentorships.endedAt)))
+        .limit(1);
+      if (activeMentorship) {
         throw conflict("You already have an active mentor", "ALREADY_HAS_MENTOR");
       }
 
       // 5. Create request
-      const insertResult = await client.query<{ id: string }>(
-        `INSERT INTO elder_requests (mentee_id, elder_id, message, status, created_at)
-         VALUES ($1, $2, $3, 'pending', NOW())
-         RETURNING id`,
-        [userId, body.elderId, body.message ?? null]
-      );
+      const [inserted] = await tx
+        .insert(schema.elderRequests)
+        .values({
+          menteeId: userId,
+          elderId: body.elderId,
+          message: body.message ?? null,
+          status: "pending",
+        })
+        .returning({ id: schema.elderRequests.id });
 
       // Queue notification for the elder
       try {
-        await client.query(
-          `INSERT INTO notifications (user_id, type, payload, created_at)
-           VALUES ($1, 'elder_request', $2, NOW())`,
-          [
-            body.elderId,
-            JSON.stringify({ requester_id: userId, request_id: insertResult.rows[0].id }),
-          ]
-        );
+        await tx.insert(schema.notifications).values({
+          userId: body.elderId,
+          type: "elder_request",
+          payload: { requester_id: userId, request_id: inserted.id },
+        });
       } catch {
         // Best-effort notification
       }
 
-      return { requestId: insertResult.rows[0].id };
+      return { requestId: inserted.id };
     });
 
     return NextResponse.json({ success: true, data: result, error: null }, { status: 201 });

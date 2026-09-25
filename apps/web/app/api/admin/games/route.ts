@@ -11,7 +11,9 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { getDb } from "@/lib/db/drizzle";
+import { games, gameBestScores, gameChallenges } from "@/lib/db/schema";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, badRequest } from "@/lib/api/errors";
 import { generateUniqueSlug } from "@/lib/slug";
@@ -42,27 +44,71 @@ const createSchema = z.object({
 
 export const GET = withAdminAuth(async (_req: NextRequest) => {
   try {
-    const { rows } = await db.query(
-      `SELECT g.id, g.slug, g.name, g.category, g.engine_key, g.cover_emoji,
-              g.cover_image_url, g.tagline, g.is_active, g.is_public, g.sort_order,
-              g.reward_credits_per_win, g.reward_xp_per_win, g.reward_stars_per_win,
-              g.play_cost_credits, g.play_cost_stars, g.max_score, g.min_play_seconds,
-              g.play_count, g.created_at,
-              COALESCE(bs.players, 0)  AS players,
-              COALESCE(bs.total_wins, 0) AS total_wins,
-              COALESCE(ch.challenges, 0) AS challenges
-       FROM games g
-       LEFT JOIN (
-         SELECT game_id, COUNT(*)::int AS players, SUM(wins)::int AS total_wins
-         FROM game_best_scores GROUP BY game_id
-       ) bs ON bs.game_id = g.id
-       LEFT JOIN (
-         SELECT game_id, COUNT(*)::int AS challenges FROM game_challenges GROUP BY game_id
-       ) ch ON ch.game_id = g.id
-       WHERE g.deleted_at IS NULL
-       ORDER BY g.category NULLS LAST, g.sort_order ASC, g.name ASC`
-    );
-    return NextResponse.json({ success: true, data: { games: rows }, error: null });
+    const orm = await getDb();
+    const bestScores = orm
+      .select({
+        gameId: gameBestScores.gameId,
+        players: sql<number>`COUNT(*)::int`.as("players"),
+        totalWins: sql<number>`SUM(${gameBestScores.wins})::int`.as("total_wins"),
+      })
+      .from(gameBestScores)
+      .groupBy(gameBestScores.gameId)
+      .as("bs");
+
+    const challenges = orm
+      .select({
+        gameId: gameChallenges.gameId,
+        challenges: sql<number>`COUNT(*)::int`.as("challenges"),
+      })
+      .from(gameChallenges)
+      .groupBy(gameChallenges.gameId)
+      .as("ch");
+
+    const rows = await orm
+      .select({
+        id: games.id,
+        slug: games.slug,
+        name: games.name,
+        category: games.category,
+        engineKey: games.engineKey,
+        coverEmoji: games.coverEmoji,
+        coverImageUrl: games.coverImageUrl,
+        tagline: games.tagline,
+        isActive: games.isActive,
+        isPublic: games.isPublic,
+        sortOrder: games.sortOrder,
+        rewardCreditsPerWin: games.rewardCreditsPerWin,
+        rewardXpPerWin: games.rewardXpPerWin,
+        rewardStarsPerWin: games.rewardStarsPerWin,
+        playCostCredits: games.playCostCredits,
+        playCostStars: games.playCostStars,
+        maxScore: games.maxScore,
+        minPlaySeconds: games.minPlaySeconds,
+        playCount: games.playCount,
+        createdAt: games.createdAt,
+        players: sql<number>`COALESCE(${bestScores.players}, 0)`,
+        totalWins: sql<number>`COALESCE(${bestScores.totalWins}, 0)`,
+        challenges: sql<number>`COALESCE(${challenges.challenges}, 0)`,
+      })
+      .from(games)
+      .leftJoin(bestScores, eq(bestScores.gameId, games.id))
+      .leftJoin(challenges, eq(challenges.gameId, games.id))
+      .where(isNull(games.deletedAt))
+      .orderBy(
+        sql`${games.category} NULLS LAST`,
+        asc(games.sortOrder),
+        asc(games.name)
+      );
+
+    // bigint columns (maxScore, playCount) don't serialize via JSON.stringify —
+    // stringify them, matching the raw pg driver's original string return type.
+    const gamesResult = rows.map((g) => ({
+      ...g,
+      maxScore: g.maxScore === null ? null : g.maxScore.toString(),
+      playCount: g.playCount.toString(),
+    }));
+
+    return NextResponse.json({ success: true, data: { games: gamesResult }, error: null });
   } catch (err) {
     return handleApiError(err);
   }
@@ -71,6 +117,7 @@ export const GET = withAdminAuth(async (_req: NextRequest) => {
 export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
   try {
     const body = await validateBody(req, createSchema);
+    const orm = await getDb();
 
     const slug = body.slug
       ? body.slug
@@ -78,32 +125,40 @@ export const POST = withAdminAuth(async (req: NextRequest, { auth }) => {
 
     // Reject a duplicate explicit slug.
     if (body.slug) {
-      const { rows: dup } = await db.query<{ id: string }>(
-        `SELECT id FROM games WHERE slug = $1 AND deleted_at IS NULL LIMIT 1`,
-        [slug]
-      );
-      if (dup[0]) throw badRequest("A game with that slug already exists.");
+      const [dup] = await orm
+        .select({ id: games.id })
+        .from(games)
+        .where(and(eq(games.slug, slug), isNull(games.deletedAt)))
+        .limit(1);
+      if (dup) throw badRequest("A game with that slug already exists.");
     }
 
-    const { rows } = await db.query<{ id: string }>(
-      `INSERT INTO games
-         (slug, name, category, engine_key, tagline, description, long_description,
-          cover_emoji, cover_image_url, reward_credits_per_win, reward_xp_per_win,
-          reward_stars_per_win, play_cost_credits, play_cost_stars, max_score,
-          min_play_seconds, sort_order, is_active, creator_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)
-       RETURNING id`,
-      [
-        slug, body.name, body.category, body.engineKey, body.tagline ?? null,
-        body.description ?? null, body.longDescription ?? null, body.coverEmoji,
-        body.coverImageUrl ?? null, body.rewardCreditsPerWin, body.rewardXpPerWin,
-        body.rewardStarsPerWin, body.playCostCredits, body.playCostStars,
-        body.maxScore ?? null, body.minPlaySeconds, body.sortOrder, body.isActive,
-        auth.user.sub,
-      ]
-    );
+    const [created] = await orm
+      .insert(games)
+      .values({
+        slug,
+        name: body.name,
+        category: body.category,
+        engineKey: body.engineKey,
+        tagline: body.tagline ?? null,
+        description: body.description ?? null,
+        longDescription: body.longDescription ?? null,
+        coverEmoji: body.coverEmoji,
+        coverImageUrl: body.coverImageUrl ?? null,
+        rewardCreditsPerWin: body.rewardCreditsPerWin,
+        rewardXpPerWin: body.rewardXpPerWin,
+        rewardStarsPerWin: body.rewardStarsPerWin,
+        playCostCredits: body.playCostCredits,
+        playCostStars: body.playCostStars,
+        maxScore: body.maxScore !== undefined && body.maxScore !== null ? BigInt(body.maxScore) : null,
+        minPlaySeconds: body.minPlaySeconds,
+        sortOrder: body.sortOrder,
+        isActive: body.isActive,
+        creatorId: auth.user.sub,
+      })
+      .returning({ id: games.id });
 
-    return NextResponse.json({ success: true, data: { id: rows[0].id, slug }, error: null }, { status: 201 });
+    return NextResponse.json({ success: true, data: { id: created.id, slug }, error: null }, { status: 201 });
   } catch (err) {
     return handleApiError(err);
   }

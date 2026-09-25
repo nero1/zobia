@@ -18,7 +18,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth } from "@/lib/api/middleware";
 import {
   handleApiError,
@@ -58,10 +59,18 @@ interface RoomRow {
  * Check whether the caller has an active (not left) membership record for this room.
  */
 async function isMember(roomId: string, userId: string): Promise<boolean> {
-  const { rows } = await db.query<{ id: string }>(
-    `SELECT id FROM room_members WHERE room_id = $1 AND user_id = $2 AND left_at IS NULL LIMIT 1`,
-    [roomId, userId]
-  );
+  const orm = await getDb();
+  const rows = await orm
+    .select({ id: schema.roomMembers.id })
+    .from(schema.roomMembers)
+    .where(
+      and(
+        eq(schema.roomMembers.roomId, roomId),
+        eq(schema.roomMembers.userId, userId),
+        isNull(schema.roomMembers.leftAt)
+      )
+    )
+    .limit(1);
   return rows.length > 0;
 }
 
@@ -78,28 +87,28 @@ async function addMember(
   userId: string,
   role = "member"
 ): Promise<void> {
-  await db.transaction(async (tx) => {
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
     // If the user previously left (left_at IS NOT NULL), clear it so they rejoin cleanly.
     // If already an active member, the WHERE guard on DO UPDATE makes this a no-op.
-    await tx.query(
-      `INSERT INTO room_members (room_id, user_id, role, joined_at)
-       VALUES ($1, $2, $3, NOW())
-       ON CONFLICT (room_id, user_id) DO UPDATE
-         SET left_at = NULL, role = EXCLUDED.role, joined_at = NOW()
-         WHERE room_members.left_at IS NOT NULL`,
-      [roomId, userId, role]
-    );
+    await tx
+      .insert(schema.roomMembers)
+      .values({ roomId, userId, role, joinedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [schema.roomMembers.roomId, schema.roomMembers.userId],
+        set: { leftAt: null, role, joinedAt: new Date() },
+        where: sql`${schema.roomMembers.leftAt} IS NOT NULL`,
+      });
 
     // Sync member_count from the actual active-member count to stay accurate
     // across joins, leaves, and rejoins.
-    await tx.query(
-      `UPDATE rooms
-       SET member_count = (
-         SELECT COUNT(*) FROM room_members WHERE room_id = $1 AND left_at IS NULL
-       ), updated_at = NOW()
-       WHERE id = $1`,
-      [roomId]
-    );
+    await tx
+      .update(schema.rooms)
+      .set({
+        memberCount: sql`(SELECT COUNT(*) FROM ${schema.roomMembers} WHERE ${schema.roomMembers.roomId} = ${roomId} AND ${schema.roomMembers.leftAt} IS NULL)`,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.rooms.id, roomId));
   });
 }
 
@@ -109,11 +118,18 @@ async function addMember(
  */
 async function awardJoinXP(roomId: string, userId: string): Promise<number> {
   try {
-    const { rows } = await db.query<{ id: string }>(
-      `SELECT id FROM xp_ledger
-       WHERE user_id = $1 AND source = 'room' AND reference_id = $2 LIMIT 1`,
-      [userId, roomId]
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({ id: schema.xpLedger.id })
+      .from(schema.xpLedger)
+      .where(
+        and(
+          eq(schema.xpLedger.userId, userId),
+          eq(schema.xpLedger.source, "room"),
+          eq(schema.xpLedger.referenceId, roomId)
+        )
+      )
+      .limit(1);
     if (rows.length > 0) return 0; // not first time
 
     const xp = XP_VALUES.join_new_room_first_time; // 20 XP
@@ -137,7 +153,8 @@ async function awardJoinXP(roomId: string, userId: string): Promise<number> {
  */
 async function firePostJoinSideEffects(roomId: string, userId: string): Promise<void> {
   const joinXp = await awardJoinXP(roomId, userId);
-  recordWarContribution(userId, "join_room", db).catch((err) => {
+  const orm = await getDb();
+  recordWarContribution(userId, "join_room", orm).catch((err) => {
     logger.error({ err: err }, "[rooms:join] war contribution failed");
     });
   if (joinXp > 0) {
@@ -146,8 +163,8 @@ async function firePostJoinSideEffects(roomId: string, userId: string): Promise<
       amount: joinXp,
     }).catch(() => {});
   }
-  triggerActivityQuestProgress(userId, "room_join", db).catch(() => {});
-  void advanceNewMemberQuestStep(db, userId, "join_room");
+  triggerActivityQuestProgress(userId, "room_join", orm).catch(() => {});
+  void advanceNewMemberQuestStep(orm, userId, "join_room");
 }
 
 // ---------------------------------------------------------------------------
@@ -176,12 +193,20 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
     const userId = auth.user.sub;
 
     // Fetch room
-    const { rows: roomRows } = await db.query<RoomRow>(
-      `SELECT id, type, creator_id, is_active, member_count, max_members, guild_id
-       FROM rooms WHERE id = $1`,
-      [roomId]
-    );
-    const room = roomRows[0];
+    const orm = await getDb();
+    const [room] = await orm
+      .select({
+        id: schema.rooms.id,
+        type: schema.rooms.type,
+        creator_id: schema.rooms.creatorId,
+        is_active: schema.rooms.isActive,
+        member_count: schema.rooms.memberCount,
+        max_members: schema.rooms.maxMembers,
+        guild_id: schema.rooms.guildId,
+      })
+      .from(schema.rooms)
+      .where(eq(schema.rooms.id, roomId))
+      .limit(1);
     if (!room || !room.is_active) throw notFound("Room not found");
 
     // Already a member — idempotent: return success so callers don't need to
@@ -206,15 +231,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // -----------------------------------------------------------------------
       case "vip": {
         // Check for an active VIP subscription for this room
-        const { rows: subRows } = await db.query<{ id: string }>(
-          `SELECT id FROM room_subscriptions
-           WHERE room_id = $1
-             AND user_id = $2
-             AND status = 'active'
-             AND expires_at > NOW()
-           LIMIT 1`,
-          [roomId, userId]
-        );
+        const subRows = await orm
+          .select({ id: schema.roomSubscriptions.id })
+          .from(schema.roomSubscriptions)
+          .where(
+            and(
+              eq(schema.roomSubscriptions.roomId, roomId),
+              eq(schema.roomSubscriptions.userId, userId),
+              eq(schema.roomSubscriptions.status, "active"),
+              gt(schema.roomSubscriptions.expiresAt, new Date())
+            )
+          )
+          .limit(1);
 
         if (subRows.length === 0) {
           return NextResponse.json(
@@ -234,15 +262,18 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
       // -----------------------------------------------------------------------
       case "drop": {
         // Check entry fee payment
-        const { rows: payRows } = await db.query<{ id: string }>(
-          `SELECT id FROM payments
-           WHERE user_id = $1
-             AND reference_id = $2
-             AND payment_type = 'room_entry'
-             AND status = 'completed'
-           LIMIT 1`,
-          [userId, roomId]
-        );
+        const payRows = await orm
+          .select({ id: schema.payments.id })
+          .from(schema.payments)
+          .where(
+            and(
+              eq(schema.payments.userId, userId),
+              eq(schema.payments.referenceId, roomId),
+              eq(schema.payments.paymentType, "room_entry"),
+              eq(schema.payments.status, "completed")
+            )
+          )
+          .limit(1);
 
         if (payRows.length === 0) {
           return NextResponse.json(
@@ -261,12 +292,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
 
       // -----------------------------------------------------------------------
       case "classroom": {
-        const { rows: enrolRows } = await db.query<{ id: string }>(
-          `SELECT id FROM classroom_enrolments
-           WHERE room_id = $1 AND user_id = $2
-           LIMIT 1`,
-          [roomId, userId]
-        );
+        const enrolRows = await orm
+          .select({ id: schema.classroomEnrolments.id })
+          .from(schema.classroomEnrolments)
+          .where(and(eq(schema.classroomEnrolments.roomId, roomId), eq(schema.classroomEnrolments.userId, userId)))
+          .limit(1);
 
         if (enrolRows.length === 0) {
           return NextResponse.json(
@@ -289,12 +319,11 @@ export const POST = withAuth(async (req: NextRequest, { params, auth }) => {
           throw badRequest("Guild room is missing guild association");
         }
 
-        const { rows: guildRows } = await db.query<{ id: string }>(
-          `SELECT id FROM guild_members
-           WHERE guild_id = $1 AND user_id = $2
-           LIMIT 1`,
-          [room.guild_id, userId]
-        );
+        const guildRows = await orm
+          .select({ id: schema.guildMembers.id })
+          .from(schema.guildMembers)
+          .where(and(eq(schema.guildMembers.guildId, room.guild_id), eq(schema.guildMembers.userId, userId)))
+          .limit(1);
 
         if (guildRows.length === 0) {
           throw forbidden("You must be a member of the guild to join this room");

@@ -37,7 +37,8 @@ export const dynamic = 'force-dynamic';
 import { NextRequest, NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError, notFound, badRequest, conflict } from "@/lib/api/errors";
 import { enforceRateLimit, RATE_LIMITS } from "@/lib/security/rateLimit";
@@ -88,39 +89,43 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     const body = await validateBody(req, upgradeTierSchema);
     const { tier: newTier, paymentProvider } = body;
 
+    const orm = await getDb();
+
     // Load user record (we need their email for the payment provider)
-    const { rows: userRows } = await db.query<{ id: string; email: string | null; plan: string }>(
-      `SELECT id, email, plan FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-      [userId]
-    );
+    const userRows = await orm
+      .select({ id: schema.users.id, email: schema.users.email, plan: schema.users.plan })
+      .from(schema.users)
+      .where(and(eq(schema.users.id, userId), isNull(schema.users.deletedAt)))
+      .limit(1);
     if (!userRows[0]) throw notFound("User not found");
 
     const userEmail = userRows[0].email ?? `${userId}@zobia.placeholder`;
 
     // Fetch current business account
-    const { rows } = await db.query<{
-      id: string;
-      tier: string;
-      pending_tier: string | null;
-      pending_payment_ref: string | null;
-      downgrade_to_tier: string | null;
-    }>(
-      `SELECT id, tier, pending_tier, pending_payment_ref, downgrade_to_tier FROM business_accounts WHERE user_id = $1 LIMIT 1`,
-      [userId]
-    );
+    const rows = await orm
+      .select({
+        id: schema.businessAccounts.id,
+        tier: schema.businessAccounts.tier,
+        pendingTier: schema.businessAccounts.pendingTier,
+        pendingPaymentRef: schema.businessAccounts.pendingPaymentRef,
+        downgradeToTier: schema.businessAccounts.downgradeToTier,
+      })
+      .from(schema.businessAccounts)
+      .where(eq(schema.businessAccounts.userId, userId))
+      .limit(1);
     if (!rows[0]) throw notFound("No business account found");
 
     const currentTier = rows[0].tier.toLowerCase();
 
     // Requesting the current tier again cancels a pending downgrade (no-op otherwise).
     if (newTier === currentTier) {
-      if (!rows[0].downgrade_to_tier) {
+      if (!rows[0].downgradeToTier) {
         throw badRequest(`Your business account is already on the ${currentTier} tier.`);
       }
-      await db.query(
-        `UPDATE business_accounts SET downgrade_to_tier = NULL, downgrade_effective_at = NULL, updated_at = NOW() WHERE id = $1`,
-        [rows[0].id]
-      );
+      await orm
+        .update(schema.businessAccounts)
+        .set({ downgradeToTier: null, downgradeEffectiveAt: null, updatedAt: new Date() })
+        .where(eq(schema.businessAccounts.id, rows[0].id));
       return NextResponse.json({
         success: true,
         data: { tier: currentTier, downgradeCancelled: true },
@@ -132,21 +137,25 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     // page slots / live sponsored quests) until the grace period elapses.
     if ((TIER_ORDER[newTier] ?? 0) < (TIER_ORDER[currentTier] ?? 0)) {
       const graceDays = await getBusinessDowngradeGraceDays();
-      const { rows: updated } = await db.query<{ downgrade_effective_at: string }>(
-        `UPDATE business_accounts
-         SET downgrade_to_tier = $1, downgrade_effective_at = NOW() + ($2 || ' days')::interval,
-             pending_tier = NULL, pending_payment_ref = NULL, updated_at = NOW()
-         WHERE id = $3
-         RETURNING downgrade_effective_at`,
-        [newTier, String(graceDays), rows[0].id]
-      );
+      const updated = await orm
+        .update(schema.businessAccounts)
+        .set({
+          downgradeToTier: newTier,
+          downgradeEffectiveAt: sql`NOW() + (${String(graceDays)} || ' days')::interval`,
+          pendingTier: null,
+          pendingPaymentRef: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(schema.businessAccounts.id, rows[0].id))
+        .returning({ downgradeEffectiveAt: schema.businessAccounts.downgradeEffectiveAt });
+      const downgradeEffectiveAt = updated[0].downgradeEffectiveAt as Date;
       return NextResponse.json({
         success: true,
         data: {
           tier: currentTier,
           downgradeToTier: newTier,
-          downgradeEffectiveAt: updated[0].downgrade_effective_at,
-          message: `Your account stays on the ${currentTier} tier — with all its pages and live sponsored quests — until ${new Date(updated[0].downgrade_effective_at).toLocaleDateString()}. After that, extra pages beyond the ${newTier} tier's limit are deactivated and running sponsored quests are stopped.`,
+          downgradeEffectiveAt,
+          message: `Your account stays on the ${currentTier} tier — with all its pages and live sponsored quests — until ${downgradeEffectiveAt.toLocaleDateString()}. After that, extra pages beyond the ${newTier} tier's limit are deactivated and running sponsored quests are stopped.`,
         },
         error: null,
       });
@@ -157,18 +166,22 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     // pending_payment_ref before the first payment's webhook fires, so the
     // webhook's activation UPDATE (keyed on the now-stale ref) matches zero
     // rows and the tier is never actually activated.
-    if (rows[0].pending_tier && rows[0].pending_payment_ref) {
-      const { rows: pendingPaymentRows } = await db.query<{ id: string; created_at: string }>(
-        `SELECT id, created_at FROM payments
-         WHERE idempotency_key = $1
-           AND status = 'pending'
-           AND created_at > NOW() - INTERVAL '${PENDING_PAYMENT_TTL_MINUTES} minutes'
-         LIMIT 1`,
-        [rows[0].pending_payment_ref]
-      );
+    if (rows[0].pendingTier && rows[0].pendingPaymentRef) {
+      const ttlCutoff = new Date(Date.now() - PENDING_PAYMENT_TTL_MINUTES * 60_000);
+      const pendingPaymentRows = await orm
+        .select({ id: schema.payments.id, createdAt: schema.payments.createdAt })
+        .from(schema.payments)
+        .where(
+          and(
+            eq(schema.payments.idempotencyKey, rows[0].pendingPaymentRef),
+            eq(schema.payments.status, "pending"),
+            gt(schema.payments.createdAt, ttlCutoff)
+          )
+        )
+        .limit(1);
       if (pendingPaymentRows[0]) {
         const expiresAt = new Date(
-          new Date(pendingPaymentRows[0].created_at).getTime() + PENDING_PAYMENT_TTL_MINUTES * 60_000
+          (pendingPaymentRows[0].createdAt as Date).getTime() + PENDING_PAYMENT_TTL_MINUTES * 60_000
         ).toISOString();
         throw conflict(
           `You already have a business upgrade payment in progress. Complete it, cancel it, or wait for it to expire (expires after ${PENDING_PAYMENT_TTL_MINUTES} minutes) before starting a new one.`,
@@ -195,13 +208,16 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Mark the tier change as pending before initiating payment. An upgrade
     // supersedes any scheduled downgrade.
-    await db.query(
-      `UPDATE business_accounts
-       SET pending_tier = $1, pending_payment_ref = $2,
-           downgrade_to_tier = NULL, downgrade_effective_at = NULL, updated_at = NOW()
-       WHERE id = $3`,
-      [newTier, reference, rows[0].id]
-    );
+    await orm
+      .update(schema.businessAccounts)
+      .set({
+        pendingTier: newTier,
+        pendingPaymentRef: reference,
+        downgradeToTier: null,
+        downgradeEffectiveAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(schema.businessAccounts.id, rows[0].id));
 
     // Initiate payment
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app";
@@ -215,14 +231,21 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
     };
 
     if (decision.isFree) {
-      const { rows: freeRows } = await db.query<{ id: string }>(
-        `INSERT INTO payments
-           (user_id, payment_type, amount_kobo, currency, provider, status, idempotency_key, provider_reference, metadata)
-         VALUES ($1, 'business_upgrade', $2, 'NGN', 'free', 'pending', $3, $3, $4::jsonb)
-         ON CONFLICT (idempotency_key) DO NOTHING
-         RETURNING id`,
-        [userId, priceKobo, reference, JSON.stringify(metadata)]
-      );
+      const freeRows = await orm
+        .insert(schema.payments)
+        .values({
+          userId,
+          paymentType: "business_upgrade",
+          amountKobo: BigInt(priceKobo),
+          currency: "NGN",
+          provider: "free",
+          status: "pending",
+          idempotencyKey: reference,
+          providerReference: reference,
+          metadata,
+        })
+        .onConflictDoNothing({ target: schema.payments.idempotencyKey })
+        .returning({ id: schema.payments.id });
       if (freeRows[0]) {
         await processChargeSuccess({
           reference,
@@ -254,28 +277,26 @@ export const PATCH = withAuth(async (req: NextRequest, { params, auth }) => {
 
     // Create a pending payment record so the webhook handler can locate it.
     // The webhook checks for this record before activating the tier upgrade.
-    const { rows: paymentRows } = await db.query<{ id: string }>(
-      `INSERT INTO payments
-         (user_id, payment_type, amount_kobo, currency, provider,
-          status, idempotency_key, provider_reference, metadata)
-       VALUES ($1, 'business_upgrade', $2, 'NGN', $3,
-               'pending', $4, $5, $6::jsonb)
-       ON CONFLICT (idempotency_key) DO NOTHING
-       RETURNING id`,
-      [
+    const paymentRows = await orm
+      .insert(schema.payments)
+      .values({
         userId,
-        priceKobo,
+        paymentType: "business_upgrade",
+        amountKobo: BigInt(priceKobo),
+        currency: "NGN",
         provider,
-        reference,
+        status: "pending",
+        idempotencyKey: reference,
         providerReference,
-        JSON.stringify({
+        metadata: {
           businessAccountId: rows[0].id,
           newTier,
           itemType: "business_upgrade",
           userId,
-        }),
-      ]
-    );
+        },
+      })
+      .onConflictDoNothing({ target: schema.payments.idempotencyKey })
+      .returning({ id: schema.payments.id });
     if (computed && paymentRows[0]) {
       await applyCryptoComputedAmount(paymentRows[0].id, computed);
     }

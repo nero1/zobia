@@ -11,8 +11,8 @@
  */
 
 import { randomUUID } from "crypto";
-import { db } from "@/lib/db";
-import type { TransactionClient, SqlParam } from "@/lib/db/interface";
+import { getDb } from "@/lib/db/drizzle";
+import { sql } from "drizzle-orm";
 import { loadManifest, requireFeatureEnabled, type ZobiaManifest } from "@/lib/manifest";
 import { getRankForXP } from "@/lib/xp/engine";
 import { safeAwardXPFireAndForget } from "@/lib/xp/safeAwardXP";
@@ -40,9 +40,10 @@ export interface PollEligibility {
 }
 
 export async function getPollEligibility(userId: string): Promise<PollEligibility> {
+  const orm = await getDb();
   const [manifest, userRows] = await Promise.all([
     loadManifest(),
-    db.query<{ xp_total: number }>(`SELECT COALESCE(xp_total, 0) AS xp_total FROM users WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [userId]),
+    orm.execute<{ xp_total: number }>(sql`SELECT COALESCE(xp_total, 0) AS xp_total FROM users WHERE id = ${userId} AND deleted_at IS NULL LIMIT 1`),
   ]);
   const row = userRows.rows[0];
   if (!row) throw forbidden("User account not found");
@@ -66,13 +67,13 @@ function assertCanCreate(eligibility: PollEligibility): void {
 async function awardCreditsCapped(userId: string, amount: number, referenceId: string, description: string, dailyCapCredits: number): Promise<void> {
   if (amount <= 0) return;
   try {
-    const { rows } = await db.query<{ earned: string }>(
-      `SELECT COALESCE(SUM(amount), 0)::text AS earned
-       FROM coin_ledger
-       WHERE user_id = $1 AND transaction_type LIKE 'poll_%' AND amount > 0
-         AND created_at >= NOW() - INTERVAL '24 hours'`,
-      [userId]
-    );
+    const orm = await getDb();
+    const { rows } = await orm.execute<{ earned: string }>(sql`
+      SELECT COALESCE(SUM(amount), 0)::text AS earned
+      FROM coin_ledger
+      WHERE user_id = ${userId} AND transaction_type LIKE 'poll_%' AND amount > 0
+        AND created_at >= NOW() - INTERVAL '24 hours'
+    `);
     const earnedToday = parseInt(rows[0]?.earned ?? "0", 10);
     const headroom = dailyCapCredits - earnedToday;
     if (headroom <= 0) return;
@@ -120,14 +121,14 @@ export async function createPoll(input: CreatePollInput): Promise<PollSummary> {
   const pollId = randomUUID();
   const slug = await generateUniqueSlug("poll", input.title, pollId);
 
-  await db.transaction(async (tx: TransactionClient) => {
-    await tx.query(
-      `INSERT INTO polls (id, creator_id, slug, title, description, allow_multiple, closes_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-      [pollId, input.userId, slug, input.title.trim(), input.description?.trim() || null, !!input.allowMultiple, input.closesAt || null]
-    );
+  const orm = await getDb();
+  await orm.transaction(async (tx) => {
+    await tx.execute(sql`
+      INSERT INTO polls (id, creator_id, slug, title, description, allow_multiple, closes_at)
+      VALUES (${pollId}, ${input.userId}, ${slug}, ${input.title.trim()}, ${input.description?.trim() || null}, ${!!input.allowMultiple}, ${input.closesAt || null})
+    `);
     for (let i = 0; i < options.length; i++) {
-      await tx.query(`INSERT INTO poll_options (poll_id, label, position) VALUES ($1, $2, $3)`, [pollId, options[i], i]);
+      await tx.execute(sql`INSERT INTO poll_options (poll_id, label, position) VALUES (${pollId}, ${options[i]}, ${i})`);
     }
   });
 
@@ -192,25 +193,24 @@ interface PollRow {
 }
 
 export async function getPollBySlug(slug: string, viewerId?: string | null): Promise<PollDetail | null> {
-  const { rows } = await db.query<PollRow>(
-    `SELECT p.id, p.slug, p.title, p.description, p.allow_multiple, p.status, p.closes_at, p.view_count,
-            p.voter_count, p.share_count, p.created_at, p.creator_id, u.username AS creator_username, u.avatar_url AS creator_avatar_url
-     FROM polls p
-     JOIN users u ON u.id = p.creator_id
-     WHERE p.slug = $1 AND p.deleted_at IS NULL LIMIT 1`,
-    [slug]
-  );
+  const orm = await getDb();
+  const { rows } = await orm.execute<PollRow & Record<string, unknown>>(sql`
+    SELECT p.id, p.slug, p.title, p.description, p.allow_multiple, p.status, p.closes_at, p.view_count,
+           p.voter_count, p.share_count, p.created_at, p.creator_id, u.username AS creator_username, u.avatar_url AS creator_avatar_url
+    FROM polls p
+    JOIN users u ON u.id = p.creator_id
+    WHERE p.slug = ${slug} AND p.deleted_at IS NULL LIMIT 1
+  `);
   const poll = rows[0];
   if (!poll) return null;
 
-  const { rows: optionRows } = await db.query<{ id: string; label: string; vote_count: number }>(
-    `SELECT id, label, vote_count FROM poll_options WHERE poll_id = $1 ORDER BY position ASC`,
-    [poll.id]
+  const { rows: optionRows } = await orm.execute<{ id: string; label: string; vote_count: number }>(
+    sql`SELECT id, label, vote_count FROM poll_options WHERE poll_id = ${poll.id} ORDER BY position ASC`
   );
 
   let myVoteOptionIds: string[] = [];
   if (viewerId) {
-    const { rows: voteRows } = await db.query<{ option_id: string }>(`SELECT option_id FROM poll_votes WHERE poll_id = $1 AND user_id = $2`, [poll.id, viewerId]);
+    const { rows: voteRows } = await orm.execute<{ option_id: string }>(sql`SELECT option_id FROM poll_votes WHERE poll_id = ${poll.id} AND user_id = ${viewerId}`);
     myVoteOptionIds = voteRows.map((r) => r.option_id);
   }
 
@@ -236,7 +236,8 @@ export async function getPollBySlug(slug: string, viewerId?: string | null): Pro
 }
 
 export async function recordPollView(pollId: string): Promise<void> {
-  await db.query(`UPDATE polls SET view_count = view_count + 1 WHERE id = $1`, [pollId]).catch(() => {});
+  const orm = await getDb();
+  await orm.execute(sql`UPDATE polls SET view_count = view_count + 1 WHERE id = ${pollId}`).catch(() => {});
 }
 
 export interface ListPollsResult {
@@ -245,28 +246,24 @@ export interface ListPollsResult {
 }
 
 export async function listPolls(tab: "new" | "popular" | "mine", cursor: string | undefined, limit: number, viewerId?: string | null): Promise<ListPollsResult> {
-  const params: SqlParam[] = [];
-  let where = `p.status = 'active' AND p.deleted_at IS NULL`;
+  let where = sql`p.status = 'active' AND p.deleted_at IS NULL`;
   if (tab === "mine") {
     if (!viewerId) throw forbidden("Sign in to view your polls.");
-    params.push(viewerId);
-    where = `p.creator_id = $${params.length} AND p.deleted_at IS NULL`;
+    where = sql`p.creator_id = ${viewerId} AND p.deleted_at IS NULL`;
   }
   if (cursor) {
-    params.push(cursor);
-    where += ` AND p.created_at < (SELECT created_at FROM polls WHERE id = $${params.length})`;
+    where = sql`${where} AND p.created_at < (SELECT created_at FROM polls WHERE id = ${cursor})`;
   }
-  params.push(limit);
-  const orderBy = tab === "popular" ? "p.voter_count DESC, p.created_at DESC" : "p.created_at DESC";
+  const orderBy = tab === "popular" ? sql`p.voter_count DESC, p.created_at DESC` : sql`p.created_at DESC`;
 
-  const { rows } = await db.query<{ id: string; slug: string; title: string; voter_count: number; created_at: string; creator_username: string | null }>(
-    `SELECT p.id, p.slug, p.title, p.voter_count, p.created_at, u.username AS creator_username
-     FROM polls p JOIN users u ON u.id = p.creator_id
-     WHERE ${where}
-     ORDER BY ${orderBy}
-     LIMIT $${params.length}`,
-    params
-  );
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ id: string; slug: string; title: string; voter_count: number; created_at: string; creator_username: string | null }>(sql`
+    SELECT p.id, p.slug, p.title, p.voter_count, p.created_at, u.username AS creator_username
+    FROM polls p JOIN users u ON u.id = p.creator_id
+    WHERE ${where}
+    ORDER BY ${orderBy}
+    LIMIT ${limit}
+  `);
 
   return {
     polls: rows.map((r) => ({ id: r.id, slug: r.slug, title: r.title, voterCount: r.voter_count, createdAt: r.created_at, creatorUsername: r.creator_username })),
@@ -288,9 +285,9 @@ export async function votePoll(userId: string, pollId: string, optionIds: string
   await requireFeatureEnabled("polls");
   if (optionIds.length === 0) throw badRequest("Select at least one option.", "POLL_NO_OPTION_SELECTED");
 
-  const { rows: pollRows } = await db.query<{ id: string; allow_multiple: boolean; status: string; closes_at: string | null }>(
-    `SELECT id, allow_multiple, status, closes_at FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`,
-    [pollId]
+  const orm = await getDb();
+  const { rows: pollRows } = await orm.execute<{ id: string; allow_multiple: boolean; status: string; closes_at: string | null }>(
+    sql`SELECT id, allow_multiple, status, closes_at FROM polls WHERE id = ${pollId} AND deleted_at IS NULL LIMIT 1`
   );
   const poll = pollRows[0];
   if (!poll) throw notFound("Poll not found");
@@ -298,18 +295,18 @@ export async function votePoll(userId: string, pollId: string, optionIds: string
   if (poll.closes_at && new Date(poll.closes_at) < new Date()) throw badRequest("This poll has closed.", "POLL_CLOSED");
   if (!poll.allow_multiple && optionIds.length > 1) throw badRequest("This poll only allows one selection.", "POLL_SINGLE_CHOICE");
 
-  const { rows: existingVotes } = await db.query<{ option_id: string }>(`SELECT option_id FROM poll_votes WHERE poll_id = $1 AND user_id = $2`, [pollId, userId]);
+  const { rows: existingVotes } = await orm.execute<{ option_id: string }>(sql`SELECT option_id FROM poll_votes WHERE poll_id = ${pollId} AND user_id = ${userId}`);
   if (existingVotes.length > 0) throw badRequest("You already voted on this poll.", "POLL_ALREADY_VOTED");
 
-  const { rows: optionRows } = await db.query<{ id: string }>(`SELECT id FROM poll_options WHERE poll_id = $1 AND id = ANY($2::uuid[])`, [pollId, optionIds]);
+  const { rows: optionRows } = await orm.execute<{ id: string }>(sql`SELECT id FROM poll_options WHERE poll_id = ${pollId} AND id = ANY(${optionIds}::uuid[])`);
   if (optionRows.length !== optionIds.length) throw badRequest("Unknown poll option.", "POLL_UNKNOWN_OPTION");
 
-  await db.transaction(async (tx: TransactionClient) => {
+  await orm.transaction(async (tx) => {
     for (const optionId of optionIds) {
-      await tx.query(`INSERT INTO poll_votes (poll_id, option_id, user_id) VALUES ($1, $2, $3)`, [pollId, optionId, userId]);
-      await tx.query(`UPDATE poll_options SET vote_count = vote_count + 1 WHERE id = $1`, [optionId]);
+      await tx.execute(sql`INSERT INTO poll_votes (poll_id, option_id, user_id) VALUES (${pollId}, ${optionId}, ${userId})`);
+      await tx.execute(sql`UPDATE poll_options SET vote_count = vote_count + 1 WHERE id = ${optionId}`);
     }
-    await tx.query(`UPDATE polls SET voter_count = voter_count + 1 WHERE id = $1`, [pollId]);
+    await tx.execute(sql`UPDATE polls SET voter_count = voter_count + 1 WHERE id = ${pollId}`);
   });
 
   const manifest = await loadManifest();
@@ -328,8 +325,8 @@ export async function votePoll(userId: string, pollId: string, optionIds: string
     return null;
   });
 
-  const { rows: finalOptions } = await db.query<{ id: string; label: string; vote_count: number }>(`SELECT id, label, vote_count FROM poll_options WHERE poll_id = $1 ORDER BY position ASC`, [pollId]);
-  const { rows: countRows } = await db.query<{ voter_count: number }>(`SELECT voter_count FROM polls WHERE id = $1`, [pollId]);
+  const { rows: finalOptions } = await orm.execute<{ id: string; label: string; vote_count: number }>(sql`SELECT id, label, vote_count FROM poll_options WHERE poll_id = ${pollId} ORDER BY position ASC`);
+  const { rows: countRows } = await orm.execute<{ voter_count: number }>(sql`SELECT voter_count FROM polls WHERE id = ${pollId}`);
 
   return {
     options: finalOptions.map((o) => ({ id: o.id, label: o.label, voteCount: o.vote_count })),
@@ -344,15 +341,16 @@ export async function votePoll(userId: string, pollId: string, optionIds: string
 
 export async function sharePoll(userId: string, pollId: string): Promise<{ shareCount: number; rewardClaimed: number | null }> {
   await requireFeatureEnabled("polls");
-  const { rows } = await db.query<{ id: string }>(`SELECT id FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [pollId]);
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ id: string }>(sql`SELECT id FROM polls WHERE id = ${pollId} AND deleted_at IS NULL LIMIT 1`);
   if (!rows[0]) throw notFound("Poll not found");
 
   const manifest = await loadManifest();
   const { rewardClaimed } = await recordContentShare("poll", pollId, userId, "poll_treasury_claim", manifest.features.pollMonetization, async (tx) => {
-    await tx.query(`UPDATE polls SET share_count = share_count + 1 WHERE id = $1`, [pollId]);
+    await tx.execute(sql`UPDATE polls SET share_count = share_count + 1 WHERE id = ${pollId}`);
   });
 
-  const { rows: countRows } = await db.query<{ share_count: number }>(`SELECT share_count FROM polls WHERE id = $1`, [pollId]);
+  const { rows: countRows } = await orm.execute<{ share_count: number }>(sql`SELECT share_count FROM polls WHERE id = ${pollId}`);
   return { shareCount: countRows[0]?.share_count ?? 0, rewardClaimed };
 }
 
@@ -374,7 +372,8 @@ export async function getPollTreasury(pollId: string): Promise<TreasuryState | n
 export async function fundPollTreasury(userId: string, pollId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
   await requireFeatureEnabled("polls");
   await requireFeatureEnabled("pollMonetization");
-  const { rows } = await db.query<{ creator_id: string }>(`SELECT creator_id FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [pollId]);
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ creator_id: string }>(sql`SELECT creator_id FROM polls WHERE id = ${pollId} AND deleted_at IS NULL LIMIT 1`);
   const poll = rows[0];
   if (!poll) throw notFound("Poll not found");
   if (poll.creator_id !== userId) throw forbidden("Only the poll's creator can fund its reward pot.");
@@ -385,7 +384,8 @@ export async function fundPollTreasury(userId: string, pollId: string, amount: n
 export async function editPollTreasury(userId: string, pollId: string, amount: number, maxClaimants: number): Promise<TreasuryState> {
   await requireFeatureEnabled("polls");
   await requireFeatureEnabled("pollMonetization");
-  const { rows } = await db.query<{ creator_id: string }>(`SELECT creator_id FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [pollId]);
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ creator_id: string }>(sql`SELECT creator_id FROM polls WHERE id = ${pollId} AND deleted_at IS NULL LIMIT 1`);
   const poll = rows[0];
   if (!poll) throw notFound("Poll not found");
   if (poll.creator_id !== userId) throw forbidden("Only the poll's creator can edit its reward pot.");
@@ -395,7 +395,8 @@ export async function editPollTreasury(userId: string, pollId: string, amount: n
 /** Turn off a poll's reward pot, refunding unclaimed funds to the creator. */
 export async function closePollTreasury(userId: string, pollId: string): Promise<TreasuryState> {
   await requireFeatureEnabled("polls");
-  const { rows } = await db.query<{ creator_id: string }>(`SELECT creator_id FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [pollId]);
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ creator_id: string }>(sql`SELECT creator_id FROM polls WHERE id = ${pollId} AND deleted_at IS NULL LIMIT 1`);
   const poll = rows[0];
   if (!poll) throw notFound("Poll not found");
   if (poll.creator_id !== userId) throw forbidden("Only the poll's creator can turn off its reward pot.");
@@ -407,12 +408,14 @@ export async function closePollTreasury(userId: string, pollId: string): Promise
 // ---------------------------------------------------------------------------
 
 export async function getPollIdBySlug(slug: string): Promise<string | null> {
-  const { rows } = await db.query<{ id: string }>(`SELECT id FROM polls WHERE slug = $1 AND deleted_at IS NULL LIMIT 1`, [slug]);
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ id: string }>(sql`SELECT id FROM polls WHERE slug = ${slug} AND deleted_at IS NULL LIMIT 1`);
   return rows[0]?.id ?? null;
 }
 
 export async function assertPollOwnerOrAdmin(pollId: string, userId: string, isAdmin: boolean): Promise<{ creatorId: string }> {
-  const { rows } = await db.query<{ creator_id: string }>(`SELECT creator_id FROM polls WHERE id = $1 AND deleted_at IS NULL LIMIT 1`, [pollId]);
+  const orm = await getDb();
+  const { rows } = await orm.execute<{ creator_id: string }>(sql`SELECT creator_id FROM polls WHERE id = ${pollId} AND deleted_at IS NULL LIMIT 1`);
   const poll = rows[0];
   if (!poll) throw notFound("Poll not found");
   if (poll.creator_id !== userId && !isAdmin) throw forbidden("Only the poll's creator or an admin can do this.");
@@ -420,11 +423,13 @@ export async function assertPollOwnerOrAdmin(pollId: string, userId: string, isA
 }
 
 export async function setPollStatus(pollId: string, status: "active" | "closed" | "disabled"): Promise<void> {
-  const { rowCount } = await db.query(`UPDATE polls SET status = $2, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, [pollId, status]);
-  if (!rowCount) throw notFound("Poll not found");
+  const orm = await getDb();
+  const result = await orm.execute(sql`UPDATE polls SET status = ${status}, updated_at = NOW() WHERE id = ${pollId} AND deleted_at IS NULL`);
+  if (!result.rowCount) throw notFound("Poll not found");
 }
 
 export async function deletePoll(pollId: string): Promise<void> {
-  const { rowCount } = await db.query(`UPDATE polls SET deleted_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, [pollId]);
-  if (!rowCount) throw notFound("Poll not found");
+  const orm = await getDb();
+  const result = await orm.execute(sql`UPDATE polls SET deleted_at = NOW() WHERE id = ${pollId} AND deleted_at IS NULL`);
+  if (!result.rowCount) throw notFound("Poll not found");
 }

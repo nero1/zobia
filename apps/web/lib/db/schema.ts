@@ -18,6 +18,7 @@ import {
   text,
   boolean,
   integer,
+  smallint,
   bigint,
   timestamp,
   date,
@@ -259,6 +260,29 @@ export const users = pgTable("users", {
   planActivatedAt: timestamp("plan_activated_at", { withTimezone: true }),
   require2faSetup: boolean("require_2fa_setup").notNull().default(false),
 
+  // Cosmetics/profile (additional)
+  activeFrameId: text("active_frame_id"),
+  activeProfileThemeId: text("active_profile_theme_id").notNull().default("classic"),
+  avatarChangedAt: timestamp("avatar_changed_at", { withTimezone: true }),
+
+  // Privacy/notification (additional)
+  sitemapOptOut: boolean("sitemap_opt_out").notNull().default(false),
+  groupInvitePrivacy: text("group_invite_privacy").notNull().default("friends"),
+  nemesisOptOut: boolean("nemesis_opt_out").notNull().default(false),
+  tweetMaxLength: integer("tweet_max_length"),
+
+  // Staff roles (additional — distinct from isAdmin/isModerator)
+  isSupport: boolean("is_support").notNull().default(false),
+  isSeniorSupport: boolean("is_senior_support").notNull().default(false),
+
+  // Ads (additional)
+  adWalletBalance: bigint("ad_wallet_balance", { mode: "bigint" }).notNull().default(BigInt(0)),
+
+  // Migration 0012: optional phone number for the "find your contacts on
+  // Zobia" cross-reference feature. No capture/verification UI exists yet —
+  // most users authenticate via Google/Telegram, which don't provide one.
+  phoneNumber: text("phone_number"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (t) => [
@@ -418,6 +442,48 @@ export const telegramLoginStates = pgTable("telegram_login_states", {
 }, (t) => ({
   expiresAtIdx: index("telegram_login_states_expires_at_idx").on(t.expiresAt),
 }));
+
+// Migration: username change tracking + a temporary reservation of the
+// freed old username (drives the old-profile-URL redirect / squat guard).
+export const usernameChangeHistory = pgTable("username_change_history", {
+  id: uuidPk(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  oldUsername: text("old_username").notNull(),
+  newUsername: text("new_username").notNull(),
+  changedAt: timestamp("changed_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  redirectEnabled: boolean("redirect_enabled").notNull(),
+  reservedUntil: timestamp("reserved_until", { withTimezone: true }),
+  costPaidCredits: integer("cost_paid_credits").notNull().default(0),
+  costPaidStars: integer("cost_paid_stars").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const usernameReservations = pgTable(
+  "username_reservations",
+  {
+    oldUsername: text("old_username").primaryKey(),
+    previousUserId: uuid("previous_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    redirectToUsername: text("redirect_to_username"),
+    reservedUntil: timestamp("reserved_until", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "username_reservations_redirect_or_expiry_chk",
+      sql`(${t.redirectToUsername} IS NOT NULL AND ${t.reservedUntil} IS NULL) OR (${t.redirectToUsername} IS NULL AND ${t.reservedUntil} IS NOT NULL)`
+    ),
+  ]
+);
 
 // ---------------------------------------------------------------------------
 // SECTION 3: Social Graph & Messaging
@@ -638,6 +704,47 @@ export const groupChatMembers = pgTable(
   },
   (t) => ({
     unique: uniqueIndex("group_chat_members_group_user_idx").on(
+      t.groupChatId,
+      t.userId
+    ),
+  })
+);
+
+export const groupChatBlocks = pgTable(
+  "group_chat_blocks",
+  {
+    id: uuidPk(),
+    groupChatId: uuid("group_chat_id")
+      .notNull()
+      .references(() => groupChats.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("group_chat_blocks_unique").on(
+      t.groupChatId,
+      t.userId
+    ),
+  })
+);
+
+export const groupChatReactivationChoices = pgTable(
+  "group_chat_reactivation_choices",
+  {
+    id: uuidPk(),
+    groupChatId: uuid("group_chat_id")
+      .notNull()
+      .references(() => groupChats.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    reactivated: boolean("reactivated").notNull(),
+    decidedAt: timestamp("decided_at", { withTimezone: true }).defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("group_chat_reactivation_choices_unique").on(
       t.groupChatId,
       t.userId
     ),
@@ -1339,6 +1446,20 @@ export const rooms = pgTable("rooms", {
   metadata: jsonb("metadata"),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 
+  // Suspension/ban/flag moderation state
+  isSuspended: boolean("is_suspended").notNull().default(false),
+  suspendedAt: timestamp("suspended_at", { withTimezone: true }),
+  suspendedBy: uuid("suspended_by").references(() => users.id, { onDelete: "set null" }),
+  suspensionReason: text("suspension_reason"),
+  isBanned: boolean("is_banned").notNull().default(false),
+  bannedAt: timestamp("banned_at", { withTimezone: true }),
+  bannedBy: uuid("banned_by").references(() => users.id, { onDelete: "set null" }),
+  flaggedAt: timestamp("flagged_at", { withTimezone: true }),
+  flaggedBy: uuid("flagged_by").references(() => users.id, { onDelete: "set null" }),
+  flagReason: text("flag_reason"),
+  monetizationDisabled: boolean("monetization_disabled").notNull().default(false),
+  adminNotes: text("admin_notes"),
+
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
 }, (t) => [
@@ -1581,6 +1702,28 @@ export const roomPins = pgTable(
   },
   (t) => ({
     unique: uniqueIndex("room_pins_user_room_idx").on(t.userId, t.roomId),
+  })
+);
+
+export const roomVisits = pgTable(
+  "room_visits",
+  {
+    id: uuidPk(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    roomId: uuid("room_id")
+      .notNull()
+      .references(() => rooms.id, { onDelete: "cascade" }),
+    lastVisitedAt: timestamp("last_visited_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("room_visits_user_id_room_id_key").on(
+      t.userId,
+      t.roomId
+    ),
   })
 );
 
@@ -2170,6 +2313,71 @@ export const xpLedger = pgTable(
   })
 );
 
+// Archive tables — CRON-rotated cold storage for ledger rows past retention.
+// Rows are copied verbatim (including their original id/created_at) so
+// history stays queryable; no defaults are generated on insert here.
+export const xpLedgerArchive = pgTable("xp_ledger_archive", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull(),
+  amount: integer("amount").notNull(),
+  track: text("track").notNull().default("main"),
+  source: text("source").notNull(),
+  referenceId: text("reference_id"),
+  baseAmount: integer("base_amount").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }),
+  archivedAt: timestamp("archived_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const coinLedgerArchive = pgTable("coin_ledger_archive", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull(),
+  amount: bigint("amount", { mode: "bigint" }).notNull(),
+  balanceBefore: bigint("balance_before", { mode: "bigint" }).notNull(),
+  balanceAfter: bigint("balance_after", { mode: "bigint" }).notNull(),
+  transactionType: text("transaction_type").notNull(),
+  referenceId: text("reference_id"),
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }),
+  archivedAt: timestamp("archived_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const starLedgerArchive = pgTable("star_ledger_archive", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull(),
+  amount: bigint("amount", { mode: "bigint" }).notNull(),
+  balanceBefore: bigint("balance_before", { mode: "bigint" })
+    .notNull()
+    .default(BigInt(0)),
+  balanceAfter: bigint("balance_after", { mode: "bigint" })
+    .notNull()
+    .default(BigInt(0)),
+  transactionType: text("transaction_type").notNull(),
+  description: text("description"),
+  referenceId: text("reference_id"),
+  createdAt: timestamp("created_at", { withTimezone: true }),
+  archivedAt: timestamp("archived_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
+export const xpEventsArchive = pgTable("xp_events_archive", {
+  id: uuid("id").primaryKey(),
+  userId: uuid("user_id").notNull(),
+  action: text("action").notNull(),
+  xpAwarded: integer("xp_awarded").notNull(),
+  track: text("track").notNull().default("main"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }),
+  archivedAt: timestamp("archived_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const payments = pgTable("payments", {
   id: uuidPk(),
   userId: uuid("user_id")
@@ -2371,6 +2579,36 @@ export const userXpBoosters = pgTable("user_xp_boosters", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
 });
 
+export const boostTypes = pgTable(
+  "boost_types",
+  {
+    id: uuidPk(),
+    key: text("key").notNull().unique(),
+    label: text("label").notNull(),
+    description: text("description"),
+    multiplierBp: integer("multiplier_bp").notNull().default(0),
+    durationHours: integer("duration_hours").notNull(),
+    coinsCost: integer("coins_cost"),
+    starsCost: integer("stars_cost"),
+    iapProductId: text("iap_product_id"),
+    stackable: boolean("stackable").notNull().default(false),
+    isActive: boolean("is_active").notNull().default(true),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check("boost_types_duration_positive", sql`${t.durationHours} > 0`),
+  ]
+);
+
 export const stickerPacks = pgTable("sticker_packs", {
   id: uuidPk(),
   name: text("name").notNull().unique(),
@@ -2466,6 +2704,35 @@ export const userReactionSets = pgTable(
     pk: primaryKey({ columns: [t.userId, t.setId] }),
   })
 );
+
+export const profileThemes = pgTable("profile_themes", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  config: jsonb("config").notNull().default(sql`'{}'::jsonb`),
+  includedForPlans: text("included_for_plans")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  includedForBusinessTiers: text("included_for_business_tiers")
+    .array()
+    .notNull()
+    .default(sql`'{}'::text[]`),
+  isFreeDefault: boolean("is_free_default").notNull().default(false),
+  storeItemId: uuid("store_item_id").references(() => storeItems.id, {
+    onDelete: "set null",
+  }),
+  creditsCost: integer("credits_cost"),
+  starsCost: integer("stars_cost"),
+  enabled: boolean("enabled").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 export const auditDiscrepancies = pgTable("audit_discrepancies", {
   id: uuidPk(),
@@ -4108,7 +4375,45 @@ export const systemAlerts = pgTable("system_alerts", {
   resolutionNote: text("resolution_note"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+
+  // Escalation schedule (migration 0001 consolidated additions)
+  title: text("title").notNull(),
+  priorityLevel: smallint("priority_level").notNull(),
+  category: text("category").notNull().default("other"),
+  notifyAdmin: boolean("notify_admin").notNull().default(true),
+  notifyMods: boolean("notify_mods").notNull().default(false),
+  channelsSent: jsonb("channels_sent").notNull().default(sql`'[]'::jsonb`),
+  escalationStage: integer("escalation_stage").notNull().default(0),
+  escalationCycle: integer("escalation_cycle").notNull().default(0),
+  escalationPhase: text("escalation_phase").notNull().default("backoff"),
+  escalationComplete: boolean("escalation_complete").notNull().default(false),
+  nextEscalationAt: timestamp("next_escalation_at", { withTimezone: true }),
+  firstNotifiedAt: timestamp("first_notified_at", { withTimezone: true }),
+  lastNotifiedAt: timestamp("last_notified_at", { withTimezone: true }),
+  smsSentCount: integer("sms_sent_count").notNull().default(0),
+  dedupeKey: text("dedupe_key"),
 });
+
+export const adAiEscalations = pgTable(
+  "ad_ai_escalations",
+  {
+    id: uuidPk(),
+    campaignId: uuid("campaign_id").notNull(),
+    creativeId: uuid("creative_id"),
+    imageUrl: text("image_url").notNull(),
+    deepseekResult: jsonb("deepseek_result"),
+    geminiResult: jsonb("gemini_result"),
+    status: text("status").notNull().default("pending"),
+    reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNote: text("review_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    statusIdx: index("idx_ad_ai_escalations_status").on(t.status, t.createdAt),
+    campaignIdx: index("idx_ad_ai_escalations_campaign_id").on(t.campaignId),
+  })
+);
 
 export const moderationAiEscalations = pgTable("moderation_ai_escalations", {
   id: uuidPk(),
@@ -4336,6 +4641,313 @@ export const businessPageDailyStats = pgTable(
     unique: uniqueIndex("business_page_daily_stats_page_date_idx").on(t.pageId, t.date),
   })
 );
+
+// ---------------------------------------------------------------------------
+// Ads — business ad campaigns, creatives, placements & wallet ledger
+// ---------------------------------------------------------------------------
+
+export const adPlacements = pgTable(
+  "ad_placements",
+  {
+    id: uuidPk(),
+    key: text("key").notNull().unique(),
+    label: text("label").notNull(),
+    size: text("size").notNull(),
+    description: text("description"),
+    isActive: boolean("is_active").notNull().default(true),
+    baseCpmCredits: numeric("base_cpm_credits", {
+      precision: 12,
+      scale: 2,
+    })
+      .notNull()
+      .default("500"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "ad_placements_size_check",
+      sql`${t.size} = ANY (ARRAY['300x250'::text, '320x50'::text, 'interstitial'::text, 'rewarded'::text, 'native'::text])`
+    ),
+  ]
+);
+
+export const adCampaigns = pgTable(
+  "ad_campaigns",
+  {
+    id: uuidPk(),
+    ownerType: text("owner_type").notNull().default("business"),
+    businessAccountId: uuid("business_account_id").references(
+      () => businessAccounts.id,
+      { onDelete: "cascade" }
+    ),
+    businessPageId: uuid("business_page_id").references(
+      () => businessPages.id,
+      { onDelete: "cascade" }
+    ),
+    createdBy: uuid("created_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    objective: text("objective").notNull().default("traffic"),
+    status: text("status").notNull().default("draft"),
+    moderationStatus: text("moderation_status").notNull().default("pending"),
+    moderationMode: text("moderation_mode"),
+    moderationReason: text("moderation_reason"),
+    aiConfidence: numeric("ai_confidence", { precision: 4, scale: 3 }),
+    moderatedBy: uuid("moderated_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    moderatedAt: timestamp("moderated_at", { withTimezone: true }),
+    cpmCredits: numeric("cpm_credits", { precision: 12, scale: 2 })
+      .notNull()
+      .default("500"),
+    dailyBudgetCredits: numeric("daily_budget_credits", {
+      precision: 14,
+      scale: 2,
+    }),
+    totalBudgetCredits: numeric("total_budget_credits", {
+      precision: 14,
+      scale: 2,
+    })
+      .notNull()
+      .default("0"),
+    spentCredits: numeric("spent_credits", { precision: 14, scale: 2 })
+      .notNull()
+      .default("0"),
+    targetPlans: text("target_plans").array(),
+    targetCountries: text("target_countries").array(),
+    frequencyCapPerUserPerDay: integer("frequency_cap_per_user_per_day")
+      .notNull()
+      .default(20),
+    boostedContentType: text("boosted_content_type"),
+    boostedContentId: uuid("boosted_content_id"),
+    startAt: timestamp("start_at", { withTimezone: true }),
+    endAt: timestamp("end_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    advertiserType: text("advertiser_type")
+      .notNull()
+      .default("business_account"),
+    advertiserUserId: uuid("advertiser_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    advertiserGraceUntil: timestamp("advertiser_grace_until", {
+      withTimezone: true,
+    }),
+  },
+  (t) => [
+    check(
+      "ad_campaigns_advertiser_type_check",
+      sql`${t.advertiserType} = ANY (ARRAY['personal'::text, 'business_account'::text, 'business_page'::text])`
+    ),
+    check(
+      "ad_campaigns_boosted_content_type_check",
+      sql`${t.boostedContentType} IS NULL OR ${t.boostedContentType} = ANY (ARRAY['moment'::text, 'tweet'::text, 'blog_post'::text, 'forum_thread'::text, 'forum_question'::text, 'room'::text, 'wiki_page'::text, 'game'::text, 'classroom'::text, 'business_page_post'::text])`
+    ),
+    check(
+      "ad_campaigns_budget_check",
+      sql`${t.totalBudgetCredits} >= 0 AND ${t.spentCredits} >= 0`
+    ),
+    check(
+      "ad_campaigns_business_owner_check",
+      sql`${t.ownerType} = 'admin' OR ${t.businessAccountId} IS NOT NULL`
+    ),
+    check(
+      "ad_campaigns_moderation_status_check",
+      sql`${t.moderationStatus} = ANY (ARRAY['pending'::text, 'approved'::text, 'rejected'::text])`
+    ),
+    check(
+      "ad_campaigns_objective_check",
+      sql`${t.objective} = ANY (ARRAY['awareness'::text, 'traffic'::text, 'boost_post'::text, 'boost_room'::text, 'boost_content'::text])`
+    ),
+    check(
+      "ad_campaigns_owner_type_check",
+      sql`${t.ownerType} = ANY (ARRAY['business'::text, 'admin'::text])`
+    ),
+    check(
+      "ad_campaigns_status_check",
+      sql`${t.status} = ANY (ARRAY['draft'::text, 'pending_review'::text, 'approved'::text, 'rejected'::text, 'active'::text, 'paused'::text, 'completed'::text, 'stopped'::text])`
+    ),
+  ]
+);
+
+export const adCreatives = pgTable(
+  "ad_creatives",
+  {
+    id: uuidPk(),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => adCampaigns.id, { onDelete: "cascade" }),
+    placementKey: text("placement_key").notNull(),
+    format: text("format").notNull().default("text"),
+    size: text("size").notNull(),
+    title: text("title"),
+    body: text("body"),
+    imageUrl: text("image_url"),
+    clickUrl: text("click_url"),
+    thirdPartyTag: text("third_party_tag"),
+    ctaLabel: text("cta_label"),
+    isActive: boolean("is_active").notNull().default(true),
+    impressionsCount: bigint("impressions_count", { mode: "bigint" })
+      .notNull()
+      .default(BigInt(0)),
+    clicksCount: bigint("clicks_count", { mode: "bigint" })
+      .notNull()
+      .default(BigInt(0)),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "ad_creatives_format_check",
+      sql`${t.format} = ANY (ARRAY['html'::text, 'text'::text, 'image'::text, 'native'::text, 'third_party'::text])`
+    ),
+    check(
+      "ad_creatives_size_check",
+      sql`${t.size} = ANY (ARRAY['300x250'::text, '320x50'::text, 'interstitial'::text, 'rewarded'::text, 'native'::text])`
+    ),
+  ]
+);
+
+export const adCampaignDailyStats = pgTable(
+  "ad_campaign_daily_stats",
+  {
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => adCampaigns.id, { onDelete: "cascade" }),
+    date: date("date").notNull(),
+    impressions: integer("impressions").notNull().default(0),
+    clicks: integer("clicks").notNull().default(0),
+    spendCredits: numeric("spend_credits", { precision: 14, scale: 2 })
+      .notNull()
+      .default("0"),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.campaignId, t.date] }),
+  })
+);
+
+export const adCoupons = pgTable(
+  "ad_coupons",
+  {
+    id: uuidPk(),
+    code: text("code").notNull().unique(),
+    discountType: text("discount_type").notNull(),
+    discountValue: numeric("discount_value", { precision: 12, scale: 2 }).notNull(),
+    maxRedemptions: integer("max_redemptions"),
+    redemptionsCount: integer("redemptions_count").notNull().default(0),
+    minBudgetCredits: numeric("min_budget_credits", {
+      precision: 12,
+      scale: 2,
+    })
+      .notNull()
+      .default("0"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "ad_coupons_discount_type_check",
+      sql`${t.discountType} = ANY (ARRAY['percent'::text, 'flat_credits'::text, 'free_credits'::text])`
+    ),
+    check("ad_coupons_discount_value_check", sql`${t.discountValue} > 0`),
+  ]
+);
+
+export const adCouponRedemptions = pgTable(
+  "ad_coupon_redemptions",
+  {
+    id: uuidPk(),
+    couponId: uuid("coupon_id")
+      .notNull()
+      .references(() => adCoupons.id, { onDelete: "cascade" }),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => adCampaigns.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    creditsApplied: numeric("credits_applied", { precision: 12, scale: 2 })
+      .notNull()
+      .default("0"),
+    redeemedAt: timestamp("redeemed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => ({
+    unique: uniqueIndex("ad_coupon_redemptions_unique").on(
+      t.couponId,
+      t.campaignId
+    ),
+  })
+);
+
+export const adEvents = pgTable(
+  "ad_events",
+  {
+    id: uuidPk(),
+    creativeId: uuid("creative_id")
+      .notNull()
+      .references(() => adCreatives.id, { onDelete: "cascade" }),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => adCampaigns.id, { onDelete: "cascade" }),
+    placementKey: text("placement_key").notNull(),
+    userId: uuid("user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    eventType: text("event_type").notNull(),
+    costCredits: numeric("cost_credits", { precision: 12, scale: 4 })
+      .notNull()
+      .default("0"),
+    clientEventId: text("client_event_id"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    check(
+      "ad_events_type_check",
+      sql`${t.eventType} = ANY (ARRAY['impression'::text, 'click'::text])`
+    ),
+  ]
+);
+
+export const adWalletLedger = pgTable("ad_wallet_ledger", {
+  id: uuidPk(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  amount: bigint("amount", { mode: "bigint" }).notNull(),
+  balanceBefore: bigint("balance_before", { mode: "bigint" }).notNull(),
+  balanceAfter: bigint("balance_after", { mode: "bigint" }).notNull(),
+  transactionType: text("transaction_type").notNull(),
+  referenceId: text("reference_id"),
+  description: text("description"),
+  metadata: jsonb("metadata"),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+});
 
 // ---------------------------------------------------------------------------
 // SECTION 11: Moderation & Reports
@@ -4783,6 +5395,8 @@ export const blogs = pgTable("blogs", {
   slotUnlockCurrency: text("slot_unlock_currency"),
   slotUnlockCost: integer("slot_unlock_cost"),
   slotUnlockReferenceId: text("slot_unlock_reference_id"),
+  menuConfig: jsonb("menu_config").notNull().default(sql`'{"items": [{"id": "home", "type": "url", "label": "Home", "externalUrl": "/"}, {"id": "categories", "type": "url", "label": "Categories", "externalUrl": "#categories"}, {"id": "subscribe", "type": "url", "label": "Subscribe", "externalUrl": "#subscribe"}], "orientation": "horizontal"}'::jsonb`),
+  activeThemeId: text("active_theme_id").notNull().default("classic"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -4831,6 +5445,9 @@ export const blogPosts = pgTable("blog_posts", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  // 'about' | 'privacy' | 'contact' | null — marks this post as a blog's
+  // static page (see blogs.menuConfig); at most one per (blogId, pageKey).
+  pageKey: text("page_key"),
 });
 
 export const blogPostLikes = pgTable(
@@ -5958,6 +6575,338 @@ export type Notice = typeof notices.$inferSelect;
 export type NewNotice = typeof notices.$inferInsert;
 
 // ---------------------------------------------------------------------------
+// SECTION: AI call log, alerts, bulletin board, blog gifting/contact, help
+// center, support tickets, staff alert contacts
+// ---------------------------------------------------------------------------
+
+export const aiCallLog = pgTable("ai_call_log", {
+  id: uuidPk(),
+  provider: text("provider").notNull(),
+  model: text("model").notNull(),
+  feature: text("feature").notNull(),
+  success: boolean("success").notNull(),
+  confidence: numeric("confidence", { precision: 5, scale: 4 }),
+  latencyMs: integer("latency_ms").notNull(),
+  resultPreview: text("result_preview"),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const alertNotificationLog = pgTable("alert_notification_log", {
+  id: uuidPk(),
+  alertId: uuid("alert_id").notNull(),
+  escalationStage: integer("escalation_stage").notNull().default(0),
+  channel: text("channel").notNull(),
+  recipientType: text("recipient_type").notNull(),
+  recipientUserId: uuid("recipient_user_id"),
+  status: text("status").notNull().default("sent"),
+  error: text("error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const staffAlertContacts = pgTable("staff_alert_contacts", {
+  id: uuidPk(),
+  userId: uuid("user_id").notNull().unique(),
+  phoneNumber: text("phone_number"),
+  smsEnabled: boolean("sms_enabled").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// --- Bulletin board (bb_*) ---
+
+export const bbBoards = pgTable("bb_boards", {
+  id: uuidPk(),
+  parentId: uuid("parent_id"),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  iconEmoji: text("icon_emoji").default("💬"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  threadCount: integer("thread_count").notNull().default(0),
+  postCount: integer("post_count").notNull().default(0),
+  lastPostAt: timestamp("last_post_at", { withTimezone: true }),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const bbThreads = pgTable("bb_threads", {
+  id: uuidPk(),
+  boardId: uuid("board_id").notNull(),
+  authorId: uuid("author_id").notNull(),
+  title: text("title").notNull(),
+  slug: text("slug").notNull().unique(),
+  isLocked: boolean("is_locked").notNull().default(false),
+  isPinned: boolean("is_pinned").notNull().default(false),
+  viewCount: integer("view_count").notNull().default(0),
+  replyCount: integer("reply_count").notNull().default(0),
+  lastReplyAt: timestamp("last_reply_at", { withTimezone: true }).notNull().defaultNow(),
+  status: text("status").notNull().default("visible"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  contentFormat: text("content_format").notNull().default("plaintext"),
+  imageUrl: text("image_url"),
+  editedAt: timestamp("edited_at", { withTimezone: true }),
+  potTotalCredits: integer("pot_total_credits").notNull().default(0),
+  potPerClaimCredits: integer("pot_per_claim_credits").notNull().default(0),
+  potMaxClaims: integer("pot_max_claims").notNull().default(0),
+  potClaimsCount: integer("pot_claims_count").notNull().default(0),
+  potRefundedAt: timestamp("pot_refunded_at", { withTimezone: true }),
+});
+
+export const bbPosts = pgTable("bb_posts", {
+  id: uuidPk(),
+  threadId: uuid("thread_id").notNull(),
+  authorId: uuid("author_id").notNull(),
+  body: text("body").notNull(),
+  status: text("status").notNull().default("visible"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  contentFormat: text("content_format").notNull().default("plaintext"),
+  imageUrl: text("image_url"),
+  quotedPostId: uuid("quoted_post_id"),
+  editedAt: timestamp("edited_at", { withTimezone: true }),
+  reactionCount: integer("reaction_count").notNull().default(0),
+  isOp: boolean("is_op").notNull().default(false),
+});
+
+export const bbPostReactions = pgTable(
+  "bb_post_reactions",
+  {
+    id: uuidPk(),
+    postId: uuid("post_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    emoji: text("emoji").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    postUserUnique: uniqueIndex("bb_post_reactions_post_id_user_id_key").on(t.postId, t.userId),
+  })
+);
+
+export const bbPotClaims = pgTable(
+  "bb_pot_claims",
+  {
+    id: uuidPk(),
+    threadId: uuid("thread_id").notNull(),
+    postId: uuid("post_id").notNull(),
+    userId: uuid("user_id").notNull(),
+    amountCredits: integer("amount_credits").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => ({
+    threadUserUnique: uniqueIndex("bb_pot_claims_thread_id_user_id_key").on(t.threadId, t.userId),
+  })
+);
+
+// --- Blog gifting & contact ---
+
+export const blogThemes = pgTable("blog_themes", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  layoutVariant: text("layout_variant").notNull(),
+  config: jsonb("config").notNull().default(sql`'{}'::jsonb`),
+  includedForPlans: text("included_for_plans").array().notNull().default(sql`'{}'::text[]`),
+  includedForBusinessTiers: text("included_for_business_tiers").array().notNull().default(sql`'{}'::text[]`),
+  isFreeDefault: boolean("is_free_default").notNull().default(false),
+  storeItemId: uuid("store_item_id"),
+  creditsCost: integer("credits_cost"),
+  starsCost: integer("stars_cost"),
+  enabled: boolean("enabled").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const blogGiftTiers = pgTable("blog_gift_tiers", {
+  id: uuidPk(),
+  blogId: uuid("blog_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  creditsPrice: integer("credits_price"),
+  starsPrice: integer("stars_price"),
+  benefitType: text("benefit_type").notNull(),
+  benefitConfig: jsonb("benefit_config").notNull().default(sql`'{}'::jsonb`),
+  maxRedemptions: integer("max_redemptions"),
+  redemptionCount: integer("redemption_count").notNull().default(0),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  enabled: boolean("enabled").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const blogGiftPurchases = pgTable("blog_gift_purchases", {
+  id: uuidPk(),
+  tierId: uuid("tier_id").notNull(),
+  blogId: uuid("blog_id").notNull(),
+  buyerId: uuid("buyer_id").notNull(),
+  currency: text("currency").notNull(),
+  amountPaid: integer("amount_paid").notNull(),
+  benefitType: text("benefit_type").notNull(),
+  status: text("status").notNull().default("active"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const blogGiftClaims = pgTable("blog_gift_claims", {
+  id: uuidPk(),
+  purchaseId: uuid("purchase_id").notNull(),
+  treasuryPayoutAmount: integer("treasury_payout_amount"),
+  textRevealed: boolean("text_revealed").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const blogContactMessages = pgTable("blog_contact_messages", {
+  id: uuidPk(),
+  blogId: uuid("blog_id").notNull(),
+  senderUserId: uuid("sender_user_id"),
+  senderName: text("sender_name"),
+  senderEmail: text("sender_email"),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const siteContactMessages = pgTable("site_contact_messages", {
+  id: uuidPk(),
+  senderUserId: uuid("sender_user_id"),
+  senderName: text("sender_name"),
+  senderEmail: text("sender_email"),
+  subject: text("subject"),
+  message: text("message").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+// --- Help center ---
+
+export const helpCategories = pgTable("help_categories", {
+  id: uuidPk(),
+  slug: text("slug").notNull().unique(),
+  name: text("name").notNull(),
+  description: text("description"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  published: boolean("published").notNull().default(true),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const helpDocs = pgTable(
+  "help_docs",
+  {
+    id: uuidPk(),
+    categoryId: uuid("category_id").notNull(),
+    slug: text("slug").notNull(),
+    title: text("title").notNull(),
+    bodyMarkdown: text("body_markdown").notNull(),
+    bodyHtml: text("body_html").notNull(),
+    difficulty: text("difficulty").notNull().default("first_time"),
+    sortOrder: integer("sort_order").notNull().default(0),
+    seoTitle: text("seo_title"),
+    seoDescription: text("seo_description"),
+    published: boolean("published").notNull().default(false),
+    viewCount: integer("view_count").notNull().default(0),
+    authorId: uuid("author_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => ({
+    categorySlugUnique: uniqueIndex("help_docs_category_slug_idx").on(t.categoryId, t.slug),
+  })
+);
+
+// --- Support tickets ---
+
+export const supportTickets = pgTable("support_tickets", {
+  id: uuidPk(),
+  userId: uuid("user_id").notNull(),
+  subject: text("subject").notNull(),
+  status: text("status").notNull().default("open"),
+  priority: text("priority").notNull().default("normal"),
+  assignedTo: uuid("assigned_to"),
+  isAiHandled: boolean("is_ai_handled").notNull().default(false),
+  aiResolved: boolean("ai_resolved").notNull().default(false),
+  source: text("source").notNull().default("ticket"),
+  sourceHelpDocId: uuid("source_help_doc_id"),
+  chargedCredits: integer("charged_credits").notNull().default(0),
+  chargedStars: integer("charged_stars").notNull().default(0),
+  messageCount: integer("message_count").notNull().default(0),
+  lastActivityAt: timestamp("last_activity_at", { withTimezone: true }).notNull().defaultNow(),
+  resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+  closedAt: timestamp("closed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+});
+
+export const supportTicketMessages = pgTable("support_ticket_messages", {
+  id: uuidPk(),
+  ticketId: uuid("ticket_id").notNull(),
+  senderId: uuid("sender_id"),
+  senderType: text("sender_type").notNull().default("user"),
+  body: text("body").notNull(),
+  charged: boolean("charged").notNull().default(false),
+  chargedCredits: integer("charged_credits").notNull().default(0),
+  chargedStars: integer("charged_stars").notNull().default(0),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const supportTicketEvents = pgTable("support_ticket_events", {
+  id: uuidPk(),
+  ticketId: uuid("ticket_id").notNull(),
+  actorId: uuid("actor_id"),
+  eventType: text("event_type").notNull(),
+  fromValue: text("from_value"),
+  toValue: text("to_value"),
+  note: text("note"),
+  metadata: jsonb("metadata").notNull().default(sql`'{}'::jsonb`),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export type AiCallLog = typeof aiCallLog.$inferSelect;
+export type NewAiCallLog = typeof aiCallLog.$inferInsert;
+export type AlertNotificationLog = typeof alertNotificationLog.$inferSelect;
+export type NewAlertNotificationLog = typeof alertNotificationLog.$inferInsert;
+export type StaffAlertContact = typeof staffAlertContacts.$inferSelect;
+export type NewStaffAlertContact = typeof staffAlertContacts.$inferInsert;
+export type BbBoard = typeof bbBoards.$inferSelect;
+export type NewBbBoard = typeof bbBoards.$inferInsert;
+export type BbThread = typeof bbThreads.$inferSelect;
+export type NewBbThread = typeof bbThreads.$inferInsert;
+export type BbPost = typeof bbPosts.$inferSelect;
+export type NewBbPost = typeof bbPosts.$inferInsert;
+export type BbPostReaction = typeof bbPostReactions.$inferSelect;
+export type NewBbPostReaction = typeof bbPostReactions.$inferInsert;
+export type BbPotClaim = typeof bbPotClaims.$inferSelect;
+export type NewBbPotClaim = typeof bbPotClaims.$inferInsert;
+export type BlogTheme = typeof blogThemes.$inferSelect;
+export type NewBlogTheme = typeof blogThemes.$inferInsert;
+export type BlogGiftTier = typeof blogGiftTiers.$inferSelect;
+export type NewBlogGiftTier = typeof blogGiftTiers.$inferInsert;
+export type BlogGiftPurchase = typeof blogGiftPurchases.$inferSelect;
+export type NewBlogGiftPurchase = typeof blogGiftPurchases.$inferInsert;
+export type BlogGiftClaim = typeof blogGiftClaims.$inferSelect;
+export type NewBlogGiftClaim = typeof blogGiftClaims.$inferInsert;
+export type BlogContactMessage = typeof blogContactMessages.$inferSelect;
+export type NewBlogContactMessage = typeof blogContactMessages.$inferInsert;
+export type SiteContactMessage = typeof siteContactMessages.$inferSelect;
+export type NewSiteContactMessage = typeof siteContactMessages.$inferInsert;
+export type HelpCategory = typeof helpCategories.$inferSelect;
+export type NewHelpCategory = typeof helpCategories.$inferInsert;
+export type HelpDoc = typeof helpDocs.$inferSelect;
+export type NewHelpDoc = typeof helpDocs.$inferInsert;
+export type SupportTicket = typeof supportTickets.$inferSelect;
+export type NewSupportTicket = typeof supportTickets.$inferInsert;
+export type SupportTicketMessage = typeof supportTicketMessages.$inferSelect;
+export type NewSupportTicketMessage = typeof supportTicketMessages.$inferInsert;
+export type SupportTicketEvent = typeof supportTicketEvents.$inferSelect;
+export type NewSupportTicketEvent = typeof supportTicketEvents.$inferInsert;
+
+// ---------------------------------------------------------------------------
 // Schema namespace — pass to drizzle(pool, { schema }) for relational queries
 // ---------------------------------------------------------------------------
 
@@ -6198,4 +7147,116 @@ export const schema = {
   zobianOfMonth,
   newMemberQuestDismissals,
   notices,
+
+  // Username history & redirects
+  usernameChangeHistory,
+  usernameReservations,
+  slugRedirects,
+
+  // Group chats
+  groupChatBlocks,
+  groupChatReactivationChoices,
+
+  // Tweets
+  tweets,
+  tweetRetweets,
+  tweetLikes,
+  tweetMentions,
+
+  // Rooms
+  roomVisits,
+
+  // Quests
+  questFeatureBoosts,
+  sponsoredQuestEvents,
+
+  // Ledger archives
+  xpLedgerArchive,
+  coinLedgerArchive,
+  starLedgerArchive,
+  xpEventsArchive,
+
+  // Economy
+  giftRewardGrants,
+  boostTypes,
+  failedCommissions,
+  cryptoBalanceLedger,
+  creatorCryptoBalances,
+  referralVisits,
+  subscriptionCancellationFeedback,
+
+  // Cosmetics
+  profileThemes,
+
+  // Games
+  games,
+  gameRatings,
+  gamePlays,
+  gameBestScores,
+  gameFavorites,
+  gameSaves,
+  gameChallenges,
+  gameChallengeRounds,
+  gamePlayMilestones,
+  gameMilestoneClaims,
+
+  // Ads
+  adPlacements,
+  adCampaigns,
+  adCreatives,
+  adCampaignDailyStats,
+  adCoupons,
+  adCouponRedemptions,
+  adEvents,
+  adWalletLedger,
+
+  // Account appeals
+  accountAppeals,
+
+  // Blog treasuries & shares
+  blogPostShares,
+  blogPostTreasuries,
+  blogPostTreasuryClaims,
+
+  // Polls
+  polls,
+  pollOptions,
+  pollVotes,
+
+  // Quizzes
+  quizzes,
+  quizQuestions,
+  quizQuestionOptions,
+  quizAttempts,
+  quizAttemptAnswers,
+
+  // Content treasuries & shares
+  contentShares,
+  contentTreasuries,
+  contentTreasuryClaims,
+
+  // Admin
+  adminDataImportJobs,
+
+  // AI, alerts, bulletin board, blog gifting/contact, help center, support
+  aiCallLog,
+  alertNotificationLog,
+  staffAlertContacts,
+  bbBoards,
+  bbThreads,
+  bbPosts,
+  bbPostReactions,
+  bbPotClaims,
+  blogThemes,
+  blogGiftTiers,
+  blogGiftPurchases,
+  blogGiftClaims,
+  blogContactMessages,
+  siteContactMessages,
+  helpCategories,
+  helpDocs,
+  supportTickets,
+  supportTicketMessages,
+  supportTicketEvents,
+  adAiEscalations,
 } as const;

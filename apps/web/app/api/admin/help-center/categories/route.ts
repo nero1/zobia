@@ -9,10 +9,11 @@ export const dynamic = "force-dynamic";
 
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/lib/db";
+import { asc } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { withAdminAuth, validateBody } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
-import { createCategory, type HelpCategory } from "@/lib/help/service";
+import { createCategory } from "@/lib/help/service";
 
 const createSchema = z.object({
   slug: z.string().trim().min(1).max(100).regex(/^[a-z0-9-]+$/, "Lowercase letters, numbers, and hyphens only").optional(),
@@ -24,8 +25,20 @@ const createSchema = z.object({
 
 export const GET = withAdminAuth(async () => {
   try {
-    const { rows } = await db.query<HelpCategory>(`SELECT * FROM help_categories ORDER BY sort_order ASC, name ASC`);
-    return NextResponse.json({ success: true, data: rows, error: null });
+    const orm = await getDb();
+    const rows = await orm
+      .select()
+      .from(schema.helpCategories)
+      .orderBy(asc(schema.helpCategories.sortOrder), asc(schema.helpCategories.name));
+    const data = rows.map((r) => ({
+      id: r.id,
+      slug: r.slug,
+      name: r.name,
+      description: r.description,
+      sort_order: r.sortOrder,
+      published: r.published,
+    }));
+    return NextResponse.json({ success: true, data, error: null });
   } catch (err) {
     return handleApiError(err);
   }

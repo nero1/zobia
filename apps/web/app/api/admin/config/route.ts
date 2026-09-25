@@ -19,7 +19,8 @@ export const dynamic = 'force-dynamic';
  */
 
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { asc } from "drizzle-orm";
+import { getDb, schema } from "@/lib/db/drizzle";
 import { invalidateManifestCache } from "@/lib/manifest";
 import { withAdminAuth, type AdminContext } from "@/lib/api/middleware";
 import { handleApiError } from "@/lib/api/errors";
@@ -27,13 +28,6 @@ import { handleApiError } from "@/lib/api/errors";
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface ManifestRow {
-  key: string;
-  value: string;
-  description: string | null;
-  updated_at: string | null;
-}
 
 interface ManifestEntry {
   key: string;
@@ -52,17 +46,22 @@ interface ManifestEntry {
  */
 export const GET = withAdminAuth(async (req: NextRequest, _ctx: { params: Record<string, string>; auth: AdminContext }) => {
   try {
-    const result = await db.query<ManifestRow>(
-      `SELECT key, value, description, updated_at
-       FROM x_manifest
-       ORDER BY key ASC`
-    );
+    const orm = await getDb();
+    const rows = await orm
+      .select({
+        key: schema.xManifest.key,
+        value: schema.xManifest.value,
+        description: schema.xManifest.description,
+        updated_at: schema.xManifest.updatedAt,
+      })
+      .from(schema.xManifest)
+      .orderBy(asc(schema.xManifest.key));
 
-    const entries: ManifestEntry[] = result.rows.map((row) => ({
+    const entries: ManifestEntry[] = rows.map((row) => ({
       key: row.key,
       value: row.value,
       description: row.description,
-      updatedAt: row.updated_at,
+      updatedAt: row.updated_at as unknown as string | null,
     }));
 
     return NextResponse.json({
