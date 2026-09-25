@@ -16,7 +16,6 @@
  */
 
 const mockRedisGet = jest.fn<Promise<string | null>, [string]>();
-const mockDbQuery = jest.fn();
 
 jest.mock("@/lib/redis", () => ({
   redis: {
@@ -27,21 +26,53 @@ jest.mock("@/lib/redis", () => ({
   },
 }));
 
-jest.mock("@/lib/db", () => ({
-  db: { query: (...args: unknown[]) => mockDbQuery(...args) },
-}));
-
 jest.mock("@/lib/logger", () => ({
   logger: { error: jest.fn(), warn: jest.fn(), info: jest.fn() },
 }));
 
+// ---------------------------------------------------------------------------
+// lib/manifest's DB fallback (getManifestValue) reads via Drizzle's getDb()
+// instead of the raw `@/lib/db` adapter. Back a real `drizzle-orm/node-postgres`
+// instance with a fake pg-shaped client so the real query compiles exactly like
+// production, landing on `mockQuery` as plain SQL text + params (see
+// lib/seasons/__tests__/seasonEngine.test.ts for the same pattern).
+// ---------------------------------------------------------------------------
+
+import { drizzle } from "drizzle-orm/node-postgres";
+import { schema } from "@/lib/db/schema";
+import type { DbOrTx } from "@/lib/db/drizzle";
+
+const mockQuery = jest.fn();
+
+const fakeClient = {
+  query: (queryConfig: unknown, params?: unknown[]) => {
+    const text = typeof queryConfig === "string" ? queryConfig : (queryConfig as { text: string }).text;
+    return mockQuery(text, params);
+  },
+};
+
+const mockDb = drizzle(fakeClient as any, { schema }) as unknown as DbOrTx;
+
+jest.mock("@/lib/db/drizzle", () => {
+  const actual = jest.requireActual("@/lib/db/drizzle");
+  return {
+    ...actual,
+    getDb: async () => mockDb,
+  };
+});
+
 import { getManifestValue, invalidateManifestCache } from "@/lib/manifest";
 import { getCaptchaProvider } from "@/lib/security/captcha";
 
-/** Make getManifestValue read from the DB by forcing a Redis cache miss. */
+/**
+ * Make getManifestValue read from the DB by forcing a Redis cache miss.
+ * getManifestValue's fallback select only projects the `value` column, so
+ * Drizzle's node-postgres driver returns each row in array ("positional")
+ * mode — a single-element array, not `{ value }`.
+ */
 function seedDbValue(value: string | null) {
   mockRedisGet.mockResolvedValue(null);
-  mockDbQuery.mockResolvedValue({ rows: value === null ? [] : [{ value }] });
+  mockQuery.mockResolvedValue({ rows: value === null ? [] : [[value]], rowCount: value === null ? 0 : 1 });
 }
 
 /**
@@ -58,7 +89,7 @@ async function resetManifestCaches() {
 describe("getManifestValue — JSON-quote normalization", () => {
   beforeEach(async () => {
     mockRedisGet.mockReset();
-    mockDbQuery.mockReset();
+    mockQuery.mockReset();
     await resetManifestCaches();
   });
 
@@ -90,14 +121,14 @@ describe("getManifestValue — JSON-quote normalization", () => {
   it("reads (and unquotes) from the Redis KV cache when present", async () => {
     mockRedisGet.mockResolvedValue(JSON.stringify({ captcha_provider: '"none"' }));
     await expect(getManifestValue("captcha_provider")).resolves.toBe("none");
-    expect(mockDbQuery).not.toHaveBeenCalled();
+    expect(mockQuery).not.toHaveBeenCalled();
   });
 });
 
 describe("getCaptchaProvider — resolves through the normalized read", () => {
   beforeEach(async () => {
     mockRedisGet.mockReset();
-    mockDbQuery.mockReset();
+    mockQuery.mockReset();
     await resetManifestCaches();
   });
 
