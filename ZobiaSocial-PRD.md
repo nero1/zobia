@@ -8647,17 +8647,24 @@ models").
   pagination (20 results/page). Ad slots (`search_top`, `search_after_3`,
   `search_after_8`, `search_bottom`) reuse the existing plan-gated
   `<AdSlot/>` component — no new ad logic.
-- **Backend**: `GET /api/search` — one `ILIKE`-filtered query per selected
-  category, `UNION ALL`'d and paginated, mirroring the existing
-  `/api/users/search` / `/api/help/search` pattern rather than introducing
-  a dedicated search service. See `docs/SEARCH.md` for the full
-  scalability write-up (when this stays fine as-is, and the two
-  Postgres-only upgrade paths — `pg_trgm` trigram indexes, then full-text
-  search — before a dedicated search engine would ever be worth the
-  operational cost).
-- **New migration**: `0011_search_ad_placements.sql` — registers the four
+- **Backend**: `GET /api/search` — one query per selected category,
+  `UNION ALL`'d and paginated, mirroring the existing `/api/users/search` /
+  `/api/help/search` pattern rather than introducing a dedicated search
+  service. Each branch matches on full-text search
+  (`search_vector @@ websearch_to_tsquery(...)`, ranked with `ts_rank`) OR a
+  `pg_trgm`-indexed `ILIKE '%term%'` fallback, so short/partial-word queries
+  keep matching while whole/stemmed-word queries get relevance ranking
+  instead of pure recency ordering. See `docs/SEARCH.md` for the full
+  scalability write-up (both Postgres-only upgrade paths — `pg_trgm`
+  trigram indexes and full-text search — have now been applied; a
+  dedicated search engine remains the option after that, if it's ever
+  needed).
+- **New migrations**: `0011_search_ad_placements.sql` — registers the four
   `ad_placements` rows above (existing table, existing grants — no new
-  `GRANT` statements needed).
+  `GRANT` statements needed). `0014_search_trgm_fts.sql` — enables
+  `pg_trgm`, adds a GIN trigram index per searched column, and adds a
+  generated `search_vector` tsvector column (+ GIN index) per searched
+  table for relevance ranking.
 - **Android**: `apps/android/src/routes/search.tsx` calls the exact same
   `GET /api/search` endpoint, so behavior never drifts between platforms;
   result links are mapped from the API's web-style short URLs

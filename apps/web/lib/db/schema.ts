@@ -29,6 +29,7 @@ import {
   index,
   primaryKey,
   check,
+  customType,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -40,6 +41,18 @@ const uuidPk = () =>
   uuid("id")
     .primaryKey()
     .default(sql`gen_random_uuid()`);
+
+// Read-only: Postgres maintains this column itself via `GENERATED ALWAYS AS
+// (...) STORED` (see migration 0014_search_trgm_fts.sql). Drizzle has no
+// built-in `tsvector` column type, so it's declared with `customType` purely
+// for schema documentation/typing — app/api/search/route.ts queries it with
+// raw `sql` (ts_rank/websearch_to_tsquery have no Drizzle query-builder
+// equivalent), same as the rest of that route's UNION ALL query.
+const tsvector = customType<{ data: string }>({
+  dataType() {
+    return "tsvector";
+  },
+});
 
 const createdAt = () =>
   timestamp("created_at", { withTimezone: true }).defaultNow();
@@ -291,10 +304,17 @@ export const users = pgTable("users", {
 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+
+  // Migration 0014: sitewide search relevance ranking — see
+  // docs/SEARCH.md and app/api/search/route.ts.
+  searchVector: tsvector("search_vector").generatedAlwaysAs(
+    sql`setweight(to_tsvector('english', coalesce(username, '')), 'A') || setweight(to_tsvector('english', coalesce(display_name, '')), 'A') || setweight(to_tsvector('english', coalesce(bio, '')), 'B')`
+  ),
 }, (t) => [
   // BUG-SCHEMA-02: Cap wallet balances below JS Number.MAX_SAFE_INTEGER (2^53).
   check("users_coin_balance_max", sql`${t.coinBalance} <= 1000000000000`),
   check("users_star_balance_max", sql`${t.starBalance} <= 1000000000000`),
+  index("idx_users_search_vector").using("gin", t.searchVector),
 ]);
 
 // Migration 0013: one pending SMS OTP per user, used only when the admin
@@ -3859,9 +3879,16 @@ export const games = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+
+    // Migration 0014: sitewide search relevance ranking — see
+    // docs/SEARCH.md and app/api/search/route.ts.
+    searchVector: tsvector("search_vector").generatedAlwaysAs(
+      sql`setweight(to_tsvector('english', coalesce(name, '')), 'A') || setweight(to_tsvector('english', coalesce(tagline, '')), 'B') || setweight(to_tsvector('english', coalesce(description, '')), 'C')`
+    ),
   },
   (t) => ({
     slugUnique: uniqueIndex("games_slug_unique_idx").on(t.slug),
+    searchVectorIdx: index("idx_games_search_vector").using("gin", t.searchVector),
   })
 );
 
@@ -5293,7 +5320,15 @@ export const forumQuestions = pgTable("forum_questions", {
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+
+  // Migration 0014: sitewide search relevance ranking — see
+  // docs/SEARCH.md and app/api/search/route.ts.
+  searchVector: tsvector("search_vector").generatedAlwaysAs(
+    sql`setweight(to_tsvector('english', coalesce(title, '')), 'A') || setweight(to_tsvector('english', coalesce(body, '')), 'B')`
+  ),
+}, (t) => [
+  index("idx_forum_questions_search_vector").using("gin", t.searchVector),
+]);
 
 export const forumAnswers = pgTable("forum_answers", {
   id: uuidPk(),
@@ -5467,7 +5502,15 @@ export const blogPosts = pgTable("blog_posts", {
   // 'about' | 'privacy' | 'contact' | null — marks this post as a blog's
   // static page (see blogs.menuConfig); at most one per (blogId, pageKey).
   pageKey: text("page_key"),
-});
+
+  // Migration 0014: sitewide search relevance ranking — see
+  // docs/SEARCH.md and app/api/search/route.ts.
+  searchVector: tsvector("search_vector").generatedAlwaysAs(
+    sql`setweight(to_tsvector('english', coalesce(title, '')), 'A') || setweight(to_tsvector('english', coalesce(excerpt, '')), 'B')`
+  ),
+}, (t) => [
+  index("idx_blog_posts_search_vector").using("gin", t.searchVector),
+]);
 
 export const blogPostLikes = pgTable(
   "blog_post_likes",
@@ -5809,9 +5852,17 @@ export const wikiPages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+
+    // Migration 0014: sitewide search relevance ranking (title only, matching
+    // the existing search branch) — see docs/SEARCH.md and
+    // app/api/search/route.ts.
+    searchVector: tsvector("search_vector").generatedAlwaysAs(
+      sql`setweight(to_tsvector('english', coalesce(title, '')), 'A')`
+    ),
   },
   (t) => ({
     wikiSlugIdx: uniqueIndex("wiki_pages_wiki_slug_idx").on(t.wikiId, t.slug),
+    searchVectorIdx: index("idx_wiki_pages_search_vector").using("gin", t.searchVector),
   })
 );
 
