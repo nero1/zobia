@@ -9,6 +9,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 interface FlagEntry { flag: string; country: string }
 
@@ -183,9 +184,9 @@ export default function FlagQuizGame({
         "border-border bg-card"
       }`}>
         <p className="text-8xl leading-none">{q.flag}</p>
-        {flash === "correct" && <p className="text-emerald-400 font-bold mt-3">✅ {q.country}!</p>}
+        {flash === "correct" && <p className="text-emerald-400 font-bold mt-3 inline-flex items-center gap-1"><Icon emoji="✅" size={16} /> {q.country}!</p>}
         {flash === "wrong" && selected && (
-          <p className="text-red-400 font-bold mt-3">❌ It was {q.country}</p>
+          <p className="text-red-400 font-bold mt-3 inline-flex items-center gap-1"><Icon emoji="❌" size={16} /> It was {q.country}</p>
         )}
       </div>
 

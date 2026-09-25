@@ -8,6 +8,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 interface EmojiPuzzle { emojis: string; answer: string; hints: string[]; category: string }
 
@@ -218,8 +219,8 @@ export default function EmojiQuizGame({
             Hint: {hint}
           </p>
         )}
-        {flash === "correct" && <p className="text-emerald-400 font-bold mt-2">✅ {puzzle.answer}!</p>}
-        {flash === "wrong" && <p className="text-red-400 font-bold mt-2">❌ It was: {puzzle.answer}</p>}
+        {flash === "correct" && <p className="text-emerald-400 font-bold mt-2 inline-flex items-center gap-1"><Icon emoji="✅" size={16} /> {puzzle.answer}!</p>}
+        {flash === "wrong" && <p className="text-red-400 font-bold mt-2 inline-flex items-center gap-1"><Icon emoji="❌" size={16} /> It was: {puzzle.answer}</p>}
       </div>
 
       <div className="flex w-full gap-2">

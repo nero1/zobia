@@ -8,6 +8,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 // Grid config: dots = (n+1)×(n+1), boxes = n×n
 const GRID_CFG = {
@@ -258,14 +259,14 @@ export default function DotsAndBoxesGame({
       <div className="flex w-full justify-between items-center px-2">
         <div className="flex flex-col items-center">
           <span className="text-blue-400 font-bold text-lg">{state.playerBoxes}</span>
-          <span className="text-xs text-muted-foreground">You 🔵</span>
+          <span className="text-xs text-muted-foreground inline-flex items-center gap-1">You <Icon emoji="🔵" size={12} /></span>
         </div>
         <span className="text-muted-foreground text-sm">
           {state.done ? "Game Over!" : state.turn === "player" ? "Your turn" : "AI thinking..."}
         </span>
         <div className="flex flex-col items-center">
           <span className="text-red-400 font-bold text-lg">{state.aiBoxes}</span>
-          <span className="text-xs text-muted-foreground">AI 🔴</span>
+          <span className="text-xs text-muted-foreground inline-flex items-center gap-1">AI <Icon emoji="🔴" size={12} /></span>
         </div>
       </div>
 
@@ -410,7 +411,9 @@ export default function DotsAndBoxesGame({
 
       {state.done && (
         <div className="flex flex-col items-center gap-1">
-          <span className="text-4xl animate-bounce">{state.playerBoxes > state.aiBoxes ? "🎉" : state.playerBoxes === state.aiBoxes ? "🤝" : "😔"}</span>
+          <span className="text-4xl animate-bounce inline-flex">
+            <Icon emoji={state.playerBoxes > state.aiBoxes ? "🎉" : state.playerBoxes === state.aiBoxes ? "🤝" : "😔"} size={32} />
+          </span>
           <span className={`font-bold text-lg ${state.playerBoxes > state.aiBoxes ? "text-emerald-400" : state.playerBoxes === state.aiBoxes ? "text-yellow-400" : "text-red-400"}`}>
             {state.playerBoxes > state.aiBoxes ? "You Win!" : state.playerBoxes === state.aiBoxes ? "Draw!" : "AI Wins"}
           </span>

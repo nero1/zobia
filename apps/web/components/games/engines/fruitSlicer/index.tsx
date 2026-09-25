@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const FRUITS = ["🍎", "🍊", "🍋", "🍇", "🍓", "🍌", "🍉", "🍑"];
 const FALL_SPEED: Record<string, number> = { easy: 1.5, medium: 2.5, hard: 4.0 };
@@ -241,7 +242,11 @@ export default function FruitSlicer({
     <div className="flex flex-col items-center gap-3 select-none w-full max-w-sm mx-auto">
       <div className="flex w-full items-center justify-between px-2 text-sm font-semibold">
         <span className="text-emerald-400">Score: {score}</span>
-        <span className="text-red-400">{"❤️".repeat(Math.max(0, lives))}</span>
+        <span className="text-red-400 inline-flex items-center gap-0.5">
+          {Array.from({ length: Math.max(0, lives) }).map((_, i) => (
+            <Icon key={i} emoji="❤️" size={16} />
+          ))}
+        </span>
       </div>
 
       <div

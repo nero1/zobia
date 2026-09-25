@@ -8,6 +8,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const COLORS = ["#ef4444","#3b82f6","#22c55e","#fbbf24","#a855f7","#f97316","#ec4899","#14b8a6"];
 const TUBE_HEIGHT = 4; // balls per tube
@@ -109,7 +110,11 @@ export default function ColorSortGame({ onReady, onGameOver, onScore, difficulty
     <div className="flex flex-col items-center gap-4 select-none">
       <div className="flex w-full max-w-sm items-center justify-between text-sm px-1">
         <span className="text-muted-foreground">Moves: <span className="text-foreground font-semibold">{moves}</span></span>
-        {done && <span className="text-emerald-400 font-bold">Solved! 🎉</span>}
+        {done && (
+          <span className="text-emerald-400 font-bold inline-flex items-center gap-1">
+            Solved! <Icon emoji="🎉" size={16} />
+          </span>
+        )}
       </div>
       <div className="flex flex-wrap justify-center gap-3">
         {tubes.map((tube, i) => (

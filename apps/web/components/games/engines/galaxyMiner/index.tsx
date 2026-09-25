@@ -8,6 +8,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 interface DroneUpgrade { id: string; name: string; emoji: string; mps: number; baseCost: number; count: number }
 const BASE_DRONES: Omit<DroneUpgrade, "count">[] = [
@@ -85,7 +86,7 @@ export default function GalaxyMinerGame({ onReady, onGameOver, onScore, difficul
   return (
     <div className="flex flex-col gap-3 w-full max-w-sm mx-auto select-none">
       <div className="text-center">
-        <div className="text-3xl font-black text-cyan-400">{fmt(Math.floor(minerals))} <span className="text-lg">⛏️</span></div>
+        <div className="text-3xl font-black text-cyan-400 inline-flex items-center gap-1.5">{fmt(Math.floor(minerals))} <Icon emoji="⛏️" size={20} /></div>
         <div className="text-xs text-muted-foreground">{mps.toFixed(1)}/sec · {fmt(totalRef.current)} mined</div>
       </div>
 
@@ -113,11 +114,11 @@ export default function GalaxyMinerGame({ onReady, onGameOver, onScore, difficul
             <button key={d.id} type="button" onClick={() => buyDrone(i)} disabled={!can}
               className={`w-full flex items-center justify-between rounded-xl px-4 py-3 border transition-colors ${can ? "border-cyan-500/40 bg-cyan-950/30 hover:bg-cyan-950/50" : "border-border bg-card opacity-50"}`}>
               <span className="flex items-center gap-2 text-sm">
-                <span className="text-xl">{d.emoji}</span>
+                <Icon emoji={d.emoji} size={20} className="text-xl" />
                 <span className="font-medium text-foreground">{d.name}</span>
                 <span className="text-xs text-muted-foreground">×{d.count}</span>
               </span>
-              <span className="text-xs font-bold text-cyan-400">{fmt(c)} ⛏️</span>
+              <span className="text-xs font-bold text-cyan-400 inline-flex items-center gap-1">{fmt(c)} <Icon emoji="⛏️" size={14} /></span>
             </button>
           );
         })}

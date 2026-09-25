@@ -10,6 +10,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 const ROWS = 6;
 const COLS = 7;
@@ -258,11 +259,23 @@ export default function ConnectFourGame({
       {/* Header */}
       <div className="flex w-full items-center justify-between text-sm px-1">
         <span className="flex items-center gap-1 text-muted-foreground">
-          <span className="text-red-500">🔴 You</span>
+          <span className="text-red-500 inline-flex items-center gap-1"><Icon emoji="🔴" size={14} /> You</span>
         </span>
         {result ? (
-          <span className={`font-bold ${result === "win" ? "text-emerald-400" : result === "lose" ? "text-red-400" : "text-amber-400"}`}>
-            {result === "win" ? "🎉 You win! +200" : result === "lose" ? "💀 AI wins" : "🤝 Draw! +50"}
+          <span className={`font-bold inline-flex items-center gap-1 ${result === "win" ? "text-emerald-400" : result === "lose" ? "text-red-400" : "text-amber-400"}`}>
+            {result === "win" ? (
+              <>
+                <Icon emoji="🎉" size={16} /> You win! +200
+              </>
+            ) : result === "lose" ? (
+              <>
+                <Icon emoji="💀" size={16} /> AI wins
+              </>
+            ) : (
+              <>
+                <Icon emoji="🤝" size={16} /> Draw! +50
+              </>
+            )}
           </span>
         ) : (
           <span className={`text-xs font-semibold px-2 py-1 rounded-full ${
@@ -272,7 +285,7 @@ export default function ConnectFourGame({
           </span>
         )}
         <span className="flex items-center gap-1 text-muted-foreground">
-          <span className="text-yellow-400">AI 🟡</span>
+          <span className="text-yellow-400 inline-flex items-center gap-1">AI <Icon emoji="🟡" size={14} /></span>
         </span>
       </div>
 

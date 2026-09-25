@@ -8,6 +8,7 @@
 import { useEffect, useState, useRef, useCallback } from "react";
 import type { GameEngineProps } from "@/components/games/types";
 import { useGameSound } from "@/components/games/useGameSound";
+import { Icon } from "@/components/ui/Icon";
 
 interface WordEntry { word: string; category: string }
 
@@ -209,7 +210,11 @@ export default function HangmanGame({
         <div className={`w-full rounded-xl border-2 p-3 text-center font-bold ${
           won ? "border-emerald-500 bg-emerald-500/20 text-emerald-400" : "border-red-500 bg-red-500/20 text-red-400"
         }`}>
-          {won ? "🎉 You won!" : `💀 Game over! Word was: ${word}`}
+          {won ? (
+            <span className="inline-flex items-center gap-1"><Icon emoji="🎉" size={16} /> You won!</span>
+          ) : (
+            <span className="inline-flex items-center gap-1"><Icon emoji="💀" size={16} /> Game over! Word was: {word}</span>
+          )}
         </div>
       )}
 
