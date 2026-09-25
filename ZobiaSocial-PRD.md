@@ -212,7 +212,7 @@ A new user must feel the core loop — the sensation of earning something — wi
 
 - Google OAuth (primary) and Telegram Login (secondary) are the default auth methods. Admin can toggle each on or off independently. The same auth options are available identically on web, PWA, and Android app regardless of which database provider is in use.
 - Auth is handled by the platform's own JWT system (not Supabase Auth). In non-Supabase database mode, there are zero Supabase dependencies anywhere in the auth flow — see Section 22.2 for full detail.
-- No phone number or SMS authentication. No SMS anything.
+- No phone number or SMS authentication. No SMS anything, with exactly one narrow, admin-gated, opt-in exception: a Settings "Phone Number" field for the contacts cross-reference feature (Step 4 below), whose optional SMS OTP confirmation is off by default — see §4.5.
 - After onboarding, the user is periodically (but not aggressively) encouraged to add an email address for account recovery and to set a password. Both are optional but surfaced as strongly recommended.
 - Users may optionally set a 4-digit PIN to protect login and sensitive operations (payments, payout requests). PIN is not mandatory.
 - 2FA defaults to authenticator app (Google Authenticator, Authy, or equivalent). No SMS 2FA.
@@ -247,6 +247,14 @@ The user is prompted to:
 
 **Step 5 — Guild Discovery (after first 24 hours)**
 The user is shown a panel: "Crews near you are recruiting." Three local guilds are surfaced based on city — with tier badges, member count, and war records visible. Joining a Guild is optional but deeply prompted. Guild members earn 5–50% more XP from the same activities.
+
+### 4.5 — Phone Number & Contacts Cross-Reference
+
+Step 4's "Invite contacts from their device phonebook" only surfaces matches — it needs some users to have a phone number on file to match against. That capture happens separately, in Settings, not during onboarding (web and the browser-based Android/Capacitor app can't read a device phonebook; only the discontinued Expo app could, and it is not part of this flow going forward).
+
+- **Settings → Phone Number** (web and Android/Capacitor): a user may optionally type in a phone number at any time. By default this is a plain, unverified, self-attested capture — no SMS is sent, consistent with the platform's baseline no-SMS policy (§4 Authentication). The number is normalised to E.164 (Nigeria-biased local-format default, extensible to other markets) and stored on `users.phone_number`.
+- **Admin-gated SMS OTP (off by default):** admins can turn on `phone_verification_required` at `/gate44/config` ("Phone Verification" group). When on, saving a number in Settings texts a 6-digit code (via the same Termii integration reserved for admin/mod alert paging, `lib/notifications/sms.ts`) that the user must confirm before the number is stored; `users.phone_verified_at` records when. This is a deliberate, narrowly-scoped, reversible exception to the no-SMS policy — never on by default, never used for anything but confirming this one field. A user can remove their number at any time regardless of this setting.
+- **Matching:** `POST /api/users/contacts/cross-reference` takes a list of phone numbers from the caller's device contacts and returns which of them belong to existing Zobia users (capped at 100 results, rate-limited, never echoes the matched number back — only a `"[matched]"` sentinel plus the matched user's public profile fields).
 
 ### Age Verification
 

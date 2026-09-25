@@ -108,6 +108,10 @@ interface UserFullProfile {
   // Security
   totp_enabled: boolean;
 
+  // Phone (Settings "Phone Number" field — lib/phone/verification.ts)
+  phone_number: string | null;
+  phone_verified_at: string | null;
+
   // Chat theme (Pro/Max cosmetic — see app/api/users/me/theme/route.ts)
   chat_theme: string;
 
@@ -188,7 +192,8 @@ const SELECT_COLUMNS = `
   dm_notifications, guild_notifications, streak_notifications,
   COALESCE(dm_privacy, 'everyone') AS dm_privacy,
   COALESCE(totp_enabled, false) AS totp_enabled,
-  gender, date_of_birth, COALESCE(chat_theme, 'default') AS chat_theme, created_at, updated_at
+  gender, date_of_birth, COALESCE(chat_theme, 'default') AS chat_theme,
+  phone_number, phone_verified_at, created_at, updated_at
 `;
 
 // ---------------------------------------------------------------------------

@@ -154,6 +154,10 @@ export const RATE_LIMITS = {
   gameScore: { limit: 60, windowMs: 60 * 1000, name: "game:score" } as RateLimitOptions,
   /** Phone-book cross-reference — tight limit to prevent bulk contact enumeration. */
   contactsLookup: { limit: 5, windowMs: 60 * 1000, name: "contacts:lookup", bypassL1: true } as RateLimitOptions,
+  /** Requesting/resending a phone-number OTP — bounds SMS spend and abuse of the send endpoint. */
+  phoneVerifySend: { limit: 3, windowMs: 60 * 60 * 1000, name: "phone:verify-send", bypassL1: true } as RateLimitOptions,
+  /** Submitting a phone OTP code — tight limit to resist brute-forcing the 6-digit keyspace. */
+  phoneVerifyCheck: { limit: 5, windowMs: 15 * 60 * 1000, name: "phone:verify-check", bypassL1: true } as RateLimitOptions,
   /** Crypto payment status polling — client polls every few seconds while
    *  waiting on the confirmation screen; each poll can trigger a chain RPC
    *  call, so this is tighter than apiRead. */

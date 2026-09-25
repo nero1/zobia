@@ -15,7 +15,7 @@ import { restorePurchases } from '@/lib/payments/googlePlay';
 import { LOCALE_LABELS, SUPPORTED_LOCALES, type SupportedLocale } from '@zobia/shared/i18n';
 import { DEFAULT_AVATAR_EMOJIS } from '@zobia/shared/utils';
 import i18n from '@/lib/i18n';
-import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
+import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess, usePhoneVerificationRequired } from '@/lib/hooks/useManifest';
 import { useTweetsConfig } from '@/lib/hooks/useTweetsConfig';
 import { useTweetLengthPolicy } from '@/lib/hooks/useTweetLengthPolicy';
 import { AvatarCropModal } from '@/components/profile/AvatarCropModal';
@@ -332,6 +332,212 @@ function UsernameSection() {
             >
               {saving ? t('common.saving', 'Saving…') : t('common.confirm', 'Confirm')}
             </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type PhoneStep = 'idle' | 'editing' | 'awaiting-code';
+
+/**
+ * Phone number capture — mirrors apps/web's settings page PhoneNumberSection.
+ * Self-attested by default (no SMS involved); the admin can turn on OTP
+ * confirmation at /gate44/config (x_manifest phone_verification_required),
+ * in which case saving moves to an "awaiting-code" step instead of saving
+ * immediately. Powers the "find your contacts on Zobia" cross-reference
+ * feature (apps/web/app/api/users/contacts/cross-reference/route.ts).
+ */
+function PhoneSection() {
+  const { t } = useTranslation();
+  const requiresVerification = usePhoneVerificationRequired();
+  const [currentPhone, setCurrentPhone] = useState<string | null>(null);
+  const [verifiedAt, setVerifiedAt] = useState<string | null>(null);
+  const [step, setStep] = useState<PhoneStep>('idle');
+  const [inputValue, setInputValue] = useState('');
+  const [codeValue, setCodeValue] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState<string | null>(null);
+
+  useEffect(() => {
+    apiClient
+      .get<{ user?: { phone_number?: string | null; phone_verified_at?: string | null } }>('/users/me')
+      .then(({ data }) => {
+        setCurrentPhone(data.user?.phone_number ?? null);
+        setVerifiedAt(data.user?.phone_verified_at ?? null);
+      })
+      .catch(() => {});
+  }, []);
+
+  async function submitNumber() {
+    setSaving(true);
+    setError(null);
+    try {
+      const { data } = await apiClient.post<{ requiresVerification: boolean }>('/users/phone/start', {
+        phoneNumber: inputValue.trim(),
+      });
+      if (data.requiresVerification) {
+        setStep('awaiting-code');
+        setSuccess(t('settings.phone.codeSent', 'Code sent! Check your phone.'));
+      } else {
+        setCurrentPhone(inputValue.trim());
+        setVerifiedAt(null);
+        setStep('idle');
+        setInputValue('');
+        setSuccess(t('settings.phone.saved', 'Phone number saved.'));
+      }
+    } catch {
+      setError(t('settings.phone.saveFailed', "Couldn't save phone number"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function submitCode() {
+    setVerifying(true);
+    setError(null);
+    try {
+      const { data } = await apiClient.post<{ phoneNumber: string }>('/users/phone/verify', {
+        code: codeValue.trim(),
+      });
+      setCurrentPhone(data.phoneNumber);
+      setVerifiedAt(new Date().toISOString());
+      setStep('idle');
+      setInputValue('');
+      setCodeValue('');
+      setSuccess(t('settings.phone.verified', 'Phone number verified!'));
+    } catch {
+      setError(t('settings.phone.verifyFailed', "Couldn't verify code"));
+    } finally {
+      setVerifying(false);
+    }
+  }
+
+  async function removeNumber() {
+    setSaving(true);
+    setError(null);
+    try {
+      await apiClient.delete('/users/phone');
+      setCurrentPhone(null);
+      setVerifiedAt(null);
+      setSuccess(t('settings.phone.removed', 'Phone number removed.'));
+    } catch {
+      setError(t('settings.phone.removeFailed', "Couldn't remove phone number"));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
+      <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-1">{t('settings.phone.title', 'Phone Number')}</h3>
+      <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-3">
+        {t('settings.phone.hint', 'Let people who already have your number as a contact find you on Zobia.')}
+      </p>
+
+      {error && <p className="text-xs text-danger-600 dark:text-danger-300 mb-2">{error}</p>}
+      {success && <p className="text-xs text-green-600 dark:text-green-300 mb-2">{success}</p>}
+
+      {step === 'idle' && (
+        <>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400 mb-2">
+            {t('settings.phone.current', 'Current number')}: {currentPhone ?? t('settings.phone.notSet', 'Not set')}
+            {currentPhone && requiresVerification && (
+              <span className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-semibold ${verifiedAt ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-neutral-100 text-neutral-500 dark:bg-neutral-700'}`}>
+                {verifiedAt ? t('settings.phone.verifiedBadge', 'Verified') : t('settings.phone.unverifiedBadge', 'Unverified')}
+              </span>
+            )}
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setStep('editing'); setInputValue(currentPhone ?? ''); setSuccess(null); setError(null); }}
+              className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold"
+            >
+              {currentPhone ? t('settings.phone.change', 'Change number') : t('settings.phone.add', 'Add number')}
+            </button>
+            {currentPhone && (
+              <button
+                onClick={() => void removeNumber()}
+                disabled={saving}
+                className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold disabled:opacity-60"
+              >
+                {t('settings.phone.remove', 'Remove')}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+
+      {step === 'editing' && (
+        <div className="space-y-3">
+          <input
+            value={inputValue}
+            onChange={(e) => setInputValue(e.target.value)}
+            placeholder="+2348012345678"
+            maxLength={20}
+            inputMode="tel"
+            className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-sm"
+          />
+          {requiresVerification && (
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">{t('settings.phone.otpHint', "We'll text you a code to confirm this number.")}</p>
+          )}
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setStep('idle'); setInputValue(''); }}
+              className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold"
+            >
+              {t('action.cancel', 'Cancel')}
+            </button>
+            <button
+              onClick={() => void submitNumber()}
+              disabled={saving || inputValue.trim().length < 8}
+              className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+            >
+              {saving ? t('common.saving', 'Saving…') : t('common.save', 'Save')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {step === 'awaiting-code' && (
+        <div className="space-y-3">
+          <label className="block text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+            {t('settings.phone.enterCode', 'Enter the 6-digit code we sent to {{number}}', { number: inputValue.trim() })}
+          </label>
+          <input
+            value={codeValue}
+            onChange={(e) => setCodeValue(e.target.value.replace(/\D/g, '').slice(0, 6))}
+            placeholder="123456"
+            maxLength={6}
+            inputMode="numeric"
+            className="w-full rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-center text-lg tracking-widest"
+          />
+          <div className="flex items-center justify-between">
+            <button
+              onClick={() => void submitNumber()}
+              disabled={saving}
+              className="text-xs font-semibold text-primary-600 dark:text-primary-400 disabled:opacity-60"
+            >
+              {t('settings.phone.resend', 'Resend code')}
+            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={() => { setStep('idle'); setCodeValue(''); }}
+                className="rounded-lg border border-neutral-300 dark:border-neutral-600 px-3 py-1.5 text-xs font-semibold"
+              >
+                {t('action.cancel', 'Cancel')}
+              </button>
+              <button
+                onClick={() => void submitCode()}
+                disabled={verifying || codeValue.length !== 6}
+                className="rounded-lg bg-primary-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-60"
+              >
+                {verifying ? t('common.verifying', 'Verifying…') : t('common.verify', 'Verify')}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -775,6 +981,9 @@ function SettingsPage() {
 
       {/* Change username */}
       <UsernameSection />
+
+      {/* Phone number (contacts cross-reference capture) */}
+      <PhoneSection />
 
       {/* Restore Purchases (ZB-AND-09) */}
       <RestorePurchasesSection />

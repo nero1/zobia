@@ -3111,6 +3111,34 @@ Android does not duplicate the appeal form natively — "File an appeal" opens t
 
 ---
 
+## Settings — Phone Number (PRD §4.5)
+
+- **Self-attested by default, no SMS:** `POST /api/users/phone/start` (`lib/phone/verification.ts`)
+  normalises the input to E.164 (`lib/phone/normalize.ts`, Nigeria-biased local-format
+  default) and writes it straight to `users.phone_number` — no SMS involved, matching the
+  platform's baseline no-SMS policy. `GET /api/users/me` returns `phone_number` /
+  `phone_verified_at` so Settings can show the current value.
+- **Admin-gated OTP (off by default):** when the admin turns on `phone_verification_required`
+  at `/gate44/config` ("Phone Verification" group, x_manifest key), `/start` instead
+  generates a 6-digit code, stores it (hashed, one pending code per user) in
+  `phone_verification_codes`, and texts it via `lib/notifications/sms.ts`'s `sendSms()` —
+  the same Termii integration otherwise reserved for admin/mod alert paging. The client
+  learns whether OTP is on from the public manifest (`phoneVerificationRequired`,
+  `lib/hooks/usePhoneVerificationRequired.ts` on web, `useManifest.ts` on Android) and
+  switches the Settings UI to a second "enter the code" step accordingly.
+  `POST /api/users/phone/verify` confirms the code (10-minute expiry, 5 attempts, then the
+  pending row is dropped) and only then writes `users.phone_number` +
+  `users.phone_verified_at`. `DELETE /api/users/phone` clears both, always allowed
+  regardless of the toggle.
+- **Feeds the contacts cross-reference feature** (PRD §4 Step 4): once enough users have a
+  number on file, `POST /api/users/contacts/cross-reference` can match a caller's device
+  contacts against them. Web and the Capacitor Android app have no phonebook-read UI
+  (browser limitation, by design — see PRD §4.5); this is a Settings-only capture flow.
+- Mirrored identically on web (`app/(app)/settings/page.tsx`) and Android/Capacitor
+  (`apps/android/src/routes/settings.tsx`) — same endpoints, same states, same copy.
+
+---
+
 ## Onboarding Gate
 
 After Google OAuth completes, the access JWT includes an `onboarding_completed` boolean claim. Middleware checks `payload.onboarding_completed === false` (strict — old tokens without the claim pass through) and redirects any request to an app page (non-API, non-auth, non-onboarding prefix) to `/onboarding`. This prevents users from bypassing onboarding by directly navigating to app pages after a partial Google sign-up.

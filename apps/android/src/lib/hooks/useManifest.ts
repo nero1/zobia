@@ -28,6 +28,13 @@ export interface Manifest {
   currency?: ManifestCurrency;
   /** Feature keys moderators may still see/access while their master flag is off. */
   featureModVisibility?: string[];
+  /**
+   * Admin-toggleable SMS OTP verification for the Settings "Phone Number"
+   * field (x_manifest `phone_verification_required`, default off — see
+   * apps/web/lib/manifest/index.ts). When false (default), a typed number
+   * is saved as-is, unverified.
+   */
+  phoneVerificationRequired?: boolean;
   [key: string]: unknown;
 }
 
@@ -59,6 +66,11 @@ export function useFeatureFlags(): ManifestFeatureFlags | undefined {
 export function useFeatureModVisibility(): string[] {
   const manifest = useManifest();
   return manifest?.featureModVisibility ?? [];
+}
+
+export function usePhoneVerificationRequired(): boolean {
+  const manifest = useManifest();
+  return manifest?.phoneVerificationRequired ?? false;
 }
 
 export interface FeatureAccessRole {

@@ -266,7 +266,7 @@ All variables belong in `apps/web/.env.local` locally and in the Vercel project 
 | `MAILGUN_API_KEY` | No | Mailgun API key for transactional email | Mailgun → Account → API Keys |
 | `MAILGUN_DOMAIN` | No | Mailgun sending domain (e.g. `mg.yourdomain.com`) | Mailgun → Sending → Domains |
 | `SMS_PROVIDER` | No | Active SMS provider key for Level 1/2 admin/mod alert paging (default `termii`). Also admin-editable at `/gate44/alerts/settings`. | — |
-| `TERMII_API_KEY` | No | Termii API key — used ONLY for Level 1/2 critical alert SMS. Without it, alerts still fire on every other channel. | termii.com → API Keys |
+| `TERMII_API_KEY` | No | Termii API key — used for Level 1/2 critical alert SMS, and (only if the admin turns on `phone_verification_required` at `/gate44/config`, off by default) for the Settings "Phone Number" OTP flow. Without it, alerts still fire on every other channel, and phone capture falls back to unverified self-attested (see PRD §4.5). | termii.com → API Keys |
 | `TERMII_SENDER_ID` | No | Termii registered Sender ID (required alongside `TERMII_API_KEY` for SMS to send) | termii.com → Sender ID → request approval |
 | `PAYSTACK_SECRET_KEY` | No | Paystack secret key — must have Transfers permission enabled | Paystack dashboard → Settings → API Keys |
 | `PAYSTACK_PUBLIC_KEY` | No | Paystack public key | Paystack dashboard → Settings → API Keys |

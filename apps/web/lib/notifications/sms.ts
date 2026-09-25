@@ -1,23 +1,32 @@
 /**
  * lib/notifications/sms.ts
  *
- * SMS sender for admin/mod CRITICAL alert paging ONLY (Level 1/2 alerts, see
- * lib/alerts/dispatch.ts). The platform has an explicit no-SMS policy
- * everywhere else (PRD §16 "No SMS re-engagement of any kind", §22 "No phone
- * number or SMS authentication. No SMS anything.") — this is the one
- * deliberate exception, and it is never used for user-facing messaging,
- * auth, or marketing.
+ * SMS sender. The platform has an explicit no-SMS policy everywhere else
+ * (PRD §16 "No SMS re-engagement of any kind", §22 "No phone number or SMS
+ * authentication. No SMS anything.") — there are exactly two deliberate,
+ * narrowly-scoped exceptions, and this file is never used for marketing or
+ * general user-facing messaging beyond them:
+ *
+ *   1. Admin/mod CRITICAL alert paging (Level 1/2 alerts, see
+ *      lib/alerts/dispatch.ts) — always active.
+ *   2. Phone-number OTP verification for the Settings "Phone Number" field
+ *      (lib/phone/verification.ts) — OFF by default, admin-toggleable via
+ *      x_manifest `phone_verification_required` (see lib/manifest/index.ts).
+ *      When off, phone numbers are captured unverified and this file is
+ *      never invoked for user-facing sends at all.
  *
  * Provider-abstracted (SmsProvider interface) so a second/backup SMS service
  * can be added later without touching call sites — set SMS_PROVIDER to
  * switch. Starts with Termii (pay-as-you-go, has a free tier, good African
  * carrier coverage) per project's zero/near-zero-cost deployment goal.
  *
- * Fire-and-forget is NOT used here (unlike telegram.ts) because
- * lib/alerts/dispatch.ts needs to know whether the send succeeded, to log it
- * in alert_notification_log and decide whether to retry on the next
- * escalation tick. Callers should still never let an SMS failure block
- * anything else — always awaited via Promise.allSettled.
+ * Fire-and-forget is NOT used here (unlike telegram.ts) — callers need to
+ * know whether the send succeeded (lib/alerts/dispatch.ts logs it in
+ * alert_notification_log and retries on the next escalation tick;
+ * lib/phone/verification.ts surfaces a failure to the user instead of
+ * silently leaving a pending code the SMS never delivered). Callers should
+ * still never let an SMS failure block anything else unrelated to the send
+ * itself — always awaited via Promise.allSettled where sending in bulk.
  */
 
 import { logger } from "@/lib/logger";

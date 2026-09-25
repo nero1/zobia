@@ -279,9 +279,15 @@ export const users = pgTable("users", {
   adWalletBalance: bigint("ad_wallet_balance", { mode: "bigint" }).notNull().default(BigInt(0)),
 
   // Migration 0012: optional phone number for the "find your contacts on
-  // Zobia" cross-reference feature. No capture/verification UI exists yet —
-  // most users authenticate via Google/Telegram, which don't provide one.
+  // Zobia" cross-reference feature. Self-entered via Settings (see
+  // lib/phone/verification.ts); most users authenticate via Google/Telegram,
+  // which don't provide one.
   phoneNumber: text("phone_number"),
+  // Migration 0013: set only when the admin-toggleable OTP verification flow
+  // (x_manifest `phone_verification_required`, default off) actually confirmed
+  // this number via SMS code. Null whenever verification is off (self-attested
+  // capture) or the number hasn't been verified yet.
+  phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
 
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -290,6 +296,19 @@ export const users = pgTable("users", {
   check("users_coin_balance_max", sql`${t.coinBalance} <= 1000000000000`),
   check("users_star_balance_max", sql`${t.starBalance} <= 1000000000000`),
 ]);
+
+// Migration 0013: one pending SMS OTP per user, used only when the admin
+// enables x_manifest `phone_verification_required` (default off) — see
+// lib/phone/verification.ts. `userId` is the primary key: a new send
+// overwrites any still-pending code for that user (one code at a time).
+export const phoneVerificationCodes = pgTable("phone_verification_codes", {
+  userId: uuid("user_id").primaryKey().references(() => users.id, { onDelete: "cascade" }),
+  phoneNumber: text("phone_number").notNull(),
+  codeHash: text("code_hash").notNull(),
+  attempts: smallint("attempts").notNull().default(0),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
 
 // BUG-SCHEMA-01: This table predates the current Redis-backed session model.
 // Active sessions are now stored in Redis (key: session:{sid}) via lib/auth/session.ts.
@@ -6044,6 +6063,8 @@ export type NewCronStateRow = typeof cronState.$inferInsert;
 // Users & Auth
 export type User = typeof users.$inferSelect;
 export type NewUser = typeof users.$inferInsert;
+export type PhoneVerificationCode = typeof phoneVerificationCodes.$inferSelect;
+export type NewPhoneVerificationCode = typeof phoneVerificationCodes.$inferInsert;
 // Session / NewSession types removed — sessions table was dropped (BUG-SC-01).
 export type UserPin = typeof userPins.$inferSelect;
 export type NewUserPin = typeof userPins.$inferInsert;
@@ -6918,6 +6939,7 @@ export const schema = {
 
   // Users & Auth
   users,
+  phoneVerificationCodes,
   userPins,
   passwordResetTokens,
   userPushTokens,
