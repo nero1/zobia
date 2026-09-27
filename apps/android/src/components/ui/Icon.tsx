@@ -30,54 +30,80 @@
  * shared React component crosses the web/Capacitor source-tree boundary).
  */
 
+// Explicit named imports ONLY (never `import * as LucideIcons`) — lucide-react
+// is tree-shaken per-icon by name; a namespace import pulls in every icon in
+// the library (1000+) into the bundle because bundlers can't statically
+// determine which ones a computed `LucideIcons["Foo"]` lookup will touch.
+// This matters even more here than on web: this bundle ships inside the
+// Capacitor Android APK, where every extra KB is dead weight the user
+// downloads and stores on-device. This list is generated to cover exactly
+// the icons referenced by the curated nav vocabulary below AND every value
+// in shared/utils/emojiIconMap.ts's EMOJI_TO_LUCIDE_NAME table — regenerate
+// it (see that file's header) if either grows. Keep in lockstep with
+// apps/web/components/ui/Icon.tsx's identical import list by hand.
 import {
-  Home,
-  Search,
-  Zap,
-  Rss,
-  HelpCircle,
-  MessagesSquare,
-  Target,
-  Gamepad2,
-  PenLine,
-  BarChart3,
-  Brain,
-  Building2,
-  Megaphone,
-  DoorOpen,
-  Landmark,
-  MessageCircle,
-  Users,
-  Gift,
-  Coins,
-  Store,
-  Bell,
-  Calendar,
-  Inbox,
-  GraduationCap,
-  Link2,
-  School,
-  Trophy,
-  CalendarRange,
-  Scale,
-  User,
-  Settings,
-  Shield,
-  ShieldCheck,
-  Compass,
-  LogOut,
-  Menu,
-  X,
-  Sun,
-  Moon,
-  Star,
-  Ghost,
-  NotebookPen,
+  AlarmClock, AlertTriangle, Archive, ArrowDown, ArrowDownLeft, ArrowDownRight,
+  ArrowDownToLine, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUp, ArrowUpLeft,
+  ArrowUpRight, Award, Ban, Banknote, BarChart3, Bell,
+  BellOff, BookOpen, Bot, Brain, Building2, Calendar,
+  CalendarDays, CalendarRange, Camera, Check, CheckCircle2, ChevronDown,
+  ChevronLeft, ChevronUp, Circle, CircleDot, CircleOff, Clipboard,
+  Clock, CloudRain, Coins, Compass, Construction, CornerDownLeft,
+  CornerDownRight, CreditCard, Crown, Delete, Diamond, DoorOpen,
+  Eye, EyeOff, Factory, FileEdit, FileText, Film,
+  Flag, Flame, FlaskConical, Folder, FolderOpen, Frown,
+  Gamepad2, Gem, Ghost, Gift, Globe, GraduationCap,
+  Hand, Handshake, Heart, HelpCircle, Home, Hourglass,
+  IdCard, Image, Inbox, Info, Landmark, Laptop,
+  Lightbulb, Link2, Lock, LogOut, Mail, Map,
+  MapPin, Medal, Megaphone, Meh, Menu, MessageCircle,
+  MessageSquare, MessagesSquare, Mic, Moon, MousePointer, Music,
+  NotebookPen, Package, Palette, PartyPopper, Pause, PenLine,
+  Pencil, Pickaxe, Pin, Play, Plus, Pointer,
+  Radio, Receipt, RefreshCw, Repeat, Rocket, RotateCw,
+  Rss, Save, Scale, School, Search, Settings,
+  Shield, ShieldCheck, ShoppingBag, ShoppingCart, Shuffle, Siren,
+  Skull, Smartphone, Smile, Sparkle, Sparkles, Square,
+  Star, Store, Sun, Swords, Target, ThumbsDown,
+  ThumbsUp, Ticket, Timer, Trash2, TrendingDown, TrendingUp,
+  Triangle, Trophy, Undo2, Unlock, User, Users,
+  Video, Volume2, VolumeX, Vote, Wallet, Wrench,
+  X, XCircle, Zap,
   type LucideIcon,
 } from 'lucide-react';
-import * as LucideIcons from 'lucide-react';
 import { EMOJI_TO_LUCIDE_NAME } from '@zobia/shared/utils';
 import { useTheme } from '@/lib/theme/ThemeProvider';
+
+/** Every lucide icon this file imports, indexed by its export name — the general-purpose `emoji` lookup path resolves through this instead of a namespace import (see the import block comment above for why). */
+const LUCIDE_BY_NAME: Record<string, LucideIcon> = {
+  AlarmClock, AlertTriangle, Archive, ArrowDown, ArrowDownLeft, ArrowDownRight,
+  ArrowDownToLine, ArrowLeft, ArrowLeftRight, ArrowRight, ArrowUp, ArrowUpLeft,
+  ArrowUpRight, Award, Ban, Banknote, BarChart3, Bell,
+  BellOff, BookOpen, Bot, Brain, Building2, Calendar,
+  CalendarDays, CalendarRange, Camera, Check, CheckCircle2, ChevronDown,
+  ChevronLeft, ChevronUp, Circle, CircleDot, CircleOff, Clipboard,
+  Clock, CloudRain, Coins, Compass, Construction, CornerDownLeft,
+  CornerDownRight, CreditCard, Crown, Delete, Diamond, DoorOpen,
+  Eye, EyeOff, Factory, FileEdit, FileText, Film,
+  Flag, Flame, FlaskConical, Folder, FolderOpen, Frown,
+  Gamepad2, Gem, Ghost, Gift, Globe, GraduationCap,
+  Hand, Handshake, Heart, HelpCircle, Home, Hourglass,
+  IdCard, Image, Inbox, Info, Landmark, Laptop,
+  Lightbulb, Link2, Lock, LogOut, Mail, Map,
+  MapPin, Medal, Megaphone, Meh, Menu, MessageCircle,
+  MessageSquare, MessagesSquare, Mic, Moon, MousePointer, Music,
+  NotebookPen, Package, Palette, PartyPopper, Pause, PenLine,
+  Pencil, Pickaxe, Pin, Play, Plus, Pointer,
+  Radio, Receipt, RefreshCw, Repeat, Rocket, RotateCw,
+  Rss, Save, Scale, School, Search, Settings,
+  Shield, ShieldCheck, ShoppingBag, ShoppingCart, Shuffle, Siren,
+  Skull, Smartphone, Smile, Sparkle, Sparkles, Square,
+  Star, Store, Sun, Swords, Target, ThumbsDown,
+  ThumbsUp, Ticket, Timer, Trash2, TrendingDown, TrendingUp,
+  Triangle, Trophy, Undo2, Unlock, User, Users,
+  Video, Volume2, VolumeX, Vote, Wallet, Wrench,
+  X, XCircle, Zap,
+};
 
 /** The curated icon-name vocabulary for nav chrome (web + Android share this list). */
 export type IconName =
@@ -260,7 +286,7 @@ export function Icon(props: IconProps) {
       LucideComponent = LUCIDE[props.name];
     } else {
       const lucideName = EMOJI_TO_LUCIDE_NAME[props.emoji];
-      LucideComponent = lucideName ? (LucideIcons as unknown as Record<string, LucideIcon>)[lucideName] : undefined;
+      LucideComponent = lucideName ? LUCIDE_BY_NAME[lucideName] : undefined;
     }
     if (LucideComponent) {
       return (

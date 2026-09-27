@@ -251,6 +251,26 @@ export const EMOJI_TO_LUCIDE_NAME: Record<string, string> = {
   "💎": "Gem",
   "🔷": "Diamond",
   "🌈": "Sparkles",
+
+  // Added during the full-app migration pass (game-engine UI chrome found
+  // by batch agents, not present in the initial nav-chrome-era table).
+  "⟳": "RotateCw",
+  "⤓": "ArrowDownToLine",
+  "⌫": "Delete",
+  "👌": "ThumbsUp",
+  "😬": "Meh",
+  "🏀": "CircleDot",
+  "🌧️": "CloudRain",
+  "💥": "Zap",
+  "🏟️": "Landmark",
+  "💀": "Skull",
+  "🏭": "Factory",
+  "⚗️": "FlaskConical",
+  "🛸": "Rocket",
+  "⛏️": "Pickaxe",
+  "😵": "CircleOff",
+  "🏁": "Flag",
+  "👆": "Pointer",
 };
 
 /** Look up the lucide-react export name for a UI-chrome emoji, or undefined if it isn't mapped (render the emoji as-is in that case — see the file header on why an unmapped emoji is not a bug). */
