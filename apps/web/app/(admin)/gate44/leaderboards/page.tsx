@@ -10,6 +10,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 interface LeaderboardEntry {
   rank: number;
@@ -177,7 +178,7 @@ export default function AdminLeaderboardsPage() {
                   <tr key={entry.user_id} className="hover:bg-neutral-50 dark:hover:bg-neutral-800/50 transition-colors">
                     <td className="px-4 py-3 font-bold text-neutral-400">
                       {entry.rank <= 3 ? (
-                        <span>{["🥇", "🥈", "🥉"][entry.rank - 1]}</span>
+                        <Icon emoji={["🥇", "🥈", "🥉"][entry.rank - 1]} size={18} />
                       ) : (
                         <span>{entry.rank}</span>
                       )}
