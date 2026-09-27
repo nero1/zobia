@@ -14,6 +14,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -330,7 +331,7 @@ export default function CouncilPage() {
                 <Link href={`/profile/${member.userId}`} className="flex-1 text-sm font-semibold text-neutral-900 hover:underline dark:text-neutral-100">
                   @{member.username}
                 </Link>
-                <span className="text-sm font-bold text-amber-600">{member.legacyScore.toLocaleString()} ⚜️</span>
+                <span className="inline-flex items-center gap-1 text-sm font-bold text-amber-600">{member.legacyScore.toLocaleString()} <Icon emoji="⚜️" className="h-3.5 w-3.5" /></span>
               </div>
             ))}
         </div>
@@ -410,7 +411,7 @@ export default function CouncilPage() {
             : ideas.length === 0
             ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-white py-16 dark:border-neutral-800 dark:bg-neutral-900">
-                <span className="text-4xl">💡</span>
+                <Icon emoji="💡" className="h-10 w-10 text-4xl" />
                 <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">No ideas yet</p>
                 <p className="mt-1 text-sm text-neutral-500">Council members can submit platform ideas here.</p>
               </div>
