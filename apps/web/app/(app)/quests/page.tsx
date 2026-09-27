@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useFloatingNotification } from "@/hooks/useFloatingNotification";
 import { NewMemberQuestCard } from "@/components/home/NewMemberQuestCard";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -116,7 +117,7 @@ function QuestCard({ quest }: { quest: Quest }) {
     >
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 flex-1 min-w-0">
-          <span className="text-xl mt-0.5">{TRACK_EMOJIS[quest.track]}</span>
+          <span className="mt-0.5"><Icon emoji={TRACK_EMOJIS[quest.track]} size={18} /></span>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <span
@@ -142,7 +143,7 @@ function QuestCard({ quest }: { quest: Quest }) {
             <div className="text-xs font-bold text-blue-600 dark:text-blue-400">+{quest.xpReward} XP</div>
           )}
           {quest.coinReward > 0 && (
-            <div className="text-xs font-bold text-amber-500">+{quest.coinReward} 🪙</div>
+            <div className="flex items-center justify-end gap-0.5 text-xs font-bold text-amber-500">+{quest.coinReward} <Icon emoji="🪙" size={12} /></div>
           )}
         </div>
       </div>
@@ -283,7 +284,7 @@ export default function QuestsPage() {
           </p>
           {loginStreak > 0 && (
             <span className="mt-2 inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700 dark:bg-orange-900/50 dark:text-orange-300">
-              🔥 {loginStreak}-day streak
+              <Icon emoji="🔥" size={12} /> {loginStreak}-day streak
             </span>
           )}
         </div>
@@ -304,7 +305,7 @@ export default function QuestsPage() {
                 {data.completedCount} / {data.totalCount} completed
               </div>
               {data.bonusUnlocked && (
-                <div className="text-xs text-blue-500 mt-0.5">🎉 All quests complete — bonus XP awarded!</div>
+                <div className="flex items-center gap-1 text-xs text-blue-500 mt-0.5"><Icon emoji="🎉" size={12} /> All quests complete — bonus XP awarded!</div>
               )}
             </div>
             <div className="text-2xl font-extrabold text-blue-600 dark:text-blue-400">
@@ -325,7 +326,7 @@ export default function QuestsPage() {
         <QuestSkeleton />
       ) : error ? (
         <div className="text-center py-12">
-          <div className="text-4xl mb-3">⚠️</div>
+          <div className="mb-3 flex justify-center"><Icon emoji="⚠️" size={36} /></div>
           <p className="text-neutral-500 dark:text-neutral-400">{error}</p>
           <button
             onClick={load}
@@ -336,7 +337,7 @@ export default function QuestsPage() {
         </div>
       ) : data?.quests.length === 0 ? (
         <div className="text-center py-12">
-          <div className="text-4xl mb-3">🎯</div>
+          <div className="mb-3 flex justify-center"><Icon emoji="🎯" size={36} /></div>
           <p className="text-neutral-500 dark:text-neutral-400">No quests available right now. Check back later!</p>
         </div>
       ) : (
