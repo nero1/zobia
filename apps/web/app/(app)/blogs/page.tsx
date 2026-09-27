@@ -11,6 +11,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 interface BlogSummary {
   id: string;
@@ -51,7 +52,7 @@ function BlogCard({ b }: { b: BlogSummary }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img src={b.cover_image_url} alt={b.title} className="mb-3 h-24 w-full rounded-xl object-cover" />
       ) : (
-        <div className="mb-3 flex items-center justify-center h-24 rounded-xl bg-neutral-800 text-4xl">📝</div>
+        <div className="mb-3 flex items-center justify-center h-24 rounded-xl bg-neutral-800"><Icon emoji="📝" className="h-10 w-10 text-4xl" /></div>
       )}
       <div className="font-bold text-foreground text-sm leading-tight">{b.title}</div>
       {b.tagline && <div className="text-xs text-muted-foreground mt-0.5 line-clamp-2">{b.tagline}</div>}
@@ -154,7 +155,7 @@ export default function BlogsDiscoveryPage() {
               tab === key ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <span aria-hidden="true">{icon}</span>
+            <Icon emoji={icon} className="h-3.5 w-3.5" />
             <span>{t(labelKey, fallback)}</span>
           </button>
         ))}
@@ -168,7 +169,7 @@ export default function BlogsDiscoveryPage() {
         </div>
       ) : blogs.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
-          <div className="text-4xl mb-3">📝</div>
+          <Icon emoji="📝" className="mx-auto mb-3 h-10 w-10 text-4xl" />
           <p>
             {search.trim()
               ? t("blogs.empty.search", "No blogs found for \"{{query}}\".", { query: search.trim() })
