@@ -14,6 +14,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { QRCodeSVG } from 'qrcode.react';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface ReferralStats {
   referralCode: string;
@@ -210,7 +211,7 @@ function ReferredUserRow({ u }: { u: ReferredUser }) {
           {new Date(u.joinedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
         </span>
         {u.qualifyingActionCompleted ? (
-          <span className="text-success-600 dark:text-success-300">{t('referrals.table.qualified')}</span>
+          <span className="inline-flex items-center gap-1 text-success-600 dark:text-success-300"><Icon emoji="✓" size={12} /> {t('referrals.table.qualified')}</span>
         ) : (
           <span className="text-neutral-400 dark:text-neutral-500">{t('referrals.table.pending')}</span>
         )}
