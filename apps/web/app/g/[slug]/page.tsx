@@ -127,7 +127,7 @@ export default async function PublicGamePage({
 
         <div className="mt-4">
           <Link href="/games" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            ← More games
+            <Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> More games
           </Link>
         </div>
       </div>

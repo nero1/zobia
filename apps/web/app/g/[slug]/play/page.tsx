@@ -11,6 +11,7 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth/hooks";
 import GameRunner from "@/components/games/GameRunner";
+import { Icon } from "@/components/ui/Icon";
 
 interface GameSummary {
   id: string;
@@ -54,7 +55,7 @@ export default function PlayGamePage() {
             href={`/g/${slug}`}
             className="text-sm text-muted-foreground hover:text-foreground transition-colors"
           >
-            ← Back
+            <Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> Back
           </a>
           {game && (
             <h1 className="text-base font-bold text-foreground truncate max-w-[180px]">{game.name}</h1>
