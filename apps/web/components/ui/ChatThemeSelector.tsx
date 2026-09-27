@@ -10,6 +10,7 @@
  */
 
 import { useState } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 type ChatTheme = "default" | "midnight" | "ocean" | "forest" | "sunset";
 
@@ -106,7 +107,7 @@ export function ChatThemeSelector({ currentTheme, plan, onSelect }: ChatThemeSel
                   aria-hidden="true"
                   title="Pro/Max plan required"
                 >
-                  🔒
+                  <Icon emoji="🔒" size={12} />
                 </span>
               )}
 
@@ -116,7 +117,7 @@ export function ChatThemeSelector({ currentTheme, plan, onSelect }: ChatThemeSel
                   className="absolute right-1.5 top-1.5 text-blue-600"
                   aria-hidden="true"
                 >
-                  ✓
+                  <Icon emoji="✓" size={12} />
                 </span>
               )}
             </button>
