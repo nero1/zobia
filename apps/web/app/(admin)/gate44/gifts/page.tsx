@@ -10,6 +10,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { GIFT_TIER_LABELS } from "@zobia/shared/utils";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -307,7 +308,7 @@ export default function AdminGiftsPage() {
                         className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700"
                         title={gift.rewardConfig?.label ? `Unlocks: ${gift.rewardConfig.label}` : undefined}
                       >
-                        ✨ Rewarded{gift.rewardConfig?.label ? `: ${gift.rewardConfig.label}` : ""}
+                        <Icon emoji="✨" size={12} className="inline-block align-[-1px]" /> Rewarded{gift.rewardConfig?.label ? `: ${gift.rewardConfig.label}` : ""}
                       </span>
                     )}
                     {!gift.isActive && (
@@ -433,7 +434,7 @@ export default function AdminGiftsPage() {
                     onChange={(e) => setForm((f) => ({ ...f, isRewarded: e.target.checked }))}
                     className="h-4 w-4 rounded"
                   />
-                  ✨ Rewarded gift
+                  <Icon emoji="✨" size={14} className="inline-block align-[-2px]" /> Rewarded gift
                 </label>
                 <p className="mt-1 text-xs text-amber-700/80 dark:text-amber-400/80">
                   Sending this to a room or blog owner unlocks a reward for the sender.
