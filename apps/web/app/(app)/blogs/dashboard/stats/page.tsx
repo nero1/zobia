@@ -10,6 +10,7 @@
 import { useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 interface Totals {
   post_count: number;
@@ -78,8 +79,8 @@ export default function BlogStatsPage() {
       <div className="mb-4 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-foreground">{t("blogs.dashboard.stats", "Stats")}</h1>
         {canExport && blogSlug && (
-          <a href={`/api/blogs/${blogSlug}/stats/export`} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent">
-            {t("blogs.stats.export", "⬇ Export CSV")}
+          <a href={`/api/blogs/${blogSlug}/stats/export`} className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent">
+            <Icon emoji="⬇" className="h-3.5 w-3.5" /> {t("blogs.stats.export", "Export CSV")}
           </a>
         )}
       </div>

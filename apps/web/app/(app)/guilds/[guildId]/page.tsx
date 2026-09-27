@@ -477,7 +477,7 @@ function ForumModsSection({ guildId, isCaptain, members }: { guildId: string; is
                           : "bg-neutral-100 text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-800 dark:text-neutral-400"
                       }`}
                     >
-                      {isMod ? "Forum Mod ✓" : "Make Forum Mod"}
+                      {isMod ? <>Forum Mod <Icon emoji="✓" size={12} className="inline align-text-bottom" /></> : "Make Forum Mod"}
                     </button>
                   </div>
                 );
@@ -624,7 +624,7 @@ export default function GuildProfilePage() {
     <div className="mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
       {/* Back link */}
       <Link href="/guild" className="inline-flex items-center gap-1.5 text-sm text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300">
-        ← All Guilds
+        <Icon emoji="←" size={14} className="inline align-text-bottom" /> All Guilds
       </Link>
 
       {/* Guild header */}
@@ -640,7 +640,7 @@ export default function GuildProfilePage() {
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-2xl font-black text-neutral-900 dark:text-neutral-50">{guild.name}</h1>
               <span className={`rounded-full px-2.5 py-0.5 text-xs font-bold ${tierClasses}`}>
-                {tierEmoji} {tierLabel}
+                <Icon emoji={tierEmoji} size={14} className="inline align-text-bottom" /> {tierLabel}
               </span>
               <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-xs font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">
                 {xpBoost} XP

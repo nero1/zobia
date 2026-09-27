@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import { withBlogParam } from "@/lib/blogs/useSelectedBlog";
 import { ArticleQuotaNotice } from "@/components/blogs/ArticleQuotaNotice";
 import { BoostContentButton } from "@/components/ads/BoostContentButton";
+import { Icon } from "@/components/ui/Icon";
 
 interface BlogRow {
   id: string;
@@ -156,14 +157,14 @@ export default function BlogDashboardPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
       {blogs.length > 1 && (
-        <Link href="/blogs/dashboard" className="mb-3 inline-block text-xs text-muted-foreground hover:text-foreground">
-          ← {t("blogs.dashboard.allBlogs", "All your blogs")}
+        <Link href="/blogs/dashboard" className="mb-3 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <Icon emoji="←" className="h-3 w-3" /> {t("blogs.dashboard.allBlogs", "All your blogs")}
         </Link>
       )}
       <div className="mb-5 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground">{blog.title}</h1>
-          <Link href={`/b/${blog.slug}`} className="text-xs text-primary hover:underline">zobia.org/b/{blog.slug} ↗</Link>
+          <Link href={`/b/${blog.slug}`} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">zobia.org/b/{blog.slug} <Icon emoji="↗" className="h-3 w-3" /></Link>
         </div>
         <div className="flex flex-wrap gap-2 text-xs">
           <Link href={withBlogParam(`/blogs/dashboard/posts/new?type=${type}`, blog.slug, blogs.length)} className="rounded-lg bg-primary px-3 py-1.5 font-semibold text-primary-foreground hover:opacity-90">
@@ -249,7 +250,7 @@ export default function BlogDashboardPage() {
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2">
                   <span className="font-medium text-foreground text-sm truncate">{p.title}</span>
-                  {p.is_paywalled && <span className="text-[10px] rounded-full bg-amber-950/40 text-amber-400 px-1.5 py-0.5">🔒 paywalled</span>}
+                  {p.is_paywalled && <span className="inline-flex items-center gap-1 text-[10px] rounded-full bg-amber-950/40 text-amber-400 px-1.5 py-0.5"><Icon emoji="🔒" className="h-2.5 w-2.5" /> paywalled</span>}
                 </div>
                 <div className="text-[11px] text-muted-foreground mt-0.5">
                   {p.view_count} views · {p.like_count} likes · {p.comment_count} comments

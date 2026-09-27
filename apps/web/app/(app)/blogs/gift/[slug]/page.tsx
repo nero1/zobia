@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 interface GiftItem {
   id: string;
@@ -156,8 +157,8 @@ export default function BlogGiftPage() {
   return (
     <div className="mx-auto min-h-[100dvh] max-w-lg p-4 sm:p-6">
       <div className="mb-5 flex items-center gap-3">
-        <Link href={`/b/${slug}`} className="text-sm text-blue-600 hover:underline dark:text-blue-400">
-          ← {t("action.back", "Back")}
+        <Link href={`/b/${slug}`} className="inline-flex items-center gap-1 text-sm text-blue-600 hover:underline dark:text-blue-400">
+          <Icon emoji="←" className="h-3.5 w-3.5" /> {t("action.back", "Back")}
         </Link>
         <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
           {t("blogs.gift.title", "Send a Site Gift")}
@@ -166,7 +167,7 @@ export default function BlogGiftPage() {
 
       {isOwnBlog ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-center dark:border-amber-800 dark:bg-amber-950/40">
-          <span className="text-3xl">🚫</span>
+          <Icon emoji="🚫" className="mx-auto h-8 w-8 text-3xl" />
           <p className="mt-2 text-sm font-medium text-amber-800 dark:text-amber-300">
             {t("blogs.gift.selfGiftBlocked", "You can't send a gift to your own blog.")}
           </p>
@@ -183,7 +184,7 @@ export default function BlogGiftPage() {
 
           {balance != null && (
             <div className="mb-4 flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
-              <span>🪙</span>
+              <Icon emoji="🪙" className="h-4 w-4" />
               <span>
                 {t("blogs.gift.balance", "Your balance:")}{" "}
                 <span className="font-semibold text-neutral-900 dark:text-neutral-100">
@@ -208,7 +209,7 @@ export default function BlogGiftPage() {
             </div>
           ) : tiers.length === 0 ? (
             <div className="rounded-xl border border-neutral-200 bg-white py-12 text-center dark:border-neutral-800 dark:bg-neutral-900">
-              <span className="text-4xl">🎁</span>
+              <Icon emoji="🎁" className="mx-auto h-10 w-10 text-4xl" />
               <p className="mt-3 text-sm text-neutral-500">{t("blogs.gift.noneAvailable", "No gifts available right now.")}</p>
             </div>
           ) : (
@@ -230,14 +231,16 @@ export default function BlogGiftPage() {
                         }`}
                       >
                         {gift.isRewarded && (
-                          <span className="absolute -top-1.5 -right-1.5 text-[13px]" title={t("gifts.rewarded.badgeTitle", "Unlocks a reward")}>✨</span>
+                          <span className="absolute -top-1.5 -right-1.5" title={t("gifts.rewarded.badgeTitle", "Unlocks a reward")}>
+                            <Icon emoji="✨" className="h-3.5 w-3.5" />
+                          </span>
                         )}
                         <span className="text-2xl">{gift.emoji}</span>
                         <span className="mt-1 w-full truncate text-center text-xs leading-tight text-neutral-500 dark:text-neutral-400">
                           {gift.name}
                         </span>
-                        <span className="mt-0.5 text-[11px] font-bold text-amber-600">
-                          🪙{gift.coinCost.toLocaleString()}
+                        <span className="mt-0.5 inline-flex items-center gap-0.5 text-[11px] font-bold text-amber-600">
+                          <Icon emoji="🪙" className="h-2.5 w-2.5" />{gift.coinCost.toLocaleString()}
                         </span>
                       </button>
                     ))}
@@ -253,12 +256,12 @@ export default function BlogGiftPage() {
                 <span className="text-3xl">{selected.emoji}</span>
                 <div>
                   <p className="font-semibold text-neutral-900 dark:text-neutral-100">{selected.name}</p>
-                  <p className="text-sm text-amber-600">🪙 {selected.coinCost.toLocaleString()} {currency.softPlural.toLowerCase()}</p>
+                  <p className="flex items-center gap-1 text-sm text-amber-600"><Icon emoji="🪙" className="h-3.5 w-3.5" /> {selected.coinCost.toLocaleString()} {currency.softPlural.toLowerCase()}</p>
                 </div>
               </div>
               {selected.isRewarded && (
                 <div className="mb-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
-                  <p className="font-semibold">✨ {t("gifts.rewarded.unlocksLabel", "Unlocks: {{label}}", { label: selected.rewardLabel ?? "" })}</p>
+                  <p className="flex items-center gap-1 font-semibold"><Icon emoji="✨" className="h-3.5 w-3.5" /> {t("gifts.rewarded.unlocksLabel", "Unlocks: {{label}}", { label: selected.rewardLabel ?? "" })}</p>
                   {selected.rewardDescription && <p className="mt-0.5">{selected.rewardDescription}</p>}
                 </div>
               )}

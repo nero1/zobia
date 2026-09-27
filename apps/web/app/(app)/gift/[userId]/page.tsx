@@ -20,6 +20,7 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 export default function GiftUserPage() {
   const params = useParams();
@@ -54,7 +55,7 @@ export default function GiftUserPage() {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center gap-4 p-6">
         <p className="text-neutral-500">{error}</p>
-        <Link href="/home" className="text-sm text-blue-600 hover:underline">← Back to Home</Link>
+        <Link href="/home" className="text-sm text-blue-600 hover:underline"><Icon emoji="←" className="inline h-4 w-4 align-text-bottom" /> Back to Home</Link>
       </div>
     );
   }
