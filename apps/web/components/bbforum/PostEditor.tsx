@@ -16,6 +16,7 @@
 
 import { useRef, useState } from "react";
 import { IMAGE_ACCEPT_ATTR, isImageFileValid } from "@/lib/uploads/imageValidationShared";
+import { Icon } from "@/components/ui/Icon";
 
 export interface QuotedPreview {
   id: string;
@@ -82,7 +83,7 @@ export function PostEditor({
             <p className="truncate">{quoted.bodySnippet}</p>
           </div>
           {onClearQuote && (
-            <button type="button" onClick={onClearQuote} className="shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">✕</button>
+            <button type="button" onClick={onClearQuote} className="shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"><Icon emoji="✕" /></button>
           )}
         </div>
       )}
@@ -119,7 +120,7 @@ export function PostEditor({
           htmlFor="bbforum-image-input"
           className="cursor-pointer rounded-lg border border-neutral-300 px-2.5 py-1 text-xs font-semibold text-neutral-600 hover:border-primary-400 hover:text-primary-600 dark:border-neutral-700 dark:text-neutral-300"
         >
-          {uploading ? "Uploading…" : "📷 Add image"}
+          {uploading ? "Uploading…" : <><Icon emoji="📷" size={14} className="inline align-[-2px]" /> Add image</>}
         </label>
         {imageCostLabel && <span className="text-[11px] text-neutral-400">{imageCostLabel}</span>}
         {imageUrl && (

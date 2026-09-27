@@ -16,6 +16,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { PostEditor } from "@/components/bbforum/PostEditor";
+import { Icon } from "@/components/ui/Icon";
 
 export function NewThreadForm({ boardSlug }: { boardSlug: string }) {
   const router = useRouter();
@@ -94,7 +95,7 @@ export function NewThreadForm({ boardSlug }: { boardSlug: string }) {
       <div className="rounded-lg border border-dashed border-amber-300 p-3 dark:border-amber-700">
         <label className="flex items-center gap-2 text-xs font-semibold text-amber-800 dark:text-amber-300">
           <input type="checkbox" checked={potEnabled} onChange={(e) => setPotEnabled(e.target.checked)} />
-          💰 Fund a reply pot (pay the first N repliers)
+          <Icon emoji="💰" size={14} className="inline align-[-2px]" /> Fund a reply pot (pay the first N repliers)
         </label>
         {potEnabled && (
           <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
