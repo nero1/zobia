@@ -7,6 +7,7 @@
  */
 
 import type { PublicTweet } from "@/lib/public/resolveTweet";
+import { Icon } from "@/components/ui/Icon";
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -49,7 +50,7 @@ export function PublicTweetView({ tweet }: { tweet: PublicTweet }) {
       <div className="mx-auto max-w-2xl px-4 py-12">
         <div className="mb-6 flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-lg">
-            {tweet.author_avatar_emoji ?? "🐦"}
+            {tweet.author_avatar_emoji ?? <Icon emoji="🐦" />}
           </div>
           <div>
             <p className="text-sm font-semibold text-foreground">

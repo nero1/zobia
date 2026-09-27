@@ -7,6 +7,7 @@
  */
 
 import type { PublicForumQuestion } from "@/lib/public/resolveForumQuestion";
+import { Icon } from "@/components/ui/Icon";
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -45,8 +46,8 @@ export function PublicForumQuestionView({ question }: { question: PublicForumQue
             {question.top_answers.map((a) => (
               <div key={a.id} className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
                 {a.is_best_answer && (
-                  <span className="mb-2 inline-block rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
-                    ✓ Best answer
+                  <span className="mb-2 inline-flex items-center gap-1 rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
+                    <Icon emoji="✓" size={12} /> Best answer
                   </span>
                 )}
                 <p className="whitespace-pre-wrap text-sm text-foreground">{a.body}</p>
