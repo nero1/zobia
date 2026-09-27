@@ -14,6 +14,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -184,12 +185,12 @@ function EligibilityView({ data }: { data: ElderData }) {
         <ul className="space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
           <li className="flex items-center gap-2">
             <span className={data.prestigeLevel && data.prestigeLevel >= 3 ? "text-teal-500" : "text-neutral-400"}>
-              {data.prestigeLevel && data.prestigeLevel >= 3 ? "✓" : "○"}
+              {data.prestigeLevel && data.prestigeLevel >= 3 ? <Icon emoji="✓" className="inline h-4 w-4" /> : <Icon emoji="○" className="inline h-4 w-4" />}
             </span>
             Prestige 3+ (currently: Prestige {data.prestigeLevel ?? 0})
           </li>
           <li className="flex items-center gap-2">
-            <span className="text-teal-500">✓</span>
+            <span className="text-teal-500"><Icon emoji="✓" className="inline h-4 w-4" /></span>
             Active in the last 30 days
           </li>
         </ul>
@@ -226,11 +227,11 @@ function NonEligibleView({ data, onRequestMentor, requesting, requested }: NonEl
         </h3>
         <ul className="space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
           <li className="flex items-center gap-2">
-            <span className="text-neutral-400">○</span>
+            <span className="text-neutral-400"><Icon emoji="○" className="inline h-4 w-4" /></span>
             Reach Prestige 3
           </li>
           <li className="flex items-center gap-2">
-            <span className="text-neutral-400">○</span>
+            <span className="text-neutral-400"><Icon emoji="○" className="inline h-4 w-4" /></span>
             Stay active in the last 30 days
           </li>
         </ul>

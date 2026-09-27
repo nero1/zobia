@@ -11,6 +11,7 @@
  */
 
 import { useState, useEffect, useCallback, type FormEvent } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 export default function AdminSecuritySettingsPage() {
   const [isSet, setIsSet] = useState<boolean | null>(null);
@@ -82,14 +83,16 @@ export default function AdminSecuritySettingsPage() {
       </p>
 
       {isSet === false && (
-        <div className="mb-5 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
-          ⚠️ You haven&apos;t set a Secret Magic Word yet. If your login ever gets
-          locked, you won&apos;t be able to unlock it yourself until you set one now.
+        <div className="mb-5 flex items-start gap-2 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+          <Icon emoji="⚠️" className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>You haven&apos;t set a Secret Magic Word yet. If your login ever gets
+          locked, you won&apos;t be able to unlock it yourself until you set one now.</span>
         </div>
       )}
       {isSet === true && (
-        <div className="mb-5 rounded-xl border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-800 dark:border-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
-          ✓ A Secret Magic Word is set for your account. Saving below replaces it.
+        <div className="mb-5 flex items-start gap-2 rounded-xl border border-teal-300 bg-teal-50 px-4 py-3 text-sm text-teal-800 dark:border-teal-800 dark:bg-teal-950/50 dark:text-teal-200">
+          <Icon emoji="✓" className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>A Secret Magic Word is set for your account. Saving below replaces it.</span>
         </div>
       )}
 

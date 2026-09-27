@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 interface ErrorProps {
   error: Error & { digest?: string };
@@ -15,7 +16,7 @@ export default function AppError({ error, reset }: ErrorProps) {
 
   return (
     <div className="flex min-h-[60vh] flex-col items-center justify-center gap-4 p-6 text-center">
-      <p className="text-4xl">⚠️</p>
+      <Icon emoji="⚠️" className="h-10 w-10 text-4xl" size={40} />
       <h1 className="text-lg font-semibold text-neutral-900 dark:text-neutral-50">
         Something went wrong
       </h1>

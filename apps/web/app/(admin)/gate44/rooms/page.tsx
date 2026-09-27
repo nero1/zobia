@@ -10,6 +10,7 @@
  */
 
 import { useState, useEffect, useCallback } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -270,7 +271,7 @@ export default function AdminRoomsPage() {
                     <StatusBadge room={room} />
                     <span className="rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">{room.type}</span>
                     {room.monetization_disabled && (
-                      <span className="rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700 dark:bg-purple-900 dark:text-purple-300">💳 Monetization off</span>
+                      <span className="inline-flex items-center gap-1 rounded bg-purple-100 px-1.5 py-0.5 text-xs text-purple-700 dark:bg-purple-900 dark:text-purple-300"><Icon emoji="💳" className="h-3 w-3" /> Monetization off</span>
                     )}
                   </div>
                   <p className="text-xs text-neutral-500">
