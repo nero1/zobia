@@ -1109,7 +1109,7 @@ export default function DMConversationPage() {
             href={`/wallet?transfer=${otherUserId}`}
             className="ml-3 shrink-0 rounded-lg bg-amber-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-600"
           >
-            {t("messages.conversation.giftThemCurrency", { currency: currency.softPlural.toLowerCase() })}
+            <Icon emoji="🪙" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("messages.conversation.giftThemCurrency", { currency: currency.softPlural.toLowerCase() })}
           </Link>
         </div>
       )}

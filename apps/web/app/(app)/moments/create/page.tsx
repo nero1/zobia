@@ -212,7 +212,7 @@ export default function CreateMomentPage() {
                     htmlFor="moment-image-input"
                     className="cursor-pointer rounded-xl border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-600 hover:border-blue-400 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300"
                   >
-                    {uploading ? t("moments.create.uploading") : t("moments.create.addImage")}
+                    {uploading ? t("moments.create.uploading") : <><Icon emoji="📷" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("moments.create.addImage")}</>}
                   </label>
                   {imageUrl && (
                     <button

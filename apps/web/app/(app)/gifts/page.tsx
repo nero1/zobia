@@ -801,7 +801,11 @@ function GiftsPageContent() {
                 : "text-neutral-500 hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
             )}
           >
-            {tabKey === "catalog" ? t("gifts.tabs.catalog", { defaultValue: "🗂️ Catalog" }) : tabKey === "received" ? (
+            {tabKey === "catalog" ? (
+              <>
+                <Icon emoji="🗂️" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("gifts.tabs.catalog", { defaultValue: "Catalog" })}
+              </>
+            ) : tabKey === "received" ? (
               <>
                 <Icon emoji="📥" className="inline h-3.5 w-3.5 align-text-bottom" /> Received
               </>

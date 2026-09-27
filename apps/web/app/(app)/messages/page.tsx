@@ -274,7 +274,7 @@ export default function MessagesPage() {
               href="/messages/groups"
               className="rounded-xl border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
-              {t("messages.groups")}
+              <Icon emoji="👥" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("messages.groups")}
             </Link>
             <button
               onClick={() => setShowNewMessage(true)}
