@@ -19,6 +19,7 @@ import { classroomApi, ClassroomApiError } from "@/lib/classroom/clientApi";
 import { BoostContentButton } from "@/components/ads/BoostContentButton";
 import { ClassroomCard } from "@/components/classroom/ClassroomCard";
 import { ClassroomShareButton } from "@/components/classroom/ClassroomShareButton";
+import { Icon } from "@/components/ui/Icon";
 import type { ClassroomCard as ClassroomCardData } from "@/components/classroom/types";
 
 interface ListingData {
@@ -67,8 +68,8 @@ export default function CreatorClassroomsPage({ params }: { params: Promise<{ us
 
   return (
     <div className="mx-auto max-w-3xl space-y-5 p-4 sm:p-6">
-      <Link href="/classroom" className="text-sm text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
-        ← {t("classroom.home.back", "All classrooms")}
+      <Link href="/classroom" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
+        <Icon emoji="←" size={14} /> {t("classroom.home.back", "All classrooms")}
       </Link>
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
@@ -101,7 +102,7 @@ export default function CreatorClassroomsPage({ params }: { params: Promise<{ us
 
       {classrooms.length === 0 ? (
         <div className="flex flex-col items-center py-16 text-center">
-          <span className="text-5xl">🏫</span>
+          <Icon emoji="🏫" size={48} />
           <p className="mt-3 text-sm text-neutral-500">
             {isOwner ? t("classroom.listing.emptyOwner", "You haven't created a classroom yet.") : t("classroom.listing.empty", "No classrooms listed yet.")}
           </p>
@@ -129,9 +130,9 @@ export default function CreatorClassroomsPage({ params }: { params: Promise<{ us
                   {isOwner && (
                     <Link
                       href={`/classroom/studio/${c.id}`}
-                      className="rounded-lg border border-neutral-300 px-2.5 py-1 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                      className="inline-flex items-center gap-1 rounded-lg border border-neutral-300 px-2.5 py-1 text-xs font-semibold text-neutral-600 hover:bg-neutral-100 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                     >
-                      ⚙️ {t("classroom.home.manage", "Manage")}
+                      <Icon emoji="⚙️" size={14} /> {t("classroom.home.manage", "Manage")}
                     </Link>
                   )}
                 </>

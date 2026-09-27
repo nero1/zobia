@@ -12,6 +12,7 @@ import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -240,7 +241,7 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
           </div>
           <div className="text-right">
             <p className="text-xs text-neutral-500">Treasury</p>
-            <p className="text-lg font-bold text-amber-600">{(guild.treasuryBalance ?? 0).toLocaleString()} <span className="text-sm font-normal">🪙</span></p>
+            <p className="text-lg font-bold text-amber-600">{(guild.treasuryBalance ?? 0).toLocaleString()} <Icon emoji="🪙" size={14} className="inline-block align-middle" /></p>
           </div>
         </div>
       </div>
@@ -249,7 +250,7 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
       {guild.activeWar && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-5 dark:border-red-800 dark:bg-red-950/20">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-bold text-red-700 dark:text-red-300">⚔️ Active War</h2>
+            <h2 className="flex items-center gap-1.5 font-bold text-red-700 dark:text-red-300"><Icon emoji="⚔️" size={16} /> Active War</h2>
             <span className="rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:bg-red-900 dark:text-red-300">
               Ends in {formatCountdown(warSecs)}
             </span>
@@ -301,7 +302,7 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
       {guild.warHistory.length > 0 && (
         <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
           <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
-            <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">⚔️ War History</h2>
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300"><Icon emoji="⚔️" size={14} /> War History</h2>
           </div>
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {guild.warHistory.map((w) => (
@@ -323,12 +324,12 @@ function GuildDashboard({ guild }: GuildDashboardProps) {
       {guild.allianceHistory && guild.allianceHistory.length > 0 && (
         <div className="rounded-xl border border-neutral-200 bg-white shadow-card dark:border-neutral-800 dark:bg-neutral-900">
           <div className="border-b border-neutral-200 px-5 py-4 dark:border-neutral-800">
-            <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">🤝 Alliance History</h2>
+            <h2 className="flex items-center gap-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300"><Icon emoji="🤝" size={14} /> Alliance History</h2>
           </div>
           <div className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {guild.allianceHistory.map((a) => (
               <div key={a.id} className="flex items-center gap-4 px-5 py-3">
-                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-sm dark:bg-teal-900">🤝</span>
+                <span className="flex h-7 w-7 items-center justify-center rounded-full bg-teal-100 text-sm dark:bg-teal-900"><Icon emoji="🤝" size={14} /></span>
                 <div className="flex-1">
                   <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{a.allianceName}</p>
                   <p className="text-xs text-neutral-500">

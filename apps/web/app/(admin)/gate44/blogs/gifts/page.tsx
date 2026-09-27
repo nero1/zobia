@@ -15,6 +15,7 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { formatShortDate } from "@/lib/format/date";
+import { Icon } from "@/components/ui/Icon";
 
 interface TierRow {
   id: string;
@@ -110,7 +111,7 @@ export default function AdminBlogGiftsPage() {
     <div className="relative">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Rewarded Gifts</h1>
-        <Link href="/gate44/blogs" className="text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400">← All Blogs</Link>
+        <Link href="/gate44/blogs" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400"><Icon emoji="←" size={14} /> All Blogs</Link>
       </div>
 
       {toast && (

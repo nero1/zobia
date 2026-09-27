@@ -9,13 +9,14 @@
  */
 
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 export default function Require2FAPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-neutral-100 px-4 dark:bg-neutral-950">
       <div className="w-full max-w-md">
         <div className="rounded-2xl border border-neutral-200 bg-white px-8 py-10 text-center shadow-lg dark:border-neutral-800 dark:bg-neutral-900">
-          <span className="text-4xl">🔒</span>
+          <Icon emoji="🔒" className="inline-block text-4xl" size={36} />
 
           <h1 className="mt-4 text-xl font-bold text-neutral-900 dark:text-neutral-50">
             Two-factor authentication required

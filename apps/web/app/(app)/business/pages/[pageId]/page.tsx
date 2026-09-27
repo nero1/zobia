@@ -12,6 +12,7 @@ import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { BoostContentButton } from "@/components/ads/BoostContentButton";
+import { Icon } from "@/components/ui/Icon";
 
 interface BusinessPage {
   id: string;
@@ -153,7 +154,7 @@ export default function BusinessPageDetail() {
   return (
     <div className="mx-auto max-w-2xl space-y-6 p-4 sm:p-6">
       <div className="flex items-center gap-3">
-        <Link href="/business/pages" className="text-sm text-neutral-500 hover:underline">← Business Pages</Link>
+        <Link href="/business/pages" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:underline"><Icon emoji="←" size={14} /> Business Pages</Link>
       </div>
 
       {toast && (
@@ -170,7 +171,7 @@ export default function BusinessPageDetail() {
               <div>
                 <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{page.name}</h1>
                 {page.bio && <p className="mt-1 text-sm text-neutral-500">{page.bio}</p>}
-                <a href={`/p/${page.slug}`} target="_blank" rel="noreferrer" className="mt-1 inline-block text-xs text-blue-600 hover:underline">/p/{page.slug} ↗</a>
+                <a href={`/p/${page.slug}`} target="_blank" rel="noreferrer" className="mt-1 inline-flex items-center gap-0.5 text-xs text-blue-600 hover:underline">/p/{page.slug} <Icon emoji="↗" size={12} /></a>
               </div>
               <button onClick={() => setEditing(true)} className="rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300">
                 Edit
@@ -231,7 +232,7 @@ export default function BusinessPageDetail() {
                 <div className="min-w-0">
                   <p className="font-semibold text-neutral-900 dark:text-neutral-100">{post.title}</p>
                   <p className="mt-1 line-clamp-2 text-sm text-neutral-500">{post.body}</p>
-                  <p className="mt-1 text-xs text-neutral-400">{new Date(post.created_at).toLocaleDateString()} · 👁 {post.view_count} · {post.status}</p>
+                  <p className="mt-1 inline-flex items-center gap-1 text-xs text-neutral-400">{new Date(post.created_at).toLocaleDateString()} · <Icon emoji="👁" size={14} /> {post.view_count} · {post.status}</p>
                 </div>
                 <div className="flex flex-shrink-0 gap-1.5">
                   {post.status === "published" && (

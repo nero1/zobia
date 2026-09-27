@@ -11,6 +11,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Overview tab
@@ -129,7 +130,7 @@ function ModerationTab() {
         href="/gate44/ads/moderation-queue"
         className="block rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-800 hover:bg-amber-100 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-300"
       >
-        🕵️ Ad image AI escalations awaiting an Ad Moderator →
+        <Icon emoji="🕵️" size={16} className="inline-block align-[-2px]" /> Ad image AI escalations awaiting an Ad Moderator →
       </Link>
       {campaigns.length === 0 ? (
         <p className="text-sm text-neutral-400">No campaigns pending review.</p>

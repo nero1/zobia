@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 interface GiftItem {
   id: string;
@@ -134,8 +135,8 @@ export default function RoomGiftPage() {
     <div className="mx-auto min-h-[100dvh] max-w-lg p-4 sm:p-6">
       {/* Header */}
       <div className="mb-5 flex items-center gap-3">
-        <Link href={`/rooms/${roomId}`} className="text-sm text-blue-600 hover:underline dark:text-blue-400">
-          ← Back
+        <Link href={`/rooms/${roomId}`} className="text-sm text-blue-600 hover:underline dark:text-blue-400 inline-flex items-center gap-1">
+          <Icon emoji="←" size={14} /> Back
         </Link>
         <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">Send a Gift</h1>
       </div>
@@ -144,7 +145,7 @@ export default function RoomGiftPage() {
           letting the form submit and hit the server's 400. */}
       {isOwnRoom ? (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-6 text-center dark:border-amber-800 dark:bg-amber-950/40">
-          <span className="text-3xl">🚫</span>
+          <Icon emoji="🚫" size={32} className="text-3xl" />
           <p className="mt-2 text-sm font-medium text-amber-800 dark:text-amber-300">
             You can&apos;t send a gift to yourself as the room owner.
           </p>
@@ -161,7 +162,7 @@ export default function RoomGiftPage() {
       {/* Coin balance */}
       {balance != null && (
         <div className="mb-4 flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
-          <span>🪙</span>
+          <Icon emoji="🪙" size={16} />
           <span>Your balance: <span className="font-semibold text-neutral-900 dark:text-neutral-100">{balance.toLocaleString()} {currency.softPlural.toLowerCase()}</span></span>
         </div>
       )}
@@ -182,7 +183,7 @@ export default function RoomGiftPage() {
         </div>
       ) : tiers.length === 0 ? (
         <div className="rounded-xl border border-neutral-200 bg-white py-12 text-center dark:border-neutral-800 dark:bg-neutral-900">
-          <span className="text-4xl">🎁</span>
+          <Icon emoji="🎁" size={36} className="text-4xl" />
           <p className="mt-3 text-sm text-neutral-500">No gifts available right now.</p>
         </div>
       ) : (
@@ -207,8 +208,8 @@ export default function RoomGiftPage() {
                     <span className="mt-1 w-full truncate text-center text-xs leading-tight text-neutral-500 dark:text-neutral-400">
                       {gift.name}
                     </span>
-                    <span className="mt-0.5 text-[11px] font-bold text-amber-600">
-                      🪙{gift.coinCost.toLocaleString()}
+                    <span className="mt-0.5 flex items-center justify-center gap-0.5 text-[11px] font-bold text-amber-600">
+                      <Icon emoji="🪙" size={12} />{gift.coinCost.toLocaleString()}
                     </span>
                   </button>
                 ))}
@@ -225,7 +226,7 @@ export default function RoomGiftPage() {
             <span className="text-3xl">{selected.emoji}</span>
             <div>
               <p className="font-semibold text-neutral-900 dark:text-neutral-100">{selected.name}</p>
-              <p className="text-sm text-amber-600">🪙 {selected.coinCost.toLocaleString()} {currency.softPlural.toLowerCase()}</p>
+              <p className="text-sm text-amber-600 flex items-center gap-1"><Icon emoji="🪙" size={14} /> {selected.coinCost.toLocaleString()} {currency.softPlural.toLowerCase()}</p>
             </div>
           </div>
           {error && <p className="mb-2 text-xs text-red-500">{error}</p>}

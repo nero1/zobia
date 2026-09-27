@@ -16,6 +16,7 @@ import { QRCodeSVG } from "qrcode.react";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -141,7 +142,7 @@ function StatsGrid({ stats }: { stats: ReferralStats }) {
     { label: "Tier 1 Referrals", value: stats.tier1Count.toLocaleString(), sub: "Direct" },
     { label: "Tier 2 Referrals", value: stats.tier2Count.toLocaleString(), sub: "Indirect" },
     { label: "XP Earned", value: (stats.tier1XpEarned + stats.tier2XpEarned).toLocaleString(), sub: "Total XP" },
-    { label: `${currency.softPlural} Earned`, value: (stats.tier1CoinsEarned + stats.tier2CoinsEarned).toLocaleString(), sub: "Total 🪙" },
+    { label: `${currency.softPlural} Earned`, value: (stats.tier1CoinsEarned + stats.tier2CoinsEarned).toLocaleString(), sub: <>Total <Icon emoji="🪙" className="inline-block" /></> },
   ];
 
   return (
@@ -323,7 +324,7 @@ function ReferredUsersTable({ users }: { users: ReferredUser[] }) {
                 </td>
                 <td className="px-4 py-3">
                   {u.qualifyingActionCompleted ? (
-                    <span className="text-teal-600 dark:text-teal-400">✓ Yes</span>
+                    <span className="text-teal-600 dark:text-teal-400"><Icon emoji="✓" className="inline-block" /> Yes</span>
                   ) : (
                     <span className="text-neutral-400">Pending</span>
                   )}
@@ -332,7 +333,7 @@ function ReferredUsersTable({ users }: { users: ReferredUser[] }) {
                   <p className="font-semibold text-neutral-900 dark:text-neutral-100">
                     +{u.xpEarned.toLocaleString()} XP
                   </p>
-                  <p className="text-xs text-neutral-500">+{u.coinsEarned.toLocaleString()} 🪙</p>
+                  <p className="text-xs text-neutral-500">+{u.coinsEarned.toLocaleString()} <Icon emoji="🪙" className="inline-block" /></p>
                 </td>
               </tr>
             ))}

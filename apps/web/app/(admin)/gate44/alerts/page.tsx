@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import Link from "next/link";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { ALERT_PRIORITY_LEVELS, type AlertPriorityLevel } from "@/lib/alerts/types";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -125,7 +126,9 @@ function ResolveModal({ alert, onResolve, onClose }: ResolveModalProps) {
             <h3 className="font-semibold text-neutral-900 dark:text-neutral-50">Resolve Alert</h3>
             <p className="text-sm text-neutral-500">{alert.title}</p>
           </div>
-          <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800">✕</button>
+          <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800">
+            <Icon emoji="✕" size={16} />
+          </button>
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
@@ -165,7 +168,7 @@ function AlertCard({ alert, onResolve }: AlertCardProps) {
   return (
     <div className="rounded-xl border bg-white p-4 dark:bg-neutral-900" style={{ borderColor: alert.status === "active" ? levelDef.color : undefined }}>
       <div className="flex flex-wrap items-start gap-3">
-        <span className="mt-0.5 text-2xl">{CATEGORY_ICON[alert.category] ?? "🔔"}</span>
+        <Icon emoji={CATEGORY_ICON[alert.category] ?? "🔔"} className="mt-0.5 text-2xl" size={24} />
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
             <div className="flex items-center gap-1.5">
@@ -182,7 +185,9 @@ function AlertCard({ alert, onResolve }: AlertCardProps) {
 
           <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-neutral-400">
             {alert.channelsSent.map((c) => (
-              <span key={c} title={c}>{CHANNEL_ICON[c] ?? c}</span>
+              <span key={c} title={c}>
+                <Icon emoji={CHANNEL_ICON[c] ?? c} size={14} />
+              </span>
             ))}
             {alert.smsSentCount > 0 && <span>· {alert.smsSentCount} SMS sent</span>}
             {alert.status === "active" && !alert.escalationComplete && alert.nextEscalationAt && (
@@ -343,7 +348,7 @@ export default function AdminAlertsPage() {
             : active.length === 0
             ? (
               <div className="flex items-center gap-3 rounded-xl border border-teal-200 bg-teal-50 px-5 py-6 dark:border-teal-800 dark:bg-teal-950/30">
-                <span className="text-2xl">✓</span>
+                <Icon emoji="✓" className="text-2xl" size={24} />
                 <p className="font-semibold text-teal-700 dark:text-teal-300">No active alerts</p>
               </div>
             )
@@ -358,7 +363,7 @@ export default function AdminAlertsPage() {
             onClick={() => setShowHistory((p) => !p)}
             className="flex items-center gap-2 text-sm font-semibold text-blue-600 hover:text-blue-700 dark:text-blue-400"
           >
-            <span>{showHistory ? "▼" : "▶"}</span>
+            <Icon emoji={showHistory ? "▼" : "▶"} size={14} />
             Alert History ({resolved.length})
           </button>
           {showHistory && (

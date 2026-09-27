@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { formatShortDate } from "@/lib/format/date";
+import { Icon } from "@/components/ui/Icon";
 
 interface BlogRow {
   id: string;
@@ -125,8 +126,8 @@ export default function AdminBlogsPage() {
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">Blogs</h1>
         <div className="flex gap-4">
-          <Link href="/gate44/blogs/themes" className="text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400">Manage Themes →</Link>
-          <Link href="/gate44/blogs/gifts" className="text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400">Manage Gifts →</Link>
+          <Link href="/gate44/blogs/themes" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400">Manage Themes <Icon emoji="→" size={14} /></Link>
+          <Link href="/gate44/blogs/gifts" className="inline-flex items-center gap-1 text-sm font-semibold text-teal-600 hover:underline dark:text-teal-400">Manage Gifts <Icon emoji="→" size={14} /></Link>
         </div>
       </div>
 

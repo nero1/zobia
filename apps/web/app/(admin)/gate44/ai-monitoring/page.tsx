@@ -17,6 +17,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -91,7 +92,9 @@ function DetailsModal({ row, onClose }: { row: AiCallLogRow; onClose: () => void
       >
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-50">Call details</h2>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200">✕</button>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200">
+            <Icon emoji="✕" size={16} />
+          </button>
         </div>
         <dl className="space-y-2 text-xs">
           {[

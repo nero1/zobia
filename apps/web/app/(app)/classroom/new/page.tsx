@@ -18,6 +18,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { classroomApi } from "@/lib/classroom/clientApi";
 import { useCaptchaWidget } from "@/components/security/useCaptchaWidget";
+import { Icon } from "@/components/ui/Icon";
 import type { SlugAvailability } from "@/components/classroom/types";
 
 const CATEGORIES = ["Education", "Technology", "Business", "Finance", "Creativity", "Music", "Lifestyle", "Health", "Languages", "Other"];
@@ -140,8 +141,8 @@ export default function NewClassroomPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-5 p-4 sm:p-6">
-      <Link href="/classroom" className="text-sm text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
-        ← {t("classroom.home.back", "All classrooms")}
+      <Link href="/classroom" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200">
+        <Icon emoji="←" size={14} /> {t("classroom.home.back", "All classrooms")}
       </Link>
       <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("classroom.create.title", "Create a classroom")}</h1>
 
@@ -244,7 +245,7 @@ export default function NewClassroomPage() {
                 />
                 {modules.length > 1 && (
                   <button type="button" onClick={() => setModules(modules.filter((_, j) => j !== i))} className="rounded-lg px-2 text-neutral-400 hover:text-red-500" aria-label={t("classroom.module.delete", "Delete")}>
-                    ✕
+                    <Icon emoji="✕" size={14} />
                   </button>
                 )}
               </div>

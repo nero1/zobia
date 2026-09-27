@@ -11,6 +11,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -138,7 +139,7 @@ function UserSearchInput({ selected, onAdd, onRemove }: UserSearchProps) {
           {selected.map((u) => (
             <span key={u.id} className="flex items-center gap-1 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-medium text-blue-800 dark:bg-blue-900 dark:text-blue-200">
               {u.avatarEmoji} @{u.username}
-              <button type="button" onClick={() => onRemove(u.id)} className="ml-1 hover:text-blue-600">✕</button>
+              <button type="button" onClick={() => onRemove(u.id)} className="ml-1 hover:text-blue-600"><Icon emoji="✕" size={12} /></button>
             </span>
           ))}
         </div>
@@ -161,7 +162,7 @@ function DetailDrawer({ msg, onClose }: DetailDrawerProps) {
     <aside className="fixed inset-y-0 right-0 z-50 flex w-full max-w-md flex-col overflow-y-auto border-l border-neutral-200 bg-white shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 p-4 dark:border-neutral-800">
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-50">Message Detail</h2>
-        <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Close">✕</button>
+        <button onClick={onClose} className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800" aria-label="Close"><Icon emoji="✕" size={16} /></button>
       </div>
       <div className="flex-1 space-y-4 p-4">
         <div>

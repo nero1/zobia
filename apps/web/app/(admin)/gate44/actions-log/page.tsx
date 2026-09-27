@@ -11,6 +11,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -356,7 +357,7 @@ export default function AdminActionsLogPage() {
               <tr>
                 <td colSpan={6} className="py-16 text-center">
                   <div className="flex flex-col items-center gap-2">
-                    <span className="text-3xl">📋</span>
+                    <Icon emoji="📋" className="text-3xl" size={32} />
                     <p className="text-sm font-medium text-neutral-600 dark:text-neutral-400">No actions found</p>
                     <p className="text-xs text-neutral-400">Try adjusting your filters</p>
                   </div>

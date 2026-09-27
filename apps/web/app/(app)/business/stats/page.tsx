@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 interface Totals {
   page_count: number;
@@ -68,14 +69,14 @@ export default function BusinessStatsPage() {
     <div className="mx-auto max-w-3xl px-4 py-6">
       <div className="mb-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link href="/business" className="text-sm text-neutral-500 hover:underline">← Business</Link>
+          <Link href="/business" className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:underline"><Icon emoji="←" size={14} /> Business</Link>
           <span className="text-neutral-300">/</span>
           <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-50">Stats</h1>
         </div>
         {canExport && (
           // eslint-disable-next-line @next/next/no-html-link-for-pages -- API route download, not an app page
-          <a href="/api/business/pages/stats/export" className="rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
-            ⬇ Export CSV
+          <a href="/api/business/pages/stats/export" className="inline-flex items-center gap-1 rounded-lg border border-neutral-300 bg-white px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-300">
+            <Icon emoji="⬇" size={14} /> Export CSV
           </a>
         )}
       </div>

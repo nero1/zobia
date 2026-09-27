@@ -16,6 +16,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { PlanExpiryBanner, resolvePlanExpiry, type PlanExpiryInfo } from "@/components/PlanExpiryBanner";
+import { Icon } from "@/components/ui/Icon";
 
 interface BusinessAccount {
   id: string;
@@ -132,8 +133,8 @@ export default function BusinessHubPage() {
               {account.tier} tier
             </span>
             {account.verified && (
-              <span className="rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
-                Verified ✓
+              <span className="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2.5 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900/40 dark:text-teal-300">
+                Verified <Icon emoji="✓" size={12} />
               </span>
             )}
             {account.status !== "active" && (
@@ -158,7 +159,7 @@ export default function BusinessHubPage() {
             href="/settings/business"
             className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm transition-colors hover:border-blue-300 dark:border-neutral-800 dark:bg-neutral-900"
           >
-            <div className="mb-2 text-2xl">⚙️</div>
+            <div className="mb-2"><Icon emoji="⚙️" className="text-2xl" size={28} /></div>
             <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Account &amp; Billing</h2>
             <p className="mt-1 text-sm text-neutral-500">Tier, verification, and upgrade/downgrade.</p>
           </Link>
@@ -166,7 +167,7 @@ export default function BusinessHubPage() {
             href="/business/pages"
             className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm transition-colors hover:border-blue-300 dark:border-neutral-800 dark:bg-neutral-900"
           >
-            <div className="mb-2 text-2xl">🏢</div>
+            <div className="mb-2"><Icon emoji="🏢" className="text-2xl" size={28} /></div>
             <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Business Pages</h2>
             <p className="mt-1 text-sm text-neutral-500">Create and manage pages, post updates.</p>
           </Link>
@@ -174,7 +175,7 @@ export default function BusinessHubPage() {
             href="/business/ads"
             className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm transition-colors hover:border-blue-300 dark:border-neutral-800 dark:bg-neutral-900"
           >
-            <div className="mb-2 text-2xl">📣</div>
+            <div className="mb-2"><Icon emoji="📣" className="text-2xl" size={28} /></div>
             <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Advertising Panel</h2>
             <p className="mt-1 text-sm text-neutral-500">Run CPM ad campaigns and (Growth+) submit Sponsored Quests.</p>
           </Link>
@@ -182,7 +183,7 @@ export default function BusinessHubPage() {
             href="/business/stats"
             className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm transition-colors hover:border-blue-300 dark:border-neutral-800 dark:bg-neutral-900"
           >
-            <div className="mb-2 text-2xl">📊</div>
+            <div className="mb-2"><Icon emoji="📊" className="text-2xl" size={28} /></div>
             <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Stats</h2>
             <p className="mt-1 text-sm text-neutral-500">Page and advert stats — depth grows with tier.</p>
           </Link>
@@ -190,7 +191,7 @@ export default function BusinessHubPage() {
             href="/business/broadcasts"
             className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm transition-colors hover:border-blue-300 dark:border-neutral-800 dark:bg-neutral-900"
           >
-            <div className="mb-2 text-2xl">📢</div>
+            <div className="mb-2"><Icon emoji="📢" className="text-2xl" size={28} /></div>
             <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Broadcasts</h2>
             <p className="mt-1 text-sm text-neutral-500">Message your followers — quota grows with tier.</p>
           </Link>
@@ -216,7 +217,7 @@ export default function BusinessHubPage() {
                     className="flex items-center justify-between rounded-xl border border-neutral-100 px-3 py-2 text-sm hover:border-blue-300 dark:border-neutral-800"
                   >
                     <span className="truncate font-medium text-neutral-800 dark:text-neutral-200">{p.name}</span>
-                    <span className="shrink-0 text-xs text-neutral-400">👁 {p.view_count} · {p.status}</span>
+                    <span className="shrink-0 inline-flex items-center gap-1 text-xs text-neutral-400"><Icon emoji="👁" size={14} /> {p.view_count} · {p.status}</span>
                   </Link>
                 ))}
                 <Link href="/business/pages" className="block text-center text-xs font-semibold text-blue-600 hover:underline">
@@ -236,7 +237,7 @@ export default function BusinessHubPage() {
               const content = (
                 <>
                   <div className="mb-2 flex items-center justify-between">
-                    <span className="text-2xl">{f.icon}</span>
+                    <Icon emoji={f.icon} className="text-2xl" size={28} />
                     {!available && (
                       <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[10px] font-semibold uppercase text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
                         {f.minTier}+ only
@@ -297,7 +298,7 @@ export default function BusinessHubPage() {
           { icon: "📊", title: "Analytics", desc: "Stats depth grows with tier — from totals up to daily drill-downs + CSV export." },
         ].map((f) => (
           <div key={f.title} className="rounded-2xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
-            <div className="mb-2 text-2xl">{f.icon}</div>
+            <div className="mb-2"><Icon emoji={f.icon} className="text-2xl" size={28} /></div>
             <h3 className="font-semibold text-neutral-900 dark:text-neutral-100">{f.title}</h3>
             <p className="mt-1 text-sm text-neutral-500">{f.desc}</p>
           </div>
@@ -312,7 +313,7 @@ export default function BusinessHubPage() {
             <ul className="my-4 flex-1 space-y-2">
               {tier.features.map((feat) => (
                 <li key={feat} className="flex items-start gap-1.5 text-sm text-neutral-700 dark:text-neutral-300">
-                  <span className="mt-px font-bold text-teal-600">✓</span>
+                  <Icon emoji="✓" className="mt-px font-bold text-teal-600" size={14} />
                   {feat}
                 </li>
               ))}

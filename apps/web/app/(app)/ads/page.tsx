@@ -17,6 +17,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { useFeatureEnabled } from "@/lib/hooks/useFeatureFlags";
+import { Icon } from "@/components/ui/Icon";
 
 interface Eligibility {
   eligible: boolean;
@@ -37,7 +38,7 @@ function TodoItem({ done, label, doneLabel, isLast }: { done: boolean; label: Re
     <div className="flex gap-3">
       <div className="flex flex-col items-center">
         <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[10px] ${done ? "bg-teal-500 text-white" : "bg-amber-400 text-white"}`}>
-          {done ? "✓" : ""}
+          {done ? <Icon emoji="✓" size={12} /> : ""}
         </span>
         {!isLast && <span className="w-px flex-1 bg-neutral-200 dark:bg-neutral-700" />}
       </div>
@@ -172,7 +173,7 @@ export default function AdsHubPage() {
           { emoji: "📈", key: "boosting", title: "Boost your content", body: "Promote a Blog post or Room alongside standalone campaigns — same budget, same stats." },
         ].map((f) => (
           <div key={f.key} className="rounded-2xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
-            <span className="text-2xl">{f.emoji}</span>
+            <Icon emoji={f.emoji} className="text-2xl" size={24} />
             <h3 className="mt-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{f.title}</h3>
             <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{f.body}</p>
           </div>
