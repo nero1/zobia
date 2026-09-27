@@ -19,6 +19,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 const SESSION_KEY = "zobia_nudge_dismissed";
 
@@ -80,7 +81,7 @@ export function NudgeBanner({ hasEmail, nudgeDismissedAt }: NudgeBannerProps) {
     >
       {/* Icon */}
       <span className="shrink-0 text-blue-600 dark:text-blue-400" aria-hidden="true">
-        🔒
+        <Icon emoji="🔒" />
       </span>
 
       {/* Message */}

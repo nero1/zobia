@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { enqueueAdEvent } from "./adEventQueue";
+import { Icon } from "@/components/ui/Icon";
 
 interface ServedAd {
   creativeId: string;
@@ -89,7 +90,7 @@ export default function InterstitialAd({ onClose }: { onClose: () => void }) {
           aria-label="Close ad"
           className="absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-full bg-black/50 text-sm font-bold text-white disabled:opacity-70"
         >
-          {secondsLeft > 0 ? secondsLeft : "✕"}
+          {secondsLeft > 0 ? secondsLeft : <Icon emoji="✕" />}
         </button>
         <a href={ad.clickUrl ?? "#"} target="_blank" rel="noopener noreferrer sponsored" onClick={handleClick} className="block no-underline">
           {ad.imageUrl && (

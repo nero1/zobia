@@ -13,6 +13,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { enqueueAdEvent } from "./adEventQueue";
+import { Icon } from "@/components/ui/Icon";
 
 interface ServedAd {
   creativeId: string;
@@ -107,7 +108,7 @@ export default function RewardedAdButton({ onRewarded }: { onRewarded?: (coinsAw
         disabled={phase === "loading" || phase === "claiming"}
         className="w-full rounded-xl bg-primary-600 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
       >
-        {phase === "loading" ? "Loading ad…" : phase === "claiming" ? "Claiming…" : "🎬 Watch an ad, earn Credits"}
+        {phase === "loading" ? "Loading ad…" : phase === "claiming" ? "Claiming…" : <><Icon emoji="🎬" size={16} className="inline align-[-3px]" /> Watch an ad, earn Credits</>}
       </button>
       {error && <p className="mt-1 text-xs text-red-500">{error}</p>}
     </div>

@@ -6,6 +6,7 @@
 
 import Link from "next/link";
 import type { Metadata } from "next";
+import { Icon } from "@/components/ui/Icon";
 
 export const metadata: Metadata = {
   title: "Terms of Service – Zobia Social",
@@ -84,7 +85,7 @@ export default function TermsPage() {
             href="/"
             className="mb-4 inline-block text-sm font-medium text-primary-600 hover:underline dark:text-primary-400"
           >
-            ← Back to Home
+            <Icon emoji="←" className="inline h-3.5 w-3.5 align-[-1px]" /> Back to Home
           </Link>
           <h1 className="text-4xl font-extrabold tracking-tight text-neutral-900 dark:text-neutral-50">
             Terms of Service

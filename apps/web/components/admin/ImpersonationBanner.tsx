@@ -19,6 +19,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { Icon } from "@/components/ui/Icon";
 
 function hasImpersonationCookie(): boolean {
   if (typeof document === "undefined") return false;
@@ -54,7 +55,7 @@ export function ImpersonationBanner() {
       role="status"
       className="fixed inset-x-0 bottom-0 z-[9999] flex items-center justify-center gap-3 bg-purple-700 px-4 py-2.5 text-sm font-medium text-white shadow-lg"
     >
-      <span>🎭 You are viewing Zobia as this user (impersonation).</span>
+      <span><Icon emoji="🎭" size={16} className="mr-1 inline align-[-3px]" /> You are viewing Zobia as this user (impersonation).</span>
       <button
         onClick={endImpersonation}
         disabled={ending}

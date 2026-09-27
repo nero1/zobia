@@ -22,6 +22,7 @@ import { getOptionalServerUser } from "@/lib/auth/serverUser";
 import { generateStructuredData } from "@/lib/seo/metadata";
 import { WikiEditCta } from "@/components/wiki/WikiEditCta";
 import { WikiSearchBox } from "@/components/wiki/WikiSearchBox";
+import { Icon } from "@/components/ui/Icon";
 
 const DEFAULT_OG_IMAGE = `${process.env.NEXT_PUBLIC_APP_URL ?? "https://zobia.vercel.app"}/og-default.png`;
 const PAGE_LIST_LIMIT = 50;
@@ -93,7 +94,7 @@ export default async function PublicWikiPage({
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={wiki.avatar_url} alt="" className="h-12 w-12 shrink-0 rounded-xl object-cover" />
               ) : (
-                <div className="h-12 w-12 shrink-0 rounded-xl bg-neutral-700 flex items-center justify-center text-lg">📖</div>
+                <div className="h-12 w-12 shrink-0 rounded-xl bg-neutral-700 flex items-center justify-center text-lg"><Icon emoji="📖" /></div>
               )}
               <div>
                 <h1 className="text-3xl font-bold text-foreground">{wiki.name}</h1>
@@ -107,9 +108,9 @@ export default async function PublicWikiPage({
           </div>
 
           <div className="mt-4 flex flex-wrap gap-4 border-t border-border pt-3 text-sm text-muted-foreground">
-            <span>📄 {wiki.page_count} pages</span>
-            <span>👥 {wiki.contributor_count} contributors</span>
-            <span>👁 {wiki.view_count} views</span>
+            <span><Icon emoji="📄" className="inline h-3.5 w-3.5 align-[-2px]" /> {wiki.page_count} pages</span>
+            <span><Icon emoji="👥" className="inline h-3.5 w-3.5 align-[-2px]" /> {wiki.contributor_count} contributors</span>
+            <span><Icon emoji="👁" className="inline h-3.5 w-3.5 align-[-2px]" /> {wiki.view_count} views</span>
             {wiki.status === "paused" && (
               <span className="rounded-full bg-amber-950/30 px-2 py-0.5 text-xs font-medium text-amber-400">Read-only</span>
             )}
@@ -130,7 +131,7 @@ export default async function PublicWikiPage({
               <li key={p.id}>
                 <Link href={`/w/${wiki.slug}/${p.slug}`} className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-accent transition-colors">
                   <span className="font-medium text-foreground">{p.title}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">👁 {p.view_count}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground"><Icon emoji="👁" className="inline h-3 w-3 align-[-1px]" /> {p.view_count}</span>
                 </Link>
               </li>
             ))}
@@ -139,7 +140,7 @@ export default async function PublicWikiPage({
 
         <div className="mt-8">
           <Link href="/wiki" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            ← More wikis
+            <Icon emoji="←" className="inline h-3.5 w-3.5 align-[-1px]" /> More wikis
           </Link>
         </div>
       </div>
