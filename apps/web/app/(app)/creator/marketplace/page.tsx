@@ -11,6 +11,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -88,8 +89,8 @@ function QuestCard({ quest, onApply, applying, applied, canApplyBase }: QuestCar
     <div className="flex flex-col rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm transition-shadow hover:shadow-md dark:border-neutral-800 dark:bg-neutral-900">
       {/* Header */}
       <div className="mb-3 flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-xl dark:bg-blue-900">
-          🏷️
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-100 dark:bg-blue-900">
+          <Icon emoji="🏷️" className="h-5 w-5 text-xl" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-xs font-medium text-neutral-500">{quest.brandName}</p>
@@ -113,11 +114,11 @@ function QuestCard({ quest, onApply, applying, applied, canApplyBase }: QuestCar
       <div className="mb-4 grid grid-cols-2 gap-2">
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-2 text-center dark:border-amber-800 dark:bg-amber-950/30">
           <p className="text-xs text-amber-600 dark:text-amber-400">User Reward</p>
-          <p className="font-bold text-amber-700 dark:text-amber-300">🪙 {quest.rewardCoins.toLocaleString()}</p>
+          <p className="flex items-center justify-center gap-1 font-bold text-amber-700 dark:text-amber-300"><Icon emoji="🪙" className="h-3.5 w-3.5" /> {quest.rewardCoins.toLocaleString()}</p>
         </div>
         <div className="rounded-lg border border-teal-200 bg-teal-50 p-2 text-center dark:border-teal-800 dark:bg-teal-950/30">
           <p className="text-xs text-teal-600 dark:text-teal-400">Creator Payout</p>
-          <p className="font-bold text-teal-700 dark:text-teal-300">🪙 {quest.creatorPayout.toLocaleString()}</p>
+          <p className="flex items-center justify-center gap-1 font-bold text-teal-700 dark:text-teal-300"><Icon emoji="🪙" className="h-3.5 w-3.5" /> {quest.creatorPayout.toLocaleString()}</p>
         </div>
       </div>
 
@@ -284,7 +285,7 @@ export default function CreatorMarketplacePage() {
     return (
       <div className="mx-auto max-w-lg p-4 sm:p-6">
         <div className="rounded-2xl border border-neutral-200 bg-white p-8 text-center shadow-sm dark:border-neutral-800 dark:bg-neutral-900">
-          <span className="text-5xl">🚀</span>
+          <Icon emoji="🚀" className="mx-auto h-12 w-12 text-5xl" />
           <h2 className="mt-4 text-xl font-bold text-neutral-900 dark:text-neutral-50">Become a Creator</h2>
           <p className="mt-2 text-sm text-neutral-500">
             Upgrade to a creator account to access sponsored quests and earn from brand partnerships.
@@ -352,7 +353,7 @@ export default function CreatorMarketplacePage() {
       {/* Quests grid */}
       {quests.length === 0 && !error ? (
         <div className="flex flex-col items-center justify-center rounded-2xl border border-neutral-200 bg-white py-20 dark:border-neutral-800 dark:bg-neutral-900">
-          <span className="text-5xl">📋</span>
+          <Icon emoji="📋" className="h-12 w-12 text-5xl" />
           <p className="mt-3 text-lg font-semibold text-neutral-700 dark:text-neutral-300">No quests available</p>
           <p className="mt-1 text-sm text-neutral-500">New brand campaigns will appear here. Check back soon!</p>
         </div>

@@ -15,6 +15,7 @@ import { useState, useEffect } from "react";
 import { useTranslation } from "react-i18next";
 import { SUPPORTED_NIGERIAN_BANKS } from "@/lib/payments/supported-banks";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 type Step = "idle" | "confirm" | "success";
 
@@ -332,7 +333,7 @@ export default function BankAccountPage() {
       {/* Step 3: Success */}
       {step === "success" && (
         <div className="text-center py-8">
-          <div className="text-4xl mb-3">✅</div>
+          <Icon emoji="✅" className="mx-auto mb-3 h-10 w-10 text-4xl" />
           <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-50 mb-1">Account Saved</h2>
           <p className="text-sm text-neutral-500 dark:text-neutral-400 mb-6">
             Your bank account has been verified and saved. Payouts will be sent to this account.
@@ -350,7 +351,7 @@ export default function BankAccountPage() {
       {showPinModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
           <div className="bg-white dark:bg-neutral-900 rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
-            <div className="text-2xl mb-3">🔐</div>
+            <Icon emoji="🔐" className="mb-3 h-6 w-6" />
             <h3 className="text-base font-bold text-neutral-900 dark:text-neutral-50 mb-2">
               Protect Your Account
             </h3>
