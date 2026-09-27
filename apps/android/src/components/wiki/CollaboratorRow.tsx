@@ -7,6 +7,7 @@
  */
 
 import { useTranslation } from 'react-i18next';
+import { Icon } from '@/components/ui/Icon';
 import type { WikiCollaborator } from '@/lib/wiki/api';
 
 export function CollaboratorRow({
@@ -28,7 +29,7 @@ export function CollaboratorRow({
   return (
     <div className="flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-2.5">
       <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800 text-sm">
-        {c.avatar_url ? <img src={c.avatar_url} alt="" className="h-full w-full object-cover" /> : '👤'}
+        {c.avatar_url ? <img src={c.avatar_url} alt="" className="h-full w-full object-cover" /> : <Icon emoji="👤" />}
       </div>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">{c.display_name ?? `@${c.username}`}</p>

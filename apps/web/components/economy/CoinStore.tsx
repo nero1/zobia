@@ -12,6 +12,7 @@
 import React, { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -152,9 +153,7 @@ function PackCard({
       )}
 
       <div className="mb-1 flex items-center gap-2">
-        <span className="text-2xl" aria-hidden>
-          {grantedIcon}
-        </span>
+        <Icon emoji={grantedIcon} className="text-2xl" size={24} />
         <span className="text-2xl font-bold tabular-nums text-neutral-900 dark:text-neutral-100">
           {grantedAmount.toLocaleString()}
         </span>
@@ -270,8 +269,8 @@ export function CoinStore({ className = "" }: CoinStoreProps) {
       {/* Coin Packs */}
       {data.coinPacks.length > 0 && (
         <section>
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            🪙 {currency.softPlural} Packs
+          <h2 className="mb-4 flex items-center gap-1.5 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+            <Icon emoji="🪙" /> {currency.softPlural} Packs
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.coinPacks.map((pack) => (
@@ -298,8 +297,8 @@ export function CoinStore({ className = "" }: CoinStoreProps) {
       {/* Star Packs */}
       {data.starPacks.length > 0 && (
         <section>
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            ⭐ {currency.premiumPlural} Packs
+          <h2 className="mb-4 flex items-center gap-1.5 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+            <Icon emoji="⭐" /> {currency.premiumPlural} Packs
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {data.starPacks.map((pack) => (
@@ -326,8 +325,8 @@ export function CoinStore({ className = "" }: CoinStoreProps) {
       {/* Booster Items */}
       {data.boosters.length > 0 && (
         <section>
-          <h2 className="mb-4 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
-            ⚡ Booster Packs
+          <h2 className="mb-4 flex items-center gap-1.5 text-lg font-semibold text-neutral-900 dark:text-neutral-100">
+            <Icon emoji="⚡" /> Booster Packs
           </h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {data.boosters.map((booster) => (
@@ -344,8 +343,8 @@ export function CoinStore({ className = "" }: CoinStoreProps) {
                       {booster.description}
                     </p>
                   )}
-                  <p className="mt-1 text-sm font-medium text-amber-600 dark:text-amber-400">
-                    🪙 {booster.coinsCost?.toLocaleString()} {currency.softPlural.toLowerCase()}
+                  <p className="mt-1 flex items-center gap-1 text-sm font-medium text-amber-600 dark:text-amber-400">
+                    <Icon emoji="🪙" size={14} /> {booster.coinsCost?.toLocaleString()} {currency.softPlural.toLowerCase()}
                   </p>
                 </div>
                 <button

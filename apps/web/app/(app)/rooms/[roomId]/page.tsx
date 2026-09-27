@@ -580,7 +580,7 @@ function RoomStickerPicker({ onSelect, onClose }: { onSelect: (emoji: string) =>
     <div className="absolute bottom-full left-10 z-20 mb-2 w-[min(18rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
         <span className="text-xs font-semibold text-neutral-500">Stickers</span>
-        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close">✕</button>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close"><Icon emoji="✕" size={14} /></button>
       </div>
       {loading ? (
         <div className="flex h-32 items-center justify-center">
@@ -679,8 +679,8 @@ function RoomPowersPanel({
       {/* Panel — fixed so it floats above all layout stacking contexts */}
       <div className="fixed bottom-24 right-4 z-[200] w-[min(18rem,calc(100vw-2rem))] max-h-[calc(100dvh-7rem)] overflow-y-auto rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
         <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
-          <span className="text-xs font-semibold text-neutral-500">⚡ Room Powers</span>
-          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close">✕</button>
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-neutral-500"><Icon emoji="⚡" size={12} /> Room Powers</span>
+          <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close"><Icon emoji="✕" size={14} /></button>
         </div>
 
         {/* Cost confirmation step */}
@@ -688,8 +688,8 @@ function RoomPowersPanel({
           <div className="m-2 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
             <p className="mb-2 text-xs font-medium text-amber-800 dark:text-amber-200">
               This will cost you{" "}
-              <span className="font-bold">
-                🪙 {pendingPowerObj.coins} {currency.softPlural.toLowerCase()}
+              <span className="inline-flex items-center gap-1 font-bold">
+                <Icon emoji="🪙" size={12} /> {pendingPowerObj.coins} {currency.softPlural.toLowerCase()}
               </span>. Confirm?
             </p>
             <div className="flex gap-2">
@@ -724,13 +724,13 @@ function RoomPowersPanel({
               disabled={!!activating}
               className="flex w-full items-start gap-3 rounded-xl p-2.5 text-left hover:bg-neutral-50 disabled:opacity-60 dark:hover:bg-neutral-800"
             >
-              <span className="text-2xl">{power.emoji}</span>
+              <Icon emoji={power.emoji} size={20} className="text-2xl" />
               <div className="flex-1">
                 <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{power.label}</p>
                 <p className="text-xs text-neutral-500">{power.description}</p>
               </div>
-              <span className="shrink-0 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-200">
-                🪙 {power.coins} {currency.softPlural.toLowerCase()}
+              <span className="shrink-0 inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-bold text-amber-700 dark:bg-amber-900 dark:text-amber-200">
+                <Icon emoji="🪙" size={12} /> {power.coins} {currency.softPlural.toLowerCase()}
               </span>
             </button>
           ))}
@@ -853,7 +853,7 @@ function RoomInputBar({
       {/* Moment mode indicator */}
       {isMoment && (
         <div className="flex flex-wrap items-center gap-1.5 border-b border-purple-200 bg-purple-50 px-3 py-1.5 dark:border-purple-900 dark:bg-purple-950/40">
-          <span className="text-sm">⚡</span>
+          <Icon emoji="⚡" size={14} />
           <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Moment · disappears in 24h</span>
           {!momentsConfig.isFree && (
             <span className="text-xs text-purple-600 dark:text-purple-400">
@@ -899,7 +899,7 @@ function RoomInputBar({
                 Buy {currency.softPlural}
               </Link>
             )}
-            <button onClick={onDismissMomentError} className="text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400">✕</button>
+            <button onClick={onDismissMomentError} className="text-xs text-amber-600 hover:text-amber-800 dark:text-amber-400"><Icon emoji="✕" size={12} /></button>
           </div>
         </div>
       )}
@@ -912,18 +912,18 @@ function RoomInputBar({
             aria-label="GIF" title="GIF" disabled={!canAccess}>GIF</button>
           <button type="button" onClick={() => { toggle("sticker"); setShowMobileExtras(false); }}
             className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"
-            aria-label="Stickers" title="Stickers" disabled={!canAccess}>😊</button>
+            aria-label="Stickers" title="Stickers" disabled={!canAccess}><Icon emoji="😊" size={20} /></button>
           <button type="button" onClick={() => { onMomentToggle(); setShowMobileExtras(false); }}
             className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${isMoment ? "bg-purple-100 text-purple-700 dark:bg-purple-900" : "text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"}`}
-            title="Moment (24h)" aria-label="Toggle Moment mode" disabled={!canAccess}>🌟</button>
+            title="Moment (24h)" aria-label="Toggle Moment mode" disabled={!canAccess}><Icon emoji="🌟" size={20} /></button>
           {!isOwner && (
             <a href={`/rooms/${roomId}/gift`}
               className="flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-500 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30"
-              title="Send a gift" aria-label="Send a gift" onClick={() => setShowMobileExtras(false)}>🎁</a>
+              title="Send a gift" aria-label="Send a gift" onClick={() => setShowMobileExtras(false)}><Icon emoji="🎁" size={20} /></a>
           )}
           <button type="button" onClick={() => { toggle("powers"); setShowMobileExtras(false); }}
             className={`flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${showPowers ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900" : "text-neutral-500 hover:bg-neutral-200 dark:hover:bg-neutral-700"}`}
-            aria-label="Room Powers" title="Room Powers" disabled={!canAccess}>⚡</button>
+            aria-label="Room Powers" title="Room Powers" disabled={!canAccess}><Icon emoji="⚡" size={20} /></button>
         </div>
       )}
 
@@ -936,7 +936,7 @@ function RoomInputBar({
           aria-label={t("room.moreOptions")}
           disabled={!canAccess}
         >
-          {showMobileExtras ? "✕" : "+"}
+          {showMobileExtras ? <Icon emoji="✕" size={16} /> : "+"}
         </button>
 
         {/* Desktop: GIF button */}
@@ -950,7 +950,7 @@ function RoomInputBar({
         <button type="button" onClick={() => toggle("sticker")}
           className={`hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${showSticker ? "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
           aria-label="Stickers" title="Stickers" disabled={!canAccess}>
-          😊
+          <Icon emoji="😊" size={20} />
         </button>
 
         {/* Text input */}
@@ -972,7 +972,7 @@ function RoomInputBar({
         {/* Desktop: Moment toggle */}
         <button type="button" onClick={onMomentToggle} title="Moment (24h)" aria-label="Toggle Moment mode" disabled={!canAccess}
           className={`hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${isMoment ? "bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}>
-          🌟
+          <Icon emoji="🌟" size={20} />
         </button>
 
         {/* Desktop: Gift (hidden for the room owner — can't gift yourself) */}
@@ -980,7 +980,7 @@ function RoomInputBar({
           <a href={`/rooms/${roomId}/gift`}
             className="hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-xl text-neutral-400 hover:bg-amber-100 hover:text-amber-600 dark:hover:bg-amber-900/30"
             title="Send a gift" aria-label="Send a gift">
-            🎁
+            <Icon emoji="🎁" size={20} />
           </a>
         )}
 
@@ -988,7 +988,7 @@ function RoomInputBar({
         <button type="button" onClick={() => toggle("powers")}
           className={`hidden sm:flex h-9 w-9 items-center justify-center rounded-lg text-xl transition-colors ${showPowers ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200" : "text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"}`}
           aria-label="Room Powers" title="Room Powers" disabled={!canAccess}>
-          ⚡
+          <Icon emoji="⚡" size={20} />
         </button>
 
         {/* Send */}
@@ -1062,7 +1062,7 @@ function SpectacleThresholdPanel({
   return (
     <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-        🎁 Spectacle Threshold
+        <Icon emoji="🎁" size={12} className="inline mr-1" />Spectacle Threshold
       </h2>
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
         Gifts above this value trigger a full room-wide spectacle animation. Leave blank to use
@@ -1070,7 +1070,7 @@ function SpectacleThresholdPanel({
       </p>
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
-          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs text-neutral-400">🪙</span>
+          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400"><Icon emoji="🪙" size={12} /></span>
           <input
             type="number"
             min="0"
@@ -1089,7 +1089,7 @@ function SpectacleThresholdPanel({
           className="flex-shrink-0 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white
                      hover:bg-blue-700 disabled:opacity-60 transition-colors"
         >
-          {saving ? "Saving…" : saved ? "✓ Saved" : "Save"}
+          {saving ? "Saving…" : saved ? <><Icon emoji="✓" size={12} className="inline mr-1" />Saved</> : "Save"}
         </button>
       </div>
       {error && <p className="mt-1.5 text-xs text-red-500">{error}</p>}
@@ -1165,7 +1165,7 @@ function RoomCapacityPanel({ roomId }: { roomId: string }) {
   return (
     <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-        👥 {t("room.capacityTitle")}
+<Icon emoji="👥" size={12} className="inline mr-1" />{t("room.capacityTitle")}
       </h2>
       <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
         {t("room.capacityHelp", { n: capInfo?.currentCap ?? 0 })}
@@ -1720,19 +1720,19 @@ export default function RoomPage() {
           {/* Top gifter display — PRD §12 */}
           {topGifter && (
             <div className="flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-1 dark:bg-amber-950/40" title={`Top gifter: @${topGifter.username}`}>
-              <span className="text-sm">👑</span>
+              <Icon emoji="👑" size={14} />
               <span className="max-w-[80px] truncate text-xs font-semibold text-amber-700 dark:text-amber-300">
                 @{topGifter.username}
               </span>
             </div>
           )}
-          <Link href="/rooms" className="text-xs text-blue-600 hover:underline dark:text-blue-400">← Rooms</Link>
+          <Link href="/rooms" className="flex items-center gap-1 text-xs text-blue-600 hover:underline dark:text-blue-400"><Icon emoji="←" size={12} /> Rooms</Link>
           <button
             onClick={() => setShowSidebar((v) => !v)}
             className="flex h-8 w-8 items-center justify-center rounded-lg text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 lg:hidden"
             aria-label={t("room.showInfo")}
           >
-            ℹ️
+            <Icon emoji="ℹ️" size={16} />
           </button>
         </div>
 
@@ -1748,7 +1748,7 @@ export default function RoomPage() {
         {/* Tipping room banner */}
         {room.type === "tipping" && (
           <div className="border-b border-blue-200 bg-blue-50 px-4 py-2.5 text-center dark:border-blue-800 dark:bg-blue-950/30">
-            <p className="text-xs font-semibold text-blue-700 dark:text-blue-300">🎤 Tipping Room — show your support with gifts!</p>
+            <p className="inline-flex items-center gap-1 text-xs font-semibold text-blue-700 dark:text-blue-300"><Icon emoji="🎤" size={12} /> Tipping Room — show your support with gifts!</p>
           </div>
         )}
 
@@ -1784,7 +1784,7 @@ export default function RoomPage() {
                 <RoomSkeleton />
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center py-16 text-neutral-400">
-                  <span className="text-4xl">💬</span>
+                  <Icon emoji="💬" size={36} className="text-4xl" />
                   <p className="mt-2 text-sm">No messages yet. Be the first!</p>
                 </div>
               ) : (
@@ -1844,7 +1844,7 @@ export default function RoomPage() {
               </p>
             </div>
             <div className="flex items-center gap-1.5 rounded-xl bg-amber-50 px-4 py-2 dark:bg-amber-950/30">
-              <span className="text-lg">🪙</span>
+              <Icon emoji="🪙" size={16} />
               <span className="text-lg font-extrabold text-amber-700 dark:text-amber-300">
                 {spectacle.coinValue.toLocaleString()} {currency.softPlural.toLowerCase()}
               </span>
@@ -1909,14 +1909,14 @@ export default function RoomPage() {
         {/* Drop Room Replay (PRD §10) */}
         {room.type === "drop" && replay !== "loading" && (
           <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">📼 Drop Replay</h2>
+            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500"><Icon emoji="📼" size={12} className="inline mr-1" />Drop Replay</h2>
             {replay && replay.isPublished ? (
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{replay.title}</p>
                 {(replay.replayFeeKobo ?? 0) > 0 && !replayPurchased && room.creatorId !== currentUserId ? (
                   <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950/40">
                     <p className="mb-2 text-xs text-amber-800 dark:text-amber-300">
-                      🔒 Replay requires a one-time fee of{" "}
+                      <Icon emoji="🔒" size={12} className="inline mr-1" />Replay requires a one-time fee of{" "}
                       <strong>{((replay.replayFeeKobo ?? 0) / 100).toLocaleString()} {currency.softPlural?.toLowerCase()}</strong>
                     </p>
                     <button
@@ -1935,14 +1935,14 @@ export default function RoomPage() {
                       }}
                       className="w-full rounded-lg bg-amber-500 py-1.5 text-xs font-semibold text-white hover:bg-amber-600 disabled:opacity-60"
                     >
-                      {purchasingReplay ? "Processing…" : `🪙 Unlock Replay · ${(replay.replayFeeKobo / 100).toLocaleString()} ${currency.softPlural.toLowerCase()}`}
+                      {purchasingReplay ? "Processing…" : <><Icon emoji="🪙" size={12} className="inline mr-1" />Unlock Replay · {(replay.replayFeeKobo / 100).toLocaleString()} {currency.softPlural.toLowerCase()}</>}
                     </button>
                   </div>
                 ) : (
                   <>
                     <p className="text-xs text-neutral-500">{replay.highlights.length} highlights</p>
                     {replay.replayFeeKobo > 0 && (
-                      <p className="text-xs font-semibold text-teal-600 dark:text-teal-400">✓ Replay unlocked</p>
+                      <p className="inline-flex items-center gap-1 text-xs font-semibold text-teal-600 dark:text-teal-400"><Icon emoji="✓" size={12} /> Replay unlocked</p>
                     )}
                     <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto rounded-lg bg-neutral-50 p-2 text-xs dark:bg-neutral-800">
                       {replay.highlights.map((h, i) => (
@@ -2003,7 +2003,7 @@ export default function RoomPage() {
                     onClick={() => setShowPublishForm(true)}
                     className="w-full rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
                   >
-                    📼 Publish Replay
+                    <Icon emoji="📼" size={12} className="inline mr-1" />Publish Replay
                   </button>
                 </div>
               )

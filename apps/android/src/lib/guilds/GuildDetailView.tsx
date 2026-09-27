@@ -9,6 +9,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
+import { Icon } from '@/components/ui/Icon';
 import { apiClient } from '@/lib/api/client';
 import type { GuildDetail, GuildMember, GuildMemberRole } from './types';
 
@@ -100,7 +101,7 @@ function ForumModsSection({ guildId, isCaptain, members }: { guildId: string; is
   const nonCaptainMembers = members.filter((m) => m.role !== 'captain');
 
   return (
-    <SectionCard title={`🛡️ ${t('guild.forumMods')}`}>
+    <SectionCard title={<><Icon emoji="🛡️" className="inline" /> {t('guild.forumMods')}</>}>
       <div className="px-5 py-4">
         <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
           {t('guild.forumModsDescription')}{' '}
@@ -169,7 +170,7 @@ export function GuildDetailView({
     <div className="mx-auto max-w-2xl space-y-4">
       {backTo && (
         <Link to={backTo} className="inline-flex items-center gap-1.5 text-sm text-neutral-500 dark:text-neutral-400">
-          ← {t('guild.guildLabel')}
+          <Icon emoji="←" /> {t('guild.guildLabel')}
         </Link>
       )}
 
@@ -182,9 +183,9 @@ export function GuildDetailView({
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">{guild.name}</h1>
-              <span className={`rounded-full px-2.5 py-0.5 text-xs font-semibold ${classes}`}>{emoji} {label}</span>
+              <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${classes}`}><Icon emoji={emoji} /> {label}</span>
             </div>
-            {guild.city && <p className="text-sm text-neutral-500 dark:text-neutral-400">📍 {guild.city}</p>}
+            {guild.city && <p className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400"><Icon emoji="📍" /> {guild.city}</p>}
             {guild.description && <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-400">{guild.description}</p>}
             <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('guild.members', { count: guild.memberCount })} / {guild.maxMembers}</p>
 
@@ -201,7 +202,7 @@ export function GuildDetailView({
           <div className="text-right">
             <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('guild.treasury')}</p>
             <p className="text-lg font-bold text-amber-600 dark:text-amber-300">
-              {guild.treasuryBalance !== null ? guild.treasuryBalance.toLocaleString() : '—'} <span className="text-sm font-normal">🪙</span>
+              {guild.treasuryBalance !== null ? guild.treasuryBalance.toLocaleString() : '—'} <span className="text-sm font-normal"><Icon emoji="🪙" /></span>
             </p>
           </div>
         </div>
@@ -249,7 +250,7 @@ export function GuildDetailView({
 
       {/* Active quests */}
       {guild.activeQuests.length > 0 && (
-        <SectionCard title="🎯 Guild Quests">
+        <SectionCard title={<><Icon emoji="🎯" className="inline" /> Guild Quests</>}>
           <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
             {guild.activeQuests.map((q) => (
               <div key={q.id} className="px-5 py-4">
@@ -274,7 +275,7 @@ export function GuildDetailView({
       )}
 
       {/* Members */}
-      <SectionCard title={`👥 ${t('guild.membersSection')} (${guild.memberCount})`}>
+      <SectionCard title={<><Icon emoji="👥" className="inline" /> {t('guild.membersSection')} ({guild.memberCount})</>}>
         <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
           {guild.members.slice(0, 20).map((m) => (
             <Link
@@ -338,7 +339,7 @@ export function GuildDetailView({
           <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
             {guild.allianceHistory.map((a) => (
               <div key={a.id} className="flex items-center gap-4 px-5 py-3">
-                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-100 dark:bg-teal-900/40 text-sm">🤝</span>
+                <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-teal-100 dark:bg-teal-900/40 text-sm"><Icon emoji="🤝" /></span>
                 <div className="min-w-0 flex-1">
                   <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100">{a.allianceName}</p>
                   <p className="text-xs text-neutral-500 dark:text-neutral-400">

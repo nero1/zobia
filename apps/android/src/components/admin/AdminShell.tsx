@@ -16,6 +16,7 @@ import { useAuth } from '@/lib/auth/store';
 import { adminNavItems } from '@/components/admin/adminNav';
 import { AdminGuard } from '@/components/admin/AdminGuard';
 import { ImpersonationBanner } from '@/components/admin/ImpersonationBanner';
+import { Icon } from '@/components/ui/Icon';
 
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const { t } = useTranslation();
@@ -95,7 +96,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               aria-label={t('nav.closeMenu')}
               className="rounded-full p-2 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700"
             >
-              <span aria-hidden="true" className="text-xl leading-none">✕</span>
+              <Icon emoji="✕" size={20} aria-hidden={true} />
             </button>
           </div>
 
@@ -105,7 +106,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               onClick={closeDrawer}
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-primary-600 dark:text-primary-300 hover:bg-primary-50 dark:hover:bg-primary-900/30"
             >
-              <span className="text-base leading-none">←</span>
+              <Icon emoji="←" size={16} />
               {t('nav.userArea')}
             </Link>
 
@@ -138,7 +139,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
               onClick={handleLogout}
               className="w-full rounded-xl px-3 py-2.5 text-left text-sm font-medium text-danger-600 dark:text-danger-300 hover:bg-danger-50 dark:hover:bg-danger-900/30"
             >
-              🚪 {t('nav.logout')}
+              <span className="inline-flex items-center gap-1.5"><Icon emoji="🚪" size={16} />{t('nav.logout')}</span>
             </button>
           </div>
         </div>

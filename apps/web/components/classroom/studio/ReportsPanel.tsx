@@ -14,6 +14,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { classroomApi, ClassroomApiError } from "@/lib/classroom/clientApi";
+import { Icon } from "@/components/ui/Icon";
 import type { ClassroomReportView } from "@/components/classroom/types";
 
 type ReportWithRoom = ClassroomReportView & { room?: { id: string; name: string; slug: string | null } };
@@ -65,7 +66,9 @@ export function ReportsPanel({ roomId, admin = false }: { roomId?: string; admin
       {reports.isPending ? (
         <div className="h-32 animate-pulse rounded-xl bg-white dark:bg-neutral-900" />
       ) : list.length === 0 ? (
-        <p className="py-8 text-center text-sm text-neutral-500">{t("classroom.reports.empty", "Nothing to review. 🎉")}</p>
+        <p className="py-8 text-center text-sm text-neutral-500">
+          {t("classroom.reports.empty", "Nothing to review.")} <Icon emoji="🎉" className="inline-block align-[-2px]" size={14} />
+        </p>
       ) : (
         <ul className="space-y-2">
           {list.map((r) => (

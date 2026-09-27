@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 type PayoutMethod = "bank_transfer" | "coins" | "crypto";
 
@@ -75,10 +76,14 @@ function ThresholdProgressBar({ availableKobo, minKobo }: { availableKobo: numbe
   return (
     <div className="mt-3">
       <div className="flex items-center justify-between text-xs">
-        <span className={`font-semibold ${met ? "text-teal-700 dark:text-teal-300" : "text-amber-700 dark:text-amber-400"}`}>
-          {met
-            ? t("creator.thresholdMet", "✅ Withdrawal threshold reached")
-            : t("creator.payout.thresholdRemaining", "{{amount}} more to reach the minimum payout", { amount: formatNgn(remainingKobo) })}
+        <span className={`inline-flex items-center gap-1 font-semibold ${met ? "text-teal-700 dark:text-teal-300" : "text-amber-700 dark:text-amber-400"}`}>
+          {met ? (
+            <>
+              <Icon emoji="✅" size={14} /> {t("creator.thresholdMet", "Withdrawal threshold reached")}
+            </>
+          ) : (
+            t("creator.payout.thresholdRemaining", "{{amount}} more to reach the minimum payout", { amount: formatNgn(remainingKobo) })
+          )}
         </span>
         <span className="tabular-nums text-neutral-400">
           {formatNgn(availableKobo)} / {formatNgn(minKobo)}
