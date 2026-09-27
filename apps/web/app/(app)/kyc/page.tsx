@@ -14,6 +14,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { SUPPORTED_NIGERIAN_BANKS } from "@/lib/payments/supported-banks";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
+import { Icon } from "@/components/ui/Icon";
 
 const COMMON_COUNTRIES: { code: string; name: string }[] = [
   { code: "US", name: "United States" },
@@ -102,7 +103,7 @@ function DocUpload({
       <div className="flex items-center justify-between gap-2">
         <span className="text-sm font-medium text-foreground">{label}</span>
         {docId ? (
-          <span className="text-xs font-medium text-emerald-500">{t("kyc.doc.uploaded", "✓ Uploaded")}</span>
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-500"><Icon emoji="✓" className="h-3.5 w-3.5" /> {t("kyc.doc.uploaded", "Uploaded")}</span>
         ) : (
           <label className="cursor-pointer rounded-md border border-border bg-card px-2.5 py-1 text-xs font-medium text-foreground hover:bg-accent">
             {uploading ? t("kyc.doc.uploading", "Uploading…") : t("kyc.doc.chooseFile", "Choose file")}
@@ -251,7 +252,7 @@ function TierCard({
         <div>
           <div className="flex items-center gap-2">
             <h2 className="font-semibold text-foreground">{title}</h2>
-            {approved && <span className="rounded-full bg-emerald-950/40 px-2 py-0.5 text-xs font-medium text-emerald-400">{t("kyc.approvedBadge", "✓ Approved")}</span>}
+            {approved && <span className="inline-flex items-center gap-1 rounded-full bg-emerald-950/40 px-2 py-0.5 text-xs font-medium text-emerald-400"><Icon emoji="✓" className="h-3.5 w-3.5" /> {t("kyc.approvedBadge", "Approved")}</span>}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
           {latest && (
@@ -273,7 +274,7 @@ function TierCard({
           )
         )}
       </div>
-      {locked && !approved && <p className="mt-2 text-xs text-muted-foreground">{t("kyc.locked", `🔒 ${lockedReason}`, { reason: lockedReason })}</p>}
+      {locked && !approved && <p className="mt-2 inline-flex items-center gap-1 text-xs text-muted-foreground"><Icon emoji="🔒" className="h-3.5 w-3.5" /> {t("kyc.locked", `${lockedReason ?? ""}`, { reason: lockedReason })}</p>}
       {expanded && !active && !approved && <div className="mt-4 border-t border-border pt-4">{children}</div>}
     </div>
   );
@@ -372,7 +373,7 @@ function Tier1Form({ onSubmitted, onError }: { onSubmitted: () => void; onError:
   if (country === "NG") {
     return (
       <div className="space-y-3">
-        <button type="button" onClick={() => setCountry("")} className="text-xs text-muted-foreground hover:text-foreground">{t("kyc.tier1.changeCountry", "← Change country")}</button>
+        <button type="button" onClick={() => setCountry("")} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><Icon emoji="←" className="h-3.5 w-3.5" /> {t("kyc.tier1.changeCountry", "Change country")}</button>
         <input placeholder={t("kyc.tier1.firstName", "First name")} value={firstName} onChange={(e) => setFirstName(e.target.value)} className={inputClass} />
         <input placeholder={t("kyc.tier1.lastName", "Last name")} value={lastName} onChange={(e) => setLastName(e.target.value)} className={inputClass} />
         <input placeholder={t("kyc.tier1.bvnPlaceholder", "BVN (11 digits)")} value={bvn} onChange={(e) => setBvn(e.target.value.replace(/\D/g, "").slice(0, 11))} className={inputClass} />
@@ -395,7 +396,7 @@ function Tier1Form({ onSubmitted, onError }: { onSubmitted: () => void; onError:
 
   return (
     <div className="space-y-3">
-      <button type="button" onClick={() => setCountry("")} className="text-xs text-muted-foreground hover:text-foreground">{t("kyc.tier1.changeCountry", "← Change country")}</button>
+      <button type="button" onClick={() => setCountry("")} className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><Icon emoji="←" className="h-3.5 w-3.5" /> {t("kyc.tier1.changeCountry", "Change country")}</button>
       <input placeholder={t("kyc.tier1.fullNamePlaceholder", "Full legal name")} value={fullName} onChange={(e) => setFullName(e.target.value)} className={inputClass} />
       <select value={idType} onChange={(e) => setIdType(e.target.value)} className={inputClass}>
         <option value="passport">{t("kyc.tier1.idType.passport", "Passport")}</option>
