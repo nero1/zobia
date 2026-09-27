@@ -22,6 +22,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import type { GuildSummary } from '@/lib/guilds/types';
 import { TIER_BADGE, tierBase } from '@/lib/guilds/GuildDetailView';
+import { Icon } from '@/components/ui/Icon';
 
 interface DiscoveryData {
   guilds: GuildSummary[];
@@ -117,7 +118,7 @@ function GuildCard({
         <div className="shrink-0">
           {isJoined ? (
             <span className="rounded-xl bg-teal-100 dark:bg-teal-900/40 px-4 py-2 text-sm font-bold text-teal-700 dark:text-teal-300">
-              {t('guildDiscovery.joined')}
+              <Icon emoji="✓" size={14} /> {t('guildDiscovery.joined')}
             </span>
           ) : (
             <button

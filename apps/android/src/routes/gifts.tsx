@@ -13,6 +13,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { GIFT_TIER_LABELS } from '@zobia/shared/utils';
+import { Icon } from '@/components/ui/Icon';
 
 interface GiftUser {
   id: string;
@@ -428,7 +429,7 @@ function SendGiftPanel({
 
       {catalogue && recipient && (
         <>
-          {wallet && <p className="text-xs text-neutral-500 dark:text-neutral-400">{t('gifts.send.walletBalance', { amount: wallet.coins.toLocaleString() })}</p>}
+          {wallet && <p className="inline-flex items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400"><Icon emoji="🪙" size={12} /> {t('gifts.send.walletBalance', { amount: wallet.coins.toLocaleString() })}</p>}
 
           <div className="flex gap-2 overflow-x-auto pb-1">
             {catalogue.tiers.map((tr) => (
@@ -519,7 +520,7 @@ function SendGiftPanel({
             ? t('gifts.send.sending')
             : selectedGift
               ? t('gifts.send.sendBtn', { emoji: selectedGift.emoji, name: selectedGift.name })
-              : t('gifts.sendBtn')}
+              : <><Icon emoji="🎁" size={14} /> {t('gifts.sendBtn')}</>}
         </button>
       </div>
     </div>
@@ -613,7 +614,7 @@ function GiftsPage() {
           onClick={() => { setSelectedCatalogGiftId(undefined); setShowModal(true); }}
           className="shrink-0 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white"
         >
-          {t('gifts.sendBtn')}
+          <Icon emoji="🎁" size={14} /> {t('gifts.sendBtn')}
         </button>
       </div>
 
@@ -699,7 +700,7 @@ function GiftsPage() {
             </div>
             {tab === 'sent' && (
               <button onClick={() => setShowModal(true)} className="rounded-xl bg-primary-600 px-5 py-2.5 text-sm font-semibold text-white">
-                {t('gifts.sendBtn')}
+                <Icon emoji="🎁" size={14} /> {t('gifts.sendBtn')}
               </button>
             )}
           </div>

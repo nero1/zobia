@@ -16,6 +16,7 @@ import { useAuth } from '@/lib/auth/store';
 import { useTweetsConfig } from '@/lib/hooks/useTweetsConfig';
 import { useTweetLengthPolicy } from '@/lib/hooks/useTweetLengthPolicy';
 import type { TweetVideoProvider } from '@/components/tweets/types';
+import { Icon } from '@/components/ui/Icon';
 
 interface InsufficientFundsInfo {
   costCredits: number;
@@ -211,7 +212,7 @@ function CreateTweetPage() {
             }}
           />
           <label htmlFor="tweet-image-input" className="cursor-pointer rounded-xl border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400">
-            {uploading ? t('tweets.create.uploading') : t('tweets.create.addImage')}
+            {uploading ? t('tweets.create.uploading') : <><Icon emoji="📷" size={12} /> {t('tweets.create.addImage')}</>}
           </label>
           {imageUrl && (
             <button type="button" onClick={() => setImageUrl('')} className="text-xs font-semibold text-danger-600 dark:text-danger-300">
@@ -238,7 +239,7 @@ function CreateTweetPage() {
             onClick={() => setShowVideoPicker((v) => !v)}
             className="rounded-xl border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400"
           >
-            {t('tweets.create.addVideo')}
+            <Icon emoji="🎬" size={12} /> {t('tweets.create.addVideo')}
           </button>
         ) : (
           <div className="space-y-2">

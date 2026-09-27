@@ -19,6 +19,7 @@ import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '
 import { useAuth } from '@/lib/auth/store';
 import { useFiatCurrency, formatKoboClient, type FiatCurrency } from '@/lib/hooks/useFiatCurrency';
 import { CryptoBalancesSection } from '@/components/wallet/CryptoBalancesSection';
+import { Icon } from '@/components/ui/Icon';
 
 const TX_PAGE_SIZE = 10;
 
@@ -454,13 +455,13 @@ function WalletPage() {
               onClick={() => setTab('coins')}
               className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'coins' ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'}`}
             >
-              {t('wallet.coinTransactions')}
+              <Icon emoji="🪙" size={12} /> {t('wallet.coinTransactions')}
             </button>
             <button
               onClick={() => setTab('stars')}
               className={`rounded-md px-3 py-1 text-xs font-semibold ${tab === 'stars' ? 'bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100' : 'text-neutral-500 dark:text-neutral-400'}`}
             >
-              {t('wallet.starTransactions')}
+              <Icon emoji="⭐" size={12} /> {t('wallet.starTransactions')}
             </button>
           </div>
         </div>

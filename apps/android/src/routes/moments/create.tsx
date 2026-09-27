@@ -13,6 +13,7 @@ import { isAxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency, currencyLabel } from '@/lib/hooks/useCurrency';
 import { useMomentsConfig } from '@/lib/hooks/useMomentsConfig';
+import { Icon } from '@/components/ui/Icon';
 
 const MAX_CONTENT = 500;
 const MAX_CAPTION = 200;
@@ -156,7 +157,7 @@ function CreateMomentPage() {
                   htmlFor="moment-image-input"
                   className="cursor-pointer rounded-xl border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-600 dark:text-neutral-400"
                 >
-                  {uploading ? t('moments.create.uploading') : t('moments.create.addImage')}
+                  {uploading ? t('moments.create.uploading') : <><Icon emoji="📷" size={12} /> {t('moments.create.addImage')}</>}
                 </label>
                 {imageUrl && (
                   <button type="button" onClick={() => setImageUrl('')} className="text-xs font-semibold text-danger-600 dark:text-danger-300">

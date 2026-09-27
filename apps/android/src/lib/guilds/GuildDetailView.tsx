@@ -227,7 +227,7 @@ export function GuildDetailView({
       {guild.activeWar && (
         <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 p-5">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="font-bold text-red-700 dark:text-red-300">{t('guild.activeWar')}</h2>
+            <h2 className="flex items-center gap-1.5 font-bold text-red-700 dark:text-red-300"><Icon emoji="⚔️" size={16} /> {t('guild.activeWar')}</h2>
             <span className="rounded-full bg-red-100 dark:bg-red-900/40 px-2.5 py-0.5 text-xs font-semibold text-red-700 dark:text-red-300">
               {t('guild.endsIn', { time: formatCountdown(warSecs) })}
             </span>

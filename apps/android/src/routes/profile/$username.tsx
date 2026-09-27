@@ -24,6 +24,7 @@ import { ProfileTweets } from '@/components/tweets/ProfileTweets';
 import { PhotoGallery } from '@/components/profile/PhotoGallery';
 import { ActivityFeed, useProfileActivityQuery } from '@/components/profile/ActivityFeed';
 import type { RankName } from '@zobia/shared/types';
+import { Icon } from '@/components/ui/Icon';
 type ProfileTab = 'tweets' | 'activities';
 
 interface TrackLevel {
@@ -195,7 +196,7 @@ function ProfilePage() {
               {profile.plan === 'free' ? t('profile.freePlan') : t('profile.plan', { plan: profile.plan })}
             </span>
             {profile.isVerified && (
-              <span className="text-xs text-primary-600 dark:text-primary-300 font-medium">{t('profile.verified')}</span>
+              <span className="inline-flex items-center gap-1 text-xs text-primary-600 dark:text-primary-300 font-medium"><Icon emoji="✓" size={12} /> {t('profile.verified')}</span>
             )}
           </div>
         </div>

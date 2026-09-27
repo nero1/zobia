@@ -18,6 +18,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 import {
   AdminCard,
   AdminCardSkeleton,
@@ -297,7 +298,7 @@ function DetailOverlay({
                       onClick={() => approve.mutate()}
                       className="flex-1 rounded-lg bg-success-600 px-3 py-2.5 text-sm font-semibold text-white disabled:opacity-50"
                     >
-                      {approve.isPending ? '…' : t('admin.kyc.approve', '✓ Approve')}
+                      {approve.isPending ? '…' : <><Icon emoji="✓" size={14} /> {t('admin.kyc.approve', 'Approve')}</>}
                     </button>
                     <button
                       type="button"
@@ -305,7 +306,7 @@ function DetailOverlay({
                       onClick={() => setShowReject(true)}
                       className="flex-1 rounded-lg border border-danger-600 px-3 py-2.5 text-sm font-semibold text-danger-600 dark:text-danger-300 disabled:opacity-50"
                     >
-                      {t('admin.kyc.reject', '✕ Reject')}
+                      <Icon emoji="✕" size={14} /> {t('admin.kyc.reject', 'Reject')}
                     </button>
                   </div>
                 ) : (

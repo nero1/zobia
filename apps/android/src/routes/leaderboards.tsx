@@ -15,6 +15,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
+import { Icon } from '@/components/ui/Icon';
 
 type Scope = 'global' | 'city' | 'guild' | 'season';
 type Track = 'main' | 'social' | 'creator' | 'competitor' | 'generosity' | 'gaming' | 'knowledge' | 'explorer';
@@ -205,7 +206,7 @@ function LeaderboardsPage() {
               onClick={() => setPage((p) => p - 1)}
               className="rounded-lg border border-neutral-200 dark:border-neutral-700 px-3 py-1.5 text-xs disabled:opacity-40"
             >
-              {t('leaderboards.prevPage')}
+              <Icon emoji="←" size={12} /> {t('leaderboards.prevPage')}
             </button>
             <span className="tabular-nums text-xs">{t('leaderboards.page', { page, total: totalPages })}</span>
             <button

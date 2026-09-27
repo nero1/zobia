@@ -10,6 +10,7 @@ import { createFileRoute, Link, useNavigate } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { PullToRefresh } from '@/components/ui/PullToRefresh';
+import { Icon } from '@/components/ui/Icon';
 import { useMarkMessagesSeen } from '@/lib/notifications/useHasNewSince';
 
 interface UserSuggestion {
@@ -184,7 +185,7 @@ function MessagesPage() {
             to="/messages/groups"
             className="rounded-full border border-neutral-300 dark:border-neutral-600 px-3 py-2 text-xs font-semibold text-neutral-700 dark:text-neutral-300"
           >
-            {t('messages.groups')}
+            <Icon emoji="👥" size={12} /> {t('messages.groups')}
           </Link>
           <button
             onClick={() => setShowNewMessage(true)}

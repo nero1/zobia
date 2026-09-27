@@ -12,6 +12,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface NemesisParty {
   userId: string;
@@ -118,7 +119,7 @@ export function NemesisCard() {
         disabled={challenge.isPending}
         className="mt-4 w-full rounded-xl border border-neutral-300 dark:border-neutral-600 py-2.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300 disabled:opacity-60"
       >
-        {challenge.isPending ? t('home.nemesis.challenging') : t('home.nemesis.challenge')}
+        {challenge.isPending ? t('home.nemesis.challenging') : <><Icon emoji="⚔️" size={14} /> {t('home.nemesis.challenge')}</>}
       </button>
     </div>
   );
