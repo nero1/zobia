@@ -135,7 +135,7 @@ export function ActiveEventStrip() {
           className="fixed inset-0 z-[9997] flex items-center justify-center bg-black/50 p-4"
         >
           <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl dark:bg-neutral-900">
-            <span className="text-4xl">🎉</span>
+            <Icon emoji="🎉" className="mx-auto" size={40} />
             <h2 id="new-event-popup-title" className="mt-3 text-lg font-bold text-neutral-900 dark:text-neutral-50">
               New Event: {newEventPopup.name}
             </h2>
@@ -171,8 +171,9 @@ export function ActiveEventStrip() {
           href="/events"
           className="flex items-center justify-between gap-3 bg-gradient-to-r from-blue-600 to-teal-600 px-4 py-2 text-white hover:opacity-95"
         >
-          <span className="min-w-0 flex-1 truncate text-sm font-medium">
-            {promoted.isLive ? "🔴 Live now: " : "📅 Coming up: "}
+          <span className="flex min-w-0 flex-1 items-center gap-1 truncate text-sm font-medium">
+            <Icon emoji={promoted.isLive ? "🔴" : "📅"} size={14} />
+            {promoted.isLive ? " Live now: " : " Coming up: "}
             {promoted.name}
             {promoted.xpMultiplier > 1 && ` — ${promoted.xpMultiplier}× XP`}
           </span>
@@ -185,7 +186,7 @@ export function ActiveEventStrip() {
             aria-label="Dismiss event promo"
             className="shrink-0 rounded p-1 text-white/90 hover:text-white"
           >
-            ✕
+            <Icon emoji="✕" size={14} />
           </button>
         </Link>
       )}
