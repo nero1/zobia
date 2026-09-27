@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 // One-shot "resume this after login" intent, tab-scoped so it never leaks
 // between users sharing a device and never lingers past the session that
@@ -131,7 +132,7 @@ export function SubscribeButton({ blogSlug, showCount, initialCount }: { blogSlu
           subscribed ? "border border-border bg-card text-foreground hover:bg-accent" : "bg-primary text-primary-foreground hover:opacity-90"
         }`}
       >
-        {subscribed ? t("blogs.subscribed", "Subscribed ✓") : t("blogs.subscribe", "Subscribe")}
+        {subscribed ? <>{t("blogs.subscribed", "Subscribed")} <Icon emoji="✓" size={14} className="inline align-[-2px]" /></> : t("blogs.subscribe", "Subscribe")}
         {showCount && <span className="ml-1.5 opacity-70">· {count}</span>}
       </button>
       {subscribed && (

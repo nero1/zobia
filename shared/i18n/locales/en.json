@@ -1739,7 +1739,7 @@
   "blogs.status.draft": "Drafts",
   "blogs.status.published": "Published",
   "blogs.subscribe": "Subscribe",
-  "blogs.subscribed": "Subscribed ✓",
+  "blogs.subscribed": "Subscribed",
   "blogs.subscribed.empty": "You haven't subscribed to any blogs yet.",
   "blogs.tab.new": "New",
   "blogs.tab.popular": "Popular",
