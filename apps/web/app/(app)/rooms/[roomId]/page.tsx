@@ -32,6 +32,7 @@ import { BoostContentButton } from "@/components/ads/BoostContentButton";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { readCachedMessages, writeCachedMessages } from "@/lib/chat/messageCache";
 import { UserBadgeRow, RewardBadge } from "@/components/shared/UserBadges";
+import { Icon } from "@/components/ui/Icon";
 
 // Resolved at build time. When undefined there is no push provider configured
 // and the 3-second baseline poll is the sole live channel.
@@ -252,7 +253,7 @@ function ClassRoomCurriculum({
   return (
     <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-        🎓 Curriculum
+        <Icon emoji="🎓" size={12} className="inline mr-1" />Curriculum
       </h2>
       <p className="mb-1 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
         {data.courseTitle}
@@ -284,12 +285,12 @@ function ClassRoomCurriculum({
       )}
       {isEnded && data.graduatesCount > 0 && (
         <p className="mb-2 text-xs text-teal-600 dark:text-teal-400">
-          🎓 {data.graduatesCount.toLocaleString()} graduate{data.graduatesCount !== 1 ? "s" : ""}
+          <Icon emoji="🎓" size={12} className="inline mr-1" />{data.graduatesCount.toLocaleString()} graduate{data.graduatesCount !== 1 ? "s" : ""}
         </p>
       )}
       {data.isGraduate && (
         <button type="button" onClick={handleCertificate} className="mb-2 w-full rounded-lg bg-teal-600 py-2 text-xs font-semibold text-white hover:bg-teal-700">
-          📜 Download Certificate
+<Icon emoji="📜" size={12} className="inline mr-1" />Download Certificate
         </button>
       )}
       {!data.isEnrolled && !isCreator && (
@@ -298,7 +299,7 @@ function ClassRoomCurriculum({
         </button>
       )}
       {data.isEnrolled && !data.isGraduate && (
-        <p className="text-xs text-teal-600 dark:text-teal-400">✓ You are enrolled</p>
+        <p className="text-xs text-teal-600 dark:text-teal-400"><Icon emoji="✓" size={12} className="inline mr-1" />You are enrolled</p>
       )}
     </div>
   );
@@ -381,7 +382,7 @@ function MessageBubble({ msg, isOwn }: MessageBubbleProps) {
             )}
             {msg.content}
             {msg.message_type === "moment" && (
-              <div className="mt-1 text-xs font-semibold text-purple-500 dark:text-purple-400">⚡ Moment · 24h</div>
+              <div className="mt-1 flex items-center gap-1 text-xs font-semibold text-purple-500 dark:text-purple-400"><Icon emoji="⚡" size={12} /> Moment · 24h</div>
             )}
           </div>
         )}
@@ -417,7 +418,7 @@ function VipOverlay({ price, previewMessages, onSubscribe, subscribing, subscrib
       {/* Overlay */}
       <div className="absolute inset-0 flex items-center justify-center bg-white/80 dark:bg-neutral-900/80">
         <div className="mx-4 rounded-2xl border border-neutral-200 bg-white p-6 text-center shadow-modal dark:border-neutral-800 dark:bg-neutral-900">
-          <span className="text-4xl">🔒</span>
+          <Icon emoji="🔒" size={36} className="text-4xl" />
           <h3 className="mt-3 text-lg font-bold text-neutral-900 dark:text-neutral-50">VIP Room</h3>
           <p className="mt-1 text-sm text-neutral-500">Subscribe to access this room</p>
           {price > 0 && (
@@ -465,7 +466,7 @@ function DropNotice({ expiresAt, entryFee, onPay, paying, paid }: {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="text-sm font-semibold text-amber-800 dark:text-amber-200">
-            ⏱ Drop room — ends in <span className="tabular-nums">{formatCountdown(secs)}</span>
+            <Icon emoji="⏱" size={12} className="inline mr-1" />Drop room — ends in <span className="tabular-nums">{formatCountdown(secs)}</span>
           </p>
           <p className="text-xs text-amber-600">Entry fee: {entryFee.toLocaleString()} {currency.softPlural.toLowerCase()}</p>
         </div>
@@ -519,7 +520,7 @@ function RoomGifPicker({ onSelect, onClose }: { onSelect: (url: string) => void;
     <div className="absolute bottom-full left-0 z-20 mb-2 w-[min(20rem,calc(100vw-1rem))] overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-xl dark:border-neutral-700 dark:bg-neutral-900">
       <div className="flex items-center justify-between border-b border-neutral-200 px-3 py-2 dark:border-neutral-700">
         <span className="text-xs font-semibold text-neutral-500">GIFs</span>
-        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close GIF picker">✕</button>
+        <button onClick={onClose} className="text-neutral-400 hover:text-neutral-600" aria-label="Close GIF picker"><Icon emoji="✕" size={14} /></button>
       </div>
       <div className="p-2">
         <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search GIFs…"
