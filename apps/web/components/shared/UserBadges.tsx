@@ -17,6 +17,7 @@
 import type { RankName } from "@zobia/types";
 import { RANK_THRESHOLDS } from "@/lib/xp/engine";
 import { VerifiedBadge } from "@/components/shared/VerifiedBadge";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // XP level badge — a small colored dot, one color per rank tier (PRD §6).
@@ -184,7 +185,7 @@ export function RewardBadge({ label, className = "" }: RewardBadgeProps) {
       title={`Reward unlocked: ${label}`}
       className={`inline-flex items-center gap-0.5 rounded-full border border-amber-400/60 bg-gradient-to-r from-amber-400/20 to-yellow-300/20 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-600 dark:text-amber-400 ${className}`}
     >
-      <span aria-hidden="true">✨</span>
+      <Icon emoji="✨" size={11} />
       {label}
     </span>
   );

@@ -15,6 +15,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 type RewardAction = "credits" | "stars" | "custom_text";
 
@@ -110,8 +111,8 @@ export function RoomRewardPanel({ roomId, isOwner }: { roomId: string; isOwner: 
 
   return (
     <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-800">
-      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-neutral-500">
-        🎁 {t("rooms.reward.title", "Room Reward")}
+      <h2 className="mb-2 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-neutral-500">
+        <Icon emoji="🎁" size={14} /> {t("rooms.reward.title", "Room Reward")}
       </h2>
 
       {isActive && !editing && (

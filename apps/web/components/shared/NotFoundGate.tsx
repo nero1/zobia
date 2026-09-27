@@ -18,6 +18,7 @@
 
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 export function NotFoundGate({
   enabled,
@@ -50,7 +51,7 @@ export function NotFoundGate({
 
   return (
     <div className="mx-auto flex max-w-md flex-col items-center justify-center px-4 py-24 text-center">
-      <span className="text-5xl">🔍</span>
+      <Icon emoji="🔍" size={48} />
       <h1 className="mt-4 text-xl font-bold text-neutral-900 dark:text-neutral-50">{t("notFoundGate.title", "Page not found")}</h1>
       <p className="mt-2 text-sm text-neutral-500">{t("notFoundGate.body", "This page isn't available right now.")}</p>
       <Link href="/home" className="mt-6 rounded-xl bg-primary-600 px-4 py-2 text-sm font-semibold text-white hover:bg-primary-700">

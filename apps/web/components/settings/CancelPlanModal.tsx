@@ -17,6 +17,7 @@
 
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 export interface CancelPlanFeature {
   text: string;
@@ -141,7 +142,7 @@ export function CancelPlanModal({
                 <ul className="mt-1.5 space-y-1">
                   {lostBenefits.map((f) => (
                     <li key={f.text} className="flex items-center gap-1.5 text-sm text-neutral-600 dark:text-neutral-400">
-                      <span className="text-red-500">✕</span> {f.text}
+                      <Icon emoji="✕" size={12} className="text-red-500" /> {f.text}
                     </li>
                   ))}
                 </ul>
@@ -259,7 +260,7 @@ export function CancelPlanModal({
 
         {step === "thanks" && (
           <div className="flex flex-col items-center gap-2 py-8 text-center">
-            <span className="text-3xl">💜</span>
+            <Icon emoji="💜" size={32} />
             <p className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">
               {t("subscription.cancelSurvey.thanks", "Thank you!")}
             </p>

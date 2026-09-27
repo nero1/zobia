@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { RoomPulseBar } from "@/components/ui/RoomPulseBar";
 import { useCurrency } from "@/lib/hooks/useCurrency";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -102,7 +103,7 @@ function FavoriteButton({
           : "bg-black/10 text-white hover:bg-black/20 dark:bg-white/10 dark:text-neutral-200"
       }`}
     >
-      {isFavorited ? "❤️" : "🤍"}
+      <Icon emoji={isFavorited ? "❤️" : "🤍"} size={14} />
     </button>
   );
 }
@@ -173,13 +174,13 @@ export function RoomCard({ room, onJoin, joining, onToggleFavorite }: RoomCardPr
 
         {/* Entry cost note */}
         {room.roomType === "vip" && room.subscriptionPriceNgn != null && (
-          <p className="mt-1 text-xs font-semibold text-amber-600">🔒 {room.subscriptionPriceNgn.toLocaleString()} {currency.softPlural?.toLowerCase()}/mo</p>
+          <p className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-amber-600"><Icon emoji="🔒" size={12} /> {room.subscriptionPriceNgn.toLocaleString()} {currency.softPlural?.toLowerCase()}/mo</p>
         )}
         {room.roomType === "drop" && room.entryFeeNgn != null && (
-          <p className="mt-1 text-xs font-semibold text-teal-600">🎟️ {room.entryFeeNgn.toLocaleString()} {currency.softPlural?.toLowerCase()} entry</p>
+          <p className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-teal-600"><Icon emoji="🎟️" size={12} /> {room.entryFeeNgn.toLocaleString()} {currency.softPlural?.toLowerCase()} entry</p>
         )}
         {room.roomType === "tipping" && (
-          <p className="mt-1 text-xs font-semibold text-green-600">💰 Tipping room</p>
+          <p className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-green-600"><Icon emoji="💰" size={12} /> Tipping room</p>
         )}
 
         {/* Join button */}
@@ -231,10 +232,10 @@ export function RoomListRow({ room, onJoin, joining, onToggleFavorite }: RoomCar
             <span>@{room.creatorUsername}</span>
             <span>· {(room.memberCount ?? 0).toLocaleString()} {t("rooms.members", { count: room.memberCount ?? 0 })}</span>
             {room.roomType === "vip" && room.subscriptionPriceNgn != null && (
-              <span className="font-semibold text-amber-600">· 🔒 {room.subscriptionPriceNgn.toLocaleString()} {currency.softPlural?.toLowerCase()}/mo</span>
+              <span className="inline-flex items-center gap-1 font-semibold text-amber-600">· <Icon emoji="🔒" size={12} /> {room.subscriptionPriceNgn.toLocaleString()} {currency.softPlural?.toLowerCase()}/mo</span>
             )}
             {room.roomType === "drop" && room.entryFeeNgn != null && (
-              <span className="font-semibold text-teal-600">· 🎟️ {room.entryFeeNgn.toLocaleString()} {currency.softPlural?.toLowerCase()}</span>
+              <span className="inline-flex items-center gap-1 font-semibold text-teal-600">· <Icon emoji="🎟️" size={12} /> {room.entryFeeNgn.toLocaleString()} {currency.softPlural?.toLowerCase()}</span>
             )}
           </div>
         </div>
