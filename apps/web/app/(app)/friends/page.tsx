@@ -14,6 +14,7 @@ import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { Avatar } from "@/components/ui/Avatar";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -417,7 +418,7 @@ function RecentChatsTab() {
             href={`/messages/${c.conversationId}`}
             className="shrink-0 rounded-full border border-neutral-200 px-3 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-400"
           >
-            💬 {t("friends.recent.message", "Message")}
+            <Icon emoji="💬" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("friends.recent.message", "Message")}
           </Link>
         </li>
       ))}
@@ -548,7 +549,7 @@ export default function FriendsPage() {
                 : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
             }`}
           >
-            {tItem.id === "recent" ? "🕐 " : ""}
+            {tItem.id === "recent" ? <Icon emoji="🕐" className="inline h-3.5 w-3.5 align-text-bottom" /> : ""}
             {tItem.label}
             {tItem.id === "requests" && hasNewRequest && (
               <span

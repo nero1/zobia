@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import GameRunner from "@/components/games/GameRunner";
+import { Icon } from "@/components/ui/Icon";
 
 interface RoundDetail {
   round_no: number;
@@ -63,7 +64,7 @@ export default function ChallengeDetailPage() {
 
   return (
     <div className="mx-auto max-w-xl px-4 py-6">
-      <Link href="/games/challenges" className="text-sm text-neutral-400 hover:text-neutral-200">← {t("games.challenges")}</Link>
+      <Link href="/games/challenges" className="text-sm text-neutral-400 hover:text-neutral-200"><Icon emoji="←" className="inline h-4 w-4 align-text-bottom" /> {t("games.challenges")}</Link>
       <h1 className="mt-2 text-2xl font-bold">{detail.gameName}</h1>
       <p className="text-sm text-neutral-400">
         @{detail.challengerUsername} vs @{detail.opponentUsername}

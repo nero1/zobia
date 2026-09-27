@@ -12,6 +12,7 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { GAME_CATEGORIES } from "@zobia/types";
+import { Icon } from "@/components/ui/Icon";
 
 interface GameSummary {
   id: string;
@@ -64,7 +65,12 @@ function StarRating({ rating, count }: { rating: number; count: number }) {
   const stars = Math.round(rating);
   return (
     <span className="flex items-center gap-0.5 text-amber-400 text-xs">
-      {"★".repeat(stars)}{"☆".repeat(Math.max(0, 5 - stars))}
+      {Array.from({ length: stars }).map((_, i) => (
+        <Icon key={`f${i}`} emoji="★" className="inline h-3 w-3" />
+      ))}
+      {Array.from({ length: Math.max(0, 5 - stars) }).map((_, i) => (
+        <Icon key={`e${i}`} emoji="☆" className="inline h-3 w-3" />
+      ))}
       <span className="text-muted-foreground ml-1">({count})</span>
     </span>
   );
@@ -76,7 +82,7 @@ function CostBadge({ credits, stars }: { credits: number; stars: number }) {
     <span className="text-amber-500 text-xs font-medium">
       {credits > 0 ? `${credits}¢` : ""}
       {credits > 0 && stars > 0 ? " + " : ""}
-      {stars > 0 ? `${stars}⭐` : ""}
+      {stars > 0 ? <>{stars}<Icon emoji="⭐" className="inline h-3 w-3 align-text-bottom" /></> : ""}
     </span>
   );
 }
@@ -89,7 +95,7 @@ function FaveButton({ favorited, onToggle }: { favorited: boolean; onToggle: () 
       onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggle(); }}
       className="flex-shrink-0 rounded-full bg-black/40 p-1.5 text-base leading-none backdrop-blur-sm transition-transform hover:scale-110 active:scale-95"
     >
-      {favorited ? "❤️" : "🤍"}
+      <Icon emoji={favorited ? "❤️" : "🤍"} className="inline h-4 w-4" />
     </button>
   );
 }
@@ -122,7 +128,7 @@ function GameCard({ g, onToggleFavorite }: { g: GameSummary; onToggleFavorite: (
         <CostBadge credits={g.playCostCredits} stars={g.playCostStars} />
         <div className="flex items-center gap-1.5">
           {g.favoriteCount > 0 && (
-            <span className="text-[10px] text-rose-400">❤️{formatCount(g.favoriteCount)}</span>
+            <span className="text-[10px] text-rose-400"><Icon emoji="❤️" className="inline h-2.5 w-2.5 align-text-bottom" />{formatCount(g.favoriteCount)}</span>
           )}
           {g.playCount > 0 && (
             <span className="text-muted-foreground text-[10px]">{formatCount(g.playCount)} plays</span>
@@ -157,7 +163,7 @@ function GameRow({ g, onToggleFavorite }: { g: GameSummary; onToggleFavorite: (i
         <div className="text-right">
           {g.ratingCount > 0 && <StarRating rating={g.avgRating} count={g.ratingCount} />}
           <div className="flex items-center justify-end gap-1.5 mt-0.5">
-            {g.favoriteCount > 0 && <span className="text-[10px] text-rose-400">❤️{formatCount(g.favoriteCount)}</span>}
+            {g.favoriteCount > 0 && <span className="text-[10px] text-rose-400"><Icon emoji="❤️" className="inline h-2.5 w-2.5 align-text-bottom" />{formatCount(g.favoriteCount)}</span>}
             {g.playCount > 0 && <span className="text-[10px] text-muted-foreground">{formatCount(g.playCount)} plays</span>}
           </div>
         </div>
@@ -264,7 +270,7 @@ export default function GamesDiscoveryPage() {
   if (disabled) {
     return (
       <div className="mx-auto max-w-3xl px-4 py-16 text-center">
-        <div className="mb-4 text-5xl">🎮</div>
+        <Icon emoji="🎮" className="mb-4 text-5xl" size={48} />
         <h1 className="text-2xl font-bold">{t("games.unavailableTitle")}</h1>
         <p className="mt-2 text-muted-foreground">{t("games.unavailableBody")}</p>
       </div>
@@ -316,7 +322,7 @@ export default function GamesDiscoveryPage() {
                 : "text-muted-foreground hover:text-foreground"
             }`}
           >
-            <span aria-hidden="true">{icon}</span>
+            <Icon emoji={icon} className="inline h-4 w-4" />
             <span>{t(labelKey, fallback)}</span>
           </button>
         ))}
@@ -399,14 +405,14 @@ export default function GamesDiscoveryPage() {
             onClick={() => setViewMode("card")}
             className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${viewMode === "card" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
           >
-            ⊞ {t("games.view.grid", "Grid")}
+            <Icon emoji="⊞" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("games.view.grid", "Grid")}
           </button>
           <button
             type="button"
             onClick={() => setViewMode("list")}
             className={`px-2.5 py-1 rounded-md text-xs font-medium transition-colors ${viewMode === "list" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
           >
-            ☰ {t("games.view.list", "List")}
+            <Icon emoji="☰" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("games.view.list", "List")}
           </button>
         </div>
       </div>
@@ -420,7 +426,7 @@ export default function GamesDiscoveryPage() {
         </div>
       ) : games.length === 0 ? (
         <div className="text-center py-16 text-muted-foreground">
-          <div className="text-4xl mb-3">{tab === "faves" ? "❤️" : tab === "recent" ? "🕐" : "🎮"}</div>
+          <Icon emoji={tab === "faves" ? "❤️" : tab === "recent" ? "🕐" : "🎮"} className="mb-3 text-4xl" size={36} />
           <p>
             {tab === "faves"
               ? t("games.faves.empty", "No favorite games yet — tap the heart on a game to save it here.")
@@ -463,7 +469,7 @@ export default function GamesDiscoveryPage() {
             onClick={() => void fetchGames(true)}
             className="px-6 py-3 rounded-xl border border-border bg-card text-sm font-semibold text-foreground hover:bg-accent transition-colors"
           >
-            🔀 {t("games.shuffle", "Shuffle again")}
+            <Icon emoji="🔀" className="inline h-4 w-4 align-text-bottom" /> {t("games.shuffle", "Shuffle again")}
           </button>
         </div>
       )}
