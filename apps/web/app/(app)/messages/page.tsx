@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 import { useMarkMessagesSeen } from "@/lib/notifications/useHasNewSince";
 
 // ---------------------------------------------------------------------------
@@ -313,7 +314,7 @@ export default function MessagesPage() {
             <ConversationSkeleton />
           ) : filtered.length === 0 ? (
             <div className="px-6 py-16 text-center">
-              <span className="text-4xl">💬</span>
+              <Icon emoji="💬" className="text-4xl" size={36} />
               <p className="mt-3 text-base font-semibold text-neutral-700 dark:text-neutral-300">
                 {searchQuery.trim() ? t("messages.noSearchResults") : t("messages.noConversations")}
               </p>

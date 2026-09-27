@@ -18,6 +18,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -145,7 +146,7 @@ export default function CreateGroupPage() {
           href="/messages/groups"
           className="flex h-8 w-8 items-center justify-center rounded-full hover:bg-neutral-100 dark:hover:bg-neutral-800"
         >
-          ←
+          <Icon emoji="←" size={16} />
         </Link>
         <h1 className="text-xl font-black text-neutral-900 dark:text-white">{t("messages.groupCreate.title")}</h1>
       </div>
@@ -237,7 +238,7 @@ export default function CreateGroupPage() {
                   <p className="truncate text-xs text-neutral-500">@{f.username}</p>
                 </div>
                 {selected.has(f.userId) && (
-                  <span className="text-amber-500 font-bold">✓</span>
+                  <Icon emoji="✓" size={16} className="text-amber-500" />
                 )}
               </button>
             ))}

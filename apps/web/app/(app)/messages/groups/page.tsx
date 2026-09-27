@@ -13,6 +13,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -211,7 +212,7 @@ export default function GroupChatsPage() {
           <GroupSkeleton />
         ) : groups.length === 0 ? (
           <div className="px-6 py-16 text-center">
-            <span className="text-4xl">👥</span>
+            <Icon emoji="👥" className="text-4xl" size={36} />
             <p className="mt-3 text-base font-semibold text-neutral-700 dark:text-neutral-300">{t("messages.groupsList.empty")}</p>
             <p className="mt-1 text-sm text-neutral-400">{t("messages.groupsList.emptyHint")}</p>
             <Link
