@@ -19,6 +19,7 @@ import { apiClient } from '@/lib/api/client';
 import { referralLink, PUBLIC_PATHS } from '@/lib/deeplinks/routes';
 import { useMyReferralCode } from '@/lib/referral/useReferralCode';
 import { apiError } from '@/lib/classroom/api';
+import { Icon } from '@/components/ui/Icon';
 
 const btn = 'rounded-lg border border-neutral-300 dark:border-neutral-600 px-2.5 py-1 text-xs font-semibold text-neutral-600 dark:text-neutral-300';
 
@@ -45,8 +46,9 @@ export function ClassroomShareButton({ roomId, slug, name }: { roomId: string; s
 
   return (
     <span className="inline-flex items-center gap-2">
-      <button type="button" onClick={() => void share()} className={btn}>
-        🔗 {t('classroom.share.button', 'Share')}
+      <button type="button" onClick={() => void share()} className={`inline-flex items-center gap-1.5 ${btn}`}>
+        <Icon emoji="🔗" size={14} />
+        {t('classroom.share.button', 'Share')}
       </button>
       {notice && <span className="text-xs text-teal-600">{notice}</span>}
     </span>
@@ -120,13 +122,17 @@ export function ClassroomBoostButton({ roomId, name }: { roomId: string; name: s
 
   return (
     <>
-      <button type="button" onClick={() => void openModal()} className={btn}>
-        🚀 {t('ads.boost.button', 'Boost')}
+      <button type="button" onClick={() => void openModal()} className={`inline-flex items-center gap-1.5 ${btn}`}>
+        <Icon emoji="🚀" size={14} />
+        {t('ads.boost.button', 'Boost')}
       </button>
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setOpen(false)}>
           <div className="w-full max-w-sm space-y-3 rounded-2xl bg-white dark:bg-neutral-900 p-5" onClick={(e) => e.stopPropagation()}>
-            <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">🚀 {t('ads.boost.modalTitle', 'Boost this content')}</h2>
+            <h2 className="flex items-center gap-1.5 text-base font-bold text-neutral-900 dark:text-neutral-100">
+              <Icon emoji="🚀" size={18} />
+              {t('ads.boost.modalTitle', 'Boost this content')}
+            </h2>
             <p className="truncate text-sm text-neutral-600 dark:text-neutral-400">{name}</p>
             {!check && !msg && <div className="h-12 animate-pulse rounded bg-neutral-100 dark:bg-neutral-800" />}
             {check && !check.boostable && <p className="text-sm text-neutral-500">{check.reason ?? t('ads.boost.ineligibleDefault', "This content isn't eligible to be boosted right now.")}</p>}

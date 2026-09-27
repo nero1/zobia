@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiError, get, send, type Author, type ClassroomComment, type ClassroomHome, type ClassroomPost } from '@/lib/classroom/api';
+import { Icon } from '@/components/ui/Icon';
 
 const REASONS = ['spam', 'harassment', 'hate_speech', 'sexual_content', 'misinformation', 'scam', 'off_topic', 'other'] as const;
 
@@ -107,8 +108,9 @@ function Thread({ home, post }: { home: ClassroomHome; post: ClassroomPost }) {
       <AuthorLine a={c.author} when={c.createdAt} />
       <p className="mt-1 whitespace-pre-wrap break-words text-sm">{c.body}</p>
       <div className="mt-1 flex flex-wrap gap-3 text-xs text-neutral-500">
-        <button type="button" disabled={!home.viewer.can.like} onClick={() => like.mutate(c)} className={c.likedByMe ? 'font-semibold text-primary-600' : ''}>
-          👍 {c.likeCount || t('classroom.feed.like', 'Like')}
+        <button type="button" disabled={!home.viewer.can.like} onClick={() => like.mutate(c)} className={`inline-flex items-center gap-1 ${c.likedByMe ? 'font-semibold text-primary-600' : ''}`}>
+          <Icon emoji="👍" size={12} />
+          {c.likeCount || t('classroom.feed.like', 'Like')}
         </button>
         {canComment && !nested && (
           <button type="button" onClick={() => setReplyTo(c)}>
@@ -156,7 +158,10 @@ function Thread({ home, post }: { home: ClassroomHome; post: ClassroomPost }) {
           {err && <p className="text-xs text-danger-600">{err}</p>}
         </div>
       ) : post.isLocked ? (
-        <p className="text-xs text-neutral-400">🔒 {t('classroom.feed.lockedNotice', 'Comments are closed on this post.')}</p>
+        <p className="flex items-center gap-1 text-xs text-neutral-400">
+          <Icon emoji="🔒" size={12} />
+          {t('classroom.feed.lockedNotice', 'Comments are closed on this post.')}
+        </p>
       ) : null}
     </div>
   );
@@ -175,20 +180,30 @@ function PostItem({ home, post }: { home: ClassroomHome; post: ClassroomPost }) 
   return (
     <article className={`rounded-xl bg-white dark:bg-neutral-800 p-3 shadow-card ${post.isPinned ? 'ring-1 ring-primary-300' : ''} ${post.isHidden ? 'opacity-70' : ''}`}>
       <AuthorLine a={post.author} when={post.createdAt} />
-      <p className="mt-0.5 text-[11px] text-neutral-400">
-        {post.category}
-        {post.isPinned && ` · 📌 ${t('classroom.feed.pinned', 'Pinned')}`}
-        {post.isLocked && ` · 🔒 ${t('classroom.feed.locked', 'Locked')}`}
-        {post.isHidden && ` · ${t('classroom.feed.hiddenNotice', 'Hidden by a moderator')}`}
+      <p className="mt-0.5 flex flex-wrap items-center gap-1 text-[11px] text-neutral-400">
+        <span>{post.category}</span>
+        {post.isPinned && (
+          <span className="inline-flex items-center gap-1">
+            · <Icon emoji="📌" size={11} /> {t('classroom.feed.pinned', 'Pinned')}
+          </span>
+        )}
+        {post.isLocked && (
+          <span className="inline-flex items-center gap-1">
+            · <Icon emoji="🔒" size={11} /> {t('classroom.feed.locked', 'Locked')}
+          </span>
+        )}
+        {post.isHidden && <span>· {t('classroom.feed.hiddenNotice', 'Hidden by a moderator')}</span>}
       </p>
       {post.title && <h3 className="mt-1 font-semibold">{post.title}</h3>}
       <p className={`mt-1 whitespace-pre-wrap break-words text-sm text-neutral-700 dark:text-neutral-300 ${open ? '' : 'line-clamp-6'}`}>{post.body}</p>
       <div className="mt-2 flex flex-wrap gap-3 text-xs text-neutral-500">
-        <button type="button" disabled={!home.viewer.can.like} onClick={() => like.mutate()} className={post.likedByMe ? 'font-semibold text-primary-600' : ''}>
-          👍 {post.likeCount || t('classroom.feed.like', 'Like')}
+        <button type="button" disabled={!home.viewer.can.like} onClick={() => like.mutate()} className={`inline-flex items-center gap-1 ${post.likedByMe ? 'font-semibold text-primary-600' : ''}`}>
+          <Icon emoji="👍" size={12} />
+          {post.likeCount || t('classroom.feed.like', 'Like')}
         </button>
-        <button type="button" onClick={() => setOpen((v) => !v)}>
-          💬 {t('classroom.feed.comments', '{{count}} comments', { count: post.commentCount })}
+        <button type="button" onClick={() => setOpen((v) => !v)} className="inline-flex items-center gap-1">
+          <Icon emoji="💬" size={12} />
+          {t('classroom.feed.comments', '{{count}} comments', { count: post.commentCount })}
         </button>
         {home.viewer.can.managePosts && (
           <>
@@ -286,7 +301,10 @@ export function CommunityFeed({ home }: { home: ClassroomHome }) {
       ) : feed.isError ? (
         <p className="text-sm text-danger-600">{apiError(feed.error).message}</p>
       ) : posts.length === 0 ? (
-        <p className="py-10 text-center text-sm text-neutral-500">💬 {t('classroom.feed.empty', 'No posts yet — start the first conversation!')}</p>
+        <p className="flex items-center justify-center gap-1.5 py-10 text-center text-sm text-neutral-500">
+          <Icon emoji="💬" size={16} />
+          {t('classroom.feed.empty', 'No posts yet — start the first conversation!')}
+        </p>
       ) : (
         <>
           {posts.map((p) => (
