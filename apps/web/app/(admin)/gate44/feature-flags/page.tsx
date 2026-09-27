@@ -17,6 +17,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -261,7 +262,7 @@ function FlagRow({ flag, onToggle, onSaveAdvanced }: FlagRowProps) {
               <span title="Moderators can still see and access this while disabled" className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">Mods can view</span>
             )}
             {justSaved && (
-              <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">Saved ✓</span>
+              <span className="flex items-center gap-1 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-semibold text-blue-700 dark:bg-blue-900 dark:text-blue-300">Saved <Icon emoji="✓" size={12} /></span>
             )}
           </div>
           <p className="mt-0.5 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{flag.label}</p>

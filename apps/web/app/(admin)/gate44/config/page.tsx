@@ -25,6 +25,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { GRACE_FEATURE_REGISTRY } from "@/lib/plans/graceFeatures";
 import { CAPTCHA_SURFACE_REGISTRY } from "@/lib/security/captchaSurfaces";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1245,8 +1246,8 @@ function ConfigRow({ item, onSave }: ConfigRowProps) {
             {item.key}
           </span>
           {saved && (
-            <span className="rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
-              Saved ✓
+            <span className="flex items-center gap-1 rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-700 dark:bg-teal-900 dark:text-teal-300">
+              Saved <Icon emoji="✓" size={12} />
             </span>
           )}
         </div>
