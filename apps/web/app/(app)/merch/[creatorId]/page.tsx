@@ -13,6 +13,7 @@
 import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
@@ -90,7 +91,7 @@ function ConfirmModal({ product, shipping, onShippingChange, onConfirm, onCancel
         <h3 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">Confirm Purchase</h3>
         <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
           You are about to buy <span className="font-semibold text-neutral-900 dark:text-neutral-100">{product.name}</span> for{" "}
-          <span className="font-bold text-amber-600">🪙 {product.priceCoin.toLocaleString()} {currency.softPlural.toLowerCase()}</span>.
+          <span className="font-bold text-amber-600"><Icon emoji="🪙" className="inline h-4 w-4 align-text-bottom" /> {product.priceCoin.toLocaleString()} {currency.softPlural.toLowerCase()}</span>.
         </p>
 
         {isPhysical && (
@@ -186,7 +187,7 @@ function ProductCard({ product, creatorId, onBuy }: ProductCardProps) {
 
       {/* Price + action */}
       <div className="mt-auto space-y-2">
-        <p className="text-lg font-bold text-amber-600">🪙 {product.priceCoin.toLocaleString()}</p>
+        <p className="text-lg font-bold text-amber-600"><Icon emoji="🪙" className="inline h-4 w-4 align-text-bottom" /> {product.priceCoin.toLocaleString()}</p>
         {product.isSoldOut ? (
           <div className="rounded-xl bg-neutral-100 py-2 text-center text-sm font-semibold text-neutral-500 dark:bg-neutral-800">
             Sold Out
@@ -331,7 +332,7 @@ export default function CreatorMerchStorePage() {
     return (
       <div className="flex flex-col items-center justify-center p-12">
         <p className="text-neutral-500">{error ?? "Store not found"}</p>
-        <Link href="/merch" className="mt-3 text-sm text-blue-600 hover:underline">← Back to Stores</Link>
+        <Link href="/merch" className="mt-3 text-sm text-blue-600 hover:underline"><Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> Back to Stores</Link>
       </div>
     );
   }
@@ -365,13 +366,13 @@ export default function CreatorMerchStorePage() {
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-center gap-4">
           <span className="flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl bg-neutral-100 text-4xl dark:bg-neutral-800">
-            🛍️
+            <Icon emoji="🛍️" size={32} />
           </span>
           <div>
             <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{store.storeName}</h1>
           </div>
         </div>
-        <Link href="/merch" className="shrink-0 text-sm text-neutral-500 hover:underline">← Stores</Link>
+        <Link href="/merch" className="shrink-0 text-sm text-neutral-500 hover:underline"><Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> Stores</Link>
       </div>
 
       {/* Description */}
@@ -382,7 +383,7 @@ export default function CreatorMerchStorePage() {
       {/* Products */}
       {store.products.length === 0 ? (
         <div className="flex flex-col items-center rounded-2xl border border-neutral-200 bg-white py-16 dark:border-neutral-800 dark:bg-neutral-900">
-          <span className="text-5xl">📦</span>
+          <Icon emoji="📦" className="text-5xl" size={48} />
           <p className="mt-3 font-semibold text-neutral-700 dark:text-neutral-300">No products yet</p>
           <p className="mt-1 text-sm text-neutral-500">This store hasn&apos;t added any products.</p>
         </div>

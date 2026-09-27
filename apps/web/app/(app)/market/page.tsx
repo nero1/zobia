@@ -26,6 +26,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import type { MarketItem } from "@/lib/market/types";
 import { MarketItemCard } from "@/components/market/MarketItemCard";
+import { Icon } from "@/components/ui/Icon";
 
 type ViewMode = "grid" | "list";
 
@@ -53,7 +54,7 @@ function Section({
   view,
   emptyLabel,
 }: {
-  title: string;
+  title: React.ReactNode;
   items: MarketItem[];
   section: string;
   view: ViewMode;
@@ -67,7 +68,7 @@ function Section({
       <div className="flex items-center justify-between">
         <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">{title}</h2>
         <Link href={`/market/${section}?view=${view}`} className="text-sm text-blue-600 hover:underline">
-          View more →
+          View more <Icon emoji="→" className="inline h-3.5 w-3.5 align-text-bottom" />
         </Link>
       </div>
       <div className={view === "grid" ? "grid grid-cols-2 gap-3 sm:grid-cols-3" : "space-y-2"}>
@@ -106,7 +107,7 @@ export default function MarketPage() {
     <div className="mx-auto max-w-5xl space-y-8 p-4 sm:p-6">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">🏪 Market</h1>
+          <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50"><Icon emoji="🏪" className="inline h-6 w-6 align-text-bottom" /> Market</h1>
           <p className="text-sm text-neutral-500">Credits, cosmetics, boosts, and items from creators — all in one place.</p>
         </div>
         <div className="flex gap-0.5 rounded-lg border border-neutral-200 bg-white p-0.5 dark:border-neutral-800 dark:bg-neutral-900">
@@ -115,14 +116,14 @@ export default function MarketPage() {
             onClick={() => setView("list")}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${view === "list" ? "bg-blue-600 text-white" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"}`}
           >
-            ☰ {t("games.view.list")}
+            <Icon emoji="☰" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("games.view.list")}
           </button>
           <button
             type="button"
             onClick={() => setView("grid")}
             className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${view === "grid" ? "bg-blue-600 text-white" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"}`}
           >
-            ⊞ {t("games.view.grid")}
+            <Icon emoji="⊞" className="inline h-3.5 w-3.5 align-text-bottom" /> {t("games.view.grid")}
           </button>
         </div>
       </div>
@@ -136,10 +137,10 @@ export default function MarketPage() {
         </div>
       ) : (
         <>
-          <Section title="🚀 Sponsored" items={home.sponsored} section="sponsored" view={view} emptyLabel="" />
-          <Section title="⭐ Featured" items={home.featured} section="featured" view={view} emptyLabel="" />
-          <Section title="🔥 Trending from Creators" items={home.trending} section="trending" view={view} emptyLabel="No creator items yet." />
-          <Section title="🛒 Platform Store" items={home.platform} section="platform" view={view} emptyLabel="" />
+          <Section title={<><Icon emoji="🚀" className="inline h-4 w-4 align-text-bottom" /> Sponsored</>} items={home.sponsored} section="sponsored" view={view} emptyLabel="" />
+          <Section title={<><Icon emoji="⭐" className="inline h-4 w-4 align-text-bottom" /> Featured</>} items={home.featured} section="featured" view={view} emptyLabel="" />
+          <Section title={<><Icon emoji="🔥" className="inline h-4 w-4 align-text-bottom" /> Trending from Creators</>} items={home.trending} section="trending" view={view} emptyLabel="No creator items yet." />
+          <Section title={<><Icon emoji="🛒" className="inline h-4 w-4 align-text-bottom" /> Platform Store</>} items={home.platform} section="platform" view={view} emptyLabel="" />
         </>
       )}
     </div>
