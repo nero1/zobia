@@ -16,6 +16,7 @@ import Link from "next/link";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,10 +62,10 @@ function PrestigeExplainer() {
         everyone how many times you have mastered the game.
       </p>
       <ul className="mt-3 space-y-1 text-xs text-blue-600 dark:text-blue-400">
-        <li>⭐ Each prestige adds a star to your profile badge</li>
-        <li>🪙 Earn {currency.softPlural.toLowerCase()} and exclusive frames with each prestige</li>
-        <li>🔥 3× XP boost for 7 days after prestige (from your 3rd prestige)</li>
-        <li>🏆 Reach Prestige 10 to be inducted into the Hall of Fame</li>
+        <li><Icon emoji="⭐" size={14} className="mr-1 inline" />Each prestige adds a star to your profile badge</li>
+        <li><Icon emoji="🪙" size={14} className="mr-1 inline" />Earn {currency.softPlural.toLowerCase()} and exclusive frames with each prestige</li>
+        <li><Icon emoji="🔥" size={14} className="mr-1 inline" />3× XP boost for 7 days after prestige (from your 3rd prestige)</li>
+        <li><Icon emoji="🏆" size={14} className="mr-1 inline" />Reach Prestige 10 to be inducted into the Hall of Fame</li>
       </ul>
     </div>
   );
@@ -83,7 +84,7 @@ function LockScreen({ data }: { data: PrestigeEligibility }) {
 
   return (
     <div className="flex flex-col items-center py-12 text-center">
-      <span className="text-6xl">🔒</span>
+      <Icon emoji="🔒" size={56} className="text-6xl" />
       <h2 className="mt-4 text-2xl font-bold text-neutral-900 dark:text-neutral-50">
         Not Yet
       </h2>
@@ -139,7 +140,7 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: ConfirmScreenProps
   if (done) {
     return (
       <div className="flex flex-col items-center py-16 text-center">
-        <span className="text-6xl">🌟</span>
+        <Icon emoji="🌟" size={56} className="text-6xl" />
         <h2 className="mt-4 text-3xl font-bold text-neutral-900 dark:text-neutral-50">
           Prestige Achieved!
         </h2>
@@ -163,7 +164,7 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: ConfirmScreenProps
     <div className="space-y-5">
       {/* Hero */}
       <div className="rounded-xl border border-neutral-200 bg-white p-6 text-center shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <span className="text-5xl">⭐</span>
+        <Icon emoji="⭐" size={44} className="text-5xl" />
         <h2 className="mt-3 text-2xl font-bold text-neutral-900 dark:text-neutral-50">
           You have mastered Zobia.
         </h2>
@@ -176,7 +177,9 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: ConfirmScreenProps
         </p>
         {data.currentPrestige > 0 && (
           <p className="mt-2 text-sm text-amber-600">
-            Current Prestige: {"⭐".repeat(Math.min(data.currentPrestige, 5))} ({data.currentPrestige})
+            Current Prestige: {Array.from({ length: Math.min(data.currentPrestige, 5) }).map((_, i) => (
+              <Icon key={i} emoji="⭐" size={14} className="inline" />
+            ))} ({data.currentPrestige})
           </p>
         )}
       </div>
@@ -185,7 +188,7 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: ConfirmScreenProps
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-950/30">
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-red-700 dark:text-red-300">
-            <span>⚠</span> Resets
+            <Icon emoji="⚠" size={14} /> Resets
           </h3>
           <ul className="space-y-1.5 text-sm text-red-600 dark:text-red-400">
             <li>Main rank (back to Bronze I)</li>
@@ -194,7 +197,7 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: ConfirmScreenProps
 
         <div className="rounded-xl border border-teal-200 bg-teal-50 p-4 dark:border-teal-800 dark:bg-teal-950/30">
           <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-teal-700 dark:text-teal-300">
-            <span>✓</span> Stays Forever
+            <Icon emoji="✓" size={14} /> Stays Forever
           </h3>
           <ul className="space-y-1.5 text-sm text-teal-600 dark:text-teal-400">
             <li>Track levels</li>

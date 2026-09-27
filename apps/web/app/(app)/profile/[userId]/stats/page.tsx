@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { RANK_COLORS } from "@/lib/xp/rankColors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -158,7 +159,7 @@ function TrackBar({ track }: { track: TrackStat }) {
 function CountTile({ label, value, emoji }: { label: string; value: number; emoji: string }) {
   return (
     <div className="rounded-xl border border-neutral-200 bg-white p-4 text-center shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-      <p className="text-xl">{emoji}</p>
+      <p className="text-xl"><Icon emoji={emoji} size={20} className="mx-auto" /></p>
       <p className="mt-1 text-lg font-bold text-neutral-900 dark:text-neutral-50">{value.toLocaleString()}</p>
       <p className="text-xs text-neutral-500">{label}</p>
     </div>
@@ -213,7 +214,7 @@ export default function ProfileStatsPage() {
     const icon = errorCode === "FORBIDDEN" ? "🔒" : errorCode === "FEATURE_DISABLED" ? "🚧" : "😕";
     return (
       <div className="flex flex-col items-center justify-center py-24 text-center">
-        <span className="mb-3 text-5xl">{icon}</span>
+        <Icon emoji={icon} size={44} className="mb-3 text-5xl" />
         <p className="text-base font-semibold text-neutral-700 dark:text-neutral-300">
           {errorCode === "FORBIDDEN" ? t("profile.stats.private") : t("profile.stats.notFound")}
         </p>
@@ -255,8 +256,10 @@ export default function ProfileStatsPage() {
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">{profile.displayName}</h2>
               {profile.prestigeCount > 0 && (
-                <span className="text-amber-500" title={`Prestige ${profile.prestigeCount}`}>
-                  {"★".repeat(Math.min(profile.prestigeCount, 10))}
+                <span className="flex items-center text-amber-500" title={`Prestige ${profile.prestigeCount}`}>
+                  {Array.from({ length: Math.min(profile.prestigeCount, 10) }).map((_, i) => (
+                    <Icon key={i} emoji="★" size={14} />
+                  ))}
                 </span>
               )}
             </div>
@@ -267,10 +270,10 @@ export default function ProfileStatsPage() {
               </span>
               <span className="text-xs text-neutral-500">{profile.xpTotal.toLocaleString()} XP</span>
               {profile.legacyScore > 0 && (
-                <span className="text-xs text-amber-600">⚜️ {profile.legacyScore.toLocaleString()} Legacy</span>
+                <span className="inline-flex items-center gap-1 text-xs text-amber-600"><Icon emoji="⚜️" size={12} /> {profile.legacyScore.toLocaleString()} Legacy</span>
               )}
               {mainRank?.globalRank && (
-                <span className="text-xs text-blue-600 dark:text-blue-400">🌍 Global #{mainRank.globalRank}</span>
+                <span className="inline-flex items-center gap-1 text-xs text-blue-600 dark:text-blue-400"><Icon emoji="🌍" size={12} /> Global #{mainRank.globalRank}</span>
               )}
             </div>
           </div>
@@ -283,12 +286,12 @@ export default function ProfileStatsPage() {
           href="/settings/subscription"
           className="flex items-center gap-3 rounded-xl border border-dashed border-amber-300 bg-amber-50 p-4 shadow-card transition-colors hover:bg-amber-100 dark:border-amber-800 dark:bg-amber-950/30 dark:hover:bg-amber-950/50"
         >
-          <span className="text-2xl">⚡</span>
+          <Icon emoji="⚡" size={20} className="text-2xl" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">{t("profile.stats.unlockFull")}</p>
             <p className="text-xs text-amber-700 dark:text-amber-400">{t("profile.stats.unlockFullDesc")}</p>
           </div>
-          <span className="text-xs text-amber-600 dark:text-amber-400">→</span>
+          <Icon emoji="→" size={14} className="text-xs text-amber-600 dark:text-amber-400" />
         </Link>
       )}
 
@@ -319,13 +322,13 @@ export default function ProfileStatsPage() {
             <p className="font-semibold text-neutral-900 dark:text-neutral-50">{stats.guild.name}</p>
             <p className="text-xs capitalize text-neutral-500">{stats.guild.tier.replace(/_/g, " ")} Guild</p>
           </div>
-          <span className="text-xs text-neutral-400">→</span>
+          <Icon emoji="→" size={14} className="text-neutral-400" />
         </Link>
       )}
 
       {/* Badges / Achievements */}
       <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-        <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">🏆 {t("profile.stats.badgesAchievements")} ({stats.badges.length})</h2>
+        <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300"><Icon emoji="🏆" size={14} className="inline mr-1" />{t("profile.stats.badgesAchievements")} ({stats.badges.length})</h2>
         {stats.badges.length === 0 ? (
           <p className="text-sm text-neutral-500">{t("profile.stats.noBadges")}</p>
         ) : (
@@ -347,7 +350,7 @@ export default function ProfileStatsPage() {
       {profile.isCreator && stats.createdRooms.length > 0 && (
         <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
           <div className="mb-3 flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">🎨 {t("profile.stats.createdRooms")} ({stats.createdRooms.length})</h2>
+            <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300"><Icon emoji="🎨" size={14} className="inline mr-1" />{t("profile.stats.createdRooms")} ({stats.createdRooms.length})</h2>
             <Link href={`/rooms?creator_id=${userId}`} className="text-xs text-blue-600 hover:underline dark:text-blue-400">
               {t("profile.stats.viewAllRooms")} →
             </Link>
@@ -361,7 +364,7 @@ export default function ProfileStatsPage() {
               >
                 <span className="text-xl">{room.coverEmoji}</span>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-800 dark:text-neutral-200">{room.name}</span>
-                <span className="shrink-0 text-xs text-neutral-500">👥 {room.memberCount.toLocaleString()}</span>
+                <span className="shrink-0 inline-flex items-center gap-1 text-xs text-neutral-500"><Icon emoji="👥" size={12} /> {room.memberCount.toLocaleString()}</span>
               </Link>
             ))}
           </div>
@@ -371,7 +374,7 @@ export default function ProfileStatsPage() {
       {/* Leaderboard positions — full tier only shows the detailed grid */}
       {stats.tier === "full" && (
         <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">🏅 {t("profile.stats.leaderboardPositions")}</h2>
+          <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300"><Icon emoji="🏅" size={14} className="inline mr-1" />{t("profile.stats.leaderboardPositions")}</h2>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
