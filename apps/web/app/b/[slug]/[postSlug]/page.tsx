@@ -127,7 +127,7 @@ export default async function PublicBlogPostPage({
         )}
         <BlogPostLayout blogSlug={blog.slug} layoutVariant={layoutVariant} tokens={theme?.config ?? { bg: "", card: "", accent: "", text: "", muted: "" }} featuredImageUrl={post.featured_image_url} categories={sidebarCategories} popular={sidebarPopular}>
         <Link href={`/b/${blog.slug}`} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-          ← {blog.title}
+          <Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> {blog.title}
         </Link>
 
         {post.featured_image_url && (

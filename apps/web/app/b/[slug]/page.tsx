@@ -140,7 +140,7 @@ export default async function PublicBlogPage({ params }: { params: Promise<{ slu
 
         <div className="mt-8">
           <Link href="/blogs" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-            ← More blogs
+            <Icon emoji="←" className="inline h-3.5 w-3.5 align-text-bottom" /> More blogs
           </Link>
         </div>
       </div>

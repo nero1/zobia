@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useParams } from 'next/navigation';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
+import { Icon } from '@/components/ui/Icon';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/hooks';
 import { useFeatureAccess } from '@/lib/hooks/useFeatureFlags';
@@ -111,7 +112,7 @@ export default function RoomMerchStore() {
           onClick={() => setShowCart(!showCart)}
           className="bg-blue-600 text-white hover:bg-blue-700 relative"
         >
-          🛒 Cart
+          <Icon emoji="🛒" className="inline h-4 w-4 mr-1 align-text-bottom" /> Cart
           {cart.length > 0 && (
             <span className="absolute top-0 right-0 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs transform translate-x-2 -translate-y-2">
               {cart.length}
