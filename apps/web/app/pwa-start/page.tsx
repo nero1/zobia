@@ -16,6 +16,7 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { Icon } from "@/components/ui/Icon";
 
 export default function PwaStartPage() {
   const router = useRouter();
@@ -40,7 +41,7 @@ export default function PwaStartPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-white dark:bg-neutral-900">
       <div className="flex flex-col items-center gap-3">
-        <span className="text-4xl" aria-hidden="true">⚡</span>
+        <Icon emoji="⚡" className="text-4xl" size={36} />
         <p className="text-sm text-neutral-500 dark:text-neutral-400">Loading Zobia…</p>
       </div>
     </div>
