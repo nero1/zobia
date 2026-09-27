@@ -8,6 +8,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 interface NavUser { username: string | null; avatar_emoji: string | null }
 
@@ -45,8 +46,8 @@ export default function GameCoverNav({ slug }: { slug: string }) {
           </>
         ) : (
           <>
-            <Link href="/games" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
-              🎮 Games
+            <Link href="/games" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+              <Icon emoji="🎮" size={14} /> Games
             </Link>
             <Link
               href={user.username ? `/u/${user.username}` : "/profile"}

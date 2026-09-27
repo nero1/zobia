@@ -17,6 +17,7 @@ import { apiClient } from '@/lib/api/client';
 import { FeedItemCard, FeedItemCardSkeleton } from './FeedItemCard';
 import AdSlot from '@/components/ads/AdSlot';
 import type { FeedPage, FeedTab } from '@/lib/feed/types';
+import { Icon } from '@/components/ui/Icon';
 
 const ADS_EVERY_N_ITEMS = 6;
 
@@ -83,7 +84,7 @@ export function FeedTabContent({ tab }: { tab: FeedTab }) {
   if (items.length === 0 && !isRefetching) {
     return (
       <div className="flex flex-col items-center rounded-xl border border-dashed border-neutral-300 dark:border-neutral-600 bg-neutral-50 dark:bg-neutral-800 p-10 text-center">
-        <div className="mb-2 text-3xl">🗂️</div>
+        <div className="mb-2 text-3xl"><Icon emoji="🗂️" size={28} /></div>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('feedTabs.empty')}</p>
       </div>
     );

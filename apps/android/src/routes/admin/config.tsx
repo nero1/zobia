@@ -22,6 +22,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 import { AdminToast, AdminErrorState, AdminToggle, adminInputClass } from '@/components/admin/AdminUI';
 
 // ---------------------------------------------------------------------------
@@ -481,7 +482,7 @@ function ConfigGroupCard({
           <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">{t(GROUP_LABEL[group] ?? group, group)}</p>
           <p className="text-[11px] text-neutral-500 dark:text-neutral-400">{t('admin.config.settingsCount', '{{count}} settings', { count: items.length })}</p>
         </div>
-        <span className="text-neutral-400 dark:text-neutral-500">{open ? '▲' : '▼'}</span>
+        <span className="text-neutral-400 dark:text-neutral-500"><Icon emoji={open ? '▲' : '▼'} /></span>
       </button>
       {open && (
         <div className="border-t border-neutral-100 dark:border-neutral-800 px-4">

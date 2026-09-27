@@ -18,6 +18,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { env } from '@/lib/env';
 import { clearEntries, subscribe, type LogEntry } from '@/lib/debug/logStore';
+import { Icon } from '@/components/ui/Icon';
 
 const VITE_DEBUG_OVERLAY = import.meta.env.VITE_DEBUG_OVERLAY as string | undefined;
 const FORCED_ON = VITE_DEBUG_OVERLAY === '1' || VITE_DEBUG_OVERLAY === 'true';
@@ -85,9 +86,14 @@ export function DebugOverlay(): React.ReactElement | null {
           background: errorCount > 0 ? 'rgba(220,38,38,0.92)' : 'rgba(202,138,4,0.92)',
         }}
       >
-        {errorCount > 0
-          ? `⚠︎ ${errorCount} error${errorCount === 1 ? '' : 's'}`
-          : `${entries.length} logs`}
+        {errorCount > 0 ? (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <Icon emoji="⚠️" size={12} />
+            {`${errorCount} error${errorCount === 1 ? '' : 's'}`}
+          </span>
+        ) : (
+          `${entries.length} logs`
+        )}
       </button>
     );
   }
@@ -98,8 +104,9 @@ export function DebugOverlay(): React.ReactElement | null {
         <div style={headerStyle}>
           <span style={headerTitleStyle}>Debug logs ({entries.length})</span>
           <div style={{ display: 'flex', gap: 8 }}>
-            <button onClick={handleExport} style={btnStyle}>
-              ⬆ Export
+            <button onClick={handleExport} style={{ ...btnStyle, display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+              <Icon emoji="⬆" size={12} />
+              Export
             </button>
             <button onClick={clearEntries} style={btnStyle}>
               Clear

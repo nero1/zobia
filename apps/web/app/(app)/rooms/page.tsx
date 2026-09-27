@@ -17,6 +17,7 @@ import { useTranslation } from "react-i18next";
 import { RoomCard, RoomListRow, type RoomCardData } from "@/components/rooms/RoomCard";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,7 +56,7 @@ function PinnedRoomsStrip({ rooms, onJoin }: { rooms: RoomCardData[]; onJoin: (i
   if (rooms.length === 0) return null;
   return (
     <div className="space-y-2">
-      <p className="text-xs font-bold uppercase tracking-wider text-neutral-500">📌 Pinned</p>
+      <p className="text-xs font-bold uppercase tracking-wider text-neutral-500"><Icon emoji="📌" size={12} className="inline mr-1" />Pinned</p>
       <div className="flex gap-2 overflow-x-auto pb-1">
         {rooms.map((room) => (
           <button

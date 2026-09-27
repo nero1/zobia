@@ -16,6 +16,7 @@
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface DailyQuest {
   id: string;
@@ -101,7 +102,8 @@ export function DailyQuestDeck() {
         <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('home.quests.dailyTitle')}</h2>
         {loginStreak > 0 && (
           <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">
-            🔥 {t('home.quests.streak', { count: loginStreak })}
+            <Icon emoji="🔥" size={12} />
+            {t('home.quests.streak', { count: loginStreak })}
           </span>
         )}
       </div>
