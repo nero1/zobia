@@ -2092,7 +2092,7 @@
   "classroom.leaderboard.yourLevel": "Your level",
   "classroom.lessons.completedPoints": "Lesson complete! +{{points}} points",
   "classroom.lessons.enrolToUnlock": "Enrol to unlock this lesson",
-  "classroom.lessons.leveledUp": "Lesson complete! +{{points}} points — you levelled up 🎉",
+  "classroom.lessons.leveledUp": "Lesson complete! +{{points}} points — you levelled up",
   "classroom.lessons.markComplete": "Mark complete",
   "classroom.lessons.markIncomplete": "Mark as not done",
   "classroom.lessons.noContent": "This lesson has no written content yet.",

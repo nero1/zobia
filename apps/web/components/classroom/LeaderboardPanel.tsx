@@ -14,6 +14,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useTranslation } from "react-i18next";
 import { classroomApi } from "@/lib/classroom/clientApi";
 import type { ClassroomBadgeDef, ClassroomLeaderboardEntry, LeaderboardPeriod, MemberStanding } from "@/components/classroom/types";
+import { Icon } from "@/components/ui/Icon";
 
 interface LeaderboardData {
   period: LeaderboardPeriod;
@@ -85,7 +86,7 @@ export function LeaderboardPanel({ roomId, viewerId }: { roomId: string; viewerI
         <ol className="divide-y divide-neutral-100 overflow-hidden rounded-xl border border-neutral-200 bg-white dark:divide-neutral-800 dark:border-neutral-800 dark:bg-neutral-900">
           {data.entries.map((e) => (
             <li key={e.userId} className={`flex items-center gap-3 px-4 py-2.5 ${e.userId === viewerId ? "bg-violet-50 dark:bg-violet-950/30" : ""}`}>
-              <span className="w-7 text-center text-sm font-bold text-neutral-400">{e.rank <= 3 ? ["🥇", "🥈", "🥉"][e.rank - 1] : `#${e.rank}`}</span>
+              <span className="w-7 text-center text-sm font-bold text-neutral-400">{e.rank <= 3 ? <Icon emoji={["🥇", "🥈", "🥉"][e.rank - 1]} size={16} className="inline" /> : `#${e.rank}`}</span>
               <span className="text-xl">{e.avatarEmoji}</span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{e.displayName}</span>

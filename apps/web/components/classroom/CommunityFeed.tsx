@@ -16,6 +16,7 @@ import { translateApiError } from "@/lib/i18n/apiErrors";
 import { classroomApi, ClassroomApiError } from "@/lib/classroom/clientApi";
 import { ReportButton } from "@/components/classroom/ReportButton";
 import { timeAgo, type ClassroomCommentView, type ClassroomHomePayload, type ClassroomPostView } from "@/components/classroom/types";
+import { Icon } from "@/components/ui/Icon";
 
 type Sort = "activity" | "new" | "top";
 
@@ -59,7 +60,7 @@ function LikeButton({ liked, count, disabled, onToggle }: { liked: boolean; coun
         liked ? "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300" : "text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800"
       } disabled:opacity-50`}
     >
-      👍 {count > 0 ? count : t("classroom.feed.like", "Like")}
+      <Icon emoji="👍" size={13} className="inline align-[-2px]" /> {count > 0 ? count : t("classroom.feed.like", "Like")}
     </button>
   );
 }
@@ -199,7 +200,7 @@ function PostThread({
           {error && <p className="text-xs text-red-600">{error}</p>}
         </div>
       ) : post.isLocked ? (
-        <p className="text-xs text-neutral-400">🔒 {t("classroom.feed.lockedNotice", "Comments are closed on this post.")}</p>
+        <p className="text-xs text-neutral-400"><Icon emoji="🔒" size={12} className="inline align-[-1px]" /> {t("classroom.feed.lockedNotice", "Comments are closed on this post.")}</p>
       ) : null}
     </div>
   );
@@ -238,8 +239,8 @@ function PostCard({ home, post, levelName }: { home: ClassroomHomePayload; post:
         </span>
       </div>
       <div className="mt-1 flex flex-wrap gap-1.5">
-        {post.isPinned && <span className="text-[11px] font-semibold text-violet-600">📌 {t("classroom.feed.pinned", "Pinned")}</span>}
-        {post.isLocked && <span className="text-[11px] font-semibold text-neutral-500">🔒 {t("classroom.feed.locked", "Locked")}</span>}
+        {post.isPinned && <span className="text-[11px] font-semibold text-violet-600"><Icon emoji="📌" size={11} className="inline align-[-1px]" /> {t("classroom.feed.pinned", "Pinned")}</span>}
+        {post.isLocked && <span className="text-[11px] font-semibold text-neutral-500"><Icon emoji="🔒" size={11} className="inline align-[-1px]" /> {t("classroom.feed.locked", "Locked")}</span>}
         {post.isHidden && <span className="text-[11px] font-semibold text-amber-600">{t("classroom.feed.hiddenNotice", "Hidden by a moderator")}</span>}
       </div>
       {editing ? (
@@ -280,7 +281,7 @@ function PostCard({ home, post, levelName }: { home: ClassroomHomePayload; post:
       <div className="mt-3 flex flex-wrap items-center gap-3">
         <LikeButton liked={post.likedByMe} count={post.likeCount} disabled={!home.viewer.can.like} onToggle={() => like.mutate()} />
         <button type="button" onClick={() => setExpanded((v) => !v)} className="text-xs font-semibold text-neutral-500 hover:text-violet-600">
-          💬 {t("classroom.feed.comments", "{{count}} comments", { count: post.commentCount })}
+          <Icon emoji="💬" size={13} className="inline align-[-2px]" /> {t("classroom.feed.comments", "{{count}} comments", { count: post.commentCount })}
         </button>
         {post.canEdit && !editing && (
           <button type="button" onClick={() => setEditing(true)} className="text-xs text-neutral-500 hover:text-violet-600">
@@ -474,7 +475,7 @@ export function CommunityFeed({ home, levelName }: { home: ClassroomHomePayload;
         <p className="text-sm text-red-600">{translateApiError(t, (feed.error as ClassroomApiError).code, (feed.error as Error).message)}</p>
       ) : posts.length === 0 ? (
         <div className="py-12 text-center">
-          <span className="text-4xl">💬</span>
+          <Icon emoji="💬" size={40} />
           <p className="mt-2 text-sm text-neutral-500">{t("classroom.feed.empty", "No posts yet — start the first conversation!")}</p>
         </div>
       ) : (
