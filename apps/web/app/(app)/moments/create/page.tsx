@@ -13,6 +13,7 @@ import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { useCurrency, currencyLabel } from "@/lib/hooks/useCurrency";
 import { useMomentsConfig } from "@/lib/hooks/useMomentsConfig";
+import { Icon } from "@/components/ui/Icon";
 import { IMAGE_ACCEPT_ATTR, isImageFileValid } from "@/lib/uploads/imageValidationShared";
 
 const MAX_CONTENT = 500;
@@ -189,7 +190,7 @@ export default function CreateMomentPage() {
             aria-expanded={optionalExpanded}
           >
             <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t("moments.create.optional")}</h2>
-            <span className="text-xs text-neutral-400">{optionalExpanded ? "▲" : "▼"}</span>
+            <span className="text-xs text-neutral-400"><Icon emoji={optionalExpanded ? "▲" : "▼"} size={12} className="inline" /></span>
           </div>
           {optionalExpanded && (
             <div className="space-y-4 p-5">
@@ -322,7 +323,7 @@ export default function CreateMomentPage() {
               className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
               aria-label="Close"
             >
-              ✕
+              <Icon emoji="✕" size={16} />
             </button>
             <h2 className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-50">
               {t("moments.create.insufficientTitle", { currency: `${currency.softPlural}/${currency.premiumPlural}` })}

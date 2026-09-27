@@ -13,6 +13,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 
 const MAX_TITLE = 200;
@@ -173,7 +174,7 @@ export default function CreatePollPage() {
                     aria-label={t("polls.new.removeOption", "Remove option")}
                     className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-neutral-400 hover:bg-neutral-100 hover:text-red-500 dark:hover:bg-neutral-800"
                   >
-                    ✕
+                    <Icon emoji="✕" size={16} />
                   </button>
                 )}
               </div>

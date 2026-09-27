@@ -13,6 +13,7 @@
 
 import { useRef, useState, useEffect, useCallback } from "react";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 
@@ -108,7 +109,7 @@ function NemesisCard({ data, onChallenge, challenging }: { data: NemesisData; on
   if (optedOut) {
     return (
       <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-2xl p-6 text-center">
-        <div className="text-4xl mb-3">🔕</div>
+        <Icon emoji="🔕" className="mb-3 text-4xl" size={36} />
         <h3 className="font-bold text-neutral-700 dark:text-neutral-300 mb-1">Nemesis System Off</h3>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           You&apos;ve turned off Nemesis rivals. Re-enable it anytime in Settings → Privacy.
@@ -120,7 +121,7 @@ function NemesisCard({ data, onChallenge, challenging }: { data: NemesisData; on
   if (!nemesis || !me) {
     return (
       <div className="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-2xl p-6 text-center">
-        <div className="text-4xl mb-3">👻</div>
+        <Icon emoji="👻" className="mb-3 text-4xl" size={36} />
         <h3 className="font-bold text-neutral-700 dark:text-neutral-300 mb-1">No Nemesis Yet</h3>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">
           Keep earning XP — a nemesis will be assigned on Sunday when there&apos;s a close match.
@@ -212,7 +213,7 @@ function NemesisCard({ data, onChallenge, challenging }: { data: NemesisData; on
             disabled={!!data.sprintActive || challenging}
             className="flex-1 py-2 px-4 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-60"
           >
-            {challenging ? "Sending…" : data.sprintActive ? "Sprint Active" : "Challenge 🔥"}
+            {challenging ? "Sending…" : data.sprintActive ? "Sprint Active" : <>Challenge <Icon emoji="🔥" size={14} className="inline align-text-bottom" /></>}
           </button>
         </div>
       </div>
@@ -327,7 +328,7 @@ export default function NemesisPage() {
       {/* Refresh countdown */}
       {timeLeft && (
         <div className="flex items-center gap-2 mb-4 text-xs text-neutral-400">
-          <span>🔄</span>
+          <Icon emoji="🔄" size={14} />
           <span>Next refresh: <strong className="text-neutral-600 dark:text-neutral-300">{timeLeft}</strong></span>
         </div>
       )}
@@ -337,7 +338,7 @@ export default function NemesisPage() {
         <NemesisSkeleton />
       ) : error ? (
         <div className="text-center py-12">
-          <div className="text-4xl mb-3">⚠️</div>
+          <Icon emoji="⚠️" className="mb-3 text-4xl" size={36} />
           <p className="text-neutral-500">{error}</p>
           <button
             onClick={load}
