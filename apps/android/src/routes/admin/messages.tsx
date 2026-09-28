@@ -31,6 +31,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { AdminToast, AdminEmptyState, AdminErrorState, AdminBadge, AdminField, adminInputClass, fmtDate } from '@/components/admin/AdminUI';
+import { Icon } from '@/components/ui/Icon';
 
 type RecipientMode = 'all' | 'by_plan' | 'by_role' | 'direct';
 
@@ -142,7 +143,7 @@ function UserSearchInput({ selected, onAdd, onRemove }: { selected: UserSearchRe
           {selected.map((u) => (
             <span key={u.id} className="flex items-center gap-1 rounded-full bg-blue-100 dark:bg-blue-900/40 px-2.5 py-1 text-xs font-medium text-blue-800">
               {u.avatarEmoji} @{u.username}
-              <button type="button" onClick={() => onRemove(u.id)} className="ml-1">✕</button>
+              <button type="button" onClick={() => onRemove(u.id)} className="ml-1"><Icon emoji="✕" size={12} /></button>
             </span>
           ))}
         </div>
@@ -163,7 +164,7 @@ function MessageDetailOverlay({ id, onClose }: { id: string; onClose: () => void
     <div className="fixed inset-0 z-50 flex flex-col bg-white dark:bg-neutral-800">
       <div className="flex-none flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-3" style={{ paddingTop: 'calc(0.75rem + env(safe-area-inset-top))' }}>
         <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t('admin.messages.detailTitle', 'Message Detail')}</h2>
-        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">✕</button>
+        <button onClick={onClose} aria-label={t('nav.closeMenu')} className="rounded-lg p-1.5 text-neutral-500 dark:text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700"><Icon emoji="✕" /></button>
       </div>
       <div className="flex-1 overflow-y-auto space-y-4 p-4" style={{ paddingBottom: 'calc(1rem + env(safe-area-inset-bottom))' }}>
         {status === 'pending' && <div className="h-24 animate-pulse rounded-xl bg-neutral-100 dark:bg-neutral-800" />}
