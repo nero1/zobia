@@ -278,6 +278,9 @@ export const EMOJI_TO_LUCIDE_NAME: Record<string, string> = {
   "⋯": "MoreHorizontal",
   "📟": "BellRing",
   "🩻": "Activity",
+  "⊞": "LayoutGrid",
+  "✔": "Check",
+  "🔦": "Flashlight",
 };
 
 /** Look up the lucide-react export name for a UI-chrome emoji, or undefined if it isn't mapped (render the emoji as-is in that case — see the file header on why an unmapped emoji is not a bug). */
