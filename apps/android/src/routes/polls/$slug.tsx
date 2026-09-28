@@ -19,6 +19,7 @@ import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
 import { referralLink, PUBLIC_PATHS } from '@/lib/deeplinks/routes';
 import { useMyReferralCode } from '@/lib/referral/useReferralCode';
+import { Icon } from '@/components/ui/Icon';
 
 interface PollOption {
   id: string;
@@ -277,7 +278,7 @@ function PollDetailPage() {
     return (
       <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 p-6 text-center">
         <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('polls.notFound', 'Poll not found')}</p>
-        <Link to="/polls" className="mt-3 inline-block text-sm font-semibold text-primary-600 dark:text-primary-300">← {t('polls.title', 'Polls')}</Link>
+        <Link to="/polls" className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-primary-600 dark:text-primary-300"><Icon emoji="←" size={14} /> {t('polls.title', 'Polls')}</Link>
       </div>
     );
   }
@@ -326,7 +327,7 @@ function PollDetailPage() {
                 <div className="absolute inset-y-0 left-0 bg-primary-100 dark:bg-primary-900/40" style={{ width: `${pct}%` }} />
                 <div className="relative flex items-center justify-between px-3 py-2.5">
                   <span className={`text-sm ${isMine ? 'font-semibold text-primary-700 dark:text-primary-300' : 'text-neutral-800 dark:text-neutral-200'}`}>
-                    {isMine && '✓ '}{opt.label}
+                    {isMine && <><Icon emoji="✓" size={12} /> </>}{opt.label}
                   </span>
                   <span className="text-xs font-semibold tabular-nums text-neutral-600 dark:text-neutral-400">{pct}% ({opt.voteCount})</span>
                 </div>
@@ -344,7 +345,7 @@ function PollDetailPage() {
               <span
                 className={`flex h-4 w-4 shrink-0 items-center justify-center border ${poll.allowMultiple ? 'rounded' : 'rounded-full'} ${isChecked ? 'border-primary-600 bg-primary-600' : 'border-neutral-300 dark:border-neutral-600'}`}
               >
-                {isChecked && <span className="text-[10px] text-white">✓</span>}
+                {isChecked && <Icon emoji="✓" size={10} className="text-white" />}
               </span>
               {opt.label}
             </button>

@@ -12,6 +12,7 @@ import { useQuery, useMutation } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useCurrency } from '@/lib/hooks/useCurrency';
+import { Icon } from '@/components/ui/Icon';
 
 const REQUIRED_RANK_NUMBER = 10;
 
@@ -35,7 +36,7 @@ function LockScreen({ data }: { data: PrestigeData }) {
 
   return (
     <div className="flex flex-col items-center py-12 px-6 text-center">
-      <span className="text-6xl">🔒</span>
+      <Icon emoji="🔒" size={56} />
       <h2 className="mt-4 text-2xl font-bold text-neutral-900 dark:text-neutral-100">{t('prestige.notYet', 'Not Yet')}</h2>
       <p className="mt-2 text-neutral-500 dark:text-neutral-400">
         {t('prestige.currentRank', 'You are currently')}{' '}
@@ -76,7 +77,7 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: {
   if (done) {
     return (
       <div className="flex flex-col items-center py-16 px-6 text-center">
-        <span className="text-6xl">🌟</span>
+        <Icon emoji="🌟" size={56} />
         <h2 className="mt-4 text-3xl font-bold text-neutral-900 dark:text-neutral-100">{t('prestige.prestigeAchieved', 'Prestige Achieved!')}</h2>
         <p className="mt-2 text-neutral-500 dark:text-neutral-400">{t('prestige.honourMessage', 'You have begun again — with honour. Your legacy grows.')}</p>
         <p className="mt-4 text-sm font-semibold text-amber-600 dark:text-amber-300">
@@ -92,25 +93,29 @@ function ConfirmScreen({ data, onConfirm, confirming, done }: {
   return (
     <div className="space-y-5 px-4 py-4">
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-6 text-center shadow-card">
-        <span className="text-5xl">⭐</span>
+        <Icon emoji="⭐" size={44} />
         <h2 className="mt-3 text-2xl font-bold text-neutral-900 dark:text-neutral-100">{t('prestige.masteredZobia', 'You have mastered Zobia.')}</h2>
         <p className="mt-1 text-neutral-600 dark:text-neutral-400">
           {t('prestige.confirmMessage', 'You are a {{rank}}. Do you want to Prestige and begin again — with honour?', { rank: data.currentRank.rankName })}
         </p>
         {data.prestigeCount > 0 && (
-          <p className="mt-2 text-sm text-amber-600 dark:text-amber-300">
-            {t('prestige.currentPrestige', 'Current Prestige')}: {'⭐'.repeat(Math.min(data.prestigeCount, 5))} ({data.prestigeCount})
+          <p className="mt-2 flex items-center gap-1 text-sm text-amber-600 dark:text-amber-300">
+            {t('prestige.currentPrestige', 'Current Prestige')}:{' '}
+            {Array.from({ length: Math.min(data.prestigeCount, 5) }).map((_, i) => (
+              <Icon key={i} emoji="⭐" size={12} />
+            ))}{' '}
+            ({data.prestigeCount})
           </p>
         )}
       </div>
 
       <div className="grid gap-3 grid-cols-2">
         <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 p-3">
-          <h3 className="mb-2 text-xs font-semibold text-red-700 dark:text-red-300">⚠ {t('prestige.resets', 'Resets')}</h3>
+          <h3 className="mb-2 flex items-center gap-1 text-xs font-semibold text-red-700 dark:text-red-300"><Icon emoji="⚠" size={12} /> {t('prestige.resets', 'Resets')}</h3>
           <p className="text-xs text-red-600 dark:text-red-300">{t('prestige.mainRankReset', 'Main rank (back to Bronze I)')}</p>
         </div>
         <div className="rounded-xl border border-teal-200 bg-teal-50 dark:bg-teal-900/30 p-3">
-          <h3 className="mb-2 text-xs font-semibold text-teal-700 dark:text-teal-300">✓ {t('prestige.staysForever', 'Stays Forever')}</h3>
+          <h3 className="mb-2 flex items-center gap-1 text-xs font-semibold text-teal-700 dark:text-teal-300"><Icon emoji="✓" size={12} /> {t('prestige.staysForever', 'Stays Forever')}</h3>
           <ul className="space-y-0.5 text-xs text-teal-600 dark:text-teal-300">
             <li>{t('prestige.trackLevels', 'Track levels')}</li>
             <li>{currency.softPlural} balance</li>
@@ -184,10 +189,10 @@ function PrestigePage() {
             {t('prestige.explainer', 'Prestige is a special milestone for the most dedicated Zobia players. Reach the highest rank to reset for exclusive rewards and a permanent star that shows how many times you have mastered the game.')}
           </p>
           <ul className="mt-2 space-y-1 text-xs text-blue-600 dark:text-blue-300">
-            <li>⭐ Each prestige adds a star to your profile badge</li>
-            <li>🪙 Earn {currency.softPlural.toLowerCase()} and exclusive frames with each prestige</li>
-            <li>🔥 3× XP boost for 7 days after prestige (from your 3rd prestige)</li>
-            <li>🏆 Reach Prestige 10 to be inducted into the Hall of Fame</li>
+            <li className="flex items-center gap-1"><Icon emoji="⭐" size={12} /> Each prestige adds a star to your profile badge</li>
+            <li className="flex items-center gap-1"><Icon emoji="🪙" size={12} /> Earn {currency.softPlural.toLowerCase()} and exclusive frames with each prestige</li>
+            <li className="flex items-center gap-1"><Icon emoji="🔥" size={12} /> 3× XP boost for 7 days after prestige (from your 3rd prestige)</li>
+            <li className="flex items-center gap-1"><Icon emoji="🏆" size={12} /> Reach Prestige 10 to be inducted into the Hall of Fame</li>
           </ul>
         </div>
       </div>
