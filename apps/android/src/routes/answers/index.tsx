@@ -16,6 +16,7 @@ import { useState, useCallback, useRef } from 'react';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { useForumConfig } from '@/lib/hooks/useForumConfig';
+import { Icon } from '@/components/ui/Icon';
 
 type Tab = 'popular' | 'trending' | 'new' | 'favorites';
 
@@ -65,16 +66,16 @@ function QuestionCard({ q, onVote, onFavorite }: { q: QuestionSummary; onVote: (
   return (
     <div className="flex gap-3 bg-white dark:bg-neutral-800 border-b border-neutral-100 dark:border-neutral-800 p-4">
       <div className="flex flex-col items-center gap-1 pt-0.5">
-        <button onClick={() => onVote(q.id, 1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${q.myVote === 1 ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300' : 'text-neutral-400 dark:text-neutral-500'}`}>▲</button>
+        <button onClick={() => onVote(q.id, 1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${q.myVote === 1 ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300' : 'text-neutral-400 dark:text-neutral-500'}`}><Icon emoji="▲" className="inline h-4 w-4" /></button>
         <span className="text-sm font-semibold tabular-nums text-neutral-700 dark:text-neutral-300">{q.voteScore}</span>
-        <button onClick={() => onVote(q.id, -1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${q.myVote === -1 ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : 'text-neutral-400 dark:text-neutral-500'}`}>▼</button>
+        <button onClick={() => onVote(q.id, -1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${q.myVote === -1 ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : 'text-neutral-400 dark:text-neutral-500'}`}><Icon emoji="▼" className="inline h-4 w-4" /></button>
       </div>
       <div className="min-w-0 flex-1">
         <Link to="/answers/$questionId" params={{ questionId: q.id }} className="block">
           <h3 className="line-clamp-2 text-sm font-semibold text-neutral-900 dark:text-neutral-100">
             {q.title}
-            {q.isLocked && <span className="ml-1.5 text-xs text-neutral-400 dark:text-neutral-500">🔒</span>}
-            {q.bestAnswerId && <span className="ml-1.5 text-xs text-teal-600 dark:text-teal-300">✓ answered</span>}
+            {q.isLocked && <span className="ml-1.5 text-xs text-neutral-400 dark:text-neutral-500"><Icon emoji="🔒" className="inline h-3 w-3" /></span>}
+            {q.bestAnswerId && <span className="ml-1.5 inline-flex items-center gap-0.5 text-xs text-teal-600 dark:text-teal-300"><Icon emoji="✓" className="inline h-3 w-3" /> answered</span>}
           </h3>
           <p className="mt-1 line-clamp-2 text-xs text-neutral-500 dark:text-neutral-400">{q.body}</p>
         </Link>
@@ -85,7 +86,7 @@ function QuestionCard({ q, onVote, onFavorite }: { q: QuestionSummary; onVote: (
           <span>·</span>
           <span>{q.answerCount} {q.answerCount === 1 ? 'answer' : 'answers'}</span>
           <button onClick={() => onFavorite(q.id, !q.isFavorited)} className={`ml-auto rounded-full px-1.5 py-0.5 ${q.isFavorited ? 'text-amber-500' : 'text-neutral-300'}`}>
-            {q.isFavorited ? '★' : '☆'}
+            <Icon emoji={q.isFavorited ? '★' : '☆'} className="inline h-4 w-4" />
           </button>
         </div>
       </div>
@@ -158,6 +159,7 @@ function AnswersPage() {
     { key: 'new', label: t('answers.tabs.new'), icon: '🆕' },
     { key: 'favorites', label: t('answers.tabs.favorites'), icon: '★' },
   ];
+  // Tab icons are rendered via <Icon emoji={...}> below (mono/emoji icon-set swap).
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
@@ -181,7 +183,7 @@ function AnswersPage() {
             onClick={() => setTab(key)}
             className={`flex-1 rounded-lg py-1.5 text-xs font-semibold ${tab === key ? 'bg-neutral-900 text-white' : 'text-neutral-500 dark:text-neutral-400'}`}
           >
-            {icon} {label}
+            <Icon emoji={icon} className="inline h-3.5 w-3.5" /> {label}
           </button>
         ))}
       </div>
@@ -199,7 +201,7 @@ function AnswersPage() {
 
       {status === 'success' && questions.length === 0 && (
         <div className="flex flex-col items-center justify-center py-20 px-6 text-center">
-          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700 text-3xl">❓</div>
+          <div className="mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-neutral-200 dark:bg-neutral-700 text-3xl"><Icon emoji="❓" size={32} /></div>
           <p className="font-semibold text-neutral-900 dark:text-neutral-100 text-sm">
             {tab === 'favorites' ? t('answers.empty.favorites') : t('answers.empty.default')}
           </p>

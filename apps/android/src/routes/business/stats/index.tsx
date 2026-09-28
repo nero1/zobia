@@ -11,6 +11,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface Totals {
   page_count: number;
@@ -45,7 +46,7 @@ function BusinessStatsPage() {
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
       <div className="flex items-center gap-2 mb-3">
-        <Link to="/business" className="text-sm text-neutral-500 dark:text-neutral-400">← {t('business.title', 'Business')}</Link>
+        <Link to="/business" className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400"><Icon emoji="←" size={14} /> {t('business.title', 'Business')}</Link>
       </div>
       <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-100 mb-3">{t('business.stats.title', 'Stats')}</h1>
 
@@ -74,7 +75,7 @@ function BusinessStatsPage() {
           {data.pageBreakdown.map((p) => (
             <div key={p.id} className="bg-white dark:bg-neutral-800 rounded-xl p-3 shadow-card flex items-center justify-between">
               <p className="text-sm font-medium text-neutral-900 dark:text-neutral-100 truncate">{p.name}</p>
-              <p className="text-xs text-neutral-400 dark:text-neutral-500">👁 {p.view_count} · 📝 {p.post_count}</p>
+              <p className="inline-flex items-center gap-1 text-xs text-neutral-400 dark:text-neutral-500"><Icon emoji="👁" size={12} /> {p.view_count} · <Icon emoji="📝" size={12} /> {p.post_count}</p>
             </div>
           ))}
         </div>
