@@ -133,7 +133,7 @@ export function NoticesCarousel() {
           <img src={current.imageUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
         ) : (
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 dark:bg-primary-900/30 text-xl">
-            {current.icon ?? '📣'}
+            <Icon emoji={current.icon ?? '📣'} size={22} />
           </span>
         )}
         <div className="min-w-0 flex-1">

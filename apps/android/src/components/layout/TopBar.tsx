@@ -264,7 +264,9 @@ export function TopBar({ title, rightActions, showBack }: TopBarProps) {
                   </span>
                   {t(item.labelKey)}
                   {isOffForUsers && (
-                    <span title="Disabled for regular users" className="ml-auto text-xs text-amber-500">⚠️</span>
+                    <span title="Disabled for regular users" className="ml-auto text-xs text-amber-500">
+                      <Icon emoji="⚠️" size={14} />
+                    </span>
                   )}
                 </Link>
               );

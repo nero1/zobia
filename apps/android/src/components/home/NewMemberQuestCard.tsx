@@ -73,7 +73,7 @@ export function NewMemberQuestCard({ alwaysShow = false }: { alwaysShow?: boolea
     <div className="rounded-xl border border-violet-200 bg-white dark:bg-neutral-800 shadow-sm">
       <div className="flex items-center justify-between border-b border-violet-100 px-4 py-3">
         <div className="flex items-center gap-2">
-          <span className="text-lg">🎯</span>
+          <Icon emoji="🎯" size={18} />
           <h2 className="text-sm font-bold text-neutral-900 dark:text-neutral-100">{t('home.newMemberQuest.title')}</h2>
         </div>
         <div className="flex items-center gap-3">

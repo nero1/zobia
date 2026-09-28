@@ -94,7 +94,7 @@ export function NemesisCard() {
       <h2 className="mb-3 text-xs font-semibold uppercase tracking-wider text-neutral-500 dark:text-neutral-400">{t('home.nemesis.title')}</h2>
       {error && <p className="mb-2 text-xs text-red-600 dark:text-red-300">{error}</p>}
       <div className="flex items-center gap-4">
-        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-2xl">🧑</div>
+        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/40 text-2xl"><Icon emoji="🧑" size={24} /></div>
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
             <span className="font-semibold text-primary-600 dark:text-primary-300">{t('home.nemesis.you')}</span>
