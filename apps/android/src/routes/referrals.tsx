@@ -218,7 +218,7 @@ function ReferredUserRow({ u }: { u: ReferredUser }) {
       </div>
       <div className="mt-1 text-right">
         <p className="text-xs font-semibold text-neutral-900 dark:text-neutral-100">+{u.xpEarned.toLocaleString()} XP</p>
-        <p className="text-xs text-neutral-500 dark:text-neutral-400">+{u.coinsEarned.toLocaleString()} 🪙</p>
+        <p className="text-xs text-neutral-500 dark:text-neutral-400 inline-flex items-center gap-1">+{u.coinsEarned.toLocaleString()} <Icon emoji="🪙" size={12} /></p>
       </div>
     </div>
   );

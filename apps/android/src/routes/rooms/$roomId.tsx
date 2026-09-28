@@ -19,6 +19,7 @@ import { useAdsConfig } from '@/lib/hooks/useAdsConfig';
 import { LiveRoomPulseBar } from '@/components/ui/LiveRoomPulseBar';
 import InStreamAd from '@/components/ads/InStreamAd';
 import { UserBadgeRow, RewardBadge } from '@/components/shared/UserBadges';
+import { Icon } from '@/components/ui/Icon';
 
 interface Message {
   id: string;
@@ -246,7 +247,7 @@ function RoomChatPage() {
                     } ${msg.id.startsWith('optimistic-') ? 'opacity-70' : ''}`}
                   >
                     {msg.messageType === 'moment' && (
-                      <p className="mb-0.5 text-[10px] font-semibold text-purple-600 dark:text-purple-300">⚡ {t('room.moment24h', { defaultValue: 'Moment · 24h' })}</p>
+                      <p className="mb-0.5 flex items-center gap-1 text-[10px] font-semibold text-purple-600 dark:text-purple-300"><Icon emoji="⚡" size={10} /> {t('room.moment24h', { defaultValue: 'Moment · 24h' })}</p>
                     )}
                     {msg.content}
                   </div>
@@ -262,7 +263,7 @@ function RoomChatPage() {
       {/* Moment mode indicator */}
       {isMoment && (
         <div className="flex flex-wrap items-center gap-1.5 border-t border-purple-200 bg-purple-50 dark:bg-purple-900/30 px-4 py-1.5">
-          <span className="text-sm">⚡</span>
+          <Icon emoji="⚡" size={16} />
           <span className="text-xs font-semibold text-purple-700 dark:text-purple-300">Moment · 24h</span>
           {!momentsConfig.isFree && (
             <span className="text-xs text-purple-600 dark:text-purple-300">
@@ -299,7 +300,7 @@ function RoomChatPage() {
             <Link to="/settings" onClick={() => setMomentError(null)} className="rounded-lg bg-amber-500 px-2.5 py-1 text-xs font-semibold text-white">
               Buy {currency.softPlural}
             </Link>
-            <button onClick={() => setMomentError(null)} className="text-xs text-amber-600 dark:text-amber-300">✕</button>
+            <button onClick={() => setMomentError(null)} className="text-xs text-amber-600 dark:text-amber-300"><Icon emoji="✕" size={12} /></button>
           </div>
         </div>
       )}
@@ -312,7 +313,7 @@ function RoomChatPage() {
           aria-label="Toggle Moment mode"
           className={`w-9 h-9 flex-shrink-0 rounded-full flex items-center justify-center text-lg ${isMoment ? 'bg-purple-100 dark:bg-purple-900/40 text-purple-700 dark:text-purple-300' : 'text-neutral-400 dark:text-neutral-500'}`}
         >
-          ⚡
+          <Icon emoji="⚡" size={18} />
         </button>
         <input
           type="text"
