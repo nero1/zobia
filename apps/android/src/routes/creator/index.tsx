@@ -28,6 +28,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface CreatorDashboard {
   isCreator: boolean;
@@ -86,14 +87,14 @@ function ThresholdProgressBar({ availableKobo, minKobo, t }: { availableKobo: nu
   );
 }
 
-const STREAM_LABEL: Record<string, string> = {
-  gift: '🎁 Gifts',
-  subscription: '🔁 Subscriptions',
-  dropEntry: '🎟️ Drop Entries',
-  classroomEnrolment: '📚 Classroom',
-  sponsoredQuest: '🏆 Sponsored Quests',
-  merch: '🛍️ Merch',
-  creatorFund: '💰 Creator Fund',
+const STREAM_LABEL: Record<string, { emoji: string; label: string }> = {
+  gift: { emoji: '🎁', label: 'Gifts' },
+  subscription: { emoji: '🔁', label: 'Subscriptions' },
+  dropEntry: { emoji: '🎟️', label: 'Drop Entries' },
+  classroomEnrolment: { emoji: '📚', label: 'Classroom' },
+  sponsoredQuest: { emoji: '🏆', label: 'Sponsored Quests' },
+  merch: { emoji: '🛍️', label: 'Merch' },
+  creatorFund: { emoji: '💰', label: 'Creator Fund' },
 };
 
 function formatNgn(kobo: number): string {
@@ -169,7 +170,7 @@ function CreatorDashboardPage() {
     return (
       <div className="p-6">
         <div className="rounded-xl border border-red-200 bg-red-50 dark:bg-red-900/30 px-4 py-3 text-sm text-red-700 dark:text-red-300">{t('error.generic')}</div>
-        <Link to="/home" className="mt-3 inline-block text-sm text-primary-600 dark:text-primary-300">← {t('android.nav.home', 'Home')}</Link>
+        <Link to="/home" className="mt-3 inline-flex items-center gap-1 text-sm text-primary-600 dark:text-primary-300"><Icon emoji="←" size={14} /> {t('android.nav.home', 'Home')}</Link>
       </div>
     );
   }
@@ -204,13 +205,15 @@ function CreatorDashboardPage() {
         <div className="divide-y divide-neutral-100 dark:divide-neutral-700">
           {Object.entries(data.revenue.byStream).filter(([, v]) => v > 0).map(([key, value]) => (
             <div key={key} className="flex items-center justify-between px-4 py-2.5 text-sm">
-              <span className="text-neutral-700 dark:text-neutral-300">{STREAM_LABEL[key] ?? key}</span>
+              <span className="inline-flex items-center gap-1.5 text-neutral-700 dark:text-neutral-300">
+                {STREAM_LABEL[key] ? <><Icon emoji={STREAM_LABEL[key].emoji} size={14} /> {STREAM_LABEL[key].label}</> : key}
+              </span>
               <span className="font-semibold text-neutral-900 dark:text-neutral-100">{formatNgn(value)}</span>
             </div>
           ))}
         </div>
         <Link to="/creator/merch" className="flex items-center justify-between border-t border-neutral-100 dark:border-neutral-800 px-4 py-3 text-sm font-semibold text-primary-600 dark:text-primary-300">
-          🛍️ {t('creator.manageMerchStore', 'Manage Merch Store')}
+          <span className="inline-flex items-center gap-1.5"><Icon emoji="🛍️" size={14} /> {t('creator.manageMerchStore', 'Manage Merch Store')}</span>
           <span>→</span>
         </Link>
       </div>
@@ -237,7 +240,7 @@ function CreatorDashboardPage() {
                   <span className="w-4 text-center text-xs font-bold text-neutral-400 dark:text-neutral-500">#{i + 1}</span>
                   <span className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-lg">{g.avatar_emoji}</span>
                   <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">@{g.username}</span>
-                  <span className="text-sm font-bold text-amber-600 dark:text-amber-300">{g.total_coins.toLocaleString()} 🪙</span>
+                  <span className="inline-flex items-center gap-1 text-sm font-bold text-amber-600 dark:text-amber-300">{g.total_coins.toLocaleString()} <Icon emoji="🪙" size={13} /></span>
                 </Link>
               ))}
             </div>
@@ -264,7 +267,7 @@ function CreatorDashboardPage() {
                     <div className="flex gap-1.5">
                       {payouts.payoutConfig.coinsEnabled && (
                         <button onClick={() => requestPayout('coins')} disabled={requesting || payouts.availableEarningsKobo <= 0} className="rounded-lg bg-teal-600 px-3 py-2 text-xs font-semibold text-white disabled:opacity-60">
-                          {t('creator.requestPayout', 'Request')} (🪙)
+                          {t('creator.requestPayout', 'Request')} (<Icon emoji="🪙" size={12} className="inline" />)
                         </button>
                       )}
                       {payouts.payoutConfig.bankTransferEnabled && (
