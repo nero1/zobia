@@ -12,6 +12,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 interface Notice {
   id: string;
@@ -129,7 +130,7 @@ export function NoticesCarousel() {
           <img src={current.imageUrl} alt="" className="h-10 w-10 shrink-0 rounded-lg object-cover" />
         ) : (
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-blue-50 text-xl dark:bg-blue-950/40">
-            {current.icon ?? "📣"}
+            <Icon emoji={current.icon ?? "📣"} size={20} />
           </span>
         )}
         <div className="min-w-0 flex-1">

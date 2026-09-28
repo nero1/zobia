@@ -12,6 +12,7 @@ import { useEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Browser } from '@capacitor/browser';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface Notice {
   id: string;
