@@ -624,7 +624,7 @@ function RoomPowersPanel({
 }: { roomId: string; onClose: () => void; currentUserId: string | null; lastOwnMessageId: string | null }) {
   const [activating, setActivating] = useState<string | null>(null);
   const [pendingPower, setPendingPower] = useState<string | null>(null);
-  const [result, setResult] = useState<string | null>(null);
+  const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
   const currency = useCurrency();
 
   const POWERS = [
@@ -635,7 +635,7 @@ function RoomPowersPanel({
 
   async function activate(powerType: string) {
     if (powerType === "message_pin" && !lastOwnMessageId) {
-      setResult("❌ Send a message first to pin it");
+      setResult({ ok: false, message: "Send a message first to pin it" });
       setPendingPower(null);
       return;
     }
@@ -660,8 +660,8 @@ function RoomPowersPanel({
         body: JSON.stringify(body),
       });
       const d = (await res.json()) as { error?: { message?: string }; message?: string };
-      setResult(res.ok ? "✅ Power activated!" : `❌ ${d.error?.message ?? d.message ?? "Failed"}`);
-    } catch { setResult("❌ Network error"); }
+      setResult(res.ok ? { ok: true, message: "Power activated!" } : { ok: false, message: d.error?.message ?? d.message ?? "Failed" });
+    } catch { setResult({ ok: false, message: "Network error" }); }
     setActivating(null);
     setPendingPower(null);
   }
@@ -713,7 +713,10 @@ function RoomPowersPanel({
         )}
 
         {result && (
-          <div className="px-3 py-2 text-xs font-medium text-neutral-700 dark:text-neutral-300">{result}</div>
+          <div className="px-3 py-2 flex items-center gap-1 text-xs font-medium text-neutral-700 dark:text-neutral-300">
+            <Icon emoji={result.ok ? "✅" : "❌"} size={12} />
+            {result.message}
+          </div>
         )}
 
         <div className="p-2">
@@ -1687,7 +1690,7 @@ export default function RoomPage() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4">
         <p className="text-neutral-500">{error ?? "Room not found"}</p>
-        <Link href="/rooms" className="text-sm text-blue-600 hover:underline">← Back to Rooms</Link>
+        <Link href="/rooms" className="text-sm text-blue-600 hover:underline inline-flex items-center gap-1"><Icon emoji="←" size={12} /> Back to Rooms</Link>
       </div>
     );
   }

@@ -12,6 +12,7 @@ import { useTranslation } from "react-i18next";
 import { useCurrency } from "@/lib/hooks/useCurrency";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import Link from "next/link";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -138,14 +139,14 @@ function GiftPassModal({ seasonId, passPrice, onClose }: GiftPassModalProps) {
           className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
           aria-label="Close"
         >
-          ✕
+          <Icon emoji="✕" size={16} />
         </button>
 
-        <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-50 mb-4">Gift Season Pass 🎁</h2>
+        <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-50 mb-4 flex items-center gap-1.5">Gift Season Pass <Icon emoji="🎁" size={16} /></h2>
 
         {success ? (
           <div className="text-center space-y-3 py-4">
-            <p className="text-2xl">🎉</p>
+            <p><Icon emoji="🎉" size={28} className="text-2xl inline" /></p>
             <p className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
               Pass gifted to @{selected?.username}!
             </p>
@@ -169,7 +170,7 @@ function GiftPassModal({ seasonId, passPrice, onClose }: GiftPassModalProps) {
             </div>
             <p className="text-sm text-neutral-600 dark:text-neutral-400">
               Gift pass to <span className="font-semibold">@{selected.username}</span>? This costs{" "}
-              <span className="font-semibold">{passPrice.toLocaleString()} 🪙</span>.
+              <span className="font-semibold inline-flex items-center gap-0.5">{passPrice.toLocaleString()} <Icon emoji="🪙" size={12} /></span>.
             </p>
             {giftError && (
               <p className="text-xs text-red-600 dark:text-red-400">{giftError}</p>
@@ -324,7 +325,7 @@ function PassCard({ season, userPlan, onUpgrade, upgrading, onGift }: PassCardPr
           <h2 className="text-sm font-semibold uppercase tracking-wider text-neutral-500">Season Pass</h2>
           <div className="mt-1 flex items-center gap-2">
             {season.hasPaidPass ? (
-              <span className="rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">Paid Pass ⭐</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2.5 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">Paid Pass <Icon emoji="⭐" size={12} /></span>
             ) : (
               <span className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs font-semibold text-neutral-600 dark:bg-neutral-800 dark:text-neutral-400">Free Pass</span>
             )}
@@ -340,25 +341,25 @@ function PassCard({ season, userPlan, onUpgrade, upgrading, onGift }: PassCardPr
               >
                 {upgrading
                   ? "Processing…"
-                  : `Upgrade · ${discountedPassPrice(season.passPrice, userPlan).toLocaleString()} 🪙`}
+                  : <span className="inline-flex items-center gap-1">Upgrade · {discountedPassPrice(season.passPrice, userPlan).toLocaleString()} <Icon emoji="🪙" size={12} /></span>}
               </button>
               {(PLAN_DISCOUNTS[userPlan] ?? 0) > 0 && (
-                <span className="text-xs text-neutral-400 tabular-nums">
+                <span className="inline-flex items-center gap-1 text-xs text-neutral-400 tabular-nums">
                   <span className="line-through">{season.passPrice.toLocaleString()}</span>
-                  {" "}→{" "}
-                  <span className="font-semibold text-amber-600">
-                    {discountedPassPrice(season.passPrice, userPlan).toLocaleString()} 🪙
+                  <Icon emoji="→" size={10} />
+                  <span className="font-semibold text-amber-600 inline-flex items-center gap-0.5">
+                    {discountedPassPrice(season.passPrice, userPlan).toLocaleString()} <Icon emoji="🪙" size={12} />
                   </span>
-                  {" "}({PLAN_DISCOUNTS[userPlan]}% off)
+                  ({PLAN_DISCOUNTS[userPlan]}% off)
                 </span>
               )}
             </div>
           )}
           <button
             onClick={onGift}
-            className="rounded-xl border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            className="inline-flex items-center gap-1.5 rounded-xl border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
-            Gift Pass 🎁
+            Gift Pass <Icon emoji="🎁" size={14} />
           </button>
         </div>
       </div>
@@ -395,7 +396,7 @@ function PassCard({ season, userPlan, onUpgrade, upgrading, onGift }: PassCardPr
 function milestoneRewardLabel(reward: MilestoneReward, softPlural: string): string {
   if (reward.label) return reward.label;
   switch (reward.type) {
-    case "coins": return `${Number(reward.value).toLocaleString()} 🪙 ${softPlural}`;
+    case "coins": return `${Number(reward.value).toLocaleString()} ${softPlural}`;
     case "badge": return `Badge: ${reward.value}`;
     case "title": return `Title: "${reward.value}"`;
     case "sticker_pack": return `Sticker Pack: ${reward.value}`;
@@ -427,7 +428,7 @@ function MilestoneTrack({ passData, onClaim, claiming }: MilestoneTrackProps) {
               : "border-neutral-300 bg-white text-neutral-400 dark:border-neutral-700 dark:bg-neutral-900"
           }`}
         >
-          {m.claimed ? "✓" : m.level}
+          {m.claimed ? <Icon emoji="✓" size={14} /> : m.level}
         </div>
         <p className="max-w-[5rem] truncate text-center text-xs text-neutral-500">
           {milestoneRewardLabel(m.reward, currency.softPlural)}
@@ -496,8 +497,8 @@ function MilestoneTrack({ passData, onClaim, claiming }: MilestoneTrackProps) {
       {paidMilestones.length > 0 && (
         <div>
           <div className="mb-2 flex items-center gap-2">
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
-              Paid Track ⭐
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:bg-amber-900 dark:text-amber-300">
+              Paid Track <Icon emoji="⭐" size={12} />
             </span>
             {!passData.hasPaidPass && (
               <span className="text-xs text-neutral-400">(Requires Paid Pass)</span>
@@ -788,7 +789,7 @@ export default function SeasonsPage() {
                     className={`${entry.isCurrentUser ? "bg-blue-50 dark:bg-blue-950/30" : "hover:bg-neutral-50 dark:hover:bg-neutral-800/50"}`}
                   >
                     <td className="px-4 py-3 font-bold tabular-nums text-neutral-700 dark:text-neutral-300">
-                      {entry.rank <= 3 ? ["🥇", "🥈", "🥉"][entry.rank - 1] : `#${entry.rank}`}
+                      {entry.rank <= 3 ? <Icon emoji={["🥇", "🥈", "🥉"][entry.rank - 1]} size={16} /> : `#${entry.rank}`}
                     </td>
                     <td className="px-4 py-3">
                       <Link href={`/profile/${entry.userId}`} className="flex items-center gap-2 hover:underline">
@@ -810,8 +811,8 @@ export default function SeasonsPage() {
             </table>
           </div>
           <div className="border-t border-neutral-200 px-5 py-3 dark:border-neutral-800">
-            <Link href="/leaderboards?scope=season" className="text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400">
-              View full leaderboard →
+            <Link href="/leaderboards?scope=season" className="inline-flex items-center gap-1 text-sm font-semibold text-blue-600 hover:underline dark:text-blue-400">
+              View full leaderboard <Icon emoji="→" size={12} />
             </Link>
           </div>
         </div>

@@ -114,8 +114,8 @@ function DropRoomCard({ room }: { room: DropRoomFomo }) {
     >
       <div className="mb-2 flex items-start justify-between gap-2">
         <span className="text-3xl">{room.coverEmoji}</span>
-        <span className={`rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${isUrgent ? "bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-200" : "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300"}`}>
-          ⏱ {countdown}
+        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-bold tabular-nums ${isUrgent ? "bg-red-200 text-red-800 dark:bg-red-900 dark:text-red-200" : "bg-teal-100 text-teal-700 dark:bg-teal-900 dark:text-teal-300"}`}>
+          <Icon emoji="⏱" size={12} /> {countdown}
         </span>
       </div>
       <p className="line-clamp-1 text-sm font-bold text-neutral-900 dark:text-neutral-50">{room.name}</p>
@@ -153,8 +153,8 @@ function DropRoomFomoStrip() {
 
   return (
     <div className="space-y-2">
-      <p className="text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
-        🔥 Closing Soon — Don&apos;t Miss Out
+      <p className="flex items-center gap-1 text-xs font-bold uppercase tracking-wider text-red-600 dark:text-red-400">
+        <Icon emoji="🔥" size={12} /> Closing Soon — Don&apos;t Miss Out
       </p>
       <div className="flex gap-3 overflow-x-auto pb-2">
         {dropRooms.map((r) => <DropRoomCard key={r.id} room={r} />)}
@@ -352,8 +352,8 @@ function RoomsContent() {
       {creatorId && (
         <div className="flex items-center justify-between rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm dark:border-blue-800 dark:bg-blue-950/30">
           <span className="text-blue-800 dark:text-blue-300">Showing rooms by this creator</span>
-          <Link href="/rooms" className="font-semibold text-blue-600 hover:underline dark:text-blue-400">
-            Clear ✕
+          <Link href="/rooms" className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:underline dark:text-blue-400">
+            Clear <Icon emoji="✕" size={12} />
           </Link>
         </div>
       )}
@@ -376,7 +376,7 @@ function RoomsContent() {
                 : "text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
             }`}
           >
-            <span aria-hidden="true">{tab.icon}</span>
+            <Icon emoji={tab.icon} size={14} aria-hidden />
             <span>{t(tab.labelKey)}</span>
           </button>
         ))}
@@ -444,16 +444,16 @@ function RoomsContent() {
           <button
             type="button"
             onClick={() => setViewMode("list")}
-            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${viewMode === "list" ? "bg-blue-600 text-white" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"}`}
+            className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${viewMode === "list" ? "bg-blue-600 text-white" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"}`}
           >
-            ☰ {t("games.view.list")}
+            <Icon emoji="☰" size={12} /> {t("games.view.list")}
           </button>
           <button
             type="button"
             onClick={() => setViewMode("grid")}
-            className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${viewMode === "grid" ? "bg-blue-600 text-white" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"}`}
+            className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${viewMode === "grid" ? "bg-blue-600 text-white" : "text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200"}`}
           >
-            ⊞ {t("games.view.grid")}
+            <Icon emoji="⊞" size={12} /> {t("games.view.grid")}
           </button>
         </div>
       </div>
@@ -470,7 +470,7 @@ function RoomsContent() {
         <RoomsGridSkeleton />
       ) : rooms.length === 0 ? (
         <div className="rounded-xl border border-neutral-200 bg-white px-6 py-16 text-center dark:border-neutral-800 dark:bg-neutral-900">
-          <span className="text-4xl">{activeTab === "faves" ? "❤️" : activeTab === "recent" ? "🕐" : "🏠"}</span>
+          <Icon emoji={activeTab === "faves" ? "❤️" : activeTab === "recent" ? "🕐" : "🏠"} size={36} className="text-4xl" />
           <p className="mt-3 text-base font-semibold text-neutral-700 dark:text-neutral-300">
             {activeTab === "faves"
               ? t("rooms.faves.empty", "No favorite rooms yet")

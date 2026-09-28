@@ -350,7 +350,7 @@ export default function CreateRoomPage() {
         {(["type", "details", "preview"] as const).map((s, i) => (
           <span key={s} className={`capitalize ${step === s ? "text-blue-600 dark:text-blue-400" : ""}`}>
             {i + 1}. {s === "type" ? "Room Type" : s === "details" ? "Details" : "Preview"}
-            {i < 2 && <span className="mx-2">→</span>}
+            {i < 2 && <Icon emoji="→" size={12} className="mx-2 inline" />}
           </span>
         ))}
       </div>
