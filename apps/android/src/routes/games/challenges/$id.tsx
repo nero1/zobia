@@ -15,6 +15,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface RoundDetail {
   round_no: number;
@@ -69,14 +70,14 @@ function ChallengeDetailPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 px-4 py-4">
-      <Link to="/games/challenges" className="text-sm text-primary-600 dark:text-primary-300">← {t('games.challenges', 'Challenges')}</Link>
+      <Link to="/games/challenges" className="text-sm text-primary-600 dark:text-primary-300 inline-flex items-center gap-1"><Icon emoji="←" size={14} /> {t('games.challenges', 'Challenges')}</Link>
       <h1 className="mt-2 text-lg font-bold text-neutral-900 dark:text-neutral-100">{detail.gameName}</h1>
       <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
         @{detail.challengerUsername} vs @{detail.opponentUsername}
       </p>
       {detail.wagerCredits > 0 && (
         <div className="mt-3 inline-flex items-center gap-1 rounded-full bg-gold-50 dark:bg-gold-900/30 px-3 py-1 text-xs font-bold text-gold-700 dark:text-gold-300">
-          🪙 {detail.wagerCredits.toLocaleString()} {t('games.credits', 'credits')} {t('games.wager', 'wager')}
+          <Icon emoji="🪙" size={14} /> {detail.wagerCredits.toLocaleString()} {t('games.credits', 'credits')} {t('games.wager', 'wager')}
         </div>
       )}
 

@@ -39,6 +39,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { getCachedToken } from '@/lib/api/client';
 import { env } from '@/lib/env';
 import { useFloatingReward } from '@/components/notifications/FloatingRewardProvider';
+import { Icon } from '@/components/ui/Icon';
 
 function GamePlayPage() {
   const { slug } = Route.useParams();
@@ -119,7 +120,7 @@ function GamePlayPage() {
         className="absolute right-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/50 text-white"
         style={{ top: 'calc(0.75rem + env(safe-area-inset-top))' }}
       >
-        ✕
+        <Icon emoji="✕" />
       </button>
       <iframe
         src={src}

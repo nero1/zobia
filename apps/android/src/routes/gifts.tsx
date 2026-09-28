@@ -465,8 +465,8 @@ function SendGiftPanel({
                 >
                   <span className="text-2xl leading-none">{gift.emoji}</span>
                   <span className="w-full truncate text-xs font-medium leading-tight text-neutral-700 dark:text-neutral-300">{gift.name}</span>
-                  <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold ${tierColour(gift.tier)}`}>
-                    🪙 {gift.coinCost.toLocaleString()}
+                  <span className={`rounded-full px-1.5 py-0.5 text-[11px] font-semibold inline-flex items-center gap-0.5 ${tierColour(gift.tier)}`}>
+                    <Icon emoji="🪙" size={11} /> {gift.coinCost.toLocaleString()}
                   </span>
                 </button>
               );
@@ -544,7 +544,7 @@ function GiftRow({ gift, tab }: { gift: GiftRecord; tab: Tab }) {
           {tab === 'sent' ? t('gifts.row.to') : t('gifts.row.from')} @{other.username ?? 'unknown'}
         </p>
         {gift.message && (
-          <p className="truncate text-[11px] font-medium text-neutral-500 dark:text-neutral-400">💬 {gift.message}</p>
+          <p className="truncate text-[11px] font-medium text-neutral-500 dark:text-neutral-400 inline-flex items-center gap-1"><Icon emoji="💬" size={11} /> {gift.message}</p>
         )}
       </div>
       <div className="flex flex-col items-end gap-0.5 shrink-0">
@@ -607,7 +607,7 @@ function GiftsPage() {
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800">
       <div className="flex items-start justify-between gap-3 px-4 pt-4 pb-2">
         <div>
-          <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">🎁 {t('gifts.title')}</h1>
+          <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 inline-flex items-center gap-1.5"><Icon emoji="🎁" size={20} /> {t('gifts.title')}</h1>
           <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">{t('gifts.subtitle')}</p>
         </div>
         <button
@@ -644,7 +644,7 @@ function GiftsPage() {
             </div>
           ) : allCatalogueGifts.length === 0 ? (
             <div className="flex flex-col items-center gap-3 py-10 text-center">
-              <span className="text-4xl">🎁</span>
+              <Icon emoji="🎁" size={40} />
               <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('error.generic')}</p>
             </div>
           ) : (
@@ -660,8 +660,8 @@ function GiftsPage() {
                   <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold ${tierColour(gift.tier)}`}>
                     {GIFT_TIER_LABELS[gift.tier] ?? `Tier ${gift.tier}`}
                   </span>
-                  <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400">
-                    🪙 {gift.coinCost.toLocaleString()}
+                  <span className="text-[11px] font-semibold text-neutral-600 dark:text-neutral-400 inline-flex items-center gap-0.5">
+                    <Icon emoji="🪙" size={11} /> {gift.coinCost.toLocaleString()}
                   </span>
                 </button>
               ))}
@@ -693,7 +693,7 @@ function GiftsPage() {
           </div>
         ) : gifts && gifts.length === 0 ? (
           <div className="flex flex-col items-center gap-4 py-12 text-center px-4">
-            <span className="text-4xl">🎁</span>
+            <Icon emoji="🎁" size={40} />
             <div>
               <p className="font-semibold text-neutral-900 dark:text-neutral-100">{tab === 'received' ? t('gifts.empty.received') : t('gifts.empty.sent')}</p>
               <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{tab === 'received' ? t('gifts.empty.receivedHint') : t('gifts.empty.sentHint')}</p>
@@ -721,7 +721,7 @@ function GiftsPage() {
             <div className="sticky top-0 flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 bg-white dark:bg-neutral-800 px-4 py-4">
               <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t('gifts.send.title')}</h2>
               <button onClick={() => setShowModal(false)} className="rounded-full p-2 text-neutral-500 dark:text-neutral-400">
-                <span className="text-lg leading-none">✕</span>
+                <Icon emoji="✕" />
               </button>
             </div>
             <SendGiftPanel

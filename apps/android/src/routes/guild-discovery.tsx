@@ -94,8 +94,8 @@ function GuildCard({
           </div>
 
           {guild.city && (
-            <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-              📍 {guild.city}
+            <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400 inline-flex items-center gap-1">
+              <Icon emoji="📍" size={12} /> {guild.city}
               {guild.sameCity && (
                 <span className="ml-1.5 rounded-full bg-primary-100 dark:bg-primary-900/40 px-1.5 py-0.5 text-xs font-semibold text-primary-700 dark:text-primary-300">
                   {t('guildDiscovery.nearYou')}
@@ -203,14 +203,14 @@ function GuildDiscoveryPage() {
         </div>
 
         {data?.soloNote && (
-          <div className="rounded-xl border border-primary-200 bg-primary-50 dark:bg-primary-900/30 px-4 py-3 text-sm text-primary-700 dark:text-primary-300">
-            💡 {data.soloNote}
+          <div className="rounded-xl border border-primary-200 bg-primary-50 dark:bg-primary-900/30 px-4 py-3 text-sm text-primary-700 dark:text-primary-300 flex items-center gap-2">
+            <Icon emoji="💡" /> {data.soloNote}
           </div>
         )}
 
         {data?.tooNew && (
           <div className="rounded-xl border border-amber-200 bg-amber-50 dark:bg-amber-900/30 px-4 py-5 text-center">
-            <p className="text-2xl">⏳</p>
+            <div className="flex justify-center"><Icon emoji="⏳" size={28} /></div>
             <p className="mt-2 font-semibold text-amber-800 dark:text-amber-300">{t('guildDiscovery.tooNew')}</p>
             <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">{t('guildDiscovery.tooNewBody')}</p>
           </div>
@@ -234,7 +234,7 @@ function GuildDiscoveryPage() {
           </div>
         ) : !data?.tooNew && guilds.length === 0 ? (
           <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-10 text-center">
-            <p className="text-4xl">🏛️</p>
+            <div className="flex justify-center"><Icon emoji="🏛️" size={40} /></div>
             <p className="mt-3 font-semibold text-neutral-900 dark:text-neutral-100">{t('guildDiscovery.empty')}</p>
             <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
               {t('guildDiscovery.emptyHint')}{' '}

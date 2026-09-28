@@ -24,6 +24,7 @@ import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import type { GuildDetail, GuildSummary } from '@/lib/guilds/types';
 import { GuildDetailView, TIER_BADGE, tierBase } from '@/lib/guilds/GuildDetailView';
+import { Icon } from '@/components/ui/Icon';
 
 async function fetchMyGuildId(): Promise<string | null> {
   const { data } = await apiClient.get<{ user: { guild_id: string | null } }>('/users/me');
@@ -84,7 +85,7 @@ function GuildDiscoveryPanel({ guilds, loading }: { guilds: GuildSummary[]; load
         </div>
       ) : guilds.length === 0 ? (
         <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 px-4 py-10 text-center">
-          <p className="text-4xl">🏛️</p>
+          <div className="flex justify-center"><Icon emoji="🏛️" size={40} /></div>
           <p className="mt-3 text-sm text-neutral-500 dark:text-neutral-400">{t('guildDiscovery.empty')}</p>
         </div>
       ) : (

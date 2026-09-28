@@ -12,6 +12,7 @@ import { createFileRoute, useNavigate, Link } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { isAxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 const MAX_TITLE = 200;
 const MAX_DESCRIPTION = 2000;
@@ -259,7 +260,7 @@ function QuizzesNewPage() {
                   aria-label={t('quizzes.create.markCorrect', 'Mark correct')}
                   className={`flex h-6 w-6 shrink-0 items-center justify-center border ${q.type === 'single' ? 'rounded-full' : 'rounded'} ${opt.isCorrect ? 'border-success-600 bg-success-600' : 'border-neutral-300 dark:border-neutral-600'}`}
                 >
-                  {opt.isCorrect && <span className="text-[11px] text-white">✓</span>}
+                  {opt.isCorrect && <Icon emoji="✓" size={11} className="text-white" />}
                 </button>
                 {q.type === 'true_false' ? (
                   <span className="flex-1 rounded-lg border border-neutral-200 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3 py-2 text-sm text-neutral-700 dark:text-neutral-300">{opt.label}</span>
@@ -274,7 +275,7 @@ function QuizzesNewPage() {
                 )}
                 {q.type !== 'true_false' && q.options.length > MIN_OPTIONS && (
                   <button type="button" onClick={() => removeOption(qIdx, oIdx)} aria-label={t('common.delete', 'Delete')} className="flex h-6 w-6 shrink-0 items-center justify-center text-neutral-400 dark:text-neutral-500">
-                    ✕
+                    <Icon emoji="✕" size={14} />
                   </button>
                 )}
               </div>
