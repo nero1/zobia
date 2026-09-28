@@ -15,6 +15,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface Mentee {
   userId: string;
@@ -97,7 +98,7 @@ function ElderDashboard({ data, onRemove, removing }: { data: ElderData; onRemov
             {mentees.map((m) => (
               <div key={m.userId} className="flex items-center gap-3 px-4 py-4">
                 <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-neutral-100 dark:bg-neutral-800 text-xl">
-                  {m.avatarEmoji ?? '👤'}
+                  {m.avatarEmoji ?? <Icon emoji="👤" size={18} />}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
@@ -150,12 +151,12 @@ function EligibilityView({ data }: { data: ElderData }) {
         <ul className="space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
           <li className="flex items-center gap-2">
             <span className={data.prestigeLevel && data.prestigeLevel >= 3 ? 'text-teal-500' : 'text-neutral-400 dark:text-neutral-500'}>
-              {data.prestigeLevel && data.prestigeLevel >= 3 ? '✓' : '○'}
+              <Icon emoji={data.prestigeLevel && data.prestigeLevel >= 3 ? '✓' : '○'} size={13} />
             </span>
             {t('elder.eligibility.prestige', { level: data.prestigeLevel ?? 0 })}
           </li>
           <li className="flex items-center gap-2">
-            <span className="text-teal-500">✓</span>
+            <span className="text-teal-500"><Icon emoji="✓" size={13} /></span>
             {t('elder.eligibility.active')}
           </li>
         </ul>
@@ -189,11 +190,11 @@ function NonEligibleView({
         <h3 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t('elder.nonEligible.howToTitle')}</h3>
         <ul className="space-y-2 text-sm text-neutral-600 dark:text-neutral-400">
           <li className="flex items-center gap-2">
-            <span className="text-neutral-400 dark:text-neutral-500">○</span>
+            <span className="text-neutral-400 dark:text-neutral-500"><Icon emoji="○" size={13} /></span>
             {t('elder.nonEligible.step1')}
           </li>
           <li className="flex items-center gap-2">
-            <span className="text-neutral-400 dark:text-neutral-500">○</span>
+            <span className="text-neutral-400 dark:text-neutral-500"><Icon emoji="○" size={13} /></span>
             {t('elder.nonEligible.step2')}
           </li>
         </ul>
@@ -211,7 +212,7 @@ function NonEligibleView({
               {data.availableElders.map((elder) => (
                 <div key={elder.id} className="flex items-center justify-between gap-3 rounded-lg border border-blue-100 bg-white dark:bg-neutral-800 px-3 py-2">
                   <div className="flex min-w-0 items-center gap-2">
-                    <span className="text-lg leading-none" aria-hidden="true">{elder.avatarEmoji ?? '🎓'}</span>
+                    <span className="text-lg leading-none" aria-hidden="true">{elder.avatarEmoji ?? <Icon emoji="🎓" size={18} />}</span>
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-neutral-900 dark:text-neutral-100">{elder.displayName}</p>
                       <p className="truncate text-xs text-neutral-500 dark:text-neutral-400">
