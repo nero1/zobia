@@ -18,6 +18,7 @@ import { useCaptchaWidget } from '@/lib/hooks/useCaptchaWidget';
 import { env } from '@/lib/env';
 import { appendReferralCode } from '@zobia/shared/utils';
 import { useMyReferralCode } from '@/lib/referral/useReferralCode';
+import { Icon } from '@/components/ui/Icon';
 
 interface Author {
   id: string;
@@ -252,13 +253,17 @@ function QuestionDetailPage() {
             <span className="font-semibold text-neutral-700 dark:text-neutral-300">@{node.author.username ?? 'unknown'}</span>
             <span>·</span>
             <span>{timeAgo(node.createdAt)}</span>
-            {node.isBestAnswer && <span className="rounded-full bg-teal-100 dark:bg-teal-900/40 px-2 py-0.5 font-semibold text-teal-700 dark:text-teal-300">✓ Best</span>}
+            {node.isBestAnswer && (
+              <span className="inline-flex items-center gap-0.5 rounded-full bg-teal-100 dark:bg-teal-900/40 px-2 py-0.5 font-semibold text-teal-700 dark:text-teal-300">
+                <Icon emoji="✓" size={12} /> Best
+              </span>
+            )}
           </div>
           <p className="whitespace-pre-wrap text-sm text-neutral-800 dark:text-neutral-200">{node.body}</p>
           <div className="mt-2 flex items-center gap-3 text-xs">
-            <button onClick={() => voteAnswer.mutate({ id: node.id, value: 1 })} className={`rounded px-1.5 py-0.5 ${node.myVote === 1 ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300' : 'text-neutral-400 dark:text-neutral-500'}`}>▲</button>
+            <button onClick={() => voteAnswer.mutate({ id: node.id, value: 1 })} className={`rounded px-1.5 py-0.5 ${node.myVote === 1 ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300' : 'text-neutral-400 dark:text-neutral-500'}`}><Icon emoji="▲" size={12} /></button>
             <span className="font-semibold tabular-nums text-neutral-600 dark:text-neutral-400">{node.voteScore}</span>
-            <button onClick={() => voteAnswer.mutate({ id: node.id, value: -1 })} className={`rounded px-1.5 py-0.5 ${node.myVote === -1 ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : 'text-neutral-400 dark:text-neutral-500'}`}>▼</button>
+            <button onClick={() => voteAnswer.mutate({ id: node.id, value: -1 })} className={`rounded px-1.5 py-0.5 ${node.myVote === -1 ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : 'text-neutral-400 dark:text-neutral-500'}`}><Icon emoji="▼" size={12} /></button>
             <button onClick={() => setReplyingTo(replyingTo === node.id ? null : node.id)} className="font-semibold text-neutral-500 dark:text-neutral-400">{t('answers.reply')}</button>
             {question?.isAuthor && !question.bestAnswerId && (
               <button onClick={() => markBest.mutate(node.id)} className="font-semibold text-teal-600 dark:text-teal-300">{t('answers.markBest')}</button>
@@ -318,14 +323,14 @@ function QuestionDetailPage() {
       <div className="rounded-xl border border-neutral-200 dark:border-neutral-700 bg-white dark:bg-neutral-800 p-4">
         <div className="flex gap-3">
           <div className="flex flex-col items-center gap-1 pt-0.5">
-            <button onClick={() => voteQuestion.mutate(1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${question.myVote === 1 ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300' : 'text-neutral-400 dark:text-neutral-500'}`}>▲</button>
+            <button onClick={() => voteQuestion.mutate(1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${question.myVote === 1 ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300' : 'text-neutral-400 dark:text-neutral-500'}`}><Icon emoji="▲" size={14} /></button>
             <span className="text-sm font-semibold tabular-nums text-neutral-700 dark:text-neutral-300">{question.voteScore}</span>
-            <button onClick={() => voteQuestion.mutate(-1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${question.myVote === -1 ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : 'text-neutral-400 dark:text-neutral-500'}`}>▼</button>
+            <button onClick={() => voteQuestion.mutate(-1)} className={`flex h-7 w-7 items-center justify-center rounded-lg text-sm ${question.myVote === -1 ? 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300' : 'text-neutral-400 dark:text-neutral-500'}`}><Icon emoji="▼" size={14} /></button>
           </div>
           <div className="min-w-0 flex-1">
             <h1 className="text-base font-bold text-neutral-900 dark:text-neutral-100">
               {question.title}
-              {question.isLocked && <span className="ml-2 text-sm text-neutral-400 dark:text-neutral-500">🔒</span>}
+              {question.isLocked && <span className="ml-2 inline-flex align-middle text-neutral-400 dark:text-neutral-500"><Icon emoji="🔒" size={14} /></span>}
             </h1>
             <p className="mt-2 whitespace-pre-wrap text-sm text-neutral-700 dark:text-neutral-300">{question.body}</p>
             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-neutral-500 dark:text-neutral-400">
@@ -335,8 +340,8 @@ function QuestionDetailPage() {
               <button onClick={() => void handleShare(question)} className="font-medium text-neutral-400 dark:text-neutral-500">
                 {shareCopied ? t('answers.linkCopied', 'Link copied') : t('answers.share', 'Share')}
               </button>
-              <button onClick={() => favoriteQuestion.mutate(!question.isFavorited)} className={`ml-auto rounded-full px-1.5 py-0.5 ${question.isFavorited ? 'text-amber-500' : 'text-neutral-300'}`}>
-                {question.isFavorited ? '★' : '☆'} {question.favoriteCount}
+              <button onClick={() => favoriteQuestion.mutate(!question.isFavorited)} className={`ml-auto inline-flex items-center gap-1 rounded-full px-1.5 py-0.5 ${question.isFavorited ? 'text-amber-500' : 'text-neutral-300'}`}>
+                <Icon emoji={question.isFavorited ? '★' : '☆'} size={14} /> {question.favoriteCount}
               </button>
             </div>
           </div>
@@ -391,7 +396,7 @@ function QuestionDetailPage() {
       {bypassPrompt && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setBypassPrompt(null)}>
           <div className="relative w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-800 p-5" onClick={(e) => e.stopPropagation()}>
-            <button onClick={() => setBypassPrompt(null)} className="absolute right-4 top-4 text-neutral-400 dark:text-neutral-500" aria-label="Close">✕</button>
+            <button onClick={() => setBypassPrompt(null)} className="absolute right-4 top-4 text-neutral-400 dark:text-neutral-500" aria-label="Close"><Icon emoji="✕" /></button>
             <h2 className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-100">{t('answers.bypass.title', { level: bypassPrompt.minLevel })}</h2>
             <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">
               {t('answers.bypass.message', { level: bypassPrompt.minLevel, cost: bypassPrompt.bypassCostCredits, currency: currencyName })}
