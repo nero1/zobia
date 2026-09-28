@@ -14,6 +14,7 @@ import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
 import { useAuth } from '@/lib/auth/store';
 import { useFeatureFlags, useFeatureModVisibility, resolveFeatureAccess } from '@/lib/hooks/useManifest';
+import { Icon } from '@/components/ui/Icon';
 
 interface TrackStat { track: string; label: string; emoji: string; level: number; xp: number }
 interface BadgeStat { key: string; label: string; grantedAt: string }
@@ -51,7 +52,7 @@ function TrackBar({ track }: { track: TrackStat }) {
   const pct = Math.min(100, Math.round(((track.xp % 1000) / 1000) * 100));
   return (
     <div className="flex items-center gap-3 py-1.5">
-      <span className="w-5 text-center">{track.emoji}</span>
+      <span className="w-5 flex justify-center"><Icon emoji={track.emoji} size={16} /></span>
       <div className="min-w-0 flex-1">
         <div className="flex items-center justify-between mb-1">
           <span className="text-xs font-medium text-neutral-700 dark:text-neutral-300">{track.label}</span>
@@ -68,7 +69,7 @@ function TrackBar({ track }: { track: TrackStat }) {
 function CountTile({ label, value, emoji }: { label: string; value: number; emoji: string }) {
   return (
     <div className="bg-white dark:bg-neutral-800 rounded-xl p-3 text-center">
-      <p className="text-lg">{emoji}</p>
+      <p className="flex justify-center text-lg"><Icon emoji={emoji} size={18} /></p>
       <p className="text-base font-bold text-neutral-900 dark:text-neutral-100">{value.toLocaleString()}</p>
       <p className="text-xs text-neutral-500 dark:text-neutral-400">{label}</p>
     </div>
@@ -147,14 +148,14 @@ function StatsPage() {
           <div className="flex items-center gap-2 mt-1 flex-wrap">
             <span className="rounded-full bg-primary-600 px-2 py-0.5 text-xs font-bold text-white">{subLabel}</span>
             <span className="text-xs text-neutral-500 dark:text-neutral-400">{profile.xpTotal.toLocaleString()} XP</span>
-            {mainRank?.globalRank && <span className="text-xs text-primary-600 dark:text-primary-300">🌍 #{mainRank.globalRank}</span>}
+            {mainRank?.globalRank && <span className="inline-flex items-center gap-1 text-xs text-primary-600 dark:text-primary-300"><Icon emoji="🌍" size={11} /> #{mainRank.globalRank}</span>}
           </div>
         </div>
       </div>
 
       {stats.tier === 'basic' && stats.isOwnStats && (
         <Link to="/settings" className="flex items-center gap-3 bg-gold-50 dark:bg-gold-900/30 mx-6 mb-3 rounded-xl p-4">
-          <span className="text-2xl">⚡</span>
+          <Icon emoji="⚡" size={24} />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold text-gold-700 dark:text-gold-300">{t('profile.stats.unlockFull')}</p>
             <p className="text-xs text-gold-600 dark:text-gold-300">{t('profile.stats.unlockFullDesc')}</p>
@@ -178,8 +179,8 @@ function StatsPage() {
 
       {/* Badges */}
       <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
-        <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">
-          🏆 {t('profile.stats.badgesAchievements')} ({stats.badges.length})
+        <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+          <Icon emoji="🏆" size={14} /> {t('profile.stats.badgesAchievements')} ({stats.badges.length})
         </h2>
         {stats.badges.length === 0 ? (
           <p className="text-sm text-neutral-500 dark:text-neutral-400">{t('profile.stats.noBadges')}</p>
@@ -197,13 +198,13 @@ function StatsPage() {
       {/* Created rooms */}
       {profile.isCreator && stats.createdRooms.length > 0 && (
         <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-3">
-          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">🎨 {t('profile.stats.createdRooms')} ({stats.createdRooms.length})</h2>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300"><Icon emoji="🎨" size={14} /> {t('profile.stats.createdRooms')} ({stats.createdRooms.length})</h2>
           <div className="space-y-2">
             {stats.createdRooms.map((room) => (
               <Link key={room.id} to="/rooms/$roomId" params={{ roomId: room.id }} className="flex items-center gap-3 rounded-lg border border-neutral-100 dark:border-neutral-800 p-3">
                 <span className="text-xl">{room.coverEmoji}</span>
                 <span className="min-w-0 flex-1 truncate text-sm font-medium text-neutral-800 dark:text-neutral-200">{room.name}</span>
-                <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">👥 {room.memberCount.toLocaleString()}</span>
+                <span className="inline-flex shrink-0 items-center gap-1 text-xs text-neutral-500 dark:text-neutral-400"><Icon emoji="👥" size={11} /> {room.memberCount.toLocaleString()}</span>
               </Link>
             ))}
           </div>
@@ -224,7 +225,7 @@ function StatsPage() {
       {/* Leaderboard — full tier only */}
       {stats.tier === 'full' && (
         <div className="bg-white dark:bg-neutral-800 px-6 py-4 mb-6">
-          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-2">🏅 {t('profile.stats.leaderboardPositions')}</h2>
+          <h2 className="mb-2 flex items-center gap-1.5 text-sm font-semibold text-neutral-700 dark:text-neutral-300"><Icon emoji="🏅" size={14} /> {t('profile.stats.leaderboardPositions')}</h2>
           <div className="space-y-1.5">
             {stats.leaderboard.map((row) => (
               <div key={row.track} className="flex items-center justify-between text-sm py-1">

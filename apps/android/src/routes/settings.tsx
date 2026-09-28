@@ -21,6 +21,7 @@ import { useTweetLengthPolicy } from '@/lib/hooks/useTweetLengthPolicy';
 import { AvatarCropModal } from '@/components/profile/AvatarCropModal';
 import { useTheme } from '@/lib/theme/ThemeProvider';
 import type { ThemePreference } from '@/lib/theme/store';
+import { Icon } from '@/components/ui/Icon';
 
 // ZB-AND-09 fix: restorePurchases() was fully implemented in
 // lib/payments/googlePlay.ts but had no UI entry point anywhere in the app —
@@ -51,9 +52,9 @@ function ThemeSection() {
             onClick={() => setTheme(value)}
             className={`flex-1 rounded-lg py-2.5 text-sm font-semibold capitalize transition-colors ${
               theme === value ? 'bg-primary-600 text-white' : 'border border-neutral-300 dark:border-neutral-600 text-neutral-700 dark:text-neutral-300'
-            }`}
+            } inline-flex items-center justify-center gap-1.5`}
           >
-            {emoji} {t(`settings.theme.${value}`, value)}
+            <Icon emoji={emoji} size={14} /> {t(`settings.theme.${value}`, value)}
           </button>
         ))}
       </div>
@@ -906,12 +907,12 @@ function SettingsPage() {
       {/* Wallet & Stats */}
       <div className="bg-white dark:bg-neutral-800 px-6 py-2 mb-3">
         <Link to="/wallet" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
-          <span className="text-sm text-neutral-700 dark:text-neutral-300">🪙 {t('wallet.title')}</span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300"><Icon emoji="🪙" size={14} /> {t('wallet.title')}</span>
           <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
         {statsAccess.accessible && (
           <Link to="/stats" className="flex items-center justify-between py-2.5">
-            <span className="text-sm text-neutral-700 dark:text-neutral-300">📊 {t('profile.actions.stats')}</span>
+            <span className="inline-flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300"><Icon emoji="📊" size={14} /> {t('profile.actions.stats')}</span>
             <span className="text-neutral-400 dark:text-neutral-500">→</span>
           </Link>
         )}
@@ -920,27 +921,27 @@ function SettingsPage() {
       {/* Privacy, Security, Notifications, Subscription, Business & Help (BUG-CAP-07) */}
       <div className="bg-white dark:bg-neutral-800 px-6 py-2 mb-3">
         <Link to="/settings/privacy" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
-          <span className="text-sm text-neutral-700 dark:text-neutral-300">🔒 {t('settings.privacy.title', 'Privacy')}</span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300"><Icon emoji="🔒" size={14} /> {t('settings.privacy.title', 'Privacy')}</span>
           <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
         <Link to="/settings/security" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
-          <span className="text-sm text-neutral-700 dark:text-neutral-300">🛡️ {t('settings.security.title', 'Security')}</span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300"><Icon emoji="🛡️" size={14} /> {t('settings.security.title', 'Security')}</span>
           <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
         <Link to="/settings/notifications" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
-          <span className="text-sm text-neutral-700 dark:text-neutral-300">🔔 {t('settings.notifications', 'Notifications')}</span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300"><Icon emoji="🔔" size={14} /> {t('settings.notifications', 'Notifications')}</span>
           <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
         <Link to="/settings/subscription" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
-          <span className="text-sm text-neutral-700 dark:text-neutral-300">💳 {t('settings.subscriptionBilling', 'Subscription & Billing')}</span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300"><Icon emoji="💳" size={14} /> {t('settings.subscriptionBilling', 'Subscription & Billing')}</span>
           <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
         <Link to="/settings/business" className="flex items-center justify-between py-2.5 border-b border-neutral-100 dark:border-neutral-800">
-          <span className="text-sm text-neutral-700 dark:text-neutral-300">🏢 {t('settings.business', 'Business Account')}</span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300"><Icon emoji="🏢" size={14} /> {t('settings.business', 'Business Account')}</span>
           <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
         <Link to="/help" className="flex items-center justify-between py-2.5">
-          <span className="text-sm text-neutral-700 dark:text-neutral-300">❓ {t('help.title', 'Help & Support')}</span>
+          <span className="inline-flex items-center gap-1.5 text-sm text-neutral-700 dark:text-neutral-300"><Icon emoji="❓" size={14} /> {t('help.title', 'Help & Support')}</span>
           <span className="text-neutral-400 dark:text-neutral-500">→</span>
         </Link>
       </div>

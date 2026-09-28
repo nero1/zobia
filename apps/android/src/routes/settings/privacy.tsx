@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react';
 import { createFileRoute } from '@tanstack/react-router';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface PrivacySettings {
   profile_private: boolean;
@@ -194,11 +195,11 @@ function PrivacyPage() {
                       const next = isHidden ? current.filter((s) => s !== section) : [...current, section];
                       void save({ profile_hidden_sections: next });
                     }}
-                    className={`rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                    className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold transition-colors disabled:opacity-50 ${
                       isHidden ? 'bg-neutral-800 text-white' : 'border border-neutral-300 dark:border-neutral-600 text-neutral-600 dark:text-neutral-400'
                     }`}
                   >
-                    {isHidden ? '🙈 ' : ''}{label}
+                    {isHidden && <Icon emoji="🙈" size={11} />}{label}
                   </button>
                 );
               })}
