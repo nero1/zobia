@@ -228,7 +228,7 @@ export default function CreateTweetPage() {
           <h1 className="text-2xl font-bold text-neutral-900 dark:text-neutral-50">{t("tweets.create.title")}</h1>
         </div>
         <div className="rounded-xl border border-neutral-200 bg-white p-8 text-center shadow-card dark:border-neutral-800 dark:bg-neutral-900">
-          <p className="mb-3 text-3xl">🔒</p>
+          <p className="mb-3"><Icon emoji="🔒" size={30} className="text-3xl" /></p>
           <p className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-50">
             {t("tweets.create.levelGateTitle", "Level {{minLevel}} required", { minLevel: lengthPolicy.minLevel })}
           </p>
@@ -385,14 +385,14 @@ export default function CreateTweetPage() {
                 onClick={() => handlePickVideoProvider("youtube")}
                 className="flex-1 rounded-xl border border-neutral-300 py-2 text-sm font-semibold text-neutral-700 hover:border-blue-400 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300"
               >
-                ▶️ YouTube
+                <Icon emoji="▶️" size={14} className="inline mr-1" />YouTube
               </button>
               <button
                 type="button"
                 onClick={() => handlePickVideoProvider("tiktok")}
                 className="flex-1 rounded-xl border border-neutral-300 py-2 text-sm font-semibold text-neutral-700 hover:border-blue-400 hover:text-blue-600 dark:border-neutral-700 dark:text-neutral-300"
               >
-                🎵 TikTok
+                <Icon emoji="🎵" size={14} className="inline mr-1" />TikTok
               </button>
             </div>
           )}
@@ -424,7 +424,7 @@ export default function CreateTweetPage() {
               className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
               aria-label="Close"
             >
-              ✕
+              <Icon emoji="✕" size={16} />
             </button>
             <h2 className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-50">{t("tweets.create.videoHelpTitle")}</h2>
             <p className="mb-3 text-sm text-neutral-600 dark:text-neutral-400">
@@ -449,7 +449,7 @@ export default function CreateTweetPage() {
               className="absolute right-4 top-4 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
               aria-label="Close"
             >
-              ✕
+              <Icon emoji="✕" size={16} />
             </button>
             <h2 className="mb-2 text-base font-bold text-neutral-900 dark:text-neutral-50">{t("tweets.create.insufficientTitle")}</h2>
             <p className="mb-4 text-sm text-neutral-600 dark:text-neutral-400">
