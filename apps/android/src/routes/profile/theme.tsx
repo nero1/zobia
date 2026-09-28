@@ -9,6 +9,7 @@ import { useState } from 'react';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface ThemeTokens {
   bg: string;
@@ -65,8 +66,8 @@ function ProfileThemePage() {
   return (
     <div className="h-full overflow-y-auto bg-neutral-50 dark:bg-neutral-800 space-y-4 px-4 py-4">
       <div>
-        <Link to="/settings" className="text-sm text-neutral-500 dark:text-neutral-400">← Settings</Link>
-        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100">🎨 Profile Theme</h1>
+        <Link to="/settings" className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400"><Icon emoji="←" size={14} /> Settings</Link>
+        <h1 className="text-xl font-bold text-neutral-900 dark:text-neutral-100 inline-flex items-center gap-2"><Icon emoji="🎨" size={20} /> Profile Theme</h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">Pick a color skin for your profile. More themes are sold on the Market.</p>
       </div>
 
@@ -92,7 +93,7 @@ function ProfileThemePage() {
               <div className="p-3">
                 <p className="truncate text-sm font-semibold" style={{ color: theme.config.text }}>{theme.name}</p>
                 {theme.availability === 'purchasable' && theme.credits_cost && (
-                  <p className="mt-1 text-xs" style={{ color: theme.config.muted }}>🪙 {theme.credits_cost.toLocaleString()}</p>
+                  <p className="mt-1 text-xs inline-flex items-center gap-1" style={{ color: theme.config.muted }}><Icon emoji="🪙" size={12} /> {theme.credits_cost.toLocaleString()}</p>
                 )}
                 <button
                   onClick={() => equip(theme)}
