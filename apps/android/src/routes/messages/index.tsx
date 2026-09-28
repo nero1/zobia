@@ -66,7 +66,7 @@ function NewMessageDialog({ onClose }: { onClose: () => void }) {
       <div className="w-full max-h-[80vh] flex flex-col rounded-t-2xl bg-white dark:bg-neutral-800">
         <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-700 px-4 py-4">
           <h2 className="text-base font-bold text-neutral-900 dark:text-neutral-100">{t('messages.dialog.title')}</h2>
-          <button onClick={onClose} className="text-neutral-400 dark:text-neutral-500" aria-label="Close">✕</button>
+          <button onClick={onClose} className="text-neutral-400 dark:text-neutral-500" aria-label="Close"><Icon emoji="✕" /></button>
         </div>
         <div className="px-4 py-3">
           <input
