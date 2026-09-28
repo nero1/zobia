@@ -11,6 +11,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { MarketItem } from "@/lib/market/types";
 import { ReferralShareDropdown } from "@/components/merch/ReferralShareDropdown";
+import { Icon } from "@/components/ui/Icon";
 
 const CATEGORY_LABEL: Record<MarketItem["category"], string> = {
   digital: "Digital",
@@ -66,12 +67,8 @@ function BuyBoostButton({ item }: { item: MarketItem }) {
 
 export function MarketItemCard({ item, view }: { item: MarketItem; view: "grid" | "list" }) {
   const isBoost = item.kind === "platform" && item.category === "boosts_passes";
-  const price =
-    item.priceCoin != null
-      ? `🪙 ${item.priceCoin.toLocaleString()}`
-      : item.starsCost != null
-      ? `⭐ ${item.starsCost.toLocaleString()}`
-      : null;
+  const priceIcon = item.priceCoin != null ? "🪙" : item.starsCost != null ? "⭐" : null;
+  const priceAmount = item.priceCoin != null ? item.priceCoin : item.starsCost != null ? item.starsCost : null;
 
   const badges = (
     <div className="flex flex-wrap gap-1">
@@ -83,7 +80,9 @@ export function MarketItemCard({ item, view }: { item: MarketItem; view: "grid" 
 
   const ratingLine =
     item.kind === "creator" && item.rating != null ? (
-      <p className="text-xs text-amber-600">★ {item.rating.toFixed(1)} ({item.ratingCount})</p>
+      <p className="flex items-center gap-1 text-xs text-amber-600">
+        <Icon emoji="★" size={12} /> {item.rating.toFixed(1)} ({item.ratingCount})
+      </p>
     ) : null;
 
   if (view === "list") {
@@ -94,7 +93,7 @@ export function MarketItemCard({ item, view }: { item: MarketItem; view: "grid" 
             // eslint-disable-next-line @next/next/no-img-element
             <img src={item.imageUrl} alt={item.name} className="h-12 w-12 rounded-lg object-cover" />
           ) : (
-            "🛍️"
+            <Icon emoji="🛍️" size={24} />
           )}
         </span>
         <div className="min-w-0 flex-1">
@@ -103,7 +102,11 @@ export function MarketItemCard({ item, view }: { item: MarketItem; view: "grid" 
           {ratingLine}
           {badges}
         </div>
-        {price && <span className="shrink-0 font-bold text-amber-600">{price}</span>}
+        {priceIcon && priceAmount != null && (
+          <span className="flex shrink-0 items-center gap-1 font-bold text-amber-600">
+            <Icon emoji={priceIcon} size={14} /> {priceAmount.toLocaleString()}
+          </span>
+        )}
       </>
     );
     if (isBoost) {
@@ -131,14 +134,18 @@ export function MarketItemCard({ item, view }: { item: MarketItem; view: "grid" 
           // eslint-disable-next-line @next/next/no-img-element
           <img src={item.imageUrl} alt={item.name} className="h-full w-full object-cover" />
         ) : (
-          "🛍️"
+          <Icon emoji="🛍️" size={32} />
         )}
       </div>
       <div className="mb-1">{badges}</div>
       <p className="mb-0.5 truncate font-semibold text-neutral-900 dark:text-neutral-100">{item.name}</p>
       {item.creatorUsername && <p className="mb-1 text-xs text-neutral-500">by @{item.creatorUsername}</p>}
       {ratingLine}
-      {price && <p className="mt-1 text-lg font-bold text-amber-600">{price}</p>}
+      {priceIcon && priceAmount != null && (
+        <p className="mt-1 flex items-center gap-1 text-lg font-bold text-amber-600">
+          <Icon emoji={priceIcon} size={16} /> {priceAmount.toLocaleString()}
+        </p>
+      )}
     </>
   );
 

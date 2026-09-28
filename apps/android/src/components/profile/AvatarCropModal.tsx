@@ -15,6 +15,7 @@ import Cropper, { type Area } from 'react-easy-crop';
 import { useTranslation } from 'react-i18next';
 import { isAxiosError } from 'axios';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 export interface AvatarChangeEligibility {
   plan: string;
@@ -144,7 +145,7 @@ export function AvatarCropModal({ imageSrc, onClose, onUploaded }: AvatarCropMod
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-lg font-bold text-neutral-900 dark:text-neutral-100">{t('profile.avatar.modalTitle')}</h2>
           <button onClick={onClose} aria-label={t('action.close')} className="rounded-full p-1 text-neutral-500 dark:text-neutral-400">
-            ✕
+            <Icon emoji="✕" size={16} />
           </button>
         </div>
 

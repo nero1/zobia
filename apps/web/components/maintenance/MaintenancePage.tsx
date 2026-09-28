@@ -6,10 +6,12 @@
  * component — no client JS needed for a static notice.
  */
 
+import { Icon } from "@/components/ui/Icon";
+
 export function MaintenancePage({ message }: { message: string }) {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-neutral-100 px-4 text-center dark:bg-neutral-950">
-      <span className="text-5xl">🛠️</span>
+      <Icon emoji="🛠️" size={40} />
       <h1 className="mt-4 text-xl font-bold text-neutral-900 dark:text-neutral-50">
         Zobia
       </h1>

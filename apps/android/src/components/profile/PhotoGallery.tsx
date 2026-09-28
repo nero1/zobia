@@ -11,6 +11,7 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 
 interface GalleryMoment {
   id: string;
@@ -82,7 +83,7 @@ export function PhotoGallery({ userId }: { userId: string }) {
             onClick={() => setLightbox(null)}
             className="absolute right-4 top-4 rounded-full bg-white/10 p-2 text-white"
           >
-            ✕
+            <Icon emoji="✕" size={16} />
           </button>
         </div>
       )}
