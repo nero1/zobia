@@ -17,6 +17,7 @@ import { useParams } from "next/navigation";
 import { useTranslation } from "react-i18next";
 import { appendReferralCode } from "@zobia/shared/utils";
 import { useMyReferralCode } from "@/lib/referral/useReferralCode";
+import { Icon } from "@/components/ui/Icon";
 
 interface WikiDetail {
   id: string;
@@ -151,9 +152,9 @@ export default function WikiHomePage() {
             type="button"
             onClick={handleShare}
             disabled={sharing}
-            className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
+            className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent disabled:opacity-50"
           >
-            {shared ? t("wiki.shared", "Shared ✓") : t("wiki.share", "Share")}
+            {shared ? <>{t("wiki.shared", "Shared")} <Icon emoji="✓" size={12} /></> : t("wiki.share", "Share")}
           </button>
           {canManage && (
             <Link href={`/wiki/${slug}/manage`} className="rounded-lg border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent">

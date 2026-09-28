@@ -29,6 +29,7 @@ import Link from "next/link";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
 import { extractArray } from "@/lib/api/extractArray";
+import { Icon } from "@/components/ui/Icon";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -430,7 +431,7 @@ export default function ModerationCenterPage() {
           )
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center rounded-xl border border-neutral-200 bg-white py-16 dark:border-neutral-800 dark:bg-neutral-900">
-            <span className="text-4xl">✓</span>
+            <Icon emoji="✓" size={36} className="text-4xl" />
             <p className="mt-3 text-sm text-neutral-500">{t("moderation.queueClear", "Queue is clear.")}</p>
           </div>
         ) : (

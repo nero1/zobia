@@ -12,6 +12,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 type ContributePolicy = "everyone" | "friends" | "selected";
 
@@ -90,8 +91,8 @@ export default function WikiSettingsPage() {
   return (
     <div className="mx-auto max-w-2xl px-4 py-6 space-y-6">
       <div>
-        <Link href={`/wiki/${slug}/manage`} className="mb-2 inline-block text-xs text-muted-foreground hover:text-foreground">
-          ← {t("wiki.dashboard.backToManage", "Back to manage")}
+        <Link href={`/wiki/${slug}/manage`} className="mb-2 inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
+          <Icon emoji="←" size={12} /> {t("wiki.dashboard.backToManage", "Back to manage")}
         </Link>
         <h1 className="text-2xl font-bold text-foreground">{t("wiki.dashboard.settings", "Settings")}</h1>
       </div>
