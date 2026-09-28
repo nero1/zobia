@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import AdSlot from "@/components/ads/AdSlot";
+import { Icon } from "@/components/ui/Icon";
 import type { FeedTab, FeedPage } from "@/lib/feed/types";
 
 interface CachedFeedPage {
@@ -153,7 +154,7 @@ export function FeedTabContent({ tab, refreshSignal }: { tab: FeedTab; refreshSi
   if (items.length === 0) {
     return (
       <div className="flex flex-col items-center rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-10 text-center dark:border-neutral-700 dark:bg-neutral-900">
-        <div className="mb-2 text-3xl">🗂️</div>
+        <div className="mb-2"><Icon emoji="🗂️" size={32} /></div>
         <p className="text-sm text-neutral-500 dark:text-neutral-400">{t("feedTabs.empty")}</p>
       </div>
     );

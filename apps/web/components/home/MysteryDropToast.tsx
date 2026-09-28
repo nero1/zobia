@@ -10,6 +10,7 @@
 
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Icon } from "@/components/ui/Icon";
 
 interface MysteryDropNotification {
   xpAmount: number;
@@ -39,7 +40,7 @@ export function MysteryDropToast() {
 
   return (
     <div className="flex items-center gap-3 rounded-xl border border-yellow-300 bg-yellow-50 px-4 py-3 shadow-md dark:border-yellow-700 dark:bg-yellow-950/40">
-      <span className="text-2xl">⚡</span>
+      <Icon emoji="⚡" size={24} />
       <div className="flex-1">
         <p className="text-sm font-bold text-yellow-900 dark:text-yellow-200">{t("home.mysteryDrop.title")}</p>
         <p className="text-xs text-yellow-700 dark:text-yellow-400">
@@ -51,7 +52,7 @@ export function MysteryDropToast() {
         className="text-yellow-500 hover:text-yellow-700 dark:hover:text-yellow-300"
         aria-label={t("action.close")}
       >
-        ✕
+        <Icon emoji="✕" size={16} />
       </button>
     </div>
   );

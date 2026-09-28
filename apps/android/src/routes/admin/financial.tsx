@@ -12,6 +12,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { apiClient } from '@/lib/api/client';
+import { Icon } from '@/components/ui/Icon';
 import {
   AdminStatCard,
   AdminStatSkeleton,
@@ -172,7 +173,7 @@ function AdminFinancialPage() {
             <div className="space-y-2">
               {data.anomalyAlerts.map((a) => (
                 <div key={a.code} className={`flex items-start gap-2.5 rounded-xl border px-3.5 py-3 text-sm ${ANOMALY_STYLE[a.level]}`}>
-                  <span className="text-base">{ANOMALY_ICON[a.level]}</span>
+                  <span className="text-base"><Icon emoji={ANOMALY_ICON[a.level]} /></span>
                   <p>{a.message}</p>
                 </div>
               ))}

@@ -12,6 +12,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { translateApiError } from "@/lib/i18n/apiErrors";
+import { Icon } from "@/components/ui/Icon";
 
 interface NemesisData {
   rivalUserId: string;
@@ -111,7 +112,7 @@ export function NemesisCard() {
       {error && <p className="mb-2 text-xs text-red-600">{error}</p>}
       <div className="flex items-center gap-4">
         <div className="flex h-12 w-12 items-center justify-center rounded-full bg-blue-100 text-2xl dark:bg-blue-900">
-          🧑
+          <Icon emoji="🧑" size={24} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="mb-1 flex items-center justify-between text-xs text-neutral-500">
